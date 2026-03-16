@@ -8717,14 +8717,35 @@ export default function App() {
   const [customers, setCustomers] = usePersistSb(DEFAULT_CUSTOMERS.map(n => ({ id: n, name: n, channel: CUSTOMER_CHANNEL_MAP[n] || "" })), "customers", sbSave);
   const [vendors, setVendors] = usePersistSb(SAMPLE_VENDORS, "vendors", sbSave);
   const [team, setTeam] = usePersistSb(SAMPLE_TEAM, "team", sbSave);
-  const [tasks, setTasks] = usePersistSb([], "tasks", sbSave);
+  const [tasks, _setTasksRaw] = useState([]);
+  const setTasks = (updater) => {
+    _setTasksRaw((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      // Save all changed/new tasks to Supabase individually
+      if (Array.isArray(next) && Array.isArray(prev)) {
+        next.forEach(t => {
+          const old = prev.find(p => p.id === t.id);
+          if (!old || JSON.stringify(old) !== JSON.stringify(t)) {
+            sbSaveTask(t);
+          }
+        });
+        // Delete removed tasks
+        prev.forEach(t => {
+          if (!next.find(n => n.id === t.id)) sbDeleteTask(t.id);
+        });
+      }
+      return next;
+    });
+  };
   const [collections, _setCollRaw] = useState({});
   const setCollections = (updater) => {
     _setCollRaw((prev) => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      // Save each changed collection individually
+      // Save each new/changed collection to Supabase
       Object.entries(next).forEach(([key, val]) => {
-        if (JSON.stringify(prev[key]) !== JSON.stringify(val)) {
+        const prevStr = JSON.stringify(prev[key] || {});
+        const nextStr = JSON.stringify(val);
+        if (prevStr !== nextStr) {
           sbSaveCollection(key, val);
         }
       });
@@ -8805,8 +8826,8 @@ export default function App() {
         if (sizes) setSizeLibrary(sizes);
         if (categories) setCategoryLib(categories);
         if (orderTypes) setOrderTypes(orderTypes);
-        if (tasks?.length) setTasks(tasks);
-        if (collections) _setCollRaw(collections);
+        if (tasks?.length) _setTasksRaw(tasks);
+        if (collections && Object.keys(collections).length) _setCollRaw(collections);
 
         console.log("[SB] loadAll complete");
       } catch(e) {
