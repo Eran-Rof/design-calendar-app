@@ -2095,26 +2095,44 @@ function ImageUploader({ images = [], onChange, label = "Images" }) {
   const [draggingOver, setDraggingOver] = useState(false);
 
   const [uploading, setUploading] = useState(false);
+  const [uploadingCount, setUploadingCount] = useState(0);
 
   async function handleFiles(files) {
-    const validFiles = Array.from(files).filter(f => f.type.startsWith("image/") || f.name.match(/\.(pdf|ai|eps|psd|png|jpg|jpeg|gif|webp|svg)$/i));
+    const validFiles = Array.from(files).filter(f =>
+      f.type.startsWith("image/") || f.name.match(/\.(pdf|ai|eps|psd|png|jpg|jpeg|gif|webp|svg)$/i)
+    );
     if (!validFiles.length) return;
-    setUploading(true);
-    const imgs = [];
+
+    // Step 1: immediately add all files as base64 placeholders so user can keep working
+    const newImgs = [];
     for (const f of validFiles) {
-      // Try Dropbox upload first
-      const dbxUrl = await dbxUploadFileGlobal(f, "images");
-      if (dbxUrl) {
-        imgs.push({ id: uid(), src: dbxUrl, name: f.name, type: "dropbox" });
-      } else {
-        // Fallback to base64 if Dropbox fails
-        const d = await fileToDataURL(f);
-        imgs.push({ id: uid(), src: d, name: f.name, type: "base64" });
-      }
+      const isImg = f.type.startsWith("image/");
+      const preview = isImg ? await fileToDataURL(f) : null;
+      newImgs.push({ id: uid(), src: preview || "", name: f.name, type: "uploading", file: f });
     }
-    setUploading(false);
-    onChange([...images, ...imgs]);
+
+    // Add placeholders immediately — user can save now, won't lose anything
+    const combined = [...images, ...newImgs];
+    onChange(combined);
     if (fileRef.current) fileRef.current.value = "";
+
+    // Step 2: upload each file to Dropbox in the background
+    setUploadingCount(c => c + newImgs.length);
+    for (const img of newImgs) {
+      (async () => {
+        const dbxUrl = await dbxUploadFileGlobal(img.file, "images");
+        // Swap placeholder src with real Dropbox URL via onChange
+        onChange((prev) => {
+          const updated = (Array.isArray(prev) ? prev : combined).map(i =>
+            i.id === img.id
+              ? { ...i, src: dbxUrl || i.src, type: dbxUrl ? "dropbox" : "base64", file: undefined }
+              : i
+          );
+          return updated;
+        });
+        setUploadingCount(c => Math.max(0, c - 1));
+      })();
+    }
   }
   function addUrl() {
     if (!urlInput.trim()) return;
@@ -2193,8 +2211,12 @@ function ImageUploader({ images = [], onChange, label = "Images" }) {
                   objectFit: "cover",
                   borderRadius: 8,
                   border: `1px solid ${TH.border}`,
+                  opacity: img.type === "uploading" ? 0.4 : 1,
                 }}
               />
+              {img.type === "uploading" && (
+                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8, fontSize: 16 }}>⏳</div>
+              )}
               ) : (
               <a href={img.src} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
                 <div style={{
@@ -2286,11 +2308,12 @@ function ImageUploader({ images = [], onChange, label = "Images" }) {
         }}
         onClick={() => fileRef.current.click()}
       >
-        {uploading ? "⏳ Uploading to Dropbox…" : draggingOver ? "Drop files here" : "📁 Upload or Drag & Drop (Images, PDF, AI, PSD)"}
+        {draggingOver ? "Drop files here" : "📁 Upload or Drag & Drop (Images, PDF, AI, PSD)"}
       </div>
-      {uploading && (
-        <div style={{ fontSize: 11, color: TH.primary, marginTop: 6, textAlign: "center" }}>
-          Uploading file to Dropbox…
+      {uploadingCount > 0 && (
+        <div style={{ fontSize: 11, color: TH.primary, marginTop: 6, textAlign: "center", display: "flex", alignItems: "center", gap: 6, justifyContent: "center" }}>
+          <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: TH.primary, animation: "pulse 1s infinite" }} />
+          Uploading {uploadingCount} file{uploadingCount > 1 ? "s" : ""} to Dropbox in background…
         </div>
       )}
     </div>
@@ -8893,6 +8916,7 @@ export default function App() {
   // ── Load all data from Dropbox on startup ────────────────────────────────
   useEffect(() => {
     async function loadAll() {
+      console.log("[DBX] loadAll starting...");
       const files = [
         ["rof_tasks", setTasks],
         ["rof_collections", setCollections],
@@ -8912,6 +8936,7 @@ export default function App() {
           if (data !== null) setter(data);
         })
       );
+      console.log("[DBX] loadAll complete, setting loaded=true");
       setDbxLoaded(true);
     }
     loadAll();
@@ -12354,5 +12379,3 @@ export default function App() {
     </div>
   );
 }
-// rebuild
-// trigger deploy
