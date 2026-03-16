@@ -8601,7 +8601,7 @@ export default function App() {
   const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
   const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
 
-  async function sbFetch(table: string, method = "GET", body?: any, filter?: string) {
+  async function sbFetch(table, method = "GET", body?, filter?) {
     const url = `${SB_URL}/rest/v1/${table}${filter ? "?" + filter : ""}`;
     const res = await fetch(url, {
       method,
@@ -8623,7 +8623,7 @@ export default function App() {
   }
 
   // Upsert a single row by id
-  async function sbUpsert(table: string, row: any) {
+  async function sbUpsert(table, row) {
     const url = `${SB_URL}/rest/v1/${table}`;
     await fetch(url, {
       method: "POST",
@@ -8638,7 +8638,7 @@ export default function App() {
   }
 
   // Upsert all rows in an array
-  async function sbUpsertAll(table: string, rows: any[]) {
+  async function sbUpsertAll(table, rows) {
     if (!rows.length) return;
     const url = `${SB_URL}/rest/v1/${table}`;
     const res = await fetch(url, {
@@ -8658,12 +8658,12 @@ export default function App() {
   }
 
   // Load all rows from a table
-  async function sbLoad(table: string) {
+  async function sbLoad(table) {
     return await sbFetch(table, "GET", undefined, "select=*");
   }
 
   // Delete a row by id
-  async function sbDelete(table: string, id: string) {
+  async function sbDelete(table, id) {
     await sbFetch(table, "DELETE", undefined, `id=eq.${id}`);
   }
 
@@ -8717,10 +8717,10 @@ export default function App() {
 
   // ── useState for all data ──────────────────────────────────────────────────
   // We keep local state and sync to Supabase on every change
-  function usePersistSb(initial: any, tableName: string, toRows?: (v:any)=>any[], fromRows?: (r:any[])=>any) {
+  function usePersistSb(initial, tableName, toRows?, fromRows?) {
     const [val, setVal] = useState(initial);
-    const setter = (updater: any) => {
-      setVal((prev: any) => {
+    const setter = (updater) => {
+      setVal((prev) => {
         const next = typeof updater === "function" ? updater(prev) : updater;
         // Sync to Supabase in background
         (async () => {
@@ -8732,18 +8732,18 @@ export default function App() {
         return next;
       });
     };
-    return [val, setVal, setter] as const;
+    return [val, setter];
   }
 
-  const [users,, setUsers] = usePersistSb(DEFAULT_USERS, "users");
+  const [users, setUsers] = usePersistSb(DEFAULT_USERS, "users");
   const [currentUser, setCurrentUser] = useState(null);
-  const [brands,, setBrands] = usePersistSb(BRANDS, "brands");
-  const [seasons,, setSeasons] = usePersistSb(SEASONS, "seasons", seasonsToRows, rowsToSeasons);
-  const [customers,, setCustomers] = usePersistSb(DEFAULT_CUSTOMERS.map(n => ({ id: n, name: n, channel: CUSTOMER_CHANNEL_MAP[n] || "" })), "customers");
-  const [vendors,, setVendors] = usePersistSb(SAMPLE_VENDORS, "vendors");
-  const [team,, setTeam] = usePersistSb(SAMPLE_TEAM, "team");
-  const [tasks,, setTasks] = usePersistSb([], "tasks");
-  const [collections,, setCollections] = usePersistSb({}, "collections", collObjToRows, collRowsToObj);
+  const [brands, setBrands] = usePersistSb(BRANDS, "brands");
+  const [seasons, setSeasons] = usePersistSb(SEASONS, "seasons", seasonsToRows, rowsToSeasons);
+  const [customers, setCustomers] = usePersistSb(DEFAULT_CUSTOMERS.map(n => ({ id: n, name: n, channel: CUSTOMER_CHANNEL_MAP[n] || "" })), "customers");
+  const [vendors, setVendors] = usePersistSb(SAMPLE_VENDORS, "vendors");
+  const [team, setTeam] = usePersistSb(SAMPLE_TEAM, "team");
+  const [tasks, setTasks] = usePersistSb([], "tasks");
+  const [collections, setCollections] = usePersistSb({}, "collections", collObjToRows, collRowsToObj);
   const [view, setView] = useState("dashboard");
   const [filterBrand, setFilterBrand] = useState<Set<string>>(new Set());
   const [filterSeason, setFilterSeason] = useState<Set<string>>(new Set());
@@ -8757,8 +8757,8 @@ export default function App() {
   const [showUsers, setShowUsers] = useState(false);
   const [showSizeLib, setShowSizeLib] = useState(false);
   const [showCatLib, setShowCatLib] = useState(false);
-  const [sizeLibrary,, setSizeLibrary] = usePersistSb(DEFAULT_SIZES, "size_library", sizeLibToRows);
-  const [categoryLib,, setCategoryLib] = usePersistSb(DEFAULT_CATEGORIES, "categories", categoriesToRows, rowsToCategories);
+  const [sizeLibrary, setSizeLibrary] = usePersistSb(DEFAULT_SIZES, "size_library", sizeLibToRows);
+  const [categoryLib, setCategoryLib] = usePersistSb(DEFAULT_CATEGORIES, "categories", categoriesToRows, rowsToCategories);
   const [editTask, setEditTask] = useState(null);
   const [dragId, setDragId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
@@ -8770,7 +8770,7 @@ export default function App() {
   const [showSeasons, setShowSeasons] = useState(false);
   const [showCustomers, setShowCustomers] = useState(false);
   const [showOrderTypes, setShowOrderTypes] = useState(false);
-  const [orderTypes,, setOrderTypes] = usePersistSb([...ORDER_TYPES], "order_types", orderTypesToRows, rowsToOrderTypes);
+  const [orderTypes, setOrderTypes] = usePersistSb([...ORDER_TYPES], "order_types", orderTypesToRows, rowsToOrderTypes);
   const [miniCalDragOver, setMiniCalDragOver] = useState(null);
   const [teamsConfig, setTeamsConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem("teamsConfig") || "null") || { clientId: "", tenantId: "", channelMap: {} }; }
