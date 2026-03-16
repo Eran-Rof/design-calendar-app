@@ -8279,15 +8279,15 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
           style={{
             position: "absolute",
             bottom: "calc(100% + 6px)",
-            left: "50%",
-            transform: "translateX(-50%)",
+            right: 0,
             background: "#1A202C",
             border: "1px solid rgba(255,255,255,0.15)",
             borderRadius: 10,
             boxShadow: "0 12px 40px rgba(0,0,0,0.6)",
             zIndex: 9999,
-            minWidth: 220,
-            maxHeight: "50vh",
+            whiteSpace: "nowrap",
+            width: "max-content",
+            maxHeight: "40vh",
             overflowY: "auto",
           }}
         >
