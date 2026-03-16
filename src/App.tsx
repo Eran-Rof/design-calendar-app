@@ -4011,63 +4011,115 @@ function SkuManager({ skus = [], onChange, brand, category, availableSizes }) {
 // ─── TASK EDIT MODAL ──────────────────────────────────────────────────────────
 
 // ─── BUILD ATTACHMENT PAGE (data URL for print/share) ────────────────────────
-function buildAttachmentPage(task, taskOrig, collData, brand) {
+
+// ─── NOTE INPUT ───────────────────────────────────────────────────────────────
+function NoteInput({ onAdd }) {
+  const [text, setText] = useState("");
+  function submit() {
+    const t = text.trim();
+    if (!t) return;
+    onAdd(t);
+    setText("");
+  }
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+      <textarea
+        style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `1px solid ${TH.border}`, fontFamily: "inherit", fontSize: 13, lineHeight: 1.5, resize: "vertical", minHeight: 70, outline: "none", color: TH.text, background: "#fff" }}
+        placeholder="Add a note..."
+        value={text}
+        onChange={e => setText(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === "Enter" && e.metaKey) { e.preventDefault(); submit(); }
+        }}
+      />
+      <button
+        onClick={submit}
+        disabled={!text.trim()}
+        style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: text.trim() ? TH.primary : TH.border, color: "#fff", cursor: text.trim() ? "pointer" : "default", fontFamily: "inherit", fontSize: 13, fontWeight: 600, flexShrink: 0, marginBottom: 0 }}
+      >
+        Add Note
+      </button>
+    </div>
+  );
+}
+
+function buildAttachmentPage(task, taskOrig, collData, brand, mode = "open") {
+  // mode = "link" (minimal header) or "open" (full header with sample due)
   const images = task.images || [];
-  const collInfo = [
-    brand?.name,
-    task.collection,
+
+  const metaParts = [
     task.season,
     task.category,
     task.phase,
     collData?.customer ? `Customer: ${collData.customer}` : null,
-    collData?.sampleDueDate ? `Sample Due: ${collData.sampleDueDate}` : null,
     task.due ? `Due: ${task.due}` : null,
     task.status,
   ].filter(Boolean).join(" · ");
 
+  const sampleDue = collData?.sampleDueDate;
+
+  // Header HTML differs by mode
+  const headerHtml = mode === "link"
+    ? `<div class="brand-name">${brand?.name || ""}</div>
+       <div class="collection">${task.collection || ""}</div>`
+    : `<div class="brand-name">${brand?.name || ""}</div>
+       <div class="collection">${task.collection || ""}${sampleDue ? ` <span class="sample-due">· Samples Due: ${sampleDue}</span>` : ""}</div>
+       <div class="meta">${metaParts}</div>`;
+
   const imagesHtml = images.map(img => {
     const isImg = img.src?.startsWith("http") || img.src?.startsWith("data:image");
     if (!isImg) return `<div class="attachment file-attachment"><div class="file-icon">📎</div><div class="file-name">${img.name || "File"}</div></div>`;
-    return `
-      <div class="attachment">
-        <img src="${img.src}" alt="${img.name || ""}" />
-        <div class="img-info">${img.name || ""}</div>
-      </div>`;
+    return `<div class="attachment"><img src="${img.src}" alt="${img.name || ""}" ondblclick="enlargeImg(this)" title="Double-click to enlarge · Right-click to save/print" /><div class="img-info">${img.name || ""}</div></div>`;
   }).join("");
 
   const html = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>${task.collection || ""} – ${task.phase || ""} Attachments</title>
+  <title>${task.collection || ""} – ${task.phase || ""}</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 32px; color: #1A202C; background: #fff; }
     .header { border-bottom: 3px solid #C8210A; padding-bottom: 16px; margin-bottom: 24px; }
-    .brand { font-size: 11px; font-weight: 700; color: #C8210A; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+    .brand-name { font-size: 11px; font-weight: 700; color: #C8210A; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
     .collection { font-size: 22px; font-weight: 800; color: #1A202C; margin-bottom: 6px; }
+    .sample-due { font-size: 14px; font-weight: 600; color: #B45309; }
     .meta { font-size: 12px; color: #718096; line-height: 1.6; }
-    .phase { display: inline-block; background: #C8210A; color: #fff; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 12px; margin-bottom: 16px; }
+    .phase-badge { display: inline-block; background: #C8210A; color: #fff; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 12px; margin-bottom: 16px; }
     .attachments { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 8px; }
     .attachment { break-inside: avoid; }
-    .attachment img { max-width: 280px; max-height: 320px; border-radius: 8px; border: 1px solid #E2E8F0; object-fit: contain; display: block; }
+    .attachment img { max-width: 280px; max-height: 320px; border-radius: 8px; border: 1px solid #E2E8F0; object-fit: contain; display: block; cursor: zoom-in; transition: transform 0.1s; }
+    .attachment img:hover { border-color: #C8210A; }
     .img-info { font-size: 11px; color: #718096; margin-top: 4px; max-width: 280px; word-break: break-all; }
     .file-attachment { width: 120px; height: 120px; border: 1px solid #E2E8F0; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
     .file-icon { font-size: 36px; }
     .file-name { font-size: 11px; color: #718096; margin-top: 4px; text-align: center; padding: 0 8px; word-break: break-all; }
     .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #E2E8F0; font-size: 11px; color: #CBD5E0; }
-    @media print { body { padding: 16px; } button { display: none; } }
+    .lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:9999; align-items:center; justify-content:center; cursor:zoom-out; }
+    .lightbox.active { display:flex; }
+    .lightbox img { max-width:92vw; max-height:92vh; border-radius:10px; object-fit:contain; cursor:default; }
+    .lightbox-close { position:fixed; top:16px; right:20px; color:#fff; font-size:28px; cursor:pointer; background:none; border:none; font-family:inherit; }
+    @media print { .lightbox { display:none !important; } }
   </style>
 </head>
 <body>
-  <div class="header">
-    <div class="brand">${brand?.name || ""}</div>
-    <div class="collection">${task.collection || ""}</div>
-    <div class="meta">${collInfo}</div>
-  </div>
-  <div class="phase">${task.phase || ""}</div>
+  <div class="header">${headerHtml}</div>
+  <div class="phase-badge">${task.phase || ""}</div>
   <div class="attachments">${imagesHtml}</div>
   <div class="footer">Generated ${new Date().toLocaleDateString()} · ROF Design Calendar</div>
-  <script>window.onload = function() { setTimeout(function() { }, 500); }<\/script>
+  <div class="lightbox" id="lb" onclick="closeLb()">
+    <button class="lightbox-close" onclick="closeLb()">✕</button>
+    <img id="lb-img" src="" onclick="event.stopPropagation()" />
+  </div>
+  <script>
+    function enlargeImg(img) {
+      document.getElementById('lb-img').src = img.src;
+      document.getElementById('lb').classList.add('active');
+    }
+    function closeLb() {
+      document.getElementById('lb').classList.remove('active');
+    }
+    document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeLb(); });
+  <\/script>
 </body>
 </html>`;
 
@@ -4156,23 +4208,32 @@ function TaskEditModal({
     const { updatedTasks, ddpChanged, newDDP, oldDDP, affectedCount } =
       cascadeDates(allTasks, collKey, task.id, f.due);
 
-    // Build history entry if date changed
+    // Build history entries for ALL changed fields
+    const now = new Date().toISOString();
+    const newEntries = [];
+    const track = (field, from, to) => {
+      if (String(from || "") !== String(to || "")) {
+        newEntries.push({ id: uid(), field, from: String(from || "—"), to: String(to || "—"), changedBy: currentUser.name, at: now });
+      }
+    };
+    track("due date", task.due, f.due);
+    track("status", task.status, f.status);
+    track("vendor", task.vendorName, f.vendorName);
+    track("order type", task.orderType, f.orderType);
+    // Assignee by name
+    const fromAssignee = team?.find(m => m.id === task.assigneeId)?.name || "Unassigned";
+    const toAssignee = team?.find(m => m.id === f.assigneeId)?.name || "Unassigned";
+    track("assignee", fromAssignee, toAssignee);
+    // Notes: detect new notes added
+    const oldCount = Array.isArray(task.notes) ? task.notes.length : (task.notes ? 1 : 0);
+    const newCount = Array.isArray(f.notes) ? f.notes.length : (f.notes ? 1 : 0);
+    if (newCount > oldCount) {
+      const latestNote = Array.isArray(f.notes) ? f.notes[f.notes.length - 1] : null;
+      newEntries.push({ id: uid(), field: "note added", from: "", to: latestNote?.text?.substring(0, 60) || "note", changedBy: currentUser.name, at: now });
+    }
     const dateChanged = f.due !== task.due;
-    const fWithHistory = dateChanged
-      ? {
-          ...f,
-          history: [
-            ...(f.history || []),
-            {
-              id: uid(),
-              field: "due date",
-              from: task.due,
-              to: f.due,
-              changedBy: currentUser.name,
-              at: new Date().toISOString(),
-            },
-          ],
-        }
+    const fWithHistory = newEntries.length > 0
+      ? { ...f, history: [...(f.history || []), ...newEntries] }
       : f;
 
     if (ddpChanged) {
@@ -4536,84 +4597,34 @@ function TaskEditModal({
                   </div>
                 );
               })()}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 12,
-                }}
-              >
-                <div>
-                  <label style={S.lbl}>Customer</label>
-                  {/* FIX: use select+datalist combo so it always works */}
-                  <select
-                    style={{ ...S.inp, marginBottom: 0 }}
-                    value={f.customer || ""}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      set("customer", v);
-                      if (v && !f.channelType) {
-                        const custObj = (customerList || []).find(c => (typeof c === "string" ? c : c.name) === v);
-                        const ch = (custObj && typeof custObj !== "string" && custObj.channel) || getChannelForCustomer(v);
-                        if (ch) set("channelType", ch);
-                      }
-                    }}
-                    disabled={!canEdit}
-                  >
-                    <option value="">-- Select --</option>
-                    {(customerList || DEFAULT_CUSTOMERS).map((c) => {
-                      const name = typeof c === "string" ? c : c.name;
-                      return <option key={name} value={name}>{name}</option>;
-                    })}
-                  </select>
-                </div>
-                <div>
-                  <label style={S.lbl}>Order Type</label>
-                  <select
-                    style={{ ...S.inp, marginBottom: 0 }}
-                    value={f.orderType || ""}
-                    onChange={(e) => set("orderType", e.target.value)}
-                    disabled={!canEdit}
-                  >
-                    <option value="">-- Select --</option>
-                    {orderTypes.map((o) => (
-                      <option key={o}>{o}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div style={{ height: 12 }} />
-              <label style={S.lbl}>
-                Channel Type{" "}
-                <span
-                  style={{
-                    textTransform: "none",
-                    fontWeight: 400,
-                    color: TH.textMuted,
-                  }}
-                >
-                  (auto-fills from customer)
-                </span>
-              </label>
-              <select
-                style={S.inp}
-                value={f.channelType || ""}
-                onChange={(e) => set("channelType", e.target.value)}
-                disabled={!canEdit}
-              >
-                <option value="">-- Select --</option>
-                {CHANNEL_TYPES.map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </select>
+
               <label style={S.lbl}>Notes</label>
-              <textarea
-                style={{ ...S.inp, minHeight: 80, resize: "vertical" }}
-                value={f.notes || ""}
-                onChange={(e) => set("notes", e.target.value)}
-                disabled={!canEdit}
-                placeholder="Add notes..."
-              />
+              {/* Existing notes log */}
+              {(() => {
+                const notesList = Array.isArray(f.notes) ? f.notes :
+                  (f.notes ? [{ id: "legacy", text: f.notes, by: "—", at: null }] : []);
+                return notesList.length > 0 ? (
+                  <div style={{ marginBottom: 10, maxHeight: 220, overflowY: "auto", border: `1px solid ${TH.border}`, borderRadius: 8, background: TH.surfaceHi }}>
+                    {notesList.map((n, i) => (
+                      <div key={n.id || i} style={{ padding: "10px 14px", borderBottom: i < notesList.length - 1 ? `1px solid ${TH.border}` : "none" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: TH.primary }}>{n.by}</span>
+                          {n.at && <span style={{ fontSize: 10, color: TH.textMuted }}>{new Date(n.at).toLocaleString()}</span>}
+                        </div>
+                        <div style={{ fontSize: 13, color: TH.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{n.text}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null;
+              })()}
+              {/* New note input */}
+              {canEdit && (
+                <NoteInput onAdd={(text) => {
+                  const newNote = { id: uid(), text, by: currentUser?.name || "User", at: new Date().toISOString() };
+                  const existing = Array.isArray(f.notes) ? f.notes : (f.notes ? [{ id: "legacy", text: f.notes, by: "—", at: null }] : []);
+                  set("notes", [...existing, newNote]);
+                }} />
+              )}
             </div>
             <div>
               <label style={S.lbl}>Assign To</label>
@@ -4781,7 +4792,7 @@ function TaskEditModal({
                         <button
                           onClick={() => {
                             const selected = (f.images || []).filter(i => selectedAttachments.has(i.id));
-                            const url = buildAttachmentPage({ ...f, images: selected }, task, collData, brand);
+                            const url = buildAttachmentPage({ ...f, images: selected }, task, collData, brand, "link");
                             navigator.clipboard.writeText(url).then(() => alert("Link copied to clipboard!")).catch(() => {
                               prompt("Copy this link:", url);
                             });
@@ -4793,7 +4804,7 @@ function TaskEditModal({
                         <button
                           onClick={() => {
                             const selected = (f.images || []).filter(i => selectedAttachments.has(i.id));
-                            const url = buildAttachmentPage({ ...f, images: selected }, task, collData, brand);
+                            const url = buildAttachmentPage({ ...f, images: selected }, task, collData, brand, "open");
                             window.open(url, "_blank");
                           }}
                           style={{ padding: "5px 14px", borderRadius: 7, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}
