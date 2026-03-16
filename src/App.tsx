@@ -2466,7 +2466,12 @@ function ContextMenu({ x, y, items, onClose }) {
   useEffect(() => {
     const h = () => onClose();
     window.addEventListener("click", h);
-    return () => window.removeEventListener("click", h);
+    window.addEventListener("scroll", h, true); // true = capture all scroll events
+    window.addEventListener("keydown", (e) => e.key === "Escape" && onClose());
+    return () => {
+      window.removeEventListener("click", h);
+      window.removeEventListener("scroll", h, true);
+    };
   }, [onClose]);
   return (
     <div
@@ -8245,19 +8250,27 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
     function handle(e) {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false);
     }
+    function handleScroll() { setOpen(false); }
     document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
+    window.addEventListener("scroll", handleScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", handle);
+      window.removeEventListener("scroll", handleScroll, true);
+    };
   }, []);
 
   function handleOpen(e) {
     e.stopPropagation();
-    if (!open && btnRef.current) {
+    if (btnRef.current) {
       const rect = btnRef.current.getBoundingClientRect();
-      // Position above the button, aligned to right edge
-      setDropPos({
-        top: rect.top,
-        left: rect.right,
-      });
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      // Position above or below depending on available space
+      if (spaceBelow < 200 && spaceAbove > spaceBelow) {
+        setDropPos({ bottom: window.innerHeight - rect.top + 6, left: rect.right, openUp: true });
+      } else {
+        setDropPos({ top: rect.bottom + 6, left: rect.right, openUp: false });
+      }
     }
     setOpen(v => !v);
   }
@@ -8342,7 +8355,9 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
         <div
           style={{
             position: "fixed",
-            bottom: `calc(100vh - ${dropPos.top}px)`,
+            ...(dropPos.openUp
+              ? { bottom: dropPos.bottom }
+              : { top: dropPos.top }),
             left: dropPos.left,
             transform: "translateX(-100%)",
             background: "#1A202C",
@@ -8352,7 +8367,8 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
             zIndex: 99999,
             whiteSpace: "nowrap",
             width: "max-content",
-            maxHeight: "60vh",
+            maxWidth: 280,
+            maxHeight: "50vh",
             overflowY: "auto",
           }}
         >
