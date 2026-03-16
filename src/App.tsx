@@ -2466,8 +2466,7 @@ function ContextMenu({ x, y, items, onClose }) {
   useEffect(() => {
     const h = () => onClose();
     window.addEventListener("click", h);
-    window.addEventListener("scroll", h, true); // true = capture all scroll events
-    window.addEventListener("keydown", (e) => e.key === "Escape" && onClose());
+    window.addEventListener("scroll", h, true);
     return () => {
       window.removeEventListener("click", h);
       window.removeEventListener("scroll", h, true);
@@ -2488,6 +2487,7 @@ function ContextMenu({ x, y, items, onClose }) {
         boxShadow: `0 16px 40px ${TH.shadowMd}`,
       }}
       onClick={(e) => e.stopPropagation()}
+      onMouseLeave={onClose}
     >
       {items.map((item, i) =>
         item === "---" ? (
@@ -8246,9 +8246,13 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
   const ref = useRef(null);
   const btnRef = useRef(null);
 
+  const dropRef = useRef(null);
   useEffect(() => {
     function handle(e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+      // Close if clicking outside both the button AND the dropdown
+      const inBtn = btnRef.current && btnRef.current.contains(e.target);
+      const inDrop = dropRef.current && dropRef.current.contains(e.target);
+      if (!inBtn && !inDrop) setOpen(false);
     }
     function handleScroll() { setOpen(false); }
     document.addEventListener("mousedown", handle);
@@ -8353,6 +8357,7 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
       </button>
       {open && (
         <div
+          ref={dropRef}
           style={{
             position: "fixed",
             ...(dropPos.openUp
