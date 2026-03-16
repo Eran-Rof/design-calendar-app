@@ -8637,10 +8637,25 @@ export default function App() {
     });
   }
 
+  // Normalize rows so all have identical keys (required by Supabase batch upsert)
+  function normalizeRows(rows) {
+    if (!rows.length) return rows;
+    // Collect all keys across all rows
+    const allKeys = new Set();
+    rows.forEach(r => Object.keys(r).forEach(k => allKeys.add(k)));
+    // Fill missing keys with null
+    return rows.map(r => {
+      const normalized = {};
+      allKeys.forEach(k => { normalized[k] = r[k] !== undefined ? r[k] : null; });
+      return normalized;
+    });
+  }
+
   // Upsert all rows in an array
   async function sbUpsertAll(table, rows) {
     if (!rows.length) return;
     const url = `${SB_URL}/rest/v1/${table}`;
+    const normalized = normalizeRows(rows);
     const res = await fetch(url, {
       method: "POST",
       headers: {
@@ -8649,7 +8664,7 @@ export default function App() {
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates,return=minimal",
       },
-      body: JSON.stringify(rows),
+      body: JSON.stringify(normalized),
     });
     if (!res.ok) {
       const err = await res.text();
