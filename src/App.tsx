@@ -7325,7 +7325,7 @@ function TaskManager({ tasks, setTasks, collections, team, vendors, customers, o
       vendors={vendors}
       team={team}
       collections={collections}
-      onSave={(task) => { setTasks(ts => [...ts, task]); setAddMode(false); }}
+      onSave={(task) => { setTasks(ts => [...ts, task]); }}
       onClose={() => setAddMode(false)}
     />
   );
@@ -7389,22 +7389,19 @@ function AddTaskModal({ tasks, vendors, team, collections, onSave, onClose }) {
     status: "Not Started",
     assigneeId: "",
     notes: "",
+    isDefaultPhase: false,
   });
   const setF = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   function handleSave() {
-    if (!form.collKey || !form.phase || !form.due) return;
+    if (!form.collKey || !form.phase || (!form.isDefaultPhase && !form.due)) return;
     const [brand, collection] = form.collKey.split("||");
     const refTask = tasks.find(
       (t) => t.brand === brand && t.collection === collection
     );
-    const newTask = {
-      id: uid(),
+    const base = {
       brand,
       collection,
-      phase: form.phase,
-      due: form.due,
-      originalDue: form.due,
       status: form.status,
       assigneeId: form.assigneeId || null,
       notes: form.notes,
@@ -7419,11 +7416,38 @@ function AddTaskModal({ tasks, vendors, team, collections, onSave, onClose }) {
       customer: refTask?.customer || "",
       orderType: refTask?.orderType || "",
       channelType: refTask?.channelType || "",
-      images: refTask?.images || [],
+      images: [],
       skus: [],
-      isCustomTask: true,
+      history: [],
     };
-    onSave(newTask);
+
+    if (form.isDefaultPhase) {
+      // Add all default phases that don't already exist in this collection
+      const existingPhases = tasks
+        .filter(t => t.brand === brand && t.collection === collection)
+        .map(t => t.phase);
+      const newTasks = PHASE_KEYS
+        .filter(p => !existingPhases.includes(p))
+        .map(p => ({
+          id: uid(),
+          ...base,
+          phase: p,
+          due: refTask?.ddpDate || todayStr,
+          originalDue: refTask?.ddpDate || todayStr,
+          isCustomTask: false,
+        }));
+      newTasks.forEach(t => onSave(t));
+    } else {
+      const newTask = {
+        id: uid(),
+        ...base,
+        phase: form.phase,
+        due: form.due,
+        originalDue: form.due,
+        isCustomTask: true,
+      };
+      onSave(newTask);
+    }
   }
 
   return (
@@ -7447,13 +7471,40 @@ function AddTaskModal({ tasks, vendors, team, collections, onSave, onClose }) {
           })}
         </select>
 
-        <label style={S.lbl}>Task / Phase Name</label>
-        <input
-          style={S.inp}
-          value={form.phase}
-          onChange={(e) => setF("phase", e.target.value)}
-          placeholder="e.g. Proto Review, Lab Dip, Final Approval…"
-        />
+        {/* Toggle: custom task vs default phase set */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+          <button
+            onClick={() => setF("isDefaultPhase", false)}
+            style={{ flex: 1, padding: "8px", borderRadius: 8, border: `2px solid ${!form.isDefaultPhase ? TH.primary : TH.border}`, background: !form.isDefaultPhase ? TH.primary + "15" : "none", color: !form.isDefaultPhase ? TH.primary : TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}
+          >📌 Single Task</button>
+          <button
+            onClick={() => setF("isDefaultPhase", true)}
+            style={{ flex: 1, padding: "8px", borderRadius: 8, border: `2px solid ${form.isDefaultPhase ? TH.primary : TH.border}`, background: form.isDefaultPhase ? TH.primary + "15" : "none", color: form.isDefaultPhase ? TH.primary : TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}
+          >📋 Default Phase Set</button>
+        </div>
+
+        {form.isDefaultPhase ? (
+          <div style={{ background: TH.surfaceHi, borderRadius: 10, padding: "12px 14px", marginBottom: 14, fontSize: 12, color: TH.textMuted }}>
+            <div style={{ fontWeight: 600, color: TH.text, marginBottom: 6 }}>Will add all standard phases:</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {PHASE_KEYS.map(p => {
+                const exists = tasks.filter(t => form.collKey && `${t.brand}||${t.collection}` === form.collKey).find(t => t.phase === p);
+                return <span key={p} style={{ padding: "2px 8px", borderRadius: 12, background: exists ? "#F3F4F6" : TH.primary + "20", color: exists ? TH.textMuted : TH.primary, fontSize: 11, fontWeight: 600, textDecoration: exists ? "line-through" : "none" }}>{p}</span>;
+              })}
+            </div>
+            <div style={{ marginTop: 8, fontSize: 11 }}>Phases already in this collection are skipped.</div>
+          </div>
+        ) : (
+          <>
+            <label style={S.lbl}>Task / Phase Name</label>
+            <input
+              style={S.inp}
+              value={form.phase}
+              onChange={(e) => setF("phase", e.target.value)}
+              placeholder="e.g. Proto Review, Lab Dip, Final Approval…"
+            />
+          </>
+        )}
 
         <div
           style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}
@@ -8186,7 +8237,9 @@ document.addEventListener('click',()=>{if(activeCtx){activeCtx.style.display='no
 function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
   const [open, setOpen] = useState(false);
   const [gallery, setGallery] = useState(null); // { title, images }
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0 });
   const ref = useRef(null);
+  const btnRef = useRef(null);
 
   useEffect(() => {
     function handle(e) {
@@ -8195,6 +8248,19 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
   }, []);
+
+  function handleOpen(e) {
+    e.stopPropagation();
+    if (!open && btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      // Position above the button, aligned to right edge
+      setDropPos({
+        top: rect.top,
+        left: rect.right,
+      });
+    }
+    setOpen(v => !v);
+  }
 
   function openConcept(e) {
     e.stopPropagation();
@@ -8255,10 +8321,8 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
   return (
     <div ref={ref} style={{ position: "relative", flex: 1, zIndex: open ? 9999 : "auto" }}>
       <button
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((v) => !v);
-        }}
+        ref={btnRef}
+        onClick={handleOpen}
         style={{
           width: "100%",
           padding: "4px 6px",
@@ -8277,17 +8341,18 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
       {open && (
         <div
           style={{
-            position: "absolute",
-            bottom: "calc(100% + 6px)",
-            right: 0,
+            position: "fixed",
+            bottom: `calc(100vh - ${dropPos.top}px)`,
+            left: dropPos.left,
+            transform: "translateX(-100%)",
             background: "#1A202C",
             border: "1px solid rgba(255,255,255,0.15)",
             borderRadius: 10,
             boxShadow: "0 12px 40px rgba(0,0,0,0.6)",
-            zIndex: 9999,
+            zIndex: 99999,
             whiteSpace: "nowrap",
             width: "max-content",
-            maxHeight: "40vh",
+            maxHeight: "60vh",
             overflowY: "auto",
           }}
         >
