@@ -651,24 +651,27 @@ function fileToDataURL(f) {
 async function dbxUploadFileGlobal(file, folder = "images") {
   const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
   const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
+  const BUCKET = "Attachments";
   try {
     const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-    const path = `${folder}/${safeName}`;
-    const res = await fetch(`${SB_URL}/storage/v1/object/Attachments/${path}`, {
+    const filePath = `${folder}/${safeName}`;
+    const res = await fetch(`${SB_URL}/storage/v1/object/${BUCKET}/${filePath}`, {
       method: "POST",
       headers: {
+        "apikey": SB_KEY,
         "Authorization": `Bearer ${SB_KEY}`,
         "Content-Type": file.type || "application/octet-stream",
+        "x-upsert": "true",
       },
       body: file,
     });
+    const resText = await res.text();
     if (!res.ok) {
-      const err = await res.text();
-      console.warn("Supabase upload failed:", err);
+      console.warn("Supabase upload failed:", res.status, resText);
       return null;
     }
-    // Return permanent public URL
-    return `${SB_URL}/storage/v1/object/public/Attachments/${path}`;
+    console.log("[SB Storage] uploaded:", filePath);
+    return `${SB_URL}/storage/v1/object/public/${BUCKET}/${filePath}`;
   } catch (e) { console.warn("sbUploadFile error", e); return null; }
 }
 function getChannelForCustomer(customer) {
