@@ -8624,13 +8624,37 @@ export default function App() {
 
   // Upsert a single row by id
   async function sbUpsert(table: string, row: any) {
-    await sbFetch(table, "POST", row, "on_conflict=id");
+    const url = `${SB_URL}/rest/v1/${table}`;
+    await fetch(url, {
+      method: "POST",
+      headers: {
+        "apikey": SB_KEY,
+        "Authorization": `Bearer ${SB_KEY}`,
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates,return=minimal",
+      },
+      body: JSON.stringify(row),
+    });
   }
 
   // Upsert all rows in an array
   async function sbUpsertAll(table: string, rows: any[]) {
     if (!rows.length) return;
-    await sbFetch(table, "POST", rows, "on_conflict=id");
+    const url = `${SB_URL}/rest/v1/${table}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "apikey": SB_KEY,
+        "Authorization": `Bearer ${SB_KEY}`,
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates,return=minimal",
+      },
+      body: JSON.stringify(rows),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error(`[SB] upsert ${table} failed:`, res.status, err);
+    }
   }
 
   // Load all rows from a table
