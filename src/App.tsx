@@ -654,7 +654,7 @@ async function dbxUploadFileGlobal(file, folder = "images") {
   try {
     const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
     const path = `${folder}/${safeName}`;
-    const res = await fetch(`${SB_URL}/storage/v1/object/attachments/${path}`, {
+    const res = await fetch(`${SB_URL}/storage/v1/object/Attachments/${path}`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${SB_KEY}`,
@@ -668,7 +668,7 @@ async function dbxUploadFileGlobal(file, folder = "images") {
       return null;
     }
     // Return permanent public URL
-    return `${SB_URL}/storage/v1/object/public/attachments/${path}`;
+    return `${SB_URL}/storage/v1/object/public/Attachments/${path}`;
   } catch (e) { console.warn("sbUploadFile error", e); return null; }
 }
 function getChannelForCustomer(customer) {
