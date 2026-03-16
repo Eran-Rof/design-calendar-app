@@ -5079,6 +5079,45 @@ function DaysBackInput({ value, onCommit }) {
   );
 }
 
+
+// ─── PREV TASK INPUT (deferred commit – no DDP warning mid-typing) ────────────
+function PrevTaskInput({ fromPrev, onCommit }) {
+  const [local, setLocal] = useState(fromPrev != null ? String(fromPrev) : "");
+  useEffect(() => {
+    setLocal(fromPrev != null ? String(fromPrev) : "");
+  }, [fromPrev]);
+  function commit() {
+    const n = parseInt(local);
+    if (!isNaN(n) && n >= 0) onCommit(n);
+    else setLocal(fromPrev != null ? String(fromPrev) : "");
+  }
+  return (
+    <input
+      type="number"
+      min="0"
+      value={local}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") { e.preventDefault(); commit(); }
+        if (e.key === "Escape") setLocal(fromPrev != null ? String(fromPrev) : "");
+      }}
+      style={{
+        width: 64,
+        padding: "4px 6px",
+        borderRadius: 6,
+        border: `1px solid ${TH.border}`,
+        background: "#FFFFFF",
+        color: TH.text,
+        fontFamily: "inherit",
+        fontSize: 12,
+        textAlign: "center",
+        outline: "none",
+      }}
+    />
+  );
+}
+
 // ─── COLLECTION WIZARD ────────────────────────────────────────────────────────
 function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSave, onClose }) {
   const [step, setStep] = useState(1);
@@ -6212,27 +6251,11 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
                       const prevDue = editPhases[i - 1]?.due;
                       const fromPrev = prevDue ? diffDays(ep.due, prevDue) : null;
                       return (
-                        <input
-                          type="number"
-                          min="0"
-                          value={fromPrev ?? ""}
-                          onChange={(e) => {
-                            const n = parseInt(e.target.value);
-                            if (isNaN(n) || n < 0) return;
+                        <PrevTaskInput
+                          fromPrev={fromPrev}
+                          onCommit={(n) => {
                             const newDue = addDays(editPhases[i - 1].due, n);
                             updatePhaseDue(i, newDue);
-                          }}
-                          style={{
-                            width: 64,
-                            padding: "4px 6px",
-                            borderRadius: 6,
-                            border: `1px solid ${TH.border}`,
-                            background: "#FFFFFF",
-                            color: TH.text,
-                            fontFamily: "inherit",
-                            fontSize: 12,
-                            textAlign: "center",
-                            outline: "none",
                           }}
                         />
                       );
@@ -8238,108 +8261,22 @@ document.addEventListener('click',()=>{if(activeCtx){activeCtx.style.display='no
   );
 }
 
-// ─── COLLECTION IMAGE BUTTON (concept / sku submenu) ─────────────────────────
+// ─── COLLECTION ATTACHMENTS BUTTON ───────────────────────────────────────────
 function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
-  const [open, setOpen] = useState(false);
-  const [gallery, setGallery] = useState(null); // { title, images }
-  const [dropPos, setDropPos] = useState({ top: 0, left: 0 });
-  const ref = useRef(null);
-  const btnRef = useRef(null);
+  const [showModal, setShowModal] = useState(false);
+  const [lightbox, setLightbox] = useState(null);
+  const [brandId, collName] = collKey.split("||");
 
-  const dropRef = useRef(null);
-  useEffect(() => {
-    function handle(e) {
-      // Close if clicking outside both the button AND the dropdown
-      const inBtn = btnRef.current && btnRef.current.contains(e.target);
-      const inDrop = dropRef.current && dropRef.current.contains(e.target);
-      if (!inBtn && !inDrop) setOpen(false);
-    }
-    function handleScroll() { setOpen(false); }
-    document.addEventListener("mousedown", handle);
-    window.addEventListener("scroll", handleScroll, true);
-    return () => {
-      document.removeEventListener("mousedown", handle);
-      window.removeEventListener("scroll", handleScroll, true);
-    };
-  }, []);
-
-  function handleOpen(e) {
-    e.stopPropagation();
-    if (btnRef.current) {
-      const rect = btnRef.current.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const spaceAbove = rect.top;
-      // Position above or below depending on available space
-      if (spaceBelow < 200 && spaceAbove > spaceBelow) {
-        setDropPos({ bottom: window.innerHeight - rect.top + 6, left: rect.right, openUp: true });
-      } else {
-        setDropPos({ top: rect.bottom + 6, left: rect.right, openUp: false });
-      }
-    }
-    setOpen(v => !v);
-  }
-
-  function openConcept(e) {
-    e.stopPropagation();
-    setOpen(false);
-    const [brandId, collName] = collKey.split("||");
-    const conceptTask = tasks.find(
-      (t) => `${t.brand}||${t.collection}` === collKey && t.phase === "Concept"
-    );
-    const imgs = (conceptTask?.images || collData?.conceptImages || []).map(
-      (img) => ({
-        ...img,
-        title: collName,
-        subtitle: "Concept Image",
-        meta: {
-          Brand: getBrand(brandId)?.name,
-          Season: conceptTask?.season || "",
-          Category: conceptTask?.category || "",
-          Customer: collData?.customer || conceptTask?.customer || "",
-        },
-      })
-    );
-    setGallery({ title: `Concept Images — ${collName}`, images: imgs });
-  }
-
-  function openSkus(e) {
-    e.stopPropagation();
-    setOpen(false);
-    const [brandId, collName] = collKey.split("||");
-    const refTask = tasks.find(
-      (t) => `${t.brand}||${t.collection}` === collKey
-    );
-    const skus = collData?.skus || [];
-    const imgs = [];
-    skus.forEach((sku) => {
-      if (sku.images?.length) {
-        sku.images.forEach((img) => {
-          imgs.push({
-            ...img,
-            title: sku.styleNum || "SKU",
-            subtitle: sku.description || "",
-            meta: {
-              Style: sku.styleNum || "",
-              Description: sku.description || "",
-              Colorways: sku.colorways || "",
-              Fabric: sku.fabric || "",
-              Units: sku.units ? String(sku.units) : "",
-              Season: refTask?.season || "",
-              Brand: getBrand(brandId)?.name || "",
-              Collection: collName,
-            },
-          });
-        });
-      }
-    });
-    setGallery({ title: `SKU Images — ${collName}`, images: imgs });
-  }
+  // All tasks in this collection
+  const collTasks = tasks.filter(t => `${t.brand}||${t.collection}` === collKey);
+  const totalAttachments = collTasks.reduce((a, t) => a + (t.images?.length || 0), 0);
+  const skus = collData?.skus || [];
+  const skuAttachments = skus.reduce((a, s) => a + (s.images?.length || 0), 0);
 
   return (
-    <div ref={ref} style={{ position: "relative", flex: 1, zIndex: open ? 9999 : "auto" }}>
+    <>
       <button
-        ref={btnRef}
-        onClick={handleOpen}
+        onClick={(e) => { e.stopPropagation(); setShowModal(true); }}
         style={{
           width: "100%",
           padding: "4px 6px",
@@ -8353,103 +8290,99 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
           fontWeight: 700,
         }}
       >
-        📎 Attachments
+        📎 Attachments{(totalAttachments + skuAttachments) > 0 ? ` (${totalAttachments + skuAttachments})` : ""}
       </button>
-      {open && (
+
+      {showModal && (
         <div
-          ref={dropRef}
-          style={{
-            position: "fixed",
-            ...(dropPos.openUp
-              ? { bottom: dropPos.bottom }
-              : { top: dropPos.top }),
-            left: dropPos.left,
-            transform: "translateX(-100%)",
-            background: "#1A202C",
-            border: "1px solid rgba(255,255,255,0.15)",
-            borderRadius: 10,
-            boxShadow: "0 12px 40px rgba(0,0,0,0.6)",
-            zIndex: 99999,
-            whiteSpace: "nowrap",
-            width: "max-content",
-            maxWidth: 280,
-            maxHeight: "50vh",
-            overflowY: "auto",
-          }}
+          onClick={() => setShowModal(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 9000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
         >
-          <div style={{ padding: "8px 12px 4px", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", borderBottom: "1px solid rgba(255,255,255,0.08)", marginBottom: 4 }}>
-            Attachments by Phase
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: "#fff", borderRadius: 14, width: "100%", maxWidth: 680, maxHeight: "80vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 60px rgba(0,0,0,0.4)" }}
+          >
+            {/* Header */}
+            <div style={{ padding: "18px 22px", borderBottom: "1px solid #E2E8F0", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#1A202C" }}>📎 Attachments — {collName}</div>
+                <div style={{ fontSize: 12, color: "#718096", marginTop: 2 }}>{totalAttachments + skuAttachments} total attachment{(totalAttachments + skuAttachments) !== 1 ? "s" : ""}</div>
+              </div>
+              <button onClick={() => setShowModal(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#718096", padding: "4px 8px" }}>✕</button>
+            </div>
+
+            {/* Body */}
+            <div style={{ overflowY: "auto", padding: "16px 22px", flex: 1 }}>
+              {collTasks.length === 0 && skus.length === 0 && (
+                <div style={{ textAlign: "center", color: "#718096", padding: 40, fontSize: 14 }}>No tasks in this collection yet.</div>
+              )}
+
+              {/* Tasks */}
+              {collTasks.map(t => (
+                <div key={t.id} style={{ marginBottom: 20 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#1A202C" }}>{t.phase}</div>
+                    <div style={{ fontSize: 11, color: "#718096" }}>· {t.status} · Due: {t.due || "—"}</div>
+                    {(t.images?.length || 0) === 0 && <div style={{ fontSize: 11, color: "#CBD5E0", marginLeft: "auto" }}>No attachments</div>}
+                  </div>
+                  {(t.images?.length || 0) > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {t.images.map((img, i) => {
+                        const isImage = img.name?.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i) || img.src?.startsWith("data:image") || img.src?.includes("supabase");
+                        const ext = (img.name || "").split(".").pop()?.toUpperCase() || "FILE";
+                        const fileIcons = { PDF: "📄", AI: "🎨", EPS: "🎨", PSD: "🖼️", SVG: "🔷" };
+                        return (
+                          <div
+                            key={i}
+                            onClick={() => isImage && setLightbox(img.src)}
+                            style={{ width: 72, height: 72, borderRadius: 8, overflow: "hidden", border: "1px solid #E2E8F0", cursor: isImage ? "zoom-in" : "default", flexShrink: 0, background: "#F7FAFC", display: "flex", alignItems: "center", justifyContent: "center" }}
+                          >
+                            {isImage
+                              ? <img src={img.src} alt={img.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                              : <div style={{ textAlign: "center", fontSize: 22 }}>{fileIcons[ext] || "📎"}<div style={{ fontSize: 9, color: "#718096", marginTop: 2 }}>{ext}</div></div>
+                            }
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div style={{ height: 1, background: "#EDF2F7", marginTop: 12 }} />
+                </div>
+              ))}
+
+              {/* SKU attachments */}
+              {skuAttachments > 0 && (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1A202C", marginBottom: 8 }}>👕 SKU Images</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {skus.flatMap(s => (s.images || []).map((img, i) => (
+                      <div
+                        key={`${s.styleNum}-${i}`}
+                        onClick={() => setLightbox(img.src)}
+                        style={{ width: 72, height: 72, borderRadius: 8, overflow: "hidden", border: "1px solid #E2E8F0", cursor: "zoom-in", flexShrink: 0 }}
+                      >
+                        <img src={img.src} alt={img.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      </div>
+                    )))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-          {(() => {
-            // Get all tasks for this collection
-            const collTasks = tasks.filter(t => `${t.brand}||${t.collection}` === collKey);
-            // Add SKUs as a special entry
-            const skuImages = (collData?.skus || []).filter(s => s.images?.length);
-            const allItems = [
-              ...collTasks.map(t => ({
-                phase: t.phase,
-                count: t.images?.length || 0,
-                fn: (e) => {
-                  e.stopPropagation();
-                  setOpen(false);
-                  const [brandId, collName] = collKey.split("||");
-                  setGallery({
-                    title: `${t.phase} — ${collName}`,
-                    images: (t.images || []).map(img => ({
-                      ...img,
-                      title: t.phase,
-                      subtitle: t.status,
-                      meta: { Phase: t.phase, Status: t.status, Due: t.due || "", Brand: getBrand(brandId)?.name || "" }
-                    }))
-                  });
-                },
-              })),
-              ...(skuImages.length > 0 ? [{ phase: "SKU Images", count: skuImages.reduce((a,s) => a + s.images.length, 0), fn: openSkus }] : []),
-            ];
-            if (allItems.length === 0) return <div style={{ padding: "12px 14px", color: "rgba(255,255,255,0.4)", fontSize: 12 }}>No tasks in this collection</div>;
-            return allItems.map(({ phase, count, fn }) => (
-              <button
-                key={phase}
-                onClick={count > 0 ? fn : undefined}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  width: "100%",
-                  padding: "10px 14px",
-                  border: "none",
-                  background: "none",
-                  color: count > 0 ? "#fff" : "rgba(255,255,255,0.35)",
-                  cursor: count > 0 ? "pointer" : "default",
-                  fontFamily: "inherit",
-                  fontSize: 12,
-                  fontWeight: 500,
-                  textAlign: "left",
-                  borderBottom: "1px solid rgba(255,255,255,0.05)",
-                }}
-                onMouseEnter={(e) => count > 0 && (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
-              >
-                <span>{phase}</span>
-                {count > 0
-                  ? <span style={{ background: "rgba(200,33,10,0.25)", color: "#ff6b5b", borderRadius: 10, fontSize: 10, padding: "2px 8px", fontWeight: 700 }}>{count}</span>
-                  : <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)" }}>—</span>
-                }
-              </button>
-            ));
-          })()}
         </div>
       )}
-      {gallery && (
-        <ImageGalleryModal
-          title={gallery.title}
-          images={gallery.images}
-          onClose={() => setGallery(null)}
-        />
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div onClick={() => setLightbox(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center", cursor: "zoom-out" }}>
+          <img src={lightbox} alt="" style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 10, objectFit: "contain" }} onClick={e => e.stopPropagation()} />
+          <button onClick={() => setLightbox(null)} style={{ position: "fixed", top: 20, right: 20, background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", width: 36, height: 36, borderRadius: "50%", fontSize: 18, cursor: "pointer" }}>✕</button>
+        </div>
       )}
-    </div>
+    </>
   );
 }
+
 
 // ─── FILTER BAR ─────────────────────────────────────────────────────────────
 function FilterBar({
