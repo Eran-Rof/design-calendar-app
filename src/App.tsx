@@ -8250,7 +8250,7 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
   }
 
   return (
-    <div ref={ref} style={{ position: "relative", flex: 1 }}>
+    <div ref={ref} style={{ position: "relative", flex: 1, zIndex: open ? 9999 : "auto" }}>
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -8276,24 +8276,30 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
           style={{
             position: "absolute",
             bottom: "calc(100% + 6px)",
-            left: 0,
-            right: 0,
+            left: "50%",
+            transform: "translateX(-50%)",
             background: "#1A202C",
-            border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: 8,
-            boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
-            zIndex: 500,
-            overflow: "hidden",
+            border: "1px solid rgba(255,255,255,0.15)",
+            borderRadius: 10,
+            boxShadow: "0 12px 40px rgba(0,0,0,0.6)",
+            zIndex: 9999,
+            minWidth: 220,
+            maxHeight: "50vh",
+            overflowY: "auto",
           }}
         >
+          <div style={{ padding: "8px 12px 4px", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", borderBottom: "1px solid rgba(255,255,255,0.08)", marginBottom: 4 }}>
+            Attachments by Phase
+          </div>
           {(() => {
             // Get all tasks for this collection
             const collTasks = tasks.filter(t => `${t.brand}||${t.collection}` === collKey);
             // Add SKUs as a special entry
             const skuImages = (collData?.skus || []).filter(s => s.images?.length);
-            const items = [
+            const allItems = [
               ...collTasks.map(t => ({
-                label: `📎 ${t.phase}${t.images?.length ? ` (${t.images.length})` : ""}`,
+                phase: t.phase,
+                count: t.images?.length || 0,
                 fn: (e) => {
                   e.stopPropagation();
                   setOpen(false);
@@ -8304,42 +8310,42 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
                       ...img,
                       title: t.phase,
                       subtitle: t.status,
-                      meta: {
-                        Phase: t.phase,
-                        Status: t.status,
-                        Due: t.due || "",
-                        Brand: getBrand(brandId)?.name || "",
-                      }
+                      meta: { Phase: t.phase, Status: t.status, Due: t.due || "", Brand: getBrand(brandId)?.name || "" }
                     }))
                   });
                 },
-                hasImages: (t.images?.length || 0) > 0,
               })),
-              ...(skuImages.length > 0 ? [{ label: `👕 SKU Images (${skuImages.reduce((a,s) => a + s.images.length, 0)})`, fn: openSkus, hasImages: true }] : []),
+              ...(skuImages.length > 0 ? [{ phase: "SKU Images", count: skuImages.reduce((a,s) => a + s.images.length, 0), fn: openSkus }] : []),
             ];
-            if (items.length === 0) return <div style={{ padding: "10px 12px", color: "rgba(255,255,255,0.4)", fontSize: 11 }}>No attachments yet</div>;
-            return items.map(({ label, fn, hasImages }) => (
+            if (allItems.length === 0) return <div style={{ padding: "12px 14px", color: "rgba(255,255,255,0.4)", fontSize: 12 }}>No tasks in this collection</div>;
+            return allItems.map(({ phase, count, fn }) => (
               <button
-                key={label}
-                onClick={fn}
+                key={phase}
+                onClick={count > 0 ? fn : undefined}
                 style={{
-                  display: "block",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
                   width: "100%",
-                  padding: "9px 12px",
+                  padding: "10px 14px",
                   border: "none",
                   background: "none",
-                  color: hasImages ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.4)",
-                  cursor: hasImages ? "pointer" : "default",
+                  color: count > 0 ? "#fff" : "rgba(255,255,255,0.35)",
+                  cursor: count > 0 ? "pointer" : "default",
                   fontFamily: "inherit",
-                  fontSize: 11,
-                  fontWeight: hasImages ? 600 : 400,
+                  fontSize: 12,
+                  fontWeight: 500,
                   textAlign: "left",
-                  borderBottom: "1px solid rgba(255,255,255,0.07)",
+                  borderBottom: "1px solid rgba(255,255,255,0.05)",
                 }}
-                onMouseEnter={(e) => hasImages && (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
+                onMouseEnter={(e) => count > 0 && (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
                 onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
               >
-                {label}
+                <span>{phase}</span>
+                {count > 0
+                  ? <span style={{ background: "rgba(200,33,10,0.25)", color: "#ff6b5b", borderRadius: 10, fontSize: 10, padding: "2px 8px", fontWeight: 700 }}>{count}</span>
+                  : <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)" }}>—</span>
+                }
               </button>
             ));
           })()}
