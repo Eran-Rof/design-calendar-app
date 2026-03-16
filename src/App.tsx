@@ -8597,153 +8597,76 @@ function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, te
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
-  // ── Supabase persistence ─────────────────────────────────────────────────
+  // ── Supabase persistence (key-value store) ──────────────────────────────
   const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
   const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
 
-  async function sbFetch(table, method = "GET", body?, filter?) {
-    const url = `${SB_URL}/rest/v1/${table}${filter ? "?" + filter : ""}`;
-    const res = await fetch(url, {
-      method,
-      headers: {
-        "apikey": SB_KEY,
-        "Authorization": `Bearer ${SB_KEY}`,
-        "Content-Type": "application/json",
-        "Prefer": method === "POST" ? "return=representation" : method === "PATCH" ? "return=representation" : "",
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      console.error(`[SB] ${method} ${table} failed:`, res.status, err);
-      return null;
-    }
-    const text = await res.text();
-    return text ? JSON.parse(text) : null;
+  // Save any data to Supabase as a key-value pair
+  async function sbSave(key, value) {
+    try {
+      const res = await fetch(`${SB_URL}/rest/v1/app_data`, {
+        method: "POST",
+        headers: {
+          "apikey": SB_KEY,
+          "Authorization": `Bearer ${SB_KEY}`,
+          "Content-Type": "application/json",
+          "Prefer": "resolution=merge-duplicates,return=minimal",
+        },
+        body: JSON.stringify({ key, value: JSON.stringify(value) }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        console.error(`[SB] save ${key} failed:`, res.status, err);
+      } else {
+        console.log("[SB] saved:", key);
+      }
+    } catch(e) { console.error("[SB] save error:", key, e); }
   }
 
-  // Upsert a single row by id
-  async function sbUpsert(table, row) {
-    const url = `${SB_URL}/rest/v1/${table}`;
-    await fetch(url, {
-      method: "POST",
-      headers: {
-        "apikey": SB_KEY,
-        "Authorization": `Bearer ${SB_KEY}`,
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates,return=minimal",
-      },
-      body: JSON.stringify(row),
-    });
+  // Load data from Supabase by key
+  async function sbLoad(key) {
+    try {
+      const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.${key}&select=value`, {
+        headers: {
+          "apikey": SB_KEY,
+          "Authorization": `Bearer ${SB_KEY}`,
+        },
+      });
+      if (!res.ok) return null;
+      const rows = await res.json();
+      if (!rows.length) return null;
+      return JSON.parse(rows[0].value);
+    } catch(e) { console.error("[SB] load error:", key, e); return null; }
   }
 
-  // Normalize rows so all have identical keys (required by Supabase batch upsert)
-  function normalizeRows(rows) {
-    if (!rows.length) return rows;
-    // Collect all keys across all rows
-    const allKeys = new Set();
-    rows.forEach(r => Object.keys(r).forEach(k => allKeys.add(k)));
-    // Fill missing keys with null
-    return rows.map(r => {
-      const normalized = {};
-      allKeys.forEach(k => { normalized[k] = r[k] !== undefined ? r[k] : null; });
-      return normalized;
-    });
+  // Delete tasks individually
+  async function sbDelete(id) {
+    try {
+      const data = await sbLoad("tasks");
+      if (data) {
+        const updated = data.filter(t => t.id !== id);
+        await sbSave("tasks", updated);
+      }
+    } catch(e) { console.error("[SB] delete error:", e); }
   }
 
-  // Upsert all rows in an array
-  async function sbUpsertAll(table, rows) {
-    if (!rows.length) return;
-    const url = `${SB_URL}/rest/v1/${table}`;
-    const normalized = normalizeRows(rows);
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "apikey": SB_KEY,
-        "Authorization": `Bearer ${SB_KEY}`,
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates,return=minimal",
-      },
-      body: JSON.stringify(normalized),
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      console.error(`[SB] upsert ${table} failed:`, res.status, err);
-    }
+  // Upsert a single task
+  async function sbUpsert(row) {
+    try {
+      const data = await sbLoad("tasks") || [];
+      const exists = data.find(t => t.id === row.id);
+      const updated = exists ? data.map(t => t.id === row.id ? row : t) : [...data, row];
+      await sbSave("tasks", updated);
+    } catch(e) { console.error("[SB] upsert error:", e); }
   }
 
-  // Load all rows from a table
-  async function sbLoad(table) {
-    return await sbFetch(table, "GET", undefined, "select=*");
-  }
-
-  // Delete a row by id
-  async function sbDelete(table, id) {
-    await sbFetch(table, "DELETE", undefined, `id=eq.${id}`);
-  }
-
-  const [dbxLoaded, setDbxLoaded] = useState(false);
-
-  // Collections are stored as {brand||collection: data} object in app state
-  // but as individual rows in Supabase. These helpers convert between formats.
-  function collObjToRows(collObj: any) {
-    return Object.entries(collObj).map(([key, val]: [string, any]) => {
-      const [brand, collection] = key.split("||");
-      return { id: key, brand, collection, ...val };
-    });
-  }
-  function collRowsToObj(rows: any[]) {
-    const obj: any = {};
-    rows.forEach(r => {
-      const key = `${r.brand}||${r.collection}`;
-      obj[key] = r;
-    });
-    return obj;
-  }
-
-  // Seasons are stored as string array in app state but as {id, name} rows in Supabase
-  function seasonsToRows(seasons: string[]) {
-    return seasons.map(s => ({ id: s, name: s }));
-  }
-  function rowsToSeasons(rows: any[]) {
-    return rows.map(r => r.name);
-  }
-
-  // Order types are stored as string array
-  function orderTypesToRows(ots: string[]) {
-    return ots.map(o => ({ id: o, name: o }));
-  }
-  function rowsToOrderTypes(rows: any[]) {
-    return rows.map(r => r.name);
-  }
-
-  // Size library stored as array of {name, sizes[]}
-  function sizeLibToRows(lib: any[]) {
-    return lib.map(s => ({ id: s.name, ...s }));
-  }
-
-  // Categories stored as string array
-  function categoriesToRows(cats: string[]) {
-    return cats.map(c => ({ id: c, name: c }));
-  }
-  function rowsToCategories(rows: any[]) {
-    return rows.map(r => r.name);
-  }
-
-  // ── useState for all data ──────────────────────────────────────────────────
-  // We keep local state and sync to Supabase on every change
-  function usePersistSb(initial, tableName, toRows?, fromRows?) {
+  // usePersistSb - keeps local state and syncs to Supabase on every change
+  function usePersistSb(initial, sbKey) {
     const [val, setVal] = useState(initial);
     const setter = (updater) => {
       setVal((prev) => {
         const next = typeof updater === "function" ? updater(prev) : updater;
-        // Sync to Supabase in background
-        (async () => {
-          try {
-            const rows = toRows ? toRows(next) : (Array.isArray(next) ? next : [next]);
-            if (rows.length > 0) await sbUpsertAll(tableName, rows);
-          } catch(e) { console.warn("[SB] sync error:", tableName, e); }
-        })();
+        sbSave(sbKey, next);
         return next;
       });
     };
@@ -8753,12 +8676,12 @@ export default function App() {
   const [users, setUsers] = usePersistSb(DEFAULT_USERS, "users");
   const [currentUser, setCurrentUser] = useState(null);
   const [brands, setBrands] = usePersistSb(BRANDS, "brands");
-  const [seasons, setSeasons] = usePersistSb(SEASONS, "seasons", seasonsToRows, rowsToSeasons);
+  const [seasons, setSeasons] = usePersistSb(SEASONS, "seasons");
   const [customers, setCustomers] = usePersistSb(DEFAULT_CUSTOMERS.map(n => ({ id: n, name: n, channel: CUSTOMER_CHANNEL_MAP[n] || "" })), "customers");
   const [vendors, setVendors] = usePersistSb(SAMPLE_VENDORS, "vendors");
   const [team, setTeam] = usePersistSb(SAMPLE_TEAM, "team");
   const [tasks, setTasks] = usePersistSb([], "tasks");
-  const [collections, setCollections] = usePersistSb({}, "collections", collObjToRows, collRowsToObj);
+  const [collections, setCollections] = usePersistSb({}, "collections");
   const [view, setView] = useState("dashboard");
   const [filterBrand, setFilterBrand] = useState<Set<string>>(new Set());
   const [filterSeason, setFilterSeason] = useState<Set<string>>(new Set());
@@ -8772,8 +8695,8 @@ export default function App() {
   const [showUsers, setShowUsers] = useState(false);
   const [showSizeLib, setShowSizeLib] = useState(false);
   const [showCatLib, setShowCatLib] = useState(false);
-  const [sizeLibrary, setSizeLibrary] = usePersistSb(DEFAULT_SIZES, "size_library", sizeLibToRows);
-  const [categoryLib, setCategoryLib] = usePersistSb(DEFAULT_CATEGORIES, "categories", categoriesToRows, rowsToCategories);
+  const [sizeLibrary, setSizeLibrary] = usePersistSb(DEFAULT_SIZES, "size_library");
+  const [categoryLib, setCategoryLib] = usePersistSb(DEFAULT_CATEGORIES, "categories");
   const [editTask, setEditTask] = useState(null);
   const [dragId, setDragId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
@@ -8785,7 +8708,7 @@ export default function App() {
   const [showSeasons, setShowSeasons] = useState(false);
   const [showCustomers, setShowCustomers] = useState(false);
   const [showOrderTypes, setShowOrderTypes] = useState(false);
-  const [orderTypes, setOrderTypes] = usePersistSb([...ORDER_TYPES], "order_types", orderTypesToRows, rowsToOrderTypes);
+  const [orderTypes, setOrderTypes] = usePersistSb([...ORDER_TYPES], "order_types");
   const [miniCalDragOver, setMiniCalDragOver] = useState(null);
   const [teamsConfig, setTeamsConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem("teamsConfig") || "null") || { clientId: "", tenantId: "", channelMap: {} }; }
@@ -8805,35 +8728,23 @@ export default function App() {
     async function loadAll() {
       console.log("[SB] loadAll starting...");
       try {
-        const [
-          usersRows, brandsRows, seasonsRows, customersRows,
-          vendorsRows, teamRows, tasksRows, collectionsRows,
-          sizesRows, categoriesRows, orderTypesRows
-        ] = await Promise.all([
-          sbLoad("users"),
-          sbLoad("brands"),
-          sbLoad("seasons"),
-          sbLoad("customers"),
-          sbLoad("vendors"),
-          sbLoad("team"),
-          sbLoad("tasks"),
-          sbLoad("collections"),
-          sbLoad("size_library"),
-          sbLoad("categories"),
-          sbLoad("order_types"),
-        ]);
+        const keys = ["users","brands","seasons","customers","vendors","team",
+                      "tasks","collections","size_library","categories","order_types"];
+        const results = await Promise.all(keys.map(k => sbLoad(k)));
+        const [users, brands, seasons, customers, vendors, team,
+               tasks, collections, sizes, categories, orderTypes] = results;
 
-        if (usersRows?.length) setUsers(usersRows);
-        if (brandsRows?.length) setBrands(brandsRows);
-        if (seasonsRows?.length) setSeasons(rowsToSeasons(seasonsRows));
-        if (customersRows?.length) setCustomers(customersRows);
-        if (vendorsRows?.length) setVendors(vendorsRows);
-        if (teamRows?.length) setTeam(teamRows);
-        if (tasksRows?.length) setTasks(tasksRows);
-        if (collectionsRows?.length) setCollections(collRowsToObj(collectionsRows));
-        if (sizesRows?.length) setSizeLibrary(sizesRows);
-        if (categoriesRows?.length) setCategoryLib(rowsToCategories(categoriesRows));
-        if (orderTypesRows?.length) setOrderTypes(rowsToOrderTypes(orderTypesRows));
+        if (users) setUsers(users);
+        if (brands) setBrands(brands);
+        if (seasons) setSeasons(seasons);
+        if (customers) setCustomers(customers);
+        if (vendors) setVendors(vendors);
+        if (team) setTeam(team);
+        if (tasks) setTasks(tasks);
+        if (collections) setCollections(collections);
+        if (sizes) setSizeLibrary(sizes);
+        if (categories) setCategoryLib(categories);
+        if (orderTypes) setOrderTypes(orderTypes);
 
         console.log("[SB] loadAll complete");
       } catch(e) {
@@ -8967,18 +8878,24 @@ export default function App() {
   function saveTask(f) {
     const clean = { ...f };
     // Each task keeps its own images — no spreading
-    setTasks((ts) => ts.map((t) => (t.id === clean.id ? clean : t)));
-    sbUpsert("tasks", clean);
+    setTasks((ts) => {
+      const updated = ts.map((t) => (t.id === clean.id ? clean : t));
+      sbSave("tasks", updated);
+      return updated;
+    });
     setEditTask(null);
   }
 
   function saveCascade(updatedTasks) {
     setTasks(updatedTasks);
-    sbUpsertAll("tasks", updatedTasks);
+    sbSave("tasks", updatedTasks);
   }
   function deleteTask(id) {
-    setTasks((ts) => ts.filter((t) => t.id !== id));
-    sbDelete("tasks", id);
+    setTasks((ts) => {
+      const updated = ts.filter((t) => t.id !== id);
+      sbSave("tasks", updated);
+      return updated;
+    });
     setEditTask(null);
   }
 
