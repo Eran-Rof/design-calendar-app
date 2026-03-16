@@ -8596,6 +8596,21 @@ function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, te
 
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
+
+// usePersistSb must be defined outside App so React hooks rules are satisfied
+// It references sbSave which is passed as a parameter
+function usePersistSb(initial, sbKey, sbSaveFn) {
+  const [val, setVal] = useState(initial);
+  const setter = (updater) => {
+    setVal((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      if (sbSaveFn) sbSaveFn(sbKey, next);
+      return next;
+    });
+  };
+  return [val, setter];
+}
+
 export default function App() {
   // ── Supabase persistence (key-value store) ──────────────────────────────
   const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
@@ -8660,28 +8675,19 @@ export default function App() {
     } catch(e) { console.error("[SB] upsert error:", e); }
   }
 
-  // usePersistSb - keeps local state and syncs to Supabase on every change
-  function usePersistSb(initial, sbKey) {
-    const [val, setVal] = useState(initial);
-    const setter = (updater) => {
-      setVal((prev) => {
-        const next = typeof updater === "function" ? updater(prev) : updater;
-        sbSave(sbKey, next);
-        return next;
-      });
-    };
-    return [val, setter];
-  }
+  const [dbxLoaded, setDbxLoaded] = useState(false);
 
-  const [users, setUsers] = usePersistSb(DEFAULT_USERS, "users");
+  // usePersistSb defined outside App component below
+
+  const [users, setUsers] = usePersistSb(DEFAULT_USERS, "users", sbSave);
   const [currentUser, setCurrentUser] = useState(null);
-  const [brands, setBrands] = usePersistSb(BRANDS, "brands");
-  const [seasons, setSeasons] = usePersistSb(SEASONS, "seasons");
-  const [customers, setCustomers] = usePersistSb(DEFAULT_CUSTOMERS.map(n => ({ id: n, name: n, channel: CUSTOMER_CHANNEL_MAP[n] || "" })), "customers");
-  const [vendors, setVendors] = usePersistSb(SAMPLE_VENDORS, "vendors");
-  const [team, setTeam] = usePersistSb(SAMPLE_TEAM, "team");
-  const [tasks, setTasks] = usePersistSb([], "tasks");
-  const [collections, setCollections] = usePersistSb({}, "collections");
+  const [brands, setBrands] = usePersistSb(BRANDS, "brands", sbSave);
+  const [seasons, setSeasons] = usePersistSb(SEASONS, "seasons", sbSave);
+  const [customers, setCustomers] = usePersistSb(DEFAULT_CUSTOMERS.map(n => ({ id: n, name: n, channel: CUSTOMER_CHANNEL_MAP[n] || "" })), "customers", sbSave);
+  const [vendors, setVendors] = usePersistSb(SAMPLE_VENDORS, "vendors", sbSave);
+  const [team, setTeam] = usePersistSb(SAMPLE_TEAM, "team", sbSave);
+  const [tasks, setTasks] = usePersistSb([], "tasks", sbSave);
+  const [collections, setCollections] = usePersistSb({}, "collections", sbSave);
   const [view, setView] = useState("dashboard");
   const [filterBrand, setFilterBrand] = useState<Set<string>>(new Set());
   const [filterSeason, setFilterSeason] = useState<Set<string>>(new Set());
@@ -8695,8 +8701,8 @@ export default function App() {
   const [showUsers, setShowUsers] = useState(false);
   const [showSizeLib, setShowSizeLib] = useState(false);
   const [showCatLib, setShowCatLib] = useState(false);
-  const [sizeLibrary, setSizeLibrary] = usePersistSb(DEFAULT_SIZES, "size_library");
-  const [categoryLib, setCategoryLib] = usePersistSb(DEFAULT_CATEGORIES, "categories");
+  const [sizeLibrary, setSizeLibrary] = usePersistSb(DEFAULT_SIZES, "size_library", sbSave);
+  const [categoryLib, setCategoryLib] = usePersistSb(DEFAULT_CATEGORIES, "categories", sbSave);
   const [editTask, setEditTask] = useState(null);
   const [dragId, setDragId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
@@ -8708,7 +8714,7 @@ export default function App() {
   const [showSeasons, setShowSeasons] = useState(false);
   const [showCustomers, setShowCustomers] = useState(false);
   const [showOrderTypes, setShowOrderTypes] = useState(false);
-  const [orderTypes, setOrderTypes] = usePersistSb([...ORDER_TYPES], "order_types");
+  const [orderTypes, setOrderTypes] = usePersistSb([...ORDER_TYPES], "order_types", sbSave);
   const [miniCalDragOver, setMiniCalDragOver] = useState(null);
   const [teamsConfig, setTeamsConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem("teamsConfig") || "null") || { clientId: "", tenantId: "", channelMap: {} }; }
