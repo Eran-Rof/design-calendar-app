@@ -4009,6 +4009,72 @@ function SkuManager({ skus = [], onChange, brand, category, availableSizes }) {
 }
 
 // ─── TASK EDIT MODAL ──────────────────────────────────────────────────────────
+
+// ─── BUILD ATTACHMENT PAGE (data URL for print/share) ────────────────────────
+function buildAttachmentPage(task, taskOrig, collData, brand) {
+  const images = task.images || [];
+  const collInfo = [
+    brand?.name,
+    task.collection,
+    task.season,
+    task.category,
+    task.phase,
+    collData?.customer ? `Customer: ${collData.customer}` : null,
+    collData?.sampleDueDate ? `Sample Due: ${collData.sampleDueDate}` : null,
+    task.due ? `Due: ${task.due}` : null,
+    task.status,
+  ].filter(Boolean).join(" · ");
+
+  const imagesHtml = images.map(img => {
+    const isImg = img.src?.startsWith("http") || img.src?.startsWith("data:image");
+    if (!isImg) return `<div class="attachment file-attachment"><div class="file-icon">📎</div><div class="file-name">${img.name || "File"}</div></div>`;
+    return `
+      <div class="attachment">
+        <img src="${img.src}" alt="${img.name || ""}" />
+        <div class="img-info">${img.name || ""}</div>
+      </div>`;
+  }).join("");
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>${task.collection || ""} – ${task.phase || ""} Attachments</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 32px; color: #1A202C; background: #fff; }
+    .header { border-bottom: 3px solid #C8210A; padding-bottom: 16px; margin-bottom: 24px; }
+    .brand { font-size: 11px; font-weight: 700; color: #C8210A; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+    .collection { font-size: 22px; font-weight: 800; color: #1A202C; margin-bottom: 6px; }
+    .meta { font-size: 12px; color: #718096; line-height: 1.6; }
+    .phase { display: inline-block; background: #C8210A; color: #fff; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 12px; margin-bottom: 16px; }
+    .attachments { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 8px; }
+    .attachment { break-inside: avoid; }
+    .attachment img { max-width: 280px; max-height: 320px; border-radius: 8px; border: 1px solid #E2E8F0; object-fit: contain; display: block; }
+    .img-info { font-size: 11px; color: #718096; margin-top: 4px; max-width: 280px; word-break: break-all; }
+    .file-attachment { width: 120px; height: 120px; border: 1px solid #E2E8F0; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .file-icon { font-size: 36px; }
+    .file-name { font-size: 11px; color: #718096; margin-top: 4px; text-align: center; padding: 0 8px; word-break: break-all; }
+    .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #E2E8F0; font-size: 11px; color: #CBD5E0; }
+    @media print { body { padding: 16px; } button { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">${brand?.name || ""}</div>
+    <div class="collection">${task.collection || ""}</div>
+    <div class="meta">${collInfo}</div>
+  </div>
+  <div class="phase">${task.phase || ""}</div>
+  <div class="attachments">${imagesHtml}</div>
+  <div class="footer">Generated ${new Date().toLocaleDateString()} · ROF Design Calendar</div>
+  <script>window.onload = function() { setTimeout(function() { }, 500); }<\/script>
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: "text/html" });
+  return URL.createObjectURL(blob);
+}
+
 function TaskEditModal({
   task,
   team,
@@ -4031,6 +4097,8 @@ function TaskEditModal({
   });
   const [tab, setTab] = useState("details");
   const [cascadeWarn, setCascadeWarn] = useState(null);
+  const [selectedAttachments, setSelectedAttachments] = useState(new Set());
+  const [selectMode, setSelectMode] = useState(false);
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
 
   const collKey = `${task.brand}||${task.collection}`;
@@ -4679,11 +4747,119 @@ function TaskEditModal({
         )}
 
         {tab === "images" && (
-          <ImageUploader
-            images={f.images || []}
-            onChange={(v) => canEdit && set("images", v)}
-            label="Attachments"
-          />
+          <div>
+            {/* Select mode toolbar */}
+            {(f.images || []).length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                {!selectMode ? (
+                  <button
+                    onClick={() => { setSelectMode(true); setSelectedAttachments(new Set()); }}
+                    style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}
+                  >
+                    ☑️ Select Attachments
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => {
+                        const all = new Set((f.images || []).map(i => i.id));
+                        setSelectedAttachments(prev => prev.size === all.size ? new Set() : all);
+                      }}
+                      style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.primary, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}
+                    >
+                      {selectedAttachments.size === (f.images || []).length ? "Deselect All" : "Select All"}
+                    </button>
+                    <button
+                      onClick={() => { setSelectMode(false); setSelectedAttachments(new Set()); }}
+                      style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}
+                    >
+                      Cancel
+                    </button>
+                    {selectedAttachments.size > 0 && (
+                      <>
+                        <span style={{ fontSize: 12, color: TH.textMuted, marginLeft: 4 }}>{selectedAttachments.size} selected</span>
+                        <button
+                          onClick={() => {
+                            const selected = (f.images || []).filter(i => selectedAttachments.has(i.id));
+                            const url = buildAttachmentPage({ ...f, images: selected }, task, collData, brand);
+                            navigator.clipboard.writeText(url).then(() => alert("Link copied to clipboard!")).catch(() => {
+                              prompt("Copy this link:", url);
+                            });
+                          }}
+                          style={{ padding: "5px 14px", borderRadius: 7, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}
+                        >
+                          🔗 Copy Link
+                        </button>
+                        <button
+                          onClick={() => {
+                            const selected = (f.images || []).filter(i => selectedAttachments.has(i.id));
+                            const url = buildAttachmentPage({ ...f, images: selected }, task, collData, brand);
+                            window.open(url, "_blank");
+                          }}
+                          style={{ padding: "5px 14px", borderRadius: 7, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}
+                        >
+                          🖨️ Open & Print
+                        </button>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Image uploader with selection overlay when in select mode */}
+            {selectMode ? (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
+                {(f.images || []).map(img => {
+                  const isSelected = selectedAttachments.has(img.id);
+                  const isImage = img.name?.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i) || img.src?.startsWith("data:image") || img.src?.includes("supabase");
+                  const ext = (img.name || "").split(".").pop()?.toUpperCase() || "FILE";
+                  const fileIcons = { PDF: "📄", AI: "🎨", EPS: "🎨", PSD: "🖼️", SVG: "🔷" };
+                  return (
+                    <div
+                      key={img.id}
+                      onClick={() => {
+                        setSelectedAttachments(prev => {
+                          const next = new Set(prev);
+                          if (next.has(img.id)) next.delete(img.id); else next.add(img.id);
+                          return next;
+                        });
+                      }}
+                      style={{
+                        position: "relative", width: 80, height: 80, borderRadius: 8, overflow: "hidden",
+                        border: `2px solid ${isSelected ? TH.primary : TH.border}`,
+                        cursor: "pointer", flexShrink: 0,
+                        background: TH.surfaceHi,
+                        boxShadow: isSelected ? `0 0 0 2px ${TH.primary}44` : "none",
+                      }}
+                    >
+                      {isImage
+                        ? <img src={img.src} alt={img.name} style={{ width: "100%", height: "100%", objectFit: "cover", opacity: isSelected ? 1 : 0.6 }} />
+                        : <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontSize: 22, opacity: isSelected ? 1 : 0.6 }}>{fileIcons[ext] || "📎"}<div style={{ fontSize: 9, color: TH.textMuted, marginTop: 2 }}>{ext}</div></div>
+                      }
+                      {/* Checkmark */}
+                      <div style={{
+                        position: "absolute", top: 4, right: 4,
+                        width: 18, height: 18, borderRadius: "50%",
+                        background: isSelected ? TH.primary : "rgba(255,255,255,0.8)",
+                        border: `2px solid ${isSelected ? TH.primary : "#ccc"}`,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 10, color: "#fff", fontWeight: 700,
+                      }}>
+                        {isSelected ? "✓" : ""}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <ImageUploader
+                images={f.images || []}
+                onChange={(v) => canEdit && set("images", v)}
+                label="Attachments"
+              />
+            )}
+          </div>
         )}
         {tab === "skus" && (
           <div>
@@ -10599,7 +10775,7 @@ export default function App() {
                             left: 0,
                             right: 0,
                             height: 3,
-                            background: `linear-gradient(90deg,${brand.color},${brand.color}44)`,
+                            background: TH.primary,
                           }}
                         />
                         <div
@@ -10612,9 +10788,9 @@ export default function App() {
                           }}
                         >
                           <div>
-                            {/* Line 1: Collection Name — app red */}
+                            {/* Line 1: Brand · Collection Name · Sample Due */}
                             <div style={{ fontSize: 11, fontWeight: 700, color: TH.primary, marginBottom: 2 }}>
-                              {c.collection}
+                              {brand.short || brand.name} · {c.collection}{collData.sampleDueDate ? ` · Sample: ${formatDate(collData.sampleDueDate)}` : ""}
                             </div>
                             {/* Line 2: Season Year · Gender · Category */}
                             <div style={{ fontSize: 11, color: TH.textSub2 }}>
@@ -10828,13 +11004,6 @@ export default function App() {
                             📅 Calendar
                           </button>
                           {/* Images button with concept/sku submenu */}
-                          <CollImageBtn
-                            collKey={c.key}
-                            collData={collData}
-                            brand={brand}
-                            collections={collections}
-                            tasks={tasks}
-                          />
                         </div>
                       </div>
                     );
@@ -11016,10 +11185,18 @@ export default function App() {
                         flexWrap: "wrap",
                       }}
                     >
-                      {/* Line 1: Collection — grey */}
+                      {/* Line 1: Brand · Collection · Sample Due */}
+                      <span style={{ fontWeight: 700, color: TH.primary }}>
+                        {brand.short || brand.name}
+                      </span>
                       <span style={{ fontWeight: 700, color: TH.textMuted }}>
                         {cname}
                       </span>
+                      {collData.sampleDueDate && (
+                        <span style={{ fontWeight: 600, color: "#B45309" }}>
+                          · Sample Due: {formatDate(collData.sampleDueDate)}
+                        </span>
+                      )}
                       {/* Season · Year · Gender · Category */}
                       <span style={{ fontWeight: 400, color: TH.textMuted }}>
                         {ctasks[0]?.season ? `${ctasks[0].season}` : ""}
