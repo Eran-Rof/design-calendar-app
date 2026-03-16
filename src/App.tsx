@@ -943,6 +943,7 @@ function SettingsDropdown({
   onSeasons,
   onCustomers,
   onOrderTypes,
+  onRoles,
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -962,6 +963,7 @@ function SettingsDropdown({
     { icon: "📐", label: "Sizes", onClick: onSizes, always: false },
     { icon: "🗂️", label: "Categories", onClick: onCategories, always: false },
     { icon: "📋", label: "Order Types", onClick: onOrderTypes, always: false },
+    { icon: "🎭", label: "Roles", onClick: onRoles, always: false },
     { icon: "👤", label: "Users", onClick: onUsers, always: false },
   ].filter((it) => it.always || isAdmin);
   return (
@@ -1159,6 +1161,69 @@ function OrderTypeManager({ orderTypes, setOrderTypes }) {
         ))}
       </div>
       {orderTypes.length === 0 && <div style={{ textAlign: "center", color: TH.textMuted, padding: "24px", fontSize: 13, border: `1px dashed ${TH.border}`, borderRadius: 10 }}>No order types yet.</div>}
+    </div>
+  );
+}
+
+
+// ─── ROLE MANAGER ─────────────────────────────────────────────────────────────
+function RoleManager({ roles, setRoles }) {
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState("");
+
+  function save() {
+    const val = form.trim();
+    if (!val) return;
+    if (editing === "new") {
+      if (roles.includes(val)) return;
+      setRoles((s) => [...s, val]);
+    } else {
+      setRoles((s) => s.map((x, i) => (i === editing ? val : x)));
+    }
+    setEditing(null);
+    setForm("");
+  }
+
+  if (editing !== null)
+    return (
+      <div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: TH.text, marginBottom: 20 }}>
+          {editing === "new" ? "Add Role" : "Edit Role"}
+        </div>
+        <label style={S.lbl}>Role Name</label>
+        <input
+          style={S.inp}
+          value={form}
+          onChange={(e) => setForm(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && save()}
+          placeholder="e.g. Product Developer"
+          autoFocus
+        />
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button onClick={() => { setEditing(null); setForm(""); }} style={{ padding: "9px 18px", borderRadius: 8, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+          <button disabled={!form.trim()} onClick={save} style={{ ...S.btn, opacity: form.trim() ? 1 : 0.5 }}>Save Role</button>
+        </div>
+      </div>
+    );
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <span style={S.sec}>Roles ({roles.length})</span>
+        <button onClick={() => { setForm(""); setEditing("new"); }} style={S.btn}>+ Add Role</button>
+      </div>
+      <div style={{ display: "grid", gap: 8 }}>
+        {roles.map((role, i) => (
+          <div key={i} style={{ ...S.card, display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={{ flex: 1, fontSize: 14, fontWeight: 700, color: TH.text }}>🎭 {role}</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => { setForm(role); setEditing(i); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
+              <button onClick={() => setRoles((arr) => arr.filter((_, j) => j !== i))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      {roles.length === 0 && <div style={{ textAlign: "center", color: TH.textMuted, padding: "24px", fontSize: 13, border: `1px dashed ${TH.border}`, borderRadius: 10 }}>No roles yet.</div>}
     </div>
   );
 }
@@ -1733,14 +1798,15 @@ function LoginScreen({ users, onLogin, teamsConfig, onTeamsToken }) {
 }
 
 // ─── USER MANAGER (admin only) ───────────────────────────────────────────────
-function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser }) {
+function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, roles = ROLES, setRoles }) {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(null);
   const [createTeamMember, setCreateTeamMember] = useState(false);
-  const [tmRole, setTmRole] = useState(ROLES[0]);
+  const [tmRole, setTmRole] = useState((roles || ROLES)[0]);
   const [tmColor, setTmColor] = useState("#3498DB");
   const [newRoleInput, setNewRoleInput] = useState("");
-  const [availableRoles, setAvailableRoles] = useState([...ROLES]);
+  const availableRoles = roles || ROLES;
+  const setAvailableRoles = setRoles || (() => {});
   const TEAM_COLORS = ["#E74C3C","#3498DB","#2ECC71","#9B59B6","#F39C12","#1ABC9C","#E67E22","#E91E63","#00BCD4","#8BC34A"];
   const BLANK = () => ({ id: uid(), username: "", password: "", name: "", role: "user", color: "#3498DB", initials: "", teamMemberId: null, teamsEmail: "", permissions: { view_all: false, edit_all: false, view_own: true, edit_own: true } });
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -2991,7 +3057,7 @@ function VendorManager({ vendors, setVendors }) {
 }
 
 // ─── TEAM MANAGER ─────────────────────────────────────────────────────────────
-function TeamManager({ team, setTeam, isAdmin }) {
+function TeamManager({ team, setTeam, isAdmin, roles = ROLES, setRoles }) {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(null);
   const [availableRoles, setAvailableRoles] = useState([...ROLES]);
@@ -8767,7 +8833,9 @@ export default function App() {
   const [showSeasons, setShowSeasons] = useState(false);
   const [showCustomers, setShowCustomers] = useState(false);
   const [showOrderTypes, setShowOrderTypes] = useState(false);
+  const [showRoles, setShowRoles] = useState(false);
   const [orderTypes, setOrderTypes] = usePersistSb([...ORDER_TYPES], "order_types", sbSave);
+  const [roles, setRoles] = usePersistSb([...ROLES], "roles", sbSave);
   const [miniCalDragOver, setMiniCalDragOver] = useState(null);
   const [teamsConfig, setTeamsConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem("teamsConfig") || "null") || { clientId: "", tenantId: "", channelMap: {} }; }
@@ -8790,7 +8858,7 @@ export default function App() {
         // Load reference data from key-value store + tasks/collections from individual rows
         const [
           users, brands, seasons, customers, vendors, team,
-          sizes, categories, orderTypes,
+          sizes, categories, orderTypes, rolesData,
           tasks, collections
         ] = await Promise.all([
           sbLoad("users"),
@@ -8802,6 +8870,7 @@ export default function App() {
           sbLoad("size_library"),
           sbLoad("categories"),
           sbLoad("order_types"),
+          sbLoad("roles"),
           sbLoadTasks(),
           sbLoadCollections(),
         ]);
@@ -8815,6 +8884,7 @@ export default function App() {
         if (sizes) setSizeLibrary(sizes);
         if (categories) setCategoryLib(categories);
         if (orderTypes) setOrderTypes(orderTypes);
+        if (rolesData) setRoles(rolesData);
         if (tasks?.length) _setTasksRaw(tasks);
         if (collections && Object.keys(collections).length) _setCollRaw(collections);
 
@@ -11727,6 +11797,7 @@ export default function App() {
             onSeasons={() => setShowSeasons(true)}
             onCustomers={() => setShowCustomers(true)}
             onOrderTypes={() => setShowOrderTypes(true)}
+            onRoles={() => setShowRoles(true)}
           />
           <div
             style={{
@@ -11869,12 +11940,12 @@ export default function App() {
       )}
       {showTeam && (
         <Modal title="Team Members" onClose={() => setShowTeam(false)} wide>
-          <TeamManager team={team} setTeam={setTeam} isAdmin={isAdmin} />
+          <TeamManager team={team} setTeam={setTeam} isAdmin={isAdmin} roles={roles} setRoles={setRoles} />
         </Modal>
       )}
       {showUsers && (
         <Modal title="User Management" onClose={() => setShowUsers(false)} wide>
-          <UserManager users={users} setUsers={setUsers} team={team} setTeam={setTeam} isAdmin={isAdmin} currentUser={currentUser} />
+          <UserManager users={users} setUsers={setUsers} team={team} setTeam={setTeam} isAdmin={isAdmin} currentUser={currentUser}  roles={roles} setRoles={setRoles} />
         </Modal>
       )}
       {showCustomers && (
@@ -11885,6 +11956,11 @@ export default function App() {
       {showOrderTypes && (
         <Modal title="Order Types" onClose={() => setShowOrderTypes(false)} wide>
           <OrderTypeManager orderTypes={orderTypes} setOrderTypes={setOrderTypes} />
+        </Modal>
+      )}
+      {showRoles && (
+        <Modal title="Role Manager" onClose={() => setShowRoles(false)} wide>
+          <RoleManager roles={roles} setRoles={setRoles} />
         </Modal>
       )}
       {showSeasons && (
