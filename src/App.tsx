@@ -647,43 +647,29 @@ function fileToDataURL(f) {
   });
 }
 
-// Upload a file directly to Dropbox and return a shared link URL
+// Upload a file to Supabase Storage and return a permanent public URL
 async function dbxUploadFileGlobal(file, folder = "images") {
-  const DBX_TOKEN = "sl.u.AGUcjMEcACemDUZHoLi92xdgZ13WI8iSDzLrDH79Xgcn7fQKuN8tfpn01xSY-JhTMgcNe-tGiNYqsVkrbII3NoWk0KO1MumGTJV1CX1DZb7qCUFR9lOlx9oQoAtuuAiMockw9inV9CuMwsVRIAA7h5qrrjKqAZ65SfmWt0bq73FFlircuF1x7LkEsABbzJGznX7y5q8Qo76unECnZw_QOKIF7JeYlshwpIbb-6i4qktHbqbOZ5lHEe5U2nuCmE1QVj80sMPoFvcRTa-D1WptAgnL_gHlZqnsLppUPlJ17RVpoXfmF5qkxC6q3P_d5Et2x_4MUKPAeeMc9cGp2vHZBITl5Uqs472avmEnAaa8Ob9g7eeJIIVcQOlg7gXwgpeoxeyuTYHGaAeOiyoNCihv8QBP3SPTA0HnK0KnaXLixBddFtUo97JPVxMDeEsdEeiXqooalU2qJ_BAqOHbk6zUEb3EaZa-2LpslUdktWiP6YaGJgUePX-2JBS4BmN_rfIjVlsikaObNC1U9hhX1ea0FHuThyzijnVqVdze9-fcFszuvJIar3eXf7tzXPzW_JahCXJr-eMdNx68Bpu7Bj-485LL_P0F09mhS219DTWoBVoflXSOF9UE8eE8kiybDGL__qfFfRJwB_-8qEFoDRj1f-wcrWxRYx16yZdiEYBXaMM7KR83Fhiru2gFNFSExAERAqZdBC_PWIicVhHl7nRkAMnlZ7Wu9uu3CGA1v_MqXXgXxvqaqpWlMJxjJMyNHZfA5Th3VwA9NNgB3nOK0umNT8BUVx371VRqreNByWsme6Ara66ZRd9EuPwFQAoz3-q64KqgbfRRiPWjv7edgi6e49BEUBE26B7e1XW2muTnJxncZfp8jF3g9g0P5pBiNf9Z_7w5gXRyU2ZhfNuHrb2epYnBQrq_LyEOsZC2aG2cQgyqRr5-6vdsH0giZoXneSUCqEsuaNmIgY7zLb9gd98oRy1DnwcEpwJY7Ja_lzwMKR9-Bc9MPLt9x_zYQKYR7TRTFOPQDLCtce6wJ4o5r5AbYmn0Vo33ceURUtI6_I3fRH1Bv3W7pydx9QAgI2BVF-2OD2Rwzai2MUghm3yUah-wYjbQGao7VYRT9h7Fcr--qW8W0GYMgGZYbO7_J7A5KixWGA375AH3-_4L4n87IlfxNqd8nvEb7e2hABTrznLm1dgMzYBCSF-O7tFEr24TzWfsA9L0awYgw1v2qN-9-eESJphwJ6KyYNa78ar2cCgc6M6Xsnza8fZJa-BcJrBI-gW_Y830PoQMtsCtgglC4KBu6W0sAwzgr98EKjOgGHNB7Le0qzLO-HAFUyepGOZ2q3bVU0_poNEgEfjpXanfvDtAxZ00Jjdn5AhKumbb9gwxnEmKgAIRmf9eOxr99jABC4Y6GdtBMX3PV6MHRB1N0W11-HpFtO6tTZ5Ui-YEWYPfZfuwqyMG2poXqlepeJNpbTPT65bjtOpMTAb6LZ23M5ezFEOf";
+  const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
+  const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
   try {
     const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-    const path = `/${folder}/${safeName}`;
-    const uploadRes = await fetch("https://content.dropboxapi.com/2/files/upload", {
+    const path = `${folder}/${safeName}`;
+    const res = await fetch(`${SB_URL}/storage/v1/object/attachments/${path}`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${DBX_TOKEN}`,
-        "Dropbox-API-Arg": JSON.stringify({ path, mode: "overwrite", autorename: false, mute: true }),
-        "Content-Type": "application/octet-stream",
+        "Authorization": `Bearer ${SB_KEY}`,
+        "Content-Type": file.type || "application/octet-stream",
       },
       body: file,
     });
-    if (!uploadRes.ok) { console.warn("Dropbox file upload failed"); return null; }
-    const linkRes = await fetch("https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${DBX_TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ path, settings: { requested_visibility: "public" } }),
-    });
-    if (linkRes.ok) {
-      const linkData = await linkRes.json();
-      return (linkData.url || "").replace("?dl=0", "?raw=1").replace("www.dropbox.com", "dl.dropboxusercontent.com");
+    if (!res.ok) {
+      const err = await res.text();
+      console.warn("Supabase upload failed:", err);
+      return null;
     }
-    const existRes = await fetch("https://api.dropboxapi.com/2/sharing/list_shared_links", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${DBX_TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ path }),
-    });
-    if (existRes.ok) {
-      const existData = await existRes.json();
-      const existing = existData.links?.[0]?.url;
-      if (existing) return existing.replace("?dl=0", "?raw=1").replace("www.dropbox.com", "dl.dropboxusercontent.com");
-    }
-    return null;
-  } catch (e) { console.warn("dbxUploadFileGlobal error", e); return null; }
+    // Return permanent public URL
+    return `${SB_URL}/storage/v1/object/public/attachments/${path}`;
+  } catch (e) { console.warn("sbUploadFile error", e); return null; }
 }
 function getChannelForCustomer(customer) {
   return CUSTOMER_CHANNEL_MAP[customer] || "";
