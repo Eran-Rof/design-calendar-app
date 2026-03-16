@@ -2202,21 +2202,25 @@ function ImageUploader({ images = [], onChange, label = "Images" }) {
               style={{ position: "relative", width: 80, height: 80 }}
             >
               {isImage ? (
-              <img
-                src={img.src}
-                alt={img.name}
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                  borderRadius: 8,
-                  border: `1px solid ${TH.border}`,
-                  opacity: img.type === "uploading" ? 0.4 : 1,
-                }}
-              />
-              {img.type === "uploading" && (
-                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8, fontSize: 16 }}>⏳</div>
-              )}
+              <div style={{ position: "relative", width: "100%", height: "100%" }}>
+                <img
+                  src={img.src}
+                  alt={img.name}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    borderRadius: 8,
+                    border: `1px solid ${TH.border}`,
+                    opacity: img.type === "uploading" ? 0.4 : 1,
+                  }}
+                />
+                {img.type === "uploading" && (
+                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8, fontSize: 16 }}>⏳</div>
+                )}
+              </div>
+              ) : img.type === "uploading" ? (
+              <div style={{ width: "100%", height: "100%", borderRadius: 8, border: `1px solid ${TH.border}`, display: "flex", alignItems: "center", justifyContent: "center", background: TH.surfaceHi, fontSize: 20 }}>⏳</div>
               ) : (
               <a href={img.src} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
                 <div style={{
