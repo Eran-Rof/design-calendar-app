@@ -1881,7 +1881,7 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser }) {
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => { setForm({ ...u, permissions: u.permissions || { view_own: true, edit_own: true } }); setEditing(u.id); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
-              {u.role !== "admin" && <button onClick={() => setUsers((us) => us.filter((x) => x.id !== u.id))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Remove</button>}
+              <button onClick={() => setUsers((us) => us.filter((x) => x.id !== u.id))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Remove</button>
             </div>
           </div>
         ))}
@@ -2096,6 +2096,8 @@ function ImageUploader({ images = [], onChange, label = "Images" }) {
 
   const [uploading, setUploading] = useState(false);
   const [uploadingCount, setUploadingCount] = useState(0);
+  // Keep a ref to track pending uploads so we can update the parent correctly
+  const pendingImagesRef = useRef([]);
 
   async function handleFiles(files) {
     const validFiles = Array.from(files).filter(f =>
@@ -2103,7 +2105,7 @@ function ImageUploader({ images = [], onChange, label = "Images" }) {
     );
     if (!validFiles.length) return;
 
-    // Step 1: immediately add all files as base64 placeholders so user can keep working
+    // Step 1: immediately add placeholders so user can keep working
     const newImgs = [];
     for (const f of validFiles) {
       const isImg = f.type.startsWith("image/");
@@ -2111,26 +2113,34 @@ function ImageUploader({ images = [], onChange, label = "Images" }) {
       newImgs.push({ id: uid(), src: preview || "", name: f.name, type: "uploading", file: f });
     }
 
-    // Add placeholders immediately — user can save now, won't lose anything
     const combined = [...images, ...newImgs];
+    pendingImagesRef.current = combined;
     onChange(combined);
     if (fileRef.current) fileRef.current.value = "";
+    setUploadingCount(c => c + newImgs.length);
 
     // Step 2: upload each file to Dropbox in the background
-    setUploadingCount(c => c + newImgs.length);
     for (const img of newImgs) {
       (async () => {
-        const dbxUrl = await dbxUploadFileGlobal(img.file, "images");
-        // Swap placeholder src with real Dropbox URL via onChange
-        onChange((prev) => {
-          const updated = (Array.isArray(prev) ? prev : combined).map(i =>
+        try {
+          const dbxUrl = await dbxUploadFileGlobal(img.file, "images");
+          // Update the ref and call onChange with a plain array (no function updater)
+          pendingImagesRef.current = pendingImagesRef.current.map(i =>
             i.id === img.id
-              ? { ...i, src: dbxUrl || i.src, type: dbxUrl ? "dropbox" : "base64", file: undefined }
+              ? { id: i.id, src: dbxUrl || i.src, name: i.name, type: dbxUrl ? "dropbox" : "base64" }
               : i
           );
-          return updated;
-        });
-        setUploadingCount(c => Math.max(0, c - 1));
+          onChange(pendingImagesRef.current);
+        } catch (e) {
+          console.warn("Background upload error:", e);
+          // On error, mark as base64 (already has preview)
+          pendingImagesRef.current = pendingImagesRef.current.map(i =>
+            i.id === img.id ? { ...i, type: "base64", file: undefined } : i
+          );
+          onChange(pendingImagesRef.current);
+        } finally {
+          setUploadingCount(c => Math.max(0, c - 1));
+        }
       })();
     }
   }
