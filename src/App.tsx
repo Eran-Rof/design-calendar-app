@@ -8597,79 +8597,129 @@ function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, te
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
-  // ── Dropbox persistence ───────────────────────────────────────────────────
-  const DBX_TOKEN = "sl.u.AGUcjMEcACemDUZHoLi92xdgZ13WI8iSDzLrDH79Xgcn7fQKuN8tfpn01xSY-JhTMgcNe-tGiNYqsVkrbII3NoWk0KO1MumGTJV1CX1DZb7qCUFR9lOlx9oQoAtuuAiMockw9inV9CuMwsVRIAA7h5qrrjKqAZ65SfmWt0bq73FFlircuF1x7LkEsABbzJGznX7y5q8Qo76unECnZw_QOKIF7JeYlshwpIbb-6i4qktHbqbOZ5lHEe5U2nuCmE1QVj80sMPoFvcRTa-D1WptAgnL_gHlZqnsLppUPlJ17RVpoXfmF5qkxC6q3P_d5Et2x_4MUKPAeeMc9cGp2vHZBITl5Uqs472avmEnAaa8Ob9g7eeJIIVcQOlg7gXwgpeoxeyuTYHGaAeOiyoNCihv8QBP3SPTA0HnK0KnaXLixBddFtUo97JPVxMDeEsdEeiXqooalU2qJ_BAqOHbk6zUEb3EaZa-2LpslUdktWiP6YaGJgUePX-2JBS4BmN_rfIjVlsikaObNC1U9hhX1ea0FHuThyzijnVqVdze9-fcFszuvJIar3eXf7tzXPzW_JahCXJr-eMdNx68Bpu7Bj-485LL_P0F09mhS219DTWoBVoflXSOF9UE8eE8kiybDGL__qfFfRJwB_-8qEFoDRj1f-wcrWxRYx16yZdiEYBXaMM7KR83Fhiru2gFNFSExAERAqZdBC_PWIicVhHl7nRkAMnlZ7Wu9uu3CGA1v_MqXXgXxvqaqpWlMJxjJMyNHZfA5Th3VwA9NNgB3nOK0umNT8BUVx371VRqreNByWsme6Ara66ZRd9EuPwFQAoz3-q64KqgbfRRiPWjv7edgi6e49BEUBE26B7e1XW2muTnJxncZfp8jF3g9g0P5pBiNf9Z_7w5gXRyU2ZhfNuHrb2epYnBQrq_LyEOsZC2aG2cQgyqRr5-6vdsH0giZoXneSUCqEsuaNmIgY7zLb9gd98oRy1DnwcEpwJY7Ja_lzwMKR9-Bc9MPLt9x_zYQKYR7TRTFOPQDLCtce6wJ4o5r5AbYmn0Vo33ceURUtI6_I3fRH1Bv3W7pydx9QAgI2BVF-2OD2Rwzai2MUghm3yUah-wYjbQGao7VYRT9h7Fcr--qW8W0GYMgGZYbO7_J7A5KixWGA375AH3-_4L4n87IlfxNqd8nvEb7e2hABTrznLm1dgMzYBCSF-O7tFEr24TzWfsA9L0awYgw1v2qN-9-eESJphwJ6KyYNa78ar2cCgc6M6Xsnza8fZJa-BcJrBI-gW_Y830PoQMtsCtgglC4KBu6W0sAwzgr98EKjOgGHNB7Le0qzLO-HAFUyepGOZ2q3bVU0_poNEgEfjpXanfvDtAxZ00Jjdn5AhKumbb9gwxnEmKgAIRmf9eOxr99jABC4Y6GdtBMX3PV6MHRB1N0W11-HpFtO6tTZ5Ui-YEWYPfZfuwqyMG2poXqlepeJNpbTPT65bjtOpMTAb6LZ23M5ezFEOf";
-  
-  async function dbxUpload(filename, data) {
-    console.log("[DBX] uploading:", filename);
-    try {
-      const res = await fetch("https://content.dropboxapi.com/2/files/upload", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${DBX_TOKEN}`,
-          "Dropbox-API-Arg": JSON.stringify({
-            path: `/${filename}`,
-            mode: "overwrite",
-            autorename: false,
-            mute: true,
-          }),
-          "Content-Type": "application/octet-stream",
-        },
-        body: JSON.stringify(data),
-      });
-      const txt = await res.text();
-      if (!res.ok) {
-        console.error("[DBX] upload FAILED", res.status, txt);
-      } else {
-        console.log("[DBX] upload OK:", filename);
-      }
-    } catch (e) { console.error("[DBX] upload ERROR:", e); }
+  // ── Supabase persistence ─────────────────────────────────────────────────
+  const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
+  const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
+
+  async function sbFetch(table: string, method = "GET", body?: any, filter?: string) {
+    const url = `${SB_URL}/rest/v1/${table}${filter ? "?" + filter : ""}`;
+    const res = await fetch(url, {
+      method,
+      headers: {
+        "apikey": SB_KEY,
+        "Authorization": `Bearer ${SB_KEY}`,
+        "Content-Type": "application/json",
+        "Prefer": method === "POST" ? "return=representation" : method === "PATCH" ? "return=representation" : "",
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error(`[SB] ${method} ${table} failed:`, res.status, err);
+      return null;
+    }
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
   }
 
-  async function dbxDownload(filename) {
-    console.log("[DBX] downloading:", filename);
-    try {
-      const res = await fetch("https://content.dropboxapi.com/2/files/download", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${DBX_TOKEN}`,
-          "Dropbox-API-Arg": JSON.stringify({ path: `/${filename}` }),
-        },
-      });
-      if (!res.ok) {
-        const txt = await res.text();
-        console.warn("[DBX] download FAILED", filename, res.status, txt);
-        return null;
-      }
-      const text = await res.text();
-      console.log("[DBX] download OK:", filename);
-      return JSON.parse(text);
-    } catch (e) { console.error("[DBX] download ERROR:", filename, e); return null; }
+  // Upsert a single row by id
+  async function sbUpsert(table: string, row: any) {
+    await sbFetch(table, "POST", row, "on_conflict=id");
+  }
+
+  // Upsert all rows in an array
+  async function sbUpsertAll(table: string, rows: any[]) {
+    if (!rows.length) return;
+    await sbFetch(table, "POST", rows, "on_conflict=id");
+  }
+
+  // Load all rows from a table
+  async function sbLoad(table: string) {
+    return await sbFetch(table, "GET", undefined, "select=*");
+  }
+
+  // Delete a row by id
+  async function sbDelete(table: string, id: string) {
+    await sbFetch(table, "DELETE", undefined, `id=eq.${id}`);
   }
 
   const [dbxLoaded, setDbxLoaded] = useState(false);
 
-  function usePersist(key, fallback) {
-    const [val, setVal] = useState(fallback);
-    const setter = (updater) => {
-      setVal((prev) => {
+  // Collections are stored as {brand||collection: data} object in app state
+  // but as individual rows in Supabase. These helpers convert between formats.
+  function collObjToRows(collObj: any) {
+    return Object.entries(collObj).map(([key, val]: [string, any]) => {
+      const [brand, collection] = key.split("||");
+      return { id: key, brand, collection, ...val };
+    });
+  }
+  function collRowsToObj(rows: any[]) {
+    const obj: any = {};
+    rows.forEach(r => {
+      const key = `${r.brand}||${r.collection}`;
+      obj[key] = r;
+    });
+    return obj;
+  }
+
+  // Seasons are stored as string array in app state but as {id, name} rows in Supabase
+  function seasonsToRows(seasons: string[]) {
+    return seasons.map(s => ({ id: s, name: s }));
+  }
+  function rowsToSeasons(rows: any[]) {
+    return rows.map(r => r.name);
+  }
+
+  // Order types are stored as string array
+  function orderTypesToRows(ots: string[]) {
+    return ots.map(o => ({ id: o, name: o }));
+  }
+  function rowsToOrderTypes(rows: any[]) {
+    return rows.map(r => r.name);
+  }
+
+  // Size library stored as array of {name, sizes[]}
+  function sizeLibToRows(lib: any[]) {
+    return lib.map(s => ({ id: s.name, ...s }));
+  }
+
+  // Categories stored as string array
+  function categoriesToRows(cats: string[]) {
+    return cats.map(c => ({ id: c, name: c }));
+  }
+  function rowsToCategories(rows: any[]) {
+    return rows.map(r => r.name);
+  }
+
+  // ── useState for all data ──────────────────────────────────────────────────
+  // We keep local state and sync to Supabase on every change
+  function usePersistSb(initial: any, tableName: string, toRows?: (v:any)=>any[], fromRows?: (r:any[])=>any) {
+    const [val, setVal] = useState(initial);
+    const setter = (updater: any) => {
+      setVal((prev: any) => {
         const next = typeof updater === "function" ? updater(prev) : updater;
-        dbxUpload(`${key}.json`, next);
+        // Sync to Supabase in background
+        (async () => {
+          try {
+            const rows = toRows ? toRows(next) : (Array.isArray(next) ? next : [next]);
+            if (rows.length > 0) await sbUpsertAll(tableName, rows);
+          } catch(e) { console.warn("[SB] sync error:", tableName, e); }
+        })();
         return next;
       });
     };
-    return [val, setter];
+    return [val, setVal, setter] as const;
   }
 
-  const [users, setUsers] = usePersist("rof_users", DEFAULT_USERS);
+  const [users,, setUsers] = usePersistSb(DEFAULT_USERS, "users");
   const [currentUser, setCurrentUser] = useState(null);
-  const [brands, setBrands] = usePersist("rof_brands", BRANDS);
-  const [seasons, setSeasons] = usePersist("rof_seasons", SEASONS);
-  const [customers, setCustomers] = usePersist("rof_customers", DEFAULT_CUSTOMERS.map(n => ({ name: n, channel: CUSTOMER_CHANNEL_MAP[n] || "" })));
-  const [vendors, setVendors] = usePersist("rof_vendors", SAMPLE_VENDORS);
-  const [team, setTeam] = usePersist("rof_team", SAMPLE_TEAM);
-  const [tasks, setTasks] = usePersist("rof_tasks", []);
-  const [collections, setCollections] = usePersist("rof_collections", {});
+  const [brands,, setBrands] = usePersistSb(BRANDS, "brands");
+  const [seasons,, setSeasons] = usePersistSb(SEASONS, "seasons", seasonsToRows, rowsToSeasons);
+  const [customers,, setCustomers] = usePersistSb(DEFAULT_CUSTOMERS.map(n => ({ id: n, name: n, channel: CUSTOMER_CHANNEL_MAP[n] || "" })), "customers");
+  const [vendors,, setVendors] = usePersistSb(SAMPLE_VENDORS, "vendors");
+  const [team,, setTeam] = usePersistSb(SAMPLE_TEAM, "team");
+  const [tasks,, setTasks] = usePersistSb([], "tasks");
+  const [collections,, setCollections] = usePersistSb({}, "collections", collObjToRows, collRowsToObj);
   const [view, setView] = useState("dashboard");
   const [filterBrand, setFilterBrand] = useState<Set<string>>(new Set());
   const [filterSeason, setFilterSeason] = useState<Set<string>>(new Set());
@@ -8683,8 +8733,8 @@ export default function App() {
   const [showUsers, setShowUsers] = useState(false);
   const [showSizeLib, setShowSizeLib] = useState(false);
   const [showCatLib, setShowCatLib] = useState(false);
-  const [sizeLibrary, setSizeLibrary] = usePersist("rof_sizes", DEFAULT_SIZES);
-  const [categoryLib, setCategoryLib] = usePersist("rof_categories", DEFAULT_CATEGORIES);
+  const [sizeLibrary,, setSizeLibrary] = usePersistSb(DEFAULT_SIZES, "size_library", sizeLibToRows);
+  const [categoryLib,, setCategoryLib] = usePersistSb(DEFAULT_CATEGORIES, "categories", categoriesToRows, rowsToCategories);
   const [editTask, setEditTask] = useState(null);
   const [dragId, setDragId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
@@ -8696,7 +8746,7 @@ export default function App() {
   const [showSeasons, setShowSeasons] = useState(false);
   const [showCustomers, setShowCustomers] = useState(false);
   const [showOrderTypes, setShowOrderTypes] = useState(false);
-  const [orderTypes, setOrderTypes] = usePersist("rof_orderTypes", [...ORDER_TYPES]);
+  const [orderTypes,, setOrderTypes] = usePersistSb([...ORDER_TYPES], "order_types", orderTypesToRows, rowsToOrderTypes);
   const [miniCalDragOver, setMiniCalDragOver] = useState(null);
   const [teamsConfig, setTeamsConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem("teamsConfig") || "null") || { clientId: "", tenantId: "", channelMap: {} }; }
@@ -8711,30 +8761,45 @@ export default function App() {
   // Shadow the global getBrand with the stateful version for all inner components
   const getBrand = getBrandDyn;
 
-  // ── Load all data from Dropbox on startup ────────────────────────────────
+  // ── Load all data from Supabase on startup ───────────────────────────────
   useEffect(() => {
     async function loadAll() {
-      console.log("[DBX] loadAll starting...");
-      const files = [
-        ["rof_tasks", setTasks],
-        ["rof_collections", setCollections],
-        ["rof_vendors", setVendors],
-        ["rof_team", setTeam],
-        ["rof_users", setUsers],
-        ["rof_brands", setBrands],
-        ["rof_seasons", setSeasons],
-        ["rof_customers", setCustomers],
-        ["rof_sizes", setSizeLibrary],
-        ["rof_categories", setCategoryLib],
-        ["rof_orderTypes", setOrderTypes],
-      ];
-      await Promise.all(
-        files.map(async ([key, setter]) => {
-          const data = await dbxDownload(`${key}.json`);
-          if (data !== null) setter(data);
-        })
-      );
-      console.log("[DBX] loadAll complete, setting loaded=true");
+      console.log("[SB] loadAll starting...");
+      try {
+        const [
+          usersRows, brandsRows, seasonsRows, customersRows,
+          vendorsRows, teamRows, tasksRows, collectionsRows,
+          sizesRows, categoriesRows, orderTypesRows
+        ] = await Promise.all([
+          sbLoad("users"),
+          sbLoad("brands"),
+          sbLoad("seasons"),
+          sbLoad("customers"),
+          sbLoad("vendors"),
+          sbLoad("team"),
+          sbLoad("tasks"),
+          sbLoad("collections"),
+          sbLoad("size_library"),
+          sbLoad("categories"),
+          sbLoad("order_types"),
+        ]);
+
+        if (usersRows?.length) setUsers(usersRows);
+        if (brandsRows?.length) setBrands(brandsRows);
+        if (seasonsRows?.length) setSeasons(rowsToSeasons(seasonsRows));
+        if (customersRows?.length) setCustomers(customersRows);
+        if (vendorsRows?.length) setVendors(vendorsRows);
+        if (teamRows?.length) setTeam(teamRows);
+        if (tasksRows?.length) setTasks(tasksRows);
+        if (collectionsRows?.length) setCollections(collRowsToObj(collectionsRows));
+        if (sizesRows?.length) setSizeLibrary(sizesRows);
+        if (categoriesRows?.length) setCategoryLib(rowsToCategories(categoriesRows));
+        if (orderTypesRows?.length) setOrderTypes(rowsToOrderTypes(orderTypesRows));
+
+        console.log("[SB] loadAll complete");
+      } catch(e) {
+        console.error("[SB] loadAll error:", e);
+      }
       setDbxLoaded(true);
     }
     loadAll();
@@ -8796,7 +8861,7 @@ export default function App() {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", background: "#0F172A", gap: 16 }}>
         <div style={{ fontSize: 32 }}>🔄</div>
-        <div style={{ color: "#fff", fontSize: 16, fontWeight: 600 }}>Loading from Dropbox…</div>
+        <div style={{ color: "#fff", fontSize: 16, fontWeight: 600 }}>Loading from Supabase…</div>
         <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Syncing your data</div>
       </div>
     );
@@ -8864,14 +8929,17 @@ export default function App() {
     const clean = { ...f };
     // Each task keeps its own images — no spreading
     setTasks((ts) => ts.map((t) => (t.id === clean.id ? clean : t)));
+    sbUpsert("tasks", clean);
     setEditTask(null);
   }
 
   function saveCascade(updatedTasks) {
     setTasks(updatedTasks);
+    sbUpsertAll("tasks", updatedTasks);
   }
   function deleteTask(id) {
     setTasks((ts) => ts.filter((t) => t.id !== id));
+    sbDelete("tasks", id);
     setEditTask(null);
   }
 
