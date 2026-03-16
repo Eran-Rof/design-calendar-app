@@ -1650,7 +1650,9 @@ function BrandManager({ brands, setBrands, isAdmin = false }) {
 
 // ─── LOGIN SCREEN ─────────────────────────────────────────────────────────────
 function LoginScreen({ users, onLogin, teamsConfig, onTeamsToken }) {
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(() => {
+    try { return localStorage.getItem("last_username") || ""; } catch { return ""; }
+  });
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -1710,6 +1712,7 @@ function LoginScreen({ users, onLogin, teamsConfig, onTeamsToken }) {
     );
     if (user) {
       setError("");
+      try { localStorage.setItem("last_username", username.trim()); } catch {}
       doTeamsAuth(user);
     } else setError("Invalid username or password.");
   }
@@ -7349,7 +7352,7 @@ function TaskManager({ tasks, setTasks, collections, team, vendors, customers, o
           <button onClick={() => setAddMode(true)} style={S.btn}>+ Add Task</button>
         </div>
       </div>
-      <div style={{ display: "grid", gap: 6, maxHeight: 500, overflowY: "auto" }}>
+      <div style={{ display: "grid", gap: 6, maxHeight: "calc(70vh - 180px)", overflowY: "auto" }}>
         {filtered.map(t => (
           <div key={t.id} style={{ ...S.card, display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ flex: 1 }}>
