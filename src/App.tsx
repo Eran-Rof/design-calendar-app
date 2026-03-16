@@ -2088,7 +2088,7 @@ function ConfirmModal({
   );
 }
 
-function ImageUploader({ images = [], onChange, label = "Images" }) {
+function ImageUploader({ images = [], onChange, label = "Attachments" }) {
   const fileRef = useRef();
   const focusStealRef = useRef<HTMLButtonElement>(null);
   const [urlInput, setUrlInput] = useState("");
@@ -8064,15 +8064,134 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
   );
 }
 
-// ─── FILTER BAR with collapsible Brand + Season dropdowns ────────────────────
+// ─── FILTER BAR ─────────────────────────────────────────────────────────────
 function FilterBar({
-  brands,
-  seasons,
-  filterBrand,
-  setFilterBrand,
-  filterSeason,
-  setFilterSeason,
+  brands, seasons, customers, vendors,
+  filterBrand, setFilterBrand,
+  filterSeason, setFilterSeason,
+  filterCustomer, setFilterCustomer,
+  filterVendor, setFilterVendor,
   canViewAll,
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handle(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+
+  function toggle(set, val) {
+    set((prev) => {
+      const next = new Set(prev);
+      if (next.has(val)) next.delete(val); else next.add(val);
+      return next;
+    });
+  }
+
+  const totalActive = filterBrand.size + filterSeason.size + filterCustomer.size + filterVendor.size;
+  const hasActive = totalActive > 0;
+
+  const section = (title) => (
+    <div style={{ padding: "8px 14px 4px", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+      {title}
+    </div>
+  );
+
+  const item = (label, isChecked, onToggle, color?) => (
+    <button
+      key={label}
+      onClick={(e) => { e.stopPropagation(); onToggle(); }}
+      style={{
+        display: "flex", alignItems: "center", gap: 10, width: "100%",
+        padding: "7px 14px", border: "none",
+        background: isChecked ? "rgba(255,255,255,0.08)" : "none",
+        color: isChecked ? "#fff" : "rgba(255,255,255,0.7)",
+        cursor: "pointer", fontFamily: "inherit", fontSize: 12,
+        fontWeight: isChecked ? 600 : 400, textAlign: "left",
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+      onMouseLeave={(e) => (e.currentTarget.style.background = isChecked ? "rgba(255,255,255,0.08)" : "none")}
+    >
+      <div style={{
+        width: 14, height: 14, borderRadius: 3, flexShrink: 0,
+        border: `2px solid ${isChecked ? "#fff" : "rgba(255,255,255,0.3)"}`,
+        background: isChecked ? "#fff" : "transparent",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        {isChecked && <span style={{ fontSize: 9, color: "#1A202C", fontWeight: 900, lineHeight: 1 }}>✓</span>}
+      </div>
+      {color && <span style={{ width: 10, height: 10, borderRadius: "50%", background: color, flexShrink: 0 }} />}
+      {label}
+    </button>
+  );
+
+  return (
+    <div style={{ padding: "10px 22px", borderBottom: "1px solid rgba(255,255,255,0.1)", display: "flex", gap: 8, alignItems: "center", background: "#2D3748dd", backdropFilter: "blur(8px)" }}>
+      <div ref={ref} style={{ position: "relative" }}>
+        <button
+          onClick={() => setOpen(v => !v)}
+          style={{
+            padding: "5px 12px", borderRadius: 8,
+            border: `1px solid ${hasActive ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.15)"}`,
+            background: hasActive ? "rgba(255,255,255,0.12)" : "none",
+            color: hasActive ? "#fff" : "rgba(255,255,255,0.7)",
+            cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600,
+            display: "flex", alignItems: "center", gap: 6,
+          }}
+        >
+          🔽 Filters
+          {hasActive && (
+            <span style={{ background: "#C8210A", color: "#fff", borderRadius: 10, fontSize: 10, padding: "1px 6px", fontWeight: 700 }}>
+              {totalActive}
+            </span>
+          )}
+        </button>
+        {open && (
+          <div style={{
+            position: "absolute", top: "calc(100% + 6px)", left: 0,
+            background: "#1A202C", border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: 10, boxShadow: "0 8px 32px rgba(0,0,0,0.45)",
+            minWidth: 220, zIndex: 999, paddingBottom: 8, maxHeight: 500, overflowY: "auto",
+          }}>
+            {/* Brand */}
+            {section("Brand")}
+            {brands.map(b => item(b.name, filterBrand.has(b.id), () => toggle(setFilterBrand, b.id), b.color))}
+
+            {/* Season */}
+            {section("Season")}
+            {seasons.map(s => item(s, filterSeason.has(s), () => toggle(setFilterSeason, s), null))}
+
+            {/* Customer */}
+            {customers.length > 0 && section("Customer")}
+            {customers.map(c => {
+              const name = typeof c === "string" ? c : c.name;
+              return item(name, filterCustomer.has(name), () => toggle(setFilterCustomer, name), null);
+            })}
+
+            {/* Vendor */}
+            {vendors.length > 0 && section("Vendor")}
+            {vendors.map(v => item(v.name, filterVendor.has(v.name), () => toggle(setFilterVendor, v.name), null))}
+
+            {/* Clear all */}
+            {hasActive && (
+              <div style={{ padding: "8px 14px 0", borderTop: "1px solid rgba(255,255,255,0.08)", marginTop: 4 }}>
+                <button
+                  onClick={() => { setFilterBrand(new Set()); setFilterSeason(new Set()); setFilterCustomer(new Set()); setFilterVendor(new Set()); setOpen(false); }}
+                  style={{ width: "100%", padding: "7px", borderRadius: 7, border: "1px solid rgba(255,255,255,0.15)", background: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}
+                >
+                  ✕ Clear All Filters
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }) {
   const [brandOpen, setBrandOpen] = useState(false);
   const [seasonOpen, setSeasonOpen] = useState(false);
@@ -8891,6 +9010,8 @@ export default function App() {
   const [view, setView] = useState("dashboard");
   const [filterBrand, setFilterBrand] = useState<Set<string>>(new Set());
   const [filterSeason, setFilterSeason] = useState<Set<string>>(new Set());
+  const [filterCustomer, setFilterCustomer] = useState<Set<string>>(new Set());
+  const [filterVendor, setFilterVendor] = useState<Set<string>>(new Set());
   const [focusCollKey, setFocusCollKey] = useState(null);
   const [showNav, setShowNav] = useState(true);
   const [showWizard, setShowWizard] = useState(false);
@@ -9027,11 +9148,16 @@ export default function App() {
   const visibleTasks = canViewAll
     ? tasks
     : tasks.filter((t) => t.assigneeId === currentUser.teamMemberId);
-  const filtered = visibleTasks.filter(
-    (t) =>
+  const filtered = visibleTasks.filter((t) => {
+    const collKey = `${t.brand}||${t.collection}`;
+    const coll = collections[collKey] || {};
+    return (
       (filterBrand.size === 0 || filterBrand.has(t.brand)) &&
-      (filterSeason.size === 0 || filterSeason.has(t.season))
-  );
+      (filterSeason.size === 0 || filterSeason.has(t.season)) &&
+      (filterCustomer.size === 0 || filterCustomer.has(coll.customer || "")) &&
+      (filterVendor.size === 0 || filterVendor.has(t.vendorName || ""))
+    );
+  });
   const overdue = filtered.filter(
     (t) => getDaysUntil(t.due) < 0 && t.status !== "Complete"
   );
@@ -9046,15 +9172,10 @@ export default function App() {
 
   function addCollection(newTasks, meta) {
     const key = `${newTasks[0].brand}||${newTasks[0].collection}`;
-    // Concept images: grab images from concept task and copy to all tasks
+    // Each task keeps its own images — no spreading
     const conceptTask = newTasks.find((t) => t.phase === "Concept");
     const conceptImages = conceptTask?.images || [];
-    const tasksWithImages =
-      conceptImages.length > 0
-        ? newTasks.map((t) =>
-            t.phase === "Concept" ? t : { ...t, images: [...conceptImages] }
-          )
-        : newTasks;
+    const tasksWithImages = newTasks;
     setCollections((c) => ({
       ...c,
       [key]: {
@@ -9172,11 +9293,16 @@ export default function App() {
       };
     collMap[k].tasks.push(t);
   });
-  const collList = Object.values(collMap).filter(
-    (c) =>
+  const collList = Object.values(collMap).filter((c) => {
+    const collKey = `${c.brand}||${c.collection}`;
+    const coll = collections[collKey] || {};
+    return (
       (filterBrand.size === 0 || filterBrand.has(c.brand)) &&
-      (filterSeason.size === 0 || filterSeason.has(c.season))
-  );
+      (filterSeason.size === 0 || filterSeason.has(c.season)) &&
+      (filterCustomer.size === 0 || filterCustomer.has(coll.customer || "")) &&
+      (filterVendor.size === 0 || filterVendor.has(c.vendorName || ""))
+    );
+  });
   const allCustomers = [
     ...new Set(
       Object.values(collections)
@@ -11933,10 +12059,16 @@ export default function App() {
       <FilterBar
         brands={brands}
         seasons={seasons}
+        customers={customers}
+        vendors={vendors}
         filterBrand={filterBrand}
         setFilterBrand={setFilterBrand}
         filterSeason={filterSeason}
         setFilterSeason={setFilterSeason}
+        filterCustomer={filterCustomer}
+        setFilterCustomer={setFilterCustomer}
+        filterVendor={filterVendor}
+        setFilterVendor={setFilterVendor}
         canViewAll={canViewAll}
       />
 
