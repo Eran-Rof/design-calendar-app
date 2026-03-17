@@ -4143,19 +4143,27 @@ function buildSkuCadPage(skus, brand, showPrice, mode = "open") {
     .brand-logo { font-size: 22px; font-weight: 900; color: #C8210A; letter-spacing: -0.5px; text-transform: uppercase; }
     .brand-sub { font-size: 11px; color: #718096; margin-top: 2px; letter-spacing: 0.05em; text-transform: uppercase; }
     .page-date { font-size: 11px; color: #718096; text-align: right; }
-    .skus-grid { display: flex; flex-wrap: wrap; gap: 24px; padding: 0 32px 40px; justify-content: flex-start; }
-    .sku-card { width: 280px; border: 1px solid #E2E8F0; border-radius: 10px; overflow: hidden; break-inside: avoid; }
-    .sku-header { background: #1A202C; padding: 8px 14px; }
+
+    /* Grid: cards in each row share equal height so details always align at the same level */
+    .skus-grid { display: grid; grid-template-columns: repeat(auto-fill, 280px); gap: 24px; padding: 0 32px 40px; align-items: stretch; }
+
+    /* Each card is a flex column so the details block is pushed to the bottom */
+    .sku-card { width: 280px; border: 1px solid #E2E8F0; border-radius: 10px; overflow: hidden; break-inside: avoid; display: flex; flex-direction: column; }
+    .sku-header { background: #1A202C; padding: 8px 14px; flex-shrink: 0; }
     .style-num { font-size: 13px; font-weight: 800; color: #fff; letter-spacing: 0.05em; }
-    .sku-body { padding: 14px; }
-    .img-wrap { display: flex; justify-content: center; margin-bottom: 12px; }
-    .sku-img { max-width: 240px; max-height: 260px; object-fit: contain; border-radius: 6px; cursor: zoom-in; }
+
+    /* Body fills remaining card height, image area grows, details stay at bottom */
+    .sku-body { padding: 14px; display: flex; flex-direction: column; flex: 1; }
+    .img-wrap { flex: 1; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; min-height: 180px; }
+    .sku-img { max-width: 240px; max-height: 260px; width: 100%; object-fit: contain; border-radius: 6px; cursor: zoom-in; }
     .sku-img-placeholder { width: 240px; height: 200px; display: flex; align-items: center; justify-content: center; font-size: 48px; background: #F7FAFC; border-radius: 6px; }
-    .details { display: flex; flex-direction: column; gap: 5px; }
+
+    /* Details always pinned to bottom of card */
+    .details { flex-shrink: 0; display: flex; flex-direction: column; gap: 5px; }
     .detail-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; border-bottom: 1px solid #F0F0F0; padding-bottom: 4px; }
     .detail-label { color: #718096; font-weight: 500; flex-shrink: 0; margin-right: 8px; }
     .detail-val { color: #1A202C; font-weight: 600; text-align: right; }
-    .price-row { border-top: 2px solid #C8210A; padding-top: 6px; margin-top: 4px; }
+    .price-row { border-top: 2px solid #C8210A; padding-top: 6px; margin-top: 4px; border-bottom: none; }
     .price-val { color: #C8210A; font-size: 14px; font-weight: 800; }
     .lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:9999; align-items:center; justify-content:center; cursor:zoom-out; }
     .lightbox.active { display:flex; }
@@ -4285,6 +4293,7 @@ function TaskEditModal({
   collections,
   allTasks,
   onSave,
+  onQuietSave,
   onSaveCascade,
   onDelete,
   onClose,
@@ -4779,7 +4788,7 @@ function TaskEditModal({
                   const histEntry = { id: uid(), field: "note added", from: "", to: text.substring(0, 80), changedBy: currentUser?.name || "User", at: new Date().toISOString() };
                   const updatedTask = { ...f, notes: updatedNotes, history: [...(f.history || []), histEntry] };
                   setF(updatedTask); // Update local state
-                  onSave(updatedTask);
+                  (onQuietSave || onSave)(updatedTask); // quiet save — do not close modal
                 }} />
               )}
             </div>
@@ -5041,11 +5050,11 @@ function TaskEditModal({
               onChange={(newSkus) => {
                 if (!canEdit) return;
                 onSkuChange(collKey, newSkus);
-                // Add SKU change to task history
+                // Add SKU change to task history (quiet save — do not close modal)
                 const skuHistEntry = { id: uid(), field: "SKUs updated", from: `${skus.length} SKUs`, to: `${newSkus.length} SKUs`, changedBy: currentUser?.name || "User", at: new Date().toISOString() };
                 const updatedWithHist = { ...f, history: [...(f.history || []), skuHistEntry] };
                 setF(updatedWithHist);
-                onSave(updatedWithHist);
+                (onQuietSave || onSave)(updatedWithHist);
               }}
               brand={task.brand}
               category={task.category}
@@ -7672,6 +7681,11 @@ function TaskManager({ tasks, setTasks, collections, team, vendors, customers, o
     setEditTask(null);
     setAddMode(false);
   }
+  function handleQuietSaveTask(f) {
+    const clean = { ...f };
+    setTasks(ts => ts.map(t => t.id === clean.id ? clean : t));
+    // Do NOT close modal
+  }
 
   function handleDeleteTask(id) {
     setTasks(ts => ts.filter(t => t.id !== id));
@@ -7685,6 +7699,7 @@ function TaskManager({ tasks, setTasks, collections, team, vendors, customers, o
       collections={collections}
       allTasks={tasks}
       onSave={handleSaveTask}
+      onQuietSave={handleQuietSaveTask}
       onSaveCascade={(updatedTasks) => { setTasks(updatedTasks); setEditTask(null); }}
       onDelete={handleDeleteTask}
       onClose={() => setEditTask(null)}
@@ -9617,6 +9632,12 @@ export default function App() {
     setTasks((ts) => ts.map((t) => (t.id === clean.id ? clean : t)));
     sbSaveTask(clean); // Fast individual row upsert
     setEditTask(null);
+  }
+  function quietSaveTask(f) {
+    // Save without closing modal (used by SKU and note auto-saves)
+    const clean = { ...f };
+    setTasks((ts) => ts.map((t) => (t.id === clean.id ? clean : t)));
+    sbSaveTask(clean);
   }
 
   function saveCascade(updatedTasks) {
@@ -12612,6 +12633,7 @@ export default function App() {
           allTasks={tasks}
           vendors={vendors}
           onSave={saveTask}
+          onQuietSave={quietSaveTask}
           onSaveCascade={saveCascade}
           onDelete={deleteTask}
           onClose={() => setEditTask(null)}
