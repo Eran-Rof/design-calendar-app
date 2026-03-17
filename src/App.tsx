@@ -4116,7 +4116,7 @@ function buildSkuCadPage(skus, brand, showPrice, mode = "open") {
       s.sizes?.length ? `<div class="detail-row"><span class="detail-label">Sizes</span><span class="detail-val">${s.sizes.join(" · ")}</span></div>` : "",
       s.wholesale ? `<div class="detail-row"><span class="detail-label">Wholesale</span><span class="detail-val">$${s.wholesale}</span></div>` : "",
       s.retail ? `<div class="detail-row"><span class="detail-label">Retail</span><span class="detail-val">$${s.retail}</span></div>` : "",
-      (showPrice && s.targetSelling) ? `<div class="detail-row price-row"><span class="detail-label">Price</span><span class="detail-val price-val">$${s.targetSelling}</span></div>` : "",
+      showPrice ? `<div class="detail-row price-row"><span class="detail-label">Price</span><span class="detail-val ${s.targetSelling ? 'price-val' : 'price-tbd'}">${s.targetSelling ? "$" + s.targetSelling : "TBD"}</span></div>` : "",
     ].filter(Boolean).join("");
 
     return `
@@ -4165,6 +4165,8 @@ function buildSkuCadPage(skus, brand, showPrice, mode = "open") {
     .detail-val { color: #1A202C; font-weight: 600; text-align: right; }
     .price-row { border-top: 2px solid #C8210A; padding-top: 6px; margin-top: 4px; border-bottom: none; }
     .price-val { color: #C8210A; font-size: 14px; font-weight: 800; }
+    .price-tbd { color: #A0AEC0; font-size: 13px; font-weight: 600; font-style: italic; }
+    .price-tbd { color: #A0AEC0; font-size: 13px; font-weight: 600; font-style: italic; }
     .lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:9999; align-items:center; justify-content:center; cursor:zoom-out; }
     .lightbox.active { display:flex; }
     .lightbox img { max-width:92vw; max-height:92vh; border-radius:10px; object-fit:contain; }
