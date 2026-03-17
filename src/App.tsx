@@ -248,6 +248,22 @@ const PHASE_KEYS = [
   "DDP",
 ];
 
+
+// Default task templates — used when no custom templates exist
+const DEFAULT_TASK_TEMPLATES = [
+  { id: "tpl_concept",  phase: "Concept",        daysBeforeDDP: 168, status: "Not Started", notes: "" },
+  { id: "tpl_design",   phase: "Design",          daysBeforeDDP: 154, status: "Not Started", notes: "" },
+  { id: "tpl_techpack", phase: "Tech Pack",       daysBeforeDDP: 140, status: "Not Started", notes: "" },
+  { id: "tpl_costing",  phase: "Costing",         daysBeforeDDP: 126, status: "Not Started", notes: "" },
+  { id: "tpl_sampling", phase: "Sampling",        daysBeforeDDP: 112, status: "Not Started", notes: "" },
+  { id: "tpl_revision", phase: "Revision",        daysBeforeDDP: 84,  status: "Not Started", notes: "" },
+  { id: "tpl_po",       phase: "Purchase Order",  daysBeforeDDP: 70,  status: "Not Started", notes: "" },
+  { id: "tpl_prod",     phase: "Production",      daysBeforeDDP: 42,  status: "Not Started", notes: "" },
+  { id: "tpl_qc",       phase: "QC",              daysBeforeDDP: 14,  status: "Not Started", notes: "" },
+  { id: "tpl_ship",     phase: "Ship Date",       daysBeforeDDP: 21,  status: "Not Started", notes: "" },
+  { id: "tpl_ddp",      phase: "DDP",             daysBeforeDDP: 0,   status: "Not Started", notes: "" },
+];
+
 const STATUS_CONFIG = {
   "Not Started": {
     color: "#6B7280",
@@ -738,29 +754,30 @@ function generateTasks({
   customer,
   orderType,
   channelType,
+  taskTemplates,
 }) {
   const vendor = vendors.find((v) => v.id === vendorId);
   const transit = vendor?.transitDays || 21;
-  const lead = vendor?.lead || {
-    Concept: 168,
-    Design: 154,
-    "Tech Pack": 140,
-    Costing: 126,
-    Sampling: 112,
-    Revision: 84,
-    "Purchase Order": 70,
-    Production: 42,
-    QC: 14,
-    "Ship Date": 0,
-    DDP: 0,
-  };
+
+  // Use task templates if available, else fall back to DEFAULT_TASK_TEMPLATES
+  const templates = (taskTemplates && taskTemplates.length > 0)
+    ? taskTemplates
+    : DEFAULT_TASK_TEMPLATES;
+
+  // Vendor can override daysBeforeDDP per phase via vendor.leadOverrides
+  const vendorOverrides = vendor?.leadOverrides || {};
+
   const isPrivate = getBrand(brand).isPrivateLabel;
 
-  let phases = PHASE_KEYS.map((name) => {
-    if (name === "Ship Date") return { name, daysBack: transit };
-    if (name === "DDP") return { name, daysBack: 0 };
-    if (name === "QC") return { name, daysBack: null }; // resolved below: Production + 3 days
-    return { name, daysBack: lead[name] ?? 0 };
+  // Build phases from templates
+  let phases = templates.map((tpl) => {
+    // Vendor override takes priority, then template default
+    let daysBack = vendorOverrides[tpl.phase] !== undefined
+      ? vendorOverrides[tpl.phase]
+      : tpl.daysBeforeDDP;
+    // Ship Date uses transit days
+    if (tpl.phase === "Ship Date") daysBack = transit;
+    return { name: tpl.phase, daysBack, status: tpl.status || "Not Started", notes: tpl.notes || "", templateId: tpl.id };
   });
 
   if (isPrivate) {
@@ -769,19 +786,21 @@ function generateTasks({
     phases.splice(
       bulkIdx,
       0,
-      { name: "Line Review", daysBack: bulkDays + 42 },
-      { name: "Compliance/Testing", daysBack: bulkDays + 21 }
+      { name: "Line Review", daysBack: bulkDays + 42, status: "Not Started", notes: "" },
+      { name: "Compliance/Testing", daysBack: bulkDays + 21, status: "Not Started", notes: "" }
     );
   }
 
-  // QC = Production due date + 3 days (always 3 days after production completes)
+  // QC = Production due date + 3 days
   const prodPhase = phases.find((p) => p.name === "Production");
-  const prodDue = prodPhase ? addDays(ddpDate, -prodPhase.daysBack) : ddpDate;
-  const qcDue = addDays(prodDue, 3);
-  const qcDaysBack = Math.max(0, diffDays(ddpDate, qcDue));
-  phases = phases.map((p) =>
-    p.name === "QC" ? { ...p, daysBack: qcDaysBack } : p
-  );
+  if (prodPhase) {
+    const prodDue = addDays(ddpDate, -prodPhase.daysBack);
+    const qcDue = addDays(prodDue, 3);
+    const qcDaysBack = Math.max(0, diffDays(ddpDate, qcDue));
+    phases = phases.map((p) =>
+      p.name === "QC" ? { ...p, daysBack: qcDaysBack } : p
+    );
+  }
 
   const shipDate = addDays(ddpDate, -transit);
   const base = {
@@ -807,10 +826,10 @@ function generateTasks({
     id: uid(),
     ...base,
     phase: p.name,
-    status: "Not Started",
+    status: p.status || "Not Started",
     due: addDays(ddpDate, -p.daysBack),
     originalDue: addDays(ddpDate, -p.daysBack),
-    notes: "",
+    notes: p.notes || "",
     assigneeId: null,
     history: [],
     images: [],
@@ -2549,7 +2568,8 @@ function DateInput({ value, onChange, onBlur, style, disabled, min }) {
 }
 
 // ─── VENDOR FORM ──────────────────────────────────────────────────────────────
-function VendorForm({ vendor, onSave, onCancel }) {
+function VendorForm({ vendor, onSave, onCancel, taskTemplates }) {
+  const templates = (taskTemplates && taskTemplates.length > 0) ? taskTemplates : DEFAULT_TASK_TEMPLATES;
   const [f, setF] = useState(
     vendor || {
       id: uid(),
@@ -2560,24 +2580,18 @@ function VendorForm({ vendor, onSave, onCancel }) {
       contact: "",
       email: "",
       moq: 0,
-      lead: {
-        Concept: 168,
-        Design: 154,
-        "Tech Pack": 140,
-        Costing: 126,
-        Sampling: 112,
-        Revision: 84,
-        "Purchase Order": 70,
-        Production: 42,
-        QC: 14,
-        "Ship Date": 0,
-        DDP: 0,
-      },
+      leadOverrides: {}, // per-phase override: { "Sampling": 90 }
     }
   );
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
-  const setL = (k, v) =>
-    setF((x) => ({ ...x, lead: { ...x.lead, [k]: parseInt(v) || 0 } }));
+  const setOverride = (phase, val) =>
+    setF((x) => ({ ...x, leadOverrides: { ...(x.leadOverrides || {}), [phase]: parseInt(val) || 0 } }));
+  const clearOverride = (phase) =>
+    setF((x) => {
+      const next = { ...(x.leadOverrides || {}) };
+      delete next[phase];
+      return { ...x, leadOverrides: next };
+    });
   const toggleCat = (c) =>
     setF((x) => ({
       ...x,
@@ -2672,38 +2686,39 @@ function VendorForm({ vendor, onSave, onCancel }) {
           </button>
         ))}
       </div>
-      <span style={S.sec}>Lead Times (days before DDP)</span>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4,1fr)",
-          gap: 10,
-          marginBottom: 20,
-        }}
-      >
-        {[
-          "Concept",
-          "Design",
-          "Tech Pack",
-          "Costing",
-          "Sampling",
-          "Revision",
-          "Purchase Order",
-          "Production",
-          "QC",
-        ].map((phase) => (
-          <div key={phase}>
-            <div style={{ fontSize: 10, color: TH.textMuted, marginBottom: 3 }}>
-              {phase}
+      <span style={S.sec}>Lead Time Overrides (days before DDP)</span>
+      <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 10, lineHeight: 1.5 }}>
+        Task templates define the default lead times. Enter overrides below only if this vendor differs. Leave blank to use the template default.
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 20 }}>
+        {templates.filter(tpl => tpl.phase !== "DDP" && tpl.phase !== "Ship Date").map(tpl => {
+          const override = (f.leadOverrides || {})[tpl.phase];
+          const hasOverride = override !== undefined && override !== "";
+          return (
+            <div key={tpl.id}>
+              <div style={{ fontSize: 10, color: hasOverride ? TH.primary : TH.textMuted, fontWeight: hasOverride ? 700 : 400, marginBottom: 3 }}>
+                {tpl.phase}
+                {!hasOverride && <span style={{ color: TH.border, fontWeight: 400 }}> (default: {tpl.daysBeforeDDP})</span>}
+              </div>
+              <div style={{ display: "flex", gap: 4 }}>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder={String(tpl.daysBeforeDDP)}
+                  style={{ ...S.inp, marginBottom: 0, padding: "6px 8px", borderColor: hasOverride ? TH.primary + "88" : TH.border, flex: 1 }}
+                  value={hasOverride ? override : ""}
+                  onChange={e => {
+                    if (e.target.value === "") clearOverride(tpl.phase);
+                    else setOverride(tpl.phase, e.target.value);
+                  }}
+                />
+                {hasOverride && (
+                  <button onClick={() => clearOverride(tpl.phase)} title="Reset to default" style={{ padding: "4px 7px", borderRadius: 6, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>✕</button>
+                )}
+              </div>
             </div>
-            <input
-              type="number"
-              style={{ ...S.inp, marginBottom: 0, padding: "7px 10px" }}
-              value={f.lead[phase] || 0}
-              onChange={(e) => setL(phase, e.target.value)}
-            />
-          </div>
-        ))}
+          );
+        })}
       </div>
       <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
         <button
@@ -2732,7 +2747,7 @@ function VendorForm({ vendor, onSave, onCancel }) {
   );
 }
 
-function VendorManager({ vendors, setVendors, isAdmin = false }) {
+function VendorManager({ vendors, setVendors, isAdmin = false, taskTemplates }) {
   const fileRef = useRef();
   const [msg, setMsg] = useState(null);
   if (!isAdmin) return (
@@ -2829,6 +2844,7 @@ function VendorManager({ vendors, setVendors, isAdmin = false }) {
           Add New Vendor
         </div>
         <VendorForm
+          taskTemplates={taskTemplates}
           onSave={(v) => {
             setVendors((vs) => [...vs, { ...v, id: uid() }]);
             setEditing(null);
@@ -2846,6 +2862,7 @@ function VendorManager({ vendors, setVendors, isAdmin = false }) {
         </div>
         <VendorForm
           vendor={v}
+          taskTemplates={taskTemplates}
           onSave={(u) => {
             setVendors((vs) => vs.map((x) => (x.id === editing ? u : x)));
             setEditing(null);
@@ -5479,7 +5496,7 @@ function PrevTaskInput({ fromPrev, onCommit }) {
 }
 
 // ─── COLLECTION WIZARD ────────────────────────────────────────────────────────
-function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSave, onClose }) {
+function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSave, onClose, taskTemplates }) {
   const [step, setStep] = useState(1);
 
   // Compute initial recommended vendor for Denim (default category)
@@ -5540,7 +5557,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
 
   // Build preview tasks from editPhases
   const previewTasks =
-    form.ddpDate && form.vendorId ? generateTasks({ ...form, vendors }) : [];
+    form.ddpDate && form.vendorId ? generateTasks({ ...form, vendors, taskTemplates }) : [];
 
   // Proportional resize helper: compress pre-Production phases so first task = today, DDP unchanged
   function applyProportionalResize(rawPhases) {
@@ -7649,127 +7666,141 @@ function EditCollectionModal({
 // ─── ADD TASK MODAL ───────────────────────────────────────────────────────────
 
 // ─── TASK MANAGER (Settings) ──────────────────────────────────────────────────
-function TaskManager({ tasks, setTasks, collections, team, vendors, customers, orderTypes, isAdmin, currentUser, onSkuChange }) {
-  const [editTask, setEditTask] = useState(null);
-  const [addMode, setAddMode] = useState(false);
-  const [filterColl, setFilterColl] = useState("all");
-  const [search, setSearch] = useState("");
+function TaskManager({ taskTemplates, setTaskTemplates, isAdmin }) {
+  // Task Manager = Template Manager: defines which phases auto-populate per vendor
+  const [editing, setEditing] = useState(null); // null | "new" | template object
+  const [form, setForm] = useState(null);
 
   if (!isAdmin) return (
     <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
       <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
       <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
-      <div>Only admins can manage tasks.</div>
+      <div>Only admins can manage task templates.</div>
     </div>
   );
 
-  // Get unique collection keys
-  const collKeys = [...new Set(tasks.map(t => `${t.brand}||${t.collection}`))].sort();
+  const templates = (taskTemplates && taskTemplates.length > 0) ? taskTemplates : DEFAULT_TASK_TEMPLATES;
 
-  const filtered = tasks.filter(t => {
-    const matchColl = filterColl === "all" || `${t.brand}||${t.collection}` === filterColl;
-    const matchSearch = !search || t.phase?.toLowerCase().includes(search.toLowerCase()) || t.collection?.toLowerCase().includes(search.toLowerCase());
-    return matchColl && matchSearch;
-  });
-
-  function handleSaveTask(f) {
-    const clean = { ...f };
-    const exists = tasks.find(t => t.id === clean.id);
-    if (exists) {
-      setTasks(ts => ts.map(t => t.id === clean.id ? clean : t));
+  function startNew() {
+    setForm({ id: uid(), phase: "", daysBeforeDDP: 0, status: "Not Started", notes: "" });
+    setEditing("new");
+  }
+  function startEdit(tpl) {
+    setForm({ ...tpl });
+    setEditing(tpl.id);
+  }
+  function saveForm() {
+    if (!form.phase.trim()) return;
+    if (editing === "new") {
+      setTaskTemplates([...templates, form]);
     } else {
-      setTasks(ts => [...ts, clean]);
+      setTaskTemplates(templates.map(t => t.id === form.id ? form : t));
     }
-    setEditTask(null);
-    setAddMode(false);
+    setEditing(null);
+    setForm(null);
   }
-  function handleQuietSaveTask(f) {
-    const clean = { ...f };
-    setTasks(ts => ts.map(t => t.id === clean.id ? clean : t));
-    // Do NOT close modal
+  function deleteTemplate(id) {
+    if (!window.confirm("Delete this task template?")) return;
+    setTaskTemplates(templates.filter(t => t.id !== id));
+  }
+  function moveUp(idx) {
+    if (idx === 0) return;
+    const arr = [...templates];
+    [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
+    setTaskTemplates(arr);
+  }
+  function moveDown(idx) {
+    if (idx === templates.length - 1) return;
+    const arr = [...templates];
+    [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
+    setTaskTemplates(arr);
   }
 
-  function handleDeleteTask(id) {
-    setTasks(ts => ts.filter(t => t.id !== id));
-    setEditTask(null);
-  }
-
-  if (editTask) return (
-    <TaskEditModal
-      task={editTask}
-      team={team}
-      collections={collections}
-      allTasks={tasks}
-      onSave={handleSaveTask}
-      onQuietSave={handleQuietSaveTask}
-      onSaveCascade={(updatedTasks) => { setTasks(updatedTasks); setEditTask(null); }}
-      onDelete={handleDeleteTask}
-      onClose={() => setEditTask(null)}
-      vendors={vendors}
-      currentUser={currentUser}
-      onSkuChange={onSkuChange}
-      customerList={customers.map(c => typeof c === "string" ? c : c.name)}
-      orderTypes={orderTypes}
-    />
-  );
-
-  if (addMode) return (
-    <AddTaskModal
-      tasks={tasks}
-      vendors={vendors}
-      team={team}
-      collections={collections}
-      onSave={(task) => { setTasks(ts => [...ts, task]); }}
-      onClose={() => setAddMode(false)}
-    />
+  if (editing !== null) return (
+    <div>
+      <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
+        <button onClick={() => { setEditing(null); setForm(null); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>← Back</button>
+        <span style={S.sec}>{editing === "new" ? "New Task Template" : "Edit Task Template"}</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+        <div>
+          <label style={S.lbl}>Phase / Task Name *</label>
+          <input
+            style={S.inp}
+            value={form.phase}
+            onChange={e => setForm(f => ({ ...f, phase: e.target.value }))}
+            placeholder="e.g. Concept, Sampling, QC..."
+          />
+        </div>
+        <div>
+          <label style={S.lbl}>Days Before DDP (default lead time)</label>
+          <input
+            type="number"
+            min="0"
+            style={S.inp}
+            value={form.daysBeforeDDP}
+            onChange={e => setForm(f => ({ ...f, daysBeforeDDP: parseInt(e.target.value) || 0 }))}
+          />
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+        <div>
+          <label style={S.lbl}>Default Status</label>
+          <select style={S.inp} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+            {Object.keys(STATUS_CONFIG).map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+      </div>
+      <label style={S.lbl}>Default Notes</label>
+      <textarea
+        style={{ ...S.inp, minHeight: 80, resize: "vertical" }}
+        value={form.notes}
+        onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+        placeholder="Optional default notes for this task..."
+      />
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+        <button onClick={() => { setEditing(null); setForm(null); }} style={{ padding: "9px 18px", borderRadius: 8, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+        <button disabled={!form.phase.trim()} onClick={saveForm} style={{ ...S.btn, opacity: form.phase.trim() ? 1 : 0.4 }}>Save Template</button>
+      </div>
+    </div>
   );
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 10, flexWrap: "wrap" }}>
-        <span style={S.sec}>Tasks ({filtered.length})</span>
-        <div style={{ display: "flex", gap: 8, flex: 1, justifyContent: "flex-end", flexWrap: "wrap" }}>
-          <input
-            style={{ ...S.inp, marginBottom: 0, width: 180 }}
-            placeholder="Search tasks..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-          <select
-            style={{ ...S.inp, marginBottom: 0, width: 200 }}
-            value={filterColl}
-            onChange={e => setFilterColl(e.target.value)}
-          >
-            <option value="all">All Collections</option>
-            {collKeys.map(k => <option key={k} value={k}>{k.split("||")[1]} ({k.split("||")[0]})</option>)}
-          </select>
-          <button onClick={() => setAddMode(true)} style={S.btn}>+ Add Task</button>
-        </div>
+      <div style={{ marginBottom: 12, padding: "10px 14px", background: TH.primary + "08", border: `1px solid ${TH.primary}22`, borderRadius: 8, fontSize: 12, color: TH.textMuted, lineHeight: 1.5 }}>
+        <strong style={{ color: TH.text }}>Task Templates</strong> define which phases are auto-generated when a collection is created with a vendor. Vendors can override the default lead times. Order matters — tasks appear in this order on the timeline.
       </div>
-      <div style={{ display: "grid", gap: 6, maxHeight: "calc(70vh - 180px)", overflowY: "auto" }}>
-        {filtered.map(t => (
-          <div key={t.id} style={{ ...S.card, display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+        <button onClick={startNew} style={S.btn}>+ Add Task Template</button>
+      </div>
+      <div style={{ display: "grid", gap: 6 }}>
+        {templates.map((tpl, idx) => (
+          <div key={tpl.id} style={{ ...S.card, display: "flex", alignItems: "center", gap: 10 }}>
+            {/* Reorder buttons */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <button onClick={() => moveUp(idx)} disabled={idx === 0} style={{ padding: "1px 6px", borderRadius: 4, border: `1px solid ${TH.border}`, background: "none", color: idx === 0 ? TH.border : TH.textMuted, cursor: idx === 0 ? "default" : "pointer", fontFamily: "inherit", fontSize: 11, lineHeight: 1 }}>▲</button>
+              <button onClick={() => moveDown(idx)} disabled={idx === templates.length - 1} style={{ padding: "1px 6px", borderRadius: 4, border: `1px solid ${TH.border}`, background: "none", color: idx === templates.length - 1 ? TH.border : TH.textMuted, cursor: idx === templates.length - 1 ? "default" : "pointer", fontFamily: "inherit", fontSize: 11, lineHeight: 1 }}>▼</button>
+            </div>
+            <div style={{ width: 24, height: 24, borderRadius: "50%", background: TH.primary + "15", color: TH.primary, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{idx + 1}</div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: TH.text }}>{t.phase}</div>
-              <div style={{ fontSize: 11, color: TH.textMuted }}>{t.collection} · {t.brand} · Due: {t.due || "—"} · {t.status}</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: TH.text }}>{tpl.phase}</div>
+              <div style={{ fontSize: 11, color: TH.textMuted }}>
+                {tpl.daysBeforeDDP} days before DDP · Default: {tpl.status}
+                {tpl.notes ? ` · "${tpl.notes.substring(0, 40)}${tpl.notes.length > 40 ? "…" : ""}"` : ""}
+              </div>
             </div>
             <div style={{ display: "flex", gap: 6 }}>
-              <button
-                onClick={() => setEditTask(t)}
-                style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}
-              >Edit</button>
-              <button
-                onClick={() => handleDeleteTask(t.id)}
-                style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}
-              >Delete</button>
+              <button onClick={() => startEdit(tpl)} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
+              <button onClick={() => deleteTemplate(tpl.id)} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
             </div>
           </div>
         ))}
-        {filtered.length === 0 && <div style={{ textAlign: "center", color: TH.textMuted, padding: "24px", fontSize: 13, border: `1px dashed ${TH.border}`, borderRadius: 10 }}>No tasks found.</div>}
+        {templates.length === 0 && <div style={{ textAlign: "center", color: TH.textMuted, padding: "24px", fontSize: 13, border: `1px dashed ${TH.border}`, borderRadius: 10 }}>No templates yet. Add a task template to define what phases are generated per vendor.</div>}
       </div>
     </div>
   );
 }
+
 
 function AddTaskModal({ tasks, vendors, team, collections, onSave, onClose }) {
   const collOptions = [
@@ -9448,6 +9479,7 @@ export default function App() {
   const [showTaskManager, setShowTaskManager] = useState(false);
   const [orderTypes, setOrderTypes] = usePersistSb([], "order_types", sbSave);
   const [roles, setRoles] = usePersistSb([], "roles", sbSave);
+  const [taskTemplates, setTaskTemplates] = usePersistSb([], "task_templates", sbSave);
   const [miniCalDragOver, setMiniCalDragOver] = useState(null);
   const [teamsConfig, setTeamsConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem("teamsConfig") || "null") || { clientId: "", tenantId: "", channelMap: {} }; }
@@ -9470,7 +9502,7 @@ export default function App() {
         // Load reference data from key-value store + tasks/collections from individual rows
         const [
           users, brands, seasons, customers, vendors, team,
-          sizes, categories, orderTypes, rolesData,
+          sizes, categories, orderTypes, rolesData, taskTemplatesData,
           tasks, collections
         ] = await Promise.all([
           sbLoad("users"),
@@ -9483,6 +9515,7 @@ export default function App() {
           sbLoad("categories"),
           sbLoad("order_types"),
           sbLoad("roles"),
+          sbLoad("task_templates"),
           sbLoadTasks(),
           sbLoadCollections(),
         ]);
@@ -9497,6 +9530,7 @@ export default function App() {
         if (categories) setCategoryLib(categories);
         if (orderTypes) setOrderTypes(orderTypes);
         if (rolesData) setRoles(rolesData);
+        if (taskTemplatesData) setTaskTemplates(taskTemplatesData);
         if (tasks?.length) _setTasksRaw(tasks);
         if (collections && Object.keys(collections).length) _setCollRaw(collections);
 
@@ -12544,6 +12578,7 @@ export default function App() {
             team={team}
             customers={customers}
             seasons={seasons}
+            taskTemplates={taskTemplates}
             onSave={addCollection}
             onClose={() => setShowWizard(false)}
           />
@@ -12555,7 +12590,7 @@ export default function App() {
           onClose={() => setShowVendors(false)}
           wide
         >
-          <VendorManager vendors={vendors} setVendors={setVendors} isAdmin={isAdmin} />
+          <VendorManager vendors={vendors} setVendors={setVendors} isAdmin={isAdmin} taskTemplates={taskTemplates} />
         </Modal>
       )}
       {showTeam && (
@@ -12581,16 +12616,9 @@ export default function App() {
       {showTaskManager && (
         <Modal title="Task Manager" onClose={() => setShowTaskManager(false)} wide>
           <TaskManager
-            tasks={tasks}
-            setTasks={setTasks}
-            collections={collections}
-            team={team}
-            vendors={vendors}
-            customers={customers}
-            orderTypes={orderTypes}
+            taskTemplates={taskTemplates}
+            setTaskTemplates={setTaskTemplates}
             isAdmin={isAdmin}
-            currentUser={currentUser}
-            onSkuChange={(collKey, skus) => setCollections(c => ({ ...c, [collKey]: { ...c[collKey], skus } }))}
           />
         </Modal>
       )}
