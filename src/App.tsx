@@ -773,8 +773,9 @@ function generateTasks({
   let phases = templates.map((tpl) => {
     // Vendor override takes priority, then template default
     let daysBack = vendorOverrides[tpl.phase] !== undefined
-      ? vendorOverrides[tpl.phase]
-      : tpl.daysBeforeDDP;
+      ? Number(vendorOverrides[tpl.phase])
+      : Number(tpl.daysBeforeDDP ?? 0);
+    if (isNaN(daysBack)) daysBack = 0;
     // Ship Date uses transit days
     if (tpl.phase === "Ship Date") daysBack = transit;
     return { name: tpl.phase, daysBack, status: tpl.status || "Not Started", notes: tpl.notes || "", templateId: tpl.id };
@@ -822,18 +823,22 @@ function generateTasks({
     graphicId: graphicId || null,
   };
 
-  return phases.map((p) => ({
-    id: uid(),
-    ...base,
-    phase: p.name,
-    status: p.status || "Not Started",
-    due: addDays(ddpDate, -p.daysBack),
-    originalDue: addDays(ddpDate, -p.daysBack),
-    notes: p.notes || "",
-    assigneeId: null,
-    history: [],
-    images: [],
-  }));
+  return phases.map((p) => {
+    const daysBack = isNaN(p.daysBack) ? 0 : Math.max(0, p.daysBack);
+    const due = ddpDate ? addDays(ddpDate, -daysBack) : "";
+    return {
+      id: uid(),
+      ...base,
+      phase: p.name,
+      status: p.status || "Not Started",
+      due,
+      originalDue: due,
+      notes: p.notes || "",
+      assigneeId: null,
+      history: [],
+      images: [],
+    };
+  });
 }
 
 function cascadeDates(tasks, collectionKey, changedTaskId, newDue) {
@@ -5510,8 +5515,15 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
   function calcDdpFromVendor(vendorId) {
     const v = vendors.find((vv) => vv.id === vendorId);
     if (!v) return "";
-    const maxLead = Math.max(...Object.values(v.lead).filter((x) => x > 0), 0);
-    const total = maxLead + (v.transitDays || 0);
+    // Use task templates + vendor overrides to find max lead time
+    const templates = (taskTemplates && taskTemplates.length > 0) ? taskTemplates : DEFAULT_TASK_TEMPLATES;
+    const overrides = v.leadOverrides || v.lead || {};
+    const leadValues = templates.map(tpl => {
+      const val = overrides[tpl.phase] !== undefined ? overrides[tpl.phase] : tpl.daysBeforeDDP;
+      return Number(val) || 0;
+    }).filter(x => x > 0);
+    const maxLead = leadValues.length > 0 ? Math.max(...leadValues) : 168;
+    const total = maxLead + (v.transitDays || 21);
     return addDays(new Date().toISOString().split("T")[0], total);
   }
 
@@ -5557,7 +5569,14 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
 
   // Build preview tasks from editPhases
   const previewTasks =
-    form.ddpDate && form.vendorId ? generateTasks({ ...form, vendors, taskTemplates }) : [];
+    (() => {
+    try {
+      return form.ddpDate && form.vendorId ? generateTasks({ ...form, vendors, taskTemplates }) : [];
+    } catch(e) {
+      console.error("[generateTasks error]", e);
+      return [];
+    }
+  })();
 
   // Proportional resize helper: compress pre-Production phases so first task = today, DDP unchanged
   function applyProportionalResize(rawPhases) {
