@@ -1,0 +1,12 @@
+# Add these to your .env file in the design-calendar-app root folder
+# (alongside your existing VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY)
+
+VITE_XORO_API_KEY=your_xoro_api_key_here
+VITE_XORO_API_SECRET=your_xoro_api_secret_here
+
+# How to get these:
+# 1. Log in to your Xoro account
+# 2. Go to Menu → Admin → Private Apps
+# 3. Click "New" → give it a name like "PO Calendar"
+# 4. Select Read access for Purchase Orders
+# 5. Click Save → copy the API Key and API Secret shown
