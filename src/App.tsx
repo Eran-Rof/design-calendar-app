@@ -248,6 +248,22 @@ const PHASE_KEYS = [
   "DDP",
 ];
 
+
+// Default task templates — used when no custom templates exist
+const DEFAULT_TASK_TEMPLATES = [
+  { id: "tpl_concept",  phase: "Concept",        daysBeforeDDP: 168, status: "Not Started", notes: "" },
+  { id: "tpl_design",   phase: "Design",          daysBeforeDDP: 154, status: "Not Started", notes: "" },
+  { id: "tpl_techpack", phase: "Tech Pack",       daysBeforeDDP: 140, status: "Not Started", notes: "" },
+  { id: "tpl_costing",  phase: "Costing",         daysBeforeDDP: 126, status: "Not Started", notes: "" },
+  { id: "tpl_sampling", phase: "Sampling",        daysBeforeDDP: 112, status: "Not Started", notes: "" },
+  { id: "tpl_revision", phase: "Revision",        daysBeforeDDP: 84,  status: "Not Started", notes: "" },
+  { id: "tpl_po",       phase: "Purchase Order",  daysBeforeDDP: 70,  status: "Not Started", notes: "" },
+  { id: "tpl_prod",     phase: "Production",      daysBeforeDDP: 42,  status: "Not Started", notes: "" },
+  { id: "tpl_qc",       phase: "QC",              daysBeforeDDP: 14,  status: "Not Started", notes: "" },
+  { id: "tpl_ship",     phase: "Ship Date",       daysBeforeDDP: 21,  status: "Not Started", notes: "" },
+  { id: "tpl_ddp",      phase: "DDP",             daysBeforeDDP: 0,   status: "Not Started", notes: "" },
+];
+
 const STATUS_CONFIG = {
   "Not Started": {
     color: "#6B7280",
@@ -647,43 +663,32 @@ function fileToDataURL(f) {
   });
 }
 
-// Upload a file directly to Dropbox and return a shared link URL
+// Upload a file to Supabase Storage and return a permanent public URL
 async function dbxUploadFileGlobal(file, folder = "images") {
-  const DBX_TOKEN = "sl.u.AGUcjMEcACemDUZHoLi92xdgZ13WI8iSDzLrDH79Xgcn7fQKuN8tfpn01xSY-JhTMgcNe-tGiNYqsVkrbII3NoWk0KO1MumGTJV1CX1DZb7qCUFR9lOlx9oQoAtuuAiMockw9inV9CuMwsVRIAA7h5qrrjKqAZ65SfmWt0bq73FFlircuF1x7LkEsABbzJGznX7y5q8Qo76unECnZw_QOKIF7JeYlshwpIbb-6i4qktHbqbOZ5lHEe5U2nuCmE1QVj80sMPoFvcRTa-D1WptAgnL_gHlZqnsLppUPlJ17RVpoXfmF5qkxC6q3P_d5Et2x_4MUKPAeeMc9cGp2vHZBITl5Uqs472avmEnAaa8Ob9g7eeJIIVcQOlg7gXwgpeoxeyuTYHGaAeOiyoNCihv8QBP3SPTA0HnK0KnaXLixBddFtUo97JPVxMDeEsdEeiXqooalU2qJ_BAqOHbk6zUEb3EaZa-2LpslUdktWiP6YaGJgUePX-2JBS4BmN_rfIjVlsikaObNC1U9hhX1ea0FHuThyzijnVqVdze9-fcFszuvJIar3eXf7tzXPzW_JahCXJr-eMdNx68Bpu7Bj-485LL_P0F09mhS219DTWoBVoflXSOF9UE8eE8kiybDGL__qfFfRJwB_-8qEFoDRj1f-wcrWxRYx16yZdiEYBXaMM7KR83Fhiru2gFNFSExAERAqZdBC_PWIicVhHl7nRkAMnlZ7Wu9uu3CGA1v_MqXXgXxvqaqpWlMJxjJMyNHZfA5Th3VwA9NNgB3nOK0umNT8BUVx371VRqreNByWsme6Ara66ZRd9EuPwFQAoz3-q64KqgbfRRiPWjv7edgi6e49BEUBE26B7e1XW2muTnJxncZfp8jF3g9g0P5pBiNf9Z_7w5gXRyU2ZhfNuHrb2epYnBQrq_LyEOsZC2aG2cQgyqRr5-6vdsH0giZoXneSUCqEsuaNmIgY7zLb9gd98oRy1DnwcEpwJY7Ja_lzwMKR9-Bc9MPLt9x_zYQKYR7TRTFOPQDLCtce6wJ4o5r5AbYmn0Vo33ceURUtI6_I3fRH1Bv3W7pydx9QAgI2BVF-2OD2Rwzai2MUghm3yUah-wYjbQGao7VYRT9h7Fcr--qW8W0GYMgGZYbO7_J7A5KixWGA375AH3-_4L4n87IlfxNqd8nvEb7e2hABTrznLm1dgMzYBCSF-O7tFEr24TzWfsA9L0awYgw1v2qN-9-eESJphwJ6KyYNa78ar2cCgc6M6Xsnza8fZJa-BcJrBI-gW_Y830PoQMtsCtgglC4KBu6W0sAwzgr98EKjOgGHNB7Le0qzLO-HAFUyepGOZ2q3bVU0_poNEgEfjpXanfvDtAxZ00Jjdn5AhKumbb9gwxnEmKgAIRmf9eOxr99jABC4Y6GdtBMX3PV6MHRB1N0W11-HpFtO6tTZ5Ui-YEWYPfZfuwqyMG2poXqlepeJNpbTPT65bjtOpMTAb6LZ23M5ezFEOf";
+  const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
+  const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
+  const BUCKET = "Attachments";
   try {
     const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-    const path = `/${folder}/${safeName}`;
-    const uploadRes = await fetch("https://content.dropboxapi.com/2/files/upload", {
+    const filePath = `${folder}/${safeName}`;
+    const res = await fetch(`${SB_URL}/storage/v1/object/${BUCKET}/${filePath}`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${DBX_TOKEN}`,
-        "Dropbox-API-Arg": JSON.stringify({ path, mode: "overwrite", autorename: false, mute: true }),
-        "Content-Type": "application/octet-stream",
+        "apikey": SB_KEY,
+        "Authorization": `Bearer ${SB_KEY}`,
+        "Content-Type": file.type || "application/octet-stream",
+        "x-upsert": "true",
       },
       body: file,
     });
-    if (!uploadRes.ok) { console.warn("Dropbox file upload failed"); return null; }
-    const linkRes = await fetch("https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${DBX_TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ path, settings: { requested_visibility: "public" } }),
-    });
-    if (linkRes.ok) {
-      const linkData = await linkRes.json();
-      return (linkData.url || "").replace("?dl=0", "?raw=1").replace("www.dropbox.com", "dl.dropboxusercontent.com");
+    const resText = await res.text();
+    if (!res.ok) {
+      console.warn("Supabase upload failed:", res.status, resText);
+      return null;
     }
-    const existRes = await fetch("https://api.dropboxapi.com/2/sharing/list_shared_links", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${DBX_TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ path }),
-    });
-    if (existRes.ok) {
-      const existData = await existRes.json();
-      const existing = existData.links?.[0]?.url;
-      if (existing) return existing.replace("?dl=0", "?raw=1").replace("www.dropbox.com", "dl.dropboxusercontent.com");
-    }
-    return null;
-  } catch (e) { console.warn("dbxUploadFileGlobal error", e); return null; }
+    console.log("[SB Storage] uploaded:", filePath);
+    return `${SB_URL}/storage/v1/object/public/${BUCKET}/${filePath}`;
+  } catch (e) { console.warn("sbUploadFile error", e); return null; }
 }
 function getChannelForCustomer(customer) {
   return CUSTOMER_CHANNEL_MAP[customer] || "";
@@ -749,29 +754,31 @@ function generateTasks({
   customer,
   orderType,
   channelType,
+  taskTemplates,
 }) {
   const vendor = vendors.find((v) => v.id === vendorId);
   const transit = vendor?.transitDays || 21;
-  const lead = vendor?.lead || {
-    Concept: 168,
-    Design: 154,
-    "Tech Pack": 140,
-    Costing: 126,
-    Sampling: 112,
-    Revision: 84,
-    "Purchase Order": 70,
-    Production: 42,
-    QC: 14,
-    "Ship Date": 0,
-    DDP: 0,
-  };
+
+  // Use task templates if available, else fall back to DEFAULT_TASK_TEMPLATES
+  const templates = (taskTemplates && taskTemplates.length > 0)
+    ? taskTemplates
+    : DEFAULT_TASK_TEMPLATES;
+
+  // Vendor can override daysBeforeDDP per phase via vendor.leadOverrides
+  const vendorOverrides = vendor?.leadOverrides || {};
+
   const isPrivate = getBrand(brand).isPrivateLabel;
 
-  let phases = PHASE_KEYS.map((name) => {
-    if (name === "Ship Date") return { name, daysBack: transit };
-    if (name === "DDP") return { name, daysBack: 0 };
-    if (name === "QC") return { name, daysBack: null }; // resolved below: Production + 3 days
-    return { name, daysBack: lead[name] ?? 0 };
+  // Build phases from templates
+  let phases = templates.map((tpl) => {
+    // Vendor override takes priority, then template default
+    let daysBack = vendorOverrides[tpl.phase] !== undefined
+      ? Number(vendorOverrides[tpl.phase])
+      : Number(tpl.daysBeforeDDP ?? 0);
+    if (isNaN(daysBack)) daysBack = 0;
+    // Ship Date uses transit days
+    if (tpl.phase === "Ship Date") daysBack = transit;
+    return { name: tpl.phase, daysBack, status: tpl.status || "Not Started", notes: tpl.notes || "", templateId: tpl.id };
   });
 
   if (isPrivate) {
@@ -780,19 +787,21 @@ function generateTasks({
     phases.splice(
       bulkIdx,
       0,
-      { name: "Line Review", daysBack: bulkDays + 42 },
-      { name: "Compliance/Testing", daysBack: bulkDays + 21 }
+      { name: "Line Review", daysBack: bulkDays + 42, status: "Not Started", notes: "" },
+      { name: "Compliance/Testing", daysBack: bulkDays + 21, status: "Not Started", notes: "" }
     );
   }
 
-  // QC = Production due date + 3 days (always 3 days after production completes)
+  // QC = Production due date + 3 days
   const prodPhase = phases.find((p) => p.name === "Production");
-  const prodDue = prodPhase ? addDays(ddpDate, -prodPhase.daysBack) : ddpDate;
-  const qcDue = addDays(prodDue, 3);
-  const qcDaysBack = Math.max(0, diffDays(ddpDate, qcDue));
-  phases = phases.map((p) =>
-    p.name === "QC" ? { ...p, daysBack: qcDaysBack } : p
-  );
+  if (prodPhase) {
+    const prodDue = addDays(ddpDate, -prodPhase.daysBack);
+    const qcDue = addDays(prodDue, 3);
+    const qcDaysBack = Math.max(0, diffDays(ddpDate, qcDue));
+    phases = phases.map((p) =>
+      p.name === "QC" ? { ...p, daysBack: qcDaysBack } : p
+    );
+  }
 
   const shipDate = addDays(ddpDate, -transit);
   const base = {
@@ -814,18 +823,22 @@ function generateTasks({
     graphicId: graphicId || null,
   };
 
-  return phases.map((p) => ({
-    id: uid(),
-    ...base,
-    phase: p.name,
-    status: "Not Started",
-    due: addDays(ddpDate, -p.daysBack),
-    originalDue: addDays(ddpDate, -p.daysBack),
-    notes: "",
-    assigneeId: null,
-    history: [],
-    images: [],
-  }));
+  return phases.map((p) => {
+    const daysBack = isNaN(p.daysBack) ? 0 : Math.max(0, p.daysBack);
+    const due = ddpDate ? addDays(ddpDate, -daysBack) : "";
+    return {
+      id: uid(),
+      ...base,
+      phase: p.name,
+      status: p.status || "Not Started",
+      due,
+      originalDue: due,
+      notes: p.notes || "",
+      assigneeId: null,
+      history: [],
+      images: [],
+    };
+  });
 }
 
 function cascadeDates(tasks, collectionKey, changedTaskId, newDue) {
@@ -954,6 +967,8 @@ function SettingsDropdown({
   onSeasons,
   onCustomers,
   onOrderTypes,
+  onRoles,
+  onTasks,
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -973,6 +988,8 @@ function SettingsDropdown({
     { icon: "📐", label: "Sizes", onClick: onSizes, always: false },
     { icon: "🗂️", label: "Categories", onClick: onCategories, always: false },
     { icon: "📋", label: "Order Types", onClick: onOrderTypes, always: false },
+    { icon: "📋", label: "Tasks", onClick: onTasks, always: false },
+    { icon: "🎭", label: "Roles", onClick: onRoles, always: false },
     { icon: "👤", label: "Users", onClick: onUsers, always: false },
   ].filter((it) => it.always || isAdmin);
   return (
@@ -1051,8 +1068,16 @@ function SettingsDropdown({
 }
 
 // ─── CUSTOMER MANAGER ─────────────────────────────────────────────────────────
-function CustomerManager({ customers, setCustomers }) {
-  const [editing, setEditing] = useState(null); // null | "new" | index
+function CustomerManager({ customers, setCustomers, isAdmin = false }) {
+  const [editing, setEditing] = useState(null);
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage this section.</div>
+    </div>
+  );
+ // null | "new" | index
   const [form, setForm] = useState({ name: "", channel: "" });
 
   function save() {
@@ -1114,9 +1139,17 @@ function CustomerManager({ customers, setCustomers }) {
 }
 
 // ─── ORDER TYPE MANAGER ──────────────────────────────────────────────────────
-function OrderTypeManager({ orderTypes, setOrderTypes }) {
+function OrderTypeManager({ orderTypes, setOrderTypes, isAdmin = false }) {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState("");
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage this section.</div>
+    </div>
+  );
+
 
   function save() {
     const val = form.trim();
@@ -1174,9 +1207,88 @@ function OrderTypeManager({ orderTypes, setOrderTypes }) {
   );
 }
 
+
+// ─── ROLE MANAGER ─────────────────────────────────────────────────────────────
+function RoleManager({ roles, setRoles, isAdmin = false }) {
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState("");
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage this section.</div>
+    </div>
+  );
+
+
+  function save() {
+    const val = form.trim();
+    if (!val) return;
+    if (editing === "new") {
+      if (roles.includes(val)) return;
+      setRoles((s) => [...s, val]);
+    } else {
+      setRoles((s) => s.map((x, i) => (i === editing ? val : x)));
+    }
+    setEditing(null);
+    setForm("");
+  }
+
+  if (editing !== null)
+    return (
+      <div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: TH.text, marginBottom: 20 }}>
+          {editing === "new" ? "Add Role" : "Edit Role"}
+        </div>
+        <label style={S.lbl}>Role Name</label>
+        <input
+          style={S.inp}
+          value={form}
+          onChange={(e) => setForm(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && save()}
+          placeholder="e.g. Product Developer"
+          autoFocus
+        />
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button onClick={() => { setEditing(null); setForm(""); }} style={{ padding: "9px 18px", borderRadius: 8, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+          <button disabled={!form.trim()} onClick={save} style={{ ...S.btn, opacity: form.trim() ? 1 : 0.5 }}>Save Role</button>
+        </div>
+      </div>
+    );
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <span style={S.sec}>Roles ({roles.length})</span>
+        <button onClick={() => { setForm(""); setEditing("new"); }} style={S.btn}>+ Add Role</button>
+      </div>
+      <div style={{ display: "grid", gap: 8 }}>
+        {roles.map((role, i) => (
+          <div key={i} style={{ ...S.card, display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={{ flex: 1, fontSize: 14, fontWeight: 700, color: TH.text }}>🎭 {role}</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => { setForm(role); setEditing(i); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
+              <button onClick={() => setRoles((arr) => arr.filter((_, j) => j !== i))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      {roles.length === 0 && <div style={{ textAlign: "center", color: TH.textMuted, padding: "24px", fontSize: 13, border: `1px dashed ${TH.border}`, borderRadius: 10 }}>No roles yet.</div>}
+    </div>
+  );
+}
+
 // ─── SEASON MANAGER ───────────────────────────────────────────────────────────
-function SeasonManager({ seasons, setSeasons }) {
+function SeasonManager({ seasons, setSeasons, isAdmin = false }) {
   const [editing, setEditing] = useState(null); // null | "new" | index
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage this section.</div>
+    </div>
+  );
+
   const [form, setForm] = useState("");
 
   function save() {
@@ -1251,7 +1363,7 @@ function SeasonManager({ seasons, setSeasons }) {
 }
 
 // ─── BRAND MANAGER ────────────────────────────────────────────────────────────
-function BrandManager({ brands, setBrands }) {
+function BrandManager({ brands, setBrands, isAdmin = false }) {
   const BLANK = () => ({
     id: uid(),
     name: "",
@@ -1260,9 +1372,23 @@ function BrandManager({ brands, setBrands }) {
     isPrivateLabel: false,
   });
   const [editing, setEditing] = useState(null);
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage this section.</div>
+    </div>
+  );
   const [form, setForm] = useState(null);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage this section.</div>
+    </div>
+  );
   function save() {
     const b = {
       ...form,
@@ -1548,7 +1674,9 @@ function BrandManager({ brands, setBrands }) {
 
 // ─── LOGIN SCREEN ─────────────────────────────────────────────────────────────
 function LoginScreen({ users, onLogin, teamsConfig, onTeamsToken }) {
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(() => {
+    try { return localStorage.getItem("last_username") || ""; } catch { return ""; }
+  });
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -1600,12 +1728,15 @@ function LoginScreen({ users, onLogin, teamsConfig, onTeamsToken }) {
   }
 
   function handleLogin() {
-    const user = users.find(
+    // Check against Supabase users, with fallback admin for emergencies
+    const allUsers = users.length > 0 ? users : DEFAULT_USERS;
+    const user = allUsers.find(
       (u) =>
         u.username.toLowerCase() === username.trim().toLowerCase() && u.password === password
     );
     if (user) {
       setError("");
+      try { localStorage.setItem("last_username", username.trim()); } catch {}
       doTeamsAuth(user);
     } else setError("Invalid username or password.");
   }
@@ -1744,14 +1875,15 @@ function LoginScreen({ users, onLogin, teamsConfig, onTeamsToken }) {
 }
 
 // ─── USER MANAGER (admin only) ───────────────────────────────────────────────
-function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser }) {
+function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, roles = ROLES, setRoles }) {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(null);
   const [createTeamMember, setCreateTeamMember] = useState(false);
-  const [tmRole, setTmRole] = useState(ROLES[0]);
+  const [tmRole, setTmRole] = useState((roles || ROLES)[0]);
   const [tmColor, setTmColor] = useState("#3498DB");
   const [newRoleInput, setNewRoleInput] = useState("");
-  const [availableRoles, setAvailableRoles] = useState([...ROLES]);
+  const availableRoles = roles || ROLES;
+  const setAvailableRoles = setRoles || (() => {});
   const TEAM_COLORS = ["#E74C3C","#3498DB","#2ECC71","#9B59B6","#F39C12","#1ABC9C","#E67E22","#E91E63","#00BCD4","#8BC34A"];
   const BLANK = () => ({ id: uid(), username: "", password: "", name: "", role: "user", color: "#3498DB", initials: "", teamMemberId: null, teamsEmail: "", permissions: { view_all: false, edit_all: false, view_own: true, edit_own: true } });
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -2358,7 +2490,11 @@ function ContextMenu({ x, y, items, onClose }) {
   useEffect(() => {
     const h = () => onClose();
     window.addEventListener("click", h);
-    return () => window.removeEventListener("click", h);
+    window.addEventListener("scroll", h, true);
+    return () => {
+      window.removeEventListener("click", h);
+      window.removeEventListener("scroll", h, true);
+    };
   }, [onClose]);
   return (
     <div
@@ -2375,6 +2511,7 @@ function ContextMenu({ x, y, items, onClose }) {
         boxShadow: `0 16px 40px ${TH.shadowMd}`,
       }}
       onClick={(e) => e.stopPropagation()}
+      onMouseLeave={onClose}
     >
       {items.map((item, i) =>
         item === "---" ? (
@@ -2436,7 +2573,8 @@ function DateInput({ value, onChange, onBlur, style, disabled, min }) {
 }
 
 // ─── VENDOR FORM ──────────────────────────────────────────────────────────────
-function VendorForm({ vendor, onSave, onCancel }) {
+function VendorForm({ vendor, onSave, onCancel, taskTemplates }) {
+  const templates = (taskTemplates && taskTemplates.length > 0) ? taskTemplates : DEFAULT_TASK_TEMPLATES;
   const [f, setF] = useState(
     vendor || {
       id: uid(),
@@ -2447,24 +2585,18 @@ function VendorForm({ vendor, onSave, onCancel }) {
       contact: "",
       email: "",
       moq: 0,
-      lead: {
-        Concept: 168,
-        Design: 154,
-        "Tech Pack": 140,
-        Costing: 126,
-        Sampling: 112,
-        Revision: 84,
-        "Purchase Order": 70,
-        Production: 42,
-        QC: 14,
-        "Ship Date": 0,
-        DDP: 0,
-      },
+      leadOverrides: {}, // per-phase override: { "Sampling": 90 }
     }
   );
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
-  const setL = (k, v) =>
-    setF((x) => ({ ...x, lead: { ...x.lead, [k]: parseInt(v) || 0 } }));
+  const setOverride = (phase, val) =>
+    setF((x) => ({ ...x, leadOverrides: { ...(x.leadOverrides || {}), [phase]: parseInt(val) || 0 } }));
+  const clearOverride = (phase) =>
+    setF((x) => {
+      const next = { ...(x.leadOverrides || {}) };
+      delete next[phase];
+      return { ...x, leadOverrides: next };
+    });
   const toggleCat = (c) =>
     setF((x) => ({
       ...x,
@@ -2559,38 +2691,39 @@ function VendorForm({ vendor, onSave, onCancel }) {
           </button>
         ))}
       </div>
-      <span style={S.sec}>Lead Times (days before DDP)</span>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4,1fr)",
-          gap: 10,
-          marginBottom: 20,
-        }}
-      >
-        {[
-          "Concept",
-          "Design",
-          "Tech Pack",
-          "Costing",
-          "Sampling",
-          "Revision",
-          "Purchase Order",
-          "Production",
-          "QC",
-        ].map((phase) => (
-          <div key={phase}>
-            <div style={{ fontSize: 10, color: TH.textMuted, marginBottom: 3 }}>
-              {phase}
+      <span style={S.sec}>Lead Time Overrides (days before DDP)</span>
+      <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 10, lineHeight: 1.5 }}>
+        Task templates define the default lead times. Enter overrides below only if this vendor differs. Leave blank to use the template default.
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 20 }}>
+        {templates.filter(tpl => tpl.phase !== "DDP" && tpl.phase !== "Ship Date").map(tpl => {
+          const override = (f.leadOverrides || {})[tpl.phase];
+          const hasOverride = override !== undefined && override !== "";
+          return (
+            <div key={tpl.id}>
+              <div style={{ fontSize: 10, color: hasOverride ? TH.primary : TH.textMuted, fontWeight: hasOverride ? 700 : 400, marginBottom: 3 }}>
+                {tpl.phase}
+                {!hasOverride && <span style={{ color: TH.border, fontWeight: 400 }}> (default: {tpl.daysBeforeDDP})</span>}
+              </div>
+              <div style={{ display: "flex", gap: 4 }}>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder={String(tpl.daysBeforeDDP)}
+                  style={{ ...S.inp, marginBottom: 0, padding: "6px 8px", borderColor: hasOverride ? TH.primary + "88" : TH.border, flex: 1 }}
+                  value={hasOverride ? override : ""}
+                  onChange={e => {
+                    if (e.target.value === "") clearOverride(tpl.phase);
+                    else setOverride(tpl.phase, e.target.value);
+                  }}
+                />
+                {hasOverride && (
+                  <button onClick={() => clearOverride(tpl.phase)} title="Reset to default" style={{ padding: "4px 7px", borderRadius: 6, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>✕</button>
+                )}
+              </div>
             </div>
-            <input
-              type="number"
-              style={{ ...S.inp, marginBottom: 0, padding: "7px 10px" }}
-              value={f.lead[phase] || 0}
-              onChange={(e) => setL(phase, e.target.value)}
-            />
-          </div>
-        ))}
+          );
+        })}
       </div>
       <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
         <button
@@ -2619,9 +2752,16 @@ function VendorForm({ vendor, onSave, onCancel }) {
   );
 }
 
-function VendorManager({ vendors, setVendors }) {
+function VendorManager({ vendors, setVendors, isAdmin = false, taskTemplates }) {
   const fileRef = useRef();
   const [msg, setMsg] = useState(null);
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage this section.</div>
+    </div>
+  );
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState("");
 
@@ -2709,6 +2849,7 @@ function VendorManager({ vendors, setVendors }) {
           Add New Vendor
         </div>
         <VendorForm
+          taskTemplates={taskTemplates}
           onSave={(v) => {
             setVendors((vs) => [...vs, { ...v, id: uid() }]);
             setEditing(null);
@@ -2726,6 +2867,7 @@ function VendorManager({ vendors, setVendors }) {
         </div>
         <VendorForm
           vendor={v}
+          taskTemplates={taskTemplates}
           onSave={(u) => {
             setVendors((vs) => vs.map((x) => (x.id === editing ? u : x)));
             setEditing(null);
@@ -3002,7 +3144,7 @@ function VendorManager({ vendors, setVendors }) {
 }
 
 // ─── TEAM MANAGER ─────────────────────────────────────────────────────────────
-function TeamManager({ team, setTeam, isAdmin }) {
+function TeamManager({ team, setTeam, isAdmin, roles = ROLES, setRoles }) {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(null);
   const [availableRoles, setAvailableRoles] = useState([...ROLES]);
@@ -3108,6 +3250,9 @@ function SkuManager({ skus = [], onChange, brand, category, availableSizes }) {
     return 0;
   });
   const [editing, setEditing] = useState(null);
+
+  const [selectedSkus, setSelectedSkus] = useState(new Set());
+  const [showPrice, setShowPrice] = useState(false);
   const [form, setForm] = useState(null);
   const [autoCount, setAutoCount] = useState(3);
   const [showAuto, setShowAuto] = useState(false);
@@ -3651,8 +3796,46 @@ function SkuManager({ skus = [], onChange, brand, category, availableSizes }) {
           No SKUs yet. Add manually or use Auto-Generate.
         </div>
       )}
+      {/* SKU selection toolbar */}
+      {skus.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+          {selectedSkus.size === 0 ? (
+            <span style={{ fontSize: 12, color: TH.textMuted }}>Click checkboxes to select SKUs for a CAD page</span>
+          ) : (
+            <>
+              <span style={{ fontSize: 12, color: TH.textMuted }}>{selectedSkus.size} SKU{selectedSkus.size > 1 ? "s" : ""} selected</span>
+              <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: TH.text, cursor: "pointer" }}>
+                <input type="checkbox" checked={showPrice} onChange={e => setShowPrice(e.target.checked)} />
+                Show Selling Price
+              </label>
+              <button
+                onClick={() => {
+                  const sel = skus.filter(s => selectedSkus.has(s.id));
+                  const url = buildSkuCadPage(sel, brand, showPrice, "link");
+                  navigator.clipboard.writeText(url).then(() => alert("CAD link copied!")).catch(() => prompt("Copy link:", url));
+                }}
+                style={{ padding: "4px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}
+              >🔗 Copy Link</button>
+              <button
+                onClick={() => {
+                  const sel = skus.filter(s => selectedSkus.has(s.id));
+                  const url = buildSkuCadPage(sel, brand, showPrice, "open");
+                  window.open(url, "_blank");
+                }}
+                style={{ padding: "4px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}
+              >🖨️ Open CAD Page</button>
+              <button
+                onClick={() => { setSelectedSkus(new Set()); setShowPrice(false); }}
+                style={{ padding: "4px 10px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}
+              >✕ Clear</button>
+            </>
+          )}
+        </div>
+      )}
       <div style={{ display: "grid", gap: 8 }}>
-        {skus.map((s) => (
+        {skus.map((s) => {
+          const isSelected = selectedSkus.has(s.id);
+          return (
           <div
             key={s.id}
             style={{
@@ -3660,8 +3843,21 @@ function SkuManager({ skus = [], onChange, brand, category, availableSizes }) {
               display: "flex",
               gap: 14,
               alignItems: "flex-start",
+              border: isSelected ? `2px solid ${TH.primary}` : S.card.border,
+              background: isSelected ? TH.primary + "08" : S.card.background,
             }}
           >
+            {/* Checkbox */}
+            <div
+              onClick={() => setSelectedSkus(prev => {
+                const next = new Set(prev);
+                if (next.has(s.id)) next.delete(s.id); else next.add(s.id);
+                return next;
+              })}
+              style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${isSelected ? TH.primary : TH.border}`, background: isSelected ? TH.primary : "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, marginTop: 4 }}
+            >
+              {isSelected && <span style={{ color: "#fff", fontSize: 11, fontWeight: 700 }}>✓</span>}
+            </div>
             {s.images?.[0] ? (
               <img
                 src={s.images[0].src}
@@ -3882,19 +4078,246 @@ function SkuManager({ skus = [], onChange, brand, category, availableSizes }) {
               )}
             </div>
           </div>
-        ))}
+        ); })}
       </div>
     </div>
   );
 }
 
 // ─── TASK EDIT MODAL ──────────────────────────────────────────────────────────
+
+// ─── BUILD ATTACHMENT PAGE (data URL for print/share) ────────────────────────
+
+// ─── NOTE INPUT ───────────────────────────────────────────────────────────────
+function NoteInput({ onAdd }) {
+  const [text, setText] = useState("");
+  function submit() {
+    const t = text.trim();
+    if (!t) return;
+    onAdd(t);
+    setText("");
+  }
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+      <textarea
+        style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `1px solid ${TH.border}`, fontFamily: "inherit", fontSize: 13, lineHeight: 1.5, resize: "vertical", minHeight: 70, outline: "none", color: TH.text, background: "#fff" }}
+        placeholder="Add a note..."
+        value={text}
+        onChange={e => setText(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === "Enter" && e.metaKey) { e.preventDefault(); submit(); }
+        }}
+      />
+      <button
+        onClick={submit}
+        disabled={!text.trim()}
+        style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: text.trim() ? TH.primary : TH.border, color: "#fff", cursor: text.trim() ? "pointer" : "default", fontFamily: "inherit", fontSize: 13, fontWeight: 600, flexShrink: 0, marginBottom: 0 }}
+      >
+        Add Note
+      </button>
+    </div>
+  );
+}
+
+
+// ─── BUILD SKU CAD PAGE ───────────────────────────────────────────────────────
+function buildSkuCadPage(skus, brand, showPrice, mode = "open") {
+  const brandName = brand?.name || "ROF";
+  const isLink = mode === "link";
+
+  const skuCards = skus.map(s => {
+    const img = s.images?.[0]?.src || "";
+    const imgHtml = img
+      ? `<img src="${img}" class="sku-img" alt="${s.styleNum || ""}" ondblclick="enlargeImg(this)" title="Double-click to enlarge" />`
+      : `<div class="sku-img-placeholder">👕</div>`;
+
+    const details = [
+      s.description ? `<div class="detail-row"><span class="detail-label">Description</span><span class="detail-val">${s.description}</span></div>` : "",
+      s.colorways ? `<div class="detail-row"><span class="detail-label">Colorways</span><span class="detail-val">${s.colorways}</span></div>` : "",
+      s.fabric ? `<div class="detail-row"><span class="detail-label">Fabric</span><span class="detail-val">${s.fabric}</span></div>` : "",
+      s.sizes?.length ? `<div class="detail-row"><span class="detail-label">Sizes</span><span class="detail-val">${s.sizes.join(" · ")}</span></div>` : "",
+      s.wholesale ? `<div class="detail-row"><span class="detail-label">Wholesale</span><span class="detail-val">$${s.wholesale}</span></div>` : "",
+      s.retail ? `<div class="detail-row"><span class="detail-label">Retail</span><span class="detail-val">$${s.retail}</span></div>` : "",
+      showPrice ? `<div class="detail-row price-row"><span class="detail-label">Price</span><span class="detail-val ${s.targetSelling ? 'price-val' : 'price-tbd'}">${s.targetSelling ? "$" + s.targetSelling : "TBD"}</span></div>` : "",
+    ].filter(Boolean).join("");
+
+    return `
+    <div class="sku-card">
+      <div class="sku-header">
+        <div class="style-num">${s.styleNum || "—"}</div>
+      </div>
+      <div class="sku-body">
+        <div class="img-wrap">${imgHtml}</div>
+        <div class="details">${details}</div>
+      </div>
+    </div>`;
+  }).join("");
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>${brandName} CAD Page</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #fff; color: #1A202C; }
+    .page-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 32px; border-bottom: 3px solid #C8210A; margin-bottom: 28px; }
+    .brand-logo { font-size: 22px; font-weight: 900; color: #C8210A; letter-spacing: -0.5px; text-transform: uppercase; }
+    .brand-sub { font-size: 11px; color: #718096; margin-top: 2px; letter-spacing: 0.05em; text-transform: uppercase; }
+    .page-date { font-size: 11px; color: #718096; text-align: right; }
+
+    /* Grid: cards in each row share equal height so details always align at the same level */
+    .skus-grid { display: grid; grid-template-columns: repeat(auto-fill, 280px); gap: 24px; padding: 0 32px 40px; align-items: stretch; }
+
+    /* Each card is a flex column so the details block is pushed to the bottom */
+    .sku-card { width: 280px; border: 1px solid #E2E8F0; border-radius: 10px; overflow: hidden; break-inside: avoid; display: flex; flex-direction: column; }
+    .sku-header { background: #1A202C; padding: 8px 14px; flex-shrink: 0; }
+    .style-num { font-size: 13px; font-weight: 800; color: #fff; letter-spacing: 0.05em; }
+
+    /* Body fills remaining card height, image area grows, details stay at bottom */
+    .sku-body { padding: 14px; display: flex; flex-direction: column; flex: 1; }
+    .img-wrap { flex: 1; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; min-height: 180px; }
+    .sku-img { max-width: 240px; max-height: 260px; width: 100%; object-fit: contain; border-radius: 6px; cursor: zoom-in; }
+    .sku-img-placeholder { width: 240px; height: 200px; display: flex; align-items: center; justify-content: center; font-size: 48px; background: #F7FAFC; border-radius: 6px; }
+
+    /* Details always pinned to bottom of card */
+    .details { flex-shrink: 0; display: flex; flex-direction: column; gap: 5px; }
+    .detail-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; border-bottom: 1px solid #F0F0F0; padding-bottom: 4px; }
+    .detail-label { color: #718096; font-weight: 500; flex-shrink: 0; margin-right: 8px; }
+    .detail-val { color: #1A202C; font-weight: 600; text-align: right; }
+    .price-row { border-top: 2px solid #C8210A; padding-top: 6px; margin-top: 4px; border-bottom: none; }
+    .price-val { color: #C8210A; font-size: 14px; font-weight: 800; }
+    .price-tbd { color: #A0AEC0; font-size: 13px; font-weight: 600; font-style: italic; }
+    .price-tbd { color: #A0AEC0; font-size: 13px; font-weight: 600; font-style: italic; }
+    .lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:9999; align-items:center; justify-content:center; cursor:zoom-out; }
+    .lightbox.active { display:flex; }
+    .lightbox img { max-width:92vw; max-height:92vh; border-radius:10px; object-fit:contain; }
+    .lb-close { position:fixed; top:16px; right:20px; color:#fff; font-size:28px; cursor:pointer; background:none; border:none; }
+    .footer { padding: 16px 32px; border-top: 1px solid #E2E8F0; font-size: 11px; color: #CBD5E0; text-align: center; }
+    @media print {
+      .lightbox { display:none !important; }
+      .sku-card { break-inside: avoid; page-break-inside: avoid; }
+      body { padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page-header">
+    <div>
+      <div class="brand-logo">${brandName}</div>
+      <div class="brand-sub">Product Line Sheet${isLink ? "" : " · Confidential"}</div>
+    </div>
+    <div class="page-date">Generated ${new Date().toLocaleDateString()}</div>
+  </div>
+  <div class="skus-grid">${skuCards}</div>
+  <div class="footer">ROF Design Calendar · ${new Date().getFullYear()}</div>
+  <div class="lightbox" id="lb" onclick="closeLb()">
+    <button class="lb-close" onclick="closeLb()">✕</button>
+    <img id="lb-img" src="" onclick="event.stopPropagation()" />
+  </div>
+  <script>
+    function enlargeImg(img) { document.getElementById("lb-img").src=img.src; document.getElementById("lb").classList.add("active"); }
+    function closeLb() { document.getElementById("lb").classList.remove("active"); }
+    document.addEventListener("keydown", e => e.key==="Escape" && closeLb());
+  <\/script>
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: "text/html" });
+  return URL.createObjectURL(blob);
+}
+
+function buildAttachmentPage(task, taskOrig, collData, brand, mode = "open") {
+  // mode = "link" (minimal header) or "open" (full header with sample due)
+  const images = task.images || [];
+
+  const metaParts = [
+    task.season,
+    task.category,
+    task.phase,
+    collData?.customer ? `Customer: ${collData.customer}` : null,
+    task.due ? `Due: ${task.due}` : null,
+    task.status,
+  ].filter(Boolean).join(" · ");
+
+  const sampleDue = collData?.sampleDueDate;
+
+  // Header HTML differs by mode
+  const headerHtml = mode === "link"
+    ? `<div class="brand-name">${brand?.name || ""}</div>
+       <div class="collection">${task.collection || ""}</div>`
+    : `<div class="brand-name">${brand?.name || ""}</div>
+       <div class="collection">${task.collection || ""}${sampleDue ? ` <span class="sample-due">· Samples Due: ${sampleDue}</span>` : ""}</div>
+       <div class="meta">${metaParts}</div>`;
+
+  const imagesHtml = images.map(img => {
+    const isImg = img.src?.startsWith("http") || img.src?.startsWith("data:image");
+    if (!isImg) return `<div class="attachment file-attachment"><div class="file-icon">📎</div><div class="file-name">${img.name || "File"}</div></div>`;
+    return `<div class="attachment"><img src="${img.src}" alt="${img.name || ""}" ondblclick="enlargeImg(this)" title="Double-click to enlarge · Right-click to save/print" /><div class="img-info">${img.name || ""}</div></div>`;
+  }).join("");
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>${task.collection || ""} – ${task.phase || ""}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 32px; color: #1A202C; background: #fff; }
+    .header { border-bottom: 3px solid #C8210A; padding-bottom: 16px; margin-bottom: 24px; }
+    .brand-name { font-size: 11px; font-weight: 700; color: #C8210A; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+    .collection { font-size: 22px; font-weight: 800; color: #1A202C; margin-bottom: 6px; }
+    .sample-due { font-size: 14px; font-weight: 600; color: #B45309; }
+    .meta { font-size: 12px; color: #718096; line-height: 1.6; }
+    .phase-badge { display: inline-block; background: #C8210A; color: #fff; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 12px; margin-bottom: 16px; }
+    .attachments { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 8px; }
+    .attachment { break-inside: avoid; }
+    .attachment img { max-width: 280px; max-height: 320px; border-radius: 8px; border: 1px solid #E2E8F0; object-fit: contain; display: block; cursor: zoom-in; transition: transform 0.1s; }
+    .attachment img:hover { border-color: #C8210A; }
+    .img-info { font-size: 11px; color: #718096; margin-top: 4px; max-width: 280px; word-break: break-all; }
+    .file-attachment { width: 120px; height: 120px; border: 1px solid #E2E8F0; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .file-icon { font-size: 36px; }
+    .file-name { font-size: 11px; color: #718096; margin-top: 4px; text-align: center; padding: 0 8px; word-break: break-all; }
+    .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #E2E8F0; font-size: 11px; color: #CBD5E0; }
+    .lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:9999; align-items:center; justify-content:center; cursor:zoom-out; }
+    .lightbox.active { display:flex; }
+    .lightbox img { max-width:92vw; max-height:92vh; border-radius:10px; object-fit:contain; cursor:default; }
+    .lightbox-close { position:fixed; top:16px; right:20px; color:#fff; font-size:28px; cursor:pointer; background:none; border:none; font-family:inherit; }
+    @media print { .lightbox { display:none !important; } }
+  </style>
+</head>
+<body>
+  <div class="header">${headerHtml}</div>
+  <div class="phase-badge">${task.phase || ""}</div>
+  <div class="attachments">${imagesHtml}</div>
+  <div class="footer">Generated ${new Date().toLocaleDateString()} · ROF Design Calendar</div>
+  <div class="lightbox" id="lb" onclick="closeLb()">
+    <button class="lightbox-close" onclick="closeLb()">✕</button>
+    <img id="lb-img" src="" onclick="event.stopPropagation()" />
+  </div>
+  <script>
+    function enlargeImg(img) {
+      document.getElementById('lb-img').src = img.src;
+      document.getElementById('lb').classList.add('active');
+    }
+    function closeLb() {
+      document.getElementById('lb').classList.remove('active');
+    }
+    document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeLb(); });
+  <\/script>
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: "text/html" });
+  return URL.createObjectURL(blob);
+}
+
 function TaskEditModal({
   task,
   team,
   collections,
   allTasks,
   onSave,
+  onQuietSave,
   onSaveCascade,
   onDelete,
   onClose,
@@ -3911,6 +4334,8 @@ function TaskEditModal({
   });
   const [tab, setTab] = useState("details");
   const [cascadeWarn, setCascadeWarn] = useState(null);
+  const [selectedAttachments, setSelectedAttachments] = useState(new Set());
+  const [selectMode, setSelectMode] = useState(false);
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
 
   const collKey = `${task.brand}||${task.collection}`;
@@ -3968,23 +4393,32 @@ function TaskEditModal({
     const { updatedTasks, ddpChanged, newDDP, oldDDP, affectedCount } =
       cascadeDates(allTasks, collKey, task.id, f.due);
 
-    // Build history entry if date changed
+    // Build history entries for ALL changed fields
+    const now = new Date().toISOString();
+    const newEntries = [];
+    const track = (field, from, to) => {
+      if (String(from || "") !== String(to || "")) {
+        newEntries.push({ id: uid(), field, from: String(from || "—"), to: String(to || "—"), changedBy: currentUser.name, at: now });
+      }
+    };
+    track("due date", task.due, f.due);
+    track("status", task.status, f.status);
+    track("vendor", task.vendorName, f.vendorName);
+    track("order type", task.orderType, f.orderType);
+    // Assignee by name
+    const fromAssignee = team?.find(m => m.id === task.assigneeId)?.name || "Unassigned";
+    const toAssignee = team?.find(m => m.id === f.assigneeId)?.name || "Unassigned";
+    track("assignee", fromAssignee, toAssignee);
+    // Notes: detect new notes added
+    const oldCount = Array.isArray(task.notes) ? task.notes.length : (task.notes ? 1 : 0);
+    const newCount = Array.isArray(f.notes) ? f.notes.length : (f.notes ? 1 : 0);
+    if (newCount > oldCount) {
+      const latestNote = Array.isArray(f.notes) ? f.notes[f.notes.length - 1] : null;
+      newEntries.push({ id: uid(), field: "note added", from: "", to: latestNote?.text?.substring(0, 60) || "note", changedBy: currentUser.name, at: now });
+    }
     const dateChanged = f.due !== task.due;
-    const fWithHistory = dateChanged
-      ? {
-          ...f,
-          history: [
-            ...(f.history || []),
-            {
-              id: uid(),
-              field: "due date",
-              from: task.due,
-              to: f.due,
-              changedBy: currentUser.name,
-              at: new Date().toISOString(),
-            },
-          ],
-        }
+    const fWithHistory = newEntries.length > 0
+      ? { ...f, history: [...(f.history || []), ...newEntries] }
       : f;
 
     if (ddpChanged) {
@@ -4348,84 +4782,39 @@ function TaskEditModal({
                   </div>
                 );
               })()}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 12,
-                }}
-              >
-                <div>
-                  <label style={S.lbl}>Customer</label>
-                  {/* FIX: use select+datalist combo so it always works */}
-                  <select
-                    style={{ ...S.inp, marginBottom: 0 }}
-                    value={f.customer || ""}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      set("customer", v);
-                      if (v && !f.channelType) {
-                        const custObj = (customerList || []).find(c => (typeof c === "string" ? c : c.name) === v);
-                        const ch = (custObj && typeof custObj !== "string" && custObj.channel) || getChannelForCustomer(v);
-                        if (ch) set("channelType", ch);
-                      }
-                    }}
-                    disabled={!canEdit}
-                  >
-                    <option value="">-- Select --</option>
-                    {(customerList || DEFAULT_CUSTOMERS).map((c) => {
-                      const name = typeof c === "string" ? c : c.name;
-                      return <option key={name} value={name}>{name}</option>;
-                    })}
-                  </select>
-                </div>
-                <div>
-                  <label style={S.lbl}>Order Type</label>
-                  <select
-                    style={{ ...S.inp, marginBottom: 0 }}
-                    value={f.orderType || ""}
-                    onChange={(e) => set("orderType", e.target.value)}
-                    disabled={!canEdit}
-                  >
-                    <option value="">-- Select --</option>
-                    {orderTypes.map((o) => (
-                      <option key={o}>{o}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div style={{ height: 12 }} />
-              <label style={S.lbl}>
-                Channel Type{" "}
-                <span
-                  style={{
-                    textTransform: "none",
-                    fontWeight: 400,
-                    color: TH.textMuted,
-                  }}
-                >
-                  (auto-fills from customer)
-                </span>
-              </label>
-              <select
-                style={S.inp}
-                value={f.channelType || ""}
-                onChange={(e) => set("channelType", e.target.value)}
-                disabled={!canEdit}
-              >
-                <option value="">-- Select --</option>
-                {CHANNEL_TYPES.map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </select>
+
               <label style={S.lbl}>Notes</label>
-              <textarea
-                style={{ ...S.inp, minHeight: 80, resize: "vertical" }}
-                value={f.notes || ""}
-                onChange={(e) => set("notes", e.target.value)}
-                disabled={!canEdit}
-                placeholder="Add notes..."
-              />
+              {/* Existing notes log */}
+              {(() => {
+                const notesList = Array.isArray(f.notes) ? f.notes :
+                  (f.notes ? [{ id: "legacy", text: f.notes, by: "—", at: null }] : []);
+                return notesList.length > 0 ? (
+                  <div style={{ marginBottom: 10, maxHeight: 220, overflowY: "auto", border: `1px solid ${TH.border}`, borderRadius: 8, background: TH.surfaceHi }}>
+                    {notesList.map((n, i) => (
+                      <div key={n.id || i} style={{ padding: "10px 14px", borderBottom: i < notesList.length - 1 ? `1px solid ${TH.border}` : "none" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: TH.primary }}>{n.by}</span>
+                          {n.at && <span style={{ fontSize: 10, color: TH.textMuted }}>{new Date(n.at).toLocaleString()}</span>}
+                        </div>
+                        <div style={{ fontSize: 13, color: TH.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{n.text}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null;
+              })()}
+              {/* New note input */}
+              {canEdit && (
+                <NoteInput onAdd={(text) => {
+                  const newNote = { id: uid(), text, by: currentUser?.name || "User", at: new Date().toISOString() };
+                  const existing = Array.isArray(f.notes) ? f.notes : (f.notes ? [{ id: "legacy", text: f.notes, by: "—", at: null }] : []);
+                  const updatedNotes = [...existing, newNote];
+                  // Auto-save note immediately + add to history
+                  const histEntry = { id: uid(), field: "note added", from: "", to: text.substring(0, 80), changedBy: currentUser?.name || "User", at: new Date().toISOString() };
+                  const updatedTask = { ...f, notes: updatedNotes, history: [...(f.history || []), histEntry] };
+                  setF(updatedTask); // Update local state
+                  (onQuietSave || onSave)(updatedTask); // quiet save — do not close modal
+                }} />
+              )}
             </div>
             <div>
               <label style={S.lbl}>Assign To</label>
@@ -4559,11 +4948,119 @@ function TaskEditModal({
         )}
 
         {tab === "images" && (
-          <ImageUploader
-            images={f.images || []}
-            onChange={(v) => canEdit && set("images", v)}
-            label="Attachments"
-          />
+          <div>
+            {/* Select mode toolbar */}
+            {(f.images || []).length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                {!selectMode ? (
+                  <button
+                    onClick={() => { setSelectMode(true); setSelectedAttachments(new Set()); }}
+                    style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}
+                  >
+                    ☑️ Select Attachments
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => {
+                        const all = new Set((f.images || []).map(i => i.id));
+                        setSelectedAttachments(prev => prev.size === all.size ? new Set() : all);
+                      }}
+                      style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.primary, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}
+                    >
+                      {selectedAttachments.size === (f.images || []).length ? "Deselect All" : "Select All"}
+                    </button>
+                    <button
+                      onClick={() => { setSelectMode(false); setSelectedAttachments(new Set()); }}
+                      style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}
+                    >
+                      Cancel
+                    </button>
+                    {selectedAttachments.size > 0 && (
+                      <>
+                        <span style={{ fontSize: 12, color: TH.textMuted, marginLeft: 4 }}>{selectedAttachments.size} selected</span>
+                        <button
+                          onClick={() => {
+                            const selected = (f.images || []).filter(i => selectedAttachments.has(i.id));
+                            const url = buildAttachmentPage({ ...f, images: selected }, task, collData, brand, "link");
+                            navigator.clipboard.writeText(url).then(() => alert("Link copied to clipboard!")).catch(() => {
+                              prompt("Copy this link:", url);
+                            });
+                          }}
+                          style={{ padding: "5px 14px", borderRadius: 7, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}
+                        >
+                          🔗 Copy Link
+                        </button>
+                        <button
+                          onClick={() => {
+                            const selected = (f.images || []).filter(i => selectedAttachments.has(i.id));
+                            const url = buildAttachmentPage({ ...f, images: selected }, task, collData, brand, "open");
+                            window.open(url, "_blank");
+                          }}
+                          style={{ padding: "5px 14px", borderRadius: 7, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}
+                        >
+                          🖨️ Open & Print
+                        </button>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Image uploader with selection overlay when in select mode */}
+            {selectMode ? (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
+                {(f.images || []).map(img => {
+                  const isSelected = selectedAttachments.has(img.id);
+                  const isImage = img.name?.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i) || img.src?.startsWith("data:image") || img.src?.includes("supabase");
+                  const ext = (img.name || "").split(".").pop()?.toUpperCase() || "FILE";
+                  const fileIcons = { PDF: "📄", AI: "🎨", EPS: "🎨", PSD: "🖼️", SVG: "🔷" };
+                  return (
+                    <div
+                      key={img.id}
+                      onClick={() => {
+                        setSelectedAttachments(prev => {
+                          const next = new Set(prev);
+                          if (next.has(img.id)) next.delete(img.id); else next.add(img.id);
+                          return next;
+                        });
+                      }}
+                      style={{
+                        position: "relative", width: 80, height: 80, borderRadius: 8, overflow: "hidden",
+                        border: `2px solid ${isSelected ? TH.primary : TH.border}`,
+                        cursor: "pointer", flexShrink: 0,
+                        background: TH.surfaceHi,
+                        boxShadow: isSelected ? `0 0 0 2px ${TH.primary}44` : "none",
+                      }}
+                    >
+                      {isImage
+                        ? <img src={img.src} alt={img.name} style={{ width: "100%", height: "100%", objectFit: "cover", opacity: isSelected ? 1 : 0.6 }} />
+                        : <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontSize: 22, opacity: isSelected ? 1 : 0.6 }}>{fileIcons[ext] || "📎"}<div style={{ fontSize: 9, color: TH.textMuted, marginTop: 2 }}>{ext}</div></div>
+                      }
+                      {/* Checkmark */}
+                      <div style={{
+                        position: "absolute", top: 4, right: 4,
+                        width: 18, height: 18, borderRadius: "50%",
+                        background: isSelected ? TH.primary : "rgba(255,255,255,0.8)",
+                        border: `2px solid ${isSelected ? TH.primary : "#ccc"}`,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 10, color: "#fff", fontWeight: 700,
+                      }}>
+                        {isSelected ? "✓" : ""}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <ImageUploader
+                images={f.images || []}
+                onChange={(v) => canEdit && set("images", v)}
+                label="Attachments"
+              />
+            )}
+          </div>
         )}
         {tab === "skus" && (
           <div>
@@ -4577,6 +5074,11 @@ function TaskEditModal({
               onChange={(newSkus) => {
                 if (!canEdit) return;
                 onSkuChange(collKey, newSkus);
+                // Add SKU change to task history (quiet save — do not close modal)
+                const skuHistEntry = { id: uid(), field: "SKUs updated", from: `${skus.length} SKUs`, to: `${newSkus.length} SKUs`, changedBy: currentUser?.name || "User", at: new Date().toISOString() };
+                const updatedWithHist = { ...f, history: [...(f.history || []), skuHistEntry] };
+                setF(updatedWithHist);
+                (onQuietSave || onSave)(updatedWithHist);
               }}
               brand={task.brand}
               category={task.category}
@@ -4959,8 +5461,47 @@ function DaysBackInput({ value, onCommit }) {
   );
 }
 
+
+// ─── PREV TASK INPUT (deferred commit – no DDP warning mid-typing) ────────────
+function PrevTaskInput({ fromPrev, onCommit }) {
+  const [local, setLocal] = useState(fromPrev != null ? String(fromPrev) : "");
+  useEffect(() => {
+    setLocal(fromPrev != null ? String(fromPrev) : "");
+  }, [fromPrev]);
+  function commit() {
+    const n = parseInt(local);
+    if (!isNaN(n) && n >= 0) onCommit(n);
+    else setLocal(fromPrev != null ? String(fromPrev) : "");
+  }
+  return (
+    <input
+      type="number"
+      min="0"
+      value={local}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") { e.preventDefault(); commit(); }
+        if (e.key === "Escape") setLocal(fromPrev != null ? String(fromPrev) : "");
+      }}
+      style={{
+        width: 64,
+        padding: "4px 6px",
+        borderRadius: 6,
+        border: `1px solid ${TH.border}`,
+        background: "#FFFFFF",
+        color: TH.text,
+        fontFamily: "inherit",
+        fontSize: 12,
+        textAlign: "center",
+        outline: "none",
+      }}
+    />
+  );
+}
+
 // ─── COLLECTION WIZARD ────────────────────────────────────────────────────────
-function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSave, onClose }) {
+function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSave, onClose, taskTemplates }) {
   const [step, setStep] = useState(1);
 
   // Compute initial recommended vendor for Denim (default category)
@@ -4974,8 +5515,15 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
   function calcDdpFromVendor(vendorId) {
     const v = vendors.find((vv) => vv.id === vendorId);
     if (!v) return "";
-    const maxLead = Math.max(...Object.values(v.lead).filter((x) => x > 0), 0);
-    const total = maxLead + (v.transitDays || 0);
+    // Use task templates + vendor overrides to find max lead time
+    const templates = (taskTemplates && taskTemplates.length > 0) ? taskTemplates : DEFAULT_TASK_TEMPLATES;
+    const overrides = v.leadOverrides || v.lead || {};
+    const leadValues = templates.map(tpl => {
+      const val = overrides[tpl.phase] !== undefined ? overrides[tpl.phase] : tpl.daysBeforeDDP;
+      return Number(val) || 0;
+    }).filter(x => x > 0);
+    const maxLead = leadValues.length > 0 ? Math.max(...leadValues) : 168;
+    const total = maxLead + (v.transitDays || 21);
     return addDays(new Date().toISOString().split("T")[0], total);
   }
 
@@ -5021,7 +5569,14 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
 
   // Build preview tasks from editPhases
   const previewTasks =
-    form.ddpDate && form.vendorId ? generateTasks({ ...form, vendors }) : [];
+    (() => {
+    try {
+      return form.ddpDate && form.vendorId ? generateTasks({ ...form, vendors, taskTemplates }) : [];
+    } catch(e) {
+      console.error("[generateTasks error]", e);
+      return [];
+    }
+  })();
 
   // Proportional resize helper: compress pre-Production phases so first task = today, DDP unchanged
   function applyProportionalResize(rawPhases) {
@@ -6092,27 +6647,11 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
                       const prevDue = editPhases[i - 1]?.due;
                       const fromPrev = prevDue ? diffDays(ep.due, prevDue) : null;
                       return (
-                        <input
-                          type="number"
-                          min="0"
-                          value={fromPrev ?? ""}
-                          onChange={(e) => {
-                            const n = parseInt(e.target.value);
-                            if (isNaN(n) || n < 0) return;
+                        <PrevTaskInput
+                          fromPrev={fromPrev}
+                          onCommit={(n) => {
                             const newDue = addDays(editPhases[i - 1].due, n);
                             updatePhaseDue(i, newDue);
-                          }}
-                          style={{
-                            width: 64,
-                            padding: "4px 6px",
-                            borderRadius: 6,
-                            border: `1px solid ${TH.border}`,
-                            background: "#FFFFFF",
-                            color: TH.text,
-                            fontFamily: "inherit",
-                            fontSize: 12,
-                            textAlign: "center",
-                            outline: "none",
                           }}
                         />
                       );
@@ -6393,8 +6932,15 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
 }
 
 // ─── CATEGORY MANAGER ────────────────────────────────────────────────────────
-function CategoryManager({ categories, setCategories }) {
+function CategoryManager({ categories, setCategories, isAdmin = false }) {
   const [newCat, setNewCat] = useState("");
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage this section.</div>
+    </div>
+  );
   const [newSub, setNewSub] = useState({});
   const [editCat, setEditCat] = useState(null); // {id, name}
   const [editName, setEditName] = useState("");
@@ -6664,8 +7210,15 @@ function CategoryManager({ categories, setCategories }) {
 }
 
 // ─── SIZE LIBRARY ─────────────────────────────────────────────────────────────
-function SizeLibrary({ sizes, setSizes }) {
+function SizeLibrary({ sizes, setSizes, isAdmin = false }) {
   const [newSize, setNewSize] = useState("");
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage this section.</div>
+    </div>
+  );
   function addSize() {
     const s = newSize.trim().toUpperCase();
     if (!s || sizes.includes(s)) {
@@ -7130,6 +7683,144 @@ function EditCollectionModal({
 }
 
 // ─── ADD TASK MODAL ───────────────────────────────────────────────────────────
+
+// ─── TASK MANAGER (Settings) ──────────────────────────────────────────────────
+function TaskManager({ taskTemplates, setTaskTemplates, isAdmin }) {
+  // Task Manager = Template Manager: defines which phases auto-populate per vendor
+  const [editing, setEditing] = useState(null); // null | "new" | template object
+  const [form, setForm] = useState(null);
+
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage task templates.</div>
+    </div>
+  );
+
+  const templates = (taskTemplates && taskTemplates.length > 0) ? taskTemplates : DEFAULT_TASK_TEMPLATES;
+
+  function startNew() {
+    setForm({ id: uid(), phase: "", daysBeforeDDP: 0, status: "Not Started", notes: "" });
+    setEditing("new");
+  }
+  function startEdit(tpl) {
+    setForm({ ...tpl });
+    setEditing(tpl.id);
+  }
+  function saveForm() {
+    if (!form.phase.trim()) return;
+    if (editing === "new") {
+      setTaskTemplates([...templates, form]);
+    } else {
+      setTaskTemplates(templates.map(t => t.id === form.id ? form : t));
+    }
+    setEditing(null);
+    setForm(null);
+  }
+  function deleteTemplate(id) {
+    if (!window.confirm("Delete this task template?")) return;
+    setTaskTemplates(templates.filter(t => t.id !== id));
+  }
+  function moveUp(idx) {
+    if (idx === 0) return;
+    const arr = [...templates];
+    [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
+    setTaskTemplates(arr);
+  }
+  function moveDown(idx) {
+    if (idx === templates.length - 1) return;
+    const arr = [...templates];
+    [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
+    setTaskTemplates(arr);
+  }
+
+  if (editing !== null) return (
+    <div>
+      <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
+        <button onClick={() => { setEditing(null); setForm(null); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>← Back</button>
+        <span style={S.sec}>{editing === "new" ? "New Task Template" : "Edit Task Template"}</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+        <div>
+          <label style={S.lbl}>Phase / Task Name *</label>
+          <input
+            style={S.inp}
+            value={form.phase}
+            onChange={e => setForm(f => ({ ...f, phase: e.target.value }))}
+            placeholder="e.g. Concept, Sampling, QC..."
+          />
+        </div>
+        <div>
+          <label style={S.lbl}>Days Before DDP (default lead time)</label>
+          <input
+            type="number"
+            min="0"
+            style={S.inp}
+            value={form.daysBeforeDDP}
+            onChange={e => setForm(f => ({ ...f, daysBeforeDDP: parseInt(e.target.value) || 0 }))}
+          />
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+        <div>
+          <label style={S.lbl}>Default Status</label>
+          <select style={S.inp} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+            {Object.keys(STATUS_CONFIG).map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+      </div>
+      <label style={S.lbl}>Default Notes</label>
+      <textarea
+        style={{ ...S.inp, minHeight: 80, resize: "vertical" }}
+        value={form.notes}
+        onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+        placeholder="Optional default notes for this task..."
+      />
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+        <button onClick={() => { setEditing(null); setForm(null); }} style={{ padding: "9px 18px", borderRadius: 8, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+        <button disabled={!form.phase.trim()} onClick={saveForm} style={{ ...S.btn, opacity: form.phase.trim() ? 1 : 0.4 }}>Save Template</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ marginBottom: 12, padding: "10px 14px", background: TH.primary + "08", border: `1px solid ${TH.primary}22`, borderRadius: 8, fontSize: 12, color: TH.textMuted, lineHeight: 1.5 }}>
+        <strong style={{ color: TH.text }}>Task Templates</strong> define which phases are auto-generated when a collection is created with a vendor. Vendors can override the default lead times. Order matters — tasks appear in this order on the timeline.
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+        <button onClick={startNew} style={S.btn}>+ Add Task Template</button>
+      </div>
+      <div style={{ display: "grid", gap: 6 }}>
+        {templates.map((tpl, idx) => (
+          <div key={tpl.id} style={{ ...S.card, display: "flex", alignItems: "center", gap: 10 }}>
+            {/* Reorder buttons */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <button onClick={() => moveUp(idx)} disabled={idx === 0} style={{ padding: "1px 6px", borderRadius: 4, border: `1px solid ${TH.border}`, background: "none", color: idx === 0 ? TH.border : TH.textMuted, cursor: idx === 0 ? "default" : "pointer", fontFamily: "inherit", fontSize: 11, lineHeight: 1 }}>▲</button>
+              <button onClick={() => moveDown(idx)} disabled={idx === templates.length - 1} style={{ padding: "1px 6px", borderRadius: 4, border: `1px solid ${TH.border}`, background: "none", color: idx === templates.length - 1 ? TH.border : TH.textMuted, cursor: idx === templates.length - 1 ? "default" : "pointer", fontFamily: "inherit", fontSize: 11, lineHeight: 1 }}>▼</button>
+            </div>
+            <div style={{ width: 24, height: 24, borderRadius: "50%", background: TH.primary + "15", color: TH.primary, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{idx + 1}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: TH.text }}>{tpl.phase}</div>
+              <div style={{ fontSize: 11, color: TH.textMuted }}>
+                {tpl.daysBeforeDDP} days before DDP · Default: {tpl.status}
+                {tpl.notes ? ` · "${tpl.notes.substring(0, 40)}${tpl.notes.length > 40 ? "…" : ""}"` : ""}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={() => startEdit(tpl)} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
+              <button onClick={() => deleteTemplate(tpl.id)} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
+            </div>
+          </div>
+        ))}
+        {templates.length === 0 && <div style={{ textAlign: "center", color: TH.textMuted, padding: "24px", fontSize: 13, border: `1px dashed ${TH.border}`, borderRadius: 10 }}>No templates yet. Add a task template to define what phases are generated per vendor.</div>}
+      </div>
+    </div>
+  );
+}
+
+
 function AddTaskModal({ tasks, vendors, team, collections, onSave, onClose }) {
   const collOptions = [
     ...new Set(tasks.map((t) => `${t.brand}||${t.collection}`)),
@@ -7142,22 +7833,19 @@ function AddTaskModal({ tasks, vendors, team, collections, onSave, onClose }) {
     status: "Not Started",
     assigneeId: "",
     notes: "",
+    isDefaultPhase: false,
   });
   const setF = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   function handleSave() {
-    if (!form.collKey || !form.phase || !form.due) return;
+    if (!form.collKey || !form.phase || (!form.isDefaultPhase && !form.due)) return;
     const [brand, collection] = form.collKey.split("||");
     const refTask = tasks.find(
       (t) => t.brand === brand && t.collection === collection
     );
-    const newTask = {
-      id: uid(),
+    const base = {
       brand,
       collection,
-      phase: form.phase,
-      due: form.due,
-      originalDue: form.due,
       status: form.status,
       assigneeId: form.assigneeId || null,
       notes: form.notes,
@@ -7172,11 +7860,38 @@ function AddTaskModal({ tasks, vendors, team, collections, onSave, onClose }) {
       customer: refTask?.customer || "",
       orderType: refTask?.orderType || "",
       channelType: refTask?.channelType || "",
-      images: refTask?.images || [],
+      images: [],
       skus: [],
-      isCustomTask: true,
+      history: [],
     };
-    onSave(newTask);
+
+    if (form.isDefaultPhase) {
+      // Add all default phases that don't already exist in this collection
+      const existingPhases = tasks
+        .filter(t => t.brand === brand && t.collection === collection)
+        .map(t => t.phase);
+      const newTasks = PHASE_KEYS
+        .filter(p => !existingPhases.includes(p))
+        .map(p => ({
+          id: uid(),
+          ...base,
+          phase: p,
+          due: refTask?.ddpDate || todayStr,
+          originalDue: refTask?.ddpDate || todayStr,
+          isCustomTask: false,
+        }));
+      newTasks.forEach(t => onSave(t));
+    } else {
+      const newTask = {
+        id: uid(),
+        ...base,
+        phase: form.phase,
+        due: form.due,
+        originalDue: form.due,
+        isCustomTask: true,
+      };
+      onSave(newTask);
+    }
   }
 
   return (
@@ -7200,13 +7915,40 @@ function AddTaskModal({ tasks, vendors, team, collections, onSave, onClose }) {
           })}
         </select>
 
-        <label style={S.lbl}>Task / Phase Name</label>
-        <input
-          style={S.inp}
-          value={form.phase}
-          onChange={(e) => setF("phase", e.target.value)}
-          placeholder="e.g. Proto Review, Lab Dip, Final Approval…"
-        />
+        {/* Toggle: custom task vs default phase set */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+          <button
+            onClick={() => setF("isDefaultPhase", false)}
+            style={{ flex: 1, padding: "8px", borderRadius: 8, border: `2px solid ${!form.isDefaultPhase ? TH.primary : TH.border}`, background: !form.isDefaultPhase ? TH.primary + "15" : "none", color: !form.isDefaultPhase ? TH.primary : TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}
+          >📌 Single Task</button>
+          <button
+            onClick={() => setF("isDefaultPhase", true)}
+            style={{ flex: 1, padding: "8px", borderRadius: 8, border: `2px solid ${form.isDefaultPhase ? TH.primary : TH.border}`, background: form.isDefaultPhase ? TH.primary + "15" : "none", color: form.isDefaultPhase ? TH.primary : TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}
+          >📋 Default Phase Set</button>
+        </div>
+
+        {form.isDefaultPhase ? (
+          <div style={{ background: TH.surfaceHi, borderRadius: 10, padding: "12px 14px", marginBottom: 14, fontSize: 12, color: TH.textMuted }}>
+            <div style={{ fontWeight: 600, color: TH.text, marginBottom: 6 }}>Will add all standard phases:</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {PHASE_KEYS.map(p => {
+                const exists = tasks.filter(t => form.collKey && `${t.brand}||${t.collection}` === form.collKey).find(t => t.phase === p);
+                return <span key={p} style={{ padding: "2px 8px", borderRadius: 12, background: exists ? "#F3F4F6" : TH.primary + "20", color: exists ? TH.textMuted : TH.primary, fontSize: 11, fontWeight: 600, textDecoration: exists ? "line-through" : "none" }}>{p}</span>;
+              })}
+            </div>
+            <div style={{ marginTop: 8, fontSize: 11 }}>Phases already in this collection are skipped.</div>
+          </div>
+        ) : (
+          <>
+            <label style={S.lbl}>Task / Phase Name</label>
+            <input
+              style={S.inp}
+              value={form.phase}
+              onChange={(e) => setF("phase", e.target.value)}
+              placeholder="e.g. Proto Review, Lab Dip, Final Approval…"
+            />
+          </>
+        )}
 
         <div
           style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}
@@ -7935,83 +8677,22 @@ document.addEventListener('click',()=>{if(activeCtx){activeCtx.style.display='no
   );
 }
 
-// ─── COLLECTION IMAGE BUTTON (concept / sku submenu) ─────────────────────────
+// ─── COLLECTION ATTACHMENTS BUTTON ───────────────────────────────────────────
 function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
-  const [open, setOpen] = useState(false);
-  const [gallery, setGallery] = useState(null); // { title, images }
-  const ref = useRef(null);
+  const [showModal, setShowModal] = useState(false);
+  const [lightbox, setLightbox] = useState(null);
+  const [brandId, collName] = collKey.split("||");
 
-  useEffect(() => {
-    function handle(e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
-  }, []);
-
-  function openConcept(e) {
-    e.stopPropagation();
-    setOpen(false);
-    const [brandId, collName] = collKey.split("||");
-    const conceptTask = tasks.find(
-      (t) => `${t.brand}||${t.collection}` === collKey && t.phase === "Concept"
-    );
-    const imgs = (conceptTask?.images || collData?.conceptImages || []).map(
-      (img) => ({
-        ...img,
-        title: collName,
-        subtitle: "Concept Image",
-        meta: {
-          Brand: getBrand(brandId)?.name,
-          Season: conceptTask?.season || "",
-          Category: conceptTask?.category || "",
-          Customer: collData?.customer || conceptTask?.customer || "",
-        },
-      })
-    );
-    setGallery({ title: `Concept Images — ${collName}`, images: imgs });
-  }
-
-  function openSkus(e) {
-    e.stopPropagation();
-    setOpen(false);
-    const [brandId, collName] = collKey.split("||");
-    const refTask = tasks.find(
-      (t) => `${t.brand}||${t.collection}` === collKey
-    );
-    const skus = collData?.skus || [];
-    const imgs = [];
-    skus.forEach((sku) => {
-      if (sku.images?.length) {
-        sku.images.forEach((img) => {
-          imgs.push({
-            ...img,
-            title: sku.styleNum || "SKU",
-            subtitle: sku.description || "",
-            meta: {
-              Style: sku.styleNum || "",
-              Description: sku.description || "",
-              Colorways: sku.colorways || "",
-              Fabric: sku.fabric || "",
-              Units: sku.units ? String(sku.units) : "",
-              Season: refTask?.season || "",
-              Brand: getBrand(brandId)?.name || "",
-              Collection: collName,
-            },
-          });
-        });
-      }
-    });
-    setGallery({ title: `SKU Images — ${collName}`, images: imgs });
-  }
+  // All tasks in this collection
+  const collTasks = tasks.filter(t => `${t.brand}||${t.collection}` === collKey);
+  const totalAttachments = collTasks.reduce((a, t) => a + (t.images?.length || 0), 0);
+  const skus = collData?.skus || [];
+  const skuAttachments = skus.reduce((a, s) => a + (s.images?.length || 0), 0);
 
   return (
-    <div ref={ref} style={{ position: "relative", flex: 1 }}>
+    <>
       <button
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((v) => !v);
-        }}
+        onClick={(e) => { e.stopPropagation(); setShowModal(true); }}
         style={{
           width: "100%",
           padding: "4px 6px",
@@ -8025,64 +8706,99 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
           fontWeight: 700,
         }}
       >
-        🖼️ Images
+        📎 Attachments{(totalAttachments + skuAttachments) > 0 ? ` (${totalAttachments + skuAttachments})` : ""}
       </button>
-      {open && (
+
+      {showModal && (
         <div
-          style={{
-            position: "absolute",
-            bottom: "calc(100% + 6px)",
-            left: 0,
-            right: 0,
-            background: "#1A202C",
-            border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: 8,
-            boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
-            zIndex: 500,
-            overflow: "hidden",
-          }}
+          onClick={() => setShowModal(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 9000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
         >
-          {[
-            { label: "🎨 Concept Images", fn: openConcept },
-            { label: "👕 SKU Images", fn: openSkus },
-          ].map(({ label, fn }) => (
-            <button
-              key={label}
-              onClick={fn}
-              style={{
-                display: "block",
-                width: "100%",
-                padding: "9px 12px",
-                border: "none",
-                background: "none",
-                color: "rgba(255,255,255,0.85)",
-                cursor: "pointer",
-                fontFamily: "inherit",
-                fontSize: 11,
-                fontWeight: 600,
-                textAlign: "left",
-                borderBottom: "1px solid rgba(255,255,255,0.07)",
-              }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.background = "rgba(255,255,255,0.1)")
-              }
-              onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
-            >
-              {label}
-            </button>
-          ))}
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: "#fff", borderRadius: 14, width: "100%", maxWidth: 680, maxHeight: "80vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 60px rgba(0,0,0,0.4)" }}
+          >
+            {/* Header */}
+            <div style={{ padding: "18px 22px", borderBottom: "1px solid #E2E8F0", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#1A202C" }}>📎 Attachments — {collName}</div>
+                <div style={{ fontSize: 12, color: "#718096", marginTop: 2 }}>{totalAttachments + skuAttachments} total attachment{(totalAttachments + skuAttachments) !== 1 ? "s" : ""}</div>
+              </div>
+              <button onClick={() => setShowModal(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#718096", padding: "4px 8px" }}>✕</button>
+            </div>
+
+            {/* Body */}
+            <div style={{ overflowY: "auto", padding: "16px 22px", flex: 1 }}>
+              {collTasks.length === 0 && skus.length === 0 && (
+                <div style={{ textAlign: "center", color: "#718096", padding: 40, fontSize: 14 }}>No tasks in this collection yet.</div>
+              )}
+
+              {/* Tasks */}
+              {collTasks.map(t => (
+                <div key={t.id} style={{ marginBottom: 20 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#1A202C" }}>{t.phase}</div>
+                    <div style={{ fontSize: 11, color: "#718096" }}>· {t.status} · Due: {t.due || "—"}</div>
+                    {(t.images?.length || 0) === 0 && <div style={{ fontSize: 11, color: "#CBD5E0", marginLeft: "auto" }}>No attachments</div>}
+                  </div>
+                  {(t.images?.length || 0) > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {t.images.map((img, i) => {
+                        const isImage = img.name?.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i) || img.src?.startsWith("data:image") || img.src?.includes("supabase");
+                        const ext = (img.name || "").split(".").pop()?.toUpperCase() || "FILE";
+                        const fileIcons = { PDF: "📄", AI: "🎨", EPS: "🎨", PSD: "🖼️", SVG: "🔷" };
+                        return (
+                          <div
+                            key={i}
+                            onClick={() => isImage && setLightbox(img.src)}
+                            style={{ width: 72, height: 72, borderRadius: 8, overflow: "hidden", border: "1px solid #E2E8F0", cursor: isImage ? "zoom-in" : "default", flexShrink: 0, background: "#F7FAFC", display: "flex", alignItems: "center", justifyContent: "center" }}
+                          >
+                            {isImage
+                              ? <img src={img.src} alt={img.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                              : <div style={{ textAlign: "center", fontSize: 22 }}>{fileIcons[ext] || "📎"}<div style={{ fontSize: 9, color: "#718096", marginTop: 2 }}>{ext}</div></div>
+                            }
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div style={{ height: 1, background: "#EDF2F7", marginTop: 12 }} />
+                </div>
+              ))}
+
+              {/* SKU attachments */}
+              {skuAttachments > 0 && (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1A202C", marginBottom: 8 }}>👕 SKU Images</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {skus.flatMap(s => (s.images || []).map((img, i) => (
+                      <div
+                        key={`${s.styleNum}-${i}`}
+                        onClick={() => setLightbox(img.src)}
+                        style={{ width: 72, height: 72, borderRadius: 8, overflow: "hidden", border: "1px solid #E2E8F0", cursor: "zoom-in", flexShrink: 0 }}
+                      >
+                        <img src={img.src} alt={img.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      </div>
+                    )))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
-      {gallery && (
-        <ImageGalleryModal
-          title={gallery.title}
-          images={gallery.images}
-          onClose={() => setGallery(null)}
-        />
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div onClick={() => setLightbox(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center", cursor: "zoom-out" }}>
+          <img src={lightbox} alt="" style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 10, objectFit: "contain" }} onClick={e => e.stopPropagation()} />
+          <button onClick={() => setLightbox(null)} style={{ position: "fixed", top: 20, right: 20, background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", width: 36, height: 36, borderRadius: "50%", fontSize: 18, cursor: "pointer" }}>✕</button>
+        </div>
       )}
-    </div>
+    </>
   );
 }
+
 
 // ─── FILTER BAR ─────────────────────────────────────────────────────────────
 function FilterBar({
@@ -8596,80 +9312,162 @@ function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, te
 
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
+
+// usePersistSb must be defined outside App so React hooks rules are satisfied
+// It references sbSave which is passed as a parameter
+function usePersistSb(initial, sbKey, sbSaveFn) {
+  const [val, setVal] = useState(initial);
+  const setter = (updater) => {
+    setVal((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      if (sbSaveFn) sbSaveFn(sbKey, next);
+      return next;
+    });
+  };
+  return [val, setter];
+}
+
 export default function App() {
-  // ── Dropbox persistence ───────────────────────────────────────────────────
-  const DBX_TOKEN = "sl.u.AGUcjMEcACemDUZHoLi92xdgZ13WI8iSDzLrDH79Xgcn7fQKuN8tfpn01xSY-JhTMgcNe-tGiNYqsVkrbII3NoWk0KO1MumGTJV1CX1DZb7qCUFR9lOlx9oQoAtuuAiMockw9inV9CuMwsVRIAA7h5qrrjKqAZ65SfmWt0bq73FFlircuF1x7LkEsABbzJGznX7y5q8Qo76unECnZw_QOKIF7JeYlshwpIbb-6i4qktHbqbOZ5lHEe5U2nuCmE1QVj80sMPoFvcRTa-D1WptAgnL_gHlZqnsLppUPlJ17RVpoXfmF5qkxC6q3P_d5Et2x_4MUKPAeeMc9cGp2vHZBITl5Uqs472avmEnAaa8Ob9g7eeJIIVcQOlg7gXwgpeoxeyuTYHGaAeOiyoNCihv8QBP3SPTA0HnK0KnaXLixBddFtUo97JPVxMDeEsdEeiXqooalU2qJ_BAqOHbk6zUEb3EaZa-2LpslUdktWiP6YaGJgUePX-2JBS4BmN_rfIjVlsikaObNC1U9hhX1ea0FHuThyzijnVqVdze9-fcFszuvJIar3eXf7tzXPzW_JahCXJr-eMdNx68Bpu7Bj-485LL_P0F09mhS219DTWoBVoflXSOF9UE8eE8kiybDGL__qfFfRJwB_-8qEFoDRj1f-wcrWxRYx16yZdiEYBXaMM7KR83Fhiru2gFNFSExAERAqZdBC_PWIicVhHl7nRkAMnlZ7Wu9uu3CGA1v_MqXXgXxvqaqpWlMJxjJMyNHZfA5Th3VwA9NNgB3nOK0umNT8BUVx371VRqreNByWsme6Ara66ZRd9EuPwFQAoz3-q64KqgbfRRiPWjv7edgi6e49BEUBE26B7e1XW2muTnJxncZfp8jF3g9g0P5pBiNf9Z_7w5gXRyU2ZhfNuHrb2epYnBQrq_LyEOsZC2aG2cQgyqRr5-6vdsH0giZoXneSUCqEsuaNmIgY7zLb9gd98oRy1DnwcEpwJY7Ja_lzwMKR9-Bc9MPLt9x_zYQKYR7TRTFOPQDLCtce6wJ4o5r5AbYmn0Vo33ceURUtI6_I3fRH1Bv3W7pydx9QAgI2BVF-2OD2Rwzai2MUghm3yUah-wYjbQGao7VYRT9h7Fcr--qW8W0GYMgGZYbO7_J7A5KixWGA375AH3-_4L4n87IlfxNqd8nvEb7e2hABTrznLm1dgMzYBCSF-O7tFEr24TzWfsA9L0awYgw1v2qN-9-eESJphwJ6KyYNa78ar2cCgc6M6Xsnza8fZJa-BcJrBI-gW_Y830PoQMtsCtgglC4KBu6W0sAwzgr98EKjOgGHNB7Le0qzLO-HAFUyepGOZ2q3bVU0_poNEgEfjpXanfvDtAxZ00Jjdn5AhKumbb9gwxnEmKgAIRmf9eOxr99jABC4Y6GdtBMX3PV6MHRB1N0W11-HpFtO6tTZ5Ui-YEWYPfZfuwqyMG2poXqlepeJNpbTPT65bjtOpMTAb6LZ23M5ezFEOf";
-  
-  async function dbxUpload(filename, data) {
-    console.log("[DBX] uploading:", filename);
+  // ── Supabase persistence ─────────────────────────────────────────────────
+  const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
+  const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
+
+  // ── Key-value store for reference data (users, brands, vendors etc) ───────
+  async function sbSave(key, value) {
     try {
-      const res = await fetch("https://content.dropboxapi.com/2/files/upload", {
+      await fetch(`${SB_URL}/rest/v1/app_data`, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${DBX_TOKEN}`,
-          "Dropbox-API-Arg": JSON.stringify({
-            path: `/${filename}`,
-            mode: "overwrite",
-            autorename: false,
-            mute: true,
-          }),
-          "Content-Type": "application/octet-stream",
+          "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`,
+          "Content-Type": "application/json",
+          "Prefer": "resolution=merge-duplicates,return=minimal",
         },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ key, value: JSON.stringify(value) }),
       });
-      const txt = await res.text();
-      if (!res.ok) {
-        console.error("[DBX] upload FAILED", res.status, txt);
-      } else {
-        console.log("[DBX] upload OK:", filename);
-      }
-    } catch (e) { console.error("[DBX] upload ERROR:", e); }
+    } catch(e) { console.error("[SB] save error:", key, e); }
   }
 
-  async function dbxDownload(filename) {
-    console.log("[DBX] downloading:", filename);
+  async function sbLoad(key) {
     try {
-      const res = await fetch("https://content.dropboxapi.com/2/files/download", {
+      const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.${key}&select=value`, {
+        headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` },
+      });
+      if (!res.ok) return null;
+      const rows = await res.json();
+      return rows.length ? JSON.parse(rows[0].value) : null;
+    } catch(e) { return null; }
+  }
+
+  // ── Individual row operations for tasks (fast upsert/delete) ─────────────
+  async function sbSaveTask(task) {
+    try {
+      // Store entire task as jsonb in the data column, id as primary key
+      await fetch(`${SB_URL}/rest/v1/tasks`, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${DBX_TOKEN}`,
-          "Dropbox-API-Arg": JSON.stringify({ path: `/${filename}` }),
+          "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`,
+          "Content-Type": "application/json",
+          "Prefer": "resolution=merge-duplicates,return=minimal",
         },
+        body: JSON.stringify({ id: task.id, data: task }),
       });
-      if (!res.ok) {
-        const txt = await res.text();
-        console.warn("[DBX] download FAILED", filename, res.status, txt);
-        return null;
-      }
-      const text = await res.text();
-      console.log("[DBX] download OK:", filename);
-      return JSON.parse(text);
-    } catch (e) { console.error("[DBX] download ERROR:", filename, e); return null; }
+    } catch(e) { console.error("[SB] save task error:", e); }
+  }
+
+  async function sbDeleteTask(id) {
+    try {
+      await fetch(`${SB_URL}/rest/v1/tasks?id=eq.${id}`, {
+        method: "DELETE",
+        headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` },
+      });
+    } catch(e) { console.error("[SB] delete task error:", e); }
+  }
+
+  async function sbLoadTasks() {
+    try {
+      const res = await fetch(`${SB_URL}/rest/v1/tasks?select=data`, {
+        headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` },
+      });
+      if (!res.ok) return null;
+      const rows = await res.json();
+      return rows.map(r => r.data);
+    } catch(e) { return null; }
+  }
+
+  // ── Individual row operations for collections ─────────────────────────────
+  async function sbSaveCollection(key, data) {
+    try {
+      await fetch(`${SB_URL}/rest/v1/collections`, {
+        method: "POST",
+        headers: {
+          "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`,
+          "Content-Type": "application/json",
+          "Prefer": "resolution=merge-duplicates,return=minimal",
+        },
+        body: JSON.stringify({ id: key, data }),
+      });
+    } catch(e) { console.error("[SB] save collection error:", e); }
+  }
+
+  async function sbLoadCollections() {
+    try {
+      const res = await fetch(`${SB_URL}/rest/v1/collections?select=id,data`, {
+        headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` },
+      });
+      if (!res.ok) return null;
+      const rows = await res.json();
+      const obj = {};
+      rows.forEach(r => { obj[r.id] = r.data; });
+      return obj;
+    } catch(e) { return null; }
   }
 
   const [dbxLoaded, setDbxLoaded] = useState(false);
 
-  function usePersist(key, fallback) {
-    const [val, setVal] = useState(fallback);
-    const setter = (updater) => {
-      setVal((prev) => {
-        const next = typeof updater === "function" ? updater(prev) : updater;
-        dbxUpload(`${key}.json`, next);
-        return next;
-      });
-    };
-    return [val, setter];
-  }
+  // usePersistSb defined outside App component below
 
-  const [users, setUsers] = usePersist("rof_users", DEFAULT_USERS);
+  const [users, setUsers] = usePersistSb([], "users", sbSave);
   const [currentUser, setCurrentUser] = useState(null);
-  const [brands, setBrands] = usePersist("rof_brands", BRANDS);
-  const [seasons, setSeasons] = usePersist("rof_seasons", SEASONS);
-  const [customers, setCustomers] = usePersist("rof_customers", DEFAULT_CUSTOMERS.map(n => ({ name: n, channel: CUSTOMER_CHANNEL_MAP[n] || "" })));
-  const [vendors, setVendors] = usePersist("rof_vendors", SAMPLE_VENDORS);
-  const [team, setTeam] = usePersist("rof_team", SAMPLE_TEAM);
-  const [tasks, setTasks] = usePersist("rof_tasks", []);
-  const [collections, setCollections] = usePersist("rof_collections", {});
+  const [brands, setBrands] = usePersistSb([], "brands", sbSave);
+  const [seasons, setSeasons] = usePersistSb([], "seasons", sbSave);
+  const [customers, setCustomers] = usePersistSb([], "customers", sbSave);
+  const [vendors, setVendors] = usePersistSb([], "vendors", sbSave);
+  const [team, setTeam] = usePersistSb([], "team", sbSave);
+  const [tasks, _setTasksRaw] = useState([]);
+  const setTasks = (updater) => {
+    _setTasksRaw((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      // Save all changed/new tasks to Supabase individually
+      if (Array.isArray(next) && Array.isArray(prev)) {
+        next.forEach(t => {
+          const old = prev.find(p => p.id === t.id);
+          if (!old || JSON.stringify(old) !== JSON.stringify(t)) {
+            sbSaveTask(t);
+          }
+        });
+        // Delete removed tasks
+        prev.forEach(t => {
+          if (!next.find(n => n.id === t.id)) sbDeleteTask(t.id);
+        });
+      }
+      return next;
+    });
+  };
+  const [collections, _setCollRaw] = useState({});
+  const setCollections = (updater) => {
+    _setCollRaw((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      // Save each new/changed collection to Supabase
+      Object.entries(next).forEach(([key, val]) => {
+        const prevStr = JSON.stringify(prev[key] || {});
+        const nextStr = JSON.stringify(val);
+        if (prevStr !== nextStr) {
+          sbSaveCollection(key, val);
+        }
+      });
+      return next;
+    });
+  };
   const [view, setView] = useState("dashboard");
   const [filterBrand, setFilterBrand] = useState<Set<string>>(new Set());
   const [filterSeason, setFilterSeason] = useState<Set<string>>(new Set());
@@ -8683,8 +9481,8 @@ export default function App() {
   const [showUsers, setShowUsers] = useState(false);
   const [showSizeLib, setShowSizeLib] = useState(false);
   const [showCatLib, setShowCatLib] = useState(false);
-  const [sizeLibrary, setSizeLibrary] = usePersist("rof_sizes", DEFAULT_SIZES);
-  const [categoryLib, setCategoryLib] = usePersist("rof_categories", DEFAULT_CATEGORIES);
+  const [sizeLibrary, setSizeLibrary] = usePersistSb([], "size_library", sbSave);
+  const [categoryLib, setCategoryLib] = usePersistSb([], "categories", sbSave);
   const [editTask, setEditTask] = useState(null);
   const [dragId, setDragId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
@@ -8696,7 +9494,11 @@ export default function App() {
   const [showSeasons, setShowSeasons] = useState(false);
   const [showCustomers, setShowCustomers] = useState(false);
   const [showOrderTypes, setShowOrderTypes] = useState(false);
-  const [orderTypes, setOrderTypes] = usePersist("rof_orderTypes", [...ORDER_TYPES]);
+  const [showRoles, setShowRoles] = useState(false);
+  const [showTaskManager, setShowTaskManager] = useState(false);
+  const [orderTypes, setOrderTypes] = usePersistSb([], "order_types", sbSave);
+  const [roles, setRoles] = usePersistSb([], "roles", sbSave);
+  const [taskTemplates, setTaskTemplates] = usePersistSb([], "task_templates", sbSave);
   const [miniCalDragOver, setMiniCalDragOver] = useState(null);
   const [teamsConfig, setTeamsConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem("teamsConfig") || "null") || { clientId: "", tenantId: "", channelMap: {} }; }
@@ -8711,30 +9513,50 @@ export default function App() {
   // Shadow the global getBrand with the stateful version for all inner components
   const getBrand = getBrandDyn;
 
-  // ── Load all data from Dropbox on startup ────────────────────────────────
+  // ── Load all data from Supabase on startup ───────────────────────────────
   useEffect(() => {
     async function loadAll() {
-      console.log("[DBX] loadAll starting...");
-      const files = [
-        ["rof_tasks", setTasks],
-        ["rof_collections", setCollections],
-        ["rof_vendors", setVendors],
-        ["rof_team", setTeam],
-        ["rof_users", setUsers],
-        ["rof_brands", setBrands],
-        ["rof_seasons", setSeasons],
-        ["rof_customers", setCustomers],
-        ["rof_sizes", setSizeLibrary],
-        ["rof_categories", setCategoryLib],
-        ["rof_orderTypes", setOrderTypes],
-      ];
-      await Promise.all(
-        files.map(async ([key, setter]) => {
-          const data = await dbxDownload(`${key}.json`);
-          if (data !== null) setter(data);
-        })
-      );
-      console.log("[DBX] loadAll complete, setting loaded=true");
+      console.log("[SB] loadAll starting...");
+      try {
+        // Load reference data from key-value store + tasks/collections from individual rows
+        const [
+          users, brands, seasons, customers, vendors, team,
+          sizes, categories, orderTypes, rolesData, taskTemplatesData,
+          tasks, collections
+        ] = await Promise.all([
+          sbLoad("users"),
+          sbLoad("brands"),
+          sbLoad("seasons"),
+          sbLoad("customers"),
+          sbLoad("vendors"),
+          sbLoad("team"),
+          sbLoad("size_library"),
+          sbLoad("categories"),
+          sbLoad("order_types"),
+          sbLoad("roles"),
+          sbLoad("task_templates"),
+          sbLoadTasks(),
+          sbLoadCollections(),
+        ]);
+
+        if (users) setUsers(users);
+        if (brands) setBrands(brands);
+        if (seasons) setSeasons(seasons);
+        if (customers) setCustomers(customers);
+        if (vendors) setVendors(vendors);
+        if (team) setTeam(team);
+        if (sizes) setSizeLibrary(sizes);
+        if (categories) setCategoryLib(categories);
+        if (orderTypes) setOrderTypes(orderTypes);
+        if (rolesData) setRoles(rolesData);
+        if (taskTemplatesData) setTaskTemplates(taskTemplatesData);
+        if (tasks?.length) _setTasksRaw(tasks);
+        if (collections && Object.keys(collections).length) _setCollRaw(collections);
+
+        console.log("[SB] loadAll complete");
+      } catch(e) {
+        console.error("[SB] loadAll error:", e);
+      }
       setDbxLoaded(true);
     }
     loadAll();
@@ -8796,7 +9618,7 @@ export default function App() {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", background: "#0F172A", gap: 16 }}>
         <div style={{ fontSize: 32 }}>🔄</div>
-        <div style={{ color: "#fff", fontSize: 16, fontWeight: 600 }}>Loading from Dropbox…</div>
+        <div style={{ color: "#fff", fontSize: 16, fontWeight: 600 }}>Loading from Supabase…</div>
         <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Syncing your data</div>
       </div>
     );
@@ -8862,16 +9684,24 @@ export default function App() {
 
   function saveTask(f) {
     const clean = { ...f };
-    // Each task keeps its own images — no spreading
     setTasks((ts) => ts.map((t) => (t.id === clean.id ? clean : t)));
+    sbSaveTask(clean); // Fast individual row upsert
     setEditTask(null);
+  }
+  function quietSaveTask(f) {
+    // Save without closing modal (used by SKU and note auto-saves)
+    const clean = { ...f };
+    setTasks((ts) => ts.map((t) => (t.id === clean.id ? clean : t)));
+    sbSaveTask(clean);
   }
 
   function saveCascade(updatedTasks) {
     setTasks(updatedTasks);
+    updatedTasks.forEach(t => sbSaveTask(t));
   }
   function deleteTask(id) {
     setTasks((ts) => ts.filter((t) => t.id !== id));
+    sbDeleteTask(id); // Fast individual row delete
     setEditTask(null);
   }
 
@@ -10194,7 +11024,7 @@ export default function App() {
                             left: 0,
                             right: 0,
                             height: 3,
-                            background: `linear-gradient(90deg,${brand.color},${brand.color}44)`,
+                            background: TH.primary,
                           }}
                         />
                         <div
@@ -10207,9 +11037,9 @@ export default function App() {
                           }}
                         >
                           <div>
-                            {/* Line 1: Collection Name — app red */}
+                            {/* Line 1: Brand · Collection Name · Sample Due */}
                             <div style={{ fontSize: 11, fontWeight: 700, color: TH.primary, marginBottom: 2 }}>
-                              {c.collection}
+                              {brand.short || brand.name} · {c.collection}{collData.sampleDueDate ? ` · Sample: ${formatDate(collData.sampleDueDate)}` : ""}
                             </div>
                             {/* Line 2: Season Year · Gender · Category */}
                             <div style={{ fontSize: 11, color: TH.textSub2 }}>
@@ -10423,13 +11253,6 @@ export default function App() {
                             📅 Calendar
                           </button>
                           {/* Images button with concept/sku submenu */}
-                          <CollImageBtn
-                            collKey={c.key}
-                            collData={collData}
-                            brand={brand}
-                            collections={collections}
-                            tasks={tasks}
-                          />
                         </div>
                       </div>
                     );
@@ -10611,10 +11434,18 @@ export default function App() {
                         flexWrap: "wrap",
                       }}
                     >
-                      {/* Line 1: Collection — grey */}
+                      {/* Line 1: Brand · Collection · Sample Due */}
+                      <span style={{ fontWeight: 700, color: TH.primary }}>
+                        {brand.short || brand.name}
+                      </span>
                       <span style={{ fontWeight: 700, color: TH.textMuted }}>
                         {cname}
                       </span>
+                      {collData.sampleDueDate && (
+                        <span style={{ fontWeight: 600, color: "#B45309" }}>
+                          · Sample Due: {formatDate(collData.sampleDueDate)}
+                        </span>
+                      )}
                       {/* Season · Year · Gender · Category */}
                       <span style={{ fontWeight: 400, color: TH.textMuted }}>
                         {ctasks[0]?.season ? `${ctasks[0].season}` : ""}
@@ -11617,6 +12448,23 @@ export default function App() {
           {[["dashboard","Dashboard"],["timeline","Timeline"],["calendar","Calendar"]].map(([v,label]) =>
             navBtn(v, label)
           )}
+          <a
+            href="/tanda"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              padding: "7px 12px", borderRadius: 8,
+              border: "1px solid rgba(255,255,255,0.15)",
+              color: "rgba(255,255,255,0.7)", fontWeight: 600,
+              fontFamily: "inherit", fontSize: 12,
+              textDecoration: "none", whiteSpace: "nowrap",
+              transition: "all 0.2s",
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
+            onMouseLeave={e => (e.currentTarget.style.background = "none")}
+          >
+            T&A ↗
+          </a>
         </div>
         <div
           style={{
@@ -11638,6 +12486,8 @@ export default function App() {
             onSeasons={() => setShowSeasons(true)}
             onCustomers={() => setShowCustomers(true)}
             onOrderTypes={() => setShowOrderTypes(true)}
+            onRoles={() => setShowRoles(true)}
+            onTasks={() => setShowTaskManager(true)}
           />
           <div
             style={{
@@ -11764,6 +12614,7 @@ export default function App() {
             team={team}
             customers={customers}
             seasons={seasons}
+            taskTemplates={taskTemplates}
             onSave={addCollection}
             onClose={() => setShowWizard(false)}
           />
@@ -11775,42 +12626,56 @@ export default function App() {
           onClose={() => setShowVendors(false)}
           wide
         >
-          <VendorManager vendors={vendors} setVendors={setVendors} />
+          <VendorManager vendors={vendors} setVendors={setVendors} isAdmin={isAdmin} taskTemplates={taskTemplates} />
         </Modal>
       )}
       {showTeam && (
         <Modal title="Team Members" onClose={() => setShowTeam(false)} wide>
-          <TeamManager team={team} setTeam={setTeam} isAdmin={isAdmin} />
+          <TeamManager team={team} setTeam={setTeam} isAdmin={isAdmin} roles={roles} setRoles={setRoles} />
         </Modal>
       )}
       {showUsers && (
         <Modal title="User Management" onClose={() => setShowUsers(false)} wide>
-          <UserManager users={users} setUsers={setUsers} team={team} setTeam={setTeam} isAdmin={isAdmin} currentUser={currentUser} />
+          <UserManager users={users} setUsers={setUsers} team={team} setTeam={setTeam} isAdmin={isAdmin} currentUser={currentUser}  roles={roles} setRoles={setRoles} />
         </Modal>
       )}
       {showCustomers && (
         <Modal title="Customer Manager" onClose={() => setShowCustomers(false)} wide>
-          <CustomerManager customers={customers} setCustomers={setCustomers} />
+          <CustomerManager customers={customers} setCustomers={setCustomers} isAdmin={isAdmin} />
         </Modal>
       )}
       {showOrderTypes && (
         <Modal title="Order Types" onClose={() => setShowOrderTypes(false)} wide>
-          <OrderTypeManager orderTypes={orderTypes} setOrderTypes={setOrderTypes} />
+          <OrderTypeManager orderTypes={orderTypes} setOrderTypes={setOrderTypes} isAdmin={isAdmin} />
+        </Modal>
+      )}
+      {showTaskManager && (
+        <Modal title="Task Manager" onClose={() => setShowTaskManager(false)} wide>
+          <TaskManager
+            taskTemplates={taskTemplates}
+            setTaskTemplates={setTaskTemplates}
+            isAdmin={isAdmin}
+          />
+        </Modal>
+      )}
+      {showRoles && (
+        <Modal title="Role Manager" onClose={() => setShowRoles(false)} wide>
+          <RoleManager roles={roles} setRoles={setRoles} isAdmin={isAdmin} />
         </Modal>
       )}
       {showSeasons && (
         <Modal title="Season Manager" onClose={() => setShowSeasons(false)} wide>
-          <SeasonManager seasons={seasons} setSeasons={setSeasons} />
+          <SeasonManager seasons={seasons} setSeasons={setSeasons} isAdmin={isAdmin} />
         </Modal>
       )}
       {showBrands && (
         <Modal title="Brand Manager" onClose={() => setShowBrands(false)} wide>
-          <BrandManager brands={brands} setBrands={setBrands} />
+          <BrandManager brands={brands} setBrands={setBrands} isAdmin={isAdmin} />
         </Modal>
       )}
       {showSizeLib && (
         <Modal title="Size Library" onClose={() => setShowSizeLib(false)} wide>
-          <SizeLibrary sizes={sizeLibrary} setSizes={setSizeLibrary} />
+          <SizeLibrary sizes={sizeLibrary} setSizes={setSizeLibrary} isAdmin={isAdmin} />
         </Modal>
       )}
       {showCatLib && (
@@ -11822,6 +12687,7 @@ export default function App() {
           <CategoryManager
             categories={categoryLib}
             setCategories={setCategoryLib}
+            isAdmin={isAdmin}
           />
         </Modal>
       )}
@@ -11833,6 +12699,7 @@ export default function App() {
           allTasks={tasks}
           vendors={vendors}
           onSave={saveTask}
+          onQuietSave={quietSaveTask}
           onSaveCascade={saveCascade}
           onDelete={deleteTask}
           onClose={() => setEditTask(null)}
