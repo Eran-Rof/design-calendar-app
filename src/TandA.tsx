@@ -170,7 +170,6 @@ export default function TandAApp() {
   const [search, setSearch]     = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterVendor, setFilterVendor] = useState("All");
-  const [xoroCreds, setXoroCreds] = useState({ key: XORO_API_KEY, secret: XORO_API_SECRET });
   const [showSettings, setShowSettings] = useState(false);
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [newNote, setNewNote]   = useState("");
@@ -554,17 +553,9 @@ export default function TandAApp() {
         <div style={S.modalBody}>
           <h3 style={S.settingSection}>Xoro API Credentials</h3>
           <p style={{ color: "#9CA3AF", fontSize: 13, marginBottom: 12 }}>
-            These are stored in your <code>.env</code> file as <code>VITE_XORO_API_KEY</code> and <code>VITE_XORO_API_SECRET</code>.
-            Changing them here applies only for this session.
+            API credentials are stored securely on the server via Vercel environment variables.
+            They are not exposed in the browser.
           </p>
-          <label style={S.label}>API Key</label>
-          <input style={S.input} value={xoroCreds.key}
-            onChange={e => setXoroCreds(p => ({ ...p, key: e.target.value }))}
-            placeholder="Your Xoro API Key" />
-          <label style={S.label}>API Secret</label>
-          <input style={S.input} type="password" value={xoroCreds.secret}
-            onChange={e => setXoroCreds(p => ({ ...p, secret: e.target.value }))}
-            placeholder="Your Xoro API Secret" />
 
           <h3 style={{ ...S.settingSection, marginTop: 24 }}>Sync Info</h3>
           <p style={{ color: "#9CA3AF", fontSize: 13 }}>
