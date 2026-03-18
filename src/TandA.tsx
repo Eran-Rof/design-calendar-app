@@ -839,23 +839,16 @@ function AllMilestonesCalendar({ milestones, projects, onMilestoneClick }: any) 
 }
 
 // ─── LOGIN ────────────────────────────────────────────────────────────────────
-const DEFAULT_USERS_TA = [{ id: "admin", username: "admin", name: "Admin", role: "admin", password: "admin123" }];
+const DEFAULT_USERS_TA = [{ id: "admin", name: "Admin", role: "admin", pin: "1234" }];
 function Login({ onLogin }: { onLogin: (user: any) => void }) {
-  const [username, setUsername] = useState(() => localStorage.getItem("tanda_lastuser") || "");
-  const [password, setPassword] = useState("");
-  const [showPw, setShowPw] = useState(false);
+  const [name, setName] = useState(() => localStorage.getItem("tanda_lastuser") || "");
+  const [pin, setPin] = useState("");
   const [err, setErr] = useState("");
   async function handleLogin() {
-    setErr("");
     const users = await sbGet("users") || DEFAULT_USERS_TA;
-    const u = users.find((x: any) => {
-      const nameMatch = (x.username || x.name || "").toLowerCase() === username.trim().toLowerCase();
-      // Support both password and pin fields
-      const passMatch = x.password === password || String(x.pin) === password;
-      return nameMatch && passMatch;
-    });
-    if (!u) { setErr("Invalid username or password"); return; }
-    localStorage.setItem("tanda_lastuser", u.username || u.name);
+    const u = users.find((x: any) => x.name.toLowerCase() === name.toLowerCase() && String(x.pin) === pin);
+    if (!u) { setErr("Invalid name or PIN"); return; }
+    localStorage.setItem("tanda_lastuser", u.name);
     onLogin(u);
   }
   return (
@@ -866,13 +859,10 @@ function Login({ onLogin }: { onLogin: (user: any) => void }) {
           <div style={{ fontSize: 15, fontWeight: 700, color: TH.text, marginTop: 4 }}>T&A Calendar</div>
           <div style={{ fontSize: 12, color: TH.textMuted, marginTop: 4 }}>Time & Action Tracker</div>
         </div>
-        <label style={S.lbl}>Username</label>
-        <input style={S.inp} value={username} onChange={e => setUsername(e.target.value)} onKeyDown={e => e.key === "Enter" && handleLogin()} autoComplete="username" />
-        <label style={S.lbl}>Password</label>
-        <div style={{ position: "relative", marginBottom: 14 }}>
-          <input type={showPw ? "text" : "password"} style={{ ...S.inp, marginBottom: 0, paddingRight: 40 }} value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleLogin()} autoComplete="current-password" />
-          <button onClick={() => setShowPw(v => !v)} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: TH.textMuted, fontSize: 14 }}>{showPw ? "🙈" : "👁"}</button>
-        </div>
+        <label style={S.lbl}>Name</label>
+        <input style={S.inp} value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === "Enter" && handleLogin()} />
+        <label style={S.lbl}>PIN</label>
+        <input type="password" style={S.inp} value={pin} onChange={e => setPin(e.target.value)} onKeyDown={e => e.key === "Enter" && handleLogin()} />
         {err && <div style={{ color: "#B91C1C", fontSize: 12, marginBottom: 12, textAlign: "center" }}>{err}</div>}
         <button onClick={handleLogin} style={{ ...S.btn, width: "100%" }}>Sign In</button>
       </div>
