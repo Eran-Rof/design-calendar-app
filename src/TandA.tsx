@@ -1,10 +1,42 @@
 import { useState, useEffect, useCallback } from "react";
-import { createClient } from "@supabase/supabase-js";
 
 // ── Supabase ─────────────────────────────────────────────────────────────────
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL!;
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY!;
-const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
+const SB_HEADERS = { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`, "Content-Type": "application/json", "Prefer": "return=representation" };
+
+// ── Supabase helpers ──────────────────────────────────────────────────────────
+const sb = {
+  from: (table: string) => ({
+    select: async (cols = "*", filter = "") => {
+      const res = await fetch(`${SB_URL}/rest/v1/${table}?select=${cols}${filter ? "&" + filter : ""}`, { headers: SB_HEADERS });
+      const data = await res.json();
+      return { data, error: res.ok ? null : data };
+    },
+    insert: async (rows: any) => {
+      const body = Array.isArray(rows) ? rows : [rows];
+      const res = await fetch(`${SB_URL}/rest/v1/${table}`, { method: "POST", headers: SB_HEADERS, body: JSON.stringify(body) });
+      const data = await res.json();
+      return { data, error: res.ok ? null : data };
+    },
+    upsert: async (rows: any, opts?: { onConflict?: string }) => {
+      const body = Array.isArray(rows) ? rows : [rows];
+      const url = `${SB_URL}/rest/v1/${table}${opts?.onConflict ? `?on_conflict=${opts.onConflict}` : ""}`;
+      const res = await fetch(url, { method: "POST", headers: { ...SB_HEADERS, "Prefer": "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(body) });
+      const data = await res.json();
+      return { data, error: res.ok ? null : data };
+    },
+    delete: async (filter: string) => {
+      const res = await fetch(`${SB_URL}/rest/v1/${table}?${filter}`, { method: "DELETE", headers: SB_HEADERS });
+      return { error: res.ok ? null : await res.json() };
+    },
+    single: async (cols = "*", filter = "") => {
+      const res = await fetch(`${SB_URL}/rest/v1/${table}?select=${cols}${filter ? "&" + filter : ""}&limit=1`, { headers: SB_HEADERS });
+      const data = await res.json();
+      return { data: Array.isArray(data) ? data[0] ?? null : null, error: res.ok ? null : data };
+    },
+  }),
+};
 
 // ── Xoro API ──────────────────────────────────────────────────────────────────
 // Store your Xoro API Key and Secret in .env as:
@@ -177,7 +209,7 @@ export default function TandAApp() {
 
   async function handleLogin() {
     setLoginErr("");
-    const { data } = await sb.from("users").select("*").ilike("name", loginName.trim());
+    const { data } = await sb.from("users").select("*", `name=ilike.${loginName.trim()}`);
     const match = (data ?? []).find(
       (u: User) => u.password === loginPass || (u as any).pin === loginPass
     );
@@ -187,14 +219,14 @@ export default function TandAApp() {
 
   // ── Load notes from Supabase ──────────────────────────────────────────────
   const loadNotes = useCallback(async () => {
-    const { data } = await sb.from("tanda_notes").select("*").order("created_at", { ascending: false });
+    const { data } = await sb.from("tanda_notes").select("*", "order=created_at.desc");
     setNotes((data as LocalNote[]) ?? []);
   }, []);
 
   // ── Load cached POs from Supabase ─────────────────────────────────────────
   const loadCachedPOs = useCallback(async () => {
     setLoading(true);
-    const { data } = await sb.from("tanda_pos").select("*").order("date_order", { ascending: false });
+    const { data } = await sb.from("tanda_pos").select("*", "order=date_order.desc");
     if (data && data.length > 0) {
       setPos(data.map((r: any) => r.data as XoroPO));
       setLastSync(data[0]?.synced_at ?? "");
@@ -208,7 +240,7 @@ export default function TandAApp() {
     const xv = await fetchXoroVendors();
     setXoroVendors(xv);
     // load manual vendors from supabase
-    const { data } = await sb.from("tanda_settings").select("value").eq("key", "manual_vendors").single();
+    const { data } = await sb.from("tanda_settings").single("value", "key=eq.manual_vendors");
     if (data?.value) setManualVendors(JSON.parse(data.value));
     setLoadingVendors(false);
   }, []);
@@ -218,13 +250,13 @@ export default function TandAApp() {
     const updated = [...manualVendors, newManualVendor.trim()];
     setManualVendors(updated);
     setNewManualVendor("");
-    await sb.from("tanda_settings").upsert({ key: "manual_vendors", value: JSON.stringify(updated) });
+    await sb.from("tanda_settings").upsert({ key: "manual_vendors", value: JSON.stringify(updated) }, { onConflict: "key" });
   }
 
   async function removeManualVendor(v: string) {
     const updated = manualVendors.filter(x => x !== v);
     setManualVendors(updated);
-    await sb.from("tanda_settings").upsert({ key: "manual_vendors", value: JSON.stringify(updated) });
+    await sb.from("tanda_settings").upsert({ key: "manual_vendors", value: JSON.stringify(updated) }, { onConflict: "key" });
   }
 
   // ── Sync from Xoro with filters ───────────────────────────────────────────
