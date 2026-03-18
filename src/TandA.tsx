@@ -414,13 +414,43 @@ export default function TandAApp() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
             <div>
               <label style={S.label}>Date Created — From</label>
-              <input style={S.input} type="date" value={syncFilters.dateFrom}
-                onChange={e => setSyncFilters(p => ({ ...p, dateFrom: e.target.value }))} />
+              <div style={{ position: "relative" }}>
+                <input style={{ ...S.input, paddingRight: 36 }}
+                  placeholder="MM/DD/YYYY"
+                  value={syncFilters.dateFrom}
+                  onChange={e => {
+                    let v = e.target.value.replace(/[^\d/]/g, "");
+                    setSyncFilters(p => ({ ...p, dateFrom: v }));
+                  }} />
+                <input type="date" style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", opacity: 0, width: 24, height: 24, cursor: "pointer" }}
+                  onChange={e => {
+                    if (e.target.value) {
+                      const [y, m, d] = e.target.value.split("-");
+                      setSyncFilters(p => ({ ...p, dateFrom: `${m}/${d}/${y}` }));
+                    }
+                  }} />
+                <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", fontSize: 16, pointerEvents: "none" }}>📅</span>
+              </div>
             </div>
             <div>
               <label style={S.label}>Date Created — To</label>
-              <input style={S.input} type="date" value={syncFilters.dateTo}
-                onChange={e => setSyncFilters(p => ({ ...p, dateTo: e.target.value }))} />
+              <div style={{ position: "relative" }}>
+                <input style={{ ...S.input, paddingRight: 36 }}
+                  placeholder="MM/DD/YYYY"
+                  value={syncFilters.dateTo}
+                  onChange={e => {
+                    let v = e.target.value.replace(/[^\d/]/g, "");
+                    setSyncFilters(p => ({ ...p, dateTo: v }));
+                  }} />
+                <input type="date" style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", opacity: 0, width: 24, height: 24, cursor: "pointer" }}
+                  onChange={e => {
+                    if (e.target.value) {
+                      const [y, m, d] = e.target.value.split("-");
+                      setSyncFilters(p => ({ ...p, dateTo: `${m}/${d}/${y}` }));
+                    }
+                  }} />
+                <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", fontSize: 16, pointerEvents: "none" }}>📅</span>
+              </div>
             </div>
           </div>
 
@@ -720,8 +750,11 @@ export default function TandAApp() {
         <div style={S.navRight}>
           <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => setView("dashboard")}>Dashboard</button>
           <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => setView("list")}>All POs</button>
-          <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing}>
-            {syncing ? "⏳ Syncing…" : "🔄 Sync"}
+          <button style={S.navBtn} onClick={() => syncFromXoro()} disabled={syncing} title="Sync all POs from Xoro immediately">
+            {syncing ? "⏳ Syncing…" : "🔄 Sync All"}
+          </button>
+          <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing} title="Choose filters before syncing">
+            🔽 Filtered Sync
           </button>
           <button style={S.navBtn} onClick={() => setShowSettings(true)}>⚙️ Settings</button>
           <div style={S.userPill}>{user.name || user.username}</div>
