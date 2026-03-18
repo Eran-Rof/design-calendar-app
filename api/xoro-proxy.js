@@ -36,11 +36,12 @@ export default async function handler(req, res) {
   }
   params.delete("path");
 
-  // Try your specific Xoro instance domain
-  const xoroUrl = `https://rof.xoro.one/api/xerp/${path}${params.toString() ? "?" + params.toString() : ""}`;
+  // Correct Xoro API base URL per official docs
+  const xoroUrl = `https://res.xorosoft.io/api/xerp/${path}${params.toString() ? "?" + params.toString() : ""}`;
 
   console.log("Calling Xoro URL:", xoroUrl);
-  console.log("Key present:", !!XORO_API_KEY, "Secret present:", !!XORO_API_SECRET);
+  console.log("Auth header prefix:", authHeader.slice(0, 15));
+  console.log("Key (first 8):", XORO_API_KEY?.slice(0, 8));
 
   try {
     const xoroRes = await fetch(xoroUrl, {
@@ -52,12 +53,23 @@ export default async function handler(req, res) {
     });
 
     const text = await xoroRes.text();
-    console.log("Xoro response status:", xoroRes.status);
+    console.log("Xoro status:", xoroRes.status);
     console.log("Xoro response:", text.slice(0, 500));
+
+    // Return full details if error
+    if (!xoroRes.ok || text.includes('"Message"')) {
+      return res.status(200).json({
+        _debug: {
+          url: xoroUrl,
+          status: xoroRes.status,
+          keyFirst8: XORO_API_KEY?.slice(0, 8),
+        },
+        ...JSON.parse(text),
+      });
+    }
 
     let data;
     try { data = JSON.parse(text); } catch { data = { raw: text }; }
-
     return res.status(xoroRes.status).json(data);
   } catch (err) {
     console.error("Proxy fetch error:", err.message);
