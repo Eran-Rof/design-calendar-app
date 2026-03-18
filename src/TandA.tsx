@@ -1,1092 +1,903 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { createClient } from "@supabase/supabase-js";
 
-// ─── THEME (matches Design Calendar exactly) ─────────────────────────────────
-const TH = {
-  bg: "#4A5568",
-  surface: "#FFFFFF",
-  surfaceHi: "#F7F8FA",
-  border: "#CBD5E0",
-  header: "#2D3748",
-  primary: "#C8210A",
-  primaryLt: "#E02B10",
-  text: "#1A202C",
-  textSub: "#2D3748",
-  textSub2: "#4A5568",
-  textMuted: "#718096",
-  accent: "#FFF5F5",
-  accentBdr: "#FEB2B2",
-  shadow: "rgba(0,0,0,0.12)",
-  shadowMd: "rgba(0,0,0,0.18)",
-};
+// ── Supabase ─────────────────────────────────────────────────────────────────
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL!;
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY!;
+const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const S = {
-  inp: {
-    width: "100%", background: TH.surface, border: `1px solid ${TH.border}`,
-    borderRadius: 8, color: TH.text, padding: "9px 13px", fontSize: 13,
-    boxSizing: "border-box" as const, outline: "none", fontFamily: "inherit", marginBottom: 14,
-  },
-  lbl: {
-    fontSize: 10, letterSpacing: "0.12em", color: TH.textMuted,
-    textTransform: "uppercase" as const, display: "block", marginBottom: 5, fontWeight: 600,
-  },
-  sec: {
-    fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase" as const,
-    color: TH.textMuted, marginBottom: 14, fontWeight: 600, display: "block",
-  },
-  card: {
-    background: TH.surface, border: `1px solid ${TH.border}`,
-    borderRadius: 12, padding: "18px 20px", boxShadow: `0 2px 8px ${TH.shadow}`,
-  },
-  btn: {
-    padding: "9px 22px", borderRadius: 8, border: "none",
-    background: `linear-gradient(135deg,${TH.primary},${TH.primaryLt})`,
-    color: "#fff", fontWeight: 700, cursor: "pointer", fontFamily: "inherit", fontSize: 13,
-  },
-};
+// ── Xoro API ──────────────────────────────────────────────────────────────────
+// Store your Xoro API Key and Secret in .env as:
+//   VITE_XORO_API_KEY=your_key
+//   VITE_XORO_API_SECRET=your_secret
+const XORO_API_KEY    = import.meta.env.VITE_XORO_API_KEY ?? "";
+const XORO_API_SECRET = import.meta.env.VITE_XORO_API_SECRET ?? "";
+const XORO_BASE_URL   = "https://res.xorosoft.io";
 
-// ─── SUPABASE ─────────────────────────────────────────────────────────────────
-const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
-const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
-
-async function sbGet(key: string) {
-  try {
-    const r = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.${encodeURIComponent(key)}&select=value`, {
-      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` }
-    });
-    if (!r.ok) return null;
-    const d = await r.json();
-    return d?.[0]?.value ? JSON.parse(d[0].value) : null;
-  } catch { return null; }
+function xoroAuthHeader() {
+  const creds = btoa(`${XORO_API_KEY}:${XORO_API_SECRET}`);
+  return `Basic ${creds}`;
 }
 
-async function sbSet(key: string, value: any) {
-  try {
-    await fetch(`${SB_URL}/rest/v1/app_data`, {
-      method: "POST",
-      headers: {
-        apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`,
-        "Content-Type": "application/json", Prefer: "resolution=merge-duplicates",
-      },
-      body: JSON.stringify({ key, value: JSON.stringify(value) }),
-    });
-  } catch {}
+interface SyncFilters {
+  poNumber: string;
+  dateFrom: string;
+  dateTo: string;
+  vendors: string[];
+  statuses: string[];
 }
 
-async function sbGetRows(table: string) {
+async function fetchXoroPOs(page = 1, filters?: SyncFilters): Promise<{ pos: XoroPO[]; totalPages: number }> {
+  const params = new URLSearchParams({ page: String(page) });
+  if (filters?.poNumber)           params.set("PoNumber", filters.poNumber);
+  if (filters?.dateFrom)           params.set("DateFrom", filters.dateFrom);
+  if (filters?.dateTo)             params.set("DateTo",   filters.dateTo);
+  if (filters?.statuses?.length)   params.set("StatusName", filters.statuses.join(","));
+  if (filters?.vendors?.length)    params.set("VendorName", filters.vendors.join(","));
+
+  const res = await fetch(
+    `${XORO_BASE_URL}/api/xerp/purchaseorder?${params}`,
+    { headers: { Authorization: xoroAuthHeader(), "Content-Type": "application/json" } }
+  );
+  if (!res.ok) throw new Error(`Xoro API error: ${res.status}`);
+  const json = await res.json();
+  if (!json.Result) throw new Error(json.Message ?? "Unknown Xoro error");
+  const data = Array.isArray(json.Data) ? json.Data : json.Data?.PurchaseOrders ?? [];
+  return { pos: data, totalPages: json.TotalPages ?? 1 };
+}
+
+async function fetchXoroVendors(): Promise<string[]> {
   try {
-    const r = await fetch(`${SB_URL}/rest/v1/${table}?select=id,data`, {
-      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` }
-    });
-    if (!r.ok) return [];
-    const d = await r.json();
-    return (d || []).map((row: any) => ({ id: row.id, ...(typeof row.data === "object" ? row.data : JSON.parse(row.data || "{}")) }));
+    const res = await fetch(
+      `${XORO_BASE_URL}/api/xerp/vendor?page=1`,
+      { headers: { Authorization: xoroAuthHeader(), "Content-Type": "application/json" } }
+    );
+    if (!res.ok) return [];
+    const json = await res.json();
+    if (!json.Result) return [];
+    const data = Array.isArray(json.Data) ? json.Data : json.Data?.Vendors ?? [];
+    return data.map((v: any) => v.VendorName ?? v.Name ?? "").filter(Boolean);
   } catch { return []; }
 }
 
-async function sbUpsertRow(table: string, id: string, data: any) {
-  try {
-    await fetch(`${SB_URL}/rest/v1/${table}`, {
-      method: "POST",
-      headers: {
-        apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`,
-        "Content-Type": "application/json", Prefer: "resolution=merge-duplicates",
-      },
-      body: JSON.stringify({ id, data }),
-    });
-  } catch {}
+// ── Types ─────────────────────────────────────────────────────────────────────
+interface XoroPO {
+  PoNumber?: string;
+  VendorName?: string;
+  DateOrder?: string;
+  DateExpectedDelivery?: string;
+  VendorReqDate?: string;
+  StatusName?: string;
+  CurrencyCode?: string;
+  Memo?: string;
+  Tags?: string;
+  PaymentTermsName?: string;
+  ShipMethodName?: string;
+  CarrierName?: string;
+  BuyerName?: string;
+  TotalAmount?: number;
+  Items?: XoroPOItem[];
+  // raw API may nest items differently
+  PoLineArr?: XoroPOItem[];
 }
 
-async function sbDeleteRow(table: string, id: string) {
-  try {
-    await fetch(`${SB_URL}/rest/v1/${table}?id=eq.${id}`, {
-      method: "DELETE",
-      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` }
-    });
-  } catch {}
+interface XoroPOItem {
+  ItemNumber?: string;
+  Description?: string;
+  QtyOrder?: number;
+  UnitPrice?: number;
+  Discount?: number;
 }
 
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
-function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
-function parseLocal(ds: string) {
-  if (!ds) return new Date();
-  const [y, m, d] = ds.split("-").map(Number);
-  return new Date(y, m - 1, d);
-}
-function addDays(ds: string, n: number): string {
-  const d = parseLocal(ds);
-  d.setDate(d.getDate() + n);
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-}
-function diffDays(a: string, b: string) {
-  return Math.round((parseLocal(a).getTime() - parseLocal(b).getTime()) / 86400000);
-}
-function fmtDate(ds: string) {
-  if (!ds) return "—";
-  const d = parseLocal(ds);
-  return `${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
-}
-function today() { return new Date().toISOString().split("T")[0]; }
-function getDaysUntil(ds: string) {
-  const t = new Date(); t.setHours(0,0,0,0);
-  return Math.round((parseLocal(ds).getTime() - t.getTime()) / 86400000);
+interface LocalNote {
+  id: string;
+  po_number: string;
+  note: string;
+  status_override?: string;
+  created_at: string;
+  user_name: string;
 }
 
-const STATUS_OPTIONS = ["Not Started", "In Progress", "Complete", "Delayed", "On Hold", "Approved", "Cancelled"];
-const STATUS_COLORS: Record<string, { color: string; bg: string; dot: string }> = {
-  "Not Started":  { color: "#6B7280", bg: "#F3F4F6", dot: "#9CA3AF" },
-  "In Progress":  { color: "#B45309", bg: "#FFFBEB", dot: "#D97706" },
-  "Complete":     { color: "#047857", bg: "#ECFDF5", dot: "#10B981" },
-  "Delayed":      { color: "#B91C1C", bg: "#FEF2F2", dot: "#EF4444" },
-  "On Hold":      { color: "#7C3AED", bg: "#F5F3FF", dot: "#8B5CF6" },
-  "Approved":     { color: "#047857", bg: "#D1FAE5", dot: "#059669" },
-  "Cancelled":    { color: "#6B7280", bg: "#F9FAFB", dot: "#9CA3AF" },
-};
-const PRIORITY_OPTIONS = ["Low", "Medium", "High", "Critical"];
-const PRIORITY_COLORS: Record<string, string> = {
-  Low: "#6B7280", Medium: "#B45309", High: "#C8210A", Critical: "#7C3AED"
+interface User {
+  id: number;
+  name: string;
+  password: string;
+  role?: string;
+}
+
+type View = "dashboard" | "list" | "detail";
+
+const STATUS_COLORS: Record<string, string> = {
+  Open:       "#3B82F6",
+  Released:   "#8B5CF6",
+  Received:   "#10B981",
+  Closed:     "#6B7280",
+  Cancelled:  "#EF4444",
+  Pending:    "#F59E0B",
+  Draft:      "#9CA3AF",
 };
 
-// ─── TYPES ────────────────────────────────────────────────────────────────────
-interface TandAProject {
-  id: string;
-  name: string;
-  brand: string;
-  season: string;
-  year: number;
-  category: string;
-  vendor: string;
-  customer: string;
-  targetDate: string;  // key delivery date (e.g. in-store date)
-  notes: string;
-  color: string;
-  createdAt: string;
+const STATUS_OPTIONS = ["Open", "Released", "Received", "Closed", "Cancelled", "Pending", "Draft"];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function fmtDate(d?: string) {
+  if (!d) return "—";
+  const dt = new Date(d);
+  return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+function fmtCurrency(n?: number, code = "USD") {
+  if (n == null) return "—";
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: code }).format(n);
+}
+function daysUntil(d?: string) {
+  if (!d) return null;
+  const diff = Math.ceil((new Date(d).getTime() - Date.now()) / 86400000);
+  return diff;
+}
+function poTotal(po: XoroPO) {
+  if (po.TotalAmount != null) return po.TotalAmount;
+  const items = po.Items ?? po.PoLineArr ?? [];
+  return items.reduce((s, i) => s + (i.QtyOrder ?? 0) * (i.UnitPrice ?? 0), 0);
 }
 
-interface TandAMilestone {
-  id: string;
-  projectId: string;
-  name: string;
-  dueDate: string;
-  status: string;
-  priority: string;
-  owner: string;
-  dependencies: string[]; // milestone IDs
-  notes: string;
-  completedAt: string;
-  history: { at: string; field: string; from: string; to: string; by: string }[];
-}
-
-// ─── MODAL ────────────────────────────────────────────────────────────────────
-function Modal({ title, onClose, children, wide = false }: any) {
-  return (
-    <div
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
-    >
-      <div style={{ background: TH.surface, borderRadius: 16, width: "100%", maxWidth: wide ? 760 : 540, maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: `0 24px 60px ${TH.shadowMd}` }}>
-        <div style={{ padding: "18px 24px", borderBottom: `1px solid ${TH.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
-          <span style={{ fontSize: 16, fontWeight: 700, color: TH.text }}>{title}</span>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: TH.textMuted, padding: "0 4px" }}>✕</button>
-        </div>
-        <div style={{ padding: "20px 24px", overflowY: "auto", flex: 1 }}>{children}</div>
-      </div>
-    </div>
-  );
-}
-
-// ─── COLOR PICKER ─────────────────────────────────────────────────────────────
-const PROJECT_COLORS = ["#C8210A","#B45309","#047857","#1D4ED8","#7C3AED","#BE185D","#0E7490","#374151"];
-function ColorPicker({ value, onChange }: { value: string; onChange: (c: string) => void }) {
-  return (
-    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-      {PROJECT_COLORS.map(c => (
-        <button key={c} onClick={() => onChange(c)} style={{
-          width: 28, height: 28, borderRadius: "50%", background: c, border: value === c ? `3px solid ${TH.text}` : "3px solid transparent",
-          cursor: "pointer", outline: "none"
-        }} />
-      ))}
-    </div>
-  );
-}
-
-// ─── PROJECT FORM ─────────────────────────────────────────────────────────────
-function ProjectForm({ project, onSave, onCancel }: { project?: TandAProject | null; onSave: (p: TandAProject) => void; onCancel: () => void }) {
-  const [f, setF] = useState<TandAProject>(project || {
-    id: uid(), name: "", brand: "", season: "Fall", year: new Date().getFullYear(),
-    category: "", vendor: "", customer: "", targetDate: "", notes: "",
-    color: PROJECT_COLORS[0], createdAt: new Date().toISOString(),
-  });
-  const set = (k: keyof TandAProject, v: any) => setF(x => ({ ...x, [k]: v }));
-  return (
-    <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-        <div style={{ gridColumn: "1 / -1" }}>
-          <label style={S.lbl}>Project Name *</label>
-          <input style={S.inp} value={f.name} onChange={e => set("name", e.target.value)} placeholder="e.g. Fall 2026 Denim Collection" />
-        </div>
-        <div>
-          <label style={S.lbl}>Brand</label>
-          <input style={{ ...S.inp, marginBottom: 0 }} value={f.brand} onChange={e => set("brand", e.target.value)} placeholder="Ring of Fire" />
-        </div>
-        <div>
-          <label style={S.lbl}>Season / Year</label>
-          <div style={{ display: "flex", gap: 8 }}>
-            <select style={{ ...S.inp, marginBottom: 0, flex: 2 }} value={f.season} onChange={e => set("season", e.target.value)}>
-              {["Spring","Summer","Fall","Holiday"].map(s => <option key={s}>{s}</option>)}
-            </select>
-            <input type="number" style={{ ...S.inp, marginBottom: 0, flex: 1 }} value={f.year} onChange={e => set("year", parseInt(e.target.value) || new Date().getFullYear())} />
-          </div>
-        </div>
-        <div>
-          <label style={S.lbl}>Category</label>
-          <input style={{ ...S.inp, marginBottom: 0 }} value={f.category} onChange={e => set("category", e.target.value)} placeholder="Denim" />
-        </div>
-        <div>
-          <label style={S.lbl}>Vendor / Factory</label>
-          <input style={{ ...S.inp, marginBottom: 0 }} value={f.vendor} onChange={e => set("vendor", e.target.value)} placeholder="Vendor name" />
-        </div>
-        <div>
-          <label style={S.lbl}>Customer</label>
-          <input style={{ ...S.inp, marginBottom: 0 }} value={f.customer} onChange={e => set("customer", e.target.value)} placeholder="e.g. Ross" />
-        </div>
-        <div>
-          <label style={S.lbl}>Target In-Store Date *</label>
-          <input type="date" style={{ ...S.inp, marginBottom: 0 }} value={f.targetDate} onChange={e => set("targetDate", e.target.value)} />
-        </div>
-      </div>
-      <div style={{ height: 14 }} />
-      <label style={S.lbl}>Color Tag</label>
-      <ColorPicker value={f.color} onChange={c => set("color", c)} />
-      <div style={{ height: 14 }} />
-      <label style={S.lbl}>Notes</label>
-      <textarea style={{ ...S.inp, minHeight: 70, resize: "vertical" }} value={f.notes} onChange={e => set("notes", e.target.value)} placeholder="Project notes..." />
-      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-        <button onClick={onCancel} style={{ padding: "9px 18px", borderRadius: 8, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
-        <button disabled={!f.name || !f.targetDate} onClick={() => onSave(f)} style={{ ...S.btn, opacity: f.name && f.targetDate ? 1 : 0.4 }}>Save Project</button>
-      </div>
-    </div>
-  );
-}
-
-// ─── MILESTONE FORM ───────────────────────────────────────────────────────────
-function MilestoneForm({ milestone, projectId, allMilestones, currentUser, onSave, onCancel }: any) {
-  const [f, setF] = useState(milestone || {
-    id: uid(), projectId, name: "", dueDate: "", status: "Not Started",
-    priority: "Medium", owner: currentUser || "", dependencies: [], notes: "",
-    completedAt: "", history: [],
-  });
-  const set = (k: string, v: any) => setF((x: any) => ({ ...x, [k]: v }));
-  const otherMilestones = allMilestones.filter((m: any) => m.id !== f.id && m.projectId === projectId);
-  const toggleDep = (id: string) => set("dependencies", f.dependencies.includes(id)
-    ? f.dependencies.filter((d: string) => d !== id)
-    : [...f.dependencies, id]
-  );
-  return (
-    <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-        <div style={{ gridColumn: "1 / -1" }}>
-          <label style={S.lbl}>Milestone Name *</label>
-          <input style={S.inp} value={f.name} onChange={e => set("name", e.target.value)} placeholder="e.g. Fabric Approval, Bulk Order Placed" />
-        </div>
-        <div>
-          <label style={S.lbl}>Due Date *</label>
-          <input type="date" style={{ ...S.inp, marginBottom: 0 }} value={f.dueDate} onChange={e => set("dueDate", e.target.value)} />
-        </div>
-        <div>
-          <label style={S.lbl}>Status</label>
-          <select style={{ ...S.inp, marginBottom: 0 }} value={f.status} onChange={e => set("status", e.target.value)}>
-            {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={S.lbl}>Priority</label>
-          <select style={{ ...S.inp, marginBottom: 0 }} value={f.priority} onChange={e => set("priority", e.target.value)}>
-            {PRIORITY_OPTIONS.map(p => <option key={p}>{p}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={S.lbl}>Owner / Responsible</label>
-          <input style={{ ...S.inp, marginBottom: 0 }} value={f.owner} onChange={e => set("owner", e.target.value)} placeholder="Name or team" />
-        </div>
-      </div>
-      {otherMilestones.length > 0 && (
-        <>
-          <div style={{ height: 14 }} />
-          <label style={S.lbl}>Depends On (must complete first)</label>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
-            {otherMilestones.map((m: any) => (
-              <button key={m.id} onClick={() => toggleDep(m.id)} style={{
-                padding: "4px 12px", borderRadius: 16,
-                border: `1px solid ${f.dependencies.includes(m.id) ? TH.primary : TH.border}`,
-                background: f.dependencies.includes(m.id) ? TH.primary + "15" : "transparent",
-                color: f.dependencies.includes(m.id) ? TH.primary : TH.textMuted,
-                cursor: "pointer", fontFamily: "inherit", fontSize: 12,
-              }}>{m.name}</button>
-            ))}
-          </div>
-        </>
-      )}
-      <div style={{ height: 14 }} />
-      <label style={S.lbl}>Notes</label>
-      <textarea style={{ ...S.inp, minHeight: 70, resize: "vertical" }} value={f.notes} onChange={e => set("notes", e.target.value)} placeholder="Notes, blockers, context..." />
-      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-        <button onClick={onCancel} style={{ padding: "9px 18px", borderRadius: 8, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
-        <button disabled={!f.name || !f.dueDate} onClick={() => onSave(f)} style={{ ...S.btn, opacity: f.name && f.dueDate ? 1 : 0.4 }}>Save Milestone</button>
-      </div>
-    </div>
-  );
-}
-
-// ─── MILESTONE DETAIL MODAL ───────────────────────────────────────────────────
-function MilestoneDetail({ milestone, project, allMilestones, currentUser, onSave, onDelete, onClose }: any) {
-  const [editing, setEditing] = useState(false);
-  const sc = STATUS_COLORS[milestone.status] || STATUS_COLORS["Not Started"];
-  const pc = PRIORITY_COLORS[milestone.priority] || TH.textMuted;
-  const daysUntil = getDaysUntil(milestone.dueDate);
-  const isOverdue = daysUntil < 0 && milestone.status !== "Complete" && milestone.status !== "Cancelled";
-  const deps = allMilestones.filter((m: any) => milestone.dependencies?.includes(m.id));
-
-  if (editing) return (
-    <Modal title="Edit Milestone" onClose={() => setEditing(false)} wide>
-      <MilestoneForm
-        milestone={milestone}
-        projectId={milestone.projectId}
-        allMilestones={allMilestones}
-        currentUser={currentUser}
-        onSave={(updated: any) => { onSave(updated); setEditing(false); }}
-        onCancel={() => setEditing(false)}
-      />
-    </Modal>
-  );
-
-  return (
-    <Modal title={milestone.name} onClose={onClose} wide>
-      <div>
-        {/* Status + Priority row */}
-        <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
-          <span style={{ padding: "4px 12px", borderRadius: 12, background: sc.bg, color: sc.color, fontSize: 12, fontWeight: 600 }}>{milestone.status}</span>
-          <span style={{ padding: "4px 12px", borderRadius: 12, background: pc + "15", color: pc, fontSize: 12, fontWeight: 600, border: `1px solid ${pc}33` }}>⚡ {milestone.priority}</span>
-          {isOverdue && <span style={{ padding: "4px 12px", borderRadius: 12, background: "#FEF2F2", color: "#B91C1C", fontSize: 12, fontWeight: 600 }}>⚠ {Math.abs(daysUntil)}d overdue</span>}
-          {!isOverdue && daysUntil >= 0 && daysUntil <= 7 && <span style={{ padding: "4px 12px", borderRadius: 12, background: "#FFFBEB", color: "#B45309", fontSize: 12, fontWeight: 600 }}>⏰ Due in {daysUntil}d</span>}
-        </div>
-        {/* Info grid */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
-          <div style={{ ...S.card, padding: "12px 16px" }}>
-            <div style={S.lbl}>Due Date</div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: isOverdue ? "#B91C1C" : TH.text }}>{fmtDate(milestone.dueDate)}</div>
-          </div>
-          <div style={{ ...S.card, padding: "12px 16px" }}>
-            <div style={S.lbl}>Owner</div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: TH.text }}>{milestone.owner || "—"}</div>
-          </div>
-          {milestone.completedAt && (
-            <div style={{ ...S.card, padding: "12px 16px" }}>
-              <div style={S.lbl}>Completed</div>
-              <div style={{ fontSize: 13, color: "#047857", fontWeight: 600 }}>{fmtDate(milestone.completedAt.split("T")[0])}</div>
-            </div>
-          )}
-          <div style={{ ...S.card, padding: "12px 16px" }}>
-            <div style={S.lbl}>Project</div>
-            <div style={{ fontSize: 13, color: TH.text }}>{project?.name || "—"}</div>
-          </div>
-        </div>
-        {/* Dependencies */}
-        {deps.length > 0 && (
-          <div style={{ marginBottom: 14 }}>
-            <div style={S.lbl}>Depends On</div>
-            <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-              {deps.map((d: any) => {
-                const dsc = STATUS_COLORS[d.status] || STATUS_COLORS["Not Started"];
-                return (
-                  <span key={d.id} style={{ padding: "4px 12px", borderRadius: 12, background: dsc.bg, color: dsc.color, fontSize: 12, fontWeight: 600 }}>
-                    {d.status === "Complete" ? "✓" : "○"} {d.name}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-        )}
-        {/* Notes */}
-        {milestone.notes && (
-          <div style={{ marginBottom: 14 }}>
-            <div style={S.lbl}>Notes</div>
-            <div style={{ ...S.card, padding: "12px 16px", fontSize: 13, color: TH.text, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{milestone.notes}</div>
-          </div>
-        )}
-        {/* History */}
-        {milestone.history?.length > 0 && (
-          <div style={{ marginBottom: 14 }}>
-            <div style={S.lbl}>History</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {[...milestone.history].reverse().map((h: any, i: number) => (
-                <div key={i} style={{ ...S.card, padding: "8px 14px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: TH.primary }}>{h.by}</span>
-                    <span style={{ fontSize: 11, color: TH.textMuted }}>{new Date(h.at).toLocaleString()}</span>
-                  </div>
-                  <div style={{ fontSize: 12, color: TH.textMuted }}>
-                    Changed <strong style={{ color: TH.text }}>{h.field}</strong>: <span style={{ color: "#B91C1C" }}>{h.from || "—"}</span> → <span style={{ color: "#047857" }}>{h.to}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        {/* Actions */}
-        <div style={{ display: "flex", gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
-          <button onClick={() => onDelete(milestone.id)} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}>Delete</button>
-          <div style={{ display: "flex", gap: 8 }}>
-            {/* Quick status change */}
-            {milestone.status !== "Complete" && (
-              <button onClick={() => {
-                const now = new Date().toISOString();
-                const hist = [...(milestone.history || []), { at: now, field: "status", from: milestone.status, to: "Complete", by: currentUser || "User" }];
-                onSave({ ...milestone, status: "Complete", completedAt: now, history: hist });
-                onClose();
-              }} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #10B981", background: "#ECFDF5", color: "#047857", cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 600 }}>✓ Mark Complete</button>
-            )}
-            <button onClick={() => setEditing(true)} style={{ ...S.btn }}>Edit</button>
-          </div>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-// ─── GANTT CHART ──────────────────────────────────────────────────────────────
-function GanttView({ project, milestones, onMilestoneClick }: any) {
-  if (!project || milestones.length === 0) return (
-    <div style={{ textAlign: "center", color: TH.textMuted, padding: 40, fontSize: 13 }}>No milestones yet. Add milestones to see the Gantt chart.</div>
-  );
-  const sorted = [...milestones].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-  const minDate = sorted[0].dueDate;
-  const maxDate = sorted[sorted.length - 1].dueDate;
-  const totalDays = Math.max(diffDays(maxDate, minDate) + 14, 60);
-  const chartStart = addDays(minDate, -7);
-
-  return (
-    <div style={{ overflowX: "auto" }}>
-      <div style={{ minWidth: Math.max(totalDays * 18, 600), position: "relative" }}>
-        {/* Today line */}
-        {(() => {
-          const todayOffset = diffDays(today(), chartStart);
-          if (todayOffset < 0 || todayOffset > totalDays + 14) return null;
-          return (
-            <div style={{ position: "absolute", top: 0, bottom: 0, left: todayOffset * 18 + 160, width: 2, background: TH.primary + "55", zIndex: 1, pointerEvents: "none" }}>
-              <div style={{ position: "absolute", top: 0, left: -16, background: TH.primary, color: "#fff", fontSize: 9, padding: "2px 4px", borderRadius: 3, whiteSpace: "nowrap", fontWeight: 700 }}>TODAY</div>
-            </div>
-          );
-        })()}
-        {/* Month headers */}
-        <div style={{ display: "flex", marginLeft: 160, marginBottom: 4 }}>
-          {(() => {
-            const months: { label: string; width: number }[] = [];
-            let cur = parseLocal(chartStart);
-            let pos = 0;
-            while (pos < totalDays + 14) {
-              const daysInMonth = new Date(cur.getFullYear(), cur.getMonth() + 1, 0).getDate() - cur.getDate() + 1;
-              const w = Math.min(daysInMonth, totalDays + 14 - pos);
-              months.push({ label: `${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][cur.getMonth()]} ${cur.getFullYear()}`, width: w * 18 });
-              pos += daysInMonth;
-              cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
-            }
-            return months.map((m, i) => (
-              <div key={i} style={{ width: m.width, fontSize: 10, fontWeight: 700, color: TH.textMuted, borderRight: `1px solid ${TH.border}`, padding: "0 4px", overflow: "hidden", whiteSpace: "nowrap", flexShrink: 0 }}>{m.label}</div>
-            ));
-          })()}
-        </div>
-        {/* Milestone rows */}
-        {sorted.map((m, idx) => {
-          const offset = diffDays(m.dueDate, chartStart);
-          const sc = STATUS_COLORS[m.status] || STATUS_COLORS["Not Started"];
-          const pc = PRIORITY_COLORS[m.priority] || TH.textMuted;
-          const isOverdue = getDaysUntil(m.dueDate) < 0 && m.status !== "Complete" && m.status !== "Cancelled";
-          // Draw dependency lines
-          const depOffsets = (m.dependencies || []).map((depId: string) => {
-            const dep = milestones.find((x: any) => x.id === depId);
-            if (!dep) return null;
-            return diffDays(dep.dueDate, chartStart);
-          }).filter(Boolean);
-
-          return (
-            <div key={m.id} style={{ display: "flex", alignItems: "center", height: 36, borderBottom: `1px solid ${TH.border}22`, position: "relative" }}>
-              {/* Name column */}
-              <div style={{ width: 160, fontSize: 12, fontWeight: 600, color: TH.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8, flexShrink: 0, cursor: "pointer" }} onClick={() => onMilestoneClick(m)}>
-                {m.name}
-              </div>
-              {/* Chart area */}
-              <div style={{ flex: 1, position: "relative", height: "100%", overflow: "visible" }}>
-                {/* Dependency arrows */}
-                {depOffsets.map((depOff: number, di: number) => {
-                  const depRowIdx = sorted.findIndex((x: any) => x.id === m.dependencies[di]);
-                  if (depRowIdx < 0) return null;
-                  return null; // simplified for now — arrows too complex for inline SVG
-                })}
-                {/* Milestone diamond */}
-                <div
-                  onClick={() => onMilestoneClick(m)}
-                  title={`${m.name} — ${fmtDate(m.dueDate)}`}
-                  style={{
-                    position: "absolute",
-                    left: offset * 18 - 9,
-                    top: "50%",
-                    transform: "translateY(-50%) rotate(45deg)",
-                    width: 16, height: 16,
-                    background: m.status === "Complete" ? "#047857" : isOverdue ? "#B91C1C" : m.color || sc.dot,
-                    border: `2px solid ${m.status === "Complete" ? "#065F46" : isOverdue ? "#991B1B" : "rgba(0,0,0,0.1)"}`,
-                    cursor: "pointer",
-                    zIndex: 2,
-                    boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
-                  }}
-                />
-                {/* Label */}
-                <div style={{
-                  position: "absolute", left: offset * 18 + 12, top: "50%", transform: "translateY(-50%)",
-                  fontSize: 10, color: isOverdue ? "#B91C1C" : TH.textMuted, whiteSpace: "nowrap", pointerEvents: "none"
-                }}>
-                  {fmtDate(m.dueDate)}
-                  {m.owner ? ` · ${m.owner}` : ""}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ─── PROJECT CARD ─────────────────────────────────────────────────────────────
-function ProjectCard({ project, milestones, onClick }: any) {
-  const ms = milestones.filter((m: any) => m.projectId === project.id);
-  const total = ms.length;
-  const done = ms.filter((m: any) => m.status === "Complete" || m.status === "Approved").length;
-  const delayed = ms.filter((m: any) => m.status === "Delayed").length;
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  const next = ms.filter((m: any) => m.status !== "Complete" && m.status !== "Approved" && m.status !== "Cancelled")
-    .sort((a: any, b: any) => a.dueDate.localeCompare(b.dueDate))[0];
-  const daysToTarget = getDaysUntil(project.targetDate);
-
-  return (
-    <div
-      onClick={onClick}
-      style={{
-        ...S.card, cursor: "pointer", position: "relative", overflow: "hidden",
-        transition: "transform 0.15s, box-shadow 0.15s",
-        borderTop: `3px solid ${project.color || TH.primary}`,
-      }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)"; (e.currentTarget as HTMLElement).style.boxShadow = `0 8px 24px ${TH.shadowMd}`; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = ""; (e.currentTarget as HTMLElement).style.boxShadow = `0 2px 8px ${TH.shadow}`; }}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: project.color || TH.primary, marginBottom: 2 }}>{project.name}</div>
-          <div style={{ fontSize: 11, color: TH.textMuted }}>
-            {[project.brand, project.season + " " + project.year, project.category].filter(Boolean).join(" · ")}
-          </div>
-          {(project.vendor || project.customer) && (
-            <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 2 }}>
-              {[project.vendor, project.customer].filter(Boolean).join(" · ")}
-            </div>
-          )}
-        </div>
-        <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 22, fontWeight: 800, color: pct === 100 ? "#047857" : TH.text, lineHeight: 1 }}>{pct}%</div>
-          {delayed > 0 && <div style={{ fontSize: 10, color: "#B91C1C", fontWeight: 700 }}>⚠ {delayed} delayed</div>}
-        </div>
-      </div>
-      {/* Progress bar */}
-      <div style={{ height: 5, background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 3, overflow: "hidden", marginBottom: 10 }}>
-        <div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(90deg,${project.color || TH.primary},${TH.primaryLt})`, borderRadius: 3, transition: "width 0.6s" }} />
-      </div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ fontSize: 11, color: TH.textMuted }}>
-          {next ? <>Next: <strong style={{ color: TH.text }}>{next.name}</strong> — <span style={{ color: getDaysUntil(next.dueDate) < 0 ? "#B91C1C" : getDaysUntil(next.dueDate) < 7 ? "#B45309" : TH.primary, fontWeight: 600 }}>{fmtDate(next.dueDate)}</span></> : <span style={{ color: "#047857" }}>✓ All complete</span>}
-        </div>
-        <div style={{ fontSize: 11, color: TH.textMuted }}>{done}/{total} milestones</div>
-      </div>
-      {project.targetDate && (
-        <div style={{ marginTop: 8, fontSize: 11, display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ color: TH.textMuted }}>Target:</span>
-          <span style={{ fontWeight: 600, color: daysToTarget < 0 ? "#B91C1C" : daysToTarget < 14 ? "#B45309" : TH.textSub }}>{fmtDate(project.targetDate)}</span>
-          {daysToTarget < 0 && <span style={{ color: "#B91C1C", fontSize: 10 }}>({Math.abs(daysToTarget)}d past)</span>}
-          {daysToTarget >= 0 && daysToTarget <= 30 && <span style={{ color: "#B45309", fontSize: 10 }}>({daysToTarget}d away)</span>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── PROJECT DETAIL VIEW ──────────────────────────────────────────────────────
-function ProjectDetail({ project, milestones, allMilestones, currentUser, onEditProject, onDeleteProject, onAddMilestone, onEditMilestone, onDeleteMilestone, onBack }: any) {
-  const [tab, setTab] = useState<"gantt"|"list"|"calendar">("gantt");
-  const [selectedMilestone, setSelectedMilestone] = useState<any>(null);
-  const [addingMilestone, setAddingMilestone] = useState(false);
-  const ms = milestones.filter((m: any) => m.projectId === project.id);
-  const total = ms.length;
-  const done = ms.filter((m: any) => ["Complete","Approved"].includes(m.status)).length;
-  const delayed = ms.filter((m: any) => m.status === "Delayed").length;
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  const sorted = [...ms].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-
-  return (
-    <div>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-        <button onClick={onBack} style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>← Projects</button>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 12, height: 12, borderRadius: "50%", background: project.color || TH.primary, flexShrink: 0 }} />
-            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: TH.text }}>{project.name}</h2>
-          </div>
-          <div style={{ fontSize: 12, color: TH.textMuted, marginTop: 3 }}>
-            {[project.brand, project.season + " " + project.year, project.category, project.vendor, project.customer].filter(Boolean).join(" · ")}
-            {project.targetDate && <span style={{ marginLeft: 8, fontWeight: 600, color: TH.primary }}>· Target: {fmtDate(project.targetDate)}</span>}
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 20, fontWeight: 800, color: pct === 100 ? "#047857" : TH.text }}>{pct}%</div>
-            {delayed > 0 && <div style={{ fontSize: 10, color: "#B91C1C", fontWeight: 700 }}>⚠ {delayed} delayed</div>}
-          </div>
-          <button onClick={onEditProject} style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>✏️ Edit</button>
-          <button onClick={() => setAddingMilestone(true)} style={S.btn}>+ Milestone</button>
-        </div>
-      </div>
-      {/* Progress bar */}
-      <div style={{ height: 6, background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 3, overflow: "hidden", marginBottom: 20 }}>
-        <div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(90deg,${project.color || TH.primary},${TH.primaryLt})`, transition: "width 0.6s" }} />
-      </div>
-      {/* Tabs */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 16, borderBottom: `1px solid ${TH.border}`, paddingBottom: 8 }}>
-        {(["gantt","list","calendar"] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)} style={{
-            padding: "6px 16px", borderRadius: 8, border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: tab === t ? 700 : 500,
-            background: tab === t ? TH.primary + "15" : "none", color: tab === t ? TH.primary : TH.textMuted,
-          }}>
-            {t === "gantt" ? "📊 Gantt" : t === "list" ? "📋 List" : "📅 Calendar"}
-          </button>
-        ))}
-        <div style={{ marginLeft: "auto", fontSize: 12, color: TH.textMuted, display: "flex", alignItems: "center" }}>{done}/{total} complete</div>
-      </div>
-      {/* Gantt */}
-      {tab === "gantt" && <GanttView project={project} milestones={ms} onMilestoneClick={setSelectedMilestone} />}
-      {/* List */}
-      {tab === "list" && (
-        <div style={{ display: "grid", gap: 8 }}>
-          {sorted.length === 0 && <div style={{ textAlign: "center", color: TH.textMuted, padding: 32, fontSize: 13, border: `1px dashed ${TH.border}`, borderRadius: 10 }}>No milestones yet. Click "+ Milestone" to add.</div>}
-          {sorted.map(m => {
-            const sc = STATUS_COLORS[m.status] || STATUS_COLORS["Not Started"];
-            const pc = PRIORITY_COLORS[m.priority] || TH.textMuted;
-            const isOverdue = getDaysUntil(m.dueDate) < 0 && m.status !== "Complete" && m.status !== "Cancelled";
-            const depNames = (m.dependencies || []).map((id: string) => ms.find((x: any) => x.id === id)?.name).filter(Boolean);
-            return (
-              <div key={m.id} onClick={() => setSelectedMilestone(m)} style={{
-                ...S.card, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, padding: "14px 18px",
-                borderLeft: `4px solid ${m.status === "Complete" ? "#047857" : isOverdue ? "#B91C1C" : project.color || TH.primary}`,
-              }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: TH.text }}>{m.name}</span>
-                    <span style={{ padding: "2px 8px", borderRadius: 10, background: sc.bg, color: sc.color, fontSize: 10, fontWeight: 600 }}>{m.status}</span>
-                    <span style={{ padding: "2px 8px", borderRadius: 10, background: pc + "15", color: pc, fontSize: 10, fontWeight: 600 }}>{m.priority}</span>
-                  </div>
-                  <div style={{ fontSize: 11, color: TH.textMuted, display: "flex", gap: 12 }}>
-                    <span style={{ color: isOverdue ? "#B91C1C" : TH.textMuted, fontWeight: isOverdue ? 700 : 400 }}>📅 {fmtDate(m.dueDate)}</span>
-                    {m.owner && <span>👤 {m.owner}</span>}
-                    {depNames.length > 0 && <span>🔗 {depNames.join(", ")}</span>}
-                  </div>
-                  {m.notes && <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4, fontStyle: "italic" }}>{m.notes.substring(0, 80)}{m.notes.length > 80 ? "…" : ""}</div>}
-                </div>
-                {m.status === "Complete" && <span style={{ color: "#047857", fontSize: 20 }}>✓</span>}
-                {isOverdue && <span style={{ color: "#B91C1C", fontSize: 11, fontWeight: 700 }}>⚠ {Math.abs(getDaysUntil(m.dueDate))}d</span>}
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {/* Calendar view */}
-      {tab === "calendar" && (
-        <MilestoneCalendar milestones={ms} project={project} onMilestoneClick={setSelectedMilestone} />
-      )}
-      {/* Modals */}
-      {addingMilestone && (
-        <Modal title="Add Milestone" onClose={() => setAddingMilestone(false)} wide>
-          <MilestoneForm
-            projectId={project.id}
-            allMilestones={allMilestones}
-            currentUser={currentUser}
-            onSave={(m: any) => { onAddMilestone(m); setAddingMilestone(false); }}
-            onCancel={() => setAddingMilestone(false)}
-          />
-        </Modal>
-      )}
-      {selectedMilestone && (
-        <MilestoneDetail
-          milestone={selectedMilestone}
-          project={project}
-          allMilestones={allMilestones}
-          currentUser={currentUser}
-          onSave={(updated: any) => { onEditMilestone(updated); setSelectedMilestone(updated); }}
-          onDelete={(id: string) => { onDeleteMilestone(id); setSelectedMilestone(null); }}
-          onClose={() => setSelectedMilestone(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-// ─── MILESTONE CALENDAR ───────────────────────────────────────────────────────
-function MilestoneCalendar({ milestones, project, onMilestoneClick }: any) {
-  const [month, setMonth] = useState(() => {
-    const t = new Date(); return { year: t.getFullYear(), month: t.getMonth() };
-  });
-  const firstDay = new Date(month.year, month.month, 1);
-  const lastDay = new Date(month.year, month.month + 1, 0);
-  const startPad = firstDay.getDay();
-  const cells: (Date|null)[] = [...Array(startPad).fill(null)];
-  for (let d = 1; d <= lastDay.getDate(); d++) cells.push(new Date(month.year, month.month, d));
-  const ds = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-  const t = today();
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <button onClick={() => setMonth(m => { const d = new Date(m.year, m.month-1, 1); return { year: d.getFullYear(), month: d.getMonth() }; })} style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${TH.border}`, background: "none", cursor: "pointer", fontFamily: "inherit" }}>←</button>
-        <span style={{ fontWeight: 700, color: TH.text }}>
-          {["January","February","March","April","May","June","July","August","September","October","November","December"][month.month]} {month.year}
-        </span>
-        <button onClick={() => setMonth(m => { const d = new Date(m.year, m.month+1, 1); return { year: d.getFullYear(), month: d.getMonth() }; })} style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${TH.border}`, background: "none", cursor: "pointer", fontFamily: "inherit" }}>→</button>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 4 }}>
-        {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d => <div key={d} style={{ textAlign: "center", fontSize: 10, fontWeight: 700, color: TH.textMuted, padding: "4px 0" }}>{d}</div>)}
-        {cells.map((d, i) => {
-          if (!d) return <div key={`e${i}`} />;
-          const dateStr = ds(d);
-          const dayMs = milestones.filter((m: any) => m.dueDate === dateStr);
-          const isToday = dateStr === t;
-          return (
-            <div key={dateStr} style={{ minHeight: 70, background: isToday ? TH.primary + "08" : TH.surface, border: `1px solid ${isToday ? TH.primary + "44" : TH.border}`, borderRadius: 8, padding: "4px 6px" }}>
-              <div style={{ fontSize: 11, fontWeight: isToday ? 800 : 500, color: isToday ? TH.primary : TH.textMuted, marginBottom: 3 }}>{d.getDate()}</div>
-              {dayMs.map((m: any) => {
-                const sc = STATUS_COLORS[m.status] || STATUS_COLORS["Not Started"];
-                return (
-                  <div key={m.id} onClick={() => onMilestoneClick(m)} style={{
-                    fontSize: 10, fontWeight: 600, padding: "2px 5px", borderRadius: 4,
-                    background: m.status === "Complete" ? "#ECFDF5" : project?.color ? project.color + "20" : TH.primary + "15",
-                    color: m.status === "Complete" ? "#047857" : project?.color || TH.primary,
-                    cursor: "pointer", marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                  }}>{m.name}</div>
-                );
-              })}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ─── ALL-PROJECTS CALENDAR ────────────────────────────────────────────────────
-function AllMilestonesCalendar({ milestones, projects, onMilestoneClick }: any) {
-  const [month, setMonth] = useState(() => {
-    const t = new Date(); return { year: t.getFullYear(), month: t.getMonth() };
-  });
-  const firstDay = new Date(month.year, month.month, 1);
-  const lastDay = new Date(month.year, month.month + 1, 0);
-  const startPad = firstDay.getDay();
-  const cells: (Date|null)[] = [...Array(startPad).fill(null)];
-  for (let d = 1; d <= lastDay.getDate(); d++) cells.push(new Date(month.year, month.month, d));
-  const ds = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-  const t = today();
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <button onClick={() => setMonth(m => { const d = new Date(m.year, m.month-1, 1); return { year: d.getFullYear(), month: d.getMonth() }; })} style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${TH.border}`, background: "none", cursor: "pointer", fontFamily: "inherit" }}>←</button>
-        <span style={{ fontWeight: 700, fontSize: 15, color: TH.text }}>
-          {["January","February","March","April","May","June","July","August","September","October","November","December"][month.month]} {month.year}
-        </span>
-        <button onClick={() => setMonth(m => { const d = new Date(m.year, m.month+1, 1); return { year: d.getFullYear(), month: d.getMonth() }; })} style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${TH.border}`, background: "none", cursor: "pointer", fontFamily: "inherit" }}>→</button>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 4 }}>
-        {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d => <div key={d} style={{ textAlign: "center", fontSize: 10, fontWeight: 700, color: TH.textMuted, padding: "4px 0" }}>{d}</div>)}
-        {cells.map((d, i) => {
-          if (!d) return <div key={`e${i}`} />;
-          const dateStr = ds(d);
-          const dayMs = milestones.filter((m: any) => m.dueDate === dateStr);
-          const isToday = dateStr === t;
-          return (
-            <div key={dateStr} style={{ minHeight: 80, background: isToday ? TH.primary + "08" : TH.surface, border: `1px solid ${isToday ? TH.primary + "44" : TH.border}`, borderRadius: 8, padding: "4px 6px" }}>
-              <div style={{ fontSize: 11, fontWeight: isToday ? 800 : 500, color: isToday ? TH.primary : TH.textMuted, marginBottom: 3 }}>{d.getDate()}</div>
-              {dayMs.slice(0, 4).map((m: any) => {
-                const proj = projects.find((p: any) => p.id === m.projectId);
-                const col = proj?.color || TH.primary;
-                return (
-                  <div key={m.id} onClick={() => onMilestoneClick(m)} style={{
-                    fontSize: 10, fontWeight: 600, padding: "2px 5px", borderRadius: 4,
-                    background: col + "20", color: col,
-                    cursor: "pointer", marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                    borderLeft: `3px solid ${col}`,
-                  }} title={`${proj?.name || ""} — ${m.name}`}>{m.name}</div>
-                );
-              })}
-              {dayMs.length > 4 && <div style={{ fontSize: 10, color: TH.textMuted }}>+{dayMs.length - 4} more</div>}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ─── LOGIN ────────────────────────────────────────────────────────────────────
-const DEFAULT_USERS_TA = [{ id: "admin", username: "admin", name: "Admin", role: "admin", password: "admin123" }];
-function Login({ onLogin }: { onLogin: (user: any) => void }) {
-  const [username, setUsername] = useState(() => localStorage.getItem("tanda_lastuser") || "");
-  const [password, setPassword] = useState("");
-  const [showPw, setShowPw] = useState(false);
-  const [err, setErr] = useState("");
-  async function handleLogin() {
-    setErr("");
-    const users = await sbGet("users") || DEFAULT_USERS_TA;
-    const u = users.find((x: any) => {
-      const nameMatch = (x.username || x.name || "").toLowerCase() === username.trim().toLowerCase();
-      // Support both password and pin fields
-      const passMatch = x.password === password || String(x.pin) === password;
-      return nameMatch && passMatch;
-    });
-    if (!u) { setErr("Invalid username or password"); return; }
-    localStorage.setItem("tanda_lastuser", u.username || u.name);
-    onLogin(u);
-  }
-  return (
-    <div style={{ minHeight: "100vh", background: `linear-gradient(135deg,${TH.header},${TH.bg})`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ background: TH.surface, borderRadius: 20, padding: 40, width: 340, boxShadow: `0 24px 60px ${TH.shadowMd}` }}>
-        <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <div style={{ fontSize: 28, fontWeight: 900, color: TH.primary, letterSpacing: "-0.5px" }}>ROF</div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: TH.text, marginTop: 4 }}>T&A Calendar</div>
-          <div style={{ fontSize: 12, color: TH.textMuted, marginTop: 4 }}>Time & Action Tracker</div>
-        </div>
-        <label style={S.lbl}>Username</label>
-        <input style={S.inp} value={username} onChange={e => setUsername(e.target.value)} onKeyDown={e => e.key === "Enter" && handleLogin()} autoComplete="username" />
-        <label style={S.lbl}>Password</label>
-        <div style={{ position: "relative", marginBottom: 14 }}>
-          <input type={showPw ? "text" : "password"} style={{ ...S.inp, marginBottom: 0, paddingRight: 40 }} value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleLogin()} autoComplete="current-password" />
-          <button onClick={() => setShowPw(v => !v)} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: TH.textMuted, fontSize: 14 }}>{showPw ? "🙈" : "👁"}</button>
-        </div>
-        {err && <div style={{ color: "#B91C1C", fontSize: 12, marginBottom: 12, textAlign: "center" }}>{err}</div>}
-        <button onClick={handleLogin} style={{ ...S.btn, width: "100%" }}>Sign In</button>
-      </div>
-    </div>
-  );
-}
-
-// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+// ── Main App ──────────────────────────────────────────────────────────────────
 export default function TandAApp() {
-  const [user, setUser] = useState<any>(null);
-  const [projects, setProjects] = useState<TandAProject[]>([]);
-  const [milestones, setMilestones] = useState<TandAMilestone[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [view, setView] = useState<"dashboard"|"calendar">("dashboard");
-  const [selectedProject, setSelectedProject] = useState<TandAProject | null>(null);
-  const [editingProject, setEditingProject] = useState<TandAProject | null | "new">(null);
-  const [filterBrand, setFilterBrand] = useState("all");
-  const [filterSeason, setFilterSeason] = useState("all");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedMilestoneForCalendar, setSelectedMilestoneForCalendar] = useState<any>(null);
+  const [user, setUser]         = useState<User | null>(null);
+  const [view, setView]         = useState<View>("dashboard");
+  const [pos, setPos]           = useState<XoroPO[]>([]);
+  const [notes, setNotes]       = useState<LocalNote[]>([]);
+  const [selected, setSelected] = useState<XoroPO | null>(null);
+  const [loading, setLoading]   = useState(false);
+  const [syncing, setSyncing]   = useState(false);
+  const [syncErr, setSyncErr]   = useState("");
+  const [lastSync, setLastSync] = useState<string>("");
+  const [search, setSearch]     = useState("");
+  const [filterStatus, setFilterStatus] = useState("All");
+  const [filterVendor, setFilterVendor] = useState("All");
+  const [xoroCreds, setXoroCreds] = useState({ key: XORO_API_KEY, secret: XORO_API_SECRET });
+  const [showSettings, setShowSettings] = useState(false);
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [newNote, setNewNote]   = useState("");
+  const [noteStatus, setNoteStatus] = useState("");
 
-  // Load from Supabase
-  useEffect(() => {
-    async function loadAll() {
-      const [projs, miles] = await Promise.all([
-        sbGetRows("tanda_projects"),
-        sbGetRows("tanda_milestones"),
-      ]);
-      if (projs?.length) setProjects(projs);
-      if (miles?.length) setMilestones(miles);
-      setLoaded(true);
-    }
-    loadAll();
+  // Sync filter state
+  const [syncFilters, setSyncFilters] = useState<SyncFilters>({
+    poNumber: "", dateFrom: "", dateTo: "", vendors: [], statuses: []
+  });
+  const [xoroVendors, setXoroVendors]         = useState<string[]>([]);
+  const [manualVendors, setManualVendors]       = useState<string[]>([]);
+  const [vendorSearch, setVendorSearch]         = useState("");
+  const [loadingVendors, setLoadingVendors]     = useState(false);
+  const [newManualVendor, setNewManualVendor]   = useState("");
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  const [loginName, setLoginName] = useState("");
+  const [loginPass, setLoginPass] = useState("");
+  const [loginErr, setLoginErr]   = useState("");
+
+  async function handleLogin() {
+    setLoginErr("");
+    const { data } = await sb.from("users").select("*").ilike("name", loginName.trim());
+    const match = (data ?? []).find(
+      (u: User) => u.password === loginPass || (u as any).pin === loginPass
+    );
+    if (match) { setUser(match); }
+    else setLoginErr("Invalid name or password.");
+  }
+
+  // ── Load notes from Supabase ──────────────────────────────────────────────
+  const loadNotes = useCallback(async () => {
+    const { data } = await sb.from("tanda_notes").select("*").order("created_at", { ascending: false });
+    setNotes((data as LocalNote[]) ?? []);
   }, []);
 
-  async function saveProject(p: TandAProject) {
-    setProjects(ps => ps.find(x => x.id === p.id) ? ps.map(x => x.id === p.id ? p : x) : [...ps, p]);
-    await sbUpsertRow("tanda_projects", p.id, p);
-  }
-  async function deleteProject(id: string) {
-    setProjects(ps => ps.filter(p => p.id !== id));
-    setMilestones(ms => ms.filter(m => m.projectId !== id));
-    await sbDeleteRow("tanda_projects", id);
-    const toDelete = milestones.filter(m => m.projectId === id);
-    await Promise.all(toDelete.map(m => sbDeleteRow("tanda_milestones", m.id)));
-  }
-  async function saveMilestone(m: TandAMilestone) {
-    setMilestones(ms => ms.find(x => x.id === m.id) ? ms.map(x => x.id === m.id ? m : x) : [...ms, m]);
-    await sbUpsertRow("tanda_milestones", m.id, m);
-  }
-  async function deleteMilestone(id: string) {
-    setMilestones(ms => ms.filter(m => m.id !== id));
-    await sbDeleteRow("tanda_milestones", id);
+  // ── Load cached POs from Supabase ─────────────────────────────────────────
+  const loadCachedPOs = useCallback(async () => {
+    setLoading(true);
+    const { data } = await sb.from("tanda_pos").select("*").order("date_order", { ascending: false });
+    if (data && data.length > 0) {
+      setPos(data.map((r: any) => r.data as XoroPO));
+      setLastSync(data[0]?.synced_at ?? "");
+    }
+    setLoading(false);
+  }, []);
+
+  // ── Load vendors from Xoro + manual list ─────────────────────────────────
+  const loadVendors = useCallback(async () => {
+    setLoadingVendors(true);
+    const xv = await fetchXoroVendors();
+    setXoroVendors(xv);
+    // load manual vendors from supabase
+    const { data } = await sb.from("tanda_settings").select("value").eq("key", "manual_vendors").single();
+    if (data?.value) setManualVendors(JSON.parse(data.value));
+    setLoadingVendors(false);
+  }, []);
+
+  async function saveManualVendor() {
+    if (!newManualVendor.trim()) return;
+    const updated = [...manualVendors, newManualVendor.trim()];
+    setManualVendors(updated);
+    setNewManualVendor("");
+    await sb.from("tanda_settings").upsert({ key: "manual_vendors", value: JSON.stringify(updated) });
   }
 
-  if (!user) return <Login onLogin={setUser} />;
-  if (!loaded) return (
-    <div style={{ minHeight: "100vh", background: `linear-gradient(135deg,${TH.header},${TH.bg})`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ color: "#fff", fontSize: 16, fontWeight: 600 }}>Loading T&A Calendar…</div>
-    </div>
-  );
+  async function removeManualVendor(v: string) {
+    const updated = manualVendors.filter(x => x !== v);
+    setManualVendors(updated);
+    await sb.from("tanda_settings").upsert({ key: "manual_vendors", value: JSON.stringify(updated) });
+  }
 
-  // Filtered projects
-  const allBrands = [...new Set(projects.map(p => p.brand).filter(Boolean))];
-  const allSeasons = [...new Set(projects.map(p => `${p.season} ${p.year}`).filter(Boolean))];
-  const filteredProjects = projects.filter(p => {
-    if (filterBrand !== "all" && p.brand !== filterBrand) return false;
-    if (filterSeason !== "all" && `${p.season} ${p.year}` !== filterSeason) return false;
-    if (searchTerm && !p.name.toLowerCase().includes(searchTerm.toLowerCase()) && !p.brand?.toLowerCase().includes(searchTerm.toLowerCase()) && !p.vendor?.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-    return true;
+  // ── Sync from Xoro with filters ───────────────────────────────────────────
+  async function syncFromXoro(filters?: SyncFilters) {
+    setSyncing(true);
+    setSyncErr("");
+    setShowSyncModal(false);
+    try {
+      let all: XoroPO[] = [];
+      let page = 1;
+      let totalPages = 1;
+      do {
+        const { pos: batch, totalPages: tp } = await fetchXoroPOs(page, filters);
+        all = [...all, ...batch];
+        totalPages = tp;
+        page++;
+      } while (page <= totalPages && page <= 20);
+
+      // MERGE — upsert each PO by po_number
+      const now = new Date().toISOString();
+      if (all.length > 0) {
+        await sb.from("tanda_pos").upsert(
+          all.map(po => ({
+            po_number:     po.PoNumber ?? `unknown-${Math.random()}`,
+            vendor:        po.VendorName ?? "",
+            date_order:    po.DateOrder ?? null,
+            date_expected: po.DateExpectedDelivery ?? null,
+            status:        po.StatusName ?? "",
+            data:          po,
+            synced_at:     now,
+          })),
+          { onConflict: "po_number" }
+        );
+      }
+      // reload full cache
+      await loadCachedPOs();
+      setLastSync(now);
+    } catch (e: any) {
+      setSyncErr(e.message ?? "Sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  useEffect(() => {
+    if (user) { loadCachedPOs(); loadNotes(); loadVendors(); }
+  }, [user, loadCachedPOs, loadNotes, loadVendors]);
+
+  // ── Derived ───────────────────────────────────────────────────────────────
+  const vendors = ["All", ...Array.from(new Set(pos.map(p => p.VendorName ?? "Unknown"))).sort()];
+
+  const filtered = pos.filter(p => {
+    const s = search.toLowerCase();
+    const matchSearch = !s
+      || (p.PoNumber ?? "").toLowerCase().includes(s)
+      || (p.VendorName ?? "").toLowerCase().includes(s)
+      || (p.Memo ?? "").toLowerCase().includes(s)
+      || (p.Tags ?? "").toLowerCase().includes(s);
+    const matchStatus = filterStatus === "All" || (p.StatusName ?? "") === filterStatus;
+    const matchVendor = filterVendor === "All" || (p.VendorName ?? "") === filterVendor;
+    return matchSearch && matchStatus && matchVendor;
   });
 
-  // Stats
-  const totalProjects = projects.length;
-  const totalMilestones = milestones.length;
-  const delayedMilestones = milestones.filter(m => m.status === "Delayed" || (getDaysUntil(m.dueDate) < 0 && m.status !== "Complete" && m.status !== "Cancelled" && m.status !== "Approved")).length;
-  const dueSoon = milestones.filter(m => { const d = getDaysUntil(m.dueDate); return d >= 0 && d <= 7 && m.status !== "Complete" && m.status !== "Cancelled" && m.status !== "Approved"; }).length;
-  const isAdmin = user.role === "admin";
+  const overdue = pos.filter(p => {
+    const d = daysUntil(p.DateExpectedDelivery);
+    return d !== null && d < 0 && p.StatusName !== "Received" && p.StatusName !== "Closed";
+  }).length;
+  const dueThisWeek = pos.filter(p => {
+    const d = daysUntil(p.DateExpectedDelivery);
+    return d !== null && d >= 0 && d <= 7;
+  }).length;
+  const totalValue = pos.reduce((s, p) => s + poTotal(p), 0);
 
-  return (
-    <div style={{ minHeight: "100vh", background: TH.bg, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
-      {/* NAV */}
-      <div style={{ background: TH.header, padding: "0 24px", height: 56, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, boxShadow: `0 2px 8px ${TH.shadowMd}`, position: "sticky", top: 0, zIndex: 100 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            <span style={{ fontSize: 14, fontWeight: 900, color: TH.primary, letterSpacing: "-0.5px", lineHeight: 1 }}>ROF</span>
-            <span style={{ fontSize: 9, color: "rgba(255,255,255,0.5)", letterSpacing: "0.1em", textTransform: "uppercase", lineHeight: 1 }}>T&A</span>
-          </div>
-          <div style={{ width: 1, height: 24, background: "rgba(255,255,255,0.2)" }} />
-          <span style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,0.85)" }}>Time & Action Calendar</span>
-        </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          {([["dashboard","Dashboard"],["calendar","Calendar"]] as [string,string][]).map(([id, label]) => {
-            const isActive = view === id && !selectedProject;
-            return (
-              <button key={id} onClick={() => { setView(id as any); setSelectedProject(null); }} style={{
-                padding: "7px 12px", borderRadius: 8, border: `1px solid ${isActive ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.15)"}`,
-                cursor: "pointer", background: isActive ? `linear-gradient(135deg,${TH.primary},${TH.primaryLt})` : "none",
-                color: isActive ? "#fff" : "rgba(255,255,255,0.7)", fontWeight: isActive ? 700 : 600, fontFamily: "inherit", fontSize: 12,
-              }}>{label}</button>
-            );
-          })}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 12, color: "rgba(255,255,255,0.6)" }}>{user.name}</span>
-          <button onClick={() => { setUser(null); setSelectedProject(null); }} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid rgba(255,255,255,0.2)", background: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Sign Out</button>
-        </div>
+  async function addNote() {
+    if (!newNote.trim() || !selected || !user) return;
+    await sb.from("tanda_notes").insert({
+      po_number: selected.PoNumber,
+      note: newNote.trim(),
+      status_override: noteStatus || null,
+      user_name: user.name,
+      created_at: new Date().toISOString(),
+    });
+    setNewNote("");
+    setNoteStatus("");
+    await loadNotes();
+  }
+
+  const selectedNotes = notes.filter(n => n.po_number === selected?.PoNumber);
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // LOGIN SCREEN
+  // ════════════════════════════════════════════════════════════════════════════
+  if (!user) return (
+    <div style={S.loginBg}>
+      <div style={S.loginCard}>
+        <div style={S.loginLogo}>PO</div>
+        <h1 style={S.loginTitle}>Purchase Orders</h1>
+        <p style={S.loginSub}>Powered by XoroERP</p>
+        <input style={S.input} placeholder="Name" value={loginName}
+          onChange={e => setLoginName(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && handleLogin()} />
+        <input style={S.input} placeholder="Password" type="password" value={loginPass}
+          onChange={e => setLoginPass(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && handleLogin()} />
+        {loginErr && <p style={S.err}>{loginErr}</p>}
+        <button style={S.btnPrimary} onClick={handleLogin}>Sign In</button>
       </div>
-
-      {/* MAIN CONTENT */}
-      <div style={{ padding: "24px", maxWidth: 1400, margin: "0 auto" }}>
-        {/* Project Detail */}
-        {selectedProject && (
-          <ProjectDetail
-            project={selectedProject}
-            milestones={milestones}
-            allMilestones={milestones}
-            currentUser={user.name}
-            onEditProject={() => setEditingProject(selectedProject)}
-            onDeleteProject={() => { if (window.confirm("Delete this project and all its milestones?")) { deleteProject(selectedProject.id); setSelectedProject(null); } }}
-            onAddMilestone={saveMilestone}
-            onEditMilestone={saveMilestone}
-            onDeleteMilestone={deleteMilestone}
-            onBack={() => setSelectedProject(null)}
-          />
-        )}
-
-        {/* Dashboard */}
-        {!selectedProject && view === "dashboard" && (
-          <div>
-            {/* Stats row */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginBottom: 24 }}>
-              {[
-                { label: "Projects", value: totalProjects, color: TH.primary, icon: "📁" },
-                { label: "Milestones", value: totalMilestones, color: "#047857", icon: "🎯" },
-                { label: "Overdue / Delayed", value: delayedMilestones, color: "#B91C1C", icon: "⚠️" },
-                { label: "Due This Week", value: dueSoon, color: "#B45309", icon: "⏰" },
-              ].map(stat => (
-                <div key={stat.label} style={{ ...S.card, padding: "16px 20px" }}>
-                  <div style={{ fontSize: 22, marginBottom: 4 }}>{stat.icon}</div>
-                  <div style={{ fontSize: 26, fontWeight: 800, color: stat.color }}>{stat.value}</div>
-                  <div style={{ fontSize: 11, color: TH.textMuted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em" }}>{stat.label}</div>
-                </div>
-              ))}
-            </div>
-            {/* Toolbar */}
-            <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
-              <input style={{ ...S.inp, marginBottom: 0, width: 220 }} placeholder="Search projects…" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-              {allBrands.length > 0 && (
-                <select style={{ ...S.inp, marginBottom: 0, width: 160 }} value={filterBrand} onChange={e => setFilterBrand(e.target.value)}>
-                  <option value="all">All Brands</option>
-                  {allBrands.map(b => <option key={b} value={b}>{b}</option>)}
-                </select>
-              )}
-              {allSeasons.length > 0 && (
-                <select style={{ ...S.inp, marginBottom: 0, width: 160 }} value={filterSeason} onChange={e => setFilterSeason(e.target.value)}>
-                  <option value="all">All Seasons</option>
-                  {allSeasons.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              )}
-              <div style={{ flex: 1 }} />
-              <button onClick={() => setEditingProject("new")} style={S.btn}>+ New Project</button>
-            </div>
-            {/* Project grid */}
-            {filteredProjects.length === 0 ? (
-              <div style={{ ...S.card, textAlign: "center", padding: 60, color: TH.textMuted }}>
-                <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: TH.text, marginBottom: 8 }}>No projects yet</div>
-                <div style={{ fontSize: 13, marginBottom: 20 }}>Create your first T&A project to start tracking milestones.</div>
-                <button onClick={() => setEditingProject("new")} style={S.btn}>+ New Project</button>
-              </div>
-            ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 20 }}>
-                {filteredProjects.map(p => (
-                  <ProjectCard key={p.id} project={p} milestones={milestones} onClick={() => setSelectedProject(p)} />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Calendar */}
-        {!selectedProject && view === "calendar" && (
-          <div>
-            <AllMilestonesCalendar
-              milestones={milestones}
-              projects={projects}
-              onMilestoneClick={(m: any) => setSelectedMilestoneForCalendar(m)}
-            />
-            {selectedMilestoneForCalendar && (
-              <MilestoneDetail
-                milestone={selectedMilestoneForCalendar}
-                project={projects.find(p => p.id === selectedMilestoneForCalendar.projectId)}
-                allMilestones={milestones}
-                currentUser={user.name}
-                onSave={(updated: any) => { saveMilestone(updated); setSelectedMilestoneForCalendar(updated); }}
-                onDelete={(id: string) => { deleteMilestone(id); setSelectedMilestoneForCalendar(null); }}
-                onClose={() => setSelectedMilestoneForCalendar(null)}
-              />
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Project Edit Modal */}
-      {editingProject && (
-        <Modal title={editingProject === "new" ? "New Project" : "Edit Project"} onClose={() => setEditingProject(null)} wide>
-          <ProjectForm
-            project={editingProject === "new" ? null : editingProject}
-            onSave={(p) => { saveProject(p); setEditingProject(null); if (editingProject !== "new") setSelectedProject(p); }}
-            onCancel={() => setEditingProject(null)}
-          />
-        </Modal>
-      )}
     </div>
   );
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // SYNC MODAL
+  // ════════════════════════════════════════════════════════════════════════════
+  const allVendors = Array.from(new Set([...xoroVendors, ...manualVendors])).sort();
+  const filteredVendorList = allVendors.filter(v =>
+    !vendorSearch || v.toLowerCase().includes(vendorSearch.toLowerCase())
+  );
+
+  const SyncModal = () => (
+    <div style={S.modalOverlay} onClick={() => setShowSyncModal(false)}>
+      <div style={{ ...S.modal, width: 540 }} onClick={e => e.stopPropagation()}>
+        <div style={S.modalHeader}>
+          <h2 style={S.modalTitle}>🔄 Sync from Xoro</h2>
+          <button style={S.closeBtn} onClick={() => setShowSyncModal(false)}>✕</button>
+        </div>
+        <div style={S.modalBody}>
+          <p style={{ color: "#9CA3AF", fontSize: 13, marginTop: 0, marginBottom: 20 }}>
+            Filter which POs to pull from Xoro. Leave all blank to sync everything. New POs will be added; existing ones updated.
+          </p>
+
+          {/* PO Number */}
+          <label style={S.label}>PO Number</label>
+          <input style={{ ...S.input, marginBottom: 16 }}
+            placeholder="e.g. PO-1234 (leave blank for all)"
+            value={syncFilters.poNumber}
+            onChange={e => setSyncFilters(p => ({ ...p, poNumber: e.target.value }))} />
+
+          {/* Date range */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+            <div>
+              <label style={S.label}>Date Created — From</label>
+              <input style={S.input} type="date" value={syncFilters.dateFrom}
+                onChange={e => setSyncFilters(p => ({ ...p, dateFrom: e.target.value }))} />
+            </div>
+            <div>
+              <label style={S.label}>Date Created — To</label>
+              <input style={S.input} type="date" value={syncFilters.dateTo}
+                onChange={e => setSyncFilters(p => ({ ...p, dateTo: e.target.value }))} />
+            </div>
+          </div>
+
+          {/* Status multi-select */}
+          <label style={S.label}>Status (select one or more, or leave blank for all)</label>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+            {STATUS_OPTIONS.map(s => {
+              const active = syncFilters.statuses.includes(s);
+              const color  = STATUS_COLORS[s] ?? "#6B7280";
+              return (
+                <button key={s} onClick={() => setSyncFilters(p => ({
+                  ...p,
+                  statuses: active ? p.statuses.filter(x => x !== s) : [...p.statuses, s]
+                }))} style={{
+                  background: active ? color + "33" : "#0F172A",
+                  border: `1px solid ${active ? color : "#334155"}`,
+                  color: active ? color : "#9CA3AF",
+                  borderRadius: 20, padding: "5px 14px", fontSize: 13,
+                  cursor: "pointer", fontWeight: active ? 600 : 400,
+                }}>{s}</button>
+              );
+            })}
+          </div>
+
+          {/* Vendor multi-select */}
+          <label style={S.label}>
+            Vendor (select one or more, or leave blank for all)
+            {loadingVendors && <span style={{ color: "#6B7280", fontWeight: 400, marginLeft: 8 }}>Loading…</span>}
+          </label>
+          <input style={{ ...S.input, marginBottom: 8 }}
+            placeholder="🔍 Type to search vendors…"
+            value={vendorSearch}
+            onChange={e => setVendorSearch(e.target.value)} />
+          <div style={{ maxHeight: 160, overflowY: "auto", background: "#0F172A", borderRadius: 8, marginBottom: 8 }}>
+            {filteredVendorList.length === 0 && (
+              <div style={{ padding: 12, color: "#6B7280", fontSize: 13 }}>
+                {allVendors.length === 0 ? "No vendors loaded yet — sync will fetch all." : "No vendors match your search."}
+              </div>
+            )}
+            {filteredVendorList.map(v => {
+              const active = syncFilters.vendors.includes(v);
+              const isManual = manualVendors.includes(v);
+              return (
+                <div key={v} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderBottom: "1px solid #1E293B", cursor: "pointer",
+                  background: active ? "#3B82F620" : "transparent" }}
+                  onClick={() => setSyncFilters(p => ({
+                    ...p,
+                    vendors: active ? p.vendors.filter(x => x !== v) : [...p.vendors, v]
+                  }))}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${active ? "#3B82F6" : "#334155"}`,
+                      background: active ? "#3B82F6" : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {active && <span style={{ color: "#fff", fontSize: 10 }}>✓</span>}
+                    </div>
+                    <span style={{ color: "#D1D5DB", fontSize: 13 }}>{v}</span>
+                    {isManual && <span style={{ fontSize: 10, color: "#6B7280", background: "#1E293B", borderRadius: 4, padding: "1px 5px" }}>manual</span>}
+                  </div>
+                  {isManual && (
+                    <button style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 12 }}
+                      onClick={e => { e.stopPropagation(); removeManualVendor(v); }}>✕</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Add manual vendor */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+            <input style={{ ...S.input, marginBottom: 0 }} placeholder="Add vendor manually…"
+              value={newManualVendor} onChange={e => setNewManualVendor(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && saveManualVendor()} />
+            <button style={{ ...S.btnSecondary, whiteSpace: "nowrap" }} onClick={saveManualVendor}>+ Add</button>
+          </div>
+
+          {/* Selected summary */}
+          {(syncFilters.vendors.length > 0 || syncFilters.statuses.length > 0 || syncFilters.poNumber || syncFilters.dateFrom || syncFilters.dateTo) && (
+            <div style={{ background: "#0F172A", borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 12, color: "#9CA3AF" }}>
+              <strong style={{ color: "#60A5FA" }}>Will sync:</strong>
+              {syncFilters.poNumber && <span style={{ marginLeft: 8 }}>PO# <b style={{ color: "#F1F5F9" }}>{syncFilters.poNumber}</b></span>}
+              {syncFilters.dateFrom && <span style={{ marginLeft: 8 }}>From <b style={{ color: "#F1F5F9" }}>{syncFilters.dateFrom}</b></span>}
+              {syncFilters.dateTo   && <span style={{ marginLeft: 8 }}>To <b style={{ color: "#F1F5F9" }}>{syncFilters.dateTo}</b></span>}
+              {syncFilters.statuses.length > 0 && <span style={{ marginLeft: 8 }}>Status: <b style={{ color: "#F1F5F9" }}>{syncFilters.statuses.join(", ")}</b></span>}
+              {syncFilters.vendors.length  > 0 && <span style={{ marginLeft: 8 }}>Vendors: <b style={{ color: "#F1F5F9" }}>{syncFilters.vendors.join(", ")}</b></span>}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 10 }}>
+            <button style={{ ...S.btnSecondary, flex: 1 }} onClick={() => setSyncFilters({ poNumber: "", dateFrom: "", dateTo: "", vendors: [], statuses: [] })}>
+              Clear Filters
+            </button>
+            <button style={{ ...S.btnPrimary, flex: 2 }} onClick={() => syncFromXoro(syncFilters)}>
+              🔄 {syncFilters.vendors.length === 0 && syncFilters.statuses.length === 0 && !syncFilters.poNumber && !syncFilters.dateFrom ? "Sync All POs" : "Sync Filtered POs"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // SETTINGS MODAL
+  // ════════════════════════════════════════════════════════════════════════════
+  const SettingsModal = () => (
+    <div style={S.modalOverlay} onClick={() => setShowSettings(false)}>
+      <div style={S.modal} onClick={e => e.stopPropagation()}>
+        <div style={S.modalHeader}>
+          <h2 style={S.modalTitle}>⚙️ Settings</h2>
+          <button style={S.closeBtn} onClick={() => setShowSettings(false)}>✕</button>
+        </div>
+        <div style={S.modalBody}>
+          <h3 style={S.settingSection}>Xoro API Credentials</h3>
+          <p style={{ color: "#9CA3AF", fontSize: 13, marginBottom: 12 }}>
+            These are stored in your <code>.env</code> file as <code>VITE_XORO_API_KEY</code> and <code>VITE_XORO_API_SECRET</code>.
+            Changing them here applies only for this session.
+          </p>
+          <label style={S.label}>API Key</label>
+          <input style={S.input} value={xoroCreds.key}
+            onChange={e => setXoroCreds(p => ({ ...p, key: e.target.value }))}
+            placeholder="Your Xoro API Key" />
+          <label style={S.label}>API Secret</label>
+          <input style={S.input} type="password" value={xoroCreds.secret}
+            onChange={e => setXoroCreds(p => ({ ...p, secret: e.target.value }))}
+            placeholder="Your Xoro API Secret" />
+
+          <h3 style={{ ...S.settingSection, marginTop: 24 }}>Sync Info</h3>
+          <p style={{ color: "#9CA3AF", fontSize: 13 }}>
+            Last synced: {lastSync ? new Date(lastSync).toLocaleString() : "Never"}
+          </p>
+          <p style={{ color: "#9CA3AF", fontSize: 13, marginTop: 4 }}>
+            POs loaded: {pos.length}
+          </p>
+
+          <h3 style={{ ...S.settingSection, marginTop: 24 }}>Status Colors</h3>
+          {STATUS_OPTIONS.map(s => (
+            <div key={s} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <div style={{ width: 12, height: 12, borderRadius: "50%", background: STATUS_COLORS[s] ?? "#6B7280" }} />
+              <span style={{ color: "#E5E7EB", fontSize: 13 }}>{s}</span>
+            </div>
+          ))}
+
+          <button style={{ ...S.btnPrimary, marginTop: 24 }} onClick={() => { setShowSettings(false); setShowSyncModal(true); }}>
+            🔄 Sync from Xoro Now
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // PO DETAIL PANEL
+  // ════════════════════════════════════════════════════════════════════════════
+  const DetailPanel = () => {
+    if (!selected) return null;
+    const items = selected.Items ?? selected.PoLineArr ?? [];
+    const days  = daysUntil(selected.DateExpectedDelivery);
+    const total = poTotal(selected);
+    const statusColor = STATUS_COLORS[selected.StatusName ?? ""] ?? "#6B7280";
+
+    return (
+      <div style={S.detailOverlay} onClick={() => setSelected(null)}>
+        <div style={S.detailPanel} onClick={e => e.stopPropagation()}>
+          {/* Header */}
+          <div style={{ ...S.detailHeader, borderLeft: `4px solid ${statusColor}` }}>
+            <div>
+              <div style={S.detailPONum}>{selected.PoNumber ?? "—"}</div>
+              <div style={S.detailVendor}>{selected.VendorName ?? "Unknown Vendor"}</div>
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span style={{ ...S.badge, background: statusColor + "33", color: statusColor, border: `1px solid ${statusColor}66` }}>
+                {selected.StatusName ?? "Unknown"}
+              </span>
+              <button style={S.closeBtn} onClick={() => setSelected(null)}>✕</button>
+            </div>
+          </div>
+
+          <div style={S.detailBody}>
+            {/* Key info grid */}
+            <div style={S.infoGrid}>
+              <InfoCell label="Order Date"     value={fmtDate(selected.DateOrder)} />
+              <InfoCell label="Vendor Req Date" value={fmtDate(selected.VendorReqDate)} />
+              <InfoCell label="Expected Delivery" value={
+                <span style={{ color: days !== null && days < 0 ? "#EF4444" : days !== null && days <= 7 ? "#F59E0B" : "#10B981" }}>
+                  {fmtDate(selected.DateExpectedDelivery)}
+                  {days !== null && <span style={{ fontSize: 11, marginLeft: 6 }}>
+                    {days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "Today!" : `in ${days}d`}
+                  </span>}
+                </span>
+              } />
+              <InfoCell label="Total Value" value={fmtCurrency(total, selected.CurrencyCode)} />
+              <InfoCell label="Currency"    value={selected.CurrencyCode ?? "—"} />
+              <InfoCell label="Payment Terms" value={selected.PaymentTermsName ?? "—"} />
+              <InfoCell label="Ship Method"  value={selected.ShipMethodName ?? "—"} />
+              <InfoCell label="Carrier"      value={selected.CarrierName ?? "—"} />
+              <InfoCell label="Buyer"        value={selected.BuyerName ?? "—"} />
+            </div>
+
+            {selected.Memo && (
+              <div style={S.memoBox}>
+                <div style={S.sectionLabel}>Memo</div>
+                <p style={{ color: "#D1D5DB", fontSize: 14, margin: 0 }}>{selected.Memo}</p>
+              </div>
+            )}
+
+            {selected.Tags && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={S.sectionLabel}>Tags</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {selected.Tags.split(",").map(t => (
+                    <span key={t} style={S.tagChip}>{t.trim()}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Line items */}
+            {items.length > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={S.sectionLabel}>Line Items ({items.length})</div>
+                <div style={S.itemsTable}>
+                  <div style={S.itemsHeader}>
+                    <span>SKU</span><span>Description</span><span>Qty</span><span>Unit Price</span><span>Total</span>
+                  </div>
+                  {items.map((item, i) => (
+                    <div key={i} style={S.itemRow}>
+                      <span style={{ color: "#60A5FA", fontFamily: "monospace" }}>{item.ItemNumber ?? "—"}</span>
+                      <span style={{ color: "#D1D5DB" }}>{item.Description ?? "—"}</span>
+                      <span style={{ color: "#E5E7EB", textAlign: "right" }}>{item.QtyOrder ?? 0}</span>
+                      <span style={{ color: "#E5E7EB", textAlign: "right" }}>{fmtCurrency(item.UnitPrice, selected.CurrencyCode)}</span>
+                      <span style={{ color: "#10B981", textAlign: "right", fontWeight: 600 }}>
+                        {fmtCurrency((item.QtyOrder ?? 0) * (item.UnitPrice ?? 0), selected.CurrencyCode)}
+                      </span>
+                    </div>
+                  ))}
+                  <div style={S.itemsTotal}>
+                    <span style={{ gridColumn: "1/5", textAlign: "right", color: "#9CA3AF" }}>Total</span>
+                    <span style={{ color: "#10B981", fontWeight: 700 }}>{fmtCurrency(total, selected.CurrencyCode)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Notes */}
+            <div>
+              <div style={S.sectionLabel}>Notes & Updates</div>
+              {selectedNotes.length === 0 && <p style={{ color: "#6B7280", fontSize: 13 }}>No notes yet.</p>}
+              {selectedNotes.map(n => (
+                <div key={n.id} style={S.noteCard}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ color: "#60A5FA", fontWeight: 600, fontSize: 13 }}>{n.user_name}</span>
+                    <span style={{ color: "#6B7280", fontSize: 11 }}>{new Date(n.created_at).toLocaleString()}</span>
+                  </div>
+                  {n.status_override && (
+                    <span style={{ ...S.badge, background: (STATUS_COLORS[n.status_override] ?? "#6B7280") + "33", color: STATUS_COLORS[n.status_override] ?? "#6B7280", marginBottom: 6, display: "inline-block" }}>
+                      Status: {n.status_override}
+                    </span>
+                  )}
+                  <p style={{ color: "#D1D5DB", fontSize: 14, margin: 0 }}>{n.note}</p>
+                </div>
+              ))}
+              <div style={{ marginTop: 12, display: "flex", gap: 8, flexDirection: "column" }}>
+                <select style={S.select} value={noteStatus} onChange={e => setNoteStatus(e.target.value)}>
+                  <option value="">No status change</option>
+                  {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <textarea style={S.textarea} rows={3} placeholder="Add a note..."
+                  value={newNote} onChange={e => setNewNote(e.target.value)} />
+                <button style={S.btnPrimary} onClick={addNote}>Add Note</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  function InfoCell({ label, value }: { label: string; value: React.ReactNode }) {
+    return (
+      <div style={S.infoCell}>
+        <div style={S.infoCellLabel}>{label}</div>
+        <div style={S.infoCellValue}>{value}</div>
+      </div>
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // MAIN RENDER
+  // ════════════════════════════════════════════════════════════════════════════
+  return (
+    <div style={S.app}>
+      {/* NAV */}
+      <nav style={S.nav}>
+        <div style={S.navLeft}>
+          <div style={S.navLogo}>PO</div>
+          <span style={S.navTitle}>Purchase Orders</span>
+          <span style={S.navSub}>via XoroERP</span>
+        </div>
+        <div style={S.navRight}>
+          <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => setView("dashboard")}>Dashboard</button>
+          <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => setView("list")}>All POs</button>
+          <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing}>
+            {syncing ? "⏳ Syncing…" : "🔄 Sync"}
+          </button>
+          <button style={S.navBtn} onClick={() => setShowSettings(true)}>⚙️ Settings</button>
+          <div style={S.userPill}>{user.name}</div>
+          <button style={S.navBtnDanger} onClick={() => setUser(null)}>Sign Out</button>
+        </div>
+      </nav>
+
+      {/* SYNC ERROR */}
+      {syncErr && (
+        <div style={S.errBanner}>
+          ⚠️ Xoro sync error: {syncErr}
+          <button style={{ marginLeft: 12, color: "#FCA5A5", background: "none", border: "none", cursor: "pointer" }} onClick={() => setSyncErr("")}>✕</button>
+        </div>
+      )}
+
+      <div style={S.content}>
+        {/* ── DASHBOARD ── */}
+        {view === "dashboard" && (
+          <>
+            {/* Stats */}
+            <div style={S.statsRow}>
+              <StatCard label="Total POs"       value={pos.length}                        color="#3B82F6" icon="📋" />
+              <StatCard label="Total Value"     value={fmtCurrency(totalValue)}            color="#10B981" icon="💰" />
+              <StatCard label="Overdue"         value={overdue}                            color="#EF4444" icon="⚠️" />
+              <StatCard label="Due This Week"   value={dueThisWeek}                        color="#F59E0B" icon="📅" />
+            </div>
+
+            {/* Status breakdown */}
+            <div style={S.card}>
+              <h3 style={S.cardTitle}>POs by Status</h3>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {STATUS_OPTIONS.map(s => {
+                  const count = pos.filter(p => p.StatusName === s).length;
+                  if (!count) return null;
+                  const color = STATUS_COLORS[s] ?? "#6B7280";
+                  return (
+                    <div key={s} style={{ ...S.statusChip, background: color + "22", border: `1px solid ${color}44`, cursor: "pointer" }}
+                      onClick={() => { setFilterStatus(s); setView("list"); }}>
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
+                      <span style={{ color, fontWeight: 600 }}>{count}</span>
+                      <span style={{ color: "#9CA3AF" }}>{s}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Recent POs */}
+            <div style={S.card}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <h3 style={S.cardTitle}>Recent Purchase Orders</h3>
+                <button style={S.btnSecondary} onClick={() => setView("list")}>View All →</button>
+              </div>
+              {loading && <p style={{ color: "#6B7280" }}>Loading…</p>}
+              {!loading && pos.length === 0 && (
+                <div style={S.emptyState}>
+                  <p>No purchase orders loaded.</p>
+                  <button style={S.btnPrimary} onClick={syncFromXoro} disabled={syncing}>
+                    {syncing ? "Syncing…" : "🔄 Sync from Xoro"}
+                  </button>
+                </div>
+              )}
+              {pos.slice(0, 8).map((po, i) => <PORow key={i} po={po} onClick={() => { setSelected(po); }} />)}
+            </div>
+          </>
+        )}
+
+        {/* ── ALL POs ── */}
+        {view === "list" && (
+          <>
+            <div style={S.filters}>
+              <input style={{ ...S.input, flex: 1, marginBottom: 0 }} placeholder="🔍 Search PO#, vendor, memo, tags…"
+                value={search} onChange={e => setSearch(e.target.value)} />
+              <select style={{ ...S.select, width: 160 }} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+                <option value="All">All Statuses</option>
+                {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
+              </select>
+              <select style={{ ...S.select, width: 180 }} value={filterVendor} onChange={e => setFilterVendor(e.target.value)}>
+                {vendors.map(v => <option key={v}>{v}</option>)}
+              </select>
+              <button style={S.btnSecondary} onClick={() => { setSearch(""); setFilterStatus("All"); setFilterVendor("All"); }}>
+                Clear
+              </button>
+            </div>
+            <div style={S.card}>
+              <div style={{ marginBottom: 12, color: "#9CA3AF", fontSize: 13 }}>
+                Showing {filtered.length} of {pos.length} purchase orders
+                {lastSync && <span style={{ marginLeft: 12 }}>· Last synced: {new Date(lastSync).toLocaleString()}</span>}
+              </div>
+              {loading && <p style={{ color: "#6B7280" }}>Loading…</p>}
+              {!loading && filtered.length === 0 && (
+                <div style={S.emptyState}>
+                  <p>{pos.length === 0 ? "No POs loaded. Click Sync to fetch from Xoro." : "No POs match your filters."}</p>
+                  {pos.length === 0 && <button style={S.btnPrimary} onClick={() => setShowSyncModal(true)} disabled={syncing}>🔄 Sync from Xoro</button>}
+                </div>
+              )}
+              {filtered.map((po, i) => <PORow key={i} po={po} onClick={() => setSelected(po)} detailed />)}
+            </div>
+          </>
+        )}
+      </div>
+
+      {selected      && <DetailPanel />}
+      {showSettings  && <SettingsModal />}
+      {showSyncModal && <SyncModal />}
+    </div>
+  );
+
+  function StatCard({ label, value, color, icon }: { label: string; value: string | number; color: string; icon: string }) {
+    return (
+      <div style={{ ...S.statCard, borderTop: `3px solid ${color}` }}>
+        <div style={{ fontSize: 24 }}>{icon}</div>
+        <div style={{ fontSize: 28, fontWeight: 700, color, fontFamily: "monospace" }}>{value}</div>
+        <div style={{ color: "#9CA3AF", fontSize: 13 }}>{label}</div>
+      </div>
+    );
+  }
+
+  function PORow({ po, onClick, detailed }: { po: XoroPO; onClick: () => void; detailed?: boolean }) {
+    const color = STATUS_COLORS[po.StatusName ?? ""] ?? "#6B7280";
+    const days  = daysUntil(po.DateExpectedDelivery);
+    const total = poTotal(po);
+    const items = po.Items ?? po.PoLineArr ?? [];
+    return (
+      <div style={{ ...S.poRow, borderLeft: `3px solid ${color}` }} onClick={onClick}>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+            <span style={S.poNumber}>{po.PoNumber ?? "—"}</span>
+            <span style={{ ...S.badge, background: color + "22", color, border: `1px solid ${color}44` }}>
+              {po.StatusName ?? "Unknown"}
+            </span>
+            {days !== null && days < 0 && <span style={{ ...S.badge, background: "#EF444422", color: "#EF4444", border: "1px solid #EF444444" }}>⚠️ Overdue</span>}
+            {days !== null && days >= 0 && days <= 7 && <span style={{ ...S.badge, background: "#F59E0B22", color: "#F59E0B", border: "1px solid #F59E0B44" }}>📅 Due Soon</span>}
+          </div>
+          <div style={{ color: "#D1D5DB", fontWeight: 600 }}>{po.VendorName ?? "Unknown Vendor"}</div>
+          {detailed && po.Memo && <div style={{ color: "#6B7280", fontSize: 12, marginTop: 2 }}>{po.Memo}</div>}
+        </div>
+        <div style={{ textAlign: "right", minWidth: 160 }}>
+          <div style={{ color: "#10B981", fontWeight: 700, fontSize: 16 }}>{fmtCurrency(total, po.CurrencyCode)}</div>
+          {detailed && <div style={{ color: "#6B7280", fontSize: 12 }}>{items.length} line items</div>}
+          <div style={{ color: "#9CA3AF", fontSize: 12, marginTop: 4 }}>
+            Exp: {fmtDate(po.DateExpectedDelivery)}
+          </div>
+        </div>
+      </div>
+    );
+  }
 }
+
+// ── Styles ────────────────────────────────────────────────────────────────────
+const S: Record<string, React.CSSProperties> = {
+  app:        { minHeight: "100vh", background: "#0F172A", color: "#F1F5F9", fontFamily: "'DM Sans', 'Segoe UI', sans-serif" },
+  loginBg:    { minHeight: "100vh", background: "#0F172A", display: "flex", alignItems: "center", justifyContent: "center" },
+  loginCard:  { background: "#1E293B", borderRadius: 16, padding: 40, width: 360, boxShadow: "0 24px 64px rgba(0,0,0,.5)", display: "flex", flexDirection: "column", gap: 14 },
+  loginLogo:  { width: 56, height: 56, borderRadius: 14, background: "linear-gradient(135deg,#3B82F6,#8B5CF6)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 22, alignSelf: "center" },
+  loginTitle: { margin: 0, textAlign: "center", fontSize: 22, fontWeight: 700, color: "#F1F5F9" },
+  loginSub:   { margin: 0, textAlign: "center", fontSize: 13, color: "#6B7280" },
+
+  nav:        { background: "#1E293B", borderBottom: "1px solid #334155", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56, position: "sticky", top: 0, zIndex: 100 },
+  navLeft:    { display: "flex", alignItems: "center", gap: 12 },
+  navLogo:    { width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg,#3B82F6,#8B5CF6)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 13 },
+  navTitle:   { fontWeight: 700, fontSize: 16, color: "#F1F5F9" },
+  navSub:     { fontSize: 12, color: "#6B7280" },
+  navRight:   { display: "flex", alignItems: "center", gap: 8 },
+  navBtn:     { background: "none", border: "1px solid #334155", color: "#94A3B8", borderRadius: 6, padding: "5px 12px", fontSize: 13, cursor: "pointer" },
+  navBtnActive:{ background: "#3B82F620", border: "1px solid #3B82F6", color: "#60A5FA", borderRadius: 6, padding: "5px 12px", fontSize: 13, cursor: "pointer", fontWeight: 600 },
+  navBtnDanger:{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 6, padding: "5px 12px", fontSize: 13, cursor: "pointer" },
+  userPill:   { background: "#334155", color: "#94A3B8", borderRadius: 20, padding: "4px 12px", fontSize: 12 },
+
+  content:    { maxWidth: 1200, margin: "0 auto", padding: "24px 20px" },
+  statsRow:   { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginBottom: 20 },
+  statCard:   { background: "#1E293B", borderRadius: 12, padding: 20, display: "flex", flexDirection: "column", gap: 6 },
+  card:       { background: "#1E293B", borderRadius: 12, padding: 20, marginBottom: 20 },
+  cardTitle:  { margin: "0 0 16px", fontSize: 16, fontWeight: 700, color: "#F1F5F9" },
+
+  filters:    { display: "flex", gap: 10, marginBottom: 16, alignItems: "center" },
+
+  poRow:      { display: "flex", alignItems: "center", gap: 16, padding: "14px 16px", borderRadius: 8, marginBottom: 8, background: "#0F172A", cursor: "pointer", transition: "background .15s" },
+  poNumber:   { fontFamily: "monospace", color: "#60A5FA", fontWeight: 700, fontSize: 15 },
+  badge:      { fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20 },
+  tagChip:    { background: "#334155", color: "#94A3B8", borderRadius: 20, padding: "3px 10px", fontSize: 12 },
+  statusChip: { display: "flex", alignItems: "center", gap: 6, borderRadius: 20, padding: "6px 14px", fontSize: 13 },
+
+  emptyState: { textAlign: "center", padding: 40, color: "#6B7280", display: "flex", flexDirection: "column", gap: 12, alignItems: "center" },
+
+  input:      { width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: "10px 14px", color: "#F1F5F9", fontSize: 14, outline: "none", boxSizing: "border-box" },
+  select:     { background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: "9px 12px", color: "#F1F5F9", fontSize: 13, outline: "none" },
+  textarea:   { width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: "10px 14px", color: "#F1F5F9", fontSize: 14, resize: "vertical", outline: "none", fontFamily: "inherit", boxSizing: "border-box" },
+  label:      { color: "#94A3B8", fontSize: 13, display: "block", marginBottom: 4 },
+  err:        { color: "#EF4444", fontSize: 13, margin: 0 },
+  errBanner:  { background: "#7F1D1D", color: "#FCA5A5", padding: "10px 24px", fontSize: 14, display: "flex", alignItems: "center" },
+
+  btnPrimary: { background: "linear-gradient(135deg,#3B82F6,#8B5CF6)", color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontWeight: 600, fontSize: 14, cursor: "pointer", width: "100%" },
+  btnSecondary:{ background: "none", border: "1px solid #334155", color: "#94A3B8", borderRadius: 8, padding: "8px 16px", fontSize: 13, cursor: "pointer" },
+
+  // Modal
+  modalOverlay:{ position: "fixed", inset: 0, background: "rgba(0,0,0,.7)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" },
+  modal:       { background: "#1E293B", borderRadius: 16, width: 480, maxHeight: "80vh", overflow: "hidden", display: "flex", flexDirection: "column" },
+  modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: "1px solid #334155" },
+  modalTitle:  { margin: 0, fontSize: 18, fontWeight: 700, color: "#F1F5F9" },
+  modalBody:   { padding: 20, overflowY: "auto" },
+  closeBtn:    { background: "none", border: "none", color: "#6B7280", fontSize: 18, cursor: "pointer", lineHeight: 1 },
+  settingSection:{ color: "#F1F5F9", fontSize: 15, fontWeight: 700, margin: "0 0 10px" },
+
+  // Detail panel
+  detailOverlay:{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 200, display: "flex", justifyContent: "flex-end" },
+  detailPanel:  { background: "#1E293B", width: 600, maxWidth: "90vw", height: "100%", overflowY: "auto", display: "flex", flexDirection: "column" },
+  detailHeader: { padding: "20px 24px", borderBottom: "1px solid #334155", display: "flex", justifyContent: "space-between", alignItems: "flex-start", background: "#0F172A" },
+  detailPONum:  { fontFamily: "monospace", color: "#60A5FA", fontWeight: 800, fontSize: 20 },
+  detailVendor: { color: "#D1D5DB", fontWeight: 600, fontSize: 15, marginTop: 4 },
+  detailBody:   { padding: 24, flex: 1 },
+
+  infoGrid:     { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 20 },
+  infoCell:     { background: "#0F172A", borderRadius: 8, padding: 12 },
+  infoCellLabel:{ color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 },
+  infoCellValue:{ color: "#F1F5F9", fontSize: 14, fontWeight: 600 },
+
+  memoBox:      { background: "#0F172A", borderRadius: 8, padding: 14, marginBottom: 16 },
+  sectionLabel: { color: "#6B7280", fontSize: 12, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10, fontWeight: 600 },
+
+  itemsTable:   { background: "#0F172A", borderRadius: 8, overflow: "hidden" },
+  itemsHeader:  { display: "grid", gridTemplateColumns: "1fr 2fr 80px 100px 100px", padding: "10px 14px", background: "#1E293B", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, gap: 8 },
+  itemRow:      { display: "grid", gridTemplateColumns: "1fr 2fr 80px 100px 100px", padding: "10px 14px", borderTop: "1px solid #1E293B", gap: 8, fontSize: 13 },
+  itemsTotal:   { display: "grid", gridTemplateColumns: "1fr 2fr 80px 100px 100px", padding: "12px 14px", borderTop: "2px solid #334155", gap: 8, background: "#1A2332" },
+
+  noteCard:     { background: "#0F172A", borderRadius: 8, padding: 14, marginBottom: 10 },
+};
