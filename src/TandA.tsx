@@ -131,8 +131,9 @@ interface LocalNote {
 }
 
 interface User {
-  id: number;
-  name: string;
+  id: string;
+  username?: string;
+  name?: string;
   password: string;
   role?: string;
 }
@@ -209,14 +210,27 @@ export default function TandAApp() {
 
   async function handleLogin() {
     setLoginErr("");
-    const res = await fetch(`${SB_URL}/rest/v1/users?select=*`, { headers: SB_HEADERS });
-    const data = await res.json();
-    const match = (Array.isArray(data) ? data : []).find(
-      (u: User) => u.name?.toLowerCase() === loginName.trim().toLowerCase() &&
-        (u.password === loginPass || (u as any).pin === loginPass)
-    );
-    if (match) { setUser(match); }
-    else setLoginErr("Invalid name or password.");
+    try {
+      // Load users from app_data (same as Design Calendar)
+      const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.users&select=value`, { headers: SB_HEADERS });
+      const rows = await res.json();
+      let allUsers: User[] = [];
+      if (Array.isArray(rows) && rows.length > 0 && rows[0].value) {
+        try { allUsers = JSON.parse(rows[0].value); } catch {}
+      }
+      if (!allUsers || allUsers.length === 0) {
+        setLoginErr("No users found. Please ask your admin to set up users in the Design Calendar.");
+        return;
+      }
+      const match = allUsers.find(
+        (u: User) => (u as any).username?.toLowerCase() === loginName.trim().toLowerCase() &&
+          (u.password === loginPass || (u as any).pin === loginPass)
+      );
+      if (match) { setUser(match); }
+      else setLoginErr("Invalid username or password.");
+    } catch {
+      setLoginErr("Could not connect to database. Please try again.");
+    }
   }
 
   // ── Load notes from Supabase ──────────────────────────────────────────────
@@ -710,7 +724,7 @@ export default function TandAApp() {
             {syncing ? "⏳ Syncing…" : "🔄 Sync"}
           </button>
           <button style={S.navBtn} onClick={() => setShowSettings(true)}>⚙️ Settings</button>
-          <div style={S.userPill}>{user.name}</div>
+          <div style={S.userPill}>{user.name || user.username}</div>
           <button style={S.navBtnDanger} onClick={() => setUser(null)}>Sign Out</button>
         </div>
       </nav>
