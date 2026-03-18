@@ -304,52 +304,6 @@ const STATUS_CONFIG = {
 };
 
 // ─── USER/AUTH SYSTEM ─────────────────────────────────────────────────────────
-const DEFAULT_USERS = [
-  {
-    id: "u1",
-    username: "admin",
-    password: "admin123",
-    name: "Admin User",
-    role: "admin",
-    color: "#CC2200",
-    initials: "AD",
-    teamMemberId: null,
-    teamsEmail: "",
-  },
-  {
-    id: "u2",
-    username: "alex",
-    password: "pass123",
-    name: "Alex Rivera",
-    role: "user",
-    color: "#E74C3C",
-    initials: "AR",
-    teamMemberId: "t1",
-    teamsEmail: "",
-  },
-  {
-    id: "u3",
-    username: "jordan",
-    password: "pass123",
-    name: "Jordan Lee",
-    role: "user",
-    color: "#3498DB",
-    initials: "JL",
-    teamMemberId: "t2",
-    teamsEmail: "",
-  },
-  {
-    id: "u4",
-    username: "sam",
-    password: "pass123",
-    name: "Sam Chen",
-    role: "user",
-    color: "#2ECC71",
-    initials: "SC",
-    teamMemberId: "t3",
-    teamsEmail: "",
-  },
-];
 
 const SAMPLE_VENDORS = [
   {
@@ -1729,7 +1683,7 @@ function LoginScreen({ users, onLogin, teamsConfig, onTeamsToken }) {
 
   function handleLogin() {
     // Check against Supabase users, with fallback admin for emergencies
-    const allUsers = users.length > 0 ? users : DEFAULT_USERS;
+    const allUsers = users;
     const user = allUsers.find(
       (u) =>
         u.username.toLowerCase() === username.trim().toLowerCase() && u.password === password
@@ -9428,6 +9382,14 @@ export default function App() {
 
   const [users, setUsers] = usePersistSb([], "users", sbSave);
   const [currentUser, setCurrentUser] = useState(null);
+
+  // Auto-login from PLM launcher session
+  useEffect(() => {
+    try {
+      const plmUser = sessionStorage.getItem("plm_user");
+      if (plmUser) setCurrentUser(JSON.parse(plmUser));
+    } catch {}
+  }, []);
   const [brands, setBrands] = usePersistSb([], "brands", sbSave);
   const [seasons, setSeasons] = usePersistSb([], "seasons", sbSave);
   const [customers, setCustomers] = usePersistSb([], "customers", sbSave);
@@ -12535,7 +12497,22 @@ export default function App() {
               </span>
             </div>
             <button
-              onClick={() => setCurrentUser(null)}
+              onClick={() => window.location.href = "/"}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 6,
+                border: "1px solid rgba(255,255,255,0.15)",
+                background: "none",
+                color: "rgba(255,255,255,0.5)",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                fontSize: 11,
+              }}
+            >
+              ← PLM
+            </button>
+            <button
+              onClick={() => { sessionStorage.removeItem("plm_user"); window.location.href = "/"; }}
               style={{
                 padding: "4px 10px",
                 borderRadius: 6,
