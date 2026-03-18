@@ -209,9 +209,11 @@ export default function TandAApp() {
 
   async function handleLogin() {
     setLoginErr("");
-    const { data } = await sb.from("users").select("*", `name=ilike.${loginName.trim()}`);
-    const match = (data ?? []).find(
-      (u: User) => u.password === loginPass || (u as any).pin === loginPass
+    const res = await fetch(`${SB_URL}/rest/v1/users?select=*`, { headers: SB_HEADERS });
+    const data = await res.json();
+    const match = (Array.isArray(data) ? data : []).find(
+      (u: User) => u.name?.toLowerCase() === loginName.trim().toLowerCase() &&
+        (u.password === loginPass || (u as any).pin === loginPass)
     );
     if (match) { setUser(match); }
     else setLoginErr("Invalid name or password.");
