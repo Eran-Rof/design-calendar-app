@@ -1,5 +1,4 @@
 // api/xoro-proxy.js — Vercel serverless function
-// Proxies requests to Xoro API to avoid CORS issues in the browser
 
 export const config = { runtime: "nodejs18.x" };
 
@@ -26,7 +25,6 @@ export default async function handler(req, res) {
   const creds = Buffer.from(`${XORO_API_KEY}:${XORO_API_SECRET}`).toString("base64");
   const authHeader = `Basic ${creds}`;
 
-  // Parse query params from the URL string directly
   const urlStr = req.url || "";
   const qIndex = urlStr.indexOf("?");
   const queryStr = qIndex >= 0 ? urlStr.slice(qIndex + 1) : "";
@@ -38,7 +36,8 @@ export default async function handler(req, res) {
   }
   params.delete("path");
 
-  const xoroUrl = `https://res.xorosoft.io/api/xerp/${path}${params.toString() ? "?" + params.toString() : ""}`;
+  // Try your specific Xoro instance domain
+  const xoroUrl = `https://rof.xoro.one/api/xerp/${path}${params.toString() ? "?" + params.toString() : ""}`;
 
   console.log("Calling Xoro URL:", xoroUrl);
   console.log("Key present:", !!XORO_API_KEY, "Secret present:", !!XORO_API_SECRET);
@@ -54,7 +53,7 @@ export default async function handler(req, res) {
 
     const text = await xoroRes.text();
     console.log("Xoro response status:", xoroRes.status);
-    console.log("Xoro response:", text.slice(0, 300));
+    console.log("Xoro response:", text.slice(0, 500));
 
     let data;
     try { data = JSON.parse(text); } catch { data = { raw: text }; }
