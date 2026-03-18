@@ -19,9 +19,24 @@ function xoroAuthHeader() {
   return `Basic ${creds}`;
 }
 
-async function fetchXoroPOs(page = 1): Promise<{ pos: XoroPO[]; totalPages: number }> {
+interface SyncFilters {
+  poNumber: string;
+  dateFrom: string;
+  dateTo: string;
+  vendors: string[];
+  statuses: string[];
+}
+
+async function fetchXoroPOs(page = 1, filters?: SyncFilters): Promise<{ pos: XoroPO[]; totalPages: number }> {
+  const params = new URLSearchParams({ page: String(page) });
+  if (filters?.poNumber)           params.set("PoNumber", filters.poNumber);
+  if (filters?.dateFrom)           params.set("DateFrom", filters.dateFrom);
+  if (filters?.dateTo)             params.set("DateTo",   filters.dateTo);
+  if (filters?.statuses?.length)   params.set("StatusName", filters.statuses.join(","));
+  if (filters?.vendors?.length)    params.set("VendorName", filters.vendors.join(","));
+
   const res = await fetch(
-    `${XORO_BASE_URL}/api/xerp/purchaseorder?page=${page}`,
+    `${XORO_BASE_URL}/api/xerp/purchaseorder?${params}`,
     { headers: { Authorization: xoroAuthHeader(), "Content-Type": "application/json" } }
   );
   if (!res.ok) throw new Error(`Xoro API error: ${res.status}`);
@@ -29,6 +44,20 @@ async function fetchXoroPOs(page = 1): Promise<{ pos: XoroPO[]; totalPages: numb
   if (!json.Result) throw new Error(json.Message ?? "Unknown Xoro error");
   const data = Array.isArray(json.Data) ? json.Data : json.Data?.PurchaseOrders ?? [];
   return { pos: data, totalPages: json.TotalPages ?? 1 };
+}
+
+async function fetchXoroVendors(): Promise<string[]> {
+  try {
+    const res = await fetch(
+      `${XORO_BASE_URL}/api/xerp/vendor?page=1`,
+      { headers: { Authorization: xoroAuthHeader(), "Content-Type": "application/json" } }
+    );
+    if (!res.ok) return [];
+    const json = await res.json();
+    if (!json.Result) return [];
+    const data = Array.isArray(json.Data) ? json.Data : json.Data?.Vendors ?? [];
+    return data.map((v: any) => v.VendorName ?? v.Name ?? "").filter(Boolean);
+  } catch { return []; }
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -127,8 +156,19 @@ export default function TandAApp() {
   const [filterVendor, setFilterVendor] = useState("All");
   const [xoroCreds, setXoroCreds] = useState({ key: XORO_API_KEY, secret: XORO_API_SECRET });
   const [showSettings, setShowSettings] = useState(false);
+  const [showSyncModal, setShowSyncModal] = useState(false);
   const [newNote, setNewNote]   = useState("");
   const [noteStatus, setNoteStatus] = useState("");
+
+  // Sync filter state
+  const [syncFilters, setSyncFilters] = useState<SyncFilters>({
+    poNumber: "", dateFrom: "", dateTo: "", vendors: [], statuses: []
+  });
+  const [xoroVendors, setXoroVendors]         = useState<string[]>([]);
+  const [manualVendors, setManualVendors]       = useState<string[]>([]);
+  const [vendorSearch, setVendorSearch]         = useState("");
+  const [loadingVendors, setLoadingVendors]     = useState(false);
+  const [newManualVendor, setNewManualVendor]   = useState("");
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   const [loginName, setLoginName] = useState("");
@@ -162,36 +202,65 @@ export default function TandAApp() {
     setLoading(false);
   }, []);
 
-  // ── Sync from Xoro ────────────────────────────────────────────────────────
-  async function syncFromXoro() {
+  // ── Load vendors from Xoro + manual list ─────────────────────────────────
+  const loadVendors = useCallback(async () => {
+    setLoadingVendors(true);
+    const xv = await fetchXoroVendors();
+    setXoroVendors(xv);
+    // load manual vendors from supabase
+    const { data } = await sb.from("tanda_settings").select("value").eq("key", "manual_vendors").single();
+    if (data?.value) setManualVendors(JSON.parse(data.value));
+    setLoadingVendors(false);
+  }, []);
+
+  async function saveManualVendor() {
+    if (!newManualVendor.trim()) return;
+    const updated = [...manualVendors, newManualVendor.trim()];
+    setManualVendors(updated);
+    setNewManualVendor("");
+    await sb.from("tanda_settings").upsert({ key: "manual_vendors", value: JSON.stringify(updated) });
+  }
+
+  async function removeManualVendor(v: string) {
+    const updated = manualVendors.filter(x => x !== v);
+    setManualVendors(updated);
+    await sb.from("tanda_settings").upsert({ key: "manual_vendors", value: JSON.stringify(updated) });
+  }
+
+  // ── Sync from Xoro with filters ───────────────────────────────────────────
+  async function syncFromXoro(filters?: SyncFilters) {
     setSyncing(true);
     setSyncErr("");
+    setShowSyncModal(false);
     try {
       let all: XoroPO[] = [];
       let page = 1;
       let totalPages = 1;
       do {
-        const { pos: batch, totalPages: tp } = await fetchXoroPOs(page);
+        const { pos: batch, totalPages: tp } = await fetchXoroPOs(page, filters);
         all = [...all, ...batch];
         totalPages = tp;
         page++;
-      } while (page <= totalPages && page <= 20); // safety cap
+      } while (page <= totalPages && page <= 20);
 
-      // Upsert into Supabase cache
+      // MERGE — upsert each PO by po_number
       const now = new Date().toISOString();
-      await sb.from("tanda_pos").delete().neq("po_number", "___never___");
-      await sb.from("tanda_pos").insert(
-        all.map(po => ({
-          po_number: po.PoNumber ?? `unknown-${Math.random()}`,
-          vendor: po.VendorName ?? "",
-          date_order: po.DateOrder ?? null,
-          date_expected: po.DateExpectedDelivery ?? null,
-          status: po.StatusName ?? "",
-          data: po,
-          synced_at: now,
-        }))
-      );
-      setPos(all);
+      if (all.length > 0) {
+        await sb.from("tanda_pos").upsert(
+          all.map(po => ({
+            po_number:     po.PoNumber ?? `unknown-${Math.random()}`,
+            vendor:        po.VendorName ?? "",
+            date_order:    po.DateOrder ?? null,
+            date_expected: po.DateExpectedDelivery ?? null,
+            status:        po.StatusName ?? "",
+            data:          po,
+            synced_at:     now,
+          })),
+          { onConflict: "po_number" }
+        );
+      }
+      // reload full cache
+      await loadCachedPOs();
       setLastSync(now);
     } catch (e: any) {
       setSyncErr(e.message ?? "Sync failed");
@@ -201,8 +270,8 @@ export default function TandAApp() {
   }
 
   useEffect(() => {
-    if (user) { loadCachedPOs(); loadNotes(); }
-  }, [user, loadCachedPOs, loadNotes]);
+    if (user) { loadCachedPOs(); loadNotes(); loadVendors(); }
+  }, [user, loadCachedPOs, loadNotes, loadVendors]);
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const vendors = ["All", ...Array.from(new Set(pos.map(p => p.VendorName ?? "Unknown"))).sort()];
@@ -267,6 +336,143 @@ export default function TandAApp() {
   );
 
   // ════════════════════════════════════════════════════════════════════════════
+  // SYNC MODAL
+  // ════════════════════════════════════════════════════════════════════════════
+  const allVendors = Array.from(new Set([...xoroVendors, ...manualVendors])).sort();
+  const filteredVendorList = allVendors.filter(v =>
+    !vendorSearch || v.toLowerCase().includes(vendorSearch.toLowerCase())
+  );
+
+  const SyncModal = () => (
+    <div style={S.modalOverlay} onClick={() => setShowSyncModal(false)}>
+      <div style={{ ...S.modal, width: 540 }} onClick={e => e.stopPropagation()}>
+        <div style={S.modalHeader}>
+          <h2 style={S.modalTitle}>🔄 Sync from Xoro</h2>
+          <button style={S.closeBtn} onClick={() => setShowSyncModal(false)}>✕</button>
+        </div>
+        <div style={S.modalBody}>
+          <p style={{ color: "#9CA3AF", fontSize: 13, marginTop: 0, marginBottom: 20 }}>
+            Filter which POs to pull from Xoro. Leave all blank to sync everything. New POs will be added; existing ones updated.
+          </p>
+
+          {/* PO Number */}
+          <label style={S.label}>PO Number</label>
+          <input style={{ ...S.input, marginBottom: 16 }}
+            placeholder="e.g. PO-1234 (leave blank for all)"
+            value={syncFilters.poNumber}
+            onChange={e => setSyncFilters(p => ({ ...p, poNumber: e.target.value }))} />
+
+          {/* Date range */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+            <div>
+              <label style={S.label}>Date Created — From</label>
+              <input style={S.input} type="date" value={syncFilters.dateFrom}
+                onChange={e => setSyncFilters(p => ({ ...p, dateFrom: e.target.value }))} />
+            </div>
+            <div>
+              <label style={S.label}>Date Created — To</label>
+              <input style={S.input} type="date" value={syncFilters.dateTo}
+                onChange={e => setSyncFilters(p => ({ ...p, dateTo: e.target.value }))} />
+            </div>
+          </div>
+
+          {/* Status multi-select */}
+          <label style={S.label}>Status (select one or more, or leave blank for all)</label>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+            {STATUS_OPTIONS.map(s => {
+              const active = syncFilters.statuses.includes(s);
+              const color  = STATUS_COLORS[s] ?? "#6B7280";
+              return (
+                <button key={s} onClick={() => setSyncFilters(p => ({
+                  ...p,
+                  statuses: active ? p.statuses.filter(x => x !== s) : [...p.statuses, s]
+                }))} style={{
+                  background: active ? color + "33" : "#0F172A",
+                  border: `1px solid ${active ? color : "#334155"}`,
+                  color: active ? color : "#9CA3AF",
+                  borderRadius: 20, padding: "5px 14px", fontSize: 13,
+                  cursor: "pointer", fontWeight: active ? 600 : 400,
+                }}>{s}</button>
+              );
+            })}
+          </div>
+
+          {/* Vendor multi-select */}
+          <label style={S.label}>
+            Vendor (select one or more, or leave blank for all)
+            {loadingVendors && <span style={{ color: "#6B7280", fontWeight: 400, marginLeft: 8 }}>Loading…</span>}
+          </label>
+          <input style={{ ...S.input, marginBottom: 8 }}
+            placeholder="🔍 Type to search vendors…"
+            value={vendorSearch}
+            onChange={e => setVendorSearch(e.target.value)} />
+          <div style={{ maxHeight: 160, overflowY: "auto", background: "#0F172A", borderRadius: 8, marginBottom: 8 }}>
+            {filteredVendorList.length === 0 && (
+              <div style={{ padding: 12, color: "#6B7280", fontSize: 13 }}>
+                {allVendors.length === 0 ? "No vendors loaded yet — sync will fetch all." : "No vendors match your search."}
+              </div>
+            )}
+            {filteredVendorList.map(v => {
+              const active = syncFilters.vendors.includes(v);
+              const isManual = manualVendors.includes(v);
+              return (
+                <div key={v} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderBottom: "1px solid #1E293B", cursor: "pointer",
+                  background: active ? "#3B82F620" : "transparent" }}
+                  onClick={() => setSyncFilters(p => ({
+                    ...p,
+                    vendors: active ? p.vendors.filter(x => x !== v) : [...p.vendors, v]
+                  }))}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${active ? "#3B82F6" : "#334155"}`,
+                      background: active ? "#3B82F6" : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {active && <span style={{ color: "#fff", fontSize: 10 }}>✓</span>}
+                    </div>
+                    <span style={{ color: "#D1D5DB", fontSize: 13 }}>{v}</span>
+                    {isManual && <span style={{ fontSize: 10, color: "#6B7280", background: "#1E293B", borderRadius: 4, padding: "1px 5px" }}>manual</span>}
+                  </div>
+                  {isManual && (
+                    <button style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 12 }}
+                      onClick={e => { e.stopPropagation(); removeManualVendor(v); }}>✕</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Add manual vendor */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+            <input style={{ ...S.input, marginBottom: 0 }} placeholder="Add vendor manually…"
+              value={newManualVendor} onChange={e => setNewManualVendor(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && saveManualVendor()} />
+            <button style={{ ...S.btnSecondary, whiteSpace: "nowrap" }} onClick={saveManualVendor}>+ Add</button>
+          </div>
+
+          {/* Selected summary */}
+          {(syncFilters.vendors.length > 0 || syncFilters.statuses.length > 0 || syncFilters.poNumber || syncFilters.dateFrom || syncFilters.dateTo) && (
+            <div style={{ background: "#0F172A", borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 12, color: "#9CA3AF" }}>
+              <strong style={{ color: "#60A5FA" }}>Will sync:</strong>
+              {syncFilters.poNumber && <span style={{ marginLeft: 8 }}>PO# <b style={{ color: "#F1F5F9" }}>{syncFilters.poNumber}</b></span>}
+              {syncFilters.dateFrom && <span style={{ marginLeft: 8 }}>From <b style={{ color: "#F1F5F9" }}>{syncFilters.dateFrom}</b></span>}
+              {syncFilters.dateTo   && <span style={{ marginLeft: 8 }}>To <b style={{ color: "#F1F5F9" }}>{syncFilters.dateTo}</b></span>}
+              {syncFilters.statuses.length > 0 && <span style={{ marginLeft: 8 }}>Status: <b style={{ color: "#F1F5F9" }}>{syncFilters.statuses.join(", ")}</b></span>}
+              {syncFilters.vendors.length  > 0 && <span style={{ marginLeft: 8 }}>Vendors: <b style={{ color: "#F1F5F9" }}>{syncFilters.vendors.join(", ")}</b></span>}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 10 }}>
+            <button style={{ ...S.btnSecondary, flex: 1 }} onClick={() => setSyncFilters({ poNumber: "", dateFrom: "", dateTo: "", vendors: [], statuses: [] })}>
+              Clear Filters
+            </button>
+            <button style={{ ...S.btnPrimary, flex: 2 }} onClick={() => syncFromXoro(syncFilters)}>
+              🔄 {syncFilters.vendors.length === 0 && syncFilters.statuses.length === 0 && !syncFilters.poNumber && !syncFilters.dateFrom ? "Sync All POs" : "Sync Filtered POs"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ════════════════════════════════════════════════════════════════════════════
   // SETTINGS MODAL
   // ════════════════════════════════════════════════════════════════════════════
   const SettingsModal = () => (
@@ -307,7 +513,7 @@ export default function TandAApp() {
             </div>
           ))}
 
-          <button style={{ ...S.btnPrimary, marginTop: 24 }} onClick={() => { syncFromXoro(); setShowSettings(false); }}>
+          <button style={{ ...S.btnPrimary, marginTop: 24 }} onClick={() => { setShowSettings(false); setShowSyncModal(true); }}>
             🔄 Sync from Xoro Now
           </button>
         </div>
@@ -466,8 +672,8 @@ export default function TandAApp() {
         <div style={S.navRight}>
           <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => setView("dashboard")}>Dashboard</button>
           <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => setView("list")}>All POs</button>
-          <button style={S.navBtn} onClick={syncFromXoro} disabled={syncing}>
-            {syncing ? "Syncing…" : "🔄 Sync"}
+          <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing}>
+            {syncing ? "⏳ Syncing…" : "🔄 Sync"}
           </button>
           <button style={S.navBtn} onClick={() => setShowSettings(true)}>⚙️ Settings</button>
           <div style={S.userPill}>{user.name}</div>
@@ -561,7 +767,7 @@ export default function TandAApp() {
               {!loading && filtered.length === 0 && (
                 <div style={S.emptyState}>
                   <p>{pos.length === 0 ? "No POs loaded. Click Sync to fetch from Xoro." : "No POs match your filters."}</p>
-                  {pos.length === 0 && <button style={S.btnPrimary} onClick={syncFromXoro} disabled={syncing}>🔄 Sync from Xoro</button>}
+                  {pos.length === 0 && <button style={S.btnPrimary} onClick={() => setShowSyncModal(true)} disabled={syncing}>🔄 Sync from Xoro</button>}
                 </div>
               )}
               {filtered.map((po, i) => <PORow key={i} po={po} onClick={() => setSelected(po)} detailed />)}
@@ -570,8 +776,9 @@ export default function TandAApp() {
         )}
       </div>
 
-      {selected    && <DetailPanel />}
-      {showSettings && <SettingsModal />}
+      {selected      && <DetailPanel />}
+      {showSettings  && <SettingsModal />}
+      {showSyncModal && <SyncModal />}
     </div>
   );
 
