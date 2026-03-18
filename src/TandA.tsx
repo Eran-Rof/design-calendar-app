@@ -38,18 +38,7 @@ const sb = {
   }),
 };
 
-// ── Xoro API ──────────────────────────────────────────────────────────────────
-// Store your Xoro API Key and Secret in .env as:
-//   VITE_XORO_API_KEY=your_key
-//   VITE_XORO_API_SECRET=your_secret
-const XORO_API_KEY    = import.meta.env.VITE_XORO_API_KEY ?? "";
-const XORO_API_SECRET = import.meta.env.VITE_XORO_API_SECRET ?? "";
-const XORO_BASE_URL   = "https://res.xorosoft.io";
-
-function xoroAuthHeader() {
-  const creds = btoa(`${XORO_API_KEY}:${XORO_API_SECRET}`);
-  return `Basic ${creds}`;
-}
+// ── Xoro API (proxied via /api/xoro-proxy to avoid CORS) ─────────────────────
 
 interface SyncFilters {
   poNumber: string;
@@ -60,18 +49,15 @@ interface SyncFilters {
 }
 
 async function fetchXoroPOs(page = 1, filters?: SyncFilters): Promise<{ pos: XoroPO[]; totalPages: number }> {
-  const params = new URLSearchParams({ page: String(page) });
-  if (filters?.poNumber)           params.set("PoNumber", filters.poNumber);
-  if (filters?.dateFrom)           params.set("DateFrom", filters.dateFrom);
-  if (filters?.dateTo)             params.set("DateTo",   filters.dateTo);
+  const params = new URLSearchParams({ path: "purchaseorder", page: String(page) });
+  if (filters?.poNumber)           params.set("PoNumber",   filters.poNumber);
+  if (filters?.dateFrom)           params.set("DateFrom",   filters.dateFrom);
+  if (filters?.dateTo)             params.set("DateTo",     filters.dateTo);
   if (filters?.statuses?.length)   params.set("StatusName", filters.statuses.join(","));
   if (filters?.vendors?.length)    params.set("VendorName", filters.vendors.join(","));
 
-  const res = await fetch(
-    `${XORO_BASE_URL}/api/xerp/purchaseorder?${params}`,
-    { headers: { Authorization: xoroAuthHeader(), "Content-Type": "application/json" } }
-  );
-  if (!res.ok) throw new Error(`Xoro API error: ${res.status}`);
+  const res = await fetch(`/api/xoro-proxy?${params}`);
+  if (!res.ok) throw new Error(`Xoro proxy error: ${res.status}`);
   const json = await res.json();
   if (!json.Result) throw new Error(json.Message ?? "Unknown Xoro error");
   const data = Array.isArray(json.Data) ? json.Data : json.Data?.PurchaseOrders ?? [];
@@ -80,10 +66,7 @@ async function fetchXoroPOs(page = 1, filters?: SyncFilters): Promise<{ pos: Xor
 
 async function fetchXoroVendors(): Promise<string[]> {
   try {
-    const res = await fetch(
-      `${XORO_BASE_URL}/api/xerp/vendor?page=1`,
-      { headers: { Authorization: xoroAuthHeader(), "Content-Type": "application/json" } }
-    );
+    const res = await fetch(`/api/xoro-proxy?path=vendor&page=1`);
     if (!res.ok) return [];
     const json = await res.json();
     if (!json.Result) return [];
@@ -365,18 +348,26 @@ export default function TandAApp() {
   // ════════════════════════════════════════════════════════════════════════════
   // LOGIN SCREEN
   // ════════════════════════════════════════════════════════════════════════════
+  const [showLoginPass, setShowLoginPass] = useState(false);
   if (!user) return (
     <div style={S.loginBg}>
       <div style={S.loginCard}>
         <div style={S.loginLogo}>PO</div>
         <h1 style={S.loginTitle}>Purchase Orders</h1>
         <p style={S.loginSub}>Powered by XoroERP</p>
-        <input style={S.input} placeholder="Name" value={loginName}
+        <input style={S.input} placeholder="Username" value={loginName}
           onChange={e => setLoginName(e.target.value)}
           onKeyDown={e => e.key === "Enter" && handleLogin()} />
-        <input style={S.input} placeholder="Password" type="password" value={loginPass}
-          onChange={e => setLoginPass(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && handleLogin()} />
+        <div style={{ position: "relative" }}>
+          <input style={{ ...S.input, paddingRight: 40 }} placeholder="Password"
+            type={showLoginPass ? "text" : "password"} value={loginPass}
+            onChange={e => setLoginPass(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleLogin()} />
+          <button onClick={() => setShowLoginPass(p => !p)}
+            style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#6B7280", fontSize: 16, lineHeight: 1, padding: 0 }}>
+            {showLoginPass ? "🙈" : "👁"}
+          </button>
+        </div>
         {loginErr && <p style={S.err}>{loginErr}</p>}
         <button style={S.btnPrimary} onClick={handleLogin}>Sign In</button>
       </div>
