@@ -12410,23 +12410,23 @@ export default function App() {
           {[["dashboard","Dashboard"],["timeline","Timeline"],["calendar","Calendar"]].map(([v,label]) =>
             navBtn(v, label)
           )}
-          <a
-            href="/tanda"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              padding: "7px 12px", borderRadius: 8,
-              border: "1px solid rgba(255,255,255,0.15)",
-              color: "rgba(255,255,255,0.7)", fontWeight: 600,
-              fontFamily: "inherit", fontSize: 12,
-              textDecoration: "none", whiteSpace: "nowrap",
-              transition: "all 0.2s",
-            }}
-            onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
-            onMouseLeave={e => (e.currentTarget.style.background = "none")}
-          >
-            T&A ↗
-          </a>
+          {currentUser?.apps?.tanda?.access && (
+            <a
+              href="/tanda"
+              style={{
+                padding: "7px 12px", borderRadius: 8,
+                border: "1px solid rgba(255,255,255,0.15)",
+                color: "rgba(255,255,255,0.7)", fontWeight: 600,
+                fontFamily: "inherit", fontSize: 12,
+                textDecoration: "none", whiteSpace: "nowrap",
+                transition: "all 0.2s",
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
+              onMouseLeave={e => (e.currentTarget.style.background = "none")}
+            >
+              T&A
+            </a>
+          )}
         </div>
         <div
           style={{
