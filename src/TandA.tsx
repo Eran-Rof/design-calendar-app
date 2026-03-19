@@ -280,7 +280,7 @@ export default function TandAApp() {
     try {
       // Load users from app_data (same as Design Calendar)
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
+      const timeout = setTimeout(() => controller.abort(), 15000);
       const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.users&select=value`, { headers: SB_HEADERS, signal: controller.signal });
       clearTimeout(timeout);
       const rows = await res.json();
