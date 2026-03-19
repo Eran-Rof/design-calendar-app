@@ -1,47 +1,48 @@
-// api/xoro-proxy.js — Vercel serverless function
+// api/xoro-proxy.js — Vercel Edge Function (30s timeout on free tier)
 
-export const config = { runtime: "nodejs" };
+export const config = { runtime: "edge" };
 
-export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
+export default async function handler(req) {
   if (req.method === "OPTIONS") {
-    return res.status(200).end();
+    return new Response(null, {
+      status: 200,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      },
+    });
   }
 
   const XORO_API_KEY    = process.env.VITE_XORO_API_KEY;
   const XORO_API_SECRET = process.env.VITE_XORO_API_SECRET;
 
+  const cors = {
+    "Access-Control-Allow-Origin": "*",
+    "Content-Type": "application/json",
+  };
+
   if (!XORO_API_KEY || !XORO_API_SECRET) {
-    return res.status(500).json({
+    return new Response(JSON.stringify({
       error: "Xoro API credentials not configured",
       keyPresent: !!XORO_API_KEY,
       secretPresent: !!XORO_API_SECRET,
-    });
+    }), { status: 500, headers: cors });
   }
 
-  const creds = Buffer.from(`${XORO_API_KEY}:${XORO_API_SECRET}`).toString("base64");
+  const creds = btoa(`${XORO_API_KEY}:${XORO_API_SECRET}`);
   const authHeader = `Basic ${creds}`;
 
-  const urlStr = req.url || "";
-  const qIndex = urlStr.indexOf("?");
-  const queryStr = qIndex >= 0 ? urlStr.slice(qIndex + 1) : "";
-  const params = new URLSearchParams(queryStr);
-
-  const path = params.get("path");
+  const url = new URL(req.url);
+  const path = url.searchParams.get("path");
   if (!path) {
-    return res.status(400).json({ error: "Missing 'path' query parameter" });
+    return new Response(JSON.stringify({ error: "Missing 'path' query parameter" }), { status: 400, headers: cors });
   }
-  params.delete("path");
 
-  // Correct Xoro API base URL per official docs
-  const xoroUrl = `https://res.xorosoft.io/api/xerp/${path}${params.toString() ? "?" + params.toString() : ""}`;
-
-  console.log("Calling Xoro URL:", xoroUrl);
-  console.log("Auth header prefix:", authHeader.slice(0, 15));
-  console.log("Key (first 8):", XORO_API_KEY?.slice(0, 8));
+  // Build Xoro URL with remaining params
+  const xoroParams = new URLSearchParams(url.searchParams);
+  xoroParams.delete("path");
+  const xoroUrl = `https://res.xorosoft.io/api/xerp/${path}${xoroParams.toString() ? "?" + xoroParams.toString() : ""}`;
 
   try {
     const xoroRes = await fetch(xoroUrl, {
@@ -53,26 +54,19 @@ export default async function handler(req, res) {
     });
 
     const text = await xoroRes.text();
-    console.log("Xoro status:", xoroRes.status);
-    console.log("Xoro response:", text.slice(0, 500));
 
-    // Return full details if error
+    // Return debug info if error
     if (!xoroRes.ok || text.includes('"Message"')) {
-      return res.status(200).json({
-        _debug: {
-          url: xoroUrl,
-          status: xoroRes.status,
-          keyFirst8: XORO_API_KEY?.slice(0, 8),
-        },
-        ...JSON.parse(text),
-      });
+      let parsed;
+      try { parsed = JSON.parse(text); } catch { parsed = { raw: text }; }
+      return new Response(JSON.stringify({
+        _debug: { url: xoroUrl, status: xoroRes.status, keyFirst8: XORO_API_KEY?.slice(0, 8) },
+        ...parsed,
+      }), { status: 200, headers: cors });
     }
 
-    let data;
-    try { data = JSON.parse(text); } catch { data = { raw: text }; }
-    return res.status(xoroRes.status).json(data);
+    return new Response(text, { status: 200, headers: cors });
   } catch (err) {
-    console.error("Proxy fetch error:", err.message);
-    return res.status(500).json({ error: "Proxy error: " + err.message });
+    return new Response(JSON.stringify({ error: "Proxy error: " + err.message }), { status: 500, headers: cors });
   }
 }
