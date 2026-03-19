@@ -121,7 +121,7 @@ interface SyncFilters {
 }
 
 async function fetchXoroPOs(page = 1, filters?: SyncFilters): Promise<{ pos: XoroPO[]; totalPages: number }> {
-  const params = new URLSearchParams({ path: "purchaseorder", page: String(page) });
+  const params = new URLSearchParams({ path: "purchaseorder/getpurchaseorder", page: String(page) });
   if (filters?.poNumber)           params.set("PoNumber",   filters.poNumber);
   if (filters?.dateFrom)           params.set("DateFrom",   filters.dateFrom);
   if (filters?.dateTo)             params.set("DateTo",     filters.dateTo);
@@ -138,7 +138,7 @@ async function fetchXoroPOs(page = 1, filters?: SyncFilters): Promise<{ pos: Xor
 
 async function fetchXoroVendors(): Promise<string[]> {
   try {
-    const res = await fetch(`/api/xoro-proxy?path=vendor&page=1`);
+    const res = await fetch(`/api/xoro-proxy?path=vendor/getvendor&page=1`);
     if (!res.ok) return [];
     const json = await res.json();
     if (!json.Result) return [];
