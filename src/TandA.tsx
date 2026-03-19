@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 // ── Supabase ─────────────────────────────────────────────────────────────────
 const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
@@ -120,7 +120,7 @@ interface SyncFilters {
   statuses: string[];
 }
 
-async function fetchXoroPOs(page = 1, filters?: SyncFilters): Promise<{ pos: XoroPO[]; totalPages: number }> {
+async function fetchXoroPOs(page = 1, filters?: SyncFilters, signal?: AbortSignal): Promise<{ pos: XoroPO[]; totalPages: number }> {
   const params = new URLSearchParams({ path: "purchaseorder/getpurchaseorder", page: String(page) });
   if (filters?.poNumber)           params.set("PoNumber",   filters.poNumber);
   if (filters?.dateFrom)           params.set("DateFrom",   filters.dateFrom);
@@ -128,7 +128,7 @@ async function fetchXoroPOs(page = 1, filters?: SyncFilters): Promise<{ pos: Xor
   if (filters?.statuses?.length)   params.set("StatusName", filters.statuses.join(","));
   if (filters?.vendors?.length)    params.set("VendorName", filters.vendors.join(","));
 
-  const res = await fetch(`/api/xoro-proxy?${params}`);
+  const res = await fetch(`/api/xoro-proxy?${params}`, { signal });
   if (!res.ok) throw new Error(`Xoro proxy error: ${res.status}`);
   const json = await res.json();
   if (!json.Result) throw new Error(json.Message ?? "Unknown Xoro error");
@@ -247,6 +247,7 @@ export default function TandAApp() {
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [newNote, setNewNote]   = useState("");
   const [noteStatus, setNoteStatus] = useState("");
+  const syncAbortRef = useRef<AbortController | null>(null);
 
   // Sync filter state
   const [syncFilters, setSyncFilters] = useState<SyncFilters>({
@@ -346,8 +347,23 @@ export default function TandAApp() {
     await sb.from("tanda_settings").upsert({ key: "manual_vendors", value: JSON.stringify(updated) }, { onConflict: "key" });
   }
 
+  // ── Cancel sync ─────────────────────────────────────────────────────────
+  function cancelSync() {
+    syncAbortRef.current?.abort();
+    syncAbortRef.current = null;
+    setSyncing(false);
+    setSyncErr("Sync cancelled.");
+  }
+
   // ── Sync from Xoro with filters ───────────────────────────────────────────
   async function syncFromXoro(filters?: SyncFilters) {
+    // Abort any previous sync
+    syncAbortRef.current?.abort();
+    const controller = new AbortController();
+    syncAbortRef.current = controller;
+    // Per-page timeout: 15 seconds
+    const PAGE_TIMEOUT = 15000;
+
     setSyncing(true);
     setSyncErr("");
     setShowSyncModal(false);
@@ -356,7 +372,10 @@ export default function TandAApp() {
       let page = 1;
       let totalPages = 1;
       do {
-        const { pos: batch, totalPages: tp } = await fetchXoroPOs(page, filters);
+        if (controller.signal.aborted) throw new Error("Sync cancelled.");
+        const timer = setTimeout(() => controller.abort(), PAGE_TIMEOUT);
+        const { pos: batch, totalPages: tp } = await fetchXoroPOs(page, filters, controller.signal);
+        clearTimeout(timer);
         all = [...all, ...batch];
         totalPages = tp;
         page++;
@@ -382,8 +401,10 @@ export default function TandAApp() {
       await loadCachedPOs();
       setLastSync(now);
     } catch (e: any) {
-      setSyncErr(e.message ?? "Sync failed");
+      if (e.name === "AbortError") setSyncErr("Sync timed out or was cancelled. Check your Xoro API credentials and try again.");
+      else setSyncErr(e.message ?? "Sync failed");
     } finally {
+      syncAbortRef.current = null;
       setSyncing(false);
     }
   }
@@ -825,12 +846,14 @@ export default function TandAApp() {
         <div style={S.navRight}>
           <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => setView("dashboard")}>Dashboard</button>
           <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => setView("list")}>All POs</button>
-          <button style={S.navBtn} onClick={() => syncFromXoro()} disabled={syncing} title="Sync all POs from Xoro immediately">
-            {syncing ? "⏳ Syncing…" : "🔄 Sync All"}
+          <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing} title="Sync POs from Xoro">
+            {syncing ? "⏳ Syncing…" : "🔄 Sync"}
           </button>
-          <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing} title="Choose filters before syncing">
-            🔽 Filtered Sync
-          </button>
+          {syncing && (
+            <button style={{ ...S.navBtn, color: "#EF4444", borderColor: "#EF4444" }} onClick={cancelSync} title="Cancel sync">
+              ✕ Cancel
+            </button>
+          )}
           <button style={{ ...S.navBtn, color: mockMode ? "#F59E0B" : "#6B7280", borderColor: mockMode ? "#F59E0B" : "#334155" }}
             onClick={() => { setPos(mockMode ? [] : MOCK_POS); setMockMode(m => !m); }}
             title="Load sample data for UI testing">
@@ -898,7 +921,7 @@ export default function TandAApp() {
               {!loading && pos.length === 0 && (
                 <div style={S.emptyState}>
                   <p>No purchase orders loaded.</p>
-                  <button style={S.btnPrimary} onClick={syncFromXoro} disabled={syncing}>
+                  <button style={S.btnPrimary} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing}>
                     {syncing ? "Syncing…" : "🔄 Sync from Xoro"}
                   </button>
                 </div>
@@ -934,7 +957,7 @@ export default function TandAApp() {
               {!loading && filtered.length === 0 && (
                 <div style={S.emptyState}>
                   <p>{pos.length === 0 ? "No POs loaded. Click Sync to fetch from Xoro." : "No POs match your filters."}</p>
-                  {pos.length === 0 && <button style={S.btnPrimary} onClick={() => setShowSyncModal(true)} disabled={syncing}>🔄 Sync from Xoro</button>}
+                  {pos.length === 0 && <button style={S.btnPrimary} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing}>🔄 Sync from Xoro</button>}
                 </div>
               )}
               {filtered.map((po, i) => <PORow key={i} po={po} onClick={() => setSelected(po)} detailed />)}
