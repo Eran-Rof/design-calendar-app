@@ -278,7 +278,10 @@ export default function TandAApp() {
     setLoginErr("");
     try {
       // Load users from app_data (same as Design Calendar)
-      const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.users&select=value`, { headers: SB_HEADERS });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.users&select=value`, { headers: SB_HEADERS, signal: controller.signal });
+      clearTimeout(timeout);
       const rows = await res.json();
       let allUsers: User[] = [];
       if (Array.isArray(rows) && rows.length > 0 && rows[0].value) {
@@ -292,8 +295,10 @@ export default function TandAApp() {
         (u: User) => (u as any).username?.toLowerCase() === loginName.trim().toLowerCase() &&
           (u.password === loginPass || (u as any).pin === loginPass)
       );
-      if (match) { setUser(match); }
-      else setLoginErr("Invalid username or password.");
+      if (match) {
+        sessionStorage.setItem("plm_user", JSON.stringify(match));
+        setUser(match);
+      } else setLoginErr("Invalid username or password.");
     } catch {
       setLoginErr("Could not connect to database. Please try again.");
     }
