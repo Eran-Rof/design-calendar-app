@@ -132,18 +132,42 @@ async function fetchXoroPOs(page = 1, filters?: SyncFilters, signal?: AbortSigna
   if (!res.ok) throw new Error(`Xoro proxy error: ${res.status}`);
   const json = await res.json();
   if (!json.Result) throw new Error(json.Message ?? "Unknown Xoro error");
-  const data = Array.isArray(json.Data) ? json.Data : json.Data?.PurchaseOrders ?? [];
-  return { pos: data, totalPages: json.TotalPages ?? 1 };
+  const raw = Array.isArray(json.Data) ? json.Data : [];
+  // Xoro returns { poHeader, poLines, uccCartonArr } per PO — flatten into our XoroPO shape
+  const pos: XoroPO[] = raw.map((item: any) => {
+    const h = item.poHeader ?? item;
+    const lines = item.poLines ?? item.PoLineArr ?? item.Items ?? [];
+    return {
+      PoNumber:              h.OrderNumber ?? h.PoNumber ?? "",
+      VendorName:            h.VendorName ?? "",
+      DateOrder:             h.DateOrder ?? "",
+      DateExpectedDelivery:  h.DateExpectedDelivery ?? "",
+      VendorReqDate:         h.VendorReqDate ?? "",
+      StatusName:            h.StatusName ?? "",
+      CurrencyCode:          h.CurrencyCode ?? "USD",
+      Memo:                  h.Memo ?? "",
+      Tags:                  h.Tags ?? "",
+      PaymentTermsName:      h.PaymentTermsName ?? "",
+      ShipMethodName:        h.ShipMethodName ?? "",
+      CarrierName:           h.CarrierName ?? "",
+      BuyerName:             h.BuyerName ?? "",
+      TotalAmount:           h.TotalAmount ?? 0,
+      Items: lines.map((l: any) => ({
+        ItemNumber:  l.PoItemNumber ?? l.ItemNumber ?? "",
+        Description: l.Description ?? l.Title ?? "",
+        QtyOrder:    l.QtyOrder ?? 0,
+        UnitPrice:   l.UnitPrice ?? l.EffectiveUnitPrice ?? 0,
+      })),
+    } as XoroPO;
+  });
+  return { pos, totalPages: json.TotalPages ?? 1 };
 }
 
 async function fetchXoroVendors(): Promise<string[]> {
+  // Xoro doesn't expose a vendor-list endpoint — extract vendors from POs
   try {
-    const res = await fetch(`/api/xoro-proxy?path=vendor/getvendor&page=1`);
-    if (!res.ok) return [];
-    const json = await res.json();
-    if (!json.Result) return [];
-    const data = Array.isArray(json.Data) ? json.Data : json.Data?.Vendors ?? [];
-    return data.map((v: any) => v.VendorName ?? v.Name ?? "").filter(Boolean);
+    const { pos } = await fetchXoroPOs(1);
+    return [...new Set(pos.map(p => p.VendorName ?? "").filter(Boolean))].sort();
   } catch { return []; }
 }
 
@@ -361,8 +385,8 @@ export default function TandAApp() {
     syncAbortRef.current?.abort();
     const controller = new AbortController();
     syncAbortRef.current = controller;
-    // Per-page timeout: 15 seconds
-    const PAGE_TIMEOUT = 15000;
+    // Per-page timeout: 30 seconds (Xoro returns large payloads)
+    const PAGE_TIMEOUT = 30000;
 
     setSyncing(true);
     setSyncErr("");
