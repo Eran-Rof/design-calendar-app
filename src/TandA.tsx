@@ -258,6 +258,17 @@ export default function TandAApp() {
   const [loadingVendors, setLoadingVendors]     = useState(false);
   const [newManualVendor, setNewManualVendor]   = useState("");
 
+  // ── PLM session auto-login ────────────────────────────────────────────────
+  const [sessionChecked, setSessionChecked] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem("plm_user");
+      if (saved) setUser(JSON.parse(saved));
+    } catch {}
+    setSessionChecked(true);
+  }, []);
+
   // ── Auth ──────────────────────────────────────────────────────────────────
   const [loginName, setLoginName] = useState("");
   const [loginPass, setLoginPass] = useState("");
@@ -421,6 +432,10 @@ export default function TandAApp() {
   // LOGIN SCREEN
   // ════════════════════════════════════════════════════════════════════════════
   const [showLoginPass, setShowLoginPass] = useState(false);
+
+  // While checking PLM session, show blank (prevents login flash)
+  if (!sessionChecked) return <div style={{ minHeight: "100vh", background: "#F9FAFB" }} />;
+
   if (!user) return (
     <div style={S.loginBg}>
       <div style={S.loginCard}>
@@ -818,7 +833,8 @@ export default function TandAApp() {
           </button>
           <button style={S.navBtn} onClick={() => setShowSettings(true)}>⚙️ Settings</button>
           <div style={S.userPill}>{user.name || user.username}</div>
-          <button style={S.navBtnDanger} onClick={() => setUser(null)}>Sign Out</button>
+          <button style={S.navBtn} onClick={() => window.location.href = "/"}>← PLM</button>
+          <button style={S.navBtnDanger} onClick={() => { sessionStorage.removeItem("plm_user"); window.location.href = "/"; }}>Sign Out</button>
         </div>
       </nav>
 

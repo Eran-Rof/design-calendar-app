@@ -62,7 +62,7 @@ const APPS = [
   },
   {
     id: "tanda" as const,
-    name: "Purchase Orders",
+    name: "PO WIP",
     description: "PO tracking, Xoro sync and delivery management",
     icon: "📋",
     color: "#3B82F6",
@@ -142,8 +142,7 @@ export default function PLMApp() {
         <div style={S.logoCircle}>
           <span style={S.logoText}>ROF</span>
         </div>
-        <h1 style={S.title}>Ring of Fire PLM</h1>
-        <p style={S.subtitle}>Product Lifecycle Management</p>
+        <h1 style={{ margin: "0 0 32px", fontSize: 52, fontWeight: 900, color: "#CC2200", letterSpacing: "0.35em", fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>P&nbsp;L&nbsp;M</h1>
 
         <div style={S.card}>
           <input style={S.input} placeholder="Username"
@@ -187,7 +186,7 @@ export default function PLMApp() {
           <div style={{ ...S.logoCircle, width: 36, height: 36 }}>
             <span style={{ ...S.logoText, fontSize: 13 }}>ROF</span>
           </div>
-          <span style={{ color: "#111827", fontWeight: 700, fontSize: 18 }}>Ring of Fire PLM</span>
+          <span style={{ color: "#CC2200", fontWeight: 900, fontSize: 20, letterSpacing: "0.3em" }}>P&nbsp;L&nbsp;M</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={S.userPill}>
@@ -325,7 +324,7 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
 
   const APP_LABELS = [
     { id: "design" as const, label: "Design Calendar", color: "#CC2200" },
-    { id: "tanda"  as const, label: "Purchase Orders",  color: "#3B82F6" },
+    { id: "tanda"  as const, label: "PO WIP",          color: "#3B82F6" },
     { id: "techpack" as const, label: "Tech Packs",     color: "#8B5CF6" },
   ];
 
