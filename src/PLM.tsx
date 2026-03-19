@@ -116,7 +116,7 @@ export default function PLMApp() {
     try {
       const users = await loadUsers();
       if (!users.length) {
-        setLoginErr("No users found. Please contact your admin.");
+        setLoginErr("Could not load users — the database may be paused or unavailable. Please check Supabase dashboard or try again in a moment.");
         return;
       }
       const match = users.find(u =>
