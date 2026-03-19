@@ -120,21 +120,8 @@ interface SyncFilters {
   statuses: string[];
 }
 
-async function fetchXoroPOs(page = 1, filters?: SyncFilters, signal?: AbortSignal): Promise<{ pos: XoroPO[]; totalPages: number }> {
-  const params = new URLSearchParams({ path: "purchaseorder/getpurchaseorder", page: String(page) });
-  if (filters?.poNumber)           params.set("PoNumber",   filters.poNumber);
-  if (filters?.dateFrom)           params.set("DateFrom",   filters.dateFrom);
-  if (filters?.dateTo)             params.set("DateTo",     filters.dateTo);
-  if (filters?.statuses?.length)   params.set("StatusName", filters.statuses.join(","));
-  if (filters?.vendors?.length)    params.set("VendorName", filters.vendors.join(","));
-
-  const res = await fetch(`/api/xoro-proxy?${params}`, { signal });
-  if (!res.ok) throw new Error(`Xoro proxy error: ${res.status}`);
-  const json = await res.json();
-  if (!json.Result) throw new Error(json.Message ?? "Unknown Xoro error");
-  const raw = Array.isArray(json.Data) ? json.Data : [];
-  // Xoro returns { poHeader, poLines, uccCartonArr } per PO — flatten into our XoroPO shape
-  const pos: XoroPO[] = raw.map((item: any) => {
+function mapXoroRaw(raw: any[]): XoroPO[] {
+  return raw.map((item: any) => {
     const h = item.poHeader ?? item;
     const lines = item.poLines ?? item.PoLineArr ?? item.Items ?? [];
     return {
@@ -160,13 +147,41 @@ async function fetchXoroPOs(page = 1, filters?: SyncFilters, signal?: AbortSigna
       })),
     } as XoroPO;
   });
-  return { pos, totalPages: json.TotalPages ?? 1 };
+}
+
+async function fetchXoroPOs(page = 1, signal?: AbortSignal): Promise<{ pos: XoroPO[]; totalPages: number }> {
+  const params = new URLSearchParams({ path: "purchaseorder/getpurchaseorder", page: String(page) });
+  const res = await fetch(`/api/xoro-proxy?${params}`, { signal });
+  if (!res.ok) throw new Error(`Xoro proxy error: ${res.status}`);
+  const json = await res.json();
+  if (!json.Result) throw new Error(json.Message ?? "Unknown Xoro error");
+  const raw = Array.isArray(json.Data) ? json.Data : [];
+  return { pos: mapXoroRaw(raw), totalPages: json.TotalPages ?? 1 };
+}
+
+// Xoro ignores filter params — apply client-side after download
+function applyFilters(pos: XoroPO[], filters?: SyncFilters): XoroPO[] {
+  if (!filters) return pos;
+  return pos.filter(po => {
+    if (filters.poNumber && !(po.PoNumber ?? "").toLowerCase().includes(filters.poNumber.toLowerCase())) return false;
+    if (filters.statuses?.length && !filters.statuses.includes(po.StatusName ?? "")) return false;
+    if (filters.vendors?.length && !filters.vendors.includes(po.VendorName ?? "")) return false;
+    if (filters.dateFrom) {
+      const d = po.DateOrder ? new Date(po.DateOrder) : null;
+      if (!d || d < new Date(filters.dateFrom)) return false;
+    }
+    if (filters.dateTo) {
+      const d = po.DateOrder ? new Date(po.DateOrder) : null;
+      if (!d || d > new Date(filters.dateTo + "T23:59:59")) return false;
+    }
+    return true;
+  });
 }
 
 async function fetchXoroVendors(): Promise<string[]> {
   // Xoro doesn't expose a vendor-list endpoint — extract vendors from POs
   try {
-    const { pos } = await fetchXoroPOs(1);
+    const { pos } = await fetchXoroPOs(1, undefined);
     return [...new Set(pos.map(p => p.VendorName ?? "").filter(Boolean))].sort();
   } catch { return []; }
 }
@@ -385,25 +400,25 @@ export default function TandAApp() {
     syncAbortRef.current?.abort();
     const controller = new AbortController();
     syncAbortRef.current = controller;
-    // Per-page timeout: 30 seconds (Xoro returns large payloads)
-    const PAGE_TIMEOUT = 30000;
 
     setSyncing(true);
     setSyncErr("");
     setShowSyncModal(false);
     try {
+      // Fetch all POs from Xoro (filters are applied client-side)
       let all: XoroPO[] = [];
       let page = 1;
       let totalPages = 1;
       do {
         if (controller.signal.aborted) throw new Error("Sync cancelled.");
-        const timer = setTimeout(() => controller.abort(), PAGE_TIMEOUT);
-        const { pos: batch, totalPages: tp } = await fetchXoroPOs(page, filters, controller.signal);
-        clearTimeout(timer);
+        const { pos: batch, totalPages: tp } = await fetchXoroPOs(page, controller.signal);
         all = [...all, ...batch];
         totalPages = tp;
         page++;
       } while (page <= totalPages && page <= 20);
+
+      // Apply filters client-side (Xoro API ignores filter params)
+      all = applyFilters(all, filters);
 
       // MERGE — upsert each PO by po_number
       const now = new Date().toISOString();
