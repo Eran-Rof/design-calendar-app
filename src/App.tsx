@@ -1082,7 +1082,7 @@ function CustomerManager({ customers, setCustomers, isAdmin = false }) {
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => { setForm({ name: c.name || c, channel: c.channel || "" }); setEditing(i); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
-              <button onClick={() => setCustomers((cs) => cs.filter((_, j) => j !== i))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
+              <button onClick={() => { if (window.confirm("Delete this customer?")) setCustomers((cs) => cs.filter((_, j) => j !== i)); }} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
             </div>
           </div>
         ))}
@@ -1151,7 +1151,7 @@ function OrderTypeManager({ orderTypes, setOrderTypes, isAdmin = false }) {
             <div style={{ flex: 1, fontSize: 14, fontWeight: 700, color: TH.text }}>{ot}</div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => { setForm(ot); setEditing(i); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
-              <button onClick={() => setOrderTypes((arr) => arr.filter((_, j) => j !== i))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
+              <button onClick={() => { if (window.confirm("Delete this order type?")) setOrderTypes((arr) => arr.filter((_, j) => j !== i)); }} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
             </div>
           </div>
         ))}
@@ -1222,7 +1222,7 @@ function RoleManager({ roles, setRoles, isAdmin = false }) {
             <div style={{ flex: 1, fontSize: 14, fontWeight: 700, color: TH.text }}>🎭 {role}</div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => { setForm(role); setEditing(i); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
-              <button onClick={() => setRoles((arr) => arr.filter((_, j) => j !== i))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
+              <button onClick={() => { if (window.confirm("Delete this role?")) setRoles((arr) => arr.filter((_, j) => j !== i)); }} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
             </div>
           </div>
         ))}
@@ -1298,7 +1298,7 @@ function SeasonManager({ seasons, setSeasons, isAdmin = false }) {
                 Edit
               </button>
               <button
-                onClick={() => setSeasons((ss) => ss.filter((_, j) => j !== i))}
+                onClick={() => { if (window.confirm("Delete this season?")) setSeasons((ss) => ss.filter((_, j) => j !== i)); }}
                 style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}
               >
                 Delete
@@ -1588,8 +1588,8 @@ function BrandManager({ brands, setBrands, isAdmin = false }) {
                 Edit
               </button>
               <button
-                onClick={() =>
-                  setBrands((bs) => bs.filter((x) => x.id !== b.id))
+                onClick={() => {
+                  if (window.confirm("Delete this brand?")) setBrands((bs) => bs.filter((x) => x.id !== b.id));
                 }
                 style={{
                   padding: "5px 12px",
@@ -1967,7 +1967,7 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, rol
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => { setForm({ ...u, permissions: u.permissions || { view_own: true, edit_own: true } }); setEditing(u.id); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
-              <button onClick={() => setUsers((us) => us.filter((x) => x.id !== u.id))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Remove</button>
+              <button onClick={() => { if (window.confirm("Remove this user?")) setUsers((us) => us.filter((x) => x.id !== u.id)); }} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Remove</button>
             </div>
           </div>
         ))}
@@ -3061,8 +3061,8 @@ function VendorManager({ vendors, setVendors, isAdmin = false, taskTemplates }) 
                 Edit
               </button>
               <button
-                onClick={() =>
-                  setVendors((vs) => vs.filter((x) => x.id !== v.id))
+                onClick={() => {
+                  if (window.confirm("Remove this vendor?")) setVendors((vs) => vs.filter((x) => x.id !== v.id));
                 }
                 style={{
                   padding: "5px 12px",
@@ -3179,7 +3179,7 @@ function TeamManager({ team, setTeam, isAdmin, roles = ROLES, setRoles }) {
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => openEdit(m)} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
-              <button onClick={() => setTeam((t) => t.filter((x) => x.id !== m.id))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Remove</button>
+              <button onClick={() => { if (window.confirm("Remove this team member?")) setTeam((t) => t.filter((x) => x.id !== m.id)); }} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Remove</button>
             </div>
           </div>
         ))}
@@ -5133,7 +5133,7 @@ function TaskEditModal({
         >
           {canEdit ? (
             <button
-              onClick={() => onDelete(task.id)}
+              onClick={() => { if (window.confirm("Delete this task?")) onDelete(task.id); }}
               style={{
                 background: "none",
                 border: "none",
@@ -6906,6 +6906,7 @@ function CategoryManager({ categories, setCategories, isAdmin = false }) {
     setNewCat("");
   }
   function deleteCategory(id) {
+    if (!window.confirm("Delete this category and all its subcategories?")) return;
     setCategories((cs) => cs.filter((c) => c.id !== id));
   }
   function renameCategory(id, name) {
@@ -6925,6 +6926,7 @@ function CategoryManager({ categories, setCategories, isAdmin = false }) {
     setNewSub((s) => ({ ...s, [catId]: "" }));
   }
   function deleteSubCategory(catId, sub) {
+    if (!window.confirm(`Delete subcategory "${sub}"?`)) return;
     setCategories((cs) =>
       cs.map((c) =>
         c.id === catId
