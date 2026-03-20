@@ -5584,7 +5584,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
       for (let i = idx + 1; i < leads.length; i++) {
         leads[i] = { ...leads[i], days: Math.max(0, leads[i].days + delta) };
       }
-      // Sync to selV.leadOverrides so step 3 generateTasks picks it up
+      // Sync to selV.leadOverrides so generateTasks picks it up
       if (selV) {
         const map = {};
         leads.forEach(l => { map[l.phase] = l.days; });
@@ -5653,10 +5653,10 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
     return [...resized, ...postPhases];
   }
 
-  // When we reach step 3, initialize editPhases from generated tasks
+  // When we have vendor + DDP on step 2, initialize editPhases from generated tasks
   // Enforce: no task date may be before today (creation date)
   useEffect(() => {
-    if (step === 3 && previewTasks.length > 0 && editPhases.length === 0) {
+    if (step === 2 && previewTasks.length > 0 && editPhases.length === 0) {
       const rawPhases = previewTasks.map((t) => ({
         id: t.id,
         name: t.phase,
@@ -5687,7 +5687,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
         setEditPhases(rawPhases);
       }
     }
-  }, [step]);
+  }, [step, previewTasks.length, editPhases.length]);
 
   // When vendor changes, recalc DDP from vendor lead times, then recalc ship/cancel
   useEffect(() => {
@@ -5864,7 +5864,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
       {step === 1 && (
         <div>
           <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 18 }}>
-            Step 1 of 3 — Brand, Collection & Team
+            Step 1 of 2 — Brand, Collection & Team
           </div>
           <label style={S.lbl}>Brand</label>
           <select
@@ -6065,7 +6065,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
       {step === 2 && (
         <div>
           <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 18 }}>
-            Step 2 of 3 — Vendor & Dates
+            Step 2 of 2 — Vendor & Dates
           </div>
           <label style={S.lbl}>
             Vendor{" "}
@@ -6269,47 +6269,8 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
             </div>
           )}
 
-          <div style={{ display: "flex", gap: 12 }}>
-            <button
-              onClick={() => setStep(1)}
-              style={{
-                flex: 1,
-                padding: "12px",
-                borderRadius: 10,
-                border: `1px solid ${TH.border}`,
-                background: "none",
-                color: TH.textMuted,
-                cursor: "pointer",
-                fontFamily: "inherit",
-              }}
-            >
-              ← Back
-            </button>
-            <button
-              disabled={!s2ok}
-              onClick={() => {
-                setEditPhases([]);
-                setStep(3);
-              }}
-              style={{
-                ...S.btn,
-                flex: 2,
-                padding: "12px",
-                fontSize: 14,
-                opacity: s2ok ? 1 : 0.5,
-              }}
-            >
-              Preview Timeline →
-            </button>
-          </div>
-        </div>
-      )}
-
-      {step === 3 && (
-        <div>
-          <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 16 }}>
-            Step 3 of 3 — Review & Edit Timeline
-          </div>
+          {form.ddpDate && selV && editPhases.length > 0 && (
+            <>
           <div style={{ ...S.card, marginBottom: 16 }}>
             <div
               style={{
@@ -6882,13 +6843,12 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
               </div>
             </div>
           )}
+            </>
+          )}
 
           <div style={{ display: "flex", gap: 12 }}>
             <button
-              onClick={() => {
-                setEditPhases([]);
-                setStep(2);
-              }}
+              onClick={() => setStep(1)}
               style={{
                 flex: 1,
                 padding: "12px",
@@ -6903,6 +6863,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
               ← Back
             </button>
             <button
+              disabled={editPhases.length === 0}
               onClick={() =>
                 onSave(buildFinalTasks(), {
                   gender: form.gender,
@@ -6915,7 +6876,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
                   sampleDueDate: form.sampleDueDate,
                 })
               }
-              style={{ ...S.btn, flex: 2, padding: "12px", fontSize: 14 }}
+              style={{ ...S.btn, flex: 2, padding: "12px", fontSize: 14, opacity: editPhases.length === 0 ? 0.5 : 1 }}
             >
               ✓ Create {editPhases.length} Tasks
             </button>
