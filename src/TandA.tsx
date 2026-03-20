@@ -232,7 +232,7 @@ interface User {
   role?: string;
 }
 
-type View = "dashboard" | "list" | "detail";
+type View = "dashboard" | "list" | "detail" | "templates";
 
 const STATUS_COLORS: Record<string, string> = {
   Open:       "#3B82F6",
@@ -245,6 +245,73 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const STATUS_OPTIONS = ["Open", "Released", "Received", "Closed", "Cancelled", "Pending", "Draft"];
+
+// ── WIP Milestone Types & Constants ───────────────────────────────────────
+interface WipTemplate {
+  id: string;
+  phase: string;
+  category: string;
+  daysBeforeDDP: number;
+  status: string;
+  notes: string;
+}
+
+interface Milestone {
+  id: string;
+  po_number: string;
+  phase: string;
+  category: string;
+  sort_order: number;
+  days_before_ddp: number;
+  expected_date: string | null;
+  actual_date: string | null;
+  status: string;
+  notes: string;
+  updated_at: string;
+  updated_by: string;
+}
+
+interface DCVendor {
+  id: string;
+  name: string;
+  wipLeadOverrides?: Record<string, number>;
+}
+
+const WIP_CATEGORIES = ["Pre-Production", "Fabric T&A", "Samples", "Production", "Transit"];
+
+const MILESTONE_STATUSES = ["Not Started", "In Progress", "Complete", "Delayed", "N/A"];
+
+const MILESTONE_STATUS_COLORS: Record<string, string> = {
+  "Not Started": "#6B7280",
+  "In Progress": "#3B82F6",
+  "Complete": "#10B981",
+  "Delayed": "#EF4444",
+  "N/A": "#9CA3AF",
+};
+
+const DEFAULT_WIP_TEMPLATES: WipTemplate[] = [
+  { id: "wip_labdip",    phase: "Lab Dip / Strike Off",      category: "Pre-Production", daysBeforeDDP: 120, status: "Not Started", notes: "" },
+  { id: "wip_trims",     phase: "Trims",                     category: "Pre-Production", daysBeforeDDP: 110, status: "Not Started", notes: "" },
+  { id: "wip_rawgoods",  phase: "Raw Goods Available",       category: "Fabric T&A",     daysBeforeDDP: 100, status: "Not Started", notes: "" },
+  { id: "wip_fabprint",  phase: "Fabric at Printing Mill",   category: "Fabric T&A",     daysBeforeDDP: 90,  status: "Not Started", notes: "" },
+  { id: "wip_fabfg",     phase: "Fabric Finished Goods",     category: "Fabric T&A",     daysBeforeDDP: 80,  status: "Not Started", notes: "" },
+  { id: "wip_fabfact",   phase: "Fabric at Factory",         category: "Fabric T&A",     daysBeforeDDP: 70,  status: "Not Started", notes: "" },
+  { id: "wip_fabcut",    phase: "Fabric at Cutting Line",    category: "Fabric T&A",     daysBeforeDDP: 60,  status: "Not Started", notes: "" },
+  { id: "wip_fitsample", phase: "Fit Sample",                category: "Samples",        daysBeforeDDP: 90,  status: "Not Started", notes: "" },
+  { id: "wip_ppsample",  phase: "PP Sample",                 category: "Samples",        daysBeforeDDP: 75,  status: "Not Started", notes: "" },
+  { id: "wip_ppapproval",phase: "PP Approval",               category: "Samples",        daysBeforeDDP: 65,  status: "Not Started", notes: "" },
+  { id: "wip_sizeset",   phase: "Size Set",                  category: "Samples",        daysBeforeDDP: 55,  status: "Not Started", notes: "" },
+  { id: "wip_fabready",  phase: "Fabric Ready",              category: "Production",     daysBeforeDDP: 50,  status: "Not Started", notes: "" },
+  { id: "wip_prodstart", phase: "Prod Start",                category: "Production",     daysBeforeDDP: 42,  status: "Not Started", notes: "" },
+  { id: "wip_packstart", phase: "Packing Start",             category: "Production",     daysBeforeDDP: 28,  status: "Not Started", notes: "" },
+  { id: "wip_prodend",   phase: "Prod End",                  category: "Production",     daysBeforeDDP: 21,  status: "Not Started", notes: "" },
+  { id: "wip_topsample", phase: "Top Sample",                category: "Transit",        daysBeforeDDP: 18,  status: "Not Started", notes: "" },
+  { id: "wip_exfactory", phase: "Ex Factory",                category: "Transit",        daysBeforeDDP: 14,  status: "Not Started", notes: "" },
+  { id: "wip_packdocs",  phase: "Packing List / Docs Rec'd", category: "Transit",        daysBeforeDDP: 7,   status: "Not Started", notes: "" },
+  { id: "wip_inhouse",   phase: "In House / DDP",            category: "Transit",        daysBeforeDDP: 0,   status: "Not Started", notes: "" },
+];
+
+function milestoneUid() { return "ms_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtDate(d?: string) {
@@ -297,6 +364,13 @@ export default function TandAApp() {
   const [vendorSearch, setVendorSearch]         = useState("");
   const [loadingVendors, setLoadingVendors]     = useState(false);
   const [newManualVendor, setNewManualVendor]   = useState("");
+
+  // ── WIP Milestone state ───────────────────────────────────────────────
+  const [wipTemplates, setWipTemplates] = useState<WipTemplate[]>([]);
+  const [milestones, setMilestones] = useState<Record<string, Milestone[]>>({});
+  const [dcVendors, setDcVendors] = useState<DCVendor[]>([]);
+  const [designTemplates, setDesignTemplates] = useState<any[]>([]);
+  const [collapsedCats, setCollapsedCats] = useState<Record<string, boolean>>({});
 
   // ── PLM session auto-login ────────────────────────────────────────────────
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -386,6 +460,165 @@ export default function TandAApp() {
     await sb.from("tanda_settings").upsert({ key: "manual_vendors", value: JSON.stringify(updated) }, { onConflict: "key" });
   }
 
+  // ── WIP Template data layer ─────────────────────────────────────────────
+  async function loadWipTemplates() {
+    try {
+      const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.wip_templates&select=value`, { headers: SB_HEADERS });
+      const rows = await res.json();
+      if (Array.isArray(rows) && rows.length > 0 && rows[0].value) {
+        const parsed = JSON.parse(rows[0].value);
+        if (Array.isArray(parsed) && parsed.length > 0) { setWipTemplates(parsed); return parsed; }
+      }
+    } catch {}
+    setWipTemplates(DEFAULT_WIP_TEMPLATES);
+    return DEFAULT_WIP_TEMPLATES;
+  }
+
+  async function saveWipTemplates(templates: WipTemplate[]) {
+    setWipTemplates(templates);
+    await fetch(`${SB_URL}/rest/v1/app_data`, {
+      method: "POST",
+      headers: { ...SB_HEADERS, "Prefer": "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({ key: "wip_templates", value: JSON.stringify(templates) }),
+    });
+  }
+
+  async function loadDesignTemplates() {
+    try {
+      const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.task_templates&select=value`, { headers: SB_HEADERS });
+      const rows = await res.json();
+      if (Array.isArray(rows) && rows.length > 0 && rows[0].value) {
+        const parsed = JSON.parse(rows[0].value);
+        if (Array.isArray(parsed)) setDesignTemplates(parsed);
+      }
+    } catch {}
+  }
+
+  async function loadDCVendors() {
+    try {
+      const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.vendors&select=value`, { headers: SB_HEADERS });
+      const rows = await res.json();
+      if (Array.isArray(rows) && rows.length > 0 && rows[0].value) {
+        const parsed = JSON.parse(rows[0].value);
+        if (Array.isArray(parsed)) setDcVendors(parsed);
+      }
+    } catch {}
+  }
+
+  // ── Milestone data layer ────────────────────────────────────────────────
+  async function loadAllMilestones() {
+    try {
+      const { data } = await sb.from("tanda_milestones").select("*", "order=sort_order.asc");
+      if (data && Array.isArray(data)) {
+        const grouped: Record<string, Milestone[]> = {};
+        data.forEach((m: Milestone) => {
+          if (!grouped[m.po_number]) grouped[m.po_number] = [];
+          grouped[m.po_number].push(m);
+        });
+        setMilestones(grouped);
+      }
+    } catch {}
+  }
+
+  async function loadMilestones(poNumber: string): Promise<Milestone[]> {
+    try {
+      const { data } = await sb.from("tanda_milestones").select("*", `po_number=eq.${encodeURIComponent(poNumber)}&order=sort_order.asc`);
+      return (data as Milestone[]) ?? [];
+    } catch { return []; }
+  }
+
+  async function saveMilestone(m: Milestone) {
+    await sb.from("tanda_milestones").upsert(m, { onConflict: "id" });
+    setMilestones(prev => {
+      const arr = [...(prev[m.po_number] || [])];
+      const idx = arr.findIndex(x => x.id === m.id);
+      if (idx >= 0) arr[idx] = m; else arr.push(m);
+      return { ...prev, [m.po_number]: arr };
+    });
+  }
+
+  async function saveMilestones(ms: Milestone[]) {
+    if (!ms.length) return;
+    await sb.from("tanda_milestones").upsert(ms, { onConflict: "id" });
+    setMilestones(prev => {
+      const next = { ...prev };
+      ms.forEach(m => {
+        if (!next[m.po_number]) next[m.po_number] = [];
+        const arr = [...next[m.po_number]];
+        const idx = arr.findIndex(x => x.id === m.id);
+        if (idx >= 0) arr[idx] = m; else arr.push(m);
+        next[m.po_number] = arr;
+      });
+      return next;
+    });
+  }
+
+  async function deleteMilestonesForPO(poNumber: string) {
+    await sb.from("tanda_milestones").delete(`po_number=eq.${encodeURIComponent(poNumber)}`);
+    setMilestones(prev => { const next = { ...prev }; delete next[poNumber]; return next; });
+  }
+
+  function generateMilestones(poNumber: string, ddpDate: string, vendorName?: string): Milestone[] {
+    const templates = wipTemplates.length > 0 ? wipTemplates : DEFAULT_WIP_TEMPLATES;
+    const vendor = dcVendors.find(v => v.name === vendorName);
+    const overrides = vendor?.wipLeadOverrides || {};
+    const ddp = new Date(ddpDate);
+    if (isNaN(ddp.getTime())) return [];
+
+    return templates.map((tpl, i) => {
+      const daysB = overrides[tpl.phase] ?? tpl.daysBeforeDDP;
+      const expected = new Date(ddp);
+      expected.setDate(expected.getDate() - daysB);
+      return {
+        id: milestoneUid(),
+        po_number: poNumber,
+        phase: tpl.phase,
+        category: tpl.category,
+        sort_order: i,
+        days_before_ddp: daysB,
+        expected_date: expected.toISOString().slice(0, 10),
+        actual_date: null,
+        status: "Not Started",
+        notes: "",
+        updated_at: new Date().toISOString(),
+        updated_by: user?.name || "",
+      };
+    });
+  }
+
+  function mergeMilestones(existing: Milestone[], fresh: Milestone[]): Milestone[] {
+    return fresh.map(f => {
+      const old = existing.find(e => e.phase === f.phase);
+      if (old && (old.actual_date || old.status !== "Not Started" || old.notes)) {
+        return { ...f, id: old.id, actual_date: old.actual_date, status: old.status, notes: old.notes };
+      }
+      return f;
+    });
+  }
+
+  async function ensureMilestones(po: XoroPO): Promise<Milestone[]> {
+    const poNum = po.PoNumber ?? "";
+    if (!poNum) return [];
+    const existing = milestones[poNum];
+    if (existing && existing.length > 0) return existing;
+    const ddp = po.DateExpectedDelivery;
+    if (!ddp) return [];
+    const ms = generateMilestones(poNum, ddp, po.VendorName);
+    if (ms.length > 0) await saveMilestones(ms);
+    return ms;
+  }
+
+  async function regenerateMilestones(po: XoroPO) {
+    const poNum = po.PoNumber ?? "";
+    const ddp = po.DateExpectedDelivery;
+    if (!poNum || !ddp) return;
+    const existing = milestones[poNum] || [];
+    const fresh = generateMilestones(poNum, ddp, po.VendorName);
+    const merged = mergeMilestones(existing, fresh);
+    if (existing.length > 0) await deleteMilestonesForPO(poNum);
+    await saveMilestones(merged);
+  }
+
   // ── Cancel sync ─────────────────────────────────────────────────────────
   function cancelSync() {
     syncAbortRef.current?.abort();
@@ -449,7 +682,7 @@ export default function TandAApp() {
   }
 
   useEffect(() => {
-    if (user) { loadCachedPOs(); loadNotes(); loadVendors(); }
+    if (user) { loadCachedPOs(); loadNotes(); loadVendors(); loadWipTemplates(); loadAllMilestones(); loadDCVendors(); loadDesignTemplates(); }
   }, [user, loadCachedPOs, loadNotes, loadVendors]);
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -476,6 +709,19 @@ export default function TandAApp() {
     return d !== null && d >= 0 && d <= 7;
   }).length;
   const totalValue = pos.reduce((s, p) => s + poTotal(p), 0);
+
+  // ── Milestone dashboard aggregates ────────────────────────────────────
+  const allMilestonesList = Object.values(milestones).flat();
+  const today = new Date().toISOString().slice(0, 10);
+  const weekFromNow = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+  const overdueMilestones = allMilestonesList.filter(m => m.expected_date && m.expected_date < today && m.status !== "Complete" && m.status !== "N/A");
+  const dueThisWeekMilestones = allMilestonesList.filter(m => m.expected_date && m.expected_date >= today && m.expected_date <= weekFromNow && m.status !== "Complete" && m.status !== "N/A");
+  const completedMilestones = allMilestonesList.filter(m => m.status === "Complete");
+  const milestoneCompletionRate = allMilestonesList.length > 0 ? Math.round((completedMilestones.length / allMilestonesList.length) * 100) : 0;
+  const upcomingMilestones = allMilestonesList
+    .filter(m => m.expected_date && m.expected_date >= today && m.status !== "Complete" && m.status !== "N/A")
+    .sort((a, b) => (a.expected_date ?? "").localeCompare(b.expected_date ?? ""))
+    .slice(0, 15);
 
   async function addNote() {
     if (!newNote.trim() || !selected || !user) return;
@@ -744,6 +990,12 @@ export default function TandAApp() {
     const total = poTotal(selected);
     const statusColor = STATUS_COLORS[selected.StatusName ?? ""] ?? "#6B7280";
 
+    // Lazy-generate milestones on first view
+    const poNum = selected.PoNumber ?? "";
+    if (poNum && selected.DateExpectedDelivery && !milestones[poNum]) {
+      ensureMilestones(selected);
+    }
+
     return (
       <div style={S.detailOverlay} onClick={() => setSelected(null)}>
         <div style={S.detailPanel} onClick={e => e.stopPropagation()}>
@@ -827,6 +1079,80 @@ export default function TandAApp() {
               </div>
             )}
 
+            {/* Production Milestones */}
+            {(() => {
+              const poNum = selected.PoNumber ?? "";
+              const poMs = milestones[poNum] || [];
+              const ddp = selected.DateExpectedDelivery;
+              const isAdmin = user?.role === "admin";
+              const grouped: Record<string, Milestone[]> = {};
+              poMs.forEach(m => { if (!grouped[m.category]) grouped[m.category] = []; grouped[m.category].push(m); });
+
+              return (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <div style={S.sectionLabel}>Production Milestones</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {poMs.length === 0 && ddp && (
+                        <button style={{ ...S.btnSecondary, fontSize: 11, padding: "4px 10px" }} onClick={() => ensureMilestones(selected)}>
+                          Generate Milestones
+                        </button>
+                      )}
+                      {poMs.length > 0 && (
+                        <button style={{ ...S.btnSecondary, fontSize: 11, padding: "4px 10px" }} onClick={() => {
+                          if (window.confirm("Regenerate milestones? Your actual dates, statuses, and notes will be preserved.")) regenerateMilestones(selected);
+                        }}>
+                          Regenerate
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {poMs.length === 0 && !ddp && <p style={{ color: "#6B7280", fontSize: 13 }}>No expected delivery date — cannot generate milestones.</p>}
+                  {poMs.length === 0 && ddp && <p style={{ color: "#6B7280", fontSize: 13 }}>No milestones yet. Click "Generate Milestones" to create them.</p>}
+                  {WIP_CATEGORIES.filter(cat => grouped[cat]?.length).map(cat => {
+                    const catMs = grouped[cat];
+                    const collapsed = collapsedCats[cat + poNum];
+                    const catComplete = catMs.filter(m => m.status === "Complete").length;
+                    return (
+                      <div key={cat} style={{ marginBottom: 8 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#0F172A", borderRadius: collapsed ? 8 : "8px 8px 0 0", cursor: "pointer", userSelect: "none" }}
+                          onClick={() => setCollapsedCats(prev => ({ ...prev, [cat + poNum]: !collapsed }))}>
+                          <span style={{ color: "#6B7280", fontSize: 12 }}>{collapsed ? "▶" : "▼"}</span>
+                          <span style={{ color: "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>{cat}</span>
+                          <span style={{ color: "#6B7280", fontSize: 11, marginLeft: "auto" }}>{catComplete}/{catMs.length}</span>
+                        </div>
+                        {!collapsed && (
+                          <div style={{ background: "#0F172A", borderRadius: "0 0 8px 8px", overflow: "hidden" }}>
+                            {catMs.map(m => {
+                              const daysRem = m.expected_date ? Math.ceil((new Date(m.expected_date).getTime() - Date.now()) / 86400000) : null;
+                              const daysColor = m.status === "Complete" ? "#10B981" : m.status === "N/A" ? "#6B7280" : daysRem === null ? "#6B7280" : daysRem < 0 ? "#EF4444" : daysRem <= 7 ? "#F59E0B" : "#10B981";
+                              return (
+                                <div key={m.id} style={{ display: "grid", gridTemplateColumns: "1fr 90px 90px 100px 60px", gap: 6, padding: "6px 12px", borderTop: "1px solid #1E293B", alignItems: "center", fontSize: 12 }}>
+                                  <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
+                                  <span style={{ color: "#9CA3AF", textAlign: "center", fontSize: 11 }}>{m.expected_date || "—"}</span>
+                                  <input type="date" style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#F1F5F9", fontSize: 11, padding: "2px 4px" }}
+                                    value={m.actual_date || ""}
+                                    onChange={e => saveMilestone({ ...m, actual_date: e.target.value || null, updated_at: new Date().toISOString(), updated_by: user?.name || "" })} />
+                                  <select style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: MILESTONE_STATUS_COLORS[m.status] || "#6B7280", fontSize: 11, padding: "2px 4px" }}
+                                    value={m.status}
+                                    onChange={e => saveMilestone({ ...m, status: e.target.value, updated_at: new Date().toISOString(), updated_by: user?.name || "" })}>
+                                    {MILESTONE_STATUSES.map(s => <option key={s} value={s} style={{ color: MILESTONE_STATUS_COLORS[s] }}>{s}</option>)}
+                                  </select>
+                                  <span style={{ color: daysColor, fontWeight: 600, textAlign: "right", fontSize: 11 }}>
+                                    {m.status === "Complete" ? "Done" : m.status === "N/A" ? "—" : daysRem === null ? "—" : daysRem < 0 ? `${Math.abs(daysRem)}d late` : daysRem === 0 ? "Today" : `${daysRem}d`}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
             {/* Notes */}
             <div>
               <div style={S.sectionLabel}>Notes & Updates</div>
@@ -870,6 +1196,54 @@ export default function TandAApp() {
     );
   }
 
+  function WipTemplateEditor({ templates, onSave }: { templates: WipTemplate[]; onSave: (t: WipTemplate[]) => void }) {
+    const [adding, setAdding] = useState(false);
+    const [form, setForm] = useState<WipTemplate>({ id: "", phase: "", category: "Pre-Production", daysBeforeDDP: 0, status: "Not Started", notes: "" });
+
+    if (!adding) return (
+      <button style={{ ...S.btnSecondary, marginTop: 12 }} onClick={() => { setForm({ id: milestoneUid(), phase: "", category: "Pre-Production", daysBeforeDDP: 0, status: "Not Started", notes: "" }); setAdding(true); }}>
+        + Add Phase
+      </button>
+    );
+
+    return (
+      <div style={{ marginTop: 12, background: "#0F172A", borderRadius: 8, padding: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div>
+            <label style={{ color: "#94A3B8", fontSize: 11, display: "block", marginBottom: 3 }}>Phase Name</label>
+            <input style={{ ...S.input, fontSize: 13 }} value={form.phase} onChange={e => setForm(f => ({ ...f, phase: e.target.value }))} placeholder="e.g. Lab Dip" />
+          </div>
+          <div>
+            <label style={{ color: "#94A3B8", fontSize: 11, display: "block", marginBottom: 3 }}>Category</label>
+            <select style={{ ...S.select, width: "100%" }} value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
+              {WIP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div>
+            <label style={{ color: "#94A3B8", fontSize: 11, display: "block", marginBottom: 3 }}>Days Before DDP</label>
+            <input type="number" style={{ ...S.input, fontSize: 13 }} value={form.daysBeforeDDP} onChange={e => setForm(f => ({ ...f, daysBeforeDDP: parseInt(e.target.value) || 0 }))} />
+          </div>
+          <div>
+            <label style={{ color: "#94A3B8", fontSize: 11, display: "block", marginBottom: 3 }}>Default Status</label>
+            <select style={{ ...S.select, width: "100%" }} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+              {MILESTONE_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button style={S.btnSecondary} onClick={() => setAdding(false)}>Cancel</button>
+          <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 16px" }} onClick={() => {
+            if (!form.phase.trim()) return;
+            onSave([...templates, form]);
+            setAdding(false);
+          }}>Add Phase</button>
+        </div>
+      </div>
+    );
+  }
+
   // ════════════════════════════════════════════════════════════════════════════
   // MAIN RENDER
   // ════════════════════════════════════════════════════════════════════════════
@@ -885,6 +1259,7 @@ export default function TandAApp() {
         <div style={S.navRight}>
           <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => setView("dashboard")}>Dashboard</button>
           <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => setView("list")}>All POs</button>
+          <button style={view === "templates" ? S.navBtnActive : S.navBtn} onClick={() => setView("templates")}>Templates</button>
           <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing} title="Sync POs from Xoro">
             {syncing ? "⏳ Syncing…" : "🔄 Sync"}
           </button>
@@ -929,6 +1304,66 @@ export default function TandAApp() {
               <StatCard label="Overdue"         value={overdue}                            color="#EF4444" icon="⚠️" />
               <StatCard label="Due This Week"   value={dueThisWeek}                        color="#F59E0B" icon="📅" />
             </div>
+
+            {/* Milestone Stats */}
+            <div style={S.statsRow}>
+              <StatCard label="Overdue Milestones"  value={overdueMilestones.length}      color="#EF4444" icon="🚨" />
+              <StatCard label="Due This Week"       value={dueThisWeekMilestones.length}   color="#F59E0B" icon="📌" />
+              <StatCard label="Completion Rate"     value={`${milestoneCompletionRate}%`}   color="#10B981" icon="📊" />
+              <StatCard label="Total Milestones"    value={allMilestonesList.length}        color="#8B5CF6" icon="🏭" />
+            </div>
+
+            {/* Upcoming Milestones */}
+            {upcomingMilestones.length > 0 && (
+              <div style={S.card}>
+                <h3 style={S.cardTitle}>Upcoming Milestones</h3>
+                <div style={{ fontSize: 12 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 100px 80px 70px", padding: "8px 12px", color: "#6B7280", fontWeight: 600, borderBottom: "1px solid #334155", textTransform: "uppercase", letterSpacing: 1, fontSize: 10 }}>
+                    <span>PO #</span><span>Phase</span><span>Expected</span><span>Status</span><span>Days</span>
+                  </div>
+                  {upcomingMilestones.map(m => {
+                    const daysRem = m.expected_date ? Math.ceil((new Date(m.expected_date).getTime() - Date.now()) / 86400000) : null;
+                    return (
+                      <div key={m.id} style={{ display: "grid", gridTemplateColumns: "120px 1fr 100px 80px 70px", padding: "8px 12px", borderBottom: "1px solid #1E293B", cursor: "pointer", alignItems: "center" }}
+                        onClick={() => { const p = pos.find(x => x.PoNumber === m.po_number); if (p) setSelected(p); }}>
+                        <span style={{ color: "#60A5FA", fontFamily: "monospace", fontSize: 11 }}>{m.po_number}</span>
+                        <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
+                        <span style={{ color: "#9CA3AF" }}>{m.expected_date}</span>
+                        <span style={{ color: MILESTONE_STATUS_COLORS[m.status] || "#6B7280", fontSize: 11 }}>{m.status}</span>
+                        <span style={{ color: daysRem !== null && daysRem <= 7 ? "#F59E0B" : "#10B981", fontWeight: 600, textAlign: "right" }}>
+                          {daysRem !== null ? `${daysRem}d` : "—"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Overdue Milestones */}
+            {overdueMilestones.length > 0 && (
+              <div style={S.card}>
+                <h3 style={{ ...S.cardTitle, color: "#EF4444" }}>Overdue Milestones</h3>
+                <div style={{ fontSize: 12 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 100px 80px 70px", padding: "8px 12px", color: "#6B7280", fontWeight: 600, borderBottom: "1px solid #334155", textTransform: "uppercase", letterSpacing: 1, fontSize: 10 }}>
+                    <span>PO #</span><span>Phase</span><span>Expected</span><span>Status</span><span>Days Late</span>
+                  </div>
+                  {overdueMilestones.sort((a, b) => (a.expected_date ?? "").localeCompare(b.expected_date ?? "")).slice(0, 15).map(m => {
+                    const daysLate = m.expected_date ? Math.abs(Math.ceil((new Date(m.expected_date).getTime() - Date.now()) / 86400000)) : 0;
+                    return (
+                      <div key={m.id} style={{ display: "grid", gridTemplateColumns: "120px 1fr 100px 80px 70px", padding: "8px 12px", borderBottom: "1px solid #1E293B", cursor: "pointer", alignItems: "center" }}
+                        onClick={() => { const p = pos.find(x => x.PoNumber === m.po_number); if (p) setSelected(p); }}>
+                        <span style={{ color: "#60A5FA", fontFamily: "monospace", fontSize: 11 }}>{m.po_number}</span>
+                        <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
+                        <span style={{ color: "#9CA3AF" }}>{m.expected_date}</span>
+                        <span style={{ color: MILESTONE_STATUS_COLORS[m.status] || "#6B7280", fontSize: 11 }}>{m.status}</span>
+                        <span style={{ color: "#EF4444", fontWeight: 600, textAlign: "right" }}>{daysLate}d</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Status breakdown */}
             <div style={S.card}>
@@ -1003,6 +1438,86 @@ export default function TandAApp() {
             </div>
           </>
         )}
+
+        {/* ── TEMPLATES ── */}
+        {view === "templates" && (() => {
+          const isAdmin = user?.role === "admin";
+          const [tplTab, setTplTab] = [
+            (window as any).__tplTab ?? "production",
+            (v: string) => { (window as any).__tplTab = v; setWipTemplates([...wipTemplates]); } // force re-render
+          ];
+          const templates = wipTemplates.length > 0 ? wipTemplates : DEFAULT_WIP_TEMPLATES;
+
+          return (
+            <>
+              <div style={S.card}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <h3 style={S.cardTitle}>Milestone Templates</h3>
+                </div>
+                {/* Tab bar */}
+                <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "#0F172A", borderRadius: 8, padding: 4 }}>
+                  <button style={{ flex: 1, padding: "8px 16px", borderRadius: 6, border: "none", background: tplTab === "production" ? "#3B82F620" : "transparent", color: tplTab === "production" ? "#60A5FA" : "#6B7280", fontWeight: tplTab === "production" ? 700 : 400, cursor: "pointer", fontSize: 13 }}
+                    onClick={() => setTplTab("production")}>Production</button>
+                  <button style={{ flex: 1, padding: "8px 16px", borderRadius: 6, border: "none", background: tplTab === "design" ? "#3B82F620" : "transparent", color: tplTab === "design" ? "#60A5FA" : "#6B7280", fontWeight: tplTab === "design" ? 700 : 400, cursor: "pointer", fontSize: 13 }}
+                    onClick={() => setTplTab("design")}>Design (read-only)</button>
+                </div>
+
+                {tplTab === "design" && (
+                  <div>
+                    <p style={{ color: "#6B7280", fontSize: 13, marginBottom: 12 }}>Design Calendar task templates (managed in the Design Calendar app).</p>
+                    <div style={{ border: "1px solid #334155", borderRadius: 8, overflow: "hidden" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px", padding: "8px 14px", background: "#0F172A", color: "#6B7280", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
+                        <span>Phase</span><span style={{ textAlign: "center" }}>Days Before DDP</span><span style={{ textAlign: "center" }}>Status</span>
+                      </div>
+                      {(designTemplates.length > 0 ? designTemplates : []).map((tpl: any, i: number) => (
+                        <div key={tpl.id || i} style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px", padding: "8px 14px", borderTop: "1px solid #1E293B", fontSize: 13 }}>
+                          <span style={{ color: "#D1D5DB" }}>{tpl.phase}</span>
+                          <span style={{ color: "#9CA3AF", textAlign: "center" }}>{tpl.daysBeforeDDP}</span>
+                          <span style={{ color: "#6B7280", textAlign: "center" }}>{tpl.status || "Not Started"}</span>
+                        </div>
+                      ))}
+                      {designTemplates.length === 0 && <div style={{ padding: 20, textAlign: "center", color: "#6B7280", fontSize: 13 }}>No design templates loaded.</div>}
+                    </div>
+                  </div>
+                )}
+
+                {tplTab === "production" && (
+                  <div>
+                    {!isAdmin && <p style={{ color: "#F59E0B", fontSize: 12, marginBottom: 12 }}>View only — admin access required to edit production templates.</p>}
+                    <div style={{ border: "1px solid #334155", borderRadius: 8, overflow: "hidden" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "40px 1fr 140px 120px 90px" + (isAdmin ? " 80px" : ""), padding: "8px 14px", background: "#0F172A", color: "#6B7280", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
+                        <span>#</span><span>Phase</span><span>Category</span><span style={{ textAlign: "center" }}>Days Before DDP</span><span style={{ textAlign: "center" }}>Status</span>
+                        {isAdmin && <span style={{ textAlign: "center" }}>Actions</span>}
+                      </div>
+                      {templates.map((tpl, i) => (
+                        <div key={tpl.id} style={{ display: "grid", gridTemplateColumns: "40px 1fr 140px 120px 90px" + (isAdmin ? " 80px" : ""), padding: "8px 14px", borderTop: "1px solid #1E293B", fontSize: 13, alignItems: "center" }}>
+                          <span style={{ color: "#6B7280", fontSize: 11 }}>{i + 1}</span>
+                          <span style={{ color: "#D1D5DB" }}>{tpl.phase}</span>
+                          <span style={{ color: "#9CA3AF", fontSize: 12 }}>{tpl.category}</span>
+                          <span style={{ color: "#9CA3AF", textAlign: "center" }}>{tpl.daysBeforeDDP}</span>
+                          <span style={{ color: MILESTONE_STATUS_COLORS[tpl.status] || "#6B7280", textAlign: "center", fontSize: 11 }}>{tpl.status}</span>
+                          {isAdmin && (
+                            <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
+                              {i > 0 && <button style={{ background: "none", border: "1px solid #334155", color: "#6B7280", borderRadius: 4, cursor: "pointer", padding: "2px 6px", fontSize: 10 }}
+                                onClick={() => { const arr = [...templates]; [arr[i - 1], arr[i]] = [arr[i], arr[i - 1]]; saveWipTemplates(arr); }}>↑</button>}
+                              {i < templates.length - 1 && <button style={{ background: "none", border: "1px solid #334155", color: "#6B7280", borderRadius: 4, cursor: "pointer", padding: "2px 6px", fontSize: 10 }}
+                                onClick={() => { const arr = [...templates]; [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]]; saveWipTemplates(arr); }}>↓</button>}
+                              <button style={{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 4, cursor: "pointer", padding: "2px 6px", fontSize: 10 }}
+                                onClick={() => { if (window.confirm(`Delete "${tpl.phase}"?`)) saveWipTemplates(templates.filter(t => t.id !== tpl.id)); }}>✕</button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    {isAdmin && (
+                      <WipTemplateEditor templates={templates} onSave={saveWipTemplates} />
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
+          );
+        })()}
       </div>
 
       {selected      && <DetailPanel />}
@@ -1026,6 +1541,13 @@ export default function TandAApp() {
     const days  = daysUntil(po.DateExpectedDelivery);
     const total = poTotal(po);
     const items = po.Items ?? po.PoLineArr ?? [];
+    const poMs = milestones[po.PoNumber ?? ""] || [];
+    const msComplete = poMs.filter(m => m.status === "Complete").length;
+    const msTotal = poMs.length;
+    const msOverdue = poMs.some(m => m.expected_date && m.expected_date < today && m.status !== "Complete" && m.status !== "N/A");
+    const msApproaching = poMs.some(m => m.expected_date && m.expected_date >= today && m.expected_date <= weekFromNow && m.status !== "Complete" && m.status !== "N/A");
+    const msDotColor = msTotal === 0 ? "#6B7280" : msOverdue ? "#EF4444" : msApproaching ? "#F59E0B" : "#10B981";
+    const msPercent = msTotal > 0 ? Math.round((msComplete / msTotal) * 100) : 0;
     return (
       <div style={{ ...S.poRow, borderLeft: `3px solid ${color}` }} onClick={onClick}>
         <div style={{ flex: 1 }}>
@@ -1034,12 +1556,24 @@ export default function TandAApp() {
             <span style={{ ...S.badge, background: color + "22", color, border: `1px solid ${color}44` }}>
               {po.StatusName ?? "Unknown"}
             </span>
-            {days !== null && days < 0 && <span style={{ ...S.badge, background: "#EF444422", color: "#EF4444", border: "1px solid #EF444444" }}>⚠️ Overdue</span>}
-            {days !== null && days >= 0 && days <= 7 && <span style={{ ...S.badge, background: "#F59E0B22", color: "#F59E0B", border: "1px solid #F59E0B44" }}>📅 Due Soon</span>}
+            {days !== null && days < 0 && <span style={{ ...S.badge, background: "#EF444422", color: "#EF4444", border: "1px solid #EF444444" }}>Overdue</span>}
+            {days !== null && days >= 0 && days <= 7 && <span style={{ ...S.badge, background: "#F59E0B22", color: "#F59E0B", border: "1px solid #F59E0B44" }}>Due Soon</span>}
           </div>
           <div style={{ color: "#D1D5DB", fontWeight: 600 }}>{po.VendorName ?? "Unknown Vendor"}</div>
           {detailed && po.Memo && <div style={{ color: "#6B7280", fontSize: 12, marginTop: 2 }}>{po.Memo}</div>}
         </div>
+        {/* Milestone mini-progress */}
+        {msTotal > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 60 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: msDotColor }} />
+              <span style={{ color: "#9CA3AF", fontSize: 11, fontFamily: "monospace" }}>{msComplete}/{msTotal}</span>
+            </div>
+            <div style={{ width: 48, height: 4, background: "#334155", borderRadius: 2, overflow: "hidden" }}>
+              <div style={{ width: `${msPercent}%`, height: "100%", background: msDotColor, borderRadius: 2, transition: "width 0.3s" }} />
+            </div>
+          </div>
+        )}
         <div style={{ textAlign: "right", minWidth: 160 }}>
           <div style={{ color: "#10B981", fontWeight: 700, fontSize: 16 }}>{fmtCurrency(total, po.CurrencyCode)}</div>
           {detailed && <div style={{ color: "#6B7280", fontSize: 12 }}>{items.length} line items</div>}
