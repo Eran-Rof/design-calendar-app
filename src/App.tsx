@@ -19,6 +19,12 @@ const TH = {
   shadowMd: "rgba(0,0,0,0.18)",
 };
 
+// ─── Day/Days label helper ───────────────────────────────────────────────────
+function fmtDays(n: number): string {
+  const v = Number.isInteger(n) ? `${n}` : n.toFixed(1);
+  return `${v} ${Math.abs(n) === 1 ? "Day" : "Days"}`;
+}
+
 // ─── GLOBAL CONFIRM ─────────────────────────────────────────────────────────
 let _showConfirm: (opts: { message: string; action: string; onConfirm: () => void }) => void = () => {};
 
@@ -11162,7 +11168,7 @@ export default function App() {
                                               onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = innerBg}>
                                               <td style={{ padding: "8px 14px 8px 28px", fontWeight: 600, color: TH.text }}>{t.phase}</td>
                                               <td style={{ padding: "8px 14px 8px 28px", color: TH.textSub2 }}>{formatDate(t.due)}</td>
-                                              <td style={{ padding: "8px 14px 8px 28px", color: bd < 0 ? "#B91C1C" : bd <= 5 ? "#B45309" : TH.textSub, fontWeight: bd < 0 ? 700 : 400 }}>{t.status === "Complete" ? "Done" : `${Number.isInteger(bd) ? bd : bd.toFixed(1)}bd`}</td>
+                                              <td style={{ padding: "8px 14px 8px 28px", color: bd < 0 ? "#B91C1C" : bd <= 5 ? "#B45309" : TH.textSub, fontWeight: bd < 0 ? 700 : 400 }}>{t.status === "Complete" ? "Done" : fmtDays(bd)}</td>
                                               <td style={{ padding: "8px 14px 8px 28px" }}>
                                                 <span style={{ background: sc.bg, color: sc.color, border: `1px solid ${sc.border}`, padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 600 }}>{t.status}</span>
                                               </td>
@@ -11637,7 +11643,7 @@ export default function App() {
                                     onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = innerBg}>
                                     <td style={{ padding: "8px 14px 8px 28px", fontWeight: 600, color: TH.text }}>{t.phase}</td>
                                     <td style={{ padding: "8px 14px 8px 28px", color: TH.textSub2 }}>{formatDate(t.due)}</td>
-                                    <td style={{ padding: "8px 14px 8px 28px", color: bd < 0 ? "#B91C1C" : bd <= 5 ? "#B45309" : TH.textSub, fontWeight: bd < 0 ? 700 : 400 }}>{t.status === "Complete" ? "Done" : `${Number.isInteger(bd) ? bd : bd.toFixed(1)}bd`}</td>
+                                    <td style={{ padding: "8px 14px 8px 28px", color: bd < 0 ? "#B91C1C" : bd <= 5 ? "#B45309" : TH.textSub, fontWeight: bd < 0 ? 700 : 400 }}>{t.status === "Complete" ? "Done" : fmtDays(bd)}</td>
                                     <td style={{ padding: "8px 14px 8px 28px" }}>
                                       <span style={{ background: sc.bg, color: sc.color, border: `1px solid ${sc.border}`, padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 600 }}>{t.status}</span>
                                     </td>
@@ -11877,15 +11883,14 @@ export default function App() {
                           : days <= 14
                           ? "#D97706"
                           : "#065F46";
-                        const daysDisplay = Number.isInteger(days) ? `${days}` : days.toFixed(1);
                         const countdownLabel =
                           t.status === "Complete"
                             ? "Done"
                             : isOver
-                            ? `${Math.abs(days) % 1 === 0 ? Math.abs(days) : Math.abs(days).toFixed(1)}bd over`
+                            ? `${fmtDays(Math.abs(days))} over`
                             : days === 0
                             ? "Today"
-                            : `${daysDisplay}bd`;
+                            : fmtDays(days);
                         const isDraggingThis = dragId === t.id;
                         const gapKey = `${bid}-${cname}-gap-${i}`;
                         const isGapActive = dragOverId === gapKey;
@@ -12105,9 +12110,7 @@ export default function App() {
                                   >
                                     {daysFromPrev == null
                                       ? "—"
-                                      : daysFromPrev === 0
-                                      ? "0bd"
-                                      : `${Number.isInteger(daysFromPrev) ? daysFromPrev : daysFromPrev.toFixed(1)}bd`}
+                                      : fmtDays(daysFromPrev)}
                                   </div>
                                 </div>
 
