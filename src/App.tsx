@@ -19,6 +19,13 @@ const TH = {
   shadowMd: "rgba(0,0,0,0.18)",
 };
 
+// ─── GLOBAL CONFIRM ─────────────────────────────────────────────────────────
+let _showConfirm: (opts: { message: string; action: string; onConfirm: () => void }) => void = () => {};
+
+function appConfirm(message: string, action: string, onConfirm: () => void) {
+  _showConfirm({ message, action, onConfirm });
+}
+
 // ─── TEAMS BRAND COLORS
 const TEAMS_PURPLE = "#5b5ea6";
 const TEAMS_PURPLE_LT = "#7b83eb";
@@ -1134,7 +1141,7 @@ function CustomerManager({ customers, setCustomers, isAdmin = false }) {
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => { setForm({ name: c.name || c, channel: c.channel || "" }); setEditing(i); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
-              <button onClick={() => { if (window.confirm("Delete this customer?")) setCustomers((cs) => cs.filter((_, j) => j !== i)); }} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
+              <button onClick={() => appConfirm("You are about to delete this customer. This action cannot be undone.", "Delete", () => setCustomers((cs) => cs.filter((_, j) => j !== i)))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
             </div>
           </div>
         ))}
@@ -1203,7 +1210,7 @@ function OrderTypeManager({ orderTypes, setOrderTypes, isAdmin = false }) {
             <div style={{ flex: 1, fontSize: 14, fontWeight: 700, color: TH.text }}>{ot}</div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => { setForm(ot); setEditing(i); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
-              <button onClick={() => { if (window.confirm("Delete this order type?")) setOrderTypes((arr) => arr.filter((_, j) => j !== i)); }} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
+              <button onClick={() => appConfirm("You are about to delete this order type. This action cannot be undone.", "Delete", () => setOrderTypes((arr) => arr.filter((_, j) => j !== i)))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
             </div>
           </div>
         ))}
@@ -1274,7 +1281,7 @@ function RoleManager({ roles, setRoles, isAdmin = false }) {
             <div style={{ flex: 1, fontSize: 14, fontWeight: 700, color: TH.text }}>🎭 {role}</div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => { setForm(role); setEditing(i); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
-              <button onClick={() => { if (window.confirm("Delete this role?")) setRoles((arr) => arr.filter((_, j) => j !== i)); }} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
+              <button onClick={() => appConfirm("You are about to delete this role. This action cannot be undone.", "Delete", () => setRoles((arr) => arr.filter((_, j) => j !== i)))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
             </div>
           </div>
         ))}
@@ -1350,7 +1357,7 @@ function SeasonManager({ seasons, setSeasons, isAdmin = false }) {
                 Edit
               </button>
               <button
-                onClick={() => { if (window.confirm("Delete this season?")) setSeasons((ss) => ss.filter((_, j) => j !== i)); }}
+                onClick={() => appConfirm("You are about to delete this season. This action cannot be undone.", "Delete", () => setSeasons((ss) => ss.filter((_, j) => j !== i)))}
                 style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}
               >
                 Delete
@@ -1641,7 +1648,7 @@ function BrandManager({ brands, setBrands, isAdmin = false }) {
               </button>
               <button
                 onClick={() => {
-                  if (window.confirm("Delete this brand?")) setBrands((bs) => bs.filter((x) => x.id !== b.id));
+                  appConfirm("You are about to delete this brand. This action cannot be undone.", "Delete", () => setBrands((bs) => bs.filter((x) => x.id !== b.id)));
                 }}
                 style={{
                   padding: "5px 12px",
@@ -2040,7 +2047,7 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, rol
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => { setForm({ ...u, permissions: u.permissions || { view_own: true, edit_own: true } }); setEditing(u.id); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
-              <button onClick={() => { if (window.confirm("Remove this user?")) setUsers((us) => us.filter((x) => x.id !== u.id)); }} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Remove</button>
+              <button onClick={() => appConfirm("You are about to remove this user. This action cannot be undone.", "Remove", () => setUsers((us) => us.filter((x) => x.id !== u.id)))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Remove</button>
             </div>
           </div>
         ))}
@@ -3197,7 +3204,7 @@ function VendorManager({ vendors, setVendors, isAdmin = false, taskTemplates }) 
               </button>
               <button
                 onClick={() => {
-                  if (window.confirm("Remove this vendor?")) setVendors((vs) => vs.filter((x) => x.id !== v.id));
+                  appConfirm("You are about to remove this vendor. This action cannot be undone.", "Remove", () => setVendors((vs) => vs.filter((x) => x.id !== v.id)));
                 }}
                 style={{
                   padding: "5px 12px",
@@ -3324,7 +3331,7 @@ function TeamManager({ team, setTeam, users, setUsers, isAdmin, roles = ROLES, s
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => openEdit(m)} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
-              <button onClick={() => { if (window.confirm("Remove this team member?")) setTeam((t) => t.filter((x) => x.id !== m.id)); }} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Remove</button>
+              <button onClick={() => appConfirm("You are about to remove this team member. This action cannot be undone.", "Remove", () => setTeam((t) => t.filter((x) => x.id !== m.id)))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Remove</button>
             </div>
           </div>
         ))}
@@ -5181,7 +5188,7 @@ function TaskEditModal({
         >
           {canEdit ? (
             <button
-              onClick={() => { if (window.confirm("Delete this task?")) onDelete(task.id); }}
+              onClick={() => appConfirm("You are about to delete this task. This action cannot be undone.", "Delete", () => onDelete(task.id))}
               style={{
                 background: "none",
                 border: "none",
@@ -6940,8 +6947,8 @@ function CategoryManager({ categories, setCategories, isAdmin = false }) {
     setNewCat("");
   }
   function deleteCategory(id) {
-    if (!window.confirm("Delete this category and all its subcategories?")) return;
-    setCategories((cs) => cs.filter((c) => c.id !== id));
+    appConfirm("You are about to delete this category and all its subcategories. This action cannot be undone.", "Delete", () => setCategories((cs) => cs.filter((c) => c.id !== id)));
+    return;
   }
   function renameCategory(id, name) {
     setCategories((cs) => cs.map((c) => (c.id === id ? { ...c, name } : c)));
@@ -6960,14 +6967,16 @@ function CategoryManager({ categories, setCategories, isAdmin = false }) {
     setNewSub((s) => ({ ...s, [catId]: "" }));
   }
   function deleteSubCategory(catId, sub) {
-    if (!window.confirm(`Delete subcategory "${sub}"?`)) return;
-    setCategories((cs) =>
-      cs.map((c) =>
-        c.id === catId
-          ? { ...c, subCategories: c.subCategories.filter((s) => s !== sub) }
-          : c
-      )
-    );
+    appConfirm(`You are about to delete the subcategory "${sub}". This action cannot be undone.`, "Delete", () => {
+      setCategories((cs) =>
+        cs.map((c) =>
+          c.id === catId
+            ? { ...c, subCategories: c.subCategories.filter((s) => s !== sub) }
+            : c
+        )
+      );
+    });
+    return;
   }
 
   return (
@@ -7788,8 +7797,7 @@ function TaskManager({ taskTemplates, setTaskTemplates, isAdmin, vendors, setVen
     setForm(null);
   }
   function deleteTemplate(id) {
-    if (!window.confirm("Delete this task template?")) return;
-    setTaskTemplates(templates.filter(t => t.id !== id));
+    appConfirm("You are about to delete this task template. This action cannot be undone.", "Delete", () => setTaskTemplates(templates.filter(t => t.id !== id)));
   }
   function moveUp(idx) {
     if (idx === 0) return;
@@ -9470,6 +9478,10 @@ function usePersistSb(initial, sbKey, sbSaveFn) {
 }
 
 export default function App() {
+  // ── Confirm modal state ────────────────────────────────────────────────
+  const [confirmState, setConfirmState] = useState<{ message: string; action: string; onConfirm: () => void } | null>(null);
+  _showConfirm = (opts) => setConfirmState(opts);
+
   // ── Supabase persistence ─────────────────────────────────────────────────
   const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
   const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
@@ -12743,6 +12755,7 @@ export default function App() {
         color: TH.text,
       }}
     >
+      {confirmState && <ConfirmModal title="Are you sure?" message={confirmState.message} confirmLabel={confirmState.action} danger onConfirm={() => { confirmState.onConfirm(); setConfirmState(null); }} onCancel={() => setConfirmState(null)} />}
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;}::-webkit-scrollbar{width:10px;height:10px;}::-webkit-scrollbar-track{background:#E2E8EE;border-radius:5px;}::-webkit-scrollbar-thumb{background:#CBD5E0;border-radius:5px;}::-webkit-scrollbar-thumb:hover{background:#A0AEC0;}select option{background:#FFFFFF;color:#1A202C;}`}</style>
 
       {/* ── IDLE WARNING BANNER ── */}

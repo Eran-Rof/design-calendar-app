@@ -328,7 +328,7 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
 
   function deleteUser(id: string) {
     if (id === currentUser.id) { alert("You cannot delete yourself."); return; }
-    if (!confirm("Delete this user?")) return;
+    if (!confirm("Are you sure you want to delete this user?")) return;
     saveUsers(users.filter(u => u.id !== id));
   }
 

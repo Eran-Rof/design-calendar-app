@@ -653,7 +653,7 @@ export default function TandAApp() {
                   </div>
                   {isManual && (
                     <button style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 12 }}
-                      onClick={e => { e.stopPropagation(); if (window.confirm(`Remove vendor "${v}"?`)) removeManualVendor(v); }}>✕</button>
+                      onClick={e => { e.stopPropagation(); if (window.confirm(`Are you sure you want to remove vendor "${v}"?`)) removeManualVendor(v); }}>✕</button>
                   )}
                 </div>
               );
