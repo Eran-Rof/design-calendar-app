@@ -41,76 +41,6 @@ const sb = {
 // ── Xoro API (proxied via /api/xoro-proxy to avoid CORS) ─────────────────────
 
 // ── Mock data for UI testing while Xoro API is being configured ───────────────
-const MOCK_POS: XoroPO[] = [
-  {
-    PoNumber: "PO-2024-001", VendorName: "Blue Star Apparel", DateOrder: "2024-01-15",
-    DateExpectedDelivery: "2024-04-01", VendorReqDate: "2024-03-15", StatusName: "Open",
-    CurrencyCode: "USD", Memo: "Spring 2024 denim collection", Tags: "Spring,Denim",
-    PaymentTermsName: "Net 30", ShipMethodName: "Delivery(Third Party)", CarrierName: "FedEx",
-    BuyerName: "Eran Bitton", TotalAmount: 45000,
-    PoLineArr: [
-      { ItemNumber: "DENIM-BLU-32", Description: "Blue Denim Jeans 32W", QtyOrder: 500, UnitPrice: 45 },
-      { ItemNumber: "DENIM-BLK-32", Description: "Black Denim Jeans 32W", QtyOrder: 300, UnitPrice: 45 },
-      { ItemNumber: "DENIM-GRY-34", Description: "Grey Denim Jeans 34W", QtyOrder: 200, UnitPrice: 45 },
-    ],
-  },
-  {
-    PoNumber: "PO-2024-002", VendorName: "Delta Garments", DateOrder: "2024-01-20",
-    DateExpectedDelivery: "2024-03-20", VendorReqDate: "2024-03-10", StatusName: "Released",
-    CurrencyCode: "USD", Memo: "Basic tees reorder", Tags: "Basics,Spring",
-    PaymentTermsName: "Net 60", ShipMethodName: "Delivery(Third Party)", CarrierName: "UPS",
-    BuyerName: "Aaron Yun", TotalAmount: 28500,
-    PoLineArr: [
-      { ItemNumber: "TEE-WHT-S", Description: "White Tee Small", QtyOrder: 600, UnitPrice: 18 },
-      { ItemNumber: "TEE-WHT-M", Description: "White Tee Medium", QtyOrder: 800, UnitPrice: 18 },
-      { ItemNumber: "TEE-BLK-M", Description: "Black Tee Medium", QtyOrder: 450, UnitPrice: 19 },
-    ],
-  },
-  {
-    PoNumber: "PO-2024-003", VendorName: "Pacific Rim Textiles", DateOrder: "2024-02-01",
-    DateExpectedDelivery: "2024-05-15", VendorReqDate: "2024-05-01", StatusName: "Open",
-    CurrencyCode: "USD", Memo: "Summer collection outerwear", Tags: "Summer,Outerwear",
-    PaymentTermsName: "Net 30", ShipMethodName: "Delivery(Third Party)", CarrierName: "DHL",
-    BuyerName: "Eran Bitton", TotalAmount: 62000,
-    PoLineArr: [
-      { ItemNumber: "JKT-BLU-M", Description: "Blue Jacket Medium", QtyOrder: 400, UnitPrice: 85 },
-      { ItemNumber: "JKT-BLK-L", Description: "Black Jacket Large", QtyOrder: 350, UnitPrice: 85 },
-      { ItemNumber: "JKT-GRN-S", Description: "Green Jacket Small", QtyOrder: 200, UnitPrice: 85 },
-    ],
-  },
-  {
-    PoNumber: "PO-2024-004", VendorName: "Eastern Mills", DateOrder: "2024-02-10",
-    DateExpectedDelivery: "2024-03-10", VendorReqDate: "2024-03-05", StatusName: "Received",
-    CurrencyCode: "USD", Memo: "Holiday leftover basics", Tags: "Basics",
-    PaymentTermsName: "Net 30", ShipMethodName: "Pick Up", CarrierName: "",
-    BuyerName: "Aaron Yun", TotalAmount: 15200,
-    PoLineArr: [
-      { ItemNumber: "SOCK-WHT-OS", Description: "White Socks One Size", QtyOrder: 2000, UnitPrice: 4.5 },
-      { ItemNumber: "BELT-BRN-M", Description: "Brown Belt Medium", QtyOrder: 300, UnitPrice: 22 },
-    ],
-  },
-  {
-    PoNumber: "PO-2024-005", VendorName: "Blue Star Apparel", DateOrder: "2024-02-15",
-    DateExpectedDelivery: "2024-02-28", VendorReqDate: "2024-02-20", StatusName: "Cancelled",
-    CurrencyCode: "USD", Memo: "Cancelled - supplier delay", Tags: "Denim,Cancelled",
-    PaymentTermsName: "Net 30", ShipMethodName: "Delivery(Third Party)", CarrierName: "FedEx",
-    BuyerName: "Eran Bitton", TotalAmount: 0,
-    PoLineArr: [],
-  },
-  {
-    PoNumber: "PO-2024-006", VendorName: "Coastal Apparel Co", DateOrder: "2024-03-01",
-    DateExpectedDelivery: "2024-06-30", VendorReqDate: "2024-06-15", StatusName: "Open",
-    CurrencyCode: "USD", Memo: "Fall 2024 preview order", Tags: "Fall,Preview",
-    PaymentTermsName: "Net 45", ShipMethodName: "Delivery(Third Party)", CarrierName: "FedEx",
-    BuyerName: "Eran Bitton", TotalAmount: 88500,
-    PoLineArr: [
-      { ItemNumber: "COAT-BRN-M", Description: "Brown Wool Coat Medium", QtyOrder: 250, UnitPrice: 145 },
-      { ItemNumber: "COAT-GRY-L", Description: "Grey Wool Coat Large", QtyOrder: 200, UnitPrice: 145 },
-      { ItemNumber: "VEST-BLK-M", Description: "Black Vest Medium", QtyOrder: 400, UnitPrice: 65 },
-      { ItemNumber: "VEST-NVY-S", Description: "Navy Vest Small", QtyOrder: 300, UnitPrice: 65 },
-    ],
-  },
-];
 
 interface SyncFilters {
   poNumber: string;
@@ -339,7 +269,6 @@ export default function TandAApp() {
   const [user, setUser]         = useState<User | null>(null);
   const [view, setView]         = useState<View>("dashboard");
   const [pos, setPos]           = useState<XoroPO[]>([]);
-  const [mockMode, setMockMode] = useState(false);
   const [notes, setNotes]       = useState<LocalNote[]>([]);
   const [selected, setSelected] = useState<XoroPO | null>(null);
   const [loading, setLoading]   = useState(false);
@@ -1132,7 +1061,10 @@ export default function TandAApp() {
                                   <span style={{ color: "#9CA3AF", textAlign: "center", fontSize: 11 }}>{m.expected_date || "—"}</span>
                                   <input type="date" style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#F1F5F9", fontSize: 11, padding: "2px 4px" }}
                                     value={m.actual_date || ""}
-                                    onChange={e => saveMilestone({ ...m, actual_date: e.target.value || null, updated_at: new Date().toISOString(), updated_by: user?.name || "" })} />
+                                    onChange={e => {
+                                      const val = e.target.value || null;
+                                      saveMilestone({ ...m, actual_date: val, status: val ? "Complete" : "Not Started", updated_at: new Date().toISOString(), updated_by: user?.name || "" });
+                                    }} />
                                   <select style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: MILESTONE_STATUS_COLORS[m.status] || "#6B7280", fontSize: 11, padding: "2px 4px" }}
                                     value={m.status}
                                     onChange={e => saveMilestone({ ...m, status: e.target.value, updated_at: new Date().toISOString(), updated_by: user?.name || "" })}>
@@ -1268,11 +1200,6 @@ export default function TandAApp() {
               ✕ Cancel
             </button>
           )}
-          <button style={{ ...S.navBtn, color: mockMode ? "#F59E0B" : "#6B7280", borderColor: mockMode ? "#F59E0B" : "#334155" }}
-            onClick={() => { setPos(mockMode ? [] : MOCK_POS); setMockMode(m => !m); }}
-            title="Load sample data for UI testing">
-            {mockMode ? "🧪 Demo ON" : "🧪 Demo"}
-          </button>
           <button style={S.navBtn} onClick={() => setShowSettings(true)}>⚙️ Settings</button>
           <div style={S.userPill}>{user.name || user.username}</div>
           <button style={S.navBtn} onClick={() => window.location.href = "/"}>← PLM</button>
@@ -1281,11 +1208,6 @@ export default function TandAApp() {
       </nav>
 
       {/* SYNC ERROR */}
-      {mockMode && (
-        <div style={{ background: "#78350F", color: "#FCD34D", padding: "8px 24px", fontSize: 13, display: "flex", alignItems: "center", gap: 12 }}>
-          🧪 <strong>Demo Mode</strong> — showing sample data. Click "🧪 Demo ON" to clear, then sync real data when your Xoro API is ready.
-        </div>
-      )}
       {syncErr && (
         <div style={S.errBanner}>
           ⚠️ Xoro sync error: {syncErr}
