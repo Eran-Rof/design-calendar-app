@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, Fragment } from "react";
 
 // ─── THEME D: SLATE BLUE & RED ────────────────────────────────────────────────
 const TH = {
@@ -607,6 +607,58 @@ function addDays(ds, n) {
 }
 function diffDays(a, b) {
   return Math.round((parseLocalDate(a) - parseLocalDate(b)) / 86400000);
+}
+
+// ── Business-day helpers (Mon–Thu=1, Fri=0.5, Sat/Sun/Holiday=0) ─────────────
+const HOLIDAYS = new Set([
+  "2024-01-01","2024-01-15","2024-02-19","2024-05-27","2024-06-19","2024-07-04",
+  "2024-09-02","2024-10-14","2024-11-11","2024-11-28","2024-12-25",
+  "2025-01-01","2025-01-20","2025-02-17","2025-05-26","2025-06-19","2025-07-04",
+  "2025-09-01","2025-10-13","2025-11-11","2025-11-27","2025-12-25",
+  "2026-01-01","2026-01-19","2026-02-16","2026-05-25","2026-06-19","2026-07-04",
+  "2026-09-07","2026-10-12","2026-11-11","2026-11-26","2026-12-25",
+]);
+function toDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function dayWeight(d) {
+  const ds = toDateStr(d);
+  if (HOLIDAYS.has(ds)) return 0;
+  const dow = d.getDay();
+  if (dow === 0 || dow === 6) return 0;
+  return dow === 5 ? 0.5 : 1;
+}
+function diffBusinessDays(a, b) {
+  const da = parseLocalDate(a), db = parseLocalDate(b);
+  if (toDateStr(da) === toDateStr(db)) return 0;
+  let days = 0;
+  const d = new Date(db);
+  const dir = da > db ? 1 : -1;
+  while (toDateStr(d) !== toDateStr(da)) {
+    d.setDate(d.getDate() + dir);
+    days += dir * dayWeight(d);
+  }
+  return days;
+}
+function addBusinessDays(ds, n) {
+  if (n === 0) return ds;
+  const d = parseLocalDate(ds);
+  let remaining = Math.abs(n);
+  const dir = n > 0 ? 1 : -1;
+  while (remaining > 0) {
+    d.setDate(d.getDate() + dir);
+    remaining = Math.max(0, remaining - dayWeight(d));
+  }
+  return toDateStr(d);
+}
+function snapToBusinessDay(ds) {
+  const d = parseLocalDate(ds);
+  while (dayWeight(d) === 0) d.setDate(d.getDate() + 1);
+  return toDateStr(d);
+}
+function getBusinessDaysUntil(ds) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  return diffBusinessDays(ds, toDateStr(today));
 }
 function fileToDataURL(f) {
   return new Promise((res, rej) => {
@@ -1690,7 +1742,7 @@ function LoginScreen({ users, onLogin, teamsConfig, onTeamsToken }) {
     );
     if (user) {
       setError("");
-      try { localStorage.setItem("last_username", username.trim()); } catch {}
+      try { localStorage.setItem("last_username", username.trim()); localStorage.setItem("plm_last_user", username.trim()); } catch {}
       doTeamsAuth(user);
     } else setError("Invalid username or password.");
   }
@@ -1839,17 +1891,25 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, rol
   const availableRoles = roles || ROLES;
   const setAvailableRoles = setRoles || (() => {});
   const TEAM_COLORS = ["#E74C3C","#3498DB","#2ECC71","#9B59B6","#F39C12","#1ABC9C","#E67E22","#E91E63","#00BCD4","#8BC34A"];
-  const BLANK = () => ({ id: uid(), username: "", password: "", name: "", role: "user", color: "#3498DB", initials: "", teamMemberId: null, teamsEmail: "", permissions: { view_all: false, edit_all: false, view_own: true, edit_own: true } });
+  const BLANK = () => ({ id: uid(), username: "", password: "", name: "", role: "user", color: "#3498DB", initials: "", avatar: null, teamMemberId: null, teamsEmail: "", permissions: { view_all: false, edit_all: false, view_own: true, edit_own: true } });
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const setPerm = (k, v) => setForm((f) => ({ ...f, permissions: { ...f.permissions, [k]: v } }));
+  const userAvatarRef = useRef<HTMLInputElement>(null);
+  async function handleUserAvatar(e) { const f = e.target.files[0]; if (!f) return; set("avatar", await fileToDataURL(f)); }
 
   function save() {
     const initials = form.name.split(" ").map((w) => w[0] || "").join("").toUpperCase().slice(0, 2);
     let teamMemberId = form.teamMemberId;
     if (editing === "new" && createTeamMember) {
-      const newMember = { id: uid(), name: form.name, role: tmRole, initials, color: tmColor, avatar: null };
+      const newMember = { id: uid(), name: form.name, role: tmRole, initials, color: tmColor, avatar: form.avatar || null };
       setTeam((t) => [...t, newMember]);
       teamMemberId = newMember.id;
+    } else if (teamMemberId) {
+      // Sync linked team member: update name, initials, avatar, color
+      setTeam((t) => t.map((m) => {
+        if (m.id !== teamMemberId) return m;
+        return { ...m, name: form.name, initials, avatar: form.avatar ?? m.avatar, color: form.color };
+      }));
     }
     const u = { ...form, initials, teamMemberId };
     if (editing === "new") setUsers((us) => [...us, u]);
@@ -1877,6 +1937,19 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, rol
     <div>
       <label style={S.lbl}>Full Name</label>
       <input style={S.inp} value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Full name" />
+      <label style={S.lbl}>Avatar</label>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 14 }}>
+        <Avatar member={form} size={52} />
+        <div>
+          <input ref={userAvatarRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleUserAvatar} />
+          <button onClick={() => userAvatarRef.current?.click()} style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12, marginBottom: 6, display: "block" }}>Upload Photo</button>
+          {form.avatar && <button onClick={() => set("avatar", null)} style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>Remove</button>}
+        </div>
+      </div>
+      <label style={S.lbl}>Color</label>
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+        {TEAM_COLORS.map((c) => <div key={c} onClick={() => set("color", c)} style={{ width: 28, height: 28, borderRadius: "50%", background: c, cursor: "pointer", border: `3px solid ${form.color === c ? "#1A202C" : "transparent"}` }} />)}
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <div>
           <label style={S.lbl}>Username</label>
@@ -1957,7 +2030,7 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, rol
       <div style={{ display: "grid", gap: 8 }}>
         {users.map((u) => (
           <div key={u.id} style={{ ...S.card, display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{ width: 40, height: 40, borderRadius: "50%", background: u.color + "22", border: `2px solid ${u.color}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, color: u.color, flexShrink: 0 }}>{u.initials}</div>
+            <Avatar member={{ ...u, initials: u.initials || u.name?.[0]?.toUpperCase() }} size={40} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: TH.text }}>{u.name}</div>
               <div style={{ fontSize: 12, color: TH.textMuted }}>
@@ -2036,12 +2109,14 @@ function Modal({ title, onClose, children, wide, extraWide }) {
           background: TH.surface,
           border: `1px solid ${TH.border}`,
           borderRadius: 18,
-          padding: 32,
+          padding: 0,
           width: "100%",
           maxWidth: mw,
           maxHeight: "93vh",
           overflowY: "auto",
           boxShadow: `0 40px 100px rgba(0,0,0,0.4)`,
+          display: "flex",
+          flexDirection: "column",
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -2050,7 +2125,13 @@ function Modal({ title, onClose, children, wide, extraWide }) {
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            marginBottom: 26,
+            padding: "22px 32px 18px",
+            position: "sticky",
+            top: 0,
+            background: TH.surface,
+            zIndex: 10,
+            borderRadius: "18px 18px 0 0",
+            borderBottom: `1px solid ${TH.border}`,
           }}
         >
           <span
@@ -2078,7 +2159,9 @@ function Modal({ title, onClose, children, wide, extraWide }) {
             ×
           </button>
         </div>
-        {children}
+        <div style={{ padding: "28px 32px 32px", flex: 1 }}>
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -2527,6 +2610,25 @@ function DateInput({ value, onChange, onBlur, style, disabled, min }) {
 }
 
 // ─── VENDOR FORM ──────────────────────────────────────────────────────────────
+function LeadTimeCell({ value, onCommit }) {
+  const [local, setLocal] = useState(String(value ?? ""));
+  useEffect(() => { setLocal(String(value ?? "")); }, [value]);
+  return (
+    <input
+      type="number"
+      min="0"
+      value={local}
+      onChange={e => setLocal(e.target.value)}
+      onBlur={() => {
+        const n = parseInt(local);
+        if (!isNaN(n) && n >= 0) onCommit(n);
+        else setLocal(String(value ?? ""));
+      }}
+      style={{ width: 75, padding: "5px 8px", borderRadius: 6, border: `1px solid ${TH.border}`, background: "#fff", color: TH.text, fontFamily: "inherit", fontSize: 13, textAlign: "center", outline: "none" }}
+    />
+  );
+}
+
 function VendorForm({ vendor, onSave, onCancel, taskTemplates }) {
   const templates = (taskTemplates && taskTemplates.length > 0) ? taskTemplates : DEFAULT_TASK_TEMPLATES;
   const [f, setF] = useState(
@@ -2645,40 +2747,73 @@ function VendorForm({ vendor, onSave, onCancel, taskTemplates }) {
           </button>
         ))}
       </div>
-      <span style={S.sec}>Lead Time Overrides (days before DDP)</span>
+      <span style={S.sec}>Lead Times (Days Before DDP)</span>
       <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 10, lineHeight: 1.5 }}>
-        Task templates define the default lead times. Enter overrides below only if this vendor differs. Leave blank to use the template default.
+        Sorted earliest→latest. Edit either column — they stay in sync. Tab out to re-sort. <span style={{ color: TH.primary }}>•custom</span> means this vendor differs from the template default.
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 20 }}>
-        {templates.filter(tpl => tpl.phase !== "DDP" && tpl.phase !== "Ship Date").map(tpl => {
-          const override = (f.leadOverrides || {})[tpl.phase];
-          const hasOverride = override !== undefined && override !== "";
-          return (
-            <div key={tpl.id}>
-              <div style={{ fontSize: 10, color: hasOverride ? TH.primary : TH.textMuted, fontWeight: hasOverride ? 700 : 400, marginBottom: 3 }}>
-                {tpl.phase}
-                {!hasOverride && <span style={{ color: TH.border, fontWeight: 400 }}> (default: {tpl.daysBeforeDDP})</span>}
-              </div>
-              <div style={{ display: "flex", gap: 4 }}>
-                <input
-                  type="number"
-                  min="0"
-                  placeholder={String(tpl.daysBeforeDDP)}
-                  style={{ ...S.inp, marginBottom: 0, padding: "6px 8px", borderColor: hasOverride ? TH.primary + "88" : TH.border, flex: 1 }}
-                  value={hasOverride ? override : ""}
-                  onChange={e => {
-                    if (e.target.value === "") clearOverride(tpl.phase);
-                    else setOverride(tpl.phase, e.target.value);
-                  }}
-                />
-                {hasOverride && (
-                  <button onClick={() => clearOverride(tpl.phase)} title="Reset to default" style={{ padding: "4px 7px", borderRadius: 6, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>✕</button>
-                )}
-              </div>
+      {(() => {
+        const overrides = f.leadOverrides || {};
+        const sortedTpls = [...templates]
+          .filter(tpl => tpl.phase !== "DDP" && tpl.phase !== "Ship Date")
+          .sort((a, b) => {
+            const av = overrides[a.phase] ?? a.daysBeforeDDP ?? 0;
+            const bv = overrides[b.phase] ?? b.daysBeforeDDP ?? 0;
+            return bv - av; // descending = longest (earliest) first
+          });
+        return (
+          <div style={{ border: `1px solid ${TH.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 20 }}>
+            {/* Header */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px 36px", background: TH.surfaceHi, padding: "7px 14px", fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `1px solid ${TH.border}` }}>
+              <span>Phase</span>
+              <span style={{ textAlign: "center" }}>Days Before DDP</span>
+              <span style={{ textAlign: "center" }}>From Prev Task</span>
+              <span />
             </div>
-          );
-        })}
-      </div>
+            {sortedTpls.map((tpl, idx) => {
+              const effectiveDays = overrides[tpl.phase] ?? tpl.daysBeforeDDP ?? 0;
+              const prevTpl = idx > 0 ? sortedTpls[idx - 1] : null;
+              const prevEffective = prevTpl ? (overrides[prevTpl.phase] ?? prevTpl.daysBeforeDDP ?? 0) : null;
+              const fromPrev = prevEffective !== null ? prevEffective - effectiveDays : null;
+              const hasOverride = overrides[tpl.phase] !== undefined;
+              return (
+                <div key={tpl.phase} style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px 36px", padding: "8px 14px", borderBottom: idx < sortedTpls.length - 1 ? `1px solid ${TH.border}` : "none", alignItems: "center", background: idx % 2 === 0 ? "#fff" : TH.surfaceHi }}>
+                  <div style={{ fontSize: 13, color: TH.text, display: "flex", alignItems: "center", gap: 6 }}>
+                    {tpl.phase}
+                    {hasOverride
+                      ? <span style={{ fontSize: 10, color: TH.primary, fontWeight: 700, background: TH.primary + "15", padding: "1px 6px", borderRadius: 8 }}>custom</span>
+                      : <span style={{ fontSize: 10, color: TH.border }}>tpl</span>
+                    }
+                  </div>
+                  <div style={{ textAlign: "center" }}>
+                    <LeadTimeCell
+                      value={effectiveDays}
+                      onCommit={n => setOverride(tpl.phase, n)}
+                    />
+                  </div>
+                  <div style={{ textAlign: "center" }}>
+                    {fromPrev !== null ? (
+                      <LeadTimeCell
+                        value={fromPrev}
+                        onCommit={n => {
+                          const newDDP = (prevEffective ?? 0) - n;
+                          if (newDDP >= 0) setOverride(tpl.phase, newDDP);
+                        }}
+                      />
+                    ) : (
+                      <span style={{ fontSize: 12, color: TH.textMuted }}>—</span>
+                    )}
+                  </div>
+                  <div style={{ textAlign: "center" }}>
+                    {hasOverride && (
+                      <button onClick={() => clearOverride(tpl.phase)} title="Reset to template default" style={{ padding: "3px 6px", borderRadius: 5, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 11, lineHeight: 1 }}>✕</button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
       <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
         <button
           onClick={onCancel}
@@ -3098,7 +3233,7 @@ function VendorManager({ vendors, setVendors, isAdmin = false, taskTemplates }) 
 }
 
 // ─── TEAM MANAGER ─────────────────────────────────────────────────────────────
-function TeamManager({ team, setTeam, isAdmin, roles = ROLES, setRoles }) {
+function TeamManager({ team, setTeam, users, setUsers, isAdmin, roles = ROLES, setRoles }) {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(null);
   const [availableRoles, setAvailableRoles] = useState([...ROLES]);
@@ -3111,8 +3246,18 @@ function TeamManager({ team, setTeam, isAdmin, roles = ROLES, setRoles }) {
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   async function handleAvatar(e) { const f = e.target.files[0]; if (!f) return; set("avatar", await fileToDataURL(f)); }
   function save() {
-    if (editing === "new") setTeam((t) => [...t, form]);
-    else setTeam((t) => t.map((m) => (m.id === editing ? form : m)));
+    if (editing === "new") {
+      setTeam((t) => [...t, form]);
+    } else {
+      setTeam((t) => t.map((m) => (m.id === editing ? form : m)));
+      // Sync linked user: update name, initials, avatar, color
+      if (setUsers) {
+        setUsers((us) => us.map((u) => {
+          if (u.teamMemberId !== editing) return u;
+          return { ...u, name: form.name, initials: form.initials, avatar: form.avatar ?? u.avatar, color: form.color };
+        }));
+      }
+    }
     setEditing(null); setForm(null); setNewRoleInput("");
   }
   function addRoleOnTheFly() {
@@ -4355,20 +4500,27 @@ function TaskEditModal({
         newEntries.push({ id: uid(), field, from: String(from || "—"), to: String(to || "—"), changedBy: currentUser.name, at: now });
       }
     };
-    track("due date", task.due, f.due);
+    const fmtDate = (d) => d ? formatDate(d) : "—";
+    track("due date", fmtDate(task.due), fmtDate(f.due));
     track("status", task.status, f.status);
     track("vendor", task.vendorName, f.vendorName);
     track("order type", task.orderType, f.orderType);
+    track("category", task.category, f.category);
+    track("season", task.season, f.season);
+    track("customer", task.customer, f.customer);
     // Assignee by name
     const fromAssignee = team?.find(m => m.id === task.assigneeId)?.name || "Unassigned";
     const toAssignee = team?.find(m => m.id === f.assigneeId)?.name || "Unassigned";
     track("assignee", fromAssignee, toAssignee);
-    // Notes: detect new notes added
-    const oldCount = Array.isArray(task.notes) ? task.notes.length : (task.notes ? 1 : 0);
-    const newCount = Array.isArray(f.notes) ? f.notes.length : (f.notes ? 1 : 0);
-    if (newCount > oldCount) {
-      const latestNote = Array.isArray(f.notes) ? f.notes[f.notes.length - 1] : null;
-      newEntries.push({ id: uid(), field: "note added", from: "", to: latestNote?.text?.substring(0, 60) || "note", changedBy: currentUser.name, at: now });
+    // Notes: detect new notes added, capture content
+    const oldNotes = Array.isArray(task.notes) ? task.notes : (task.notes ? [task.notes] : []);
+    const newNotes = Array.isArray(f.notes) ? f.notes : (f.notes ? [f.notes] : []);
+    if (newNotes.length > oldNotes.length) {
+      const addedNotes = newNotes.slice(oldNotes.length);
+      addedNotes.forEach(note => {
+        const text = typeof note === "string" ? note : note?.text || "";
+        newEntries.push({ id: uid(), field: "note added", from: "", to: text.substring(0, 100) || "(empty note)", changedBy: currentUser.name, at: now });
+      });
     }
     const dateChanged = f.due !== task.due;
     const fWithHistory = newEntries.length > 0
@@ -4772,97 +4924,29 @@ function TaskEditModal({
             </div>
             <div>
               <label style={S.lbl}>Assign To</label>
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 6,
-                  marginBottom: 14,
-                }}
-              >
-                <button
-                  onClick={() => handleAssign(null)}
+              <div style={{ marginBottom: 14 }}>
+                <select
                   disabled={!canEdit}
+                  value={f.assigneeId || ""}
+                  onChange={e => handleAssign(e.target.value || null)}
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    padding: "8px 12px",
-                    borderRadius: 8,
-                    border: `1px solid ${
-                      !f.assigneeId ? TH.primary : TH.border
-                    }`,
-                    background: !f.assigneeId
-                      ? TH.primary + "15"
-                      : "transparent",
-                    cursor: canEdit ? "pointer" : "default",
-                    fontFamily: "inherit",
-                    textAlign: "left",
+                    ...S.inp,
+                    marginBottom: 0,
+                    borderColor: f.assigneeId
+                      ? (team.find(m => m.id === f.assigneeId)?.color || TH.border)
+                      : TH.border,
+                    color: f.assigneeId
+                      ? (team.find(m => m.id === f.assigneeId)?.color || TH.text)
+                      : TH.textMuted,
+                    fontWeight: f.assigneeId ? 600 : 400,
+                    opacity: canEdit ? 1 : 0.6,
                   }}
                 >
-                  <div
-                    style={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: "50%",
-                      background: TH.surfaceHi,
-                      border: `1px solid ${TH.border}`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 12,
-                      color: TH.textMuted,
-                    }}
-                  >
-                    ?
-                  </div>
-                  <span
-                    style={{
-                      fontSize: 13,
-                      color: !f.assigneeId ? TH.primary : TH.textMuted,
-                    }}
-                  >
-                    Unassigned
-                  </span>
-                </button>
-                {team.map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => handleAssign(m.id)}
-                    disabled={!canEdit}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: "8px 12px",
-                      borderRadius: 8,
-                      border: `1px solid ${
-                        f.assigneeId === m.id ? m.color + "88" : TH.border
-                      }`,
-                      background:
-                        f.assigneeId === m.id ? m.color + "22" : "transparent",
-                      cursor: canEdit ? "pointer" : "default",
-                      fontFamily: "inherit",
-                      textAlign: "left",
-                    }}
-                  >
-                    <Avatar member={m} size={28} />
-                    <div>
-                      <div
-                        style={{
-                          fontSize: 13,
-                          fontWeight: 600,
-                          color: f.assigneeId === m.id ? m.color : TH.text,
-                        }}
-                      >
-                        {m.name}
-                      </div>
-                      <div style={{ fontSize: 11, color: TH.textMuted }}>
-                        {m.role}
-                      </div>
-                    </div>
-                  </button>
-                ))}
+                  <option value="">— Unassigned —</option>
+                  {team.map(m => (
+                    <option key={m.id} value={m.id}>{m.name} · {m.role}</option>
+                  ))}
+                </select>
               </div>
               {(pd || designer || graphic) && (
                 <div>
@@ -5044,78 +5128,42 @@ function TaskEditModal({
         {tab === "history" && (
           <div>
             {(!f.history || f.history.length === 0) && (
-              <div
-                style={{
-                  textAlign: "center",
-                  color: TH.textMuted,
-                  padding: "32px",
-                  fontSize: 13,
-                }}
-              >
+              <div style={{ textAlign: "center", color: TH.textMuted, padding: "32px", fontSize: 13 }}>
                 No changes recorded yet.
               </div>
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {[...(f.history || [])].reverse().map((h) => (
-                <div
-                  key={h.id}
-                  style={{
-                    background: TH.surfaceHi,
-                    borderRadius: 10,
-                    padding: "12px 16px",
-                    borderLeft: `3px solid ${TH.primary}33`,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      marginBottom: 4,
-                    }}
-                  >
-                    <span
-                      style={{ fontSize: 12, fontWeight: 600, color: TH.text }}
-                    >
-                      {h.changedBy}
-                    </span>
-                    <span style={{ fontSize: 11, color: TH.textMuted }}>
-                      {formatDT(h.at)}
-                    </span>
+              {[...(f.history || [])].reverse().map((h) => {
+                const FIELD_ICONS = { "due date": "📅", "status": "🔄", "assignee": "👤", "vendor": "🏭", "note added": "📝", "order type": "📦", "category": "🗂️", "season": "🌿", "customer": "🏪" };
+                const icon = FIELD_ICONS[h.field] || "✏️";
+                const isNoteAdded = h.field === "note added";
+                const accentColor = h.field === "due date" ? "#1D4ED8" : h.field === "status" ? "#059669" : h.field === "note added" ? "#7C3AED" : TH.primary;
+                return (
+                  <div key={h.id} style={{ background: TH.surfaceHi, borderRadius: 10, padding: "12px 16px", borderLeft: `3px solid ${accentColor}55` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 14 }}>{icon}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: accentColor, textTransform: "capitalize" }}>{h.field}</span>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: TH.textSub }}>{h.changedBy}</span>
+                        <span style={{ fontSize: 10, color: TH.textMuted }}>{formatDT(h.at)}</span>
+                      </div>
+                    </div>
+                    {isNoteAdded ? (
+                      <div style={{ fontSize: 12, color: TH.textSub, background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 6, padding: "6px 10px", fontStyle: "italic" }}>
+                        "{h.to}"
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12 }}>
+                        <span style={{ background: "#FEF2F2", border: "1px solid #FCA5A5", padding: "2px 8px", borderRadius: 5, color: "#991B1B", textDecoration: "line-through" }}>{h.from || "—"}</span>
+                        <span style={{ color: TH.textMuted, fontSize: 14 }}>→</span>
+                        <span style={{ background: "#F0FDF4", border: "1px solid #86EFAC", padding: "2px 8px", borderRadius: 5, color: "#166534", fontWeight: 600 }}>{h.to || "—"}</span>
+                      </div>
+                    )}
                   </div>
-                  <div style={{ fontSize: 12, color: TH.textMuted }}>
-                    Changed{" "}
-                    <span style={{ color: TH.primary, fontWeight: 600 }}>
-                      {h.field}
-                    </span>{" "}
-                    from{" "}
-                    <span
-                      style={{
-                        background: TH.surfaceHi,
-                        border: `1px solid ${TH.border}`,
-                        padding: "1px 7px",
-                        borderRadius: 4,
-                        color: TH.text,
-                      }}
-                    >
-                      {h.from || "—"}
-                    </span>{" "}
-                    →{" "}
-                    <span
-                      style={{
-                        background: TH.primary + "15",
-                        border: `1px solid ${TH.primary}44`,
-                        padding: "1px 7px",
-                        borderRadius: 4,
-                        color: TH.primary,
-                        fontWeight: 600,
-                      }}
-                    >
-                      {h.to}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -5505,6 +5553,41 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
   // Editable preview phases: [{name, daysBack, due, edited}]
   const [editPhases, setEditPhases] = useState([]);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  // Step 2 lead times — [{phase, days}] in template order, controlled state for cascade
+  const [step2Leads, setStep2Leads] = useState([]);
+
+  function initStep2Leads(vendorId) {
+    const v = vendors.find(vv => vv.id === vendorId);
+    const overrides = v ? (v.leadOverrides || v.lead || {}) : {};
+    const tpls = (taskTemplates && taskTemplates.length > 0) ? taskTemplates : [];
+    setStep2Leads(
+      tpls
+        .filter(t => t.phase !== "DDP" && t.phase !== "Ship Date")
+        .map(t => ({ phase: t.phase, days: overrides[t.phase] ?? t.daysBeforeDDP ?? 0 }))
+    );
+  }
+
+  function applyStep2Update(idx, newDays) {
+    setStep2Leads(prev => {
+      const leads = [...prev];
+      const delta = newDays - leads[idx].days;
+      leads[idx] = { ...leads[idx], days: newDays };
+      // Cascade: shift all subsequent tasks by same delta
+      for (let i = idx + 1; i < leads.length; i++) {
+        leads[i] = { ...leads[i], days: Math.max(0, leads[i].days + delta) };
+      }
+      // Sync to selV.leadOverrides so step 3 generateTasks picks it up
+      if (selV) {
+        const map = {};
+        leads.forEach(l => { map[l.phase] = l.days; });
+        selV.leadOverrides = map;
+        if (selV.lead) leads.forEach(l => { selV.lead[l.phase] = l.days; });
+      }
+      return leads;
+    });
+    set("_leadOverride", Date.now());
+  }
   // Creation date clamping — warn user if earliest task predates today
   const [creationDateWarn, setCreationDateWarn] = useState(null);
 
@@ -5611,6 +5694,8 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
           cancelDate: addDays(addDays(newDdp, 24), 6),
         }));
       }
+      // Re-initialize step 2 lead times from new vendor's overrides
+      initStep2Leads(form.vendorId);
     }
   }, [form.vendorId]);
 
@@ -6048,110 +6133,59 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
                   ))}
                 </div>
               </div>
-              <div
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  color: TH.textMuted,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.08em",
-                  marginBottom: 8,
-                }}
-              >
+              <div style={{ fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
                 Task Lead Times — Days Before DDP (editable)
               </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(3,1fr)",
-                  gap: 8,
-                }}
-              >
-                {[
-                  "Concept",
-                  "Design",
-                  "Tech Pack",
-                  "Costing",
-                  "Sampling",
-                  "Revision",
-                  "Purchase Order",
-                  "Production",
-                ].map((phase) => {
-                  const val = selV.lead[phase] ?? 0;
-                  const calcDate = form.ddpDate
-                    ? addDays(form.ddpDate, -val)
-                    : "";
-                  return (
-                    <div
-                      key={phase}
-                      style={{
-                        background: TH.surfaceHi,
-                        borderRadius: 8,
-                        padding: "10px 12px",
-                        border: `1px solid ${TH.border}`,
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontSize: 10,
-                          color: TH.textMuted,
-                          marginBottom: 6,
-                          fontWeight: 600,
-                        }}
-                      >
-                        {phase}
-                      </div>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                        }}
-                      >
-                        <input
-                          type="number"
-                          min="0"
-                          defaultValue={val}
-                          onBlur={(e) => {
-                            const n = parseInt(e.target.value) || 0;
-                            set("vendorId", form.vendorId); // trigger re-render
-                            // Update local vendor lead time for preview
-                            selV.lead[phase] = n;
-                            set("_leadOverride", Date.now());
-                          }}
-                          style={{
-                            width: 60,
-                            padding: "4px 8px",
-                            borderRadius: 6,
-                            border: `1px solid ${TH.primary}44`,
-                            background: "#fff",
-                            color: TH.text,
-                            fontFamily: "inherit",
-                            fontSize: 13,
-                            fontWeight: 700,
-                            textAlign: "center",
-                          }}
-                        />
-                        <span style={{ fontSize: 10, color: TH.textMuted }}>
-                          days
-                        </span>
-                      </div>
-                      {calcDate && (
-                        <div
-                          style={{
-                            fontSize: 11,
-                            color: TH.primary,
-                            marginTop: 4,
-                            fontWeight: 600,
-                          }}
-                        >
-                          {formatDate(calcDate)}
-                        </div>
-                      )}
+              {/* Lead times table */}
+              {(() => {
+                const leads = step2Leads.length > 0 ? step2Leads : (
+                  (taskTemplates && taskTemplates.length > 0 ? taskTemplates : [])
+                    .filter(t => t.phase !== "DDP" && t.phase !== "Ship Date")
+                    .map(t => {
+                      const overrides = selV.leadOverrides || selV.lead || {};
+                      return { phase: t.phase, days: overrides[t.phase] ?? t.daysBeforeDDP ?? 0 };
+                    })
+                );
+                return (
+                  <div style={{ border: `1px solid ${TH.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 4 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px 90px", background: TH.surfaceHi, padding: "7px 12px", fontSize: 10, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `1px solid ${TH.border}` }}>
+                      <span>Phase</span>
+                      <span style={{ textAlign: "center" }}>Days Before DDP</span>
+                      <span style={{ textAlign: "center" }}>From Prev</span>
+                      <span style={{ textAlign: "center" }}>Due Date</span>
                     </div>
-                  );
-                })}
-              </div>
+                    {leads.map((lead, idx) => {
+                      const fromPrev = idx > 0 ? leads[idx - 1].days - lead.days : null;
+                      const calcDate = form.ddpDate ? addDays(form.ddpDate, -lead.days) : "";
+                      return (
+                        <div key={lead.phase} style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px 90px", padding: "7px 12px", borderBottom: idx < leads.length - 1 ? `1px solid ${TH.border}` : "none", alignItems: "center", background: idx % 2 === 0 ? "#fff" : TH.surfaceHi }}>
+                          <div style={{ fontSize: 13, color: TH.text, fontWeight: 600 }}>{lead.phase}</div>
+                          <div style={{ textAlign: "center" }}>
+                            <LeadTimeCell
+                              value={lead.days}
+                              onCommit={n => applyStep2Update(idx, n)}
+                            />
+                          </div>
+                          <div style={{ textAlign: "center" }}>
+                            {fromPrev !== null ? (
+                              <LeadTimeCell
+                                value={fromPrev}
+                                onCommit={n => {
+                                  const prevDays = leads[idx - 1].days;
+                                  applyStep2Update(idx, Math.max(0, prevDays - n));
+                                }}
+                              />
+                            ) : <span style={{ fontSize: 12, color: TH.textMuted }}>—</span>}
+                          </div>
+                          <div style={{ textAlign: "center", fontSize: 12, color: TH.primary, fontWeight: 600 }}>
+                            {calcDate ? formatDate(calcDate) : "—"}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -7641,7 +7675,7 @@ function EditCollectionModal({
 // ─── ADD TASK MODAL ───────────────────────────────────────────────────────────
 
 // ─── TASK MANAGER (Settings) ──────────────────────────────────────────────────
-function TaskManager({ taskTemplates, setTaskTemplates, isAdmin }) {
+function TaskManager({ taskTemplates, setTaskTemplates, isAdmin, vendors, setVendors }) {
   // Task Manager = Template Manager: defines which phases auto-populate per vendor
   const [editing, setEditing] = useState(null); // null | "new" | template object
   const [form, setForm] = useState(null);
@@ -7656,20 +7690,99 @@ function TaskManager({ taskTemplates, setTaskTemplates, isAdmin }) {
 
   const templates = (taskTemplates && taskTemplates.length > 0) ? taskTemplates : DEFAULT_TASK_TEMPLATES;
 
+  const [insertAfter, setInsertAfter] = useState<string>("__end__");
+
+  // Get the effective previous task's daysBeforeDDP given a position value
+  function prevDaysForPosition(pos, excludeId?) {
+    const tpls = excludeId ? templates.filter(t => t.id !== excludeId) : templates;
+    if (pos === "__start__") return null;
+    if (pos === "__end__") return tpls[tpls.length - 1]?.daysBeforeDDP ?? null;
+    return tpls.find(t => t.id === pos)?.daysBeforeDDP ?? null;
+  }
+
   function startNew() {
-    setForm({ id: uid(), phase: "", daysBeforeDDP: 0, status: "Not Started", notes: "" });
+    const lastTpl = templates[templates.length - 1];
+    const defDuration = 30;
+    const defDDP = lastTpl ? Math.max(0, lastTpl.daysBeforeDDP - defDuration) : 0;
+    setForm({ id: uid(), phase: "", daysBeforeDDP: defDDP, durationDays: defDuration, status: "Not Started", notes: "" });
+    setInsertAfter("__end__");
     setEditing("new");
   }
+
   function startEdit(tpl) {
-    setForm({ ...tpl });
+    const idx = templates.findIndex(t => t.id === tpl.id);
+    const prevTpl = idx > 0 ? templates[idx - 1] : null;
+    const durationDays = prevTpl ? Math.max(0, prevTpl.daysBeforeDDP - tpl.daysBeforeDDP) : (tpl.durationDays ?? 30);
+    const pos = idx === 0 ? "__start__" : templates[idx - 1].id;
+    setForm({ ...tpl, durationDays });
+    setInsertAfter(pos);
     setEditing(tpl.id);
   }
+
+  function handlePositionChange(val) {
+    setInsertAfter(val);
+    if (!form) return;
+    const prevD = prevDaysForPosition(val, editing !== "new" ? form.id : undefined);
+    if (prevD !== null) {
+      const dur = form.durationDays || 30;
+      setForm(f => ({ ...f, daysBeforeDDP: Math.max(0, prevD - dur) }));
+    }
+  }
+
+  function handleDurationChange(n) {
+    const prevD = prevDaysForPosition(insertAfter, editing !== "new" ? form.id : undefined);
+    const newDDP = prevD !== null ? Math.max(0, prevD - n) : form.daysBeforeDDP;
+    setForm(f => ({ ...f, durationDays: n, daysBeforeDDP: newDDP }));
+  }
+
+  function handleDDPChange(n) {
+    const prevD = prevDaysForPosition(insertAfter, editing !== "new" ? form.id : undefined);
+    const newDur = prevD !== null ? Math.max(0, prevD - n) : form.durationDays;
+    setForm(f => ({ ...f, daysBeforeDDP: n, durationDays: newDur }));
+  }
+
   function saveForm() {
     if (!form.phase.trim()) return;
+    const savedForm = { ...form, durationDays: form.durationDays ?? 0 };
+
     if (editing === "new") {
-      setTaskTemplates([...templates, form]);
+      let newTemplates;
+      if (insertAfter === "__end__") newTemplates = [...templates, savedForm];
+      else if (insertAfter === "__start__") newTemplates = [savedForm, ...templates];
+      else {
+        const idx = templates.findIndex(t => t.id === insertAfter);
+        const arr = [...templates];
+        arr.splice(idx + 1, 0, savedForm);
+        newTemplates = arr;
+      }
+      setTaskTemplates(newTemplates);
+      if (setVendors && vendors) {
+        setVendors(vs => vs.map(v => ({
+          ...v,
+          leadOverrides: { ...(v.leadOverrides || v.lead || {}), [form.phase]: form.daysBeforeDDP }
+        })));
+      }
     } else {
-      setTaskTemplates(templates.map(t => t.id === form.id ? form : t));
+      const oldIdx = templates.findIndex(t => t.id === form.id);
+      const oldDays = templates[oldIdx]?.daysBeforeDDP ?? form.daysBeforeDDP;
+      const delta = savedForm.daysBeforeDDP - oldDays;
+
+      // Remove from old position, reinsert at new position
+      let arr = templates.filter(t => t.id !== form.id);
+      if (insertAfter === "__end__") arr = [...arr, savedForm];
+      else if (insertAfter === "__start__") arr = [savedForm, ...arr];
+      else {
+        const insertIdx = arr.findIndex(t => t.id === insertAfter);
+        arr.splice(insertIdx + 1, 0, savedForm);
+      }
+
+      // Cascade DDP delta to all tasks AFTER the edited one
+      if (delta !== 0) {
+        const editedNewIdx = arr.findIndex(t => t.id === form.id);
+        arr = arr.map((t, i) => i > editedNewIdx ? { ...t, daysBeforeDDP: Math.max(0, t.daysBeforeDDP + delta) } : t);
+      }
+
+      setTaskTemplates(arr);
     }
     setEditing(null);
     setForm(null);
@@ -7697,6 +7810,8 @@ function TaskManager({ taskTemplates, setTaskTemplates, isAdmin }) {
         <button onClick={() => { setEditing(null); setForm(null); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>← Back</button>
         <span style={S.sec}>{editing === "new" ? "New Task Template" : "Edit Task Template"}</span>
       </div>
+
+      {/* Row 1: Phase name + Position */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
         <div>
           <label style={S.lbl}>Phase / Task Name *</label>
@@ -7708,16 +7823,56 @@ function TaskManager({ taskTemplates, setTaskTemplates, isAdmin }) {
           />
         </div>
         <div>
-          <label style={S.lbl}>Days Before DDP (default lead time)</label>
+          <label style={S.lbl}>Position — Place After</label>
+          <select style={S.inp} value={insertAfter} onChange={e => handlePositionChange(e.target.value)}>
+            <option value="__start__">— Beginning (first task)</option>
+            {templates.filter(t => t.id !== form.id).map(t => <option key={t.id} value={t.id}>After: {t.phase}</option>)}
+            <option value="__end__">— End (last task)</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Row 2: Days Before DDP + Days to Complete */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+        <div>
+          <label style={S.lbl}>Days Before DDP</label>
           <input
             type="number"
             min="0"
             style={S.inp}
             value={form.daysBeforeDDP}
-            onChange={e => setForm(f => ({ ...f, daysBeforeDDP: parseInt(e.target.value) || 0 }))}
+            onChange={e => handleDDPChange(parseInt(e.target.value) || 0)}
           />
+          {(() => {
+            const prevD = prevDaysForPosition(insertAfter, editing !== "new" ? form.id : undefined);
+            const tpls = editing !== "new" ? templates.filter(t => t.id !== form.id) : templates;
+            const nextAfterPos = insertAfter === "__start__" ? tpls[0] : insertAfter === "__end__" ? null : tpls[tpls.findIndex(t => t.id === insertAfter) + 1];
+            if (!prevD && !nextAfterPos) return null;
+            return (
+              <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>
+                {prevD !== null ? `${prevD - form.daysBeforeDDP}d after prev` : ""}
+                {prevD !== null && nextAfterPos ? " · " : ""}
+                {nextAfterPos ? `${form.daysBeforeDDP - nextAfterPos.daysBeforeDDP}d before "${nextAfterPos.phase}"` : ""}
+              </div>
+            );
+          })()}
+        </div>
+        <div>
+          <label style={S.lbl}>Days to Complete Task</label>
+          <input
+            type="number"
+            min="0"
+            style={S.inp}
+            value={form.durationDays ?? 0}
+            onChange={e => handleDurationChange(parseInt(e.target.value) || 0)}
+          />
+          <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>
+            Gap between this task's due date and the previous task's due date. Changing this auto-updates Days Before DDP and cascades to subsequent tasks on save.
+          </div>
         </div>
       </div>
+
+      {/* Row 3: Status + (spacer) */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
         <div>
           <label style={S.lbl}>Default Status</label>
@@ -7725,7 +7880,9 @@ function TaskManager({ taskTemplates, setTaskTemplates, isAdmin }) {
             {Object.keys(STATUS_CONFIG).map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
+        <div />
       </div>
+
       <label style={S.lbl}>Default Notes</label>
       <textarea
         style={{ ...S.inp, minHeight: 80, resize: "vertical" }}
@@ -7760,7 +7917,10 @@ function TaskManager({ taskTemplates, setTaskTemplates, isAdmin }) {
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: TH.text }}>{tpl.phase}</div>
               <div style={{ fontSize: 11, color: TH.textMuted }}>
-                {tpl.daysBeforeDDP} days before DDP · Default: {tpl.status}
+                {tpl.daysBeforeDDP}d before DDP
+                {idx > 0 ? ` · ${templates[idx - 1].daysBeforeDDP - tpl.daysBeforeDDP}d from "${templates[idx - 1].phase}"` : ""}
+                {tpl.durationDays ? ` · ${tpl.durationDays}d to complete` : ""}
+                {" "}· Default: {tpl.status}
                 {tpl.notes ? ` · "${tpl.notes.substring(0, 40)}${tpl.notes.length > 40 ? "…" : ""}"` : ""}
               </div>
             </div>
@@ -7778,30 +7938,110 @@ function TaskManager({ taskTemplates, setTaskTemplates, isAdmin }) {
 
 
 function AddTaskModal({ tasks, vendors, team, collections, onSave, onClose }) {
-  const collOptions = [
-    ...new Set(tasks.map((t) => `${t.brand}||${t.collection}`)),
-  ];
+  const collOptions = [...new Set(tasks.map((t) => `${t.brand}||${t.collection}`))];
   const todayStr = new Date().toISOString().split("T")[0];
+
   const [form, setForm] = useState({
     collKey: collOptions[0] || "",
-    phase: "Custom",
+    phase: "",
     due: todayStr,
     status: "Not Started",
     assigneeId: "",
     notes: "",
-    isDefaultPhase: false,
+    insertAfter: "__end__",
+    daysBeforeDDP: 0,
+    daysToComplete: 0,
   });
   const setF = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-  function handleSave() {
-    if (!form.collKey || !form.phase || (!form.isDefaultPhase && !form.due)) return;
+  // Tasks in selected collection sorted by due date
+  const collTasks = form.collKey
+    ? [...tasks.filter(t => `${t.brand}||${t.collection}` === form.collKey)]
+        .sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : 0))
+    : [];
+
+  // Reference task for DDP/metadata
+  const refTask = (() => {
+    if (!form.collKey) return null;
     const [brand, collection] = form.collKey.split("||");
-    const refTask = tasks.find(
-      (t) => t.brand === brand && t.collection === collection
-    );
+    return tasks.find(t => t.brand === brand && t.collection === collection) || null;
+  })();
+
+  // Previous task based on insertAfter position
+  const prevTask = form.insertAfter === "__start__"
+    ? null
+    : form.insertAfter === "__end__"
+    ? collTasks[collTasks.length - 1] || null
+    : collTasks.find(t => t.id === form.insertAfter) || null;
+
+  // When position changes: auto-fill due + recompute linked fields
+  function handlePositionChange(val) {
+    let autoDue = form.due;
+    if (val === "__start__" && collTasks.length > 0) {
+      autoDue = addDays(collTasks[0].due, -14);
+    } else if (val === "__end__" && collTasks.length > 0) {
+      autoDue = addDays(collTasks[collTasks.length - 1].due, 14);
+    } else {
+      const idx = collTasks.findIndex(t => t.id === val);
+      const prev = collTasks[idx];
+      const next = collTasks[idx + 1];
+      autoDue = prev && next
+        ? addDays(prev.due, Math.max(1, Math.round(diffDays(next.due, prev.due) / 2)))
+        : prev ? addDays(prev.due, 14) : form.due;
+    }
+    const newPrev = val === "__start__" ? null : val === "__end__" ? collTasks[collTasks.length - 1] : collTasks.find(t => t.id === val);
+    const ddp = refTask?.ddpDate;
+    setForm(f => ({
+      ...f,
+      insertAfter: val,
+      due: autoDue,
+      daysBeforeDDP: ddp ? diffDays(ddp, autoDue) : f.daysBeforeDDP,
+      daysToComplete: newPrev ? diffDays(autoDue, newPrev.due) : 0,
+    }));
+  }
+
+  // When due date changes: recompute daysBeforeDDP + daysToComplete
+  function handleDueChange(v) {
+    const ddp = refTask?.ddpDate;
+    setForm(f => ({
+      ...f,
+      due: v,
+      daysBeforeDDP: ddp ? diffDays(ddp, v) : f.daysBeforeDDP,
+      daysToComplete: prevTask ? diffDays(v, prevTask.due) : f.daysToComplete,
+    }));
+  }
+
+  // When daysBeforeDDP changes: recompute due + daysToComplete
+  function handleDDPDaysChange(n) {
+    const ddp = refTask?.ddpDate;
+    if (!ddp) return;
+    const newDue = addDays(ddp, -n);
+    setForm(f => ({
+      ...f,
+      daysBeforeDDP: n,
+      due: newDue,
+      daysToComplete: prevTask ? diffDays(newDue, prevTask.due) : f.daysToComplete,
+    }));
+  }
+
+  // When daysToComplete changes: recompute due + daysBeforeDDP
+  function handleDaysToCompleteChange(n) {
+    if (!prevTask) return;
+    const newDue = addDays(prevTask.due, n);
+    const ddp = refTask?.ddpDate;
+    setForm(f => ({
+      ...f,
+      daysToComplete: n,
+      due: newDue,
+      daysBeforeDDP: ddp ? diffDays(ddp, newDue) : f.daysBeforeDDP,
+    }));
+  }
+
+  function handleSave() {
+    if (!form.collKey || !form.phase.trim() || !form.due) return;
+    const [brand, collection] = form.collKey.split("||");
     const base = {
-      brand,
-      collection,
+      brand, collection,
       status: form.status,
       assigneeId: form.assigneeId || null,
       notes: form.notes,
@@ -7816,178 +8056,124 @@ function AddTaskModal({ tasks, vendors, team, collections, onSave, onClose }) {
       customer: refTask?.customer || "",
       orderType: refTask?.orderType || "",
       channelType: refTask?.channelType || "",
-      images: [],
-      skus: [],
-      history: [],
+      images: [], skus: [], history: [],
     };
-
-    if (form.isDefaultPhase) {
-      // Add all default phases that don't already exist in this collection
-      const existingPhases = tasks
-        .filter(t => t.brand === brand && t.collection === collection)
-        .map(t => t.phase);
-      const newTasks = PHASE_KEYS
-        .filter(p => !existingPhases.includes(p))
-        .map(p => ({
-          id: uid(),
-          ...base,
-          phase: p,
-          due: refTask?.ddpDate || todayStr,
-          originalDue: refTask?.ddpDate || todayStr,
-          isCustomTask: false,
-        }));
-      newTasks.forEach(t => onSave(t));
-    } else {
-      const newTask = {
-        id: uid(),
-        ...base,
-        phase: form.phase,
-        due: form.due,
-        originalDue: form.due,
-        isCustomTask: true,
-      };
-      onSave(newTask);
-    }
+    onSave({ id: uid(), ...base, phase: form.phase, due: form.due, originalDue: form.due, isCustomTask: true });
   }
+
+  const ddp = refTask?.ddpDate;
+  const canSave = !!form.collKey && !!form.phase.trim() && !!form.due;
 
   return (
     <Modal title="Add Task to Timeline" onClose={onClose}>
       <div>
+        {/* Collection — full width */}
         <label style={S.lbl}>Collection</label>
-        <select
-          style={S.inp}
-          value={form.collKey}
-          onChange={(e) => setF("collKey", e.target.value)}
-        >
+        <select style={S.inp} value={form.collKey} onChange={e => {
+          setF("collKey", e.target.value);
+          setF("insertAfter", "__end__");
+        }}>
           <option value="">-- Select Collection --</option>
-          {collOptions.map((k) => {
+          {collOptions.map(k => {
             const [brand, coll] = k.split("||");
-            const bObj = getBrand(brand);
-            return (
-              <option key={k} value={k}>
-                {bObj?.short} — {coll}
-              </option>
-            );
+            return <option key={k} value={k}>{getBrand(brand)?.short} — {coll}</option>;
           })}
         </select>
 
-        {/* Toggle: custom task vs default phase set */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-          <button
-            onClick={() => setF("isDefaultPhase", false)}
-            style={{ flex: 1, padding: "8px", borderRadius: 8, border: `2px solid ${!form.isDefaultPhase ? TH.primary : TH.border}`, background: !form.isDefaultPhase ? TH.primary + "15" : "none", color: !form.isDefaultPhase ? TH.primary : TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}
-          >📌 Single Task</button>
-          <button
-            onClick={() => setF("isDefaultPhase", true)}
-            style={{ flex: 1, padding: "8px", borderRadius: 8, border: `2px solid ${form.isDefaultPhase ? TH.primary : TH.border}`, background: form.isDefaultPhase ? TH.primary + "15" : "none", color: form.isDefaultPhase ? TH.primary : TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}
-          >📋 Default Phase Set</button>
-        </div>
-
-        {form.isDefaultPhase ? (
-          <div style={{ background: TH.surfaceHi, borderRadius: 10, padding: "12px 14px", marginBottom: 14, fontSize: 12, color: TH.textMuted }}>
-            <div style={{ fontWeight: 600, color: TH.text, marginBottom: 6 }}>Will add all standard phases:</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {PHASE_KEYS.map(p => {
-                const exists = tasks.filter(t => form.collKey && `${t.brand}||${t.collection}` === form.collKey).find(t => t.phase === p);
-                return <span key={p} style={{ padding: "2px 8px", borderRadius: 12, background: exists ? "#F3F4F6" : TH.primary + "20", color: exists ? TH.textMuted : TH.primary, fontSize: 11, fontWeight: 600, textDecoration: exists ? "line-through" : "none" }}>{p}</span>;
-              })}
-            </div>
-            <div style={{ marginTop: 8, fontSize: 11 }}>Phases already in this collection are skipped.</div>
-          </div>
-        ) : (
-          <>
-            <label style={S.lbl}>Task / Phase Name</label>
+        {/* Row 1: Phase Name | Position */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+          <div>
+            <label style={S.lbl}>Phase / Task Name *</label>
             <input
               style={S.inp}
               value={form.phase}
-              onChange={(e) => setF("phase", e.target.value)}
-              placeholder="e.g. Proto Review, Lab Dip, Final Approval…"
-            />
-          </>
-        )}
-
-        <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}
-        >
-          <div>
-            <label style={S.lbl}>Due Date</label>
-            <DateInput
-              style={{ ...S.inp, marginBottom: 0 }}
-              value={form.due}
-              onChange={(v) => setF("due", v)}
+              onChange={e => setF("phase", e.target.value)}
+              placeholder="e.g. Proto Review, Lab Dip…"
             />
           </div>
           <div>
-            <label style={S.lbl}>Status</label>
-            <select
-              style={{ ...S.inp, marginBottom: 0 }}
-              value={form.status}
-              onChange={(e) => setF("status", e.target.value)}
-            >
-              {Object.keys(STATUS_CONFIG).map((s) => (
-                <option key={s}>{s}</option>
-              ))}
+            <label style={S.lbl}>Position — Place After</label>
+            <select style={S.inp} value={form.insertAfter} onChange={e => handlePositionChange(e.target.value)}>
+              {collTasks.length === 0
+                ? <option value="__end__">— (no tasks yet) —</option>
+                : <>
+                    <option value="__start__">— Before all tasks —</option>
+                    {collTasks.map(t => <option key={t.id} value={t.id}>{t.phase} ({formatDate(t.due)})</option>)}
+                    <option value="__end__">— After all tasks —</option>
+                  </>
+              }
             </select>
           </div>
         </div>
-        <div style={{ height: 14 }} />
 
+        {/* Row 2: Due Date | Days Before DDP */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+          <div>
+            <label style={S.lbl}>Due Date</label>
+            <DateInput style={{ ...S.inp, marginBottom: 0 }} value={form.due} onChange={handleDueChange} />
+            {prevTask && (
+              <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>
+                {diffDays(form.due, prevTask.due)}d after "{prevTask.phase}"
+              </div>
+            )}
+          </div>
+          <div>
+            <label style={S.lbl}>
+              Days Before DDP
+              {!ddp && <span style={{ color: TH.textMuted, fontWeight: 400, textTransform: "none" }}> — no DDP set</span>}
+            </label>
+            <input
+              type="number" min="0"
+              style={{ ...S.inp, marginBottom: 0 }}
+              value={form.daysBeforeDDP}
+              disabled={!ddp}
+              onChange={e => handleDDPDaysChange(parseInt(e.target.value) || 0)}
+            />
+            {ddp && (
+              <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>
+                DDP: {formatDate(ddp)}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Row 3: Days to Complete | Status */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+          <div>
+            <label style={S.lbl}>
+              Days to Complete Task
+              {prevTask && <span style={{ color: TH.textMuted, fontWeight: 400, textTransform: "none" }}> from "{prevTask.phase}"</span>}
+            </label>
+            <input
+              type="number" min="0"
+              style={{ ...S.inp, marginBottom: 0 }}
+              value={form.daysToComplete}
+              disabled={!prevTask}
+              onChange={e => handleDaysToCompleteChange(parseInt(e.target.value) || 0)}
+            />
+            {!prevTask && <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>Select a position first</div>}
+          </div>
+          <div>
+            <label style={S.lbl}>Status</label>
+            <select style={{ ...S.inp, marginBottom: 0 }} value={form.status} onChange={e => setF("status", e.target.value)}>
+              {Object.keys(STATUS_CONFIG).map(s => <option key={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* Row 4: Assignee */}
         <label style={S.lbl}>Assignee</label>
-        <select
-          style={S.inp}
-          value={form.assigneeId}
-          onChange={(e) => setF("assigneeId", e.target.value)}
-        >
+        <select style={S.inp} value={form.assigneeId} onChange={e => setF("assigneeId", e.target.value)}>
           <option value="">-- None --</option>
-          {team.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name} ({m.role})
-            </option>
-          ))}
+          {team.map(m => <option key={m.id} value={m.id}>{m.name} ({m.role})</option>)}
         </select>
 
         <label style={S.lbl}>Notes</label>
-        <textarea
-          style={{ ...S.inp, height: 72, resize: "vertical" } as any}
-          value={form.notes}
-          onChange={(e) => setF("notes", e.target.value)}
-          placeholder="Optional notes…"
-        />
+        <textarea style={{ ...S.inp, height: 72, resize: "vertical" } as any} value={form.notes} onChange={e => setF("notes", e.target.value)} placeholder="Optional notes…" />
 
-        <div
-          style={{
-            display: "flex",
-            gap: 10,
-            justifyContent: "flex-end",
-            marginTop: 6,
-          }}
-        >
-          <button
-            onClick={onClose}
-            style={{
-              padding: "9px 22px",
-              borderRadius: 8,
-              border: `1px solid ${TH.border}`,
-              background: "none",
-              color: TH.textSub,
-              fontWeight: 600,
-              cursor: "pointer",
-              fontFamily: "inherit",
-              fontSize: 13,
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!form.collKey || !form.phase || !form.due}
-            style={{
-              ...S.btn,
-              opacity: !form.collKey || !form.phase || !form.due ? 0.5 : 1,
-            }}
-          >
-            Add Task
-          </button>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
+          <button onClick={onClose} style={{ padding: "9px 22px", borderRadius: 8, border: `1px solid ${TH.border}`, background: "none", color: TH.textSub, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}>Cancel</button>
+          <button onClick={handleSave} disabled={!canSave} style={{ ...S.btn, opacity: canSave ? 1 : 0.5 }}>Add Task</button>
         </div>
       </div>
     </Modal>
@@ -8850,7 +9036,7 @@ function FilterBar({
   const divider = <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "2px 0" }} />;
 
   return (
-    <div style={{ padding: "10px 22px", borderBottom: "1px solid rgba(255,255,255,0.1)", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", background: "#2D3748dd", backdropFilter: "blur(8px)" }}>
+    <div style={{ padding: "10px 22px", borderBottom: "1px solid rgba(255,255,255,0.1)", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", background: "#2D3748dd", backdropFilter: "blur(8px)", position: "sticky", top: 64, zIndex: 99 }}>
       {/* Filters button */}
       <div ref={ref} style={{ position: "relative" }}>
         <button
@@ -9433,11 +9619,14 @@ export default function App() {
     });
   };
   const [view, setView] = useState("dashboard");
+  const [listView, setListView] = useState(false);
+  const [expandedColl, setExpandedColl] = useState<string | null>(null);
   const [filterBrand, setFilterBrand] = useState<Set<string>>(new Set());
   const [filterSeason, setFilterSeason] = useState<Set<string>>(new Set());
   const [filterCustomer, setFilterCustomer] = useState<Set<string>>(new Set());
   const [filterVendor, setFilterVendor] = useState<Set<string>>(new Set());
   const [focusCollKey, setFocusCollKey] = useState(null);
+  const [pendingDeleteColl, setPendingDeleteColl] = useState<string | null>(null);
   const [showNav, setShowNav] = useState(true);
   const [showWizard, setShowWizard] = useState(false);
   const [showVendors, setShowVendors] = useState(false);
@@ -10006,6 +10195,7 @@ export default function App() {
   };
 
   const Dashboard = () => {
+    const collListView = listView;
     // Stat filter config
     const STAT_META = {
       overdue: {
@@ -10917,13 +11107,111 @@ export default function App() {
             {/* Collections grid */}
             {showCollections && (
               <>
-                <span style={S.sec}>
-                  Collections{" "}
-                  <span style={{ color: TH.textSub2, fontWeight: 400 }}>
-                    — click to focus · right-click for options
+                <div style={{ marginBottom: 12 }}>
+                  <span style={S.sec}>
+                    Collections{" "}
+                    <span style={{ color: TH.textSub2, fontWeight: 400 }}>
+                      — click to focus · right-click for options
+                    </span>
                   </span>
-                </span>
-                <div
+                </div>
+
+                {/* LIST VIEW */}
+                {collListView && (
+                  <div style={{ marginBottom: 28, border: `1px solid ${TH.border}`, borderRadius: 12, overflow: "hidden" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, fontFamily: "inherit" }}>
+                      <thead>
+                        <tr style={{ background: TH.header, borderBottom: `2px solid ${TH.header}` }}>
+                          {["Brand", "Collection", "Season", "Vendor", "DDP", "Progress", "Next Task"].map(h => (
+                            <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: "rgba(255,255,255,0.75)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {collList.map((c, ri) => {
+                          const brand = getBrand(c.brand);
+                          const done = c.tasks.filter(t => ["Complete","Approved"].includes(t.status)).length;
+                          const pct = Math.round((done / c.tasks.length) * 100);
+                          const ddpTask = c.tasks.find(t => t.phase === "DDP");
+                          const next = c.tasks.filter(t => !["Complete","Approved"].includes(t.status)).sort((a,b) => new Date(a.due).getTime() - new Date(b.due).getTime())[0];
+                          const isExpanded = expandedColl === c.key;
+                          const sortedTasks = [...c.tasks].sort((a,b) => new Date(a.due).getTime() - new Date(b.due).getTime());
+                          const rowBg = isExpanded ? "#E8EDF5" : ri % 2 === 0 ? "#FFFFFF" : "#F1F5F9";
+                          return (
+                            <Fragment key={c.key}>
+                              <tr onClick={() => setExpandedColl(isExpanded ? null : c.key)}
+                                style={{ borderBottom: `1px solid ${TH.border}`, cursor: "pointer", background: rowBg, transition: "background 0.1s" }}
+                                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#DDE3EE"}
+                                onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = rowBg}>
+                                <td style={{ padding: "10px 14px" }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <div style={{ width: 10, height: 10, borderRadius: 2, background: brand.color, flexShrink: 0 }} />
+                                    <span style={{ fontWeight: 700, color: brand.color }}>{brand.short || brand.name}</span>
+                                  </div>
+                                </td>
+                                <td style={{ padding: "10px 14px", fontWeight: 600, color: TH.text }}>
+                                  {isExpanded ? "▼ " : "▶ "}{c.collection}
+                                </td>
+                                <td style={{ padding: "10px 14px", color: TH.textSub2 }}>{c.season || "—"}</td>
+                                <td style={{ padding: "10px 14px", color: TH.textSub2 }}>{c.vendorName || "—"}</td>
+                                <td style={{ padding: "10px 14px", color: ddpTask ? TH.text : TH.textSub2, fontWeight: ddpTask ? 600 : 400 }}>{ddpTask ? formatDate(ddpTask.due) : "—"}</td>
+                                <td style={{ padding: "10px 14px" }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <div style={{ flex: 1, height: 6, background: "#CBD5E0", borderRadius: 3, minWidth: 60 }}>
+                                      <div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? "#10B981" : brand.color, borderRadius: 3, transition: "width 0.3s" }} />
+                                    </div>
+                                    <span style={{ fontSize: 11, color: TH.textSub2, flexShrink: 0 }}>{pct}%</span>
+                                  </div>
+                                </td>
+                                <td style={{ padding: "10px 14px", color: next ? TH.text : TH.textSub2 }}>{next ? `${next.phase} · ${formatDate(next.due)}` : "All done"}</td>
+                              </tr>
+                              {isExpanded && (
+                                <tr>
+                                  <td colSpan={7} style={{ background: "#EEF2F9", padding: 0, borderBottom: `2px solid ${TH.border}` }}>
+                                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, fontFamily: "inherit" }}>
+                                      <thead>
+                                        <tr style={{ background: "#3A4A5C", borderBottom: `1px solid #2D3748` }}>
+                                          {["Phase", "Due Date", "Business Days Left", "Status", "Assignee"].map(h => (
+                                            <th key={h} style={{ padding: "7px 14px 7px 28px", textAlign: "left", fontWeight: 600, color: "rgba(255,255,255,0.7)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</th>
+                                          ))}
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {sortedTasks.map((t, ti) => {
+                                          const sc = STATUS_CONFIG[t.status] || STATUS_CONFIG["Not Started"];
+                                          const assignee = team.find(m => m.id === t.assigneeId);
+                                          const bd = getBusinessDaysUntil(t.due);
+                                          const innerBg = ti % 2 === 0 ? "#F8FAFC" : "#FFFFFF";
+                                          return (
+                                            <tr key={t.id} onClick={e => { e.stopPropagation(); setEditTask(t); }}
+                                              style={{ borderBottom: `1px solid ${TH.border}`, cursor: "pointer", background: innerBg }}
+                                              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#E2E8F0"}
+                                              onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = innerBg}>
+                                              <td style={{ padding: "8px 14px 8px 28px", fontWeight: 600, color: TH.text }}>{t.phase}</td>
+                                              <td style={{ padding: "8px 14px 8px 28px", color: TH.textSub2 }}>{formatDate(t.due)}</td>
+                                              <td style={{ padding: "8px 14px 8px 28px", color: bd < 0 ? "#B91C1C" : bd <= 5 ? "#B45309" : TH.textSub, fontWeight: bd < 0 ? 700 : 400 }}>{t.status === "Complete" ? "Done" : `${Number.isInteger(bd) ? bd : bd.toFixed(1)}bd`}</td>
+                                              <td style={{ padding: "8px 14px 8px 28px" }}>
+                                                <span style={{ background: sc.bg, color: sc.color, border: `1px solid ${sc.border}`, padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 600 }}>{t.status}</span>
+                                              </td>
+                                              <td style={{ padding: "8px 14px 8px 28px", color: TH.textSub2 }}>{assignee?.name || "—"}</td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </td>
+                                </tr>
+                              )}
+                            </Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* GRID VIEW */}
+                {!collListView && <div
                   style={{
                     display: "grid",
                     gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))",
@@ -11221,7 +11509,7 @@ export default function App() {
                       </div>
                     );
                   })}
-                </div>
+                </div>}
                 {!statFilter && dueThisWeek.length > 0 && (
                   <>
                     <span style={S.sec}>Due This Week</span>
@@ -11289,6 +11577,115 @@ export default function App() {
           )}
         </div>
       );
+    if (listView) {
+      // Build collection rows from src tasks, sorted by earliest DDP
+      const collMap2: Record<string, { key: string; brand: string; collection: string; tasks: typeof src }> = {};
+      src.forEach(t => {
+        const key = `${t.brand}||${t.collection}`;
+        if (!collMap2[key]) collMap2[key] = { key, brand: t.brand, collection: t.collection, tasks: [] };
+        collMap2[key].tasks.push(t);
+      });
+      const collRows = Object.values(collMap2).sort((a, b) => {
+        const aDDP = a.tasks.find(t => t.phase === "DDP")?.due || a.tasks[0]?.due || "";
+        const bDDP = b.tasks.find(t => t.phase === "DDP")?.due || b.tasks[0]?.due || "";
+        return aDDP < bDDP ? -1 : 1;
+      });
+      return (
+        <div style={{ border: `1px solid ${TH.border}`, borderRadius: 12, overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, fontFamily: "inherit" }}>
+            <thead>
+              <tr style={{ background: TH.header, borderBottom: `2px solid ${TH.header}` }}>
+                {["Brand", "Collection", "Season", "Vendor", "DDP", "Progress", "Next Task"].map(h => (
+                  <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: "rgba(255,255,255,0.75)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {collRows.map((c, ri) => {
+                const brand = getBrand(c.brand);
+                const done = c.tasks.filter(t => ["Complete","Approved"].includes(t.status)).length;
+                const pct = Math.round((done / c.tasks.length) * 100);
+                const ddpTask = c.tasks.find(t => t.phase === "DDP");
+                const next = c.tasks.filter(t => !["Complete","Approved"].includes(t.status)).sort((a,b) => new Date(a.due).getTime() - new Date(b.due).getTime())[0];
+                const isExpanded = expandedColl === c.key;
+                const sortedTasks = [...c.tasks].sort((a,b) => new Date(a.due).getTime() - new Date(b.due).getTime());
+                const rowBg = isExpanded ? "#E8EDF5" : ri % 2 === 0 ? "#FFFFFF" : "#F1F5F9";
+                const season = c.tasks[0]?.season || "—";
+                const vendorName = c.tasks[0]?.vendorName || "—";
+                return (
+                  <Fragment key={c.key}>
+                    <tr onClick={() => setExpandedColl(isExpanded ? null : c.key)}
+                      style={{ borderBottom: `1px solid ${TH.border}`, cursor: "pointer", background: rowBg, transition: "background 0.1s" }}
+                      onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#DDE3EE"}
+                      onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = rowBg}>
+                      <td style={{ padding: "10px 14px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ width: 10, height: 10, borderRadius: 2, background: brand.color, flexShrink: 0 }} />
+                          <span style={{ fontWeight: 700, color: brand.color }}>{brand.short || brand.name}</span>
+                        </div>
+                      </td>
+                      <td style={{ padding: "10px 14px", fontWeight: 600, color: TH.text }}>
+                        {isExpanded ? "▼ " : "▶ "}{c.collection}
+                      </td>
+                      <td style={{ padding: "10px 14px", color: TH.textSub2 }}>{season}</td>
+                      <td style={{ padding: "10px 14px", color: TH.textSub2 }}>{vendorName}</td>
+                      <td style={{ padding: "10px 14px", color: ddpTask ? TH.text : TH.textSub2, fontWeight: ddpTask ? 600 : 400 }}>{ddpTask ? formatDate(ddpTask.due) : "—"}</td>
+                      <td style={{ padding: "10px 14px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ flex: 1, height: 6, background: "#CBD5E0", borderRadius: 3, minWidth: 60 }}>
+                            <div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? "#10B981" : brand.color, borderRadius: 3, transition: "width 0.3s" }} />
+                          </div>
+                          <span style={{ fontSize: 11, color: TH.textSub2, flexShrink: 0 }}>{pct}%</span>
+                        </div>
+                      </td>
+                      <td style={{ padding: "10px 14px", color: next ? TH.text : TH.textSub2 }}>{next ? `${next.phase} · ${formatDate(next.due)}` : "All done"}</td>
+                    </tr>
+                    {isExpanded && (
+                      <tr>
+                        <td colSpan={7} style={{ background: "#EEF2F9", padding: 0, borderBottom: `2px solid ${TH.border}` }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, fontFamily: "inherit" }}>
+                            <thead>
+                              <tr style={{ background: "#3A4A5C", borderBottom: `1px solid #2D3748` }}>
+                                {["Phase", "Due Date", "Business Days Left", "Status", "Assignee"].map(h => (
+                                  <th key={h} style={{ padding: "7px 14px 7px 28px", textAlign: "left", fontWeight: 600, color: "rgba(255,255,255,0.7)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {sortedTasks.map((t, ti) => {
+                                const sc = STATUS_CONFIG[t.status] || STATUS_CONFIG["Not Started"];
+                                const assignee = team.find(m => m.id === t.assigneeId);
+                                const bd = getBusinessDaysUntil(t.due);
+                                const innerBg = ti % 2 === 0 ? "#F8FAFC" : "#FFFFFF";
+                                return (
+                                  <tr key={t.id} onClick={e => { e.stopPropagation(); setEditTask(t); }}
+                                    style={{ borderBottom: `1px solid ${TH.border}`, cursor: "pointer", background: innerBg }}
+                                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#E2E8F0"}
+                                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = innerBg}>
+                                    <td style={{ padding: "8px 14px 8px 28px", fontWeight: 600, color: TH.text }}>{t.phase}</td>
+                                    <td style={{ padding: "8px 14px 8px 28px", color: TH.textSub2 }}>{formatDate(t.due)}</td>
+                                    <td style={{ padding: "8px 14px 8px 28px", color: bd < 0 ? "#B91C1C" : bd <= 5 ? "#B45309" : TH.textSub, fontWeight: bd < 0 ? 700 : 400 }}>{t.status === "Complete" ? "Done" : `${Number.isInteger(bd) ? bd : bd.toFixed(1)}bd`}</td>
+                                    <td style={{ padding: "8px 14px 8px 28px" }}>
+                                      <span style={{ background: sc.bg, color: sc.color, border: `1px solid ${sc.border}`, padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 600 }}>{t.status}</span>
+                                    </td>
+                                    <td style={{ padding: "8px 14px 8px 28px", color: TH.textSub2 }}>{assignee?.name || "—"}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
     return (
       <div
         style={{
@@ -11453,11 +11850,45 @@ export default function App() {
                         gap: 0,
                       }}
                     >
+                      {/* ── DROP ZONE before first card ── */}
+                      {(() => {
+                        const beforeKey = `${bid}-${cname}-gap-before`;
+                        const isBefore = dragOverId === beforeKey;
+                        return (
+                          <div
+                            onDragOver={e => { e.preventDefault(); e.stopPropagation(); if (dragOverId !== beforeKey) setDragOverId(beforeKey); }}
+                            onDragEnter={e => { e.preventDefault(); setDragOverId(beforeKey); }}
+                            onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverId(null); }}
+                            onDrop={e => {
+                              e.preventDefault(); e.stopPropagation();
+                              const droppedId = e.dataTransfer.getData("text/plain") || dragId;
+                              if (!droppedId || !sorted.length) return;
+                              const newDue = snapToBusinessDay(addDays(sorted[0].due, -1));
+                              const droppedTask = tasks.find(x => x.id === droppedId);
+                              if (droppedTask) {
+                                const updated = { ...droppedTask, due: newDue };
+                                setTasks(ts => ts.map(x => x.id === droppedId ? updated : x));
+                                sbSaveTask(updated);
+                              }
+                              setDragId(null); setDragOverId(null);
+                            }}
+                            style={{ width: isBefore ? 52 : 28, minHeight: "100%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "copy", transition: "width 0.12s", position: "relative", zIndex: 2 }}
+                          >
+                            {isBefore && (
+                              <div style={{ width: 4, height: "100%", minHeight: 80, background: brand.color, borderRadius: 4, boxShadow: `0 0 0 3px ${brand.color}44`, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                <div style={{ width: 24, height: 24, borderRadius: "50%", background: brand.color, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3, position: "absolute" }}>
+                                  <span style={{ color: "#fff", fontSize: 14, fontWeight: 900, lineHeight: 1 }}>+</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                       {sorted.map((t, i) => {
                         const sc =
                             STATUS_CONFIG[t.status] ||
                             STATUS_CONFIG["Not Started"],
-                          days = getDaysUntil(t.due),
+                          days = getBusinessDaysUntil(t.due),
                           isOver = days < 0 && t.status !== "Complete",
                           isPL =
                             t.phase === "Line Review" ||
@@ -11473,28 +11904,29 @@ export default function App() {
                           : days <= 14
                           ? "#D97706"
                           : "#065F46";
+                        const daysDisplay = Number.isInteger(days) ? `${days}` : days.toFixed(1);
                         const countdownLabel =
                           t.status === "Complete"
                             ? "Done"
                             : isOver
-                            ? `${Math.abs(days)}d over`
+                            ? `${Math.abs(days) % 1 === 0 ? Math.abs(days) : Math.abs(days).toFixed(1)}bd over`
                             : days === 0
                             ? "Today"
-                            : `${days}d`;
+                            : `${daysDisplay}bd`;
                         const isDraggingThis = dragId === t.id;
                         const gapKey = `${bid}-${cname}-gap-${i}`;
                         const isGapActive = dragOverId === gapKey;
 
-                        // Days from concept (first task) to this task
+                        // Business days from concept (first task) to this task
                         const conceptTask = sorted[0];
                         const daysFromConcept = conceptTask
-                          ? diffDays(t.due, conceptTask.due)
+                          ? diffBusinessDays(t.due, conceptTask.due)
                           : 0;
 
-                        // Days from previous task to this task
+                        // Business days from previous task to this task
                         const prevTask = sorted[i - 1];
                         const daysFromPrev = prevTask
-                          ? diffDays(t.due, prevTask.due)
+                          ? diffBusinessDays(t.due, prevTask.due)
                           : null;
 
                         return (
@@ -11701,8 +12133,8 @@ export default function App() {
                                     {daysFromPrev == null
                                       ? "—"
                                       : daysFromPrev === 0
-                                      ? "0d"
-                                      : `${daysFromPrev}d`}
+                                      ? "0bd"
+                                      : `${Number.isInteger(daysFromPrev) ? daysFromPrev : daysFromPrev.toFixed(1)}bd`}
                                   </div>
                                 </div>
 
@@ -11750,31 +12182,21 @@ export default function App() {
                                   if (!droppedId) return;
                                   const prevTask = sorted[i];
                                   const nextTask = sorted[i + 1];
-                                  const prevMs = parseLocalDate(
-                                    prevTask.due
-                                  ).getTime();
-                                  const nextMs = parseLocalDate(
-                                    nextTask.due
-                                  ).getTime();
-                                  const midMs = Math.round(
-                                    (prevMs + nextMs) / 2
-                                  );
+                                  const prevMs = parseLocalDate(prevTask.due).getTime();
+                                  const nextMs = parseLocalDate(nextTask.due).getTime();
+                                  const midMs = Math.round((prevMs + nextMs) / 2);
                                   const mid = new Date(midMs);
-                                  const mm = String(
-                                    mid.getMonth() + 1
-                                  ).padStart(2, "0");
-                                  const dd = String(mid.getDate()).padStart(
-                                    2,
-                                    "0"
-                                  );
-                                  const newDue = `${mid.getFullYear()}-${mm}-${dd}`;
-                                  setTasks((ts) =>
-                                    ts.map((x) =>
-                                      x.id === droppedId
-                                        ? { ...x, due: newDue }
-                                        : x
-                                    )
-                                  );
+                                  let newDue = snapToBusinessDay(toDateStr(mid));
+                                  // Enforce minimum 1 calendar day from each neighbor
+                                  if (newDue <= prevTask.due) newDue = addDays(prevTask.due, 1);
+                                  if (newDue >= nextTask.due) newDue = addDays(nextTask.due, -1);
+                                  if (newDue <= prevTask.due) newDue = prevTask.due; // fallback
+                                  const droppedTask = tasks.find(x => x.id === droppedId);
+                                  if (droppedTask) {
+                                    const updated = { ...droppedTask, due: newDue };
+                                    setTasks(ts => ts.map(x => x.id === droppedId ? updated : x));
+                                    sbSaveTask(updated);
+                                  }
                                   setDragId(null);
                                   setDragOverId(null);
                                 }}
@@ -12438,6 +12860,17 @@ export default function App() {
             alignItems: "center",
           }}
         >
+          {/* List view toggle — shown for dashboard and timeline */}
+          {(view === "dashboard" || view === "timeline") && (
+            <div style={{ display: "flex", gap: 2, background: "rgba(255,255,255,0.08)", borderRadius: 8, padding: "3px", border: "1px solid rgba(255,255,255,0.15)" }}>
+              {[["⊞", false, "Grid view"], ["☰", true, "List view"]].map(([icon, isListMode, title]) => (
+                <button key={String(isListMode)} title={title as string} onClick={() => setListView(isListMode as boolean)}
+                  style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: listView === isListMode ? "rgba(255,255,255,0.18)" : "none", color: listView === isListMode ? "#fff" : "rgba(255,255,255,0.55)", cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 600, transition: "all 0.15s" }}>
+                  {icon}
+                </button>
+              ))}
+            </div>
+          )}
           {/* Settings master dropdown */}
           <SettingsDropdown
             isAdmin={isAdmin}
@@ -12461,23 +12894,7 @@ export default function App() {
             }}
           />
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div
-              style={{
-                width: 30,
-                height: 30,
-                borderRadius: "50%",
-                background: currentUser.color + "44",
-                border: `2px solid ${currentUser.color}`,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 11,
-                fontWeight: 700,
-                color: currentUser.color,
-              }}
-            >
-              {currentUser.initials}
-            </div>
+            <Avatar member={currentUser} size={30} />
             <div style={{ display: "flex", flexDirection: "column" }}>
               <span
                 style={{
@@ -12610,7 +13027,7 @@ export default function App() {
       )}
       {showTeam && (
         <Modal title="Team Members" onClose={() => setShowTeam(false)} wide>
-          <TeamManager team={team} setTeam={setTeam} isAdmin={isAdmin} roles={roles} setRoles={setRoles} />
+          <TeamManager team={team} setTeam={setTeam} users={users} setUsers={setUsers} isAdmin={isAdmin} roles={roles} setRoles={setRoles} />
         </Modal>
       )}
       {showUsers && (
@@ -12634,6 +13051,8 @@ export default function App() {
             taskTemplates={taskTemplates}
             setTaskTemplates={setTaskTemplates}
             isAdmin={isAdmin}
+            vendors={vendors}
+            setVendors={setVendors}
           />
         </Modal>
       )}
@@ -12748,22 +13167,30 @@ export default function App() {
                     label: "Delete Collection",
                     danger: true,
                     onClick: () => {
-                      const [brand, coll] = ctxMenu.collKey.split("||");
-                      setTasks((ts) =>
-                        ts.filter(
-                          (t) => !(t.brand === brand && t.collection === coll)
-                        )
-                      );
-                      setCollections((c) => {
-                        const n = { ...c };
-                        delete n[ctxMenu.collKey];
-                        return n;
-                      });
+                      setPendingDeleteColl(ctxMenu.collKey);
+                      setCtxMenu(null);
                     },
                   },
                 ]
               : []),
           ]}
+        />
+      )}
+
+      {/* ── DELETE COLLECTION CONFIRMATION ── */}
+      {pendingDeleteColl && (
+        <ConfirmModal
+          title="Delete Collection"
+          message={`Are you sure you want to delete "${pendingDeleteColl.split("||")[1]}"? This will permanently remove all tasks in this collection and cannot be undone.`}
+          confirmLabel="Delete"
+          danger
+          onConfirm={() => {
+            const [brand, coll] = pendingDeleteColl.split("||");
+            setTasks(ts => ts.filter(t => !(t.brand === brand && t.collection === coll)));
+            setCollections(c => { const n = { ...c }; delete n[pendingDeleteColl]; return n; });
+            setPendingDeleteColl(null);
+          }}
+          onCancel={() => setPendingDeleteColl(null)}
         />
       )}
 
