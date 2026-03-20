@@ -1590,7 +1590,7 @@ function BrandManager({ brands, setBrands, isAdmin = false }) {
               <button
                 onClick={() => {
                   if (window.confirm("Delete this brand?")) setBrands((bs) => bs.filter((x) => x.id !== b.id));
-                }
+                }}
                 style={{
                   padding: "5px 12px",
                   borderRadius: 7,
@@ -3063,7 +3063,7 @@ function VendorManager({ vendors, setVendors, isAdmin = false, taskTemplates }) 
               <button
                 onClick={() => {
                   if (window.confirm("Remove this vendor?")) setVendors((vs) => vs.filter((x) => x.id !== v.id));
-                }
+                }}
                 style={{
                   padding: "5px 12px",
                   borderRadius: 7,
