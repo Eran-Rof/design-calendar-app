@@ -95,7 +95,7 @@ function ROFLogoFull({ height = 44 }: { height?: number }) {
 // ── Main PLM Launcher ─────────────────────────────────────────────────────────
 export default function PLMApp() {
   const [user, setUser]           = useState<User | null>(null);
-  const [loginName, setLoginName] = useState("");
+  const [loginName, setLoginName] = useState(() => localStorage.getItem("plm_last_user") || localStorage.getItem("last_username") || "");
   const [loginPass, setLoginPass] = useState("");
   const [showPass, setShowPass]   = useState(false);
   const [loginErr, setLoginErr]   = useState("");
@@ -125,6 +125,7 @@ export default function PLMApp() {
       );
       if (match) {
         sessionStorage.setItem(SESSION_KEY, JSON.stringify(match));
+        localStorage.setItem("plm_last_user", loginName.trim());
         setUser(match);
       } else {
         setLoginErr("Invalid username or password.");
@@ -139,7 +140,7 @@ export default function PLMApp() {
   function handleSignOut() {
     sessionStorage.removeItem(SESSION_KEY);
     setUser(null);
-    setLoginName("");
+    setLoginName(localStorage.getItem("plm_last_user") || localStorage.getItem("last_username") || "");
     setLoginPass("");
   }
 
@@ -153,7 +154,7 @@ export default function PLMApp() {
       <div style={S.loginWrap}>
         {/* Logo */}
         <ROFLogoFull height={72} />
-        <h1 style={{ margin: "0 0 32px", fontSize: 47, fontWeight: 900, color: "#CC2200", letterSpacing: "0.35em", fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>P L M</h1>
+        <h1 style={{ margin: "0 0 32px", fontSize: 47, fontWeight: 500, color: "#CDD1D7", letterSpacing: "0.35em", fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>P L M</h1>
 
         <div style={S.card}>
           <input style={S.input} placeholder="Username"
@@ -195,7 +196,7 @@ export default function PLMApp() {
       <header style={S.header}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <ROFLogoFull height={36} />
-          <span style={{ color: "#CC2200", fontWeight: 900, fontSize: 18, letterSpacing: "0.3em" }}>P L M</span>
+          <span style={{ color: "#CDD1D7", fontWeight: 500, fontSize: 18, letterSpacing: "0.3em" }}>P L M</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={S.userPill}>
