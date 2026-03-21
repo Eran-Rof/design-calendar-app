@@ -1023,15 +1023,63 @@ export default function TandAApp() {
     const total = poTotal(selected);
     const statusColor = STATUS_COLORS[selected.StatusName ?? ""] ?? "#6B7280";
 
-    // Lazy-generate milestones on first view (or prompt for template)
+    // Lazy-generate milestones on first view
     const poNum = selected.PoNumber ?? "";
-    if (poNum && selected.DateExpectedDelivery && !milestones[poNum] && !showCreateTpl) {
+    if (poNum && selected.DateExpectedDelivery && !milestones[poNum]) {
       const vendorN = selected.VendorName ?? "";
       if (vendorN && !vendorHasTemplate(vendorN)) {
-        setShowCreateTpl(vendorN);
+        // Show create-template modal instead of detail panel
+        if (!showCreateTpl) setShowCreateTpl(vendorN);
       } else {
         ensureMilestones(selected);
       }
+    }
+
+    // Block detail panel — show create-template modal first
+    if (showCreateTpl) {
+      const vendorN = showCreateTpl;
+      return (
+        <div style={S.modalOverlay} onClick={() => { setShowCreateTpl(null); setSelected(null); }}>
+          <div style={{ ...S.modal, width: 500 }} onClick={e => e.stopPropagation()}>
+            <div style={S.modalHeader}>
+              <h2 style={S.modalTitle}>Create Production Template</h2>
+              <button style={S.closeBtn} onClick={() => { setShowCreateTpl(null); setSelected(null); }}>✕</button>
+            </div>
+            <div style={S.modalBody}>
+              <p style={{ color: "#D1D5DB", fontSize: 14, marginTop: 0, marginBottom: 16 }}>
+                No production template exists for <strong style={{ color: "#60A5FA" }}>{vendorN}</strong>. Create one to generate milestones for this PO.
+              </p>
+              <div style={{ marginBottom: 16 }}>
+                <label style={S.label}>Copy from</label>
+                <select style={{ ...S.select, width: "100%" }} id="modalCopyFrom">
+                  <option value="__default__">Default Template</option>
+                  {templateVendorList().map(v => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button style={{ ...S.btnSecondary, flex: 1 }} onClick={() => { setShowCreateTpl(null); setSelected(null); }}>
+                  Cancel
+                </button>
+                <button style={{ ...S.btnPrimary, flex: 2 }} onClick={async () => {
+                  const copyEl = document.getElementById("modalCopyFrom") as HTMLSelectElement;
+                  const copyFrom = copyEl?.value || "__default__";
+                  const source = getVendorTemplates(copyFrom === "__default__" ? undefined : copyFrom);
+                  const newTpls = source.map(t => ({ ...t, id: milestoneUid() }));
+                  await saveVendorTemplates(vendorN, newTpls);
+                  setShowCreateTpl(null);
+                  // Generate milestones now that template exists
+                  if (selected && selected.DateExpectedDelivery) {
+                    const ms = generateMilestones(selected.PoNumber ?? "", selected.DateExpectedDelivery, vendorN);
+                    if (ms.length > 0) await saveMilestones(ms);
+                  }
+                }}>
+                  Create Template & Generate Milestones
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
     }
 
     return (
@@ -1148,35 +1196,6 @@ export default function TandAApp() {
                     </div>
                   </div>
                   {poMs.length === 0 && !ddp && <p style={{ color: "#6B7280", fontSize: 13 }}>No expected delivery date — cannot generate milestones.</p>}
-                  {/* Prompt to create vendor template */}
-                  {poMs.length === 0 && ddp && !hasVendorTpl && vendorN && (
-                    <div style={{ background: "#0F172A", borderRadius: 8, padding: 16, marginBottom: 12 }}>
-                      <p style={{ color: "#F59E0B", fontSize: 13, margin: "0 0 10px" }}>
-                        No production template exists for <strong style={{ color: "#FCD34D" }}>{vendorN}</strong>. Create one to generate milestones.
-                      </p>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        <span style={{ color: "#94A3B8", fontSize: 12 }}>Copy from:</span>
-                        <select style={{ ...S.select, fontSize: 12 }} value={showCreateTpl === vendorN ? ((window as any).__copyFrom ?? "__default__") : "__default__"}
-                          onChange={e => { (window as any).__copyFrom = e.target.value; setShowCreateTpl(vendorN); }}>
-                          <option value="__default__">Default Template</option>
-                          {templateVendorList().map(v => <option key={v} value={v}>{v}</option>)}
-                        </select>
-                        <button style={{ ...S.btnPrimary, width: "auto", padding: "6px 14px", fontSize: 12 }} onClick={async () => {
-                          const copyFrom = (window as any).__copyFrom || "__default__";
-                          const source = getVendorTemplates(copyFrom === "__default__" ? undefined : copyFrom);
-                          const newTpls = source.map(t => ({ ...t, id: milestoneUid() }));
-                          await saveVendorTemplates(vendorN, newTpls);
-                          setShowCreateTpl(null);
-                          (window as any).__copyFrom = undefined;
-                          // Now generate milestones
-                          const ms = generateMilestones(poNum, ddp, vendorN);
-                          if (ms.length > 0) await saveMilestones(ms);
-                        }}>
-                          Create Template & Generate
-                        </button>
-                      </div>
-                    </div>
-                  )}
                   {poMs.length === 0 && ddp && hasVendorTpl && <p style={{ color: "#6B7280", fontSize: 13 }}>No milestones yet. Click "Generate Milestones" to create them.</p>}
                   {WIP_CATEGORIES.filter(cat => grouped[cat]?.length).map(cat => {
                     const catMs = grouped[cat];
