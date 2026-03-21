@@ -306,7 +306,7 @@ export default function TandAApp() {
   const [pos, setPos]           = useState<XoroPO[]>([]);
   const [notes, setNotes]       = useState<LocalNote[]>([]);
   const [selected, setSelected] = useState<XoroPO | null>(null);
-  const [detailMode, setDetailMode] = useState<"header" | "full">("full");
+  const [detailMode, setDetailMode] = useState<"header" | "po" | "milestones" | "all">("header");
   const [loading, setLoading]   = useState(false);
   const [syncing, setSyncing]   = useState(false);
   const [syncErr, setSyncErr]   = useState("");
@@ -1083,11 +1083,23 @@ export default function TandAApp() {
       );
     }
 
+    const showPO = detailMode === "po" || detailMode === "all";
+    const showMilestones = detailMode === "milestones" || detailMode === "all";
+
+    const tabBtn = (label: string, mode: "header" | "po" | "milestones" | "all") => (
+      <button onClick={() => setDetailMode(mode)} style={{
+        padding: "8px 16px", borderRadius: 6, border: "none", fontSize: 13, cursor: "pointer",
+        background: detailMode === mode ? "#3B82F620" : "transparent",
+        color: detailMode === mode ? "#60A5FA" : "#94A3B8",
+        fontWeight: detailMode === mode ? 700 : 400,
+      }}>{label}</button>
+    );
+
     return (
-      <div style={S.detailOverlay} onClick={() => setSelected(null)}>
-        <div style={S.detailPanel} onClick={e => e.stopPropagation()}>
+      <div style={{ position: "fixed", inset: 0, top: 56, background: "#0F172A", zIndex: 150, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+        <div style={{ maxWidth: 1200, margin: "0 auto", width: "100%", padding: "24px 20px", flex: 1 }}>
           {/* Header */}
-          <div style={{ ...S.detailHeader, borderLeft: `4px solid ${statusColor}` }}>
+          <div style={{ ...S.detailHeader, borderLeft: `4px solid ${statusColor}`, borderRadius: 12, marginBottom: 16 }}>
             <div>
               <div style={S.detailPONum}>{selected.PoNumber ?? "—"}</div>
               <div style={S.detailVendor}>{selected.VendorName ?? "Unknown Vendor"}</div>
@@ -1096,48 +1108,46 @@ export default function TandAApp() {
               <span style={{ ...S.badge, background: statusColor + "33", color: statusColor, border: `1px solid ${statusColor}66` }}>
                 {selected.StatusName ?? "Unknown"}
               </span>
-              <button style={S.closeBtn} onClick={() => setSelected(null)}>✕</button>
+              <button style={S.closeBtn} onClick={() => setSelected(null)}>✕ Close</button>
             </div>
           </div>
 
-          <div style={S.detailBody}>
-            {/* Key info grid */}
-            <div style={S.infoGrid}>
-              <InfoCell label="Order Date"     value={fmtDate(selected.DateOrder)} />
-              <InfoCell label="Vendor Req Date" value={fmtDate(selected.VendorReqDate)} />
-              <InfoCell label="Expected Delivery" value={
-                <span style={{ color: days !== null && days < 0 ? "#EF4444" : days !== null && days <= 7 ? "#F59E0B" : "#10B981" }}>
-                  {fmtDate(selected.DateExpectedDelivery)}
-                  {days !== null && <span style={{ fontSize: 11, marginLeft: 6 }}>
-                    {days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "Today!" : `in ${days}d`}
-                  </span>}
-                </span>
-              } />
-              <InfoCell label="Total Value" value={fmtCurrency(total, selected.CurrencyCode)} />
-              <InfoCell label="Currency"    value={selected.CurrencyCode ?? "—"} />
-              <InfoCell label="Payment Terms" value={selected.PaymentTermsName ?? "—"} />
-              <InfoCell label="Ship Method"  value={selected.ShipMethodName ?? "—"} />
-              <InfoCell label="Carrier"      value={selected.CarrierName ?? "—"} />
-              <InfoCell label="Buyer"        value={selected.BuyerName ?? "—"} />
-            </div>
+          {/* Key info grid — always visible */}
+          <div style={{ ...S.infoGrid, marginBottom: 16 }}>
+            <InfoCell label="Order Date"     value={fmtDate(selected.DateOrder)} />
+            <InfoCell label="Vendor Req Date" value={fmtDate(selected.VendorReqDate)} />
+            <InfoCell label="Expected Delivery" value={
+              <span style={{ color: days !== null && days < 0 ? "#EF4444" : days !== null && days <= 7 ? "#F59E0B" : "#10B981" }}>
+                {fmtDate(selected.DateExpectedDelivery)}
+                {days !== null && <span style={{ fontSize: 11, marginLeft: 6 }}>
+                  {days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "Today!" : `in ${days}d`}
+                </span>}
+              </span>
+            } />
+            <InfoCell label="Total Value" value={fmtCurrency(total, selected.CurrencyCode)} />
+            <InfoCell label="Currency"    value={selected.CurrencyCode ?? "—"} />
+            <InfoCell label="Payment Terms" value={selected.PaymentTermsName ?? "—"} />
+            <InfoCell label="Ship Method"  value={selected.ShipMethodName ?? "—"} />
+            <InfoCell label="Carrier"      value={selected.CarrierName ?? "—"} />
+            <InfoCell label="Buyer"        value={selected.BuyerName ?? "—"} />
+          </div>
 
-            {/* Header-only mode: show expand button */}
-            {detailMode === "header" && (
-              <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
-                <button style={{ ...S.btnPrimary, fontSize: 13 }} onClick={() => setDetailMode("full")}>
-                  View Full Details & Milestones
-                </button>
-              </div>
-            )}
+          {/* Tab buttons */}
+          <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "#1E293B", borderRadius: 8, padding: 4 }}>
+            {tabBtn("PO Details", "po")}
+            {tabBtn("Milestones", "milestones")}
+            {tabBtn("All", "all")}
+          </div>
 
-            {detailMode === "full" && selected.Memo && (
+          {/* PO Details section */}
+          {showPO && selected.Memo && (
               <div style={S.memoBox}>
                 <div style={S.sectionLabel}>Memo</div>
                 <p style={{ color: "#D1D5DB", fontSize: 14, margin: 0 }}>{selected.Memo}</p>
               </div>
             )}
 
-            {detailMode === "full" && selected.Tags && (
+            {showPO && selected.Tags && (
               <div style={{ marginBottom: 16 }}>
                 <div style={S.sectionLabel}>Tags</div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -1149,7 +1159,7 @@ export default function TandAApp() {
             )}
 
             {/* Line items */}
-            {detailMode === "full" && items.length > 0 && (
+            {showPO && items.length > 0 && (
               <div style={{ marginBottom: 20 }}>
                 <div style={S.sectionLabel}>Line Items ({items.length})</div>
                 <div style={S.itemsTable}>
@@ -1176,7 +1186,7 @@ export default function TandAApp() {
             )}
 
             {/* Production Milestones */}
-            {detailMode === "full" && (() => {
+            {showMilestones && (() => {
               const poNum = selected.PoNumber ?? "";
               const poMs = milestones[poNum] || [];
               const ddp = selected.DateExpectedDelivery;
@@ -1255,7 +1265,7 @@ export default function TandAApp() {
             })()}
 
             {/* Notes */}
-            {detailMode === "full" && <div>
+            {showPO && <div>
               <div style={S.sectionLabel}>Notes & Updates</div>
               {selectedNotes.length === 0 && <p style={{ color: "#6B7280", fontSize: 13 }}>No notes yet.</p>}
               {selectedNotes.map(n => (
@@ -1282,7 +1292,6 @@ export default function TandAApp() {
                 <button style={S.btnPrimary} onClick={addNote}>Add Note</button>
               </div>
             </div>}
-          </div>
         </div>
       </div>
     );
@@ -1491,7 +1500,7 @@ export default function TandAApp() {
                   </button>
                 </div>
               )}
-              {pos.slice(0, 8).map((po, i) => <PORow key={i} po={po} onClick={() => { setDetailMode("full"); setSelected(po); }} />)}
+              {pos.slice(0, 8).map((po, i) => <PORow key={i} po={po} onClick={() => { setDetailMode("header"); setSelected(po); }} />)}
             </div>
           </>
         )}
@@ -1525,7 +1534,7 @@ export default function TandAApp() {
                   {pos.length === 0 && <button style={S.btnPrimary} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing}>🔄 Sync from Xoro</button>}
                 </div>
               )}
-              {filtered.map((po, i) => <PORow key={i} po={po} onClick={() => { setDetailMode("header"); setSelected(po); }} onClickMilestones={() => { setDetailMode("full"); setSelected(po); }} detailed />)}
+              {filtered.map((po, i) => <PORow key={i} po={po} onClick={() => { setDetailMode("header"); setSelected(po); }} detailed />)}
             </div>
           </>
         )}
@@ -1694,7 +1703,7 @@ export default function TandAApp() {
     );
   }
 
-  function PORow({ po, onClick, onClickMilestones, detailed }: { po: XoroPO; onClick: () => void; onClickMilestones?: () => void; detailed?: boolean }) {
+  function PORow({ po, onClick, detailed }: { po: XoroPO; onClick: () => void; detailed?: boolean }) {
     const color = STATUS_COLORS[po.StatusName ?? ""] ?? "#6B7280";
     const days  = daysUntil(po.DateExpectedDelivery);
     const total = poTotal(po);
@@ -1706,25 +1715,23 @@ export default function TandAApp() {
     const msApproaching = poMs.some(m => m.expected_date && m.expected_date >= today && m.expected_date <= weekFromNow && m.status !== "Complete" && m.status !== "N/A");
     const msDotColor = msTotal === 0 ? "#6B7280" : msOverdue ? "#EF4444" : msApproaching ? "#F59E0B" : "#10B981";
     const msPercent = msTotal > 0 ? Math.round((msComplete / msTotal) * 100) : 0;
-    const linkStyle: React.CSSProperties = { cursor: "pointer", textDecoration: "none" };
     return (
-      <div style={{ ...S.poRow, borderLeft: `3px solid ${color}`, cursor: "default" }}>
+      <div style={{ ...S.poRow, borderLeft: `3px solid ${color}` }} onClick={onClick}>
         <div style={{ flex: 1 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-            <span style={{ ...S.poNumber, ...linkStyle }} onClick={onClick}>{po.PoNumber ?? "—"}</span>
+            <span style={S.poNumber}>{po.PoNumber ?? "—"}</span>
             <span style={{ ...S.badge, background: color + "22", color, border: `1px solid ${color}44` }}>
               {po.StatusName ?? "Unknown"}
             </span>
             {days !== null && days < 0 && <span style={{ ...S.badge, background: "#EF444422", color: "#EF4444", border: "1px solid #EF444444" }}>Overdue</span>}
             {days !== null && days >= 0 && days <= 7 && <span style={{ ...S.badge, background: "#F59E0B22", color: "#F59E0B", border: "1px solid #F59E0B44" }}>Due Soon</span>}
           </div>
-          <div style={{ color: "#D1D5DB", fontWeight: 600, ...linkStyle }} onClick={onClick}>{po.VendorName ?? "Unknown Vendor"}</div>
+          <div style={{ color: "#D1D5DB", fontWeight: 600 }}>{po.VendorName ?? "Unknown Vendor"}</div>
           {detailed && po.Memo && <div style={{ color: "#6B7280", fontSize: 12, marginTop: 2 }}>{po.Memo}</div>}
         </div>
-        {/* Milestone mini-progress — click to open milestones detail */}
+        {/* Milestone mini-progress */}
         {msTotal > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 60, cursor: "pointer" }}
-            onClick={onClickMilestones || onClick} title="View milestones">
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 60 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: msDotColor }} />
               <span style={{ color: "#9CA3AF", fontSize: 11, fontFamily: "monospace" }}>{msComplete}/{msTotal}</span>
