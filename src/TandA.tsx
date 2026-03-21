@@ -1220,10 +1220,24 @@ export default function TandAApp() {
                   </div>
                   {poMs.length === 0 && !ddp && <p style={{ color: "#6B7280", fontSize: 13 }}>No expected delivery date — cannot generate milestones.</p>}
                   {poMs.length === 0 && ddp && hasVendorTpl && <p style={{ color: "#6B7280", fontSize: 13 }}>No milestones yet. Click "Generate Milestones" to create them.</p>}
-                  {WIP_CATEGORIES.filter(cat => grouped[cat]?.length).map(cat => {
+                  {(() => {
+                    // Find the first category that is not fully complete
+                    const activeCats = WIP_CATEGORIES.filter(cat => grouped[cat]?.length);
+                    const firstIncompleteCat = activeCats.find(cat => {
+                      const ms = grouped[cat];
+                      return ms.some(m => m.status !== "Complete" && m.status !== "N/A");
+                    });
+                    return activeCats;
+                  })().map(cat => {
                     const catMs = grouped[cat];
-                    const collapsed = collapsedCats[cat + poNum];
                     const catComplete = catMs.filter(m => m.status === "Complete").length;
+                    const allDone = catComplete === catMs.length;
+                    // Default: collapsed unless it's the first incomplete category
+                    const activeCats = WIP_CATEGORIES.filter(c => grouped[c]?.length);
+                    const firstIncompleteCat = activeCats.find(c => grouped[c].some(m => m.status !== "Complete" && m.status !== "N/A"));
+                    const defaultCollapsed = cat !== firstIncompleteCat;
+                    const key = cat + poNum;
+                    const collapsed = collapsedCats[key] !== undefined ? collapsedCats[key] : defaultCollapsed;
                     return (
                       <div key={cat} style={{ marginBottom: 8 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#0F172A", borderRadius: collapsed ? 8 : "8px 8px 0 0", cursor: "pointer", userSelect: "none" }}
