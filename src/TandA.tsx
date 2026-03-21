@@ -1615,13 +1615,35 @@ export default function TandAApp() {
                     <span>#</span><span>Phase</span><span>Category</span><span style={{ textAlign: "center" }}>Days Before DDP</span><span style={{ textAlign: "center" }}>Status</span>
                     {isAdmin && <span style={{ textAlign: "center" }}>Actions</span>}
                   </div>
-                  {currentTemplates.map((tpl, i) => (
+                  {currentTemplates.map((tpl, i) => {
+                    const updateField = (field: string, value: any) => {
+                      const arr = [...currentTemplates];
+                      arr[i] = { ...arr[i], [field]: value };
+                      saveVendorTemplates(tplVendor, arr);
+                    };
+                    return (
                     <div key={tpl.id} style={{ display: "grid", gridTemplateColumns: "40px 1fr 140px 120px 90px" + (isAdmin ? " 80px" : ""), padding: "8px 14px", borderTop: "1px solid #1E293B", fontSize: 13, alignItems: "center" }}>
                       <span style={{ color: "#6B7280", fontSize: 11 }}>{i + 1}</span>
-                      <span style={{ color: "#D1D5DB" }}>{tpl.phase}</span>
-                      <span style={{ color: "#9CA3AF", fontSize: 12 }}>{tpl.category}</span>
-                      <span style={{ color: "#9CA3AF", textAlign: "center" }}>{tpl.daysBeforeDDP}</span>
-                      <span style={{ color: MILESTONE_STATUS_COLORS[tpl.status] || "#6B7280", textAlign: "center", fontSize: 11 }}>{tpl.status}</span>
+                      {isAdmin ? (
+                        <input style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 4, color: "#D1D5DB", fontSize: 13, padding: "3px 8px", width: "100%", outline: "none", boxSizing: "border-box" }}
+                          value={tpl.phase} onChange={e => updateField("phase", e.target.value)} />
+                      ) : <span style={{ color: "#D1D5DB" }}>{tpl.phase}</span>}
+                      {isAdmin ? (
+                        <select style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 4, color: "#9CA3AF", fontSize: 12, padding: "3px 4px" }}
+                          value={tpl.category} onChange={e => updateField("category", e.target.value)}>
+                          {WIP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      ) : <span style={{ color: "#9CA3AF", fontSize: 12 }}>{tpl.category}</span>}
+                      {isAdmin ? (
+                        <input type="number" style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 4, color: "#9CA3AF", fontSize: 13, padding: "3px 8px", textAlign: "center", width: "100%", outline: "none", boxSizing: "border-box" }}
+                          value={tpl.daysBeforeDDP} onChange={e => updateField("daysBeforeDDP", parseInt(e.target.value) || 0)} />
+                      ) : <span style={{ color: "#9CA3AF", textAlign: "center" }}>{tpl.daysBeforeDDP}</span>}
+                      {isAdmin ? (
+                        <select style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 4, color: MILESTONE_STATUS_COLORS[tpl.status] || "#6B7280", fontSize: 11, padding: "3px 4px" }}
+                          value={tpl.status} onChange={e => updateField("status", e.target.value)}>
+                          {MILESTONE_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      ) : <span style={{ color: MILESTONE_STATUS_COLORS[tpl.status] || "#6B7280", textAlign: "center", fontSize: 11 }}>{tpl.status}</span>}
                       {isAdmin && (
                         <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
                           {i > 0 && <button style={{ background: "none", border: "1px solid #334155", color: "#6B7280", borderRadius: 4, cursor: "pointer", padding: "2px 6px", fontSize: 10 }}
@@ -1633,7 +1655,8 @@ export default function TandAApp() {
                         </div>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                   {currentTemplates.length === 0 && <div style={{ padding: 20, textAlign: "center", color: "#6B7280", fontSize: 13 }}>No phases defined.</div>}
                 </div>
                 {isAdmin && (
