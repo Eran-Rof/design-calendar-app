@@ -1241,7 +1241,7 @@ export default function TandAApp() {
                                 <div key={m.id} style={{ display: "grid", gridTemplateColumns: "1fr 90px 90px 100px 60px", gap: 6, padding: "6px 12px", borderTop: "1px solid #1E293B", alignItems: "center", fontSize: 12 }}>
                                   <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
                                   <span style={{ color: "#9CA3AF", textAlign: "center", fontSize: 11 }}>{fmtDate(m.expected_date ?? undefined)}</span>
-                                  <input type="date" style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#F1F5F9", fontSize: 11, padding: "2px 4px" }}
+                                  <input type="date" style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#F1F5F9", fontSize: 14, padding: "4px 6px", minWidth: 130 }}
                                     value={m.actual_date || ""}
                                     onChange={e => {
                                       const val = e.target.value || null;
