@@ -306,7 +306,7 @@ export default function TandAApp() {
   const [pos, setPos]           = useState<XoroPO[]>([]);
   const [notes, setNotes]       = useState<LocalNote[]>([]);
   const [selected, setSelected] = useState<XoroPO | null>(null);
-  const [detailMode, setDetailMode] = useState<"header" | "po" | "milestones" | "all">("header");
+  const [detailMode, setDetailMode] = useState<"header" | "po" | "milestones" | "notes" | "history" | "all">("header");
   const [loading, setLoading]   = useState(false);
   const [syncing, setSyncing]   = useState(false);
   const [syncErr, setSyncErr]   = useState("");
@@ -317,7 +317,6 @@ export default function TandAApp() {
   const [showSettings, setShowSettings] = useState(false);
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [newNote, setNewNote]   = useState("");
-  const [noteStatus, setNoteStatus] = useState("");
   const syncAbortRef = useRef<AbortController | null>(null);
 
   // Sync filter state
@@ -543,7 +542,20 @@ export default function TandAApp() {
     } catch { return []; }
   }
 
-  async function saveMilestone(m: Milestone) {
+  async function saveMilestone(m: Milestone, skipHistory = false) {
+    // Track changes for history
+    if (!skipHistory) {
+      const existing = (milestones[m.po_number] || []).find(x => x.id === m.id);
+      if (existing) {
+        const changes: string[] = [];
+        if (existing.status !== m.status) changes.push(`Status: ${existing.status} → ${m.status}`);
+        if (existing.actual_date !== m.actual_date) changes.push(`Actual Date: ${existing.actual_date || "—"} → ${m.actual_date || "—"}`);
+        if (existing.notes !== m.notes) changes.push(`Notes updated`);
+        if (changes.length > 0) {
+          addHistory(m.po_number, `${m.phase}: ${changes.join(", ")}`);
+        }
+      }
+    }
     await sb.from("tanda_milestones").upsert({ id: m.id, data: m }, { onConflict: "id" });
     setMilestones(prev => {
       const arr = [...(prev[m.po_number] || [])];
@@ -636,7 +648,10 @@ export default function TandAApp() {
       return "needs_template";
     }
     const ms = generateMilestones(poNum, ddp, vendor);
-    if (ms.length > 0) await saveMilestones(ms);
+    if (ms.length > 0) {
+      await saveMilestones(ms);
+      addHistory(poNum, `Milestones generated (${ms.length} phases) using ${vendor || "default"} template`);
+    }
     return ms;
   }
 
@@ -649,6 +664,7 @@ export default function TandAApp() {
     const merged = mergeMilestones(existing, fresh);
     if (existing.length > 0) await deleteMilestonesForPO(poNum);
     await saveMilestones(merged);
+    addHistory(poNum, `Milestones regenerated (${merged.length} phases)`);
   }
 
   // ── Cancel sync ─────────────────────────────────────────────────────────
@@ -712,6 +728,11 @@ export default function TandAApp() {
       // reload full cache
       await loadCachedPOs();
       setLastSync(now);
+      // Log sync to history for each synced PO
+      for (const po of all.slice(0, 5)) {
+        addHistory(po.PoNumber ?? "", `PO synced from Xoro (${all.length} POs in batch)`);
+      }
+      if (all.length > 5) addHistory(all[0]?.PoNumber ?? "", `... and ${all.length - 5} more POs synced`);
     } catch (e: any) {
       if (e.name === "AbortError") setSyncErr("Sync timed out or was cancelled. Check your Xoro API credentials and try again.");
       else setSyncErr(e.message ?? "Sync failed");
@@ -768,16 +789,29 @@ export default function TandAApp() {
     await sb.from("tanda_notes").insert({
       po_number: selected.PoNumber,
       note: newNote.trim(),
-      status_override: noteStatus || null,
+      status_override: null,
       user_name: user.name,
       created_at: new Date().toISOString(),
     });
     setNewNote("");
-    setNoteStatus("");
     await loadNotes();
   }
 
-  const selectedNotes = notes.filter(n => n.po_number === selected?.PoNumber);
+  async function addHistory(poNumber: string, description: string) {
+    if (!poNumber) return;
+    await sb.from("tanda_notes").insert({
+      po_number: poNumber,
+      note: description,
+      status_override: "__history__",
+      user_name: user?.name || "System",
+      created_at: new Date().toISOString(),
+    });
+    await loadNotes();
+  }
+
+  const allPONotes = notes.filter(n => n.po_number === selected?.PoNumber);
+  const selectedNotes = allPONotes.filter(n => n.status_override !== "__history__");
+  const selectedHistory = allPONotes.filter(n => n.status_override === "__history__");
 
   // ════════════════════════════════════════════════════════════════════════════
   // LOGIN SCREEN
@@ -1074,10 +1108,15 @@ export default function TandAApp() {
                   const newTpls = source.map(t => ({ ...t, id: milestoneUid() }));
                   await saveVendorTemplates(vendorN, newTpls);
                   setShowCreateTpl(null);
+                  const poNum = selected?.PoNumber ?? "";
+                  addHistory(poNum, `Template created for ${vendorN} (copied from ${copyFrom === "__default__" ? "Default" : copyFrom})`);
                   // Generate milestones now that template exists
                   if (selected && selected.DateExpectedDelivery) {
-                    const ms = generateMilestones(selected.PoNumber ?? "", selected.DateExpectedDelivery, vendorN);
-                    if (ms.length > 0) await saveMilestones(ms);
+                    const ms = generateMilestones(poNum, selected.DateExpectedDelivery, vendorN);
+                    if (ms.length > 0) {
+                      await saveMilestones(ms);
+                      addHistory(poNum, `Milestones generated (${ms.length} phases) using ${vendorN} template`);
+                    }
                   }
                 }}>
                   Create Template & Generate Milestones
@@ -1091,6 +1130,8 @@ export default function TandAApp() {
 
     const showPO = detailMode === "po" || detailMode === "all";
     const showMilestones = detailMode === "milestones" || detailMode === "all";
+    const showNotes = detailMode === "notes" || detailMode === "all";
+    const showHistory = detailMode === "history" || detailMode === "all";
     const totalQty = items.reduce((s, i) => s + (i.QtyOrder ?? 0), 0);
 
     const tabStyle = (mode: string): React.CSSProperties => ({
@@ -1144,6 +1185,8 @@ export default function TandAApp() {
           <div style={{ display: "flex", gap: 2, marginBottom: 0 }}>
             <button style={tabStyle("po")} onClick={() => setDetailMode("po")}>PO Details</button>
             <button style={tabStyle("milestones")} onClick={() => setDetailMode("milestones")}>Milestones</button>
+            <button style={tabStyle("notes")} onClick={() => setDetailMode("notes")}>Notes</button>
+            <button style={tabStyle("history")} onClick={() => setDetailMode("history")}>History</button>
             <button style={tabStyle("all")} onClick={() => setDetailMode("all")}>All</button>
           </div>
           <div style={{ border: "1px solid #334155", borderTop: "none", borderRadius: "0 0 10px 10px", background: "#1E293B", padding: 20, marginBottom: 20 }}>
@@ -1287,9 +1330,9 @@ export default function TandAApp() {
               );
             })()}
 
-            {/* Notes */}
-            {showPO && <div>
-              <div style={S.sectionLabel}>Notes & Updates</div>
+            {/* Notes Tab */}
+            {showNotes && <div>
+              <div style={S.sectionLabel}>Notes</div>
               {selectedNotes.length === 0 && <p style={{ color: "#6B7280", fontSize: 13 }}>No notes yet.</p>}
               {selectedNotes.map(n => (
                 <div key={n.id} style={S.noteCard}>
@@ -1297,23 +1340,32 @@ export default function TandAApp() {
                     <span style={{ color: "#60A5FA", fontWeight: 600, fontSize: 13 }}>{n.user_name}</span>
                     <span style={{ color: "#6B7280", fontSize: 11 }}>{new Date(n.created_at).toLocaleString()}</span>
                   </div>
-                  {n.status_override && (
-                    <span style={{ ...S.badge, background: (STATUS_COLORS[n.status_override] ?? "#6B7280") + "33", color: STATUS_COLORS[n.status_override] ?? "#6B7280", marginBottom: 6, display: "inline-block" }}>
-                      Status: {n.status_override}
-                    </span>
-                  )}
                   <p style={{ color: "#D1D5DB", fontSize: 14, margin: 0 }}>{n.note}</p>
                 </div>
               ))}
               <div style={{ marginTop: 12, display: "flex", gap: 8, flexDirection: "column" }}>
-                <select style={S.select} value={noteStatus} onChange={e => setNoteStatus(e.target.value)}>
-                  <option value="">No status change</option>
-                  {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
                 <textarea style={S.textarea} rows={3} placeholder="Add a note..."
                   value={newNote} onChange={e => setNewNote(e.target.value)} />
                 <button style={S.btnPrimary} onClick={addNote}>Add Note</button>
               </div>
+            </div>}
+
+            {/* History Tab */}
+            {showHistory && <div>
+              <div style={S.sectionLabel}>Change History</div>
+              {selectedHistory.length === 0 && <p style={{ color: "#6B7280", fontSize: 13 }}>No history recorded yet.</p>}
+              {selectedHistory.map(h => (
+                <div key={h.id} style={{ display: "flex", gap: 12, padding: "10px 14px", borderBottom: "1px solid #334155", alignItems: "flex-start" }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#3B82F6", marginTop: 6, flexShrink: 0 }} />
+                  <div style={{ flex: 1 }}>
+                    <p style={{ color: "#D1D5DB", fontSize: 14, margin: 0 }}>{h.note}</p>
+                    <div style={{ display: "flex", gap: 12, marginTop: 4, fontSize: 11, color: "#6B7280" }}>
+                      <span>{h.user_name}</span>
+                      <span>{fmtDate(h.created_at)} {new Date(h.created_at).toLocaleTimeString()}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>}
           </div>
         </div>
