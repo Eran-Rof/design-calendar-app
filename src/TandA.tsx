@@ -1763,7 +1763,7 @@ export default function TandAApp() {
         })()}
       </div>
 
-      {selected      && <DetailPanel />}
+      {selected      && DetailPanel()}
       {showSettings  && <SettingsModal />}
       {showSyncModal && <SyncModal />}
     </div>
