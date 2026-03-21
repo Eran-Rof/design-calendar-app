@@ -786,15 +786,16 @@ export default function TandAApp() {
 
   async function addNote() {
     if (!newNote.trim() || !selected || !user) return;
+    const noteText = newNote.trim();
     await sb.from("tanda_notes").insert({
       po_number: selected.PoNumber,
-      note: newNote.trim(),
+      note: noteText,
       status_override: null,
       user_name: user.name,
       created_at: new Date().toISOString(),
     });
     setNewNote("");
-    await loadNotes();
+    addHistory(selected.PoNumber ?? "", `Note added: "${noteText.length > 80 ? noteText.slice(0, 80) + "…" : noteText}"`);
   }
 
   async function addHistory(poNumber: string, description: string) {
