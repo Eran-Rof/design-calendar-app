@@ -620,12 +620,18 @@ export default function TandAApp() {
   async function ensureMilestones(po: XoroPO): Promise<Milestone[] | "needs_template"> {
     const poNum = po.PoNumber ?? "";
     if (!poNum) return [];
+    // Check state first
     const existing = milestones[poNum];
     if (existing && existing.length > 0) return existing;
+    // Double-check DB to prevent duplicates
+    const dbExisting = await loadMilestones(poNum);
+    if (dbExisting.length > 0) {
+      setMilestones(prev => ({ ...prev, [poNum]: dbExisting }));
+      return dbExisting;
+    }
     const ddp = po.DateExpectedDelivery;
     if (!ddp) return [];
     const vendor = po.VendorName ?? "";
-    // If vendor doesn't have a template, prompt to create one
     if (vendor && !vendorHasTemplate(vendor)) {
       return "needs_template";
     }
