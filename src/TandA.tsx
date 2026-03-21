@@ -1336,11 +1336,11 @@ export default function TandAApp() {
               {selectedNotes.length === 0 && <p style={{ color: "#6B7280", fontSize: 13 }}>No notes yet.</p>}
               {selectedNotes.map(n => (
                 <div key={n.id} style={S.noteCard}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ color: "#60A5FA", fontWeight: 600, fontSize: 13 }}>{n.user_name}</span>
-                    <span style={{ color: "#6B7280", fontSize: 11 }}>{new Date(n.created_at).toLocaleString()}</span>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ color: "#60A5FA", fontWeight: 700, fontSize: 14 }}>{n.user_name}</span>
+                    <span style={{ color: "#9CA3AF", fontSize: 13 }}>{fmtDate(n.created_at)} {new Date(n.created_at).toLocaleTimeString()}</span>
                   </div>
-                  <p style={{ color: "#D1D5DB", fontSize: 14, margin: 0 }}>{n.note}</p>
+                  <p style={{ color: "#D1D5DB", fontSize: 15, margin: 0 }}>{n.note}</p>
                 </div>
               ))}
               <div style={{ marginTop: 12, display: "flex", gap: 8, flexDirection: "column" }}>
@@ -1501,7 +1501,7 @@ export default function TandAApp() {
                     const daysRem = m.expected_date ? Math.ceil((new Date(m.expected_date).getTime() - Date.now()) / 86400000) : null;
                     return (
                       <div key={m.id} style={{ display: "grid", gridTemplateColumns: "120px 1fr 100px 80px 70px", padding: "8px 12px", borderBottom: "1px solid #1E293B", cursor: "pointer", alignItems: "center" }}
-                        onClick={() => { const p = pos.find(x => x.PoNumber === m.po_number); if (p) { setDetailMode("milestones"); setSelected(p); } }}>
+                        onClick={() => { const p = pos.find(x => x.PoNumber === m.po_number); if (p) { setDetailMode("milestones"); setNewNote(""); setSelected(p); } }}>
                         <span style={{ color: "#60A5FA", fontFamily: "monospace", fontSize: 11 }}>{m.po_number}</span>
                         <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
                         <span style={{ color: "#9CA3AF" }}>{fmtDate(m.expected_date ?? undefined)}</span>
@@ -1528,7 +1528,7 @@ export default function TandAApp() {
                     const daysLate = m.expected_date ? Math.abs(Math.ceil((new Date(m.expected_date).getTime() - Date.now()) / 86400000)) : 0;
                     return (
                       <div key={m.id} style={{ display: "grid", gridTemplateColumns: "120px 1fr 100px 80px 70px", padding: "8px 12px", borderBottom: "1px solid #1E293B", cursor: "pointer", alignItems: "center" }}
-                        onClick={() => { const p = pos.find(x => x.PoNumber === m.po_number); if (p) { setDetailMode("milestones"); setSelected(p); } }}>
+                        onClick={() => { const p = pos.find(x => x.PoNumber === m.po_number); if (p) { setDetailMode("milestones"); setNewNote(""); setSelected(p); } }}>
                         <span style={{ color: "#60A5FA", fontFamily: "monospace", fontSize: 11 }}>{m.po_number}</span>
                         <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
                         <span style={{ color: "#9CA3AF" }}>{fmtDate(m.expected_date ?? undefined)}</span>
@@ -1576,7 +1576,7 @@ export default function TandAApp() {
                   </button>
                 </div>
               )}
-              {pos.slice(0, 8).map((po, i) => <PORow key={i} po={po} onClick={() => { setDetailMode("milestones"); setSelected(po); }} />)}
+              {pos.slice(0, 8).map((po, i) => <PORow key={i} po={po} onClick={() => { setDetailMode("milestones"); setNewNote(""); setSelected(po); }} />)}
             </div>
           </>
         )}
@@ -1610,7 +1610,7 @@ export default function TandAApp() {
                   {pos.length === 0 && <button style={S.btnPrimary} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing}>🔄 Sync from Xoro</button>}
                 </div>
               )}
-              {filtered.map((po, i) => <PORow key={i} po={po} onClick={() => { setDetailMode("milestones"); setSelected(po); }} detailed />)}
+              {filtered.map((po, i) => <PORow key={i} po={po} onClick={() => { setDetailMode("milestones"); setNewNote(""); setSelected(po); }} detailed />)}
             </div>
           </>
         )}
