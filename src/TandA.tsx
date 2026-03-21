@@ -468,30 +468,38 @@ export default function TandAApp() {
     } catch {}
   }
 
-  // ── Milestone data layer ────────────────────────────────────────────────
+  // ── Milestone data layer (table schema: id TEXT PK, data JSONB) ───────
   async function loadAllMilestones() {
     try {
-      const { data } = await sb.from("tanda_milestones").select("*", "order=sort_order.asc");
+      const { data } = await sb.from("tanda_milestones").select("id,data");
       if (data && Array.isArray(data)) {
         const grouped: Record<string, Milestone[]> = {};
-        data.forEach((m: Milestone) => {
+        data.forEach((row: any) => {
+          const m = row.data as Milestone;
+          if (!m || !m.po_number) return;
           if (!grouped[m.po_number]) grouped[m.po_number] = [];
           grouped[m.po_number].push(m);
         });
+        // Sort each group by sort_order
+        Object.values(grouped).forEach(arr => arr.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)));
         setMilestones(grouped);
       }
-    } catch {}
+    } catch (e) { console.error("[MS] loadAll error:", e); }
   }
 
   async function loadMilestones(poNumber: string): Promise<Milestone[]> {
     try {
-      const { data } = await sb.from("tanda_milestones").select("*", `po_number=eq.${encodeURIComponent(poNumber)}&order=sort_order.asc`);
-      return (data as Milestone[]) ?? [];
+      const { data } = await sb.from("tanda_milestones").select("id,data");
+      if (!data) return [];
+      return (data as any[])
+        .map(row => row.data as Milestone)
+        .filter(m => m.po_number === poNumber)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
     } catch { return []; }
   }
 
   async function saveMilestone(m: Milestone) {
-    await sb.from("tanda_milestones").upsert(m, { onConflict: "id" });
+    await sb.from("tanda_milestones").upsert({ id: m.id, data: m }, { onConflict: "id" });
     setMilestones(prev => {
       const arr = [...(prev[m.po_number] || [])];
       const idx = arr.findIndex(x => x.id === m.id);
@@ -502,7 +510,10 @@ export default function TandAApp() {
 
   async function saveMilestones(ms: Milestone[]) {
     if (!ms.length) return;
-    await sb.from("tanda_milestones").upsert(ms, { onConflict: "id" });
+    await sb.from("tanda_milestones").upsert(
+      ms.map(m => ({ id: m.id, data: m })),
+      { onConflict: "id" }
+    );
     setMilestones(prev => {
       const next = { ...prev };
       ms.forEach(m => {
@@ -517,7 +528,11 @@ export default function TandAApp() {
   }
 
   async function deleteMilestonesForPO(poNumber: string) {
-    await sb.from("tanda_milestones").delete(`po_number=eq.${encodeURIComponent(poNumber)}`);
+    // Load all milestone IDs for this PO, then delete them
+    const existing = milestones[poNumber] || [];
+    for (const m of existing) {
+      await sb.from("tanda_milestones").delete(`id=eq.${encodeURIComponent(m.id)}`);
+    }
     setMilestones(prev => { const next = { ...prev }; delete next[poNumber]; return next; });
   }
 
