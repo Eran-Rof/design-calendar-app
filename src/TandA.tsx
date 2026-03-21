@@ -318,6 +318,7 @@ export default function TandAApp() {
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [newNote, setNewNote]   = useState("");
   const syncAbortRef = useRef<AbortController | null>(null);
+  const generatingRef = useRef<Set<string>>(new Set());
 
   // Sync filter state
   const [syncFilters, setSyncFilters] = useState<SyncFilters>({
@@ -632,27 +633,34 @@ export default function TandAApp() {
   async function ensureMilestones(po: XoroPO): Promise<Milestone[] | "needs_template"> {
     const poNum = po.PoNumber ?? "";
     if (!poNum) return [];
+    // Prevent concurrent generation for the same PO
+    if (generatingRef.current.has(poNum)) return [];
     // Check state first
     const existing = milestones[poNum];
     if (existing && existing.length > 0) return existing;
-    // Double-check DB to prevent duplicates
-    const dbExisting = await loadMilestones(poNum);
-    if (dbExisting.length > 0) {
-      setMilestones(prev => ({ ...prev, [poNum]: dbExisting }));
-      return dbExisting;
+    generatingRef.current.add(poNum);
+    try {
+      // Double-check DB to prevent duplicates
+      const dbExisting = await loadMilestones(poNum);
+      if (dbExisting.length > 0) {
+        setMilestones(prev => ({ ...prev, [poNum]: dbExisting }));
+        return dbExisting;
+      }
+      const ddp = po.DateExpectedDelivery;
+      if (!ddp) return [];
+      const vendor = po.VendorName ?? "";
+      if (vendor && !vendorHasTemplate(vendor)) {
+        return "needs_template";
+      }
+      const ms = generateMilestones(poNum, ddp, vendor);
+      if (ms.length > 0) {
+        await saveMilestones(ms);
+        addHistory(poNum, `Milestones generated (${ms.length} phases) using ${vendor || "default"} template`);
+      }
+      return ms;
+    } finally {
+      generatingRef.current.delete(poNum);
     }
-    const ddp = po.DateExpectedDelivery;
-    if (!ddp) return [];
-    const vendor = po.VendorName ?? "";
-    if (vendor && !vendorHasTemplate(vendor)) {
-      return "needs_template";
-    }
-    const ms = generateMilestones(poNum, ddp, vendor);
-    if (ms.length > 0) {
-      await saveMilestones(ms);
-      addHistory(poNum, `Milestones generated (${ms.length} phases) using ${vendor || "default"} template`);
-    }
-    return ms;
   }
 
   async function regenerateMilestones(po: XoroPO) {
