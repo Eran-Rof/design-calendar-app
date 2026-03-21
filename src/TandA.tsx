@@ -1200,7 +1200,7 @@ export default function TandAApp() {
               poMs.forEach(m => { if (!grouped[m.category]) grouped[m.category] = []; grouped[m.category].push(m); });
 
               return (
-                <div style={{ marginBottom: 20, fontSize: "120%" }}>
+                <div style={{ marginBottom: 20 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                     <div style={S.sectionLabel}>Production Milestones</div>
                     <div style={{ display: "flex", gap: 6 }}>
@@ -1238,7 +1238,7 @@ export default function TandAApp() {
                               const daysRem = m.expected_date ? Math.ceil((new Date(m.expected_date).getTime() - Date.now()) / 86400000) : null;
                               const daysColor = m.status === "Complete" ? "#10B981" : m.status === "N/A" ? "#6B7280" : daysRem === null ? "#6B7280" : daysRem < 0 ? "#EF4444" : daysRem <= 7 ? "#F59E0B" : "#10B981";
                               return (
-                                <div key={m.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 150px 130px 70px", gap: 10, padding: "8px 14px", borderTop: "1px solid #1E293B", alignItems: "center" }}>
+                                <div key={m.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 170px 130px 70px", gap: 10, padding: "8px 14px", borderTop: "1px solid #1E293B", alignItems: "center" }}>
                                   <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
                                   <span style={{ color: "#9CA3AF", textAlign: "center" }}>{fmtDate(m.expected_date ?? undefined)}</span>
                                   <input type="date" style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: "#F1F5F9", fontSize: "inherit", padding: "6px 8px", width: "100%", boxSizing: "border-box" }}
