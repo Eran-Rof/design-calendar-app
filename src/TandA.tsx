@@ -306,6 +306,7 @@ export default function TandAApp() {
   const [pos, setPos]           = useState<XoroPO[]>([]);
   const [notes, setNotes]       = useState<LocalNote[]>([]);
   const [selected, setSelected] = useState<XoroPO | null>(null);
+  const [detailMode, setDetailMode] = useState<"header" | "full">("full");
   const [loading, setLoading]   = useState(false);
   const [syncing, setSyncing]   = useState(false);
   const [syncErr, setSyncErr]   = useState("");
@@ -1120,14 +1121,23 @@ export default function TandAApp() {
               <InfoCell label="Buyer"        value={selected.BuyerName ?? "—"} />
             </div>
 
-            {selected.Memo && (
+            {/* Header-only mode: show expand button */}
+            {detailMode === "header" && (
+              <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+                <button style={{ ...S.btnPrimary, fontSize: 13 }} onClick={() => setDetailMode("full")}>
+                  View Full Details & Milestones
+                </button>
+              </div>
+            )}
+
+            {detailMode === "full" && selected.Memo && (
               <div style={S.memoBox}>
                 <div style={S.sectionLabel}>Memo</div>
                 <p style={{ color: "#D1D5DB", fontSize: 14, margin: 0 }}>{selected.Memo}</p>
               </div>
             )}
 
-            {selected.Tags && (
+            {detailMode === "full" && selected.Tags && (
               <div style={{ marginBottom: 16 }}>
                 <div style={S.sectionLabel}>Tags</div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -1139,7 +1149,7 @@ export default function TandAApp() {
             )}
 
             {/* Line items */}
-            {items.length > 0 && (
+            {detailMode === "full" && items.length > 0 && (
               <div style={{ marginBottom: 20 }}>
                 <div style={S.sectionLabel}>Line Items ({items.length})</div>
                 <div style={S.itemsTable}>
@@ -1166,7 +1176,7 @@ export default function TandAApp() {
             )}
 
             {/* Production Milestones */}
-            {(() => {
+            {detailMode === "full" && (() => {
               const poNum = selected.PoNumber ?? "";
               const poMs = milestones[poNum] || [];
               const ddp = selected.DateExpectedDelivery;
@@ -1245,7 +1255,7 @@ export default function TandAApp() {
             })()}
 
             {/* Notes */}
-            <div>
+            {detailMode === "full" && <div>
               <div style={S.sectionLabel}>Notes & Updates</div>
               {selectedNotes.length === 0 && <p style={{ color: "#6B7280", fontSize: 13 }}>No notes yet.</p>}
               {selectedNotes.map(n => (
@@ -1271,7 +1281,7 @@ export default function TandAApp() {
                   value={newNote} onChange={e => setNewNote(e.target.value)} />
                 <button style={S.btnPrimary} onClick={addNote}>Add Note</button>
               </div>
-            </div>
+            </div>}
           </div>
         </div>
       </div>
@@ -1406,7 +1416,7 @@ export default function TandAApp() {
                     const daysRem = m.expected_date ? Math.ceil((new Date(m.expected_date).getTime() - Date.now()) / 86400000) : null;
                     return (
                       <div key={m.id} style={{ display: "grid", gridTemplateColumns: "120px 1fr 100px 80px 70px", padding: "8px 12px", borderBottom: "1px solid #1E293B", cursor: "pointer", alignItems: "center" }}
-                        onClick={() => { const p = pos.find(x => x.PoNumber === m.po_number); if (p) setSelected(p); }}>
+                        onClick={() => { const p = pos.find(x => x.PoNumber === m.po_number); if (p) { setDetailMode("full"); setSelected(p); } }}>
                         <span style={{ color: "#60A5FA", fontFamily: "monospace", fontSize: 11 }}>{m.po_number}</span>
                         <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
                         <span style={{ color: "#9CA3AF" }}>{fmtDate(m.expected_date ?? undefined)}</span>
@@ -1433,7 +1443,7 @@ export default function TandAApp() {
                     const daysLate = m.expected_date ? Math.abs(Math.ceil((new Date(m.expected_date).getTime() - Date.now()) / 86400000)) : 0;
                     return (
                       <div key={m.id} style={{ display: "grid", gridTemplateColumns: "120px 1fr 100px 80px 70px", padding: "8px 12px", borderBottom: "1px solid #1E293B", cursor: "pointer", alignItems: "center" }}
-                        onClick={() => { const p = pos.find(x => x.PoNumber === m.po_number); if (p) setSelected(p); }}>
+                        onClick={() => { const p = pos.find(x => x.PoNumber === m.po_number); if (p) { setDetailMode("full"); setSelected(p); } }}>
                         <span style={{ color: "#60A5FA", fontFamily: "monospace", fontSize: 11 }}>{m.po_number}</span>
                         <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
                         <span style={{ color: "#9CA3AF" }}>{fmtDate(m.expected_date ?? undefined)}</span>
@@ -1481,7 +1491,7 @@ export default function TandAApp() {
                   </button>
                 </div>
               )}
-              {pos.slice(0, 8).map((po, i) => <PORow key={i} po={po} onClick={() => { setSelected(po); }} />)}
+              {pos.slice(0, 8).map((po, i) => <PORow key={i} po={po} onClick={() => { setDetailMode("full"); setSelected(po); }} />)}
             </div>
           </>
         )}
@@ -1515,7 +1525,7 @@ export default function TandAApp() {
                   {pos.length === 0 && <button style={S.btnPrimary} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing}>🔄 Sync from Xoro</button>}
                 </div>
               )}
-              {filtered.map((po, i) => <PORow key={i} po={po} onClick={() => setSelected(po)} detailed />)}
+              {filtered.map((po, i) => <PORow key={i} po={po} onClick={() => { setDetailMode("header"); setSelected(po); }} onClickMilestones={() => { setDetailMode("full"); setSelected(po); }} detailed />)}
             </div>
           </>
         )}
@@ -1684,7 +1694,7 @@ export default function TandAApp() {
     );
   }
 
-  function PORow({ po, onClick, detailed }: { po: XoroPO; onClick: () => void; detailed?: boolean }) {
+  function PORow({ po, onClick, onClickMilestones, detailed }: { po: XoroPO; onClick: () => void; onClickMilestones?: () => void; detailed?: boolean }) {
     const color = STATUS_COLORS[po.StatusName ?? ""] ?? "#6B7280";
     const days  = daysUntil(po.DateExpectedDelivery);
     const total = poTotal(po);
@@ -1711,9 +1721,10 @@ export default function TandAApp() {
           <div style={{ color: "#D1D5DB", fontWeight: 600, ...linkStyle }} onClick={onClick}>{po.VendorName ?? "Unknown Vendor"}</div>
           {detailed && po.Memo && <div style={{ color: "#6B7280", fontSize: 12, marginTop: 2 }}>{po.Memo}</div>}
         </div>
-        {/* Milestone mini-progress */}
+        {/* Milestone mini-progress — click to open milestones detail */}
         {msTotal > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 60 }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 60, cursor: "pointer" }}
+            onClick={onClickMilestones || onClick} title="View milestones">
             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: msDotColor }} />
               <span style={{ color: "#9CA3AF", fontSize: 11, fontFamily: "monospace" }}>{msComplete}/{msTotal}</span>
