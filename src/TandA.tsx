@@ -1238,21 +1238,21 @@ export default function TandAApp() {
                               const daysRem = m.expected_date ? Math.ceil((new Date(m.expected_date).getTime() - Date.now()) / 86400000) : null;
                               const daysColor = m.status === "Complete" ? "#10B981" : m.status === "N/A" ? "#6B7280" : daysRem === null ? "#6B7280" : daysRem < 0 ? "#EF4444" : daysRem <= 7 ? "#F59E0B" : "#10B981";
                               return (
-                                <div key={m.id} style={{ display: "grid", gridTemplateColumns: "1fr 90px 90px 100px 60px", gap: 6, padding: "6px 12px", borderTop: "1px solid #1E293B", alignItems: "center", fontSize: 12 }}>
+                                <div key={m.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 150px 130px 70px", gap: 10, padding: "8px 14px", borderTop: "1px solid #1E293B", alignItems: "center" }}>
                                   <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
-                                  <span style={{ color: "#9CA3AF", textAlign: "center", fontSize: 11 }}>{fmtDate(m.expected_date ?? undefined)}</span>
-                                  <input type="date" style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#F1F5F9", fontSize: 14, padding: "4px 6px", minWidth: 130 }}
+                                  <span style={{ color: "#9CA3AF", textAlign: "center" }}>{fmtDate(m.expected_date ?? undefined)}</span>
+                                  <input type="date" style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: "#F1F5F9", fontSize: "inherit", padding: "6px 8px", width: "100%", boxSizing: "border-box" }}
                                     value={m.actual_date || ""}
                                     onChange={e => {
                                       const val = e.target.value || null;
                                       saveMilestone({ ...m, actual_date: val, status: val ? "Complete" : "Not Started", updated_at: new Date().toISOString(), updated_by: user?.name || "" });
                                     }} />
-                                  <select style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: MILESTONE_STATUS_COLORS[m.status] || "#6B7280", fontSize: 11, padding: "2px 4px" }}
+                                  <select style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: MILESTONE_STATUS_COLORS[m.status] || "#6B7280", fontSize: "inherit", padding: "6px 8px" }}
                                     value={m.status}
                                     onChange={e => saveMilestone({ ...m, status: e.target.value, updated_at: new Date().toISOString(), updated_by: user?.name || "" })}>
                                     {MILESTONE_STATUSES.map(s => <option key={s} value={s} style={{ color: MILESTONE_STATUS_COLORS[s] }}>{s}</option>)}
                                   </select>
-                                  <span style={{ color: daysColor, fontWeight: 600, textAlign: "right", fontSize: 11 }}>
+                                  <span style={{ color: daysColor, fontWeight: 600, textAlign: "right" }}>
                                     {m.status === "Complete" ? "Done" : m.status === "N/A" ? "—" : daysRem === null ? "—" : daysRem < 0 ? `${Math.abs(daysRem)}d late` : daysRem === 0 ? "Today" : `${daysRem}d`}
                                   </span>
                                 </div>
