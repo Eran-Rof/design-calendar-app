@@ -79,8 +79,43 @@ function mapXoroRaw(raw: any[]): XoroPO[] {
   });
 }
 
-async function fetchXoroPOs(page = 1, signal?: AbortSignal): Promise<{ pos: XoroPO[]; totalPages: number }> {
+// All PO statuses — Xoro only returns "Open" by default, so we must request all explicitly
+const ALL_PO_STATUSES = ["Open", "Released", "Received", "Closed", "Cancelled", "Pending", "Draft"];
+
+interface XoroFetchOpts {
+  page?: number;
+  signal?: AbortSignal;
+  statuses?: string[];
+  vendors?: string[];
+  poNumber?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+async function fetchXoroPOs(opts: XoroFetchOpts = {}): Promise<{ pos: XoroPO[]; totalPages: number }> {
+  const { page = 1, signal, statuses, vendors, poNumber, dateFrom, dateTo } = opts;
   const params = new URLSearchParams({ path: "purchaseorder/getpurchaseorder", page: String(page) });
+
+  // Pass status filter — default to all statuses so Xoro doesn't just return "Open"
+  const statusList = statuses?.length ? statuses : ALL_PO_STATUSES;
+  params.set("status", statusList.join(","));
+
+  // Pass vendor filter if specified
+  if (vendors?.length) params.set("vendor_name", vendors.join(","));
+
+  // Pass PO number filter if specified
+  if (poNumber) params.set("order_number", poNumber);
+
+  // Pass date filters if specified (ISO format: 2014-04-25T16:15:47-04:00)
+  if (dateFrom) {
+    const d = new Date(dateFrom);
+    if (!isNaN(d.getTime())) params.set("created_at_min", d.toISOString());
+  }
+  if (dateTo) {
+    const d = new Date(dateTo + "T23:59:59");
+    if (!isNaN(d.getTime())) params.set("created_at_max", d.toISOString());
+  }
+
   const res = await fetch(`/api/xoro-proxy?${params}`, { signal });
   if (!res.ok) throw new Error(`Xoro proxy error: ${res.status}`);
   const json = await res.json();
@@ -89,7 +124,7 @@ async function fetchXoroPOs(page = 1, signal?: AbortSignal): Promise<{ pos: Xoro
   return { pos: mapXoroRaw(raw), totalPages: json.TotalPages ?? 1 };
 }
 
-// Xoro ignores filter params — apply client-side after download
+// Client-side fallback filter (in case API-side filters are incomplete)
 function applyFilters(pos: XoroPO[], filters?: SyncFilters): XoroPO[] {
   if (!filters) return pos;
   return pos.filter(po => {
@@ -109,9 +144,8 @@ function applyFilters(pos: XoroPO[], filters?: SyncFilters): XoroPO[] {
 }
 
 async function fetchXoroVendors(): Promise<string[]> {
-  // Xoro doesn't expose a vendor-list endpoint — extract vendors from POs
   try {
-    const { pos } = await fetchXoroPOs(1, undefined);
+    const { pos } = await fetchXoroPOs({ page: 1 });
     return [...new Set(pos.map(p => p.VendorName ?? "").filter(Boolean))].sort();
   } catch { return []; }
 }
@@ -567,19 +601,27 @@ export default function TandAApp() {
     setSyncErr("");
     setShowSyncModal(false);
     try {
-      // Fetch all POs from Xoro (filters are applied client-side)
+      // Fetch POs from Xoro — pass filters to API for server-side filtering
       let all: XoroPO[] = [];
       let page = 1;
       let totalPages = 1;
       do {
         if (controller.signal.aborted) throw new Error("Sync cancelled.");
-        const { pos: batch, totalPages: tp } = await fetchXoroPOs(page, controller.signal);
+        const { pos: batch, totalPages: tp } = await fetchXoroPOs({
+          page,
+          signal: controller.signal,
+          statuses: filters?.statuses,
+          vendors: filters?.vendors,
+          poNumber: filters?.poNumber,
+          dateFrom: filters?.dateFrom,
+          dateTo: filters?.dateTo,
+        });
         all = [...all, ...batch];
         totalPages = tp;
         page++;
       } while (page <= totalPages && page <= 20);
 
-      // Apply filters client-side (Xoro API ignores filter params)
+      // Client-side fallback filter (in case API missed some)
       all = applyFilters(all, filters);
 
       // MERGE — upsert each PO by po_number
