@@ -330,11 +330,14 @@ export default function TandAApp() {
   const [newManualVendor, setNewManualVendor]   = useState("");
 
   // ── WIP Milestone state ───────────────────────────────────────────────
-  const [wipTemplates, setWipTemplates] = useState<WipTemplate[]>([]);
+  // wipTemplates: { "__default__": [...], "VENDOR NAME": [...], ... }
+  const [wipTemplates, setWipTemplates] = useState<Record<string, WipTemplate[]>>({});
   const [milestones, setMilestones] = useState<Record<string, Milestone[]>>({});
   const [dcVendors, setDcVendors] = useState<DCVendor[]>([]);
   const [designTemplates, setDesignTemplates] = useState<any[]>([]);
   const [collapsedCats, setCollapsedCats] = useState<Record<string, boolean>>({});
+  const [tplVendor, setTplVendor] = useState("__default__"); // selected vendor in templates view
+  const [showCreateTpl, setShowCreateTpl] = useState<string | null>(null); // vendor name to create template for
 
   // ── PLM session auto-login ────────────────────────────────────────────────
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -425,26 +428,66 @@ export default function TandAApp() {
   }
 
   // ── WIP Template data layer ─────────────────────────────────────────────
+  // Shape: { "__default__": WipTemplate[], "VENDOR A": WipTemplate[], ... }
   async function loadWipTemplates() {
     try {
       const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.wip_templates&select=value`, { headers: SB_HEADERS });
       const rows = await res.json();
       if (Array.isArray(rows) && rows.length > 0 && rows[0].value) {
         const parsed = JSON.parse(rows[0].value);
-        if (Array.isArray(parsed) && parsed.length > 0) { setWipTemplates(parsed); return parsed; }
+        // Migrate: if old format was an array, convert to { __default__: [...] }
+        if (Array.isArray(parsed)) {
+          const migrated = { __default__: parsed };
+          setWipTemplates(migrated);
+          // Save migrated format back
+          await _saveWipTemplatesRaw(migrated);
+          return migrated;
+        }
+        if (parsed && typeof parsed === "object") {
+          // Ensure __default__ exists
+          if (!parsed.__default__) parsed.__default__ = DEFAULT_WIP_TEMPLATES;
+          setWipTemplates(parsed);
+          return parsed;
+        }
       }
     } catch {}
-    setWipTemplates(DEFAULT_WIP_TEMPLATES);
-    return DEFAULT_WIP_TEMPLATES;
+    const defaults = { __default__: DEFAULT_WIP_TEMPLATES };
+    setWipTemplates(defaults);
+    return defaults;
   }
 
-  async function saveWipTemplates(templates: WipTemplate[]) {
-    setWipTemplates(templates);
+  async function _saveWipTemplatesRaw(all: Record<string, WipTemplate[]>) {
     await fetch(`${SB_URL}/rest/v1/app_data`, {
       method: "POST",
       headers: { ...SB_HEADERS, "Prefer": "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify({ key: "wip_templates", value: JSON.stringify(templates) }),
+      body: JSON.stringify({ key: "wip_templates", value: JSON.stringify(all) }),
     });
+  }
+
+  async function saveVendorTemplates(vendorKey: string, templates: WipTemplate[]) {
+    const updated = { ...wipTemplates, [vendorKey]: templates };
+    setWipTemplates(updated);
+    await _saveWipTemplatesRaw(updated);
+  }
+
+  async function deleteVendorTemplate(vendorKey: string) {
+    const updated = { ...wipTemplates };
+    delete updated[vendorKey];
+    setWipTemplates(updated);
+    await _saveWipTemplatesRaw(updated);
+  }
+
+  function getVendorTemplates(vendorName?: string): WipTemplate[] {
+    if (vendorName && wipTemplates[vendorName]) return wipTemplates[vendorName];
+    return wipTemplates.__default__ || DEFAULT_WIP_TEMPLATES;
+  }
+
+  function vendorHasTemplate(vendorName: string): boolean {
+    return !!(vendorName && wipTemplates[vendorName]);
+  }
+
+  function templateVendorList(): string[] {
+    return Object.keys(wipTemplates).filter(k => k !== "__default__").sort();
   }
 
   async function loadDesignTemplates() {
@@ -538,14 +581,12 @@ export default function TandAApp() {
   }
 
   function generateMilestones(poNumber: string, ddpDate: string, vendorName?: string): Milestone[] {
-    const templates = wipTemplates.length > 0 ? wipTemplates : DEFAULT_WIP_TEMPLATES;
-    const vendor = dcVendors.find(v => v.name === vendorName);
-    const overrides = vendor?.wipLeadOverrides || {};
+    const templates = getVendorTemplates(vendorName);
     const ddp = new Date(ddpDate);
     if (isNaN(ddp.getTime())) return [];
 
     return templates.map((tpl, i) => {
-      const daysB = overrides[tpl.phase] ?? tpl.daysBeforeDDP;
+      const daysB = tpl.daysBeforeDDP;
       const expected = new Date(ddp);
       expected.setDate(expected.getDate() - daysB);
       return {
@@ -575,14 +616,19 @@ export default function TandAApp() {
     });
   }
 
-  async function ensureMilestones(po: XoroPO): Promise<Milestone[]> {
+  async function ensureMilestones(po: XoroPO): Promise<Milestone[] | "needs_template"> {
     const poNum = po.PoNumber ?? "";
     if (!poNum) return [];
     const existing = milestones[poNum];
     if (existing && existing.length > 0) return existing;
     const ddp = po.DateExpectedDelivery;
     if (!ddp) return [];
-    const ms = generateMilestones(poNum, ddp, po.VendorName);
+    const vendor = po.VendorName ?? "";
+    // If vendor doesn't have a template, prompt to create one
+    if (vendor && !vendorHasTemplate(vendor)) {
+      return "needs_template";
+    }
+    const ms = generateMilestones(poNum, ddp, vendor);
     if (ms.length > 0) await saveMilestones(ms);
     return ms;
   }
@@ -977,10 +1023,15 @@ export default function TandAApp() {
     const total = poTotal(selected);
     const statusColor = STATUS_COLORS[selected.StatusName ?? ""] ?? "#6B7280";
 
-    // Lazy-generate milestones on first view
+    // Lazy-generate milestones on first view (or prompt for template)
     const poNum = selected.PoNumber ?? "";
-    if (poNum && selected.DateExpectedDelivery && !milestones[poNum]) {
-      ensureMilestones(selected);
+    if (poNum && selected.DateExpectedDelivery && !milestones[poNum] && !showCreateTpl) {
+      const vendorN = selected.VendorName ?? "";
+      if (vendorN && !vendorHasTemplate(vendorN)) {
+        setShowCreateTpl(vendorN);
+      } else {
+        ensureMilestones(selected);
+      }
     }
 
     return (
@@ -1071,6 +1122,8 @@ export default function TandAApp() {
               const poNum = selected.PoNumber ?? "";
               const poMs = milestones[poNum] || [];
               const ddp = selected.DateExpectedDelivery;
+              const vendorN = selected.VendorName ?? "";
+              const hasVendorTpl = vendorHasTemplate(vendorN);
               const isAdmin = user?.role === "admin";
               const grouped: Record<string, Milestone[]> = {};
               poMs.forEach(m => { if (!grouped[m.category]) grouped[m.category] = []; grouped[m.category].push(m); });
@@ -1080,7 +1133,7 @@ export default function TandAApp() {
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                     <div style={S.sectionLabel}>Production Milestones</div>
                     <div style={{ display: "flex", gap: 6 }}>
-                      {poMs.length === 0 && ddp && (
+                      {poMs.length === 0 && ddp && hasVendorTpl && (
                         <button style={{ ...S.btnSecondary, fontSize: 11, padding: "4px 10px" }} onClick={() => ensureMilestones(selected)}>
                           Generate Milestones
                         </button>
@@ -1095,7 +1148,36 @@ export default function TandAApp() {
                     </div>
                   </div>
                   {poMs.length === 0 && !ddp && <p style={{ color: "#6B7280", fontSize: 13 }}>No expected delivery date — cannot generate milestones.</p>}
-                  {poMs.length === 0 && ddp && <p style={{ color: "#6B7280", fontSize: 13 }}>No milestones yet. Click "Generate Milestones" to create them.</p>}
+                  {/* Prompt to create vendor template */}
+                  {poMs.length === 0 && ddp && !hasVendorTpl && vendorN && (
+                    <div style={{ background: "#0F172A", borderRadius: 8, padding: 16, marginBottom: 12 }}>
+                      <p style={{ color: "#F59E0B", fontSize: 13, margin: "0 0 10px" }}>
+                        No production template exists for <strong style={{ color: "#FCD34D" }}>{vendorN}</strong>. Create one to generate milestones.
+                      </p>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <span style={{ color: "#94A3B8", fontSize: 12 }}>Copy from:</span>
+                        <select style={{ ...S.select, fontSize: 12 }} value={showCreateTpl === vendorN ? ((window as any).__copyFrom ?? "__default__") : "__default__"}
+                          onChange={e => { (window as any).__copyFrom = e.target.value; setShowCreateTpl(vendorN); }}>
+                          <option value="__default__">Default Template</option>
+                          {templateVendorList().map(v => <option key={v} value={v}>{v}</option>)}
+                        </select>
+                        <button style={{ ...S.btnPrimary, width: "auto", padding: "6px 14px", fontSize: 12 }} onClick={async () => {
+                          const copyFrom = (window as any).__copyFrom || "__default__";
+                          const source = getVendorTemplates(copyFrom === "__default__" ? undefined : copyFrom);
+                          const newTpls = source.map(t => ({ ...t, id: milestoneUid() }));
+                          await saveVendorTemplates(vendorN, newTpls);
+                          setShowCreateTpl(null);
+                          (window as any).__copyFrom = undefined;
+                          // Now generate milestones
+                          const ms = generateMilestones(poNum, ddp, vendorN);
+                          if (ms.length > 0) await saveMilestones(ms);
+                        }}>
+                          Create Template & Generate
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {poMs.length === 0 && ddp && hasVendorTpl && <p style={{ color: "#6B7280", fontSize: 13 }}>No milestones yet. Click "Generate Milestones" to create them.</p>}
                   {WIP_CATEGORIES.filter(cat => grouped[cat]?.length).map(cat => {
                     const catMs = grouped[cat];
                     const collapsed = collapsedCats[cat + poNum];
@@ -1422,77 +1504,121 @@ export default function TandAApp() {
         {/* ── TEMPLATES ── */}
         {view === "templates" && (() => {
           const isAdmin = user?.role === "admin";
-          const [tplTab, setTplTab] = [
+          const [tplTab, setTplTab_] = [
             (window as any).__tplTab ?? "production",
-            (v: string) => { (window as any).__tplTab = v; setWipTemplates([...wipTemplates]); } // force re-render
+            (v: string) => { (window as any).__tplTab = v; setWipTemplates({ ...wipTemplates }); }
           ];
-          const templates = wipTemplates.length > 0 ? wipTemplates : DEFAULT_WIP_TEMPLATES;
+          const vendorKeys = templateVendorList();
+          // All unique vendors from POs (for adding new vendor templates)
+          const poVendors = [...new Set(pos.map(p => p.VendorName ?? "").filter(Boolean))].sort();
+          const vendorsWithoutTemplate = poVendors.filter(v => !vendorHasTemplate(v));
+          const currentTemplates = getVendorTemplates(tplVendor === "__default__" ? undefined : tplVendor);
+          const [showNewVendor, setShowNewVendor_] = [
+            (window as any).__showNewVendor ?? false,
+            (v: boolean) => { (window as any).__showNewVendor = v; setWipTemplates({ ...wipTemplates }); }
+          ];
 
           return (
             <>
               <div style={S.card}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                  <h3 style={S.cardTitle}>Milestone Templates</h3>
-                </div>
-                {/* Tab bar */}
-                <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "#0F172A", borderRadius: 8, padding: 4 }}>
-                  <button style={{ flex: 1, padding: "8px 16px", borderRadius: 6, border: "none", background: tplTab === "production" ? "#3B82F620" : "transparent", color: tplTab === "production" ? "#60A5FA" : "#6B7280", fontWeight: tplTab === "production" ? 700 : 400, cursor: "pointer", fontSize: 13 }}
-                    onClick={() => setTplTab("production")}>Production</button>
-                  <button style={{ flex: 1, padding: "8px 16px", borderRadius: 6, border: "none", background: tplTab === "design" ? "#3B82F620" : "transparent", color: tplTab === "design" ? "#60A5FA" : "#6B7280", fontWeight: tplTab === "design" ? 700 : 400, cursor: "pointer", fontSize: 13 }}
-                    onClick={() => setTplTab("design")}>Design (read-only)</button>
+                  <h3 style={S.cardTitle}>Production Templates</h3>
                 </div>
 
-                {tplTab === "design" && (
-                  <div>
-                    <p style={{ color: "#6B7280", fontSize: 13, marginBottom: 12 }}>Design Calendar task templates (managed in the Design Calendar app).</p>
-                    <div style={{ border: "1px solid #334155", borderRadius: 8, overflow: "hidden" }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px", padding: "8px 14px", background: "#0F172A", color: "#6B7280", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
-                        <span>Phase</span><span style={{ textAlign: "center" }}>Days Before DDP</span><span style={{ textAlign: "center" }}>Status</span>
-                      </div>
-                      {(designTemplates.length > 0 ? designTemplates : []).map((tpl: any, i: number) => (
-                        <div key={tpl.id || i} style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px", padding: "8px 14px", borderTop: "1px solid #1E293B", fontSize: 13 }}>
-                          <span style={{ color: "#D1D5DB" }}>{tpl.phase}</span>
-                          <span style={{ color: "#9CA3AF", textAlign: "center" }}>{tpl.daysBeforeDDP}</span>
-                          <span style={{ color: "#6B7280", textAlign: "center" }}>{tpl.status || "Not Started"}</span>
-                        </div>
-                      ))}
-                      {designTemplates.length === 0 && <div style={{ padding: 20, textAlign: "center", color: "#6B7280", fontSize: 13 }}>No design templates loaded.</div>}
+                {/* Vendor selector */}
+                <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 16 }}>
+                  <span style={{ color: "#94A3B8", fontSize: 13 }}>Vendor:</span>
+                  <select style={{ ...S.select, flex: 1, maxWidth: 300 }} value={tplVendor} onChange={e => setTplVendor(e.target.value)}>
+                    <option value="__default__">Default Template</option>
+                    {vendorKeys.map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                  {isAdmin && (
+                    <button style={{ ...S.btnSecondary, fontSize: 12, padding: "6px 12px" }} onClick={() => setShowNewVendor_(true)}>
+                      + New Vendor Template
+                    </button>
+                  )}
+                  {isAdmin && tplVendor !== "__default__" && (
+                    <button style={{ ...S.btnSecondary, fontSize: 12, padding: "6px 12px", borderColor: "#EF4444", color: "#EF4444" }}
+                      onClick={() => { if (window.confirm(`Delete template for "${tplVendor}"? POs will fall back to default.`)) { deleteVendorTemplate(tplVendor); setTplVendor("__default__"); } }}>
+                      Delete Template
+                    </button>
+                  )}
+                </div>
+
+                {/* New vendor template creation */}
+                {showNewVendor && isAdmin && (
+                  <div style={{ background: "#0F172A", borderRadius: 8, padding: 16, marginBottom: 16 }}>
+                    <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10 }}>
+                      <span style={{ color: "#94A3B8", fontSize: 12 }}>Vendor:</span>
+                      <select style={{ ...S.select, flex: 1 }} id="newTplVendor">
+                        {vendorsWithoutTemplate.length > 0
+                          ? vendorsWithoutTemplate.map(v => <option key={v} value={v}>{v}</option>)
+                          : <option value="">All vendors have templates</option>
+                        }
+                      </select>
+                    </div>
+                    <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
+                      <span style={{ color: "#94A3B8", fontSize: 12 }}>Copy from:</span>
+                      <select style={{ ...S.select, flex: 1 }} id="copyFromVendor">
+                        <option value="__default__">Default Template</option>
+                        {vendorKeys.map(v => <option key={v} value={v}>{v}</option>)}
+                      </select>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                      <button style={S.btnSecondary} onClick={() => setShowNewVendor_(false)}>Cancel</button>
+                      <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 16px" }} onClick={() => {
+                        const vendorEl = document.getElementById("newTplVendor") as HTMLSelectElement;
+                        const copyEl = document.getElementById("copyFromVendor") as HTMLSelectElement;
+                        const vendorName = vendorEl?.value;
+                        const copyFrom = copyEl?.value || "__default__";
+                        if (!vendorName) return;
+                        const source = getVendorTemplates(copyFrom === "__default__" ? undefined : copyFrom);
+                        const newTpls = source.map(t => ({ ...t, id: milestoneUid() }));
+                        saveVendorTemplates(vendorName, newTpls);
+                        setTplVendor(vendorName);
+                        setShowNewVendor_(false);
+                      }}>Create Template</button>
                     </div>
                   </div>
                 )}
 
-                {tplTab === "production" && (
-                  <div>
-                    {!isAdmin && <p style={{ color: "#F59E0B", fontSize: 12, marginBottom: 12 }}>View only — admin access required to edit production templates.</p>}
-                    <div style={{ border: "1px solid #334155", borderRadius: 8, overflow: "hidden" }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "40px 1fr 140px 120px 90px" + (isAdmin ? " 80px" : ""), padding: "8px 14px", background: "#0F172A", color: "#6B7280", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
-                        <span>#</span><span>Phase</span><span>Category</span><span style={{ textAlign: "center" }}>Days Before DDP</span><span style={{ textAlign: "center" }}>Status</span>
-                        {isAdmin && <span style={{ textAlign: "center" }}>Actions</span>}
-                      </div>
-                      {templates.map((tpl, i) => (
-                        <div key={tpl.id} style={{ display: "grid", gridTemplateColumns: "40px 1fr 140px 120px 90px" + (isAdmin ? " 80px" : ""), padding: "8px 14px", borderTop: "1px solid #1E293B", fontSize: 13, alignItems: "center" }}>
-                          <span style={{ color: "#6B7280", fontSize: 11 }}>{i + 1}</span>
-                          <span style={{ color: "#D1D5DB" }}>{tpl.phase}</span>
-                          <span style={{ color: "#9CA3AF", fontSize: 12 }}>{tpl.category}</span>
-                          <span style={{ color: "#9CA3AF", textAlign: "center" }}>{tpl.daysBeforeDDP}</span>
-                          <span style={{ color: MILESTONE_STATUS_COLORS[tpl.status] || "#6B7280", textAlign: "center", fontSize: 11 }}>{tpl.status}</span>
-                          {isAdmin && (
-                            <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
-                              {i > 0 && <button style={{ background: "none", border: "1px solid #334155", color: "#6B7280", borderRadius: 4, cursor: "pointer", padding: "2px 6px", fontSize: 10 }}
-                                onClick={() => { const arr = [...templates]; [arr[i - 1], arr[i]] = [arr[i], arr[i - 1]]; saveWipTemplates(arr); }}>↑</button>}
-                              {i < templates.length - 1 && <button style={{ background: "none", border: "1px solid #334155", color: "#6B7280", borderRadius: 4, cursor: "pointer", padding: "2px 6px", fontSize: 10 }}
-                                onClick={() => { const arr = [...templates]; [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]]; saveWipTemplates(arr); }}>↓</button>}
-                              <button style={{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 4, cursor: "pointer", padding: "2px 6px", fontSize: 10 }}
-                                onClick={() => { if (window.confirm(`Delete "${tpl.phase}"?`)) saveWipTemplates(templates.filter(t => t.id !== tpl.id)); }}>✕</button>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                    {isAdmin && (
-                      <WipTemplateEditor templates={templates} onSave={saveWipTemplates} />
-                    )}
+                {/* Template label */}
+                <div style={{ marginBottom: 12, fontSize: 12, color: "#6B7280" }}>
+                  {tplVendor === "__default__"
+                    ? "Default template used for vendors without a custom template."
+                    : `Custom production template for ${tplVendor}.`}
+                </div>
+
+                {/* Template table */}
+                {!isAdmin && <p style={{ color: "#F59E0B", fontSize: 12, marginBottom: 12 }}>View only — admin access required to edit.</p>}
+                <div style={{ border: "1px solid #334155", borderRadius: 8, overflow: "hidden" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "40px 1fr 140px 120px 90px" + (isAdmin ? " 80px" : ""), padding: "8px 14px", background: "#0F172A", color: "#6B7280", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
+                    <span>#</span><span>Phase</span><span>Category</span><span style={{ textAlign: "center" }}>Days Before DDP</span><span style={{ textAlign: "center" }}>Status</span>
+                    {isAdmin && <span style={{ textAlign: "center" }}>Actions</span>}
                   </div>
+                  {currentTemplates.map((tpl, i) => (
+                    <div key={tpl.id} style={{ display: "grid", gridTemplateColumns: "40px 1fr 140px 120px 90px" + (isAdmin ? " 80px" : ""), padding: "8px 14px", borderTop: "1px solid #1E293B", fontSize: 13, alignItems: "center" }}>
+                      <span style={{ color: "#6B7280", fontSize: 11 }}>{i + 1}</span>
+                      <span style={{ color: "#D1D5DB" }}>{tpl.phase}</span>
+                      <span style={{ color: "#9CA3AF", fontSize: 12 }}>{tpl.category}</span>
+                      <span style={{ color: "#9CA3AF", textAlign: "center" }}>{tpl.daysBeforeDDP}</span>
+                      <span style={{ color: MILESTONE_STATUS_COLORS[tpl.status] || "#6B7280", textAlign: "center", fontSize: 11 }}>{tpl.status}</span>
+                      {isAdmin && (
+                        <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
+                          {i > 0 && <button style={{ background: "none", border: "1px solid #334155", color: "#6B7280", borderRadius: 4, cursor: "pointer", padding: "2px 6px", fontSize: 10 }}
+                            onClick={() => { const arr = [...currentTemplates]; [arr[i - 1], arr[i]] = [arr[i], arr[i - 1]]; saveVendorTemplates(tplVendor, arr); }}>↑</button>}
+                          {i < currentTemplates.length - 1 && <button style={{ background: "none", border: "1px solid #334155", color: "#6B7280", borderRadius: 4, cursor: "pointer", padding: "2px 6px", fontSize: 10 }}
+                            onClick={() => { const arr = [...currentTemplates]; [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]]; saveVendorTemplates(tplVendor, arr); }}>↓</button>}
+                          <button style={{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 4, cursor: "pointer", padding: "2px 6px", fontSize: 10 }}
+                            onClick={() => { if (window.confirm(`Delete "${tpl.phase}"?`)) saveVendorTemplates(tplVendor, currentTemplates.filter(t => t.id !== tpl.id)); }}>✕</button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {currentTemplates.length === 0 && <div style={{ padding: 20, textAlign: "center", color: "#6B7280", fontSize: 13 }}>No phases defined.</div>}
+                </div>
+                {isAdmin && (
+                  <WipTemplateEditor templates={currentTemplates} onSave={(t) => saveVendorTemplates(tplVendor, t)} />
                 )}
               </div>
             </>
