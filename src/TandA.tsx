@@ -1200,7 +1200,7 @@ export default function TandAApp() {
               poMs.forEach(m => { if (!grouped[m.category]) grouped[m.category] = []; grouped[m.category].push(m); });
 
               return (
-                <div style={{ marginBottom: 20 }}>
+                <div style={{ marginBottom: 20, fontSize: "120%" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                     <div style={S.sectionLabel}>Production Milestones</div>
                     <div style={{ display: "flex", gap: 6 }}>
@@ -1295,7 +1295,6 @@ export default function TandAApp() {
                 <button style={S.btnPrimary} onClick={addNote}>Add Note</button>
               </div>
             </div>}
-          {detailMode === "header" && <p style={{ color: "#6B7280", fontSize: 15 }}>Select a tab above to view details.</p>}
           </div>
         </div>
       </div>
@@ -1430,7 +1429,7 @@ export default function TandAApp() {
                     const daysRem = m.expected_date ? Math.ceil((new Date(m.expected_date).getTime() - Date.now()) / 86400000) : null;
                     return (
                       <div key={m.id} style={{ display: "grid", gridTemplateColumns: "120px 1fr 100px 80px 70px", padding: "8px 12px", borderBottom: "1px solid #1E293B", cursor: "pointer", alignItems: "center" }}
-                        onClick={() => { const p = pos.find(x => x.PoNumber === m.po_number); if (p) { setDetailMode("full"); setSelected(p); } }}>
+                        onClick={() => { const p = pos.find(x => x.PoNumber === m.po_number); if (p) { setDetailMode("milestones"); setSelected(p); } }}>
                         <span style={{ color: "#60A5FA", fontFamily: "monospace", fontSize: 11 }}>{m.po_number}</span>
                         <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
                         <span style={{ color: "#9CA3AF" }}>{fmtDate(m.expected_date ?? undefined)}</span>
@@ -1457,7 +1456,7 @@ export default function TandAApp() {
                     const daysLate = m.expected_date ? Math.abs(Math.ceil((new Date(m.expected_date).getTime() - Date.now()) / 86400000)) : 0;
                     return (
                       <div key={m.id} style={{ display: "grid", gridTemplateColumns: "120px 1fr 100px 80px 70px", padding: "8px 12px", borderBottom: "1px solid #1E293B", cursor: "pointer", alignItems: "center" }}
-                        onClick={() => { const p = pos.find(x => x.PoNumber === m.po_number); if (p) { setDetailMode("full"); setSelected(p); } }}>
+                        onClick={() => { const p = pos.find(x => x.PoNumber === m.po_number); if (p) { setDetailMode("milestones"); setSelected(p); } }}>
                         <span style={{ color: "#60A5FA", fontFamily: "monospace", fontSize: 11 }}>{m.po_number}</span>
                         <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
                         <span style={{ color: "#9CA3AF" }}>{fmtDate(m.expected_date ?? undefined)}</span>
@@ -1505,7 +1504,7 @@ export default function TandAApp() {
                   </button>
                 </div>
               )}
-              {pos.slice(0, 8).map((po, i) => <PORow key={i} po={po} onClick={() => { setDetailMode("header"); setSelected(po); }} />)}
+              {pos.slice(0, 8).map((po, i) => <PORow key={i} po={po} onClick={() => { setDetailMode("milestones"); setSelected(po); }} />)}
             </div>
           </>
         )}
@@ -1539,7 +1538,7 @@ export default function TandAApp() {
                   {pos.length === 0 && <button style={S.btnPrimary} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing}>🔄 Sync from Xoro</button>}
                 </div>
               )}
-              {filtered.map((po, i) => <PORow key={i} po={po} onClick={() => { setDetailMode("header"); setSelected(po); }} detailed />)}
+              {filtered.map((po, i) => <PORow key={i} po={po} onClick={() => { setDetailMode("milestones"); setSelected(po); }} detailed />)}
             </div>
           </>
         )}
