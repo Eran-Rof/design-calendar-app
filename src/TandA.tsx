@@ -196,7 +196,7 @@ interface User {
   role?: string;
 }
 
-type View = "dashboard" | "list" | "detail" | "templates";
+type View = "dashboard" | "list" | "detail" | "templates" | "email";
 
 const STATUS_COLORS: Record<string, string> = {
   Open:       "#3B82F6",
@@ -339,6 +339,82 @@ export default function TandAApp() {
   const [collapsedCats, setCollapsedCats] = useState<Record<string, boolean>>({});
   const [tplVendor, setTplVendor] = useState("__default__"); // selected vendor in templates view
   const [showCreateTpl, setShowCreateTpl] = useState<string | null>(null); // vendor name to create template for
+
+  // ── Outlook Email state ───────────────────────────────────────────────
+  const [emailConfig, setEmailConfig] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("tandaEmailConfig") || "null") || { clientId: "", tenantId: "", emailMap: {} }; }
+    catch { return { clientId: "", tenantId: "", emailMap: {} }; }
+  });
+  const [emailToken, setEmailToken] = useState<string | null>(null);
+  const [emailTokenExpiry, setEmailTokenExpiry] = useState<number | null>(null);
+  const [showEmailConfig, setShowEmailConfig] = useState(false);
+  const [emailSelPO, setEmailSelPO] = useState<string | null>(null);
+  const [emailsMap, setEmailsMap] = useState<Record<string, any[]>>({});
+  const [emailLoadingMap, setEmailLoadingMap] = useState<Record<string, boolean>>({});
+  const [emailErrorsMap, setEmailErrorsMap] = useState<Record<string, string | null>>({});
+  const [emailSelMsg, setEmailSelMsg] = useState<any>(null);
+  const [emailThreadMsgs, setEmailThreadMsgs] = useState<any[]>([]);
+  const [emailThreadLoading, setEmailThreadLoading] = useState(false);
+  const [emailTabCur, setEmailTabCur] = useState<"inbox" | "thread" | "compose">("inbox");
+  const [emailComposeTo, setEmailComposeTo] = useState("");
+  const [emailComposeSubject, setEmailComposeSubject] = useState("");
+  const [emailComposeBody, setEmailComposeBody] = useState("");
+  const [emailSendErr, setEmailSendErr] = useState<string | null>(null);
+  const [emailNextLinks, setEmailNextLinks] = useState<Record<string, string | null>>({});
+  const [emailLoadingOlder, setEmailLoadingOlder] = useState(false);
+  const [emailLastRefresh, setEmailLastRefresh] = useState<Record<string, number>>({});
+  const [emailReply, setEmailReply] = useState("");
+  const [emailConfigForm, setEmailConfigForm] = useState({ clientId: "", tenantId: "", emailMap: {} });
+
+  // ── Email auth + Graph helpers ──────────────────────────────────────────
+  function emailTokenIsValid() {
+    return !!emailToken && (!emailTokenExpiry || Date.now() < emailTokenExpiry);
+  }
+  function handleEmailTokenExpired() {
+    setEmailToken(null);
+    setEmailTokenExpiry(null);
+  }
+  async function authenticateEmail() {
+    if (!emailConfig.clientId || !emailConfig.tenantId) return;
+    try {
+      const authUrl = "https://login.microsoftonline.com/" + emailConfig.tenantId + "/oauth2/v2.0/authorize?" +
+        "client_id=" + emailConfig.clientId + "&response_type=token&redirect_uri=" + encodeURIComponent(window.location.origin + "/auth-callback") +
+        "&scope=" + encodeURIComponent("https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/Mail.Send") +
+        "&response_mode=fragment&prompt=select_account";
+      const popup = window.open(authUrl, "msauth", "width=500,height=700,left=400,top=100");
+      const { accessToken, expiresIn } = await new Promise<{ accessToken: string; expiresIn: number }>((resolve, reject) => {
+        const timer = setInterval(() => {
+          try {
+            if (popup!.closed) { clearInterval(timer); reject(new Error("Popup closed")); return; }
+            const hash = popup!.location.hash;
+            if (hash && hash.includes("access_token")) {
+              clearInterval(timer); popup!.close();
+              const params = new URLSearchParams(hash.substring(1));
+              resolve({ accessToken: params.get("access_token")!, expiresIn: parseInt(params.get("expires_in") || "3600", 10) });
+            }
+          } catch (_) {}
+        }, 300);
+        setTimeout(() => { clearInterval(timer); if (!popup!.closed) popup!.close(); reject(new Error("Timeout")); }, 120000);
+      });
+      setEmailToken(accessToken);
+      setEmailTokenExpiry(Date.now() + expiresIn * 1000);
+    } catch (e) { console.error("Email auth failed:", e); }
+  }
+  async function emailGraph(path: string) {
+    if (!emailTokenIsValid()) { handleEmailTokenExpired(); throw new Error("Token expired"); }
+    const r = await fetch("https://graph.microsoft.com/v1.0" + path, { headers: { Authorization: "Bearer " + emailToken!, "Content-Type": "application/json" } });
+    if (r.status === 401) { handleEmailTokenExpired(); throw new Error("Session expired"); }
+    if (!r.ok) throw new Error("Graph " + r.status + ": " + await r.text());
+    return r.json();
+  }
+  async function emailGraphPost(path: string, body: any) {
+    if (!emailTokenIsValid()) { handleEmailTokenExpired(); throw new Error("Token expired"); }
+    const r = await fetch("https://graph.microsoft.com/v1.0" + path, { method: "POST", headers: { Authorization: "Bearer " + emailToken!, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (r.status === 401) { handleEmailTokenExpired(); throw new Error("Session expired"); }
+    if (r.status === 202 || r.status === 200) return r.status === 202 ? {} : r.json();
+    if (!r.ok) throw new Error("Graph " + r.status + ": " + await r.text());
+    return r.json();
+  }
 
   // ── PLM session auto-login ────────────────────────────────────────────────
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -1440,6 +1516,313 @@ export default function TandAApp() {
   }
 
   // ════════════════════════════════════════════════════════════════════════════
+  // OUTLOOK EMAIL VIEW
+  // ════════════════════════════════════════════════════════════════════════════
+  function emailViewPanel() {
+    const OUTLOOK_BLUE = "#0078D4";
+    const poList = pos;
+    const cfg = emailConfig;
+
+    function getPrefix(poNum: string) { return "[PO-" + poNum + "]"; }
+
+    async function loadPOEmails(poNum: string, olderUrl?: string) {
+      if (!emailToken) return;
+      const prefix = getPrefix(poNum);
+      if (olderUrl) { setEmailLoadingOlder(true); } else { setEmailLoadingMap(l => ({ ...l, [poNum]: true })); }
+      setEmailErrorsMap(e => ({ ...e, [poNum]: null }));
+      try {
+        const url = olderUrl || ("/me/messages?$filter=" + encodeURIComponent("contains(subject,'" + prefix + "')") + "&$top=25&$orderby=receivedDateTime%20desc&$select=id,subject,from,receivedDateTime,bodyPreview,conversationId,isRead,hasAttachments");
+        const d = await emailGraph(url);
+        const items = d.value || [];
+        if (olderUrl) {
+          setEmailsMap(m => ({ ...m, [poNum]: [...(m[poNum] || []), ...items] }));
+        } else {
+          setEmailsMap(m => ({ ...m, [poNum]: items }));
+        }
+        setEmailNextLinks(nl => ({ ...nl, [poNum]: d["@odata.nextLink"] ? d["@odata.nextLink"].replace("https://graph.microsoft.com/v1.0", "") : null }));
+        setEmailLastRefresh(lr => ({ ...lr, [poNum]: Date.now() }));
+      } catch (e: any) { setEmailErrorsMap(err => ({ ...err, [poNum]: e.message })); }
+      setEmailLoadingMap(l => ({ ...l, [poNum]: false }));
+      setEmailLoadingOlder(false);
+    }
+
+    async function loadFullEmail(id: string) {
+      try { const d = await emailGraph("/me/messages/" + id); setEmailSelMsg(d); } catch (e) { console.error(e); }
+    }
+
+    async function loadEmailThread(conversationId: string) {
+      setEmailThreadLoading(true);
+      try {
+        const d = await emailGraph("/me/messages?$filter=" + encodeURIComponent("conversationId eq '" + conversationId + "'") + "&$orderby=receivedDateTime%20asc&$select=id,subject,from,receivedDateTime,body,conversationId,isRead,hasAttachments");
+        setEmailThreadMsgs(d.value || []);
+      } catch (e) { setEmailThreadMsgs([]); }
+      setEmailThreadLoading(false);
+      setEmailTabCur("thread");
+    }
+
+    async function doSendEmail() {
+      if (!emailComposeTo.trim() || !emailComposeSubject.trim()) return;
+      setEmailSendErr(null);
+      try {
+        await emailGraphPost("/me/sendMail", {
+          message: {
+            subject: emailComposeSubject,
+            body: { contentType: "HTML", content: emailComposeBody || " " },
+            toRecipients: emailComposeTo.split(",").map(e => ({ emailAddress: { address: e.trim() } })),
+          },
+        });
+        setEmailComposeTo(""); setEmailComposeSubject(""); setEmailComposeBody("");
+        setEmailTabCur("inbox");
+        if (emailSelPO) setTimeout(() => loadPOEmails(emailSelPO), 2000);
+      } catch (e: any) { setEmailSendErr("Failed to send: " + e.message); }
+    }
+
+    async function doReply(messageId: string, comment: string) {
+      if (!comment.trim()) return;
+      setEmailSendErr(null);
+      try {
+        await emailGraphPost("/me/messages/" + messageId + "/reply", { comment });
+        if (emailSelMsg?.conversationId) loadEmailThread(emailSelMsg.conversationId);
+      } catch (e: any) { setEmailSendErr("Failed to reply: " + e.message); }
+    }
+
+    function saveEmailConfig() {
+      setEmailConfig(emailConfigForm);
+      try { localStorage.setItem("tandaEmailConfig", JSON.stringify(emailConfigForm)); } catch (_) {}
+      setShowEmailConfig(false);
+    }
+
+    const selEmails = emailSelPO ? (emailsMap[emailSelPO] || []) : [];
+    const isLoadingE = emailSelPO ? !!emailLoadingMap[emailSelPO] : false;
+    const eError = emailSelPO ? emailErrorsMap[emailSelPO] : null;
+
+    // Config view
+    if (showEmailConfig) return (
+      <div style={{ maxWidth: 560, margin: "0 auto", padding: "24px 0" }}>
+        <h2 style={{ color: "#F1F5F9", fontSize: 18, fontWeight: 700, marginBottom: 18 }}>Outlook Email Configuration</h2>
+        <div style={{ background: "#1E3A5F", border: "1px solid #2563EB44", borderRadius: 10, padding: "12px 16px", marginBottom: 18, fontSize: 12, color: "#93C5FD", lineHeight: 1.6 }}>
+          <b>Azure AD Setup:</b> Register an app, enable implicit grant, add <b>Mail.Read</b> and <b>Mail.Send</b> delegated permissions, grant admin consent.
+          Redirect URI: <b>{window.location.origin}/auth-callback</b>.
+        </div>
+        <label style={S.label}>Azure AD Client ID</label>
+        <input style={S.input} value={emailConfigForm.clientId} onChange={e => setEmailConfigForm(f => ({ ...f, clientId: e.target.value }))} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+        <div style={{ height: 12 }} />
+        <label style={S.label}>Tenant ID</label>
+        <input style={S.input} value={emailConfigForm.tenantId} onChange={e => setEmailConfigForm(f => ({ ...f, tenantId: e.target.value }))} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
+          <button onClick={() => setShowEmailConfig(false)} style={S.btnSecondary}>Cancel</button>
+          <button onClick={saveEmailConfig} style={S.btnPrimary}>Save Configuration</button>
+        </div>
+      </div>
+    );
+
+    return (
+      <div style={{ position: "relative" }}>
+        <button onClick={() => setView("dashboard")} title="Close Email"
+          style={{ position: "absolute", top: 10, right: 10, zIndex: 10, width: 28, height: 28, borderRadius: "50%", border: "1px solid " + OUTLOOK_BLUE + "44", background: OUTLOOK_BLUE + "15", color: OUTLOOK_BLUE, cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, transition: "all 0.15s" }}>✕</button>
+        <div style={{ display: "flex", height: "calc(100vh - 140px)", minHeight: 500, background: "#1E293B", borderRadius: 12, border: "1px solid #334155", overflow: "hidden" }}>
+
+          {/* LEFT: PO list */}
+          <div style={{ width: 280, flexShrink: 0, borderRight: "1px solid #334155", overflowY: "auto", background: "#0F172A", display: "flex", flexDirection: "column" }}>
+            <div style={{ padding: "14px 16px 10px", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6B7280" }}>POs ({poList.length})</span>
+              <button onClick={() => { setEmailConfigForm({ ...cfg }); setShowEmailConfig(true); }} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 6, border: "1px solid #334155", background: "none", color: "#6B7280", cursor: "pointer", fontFamily: "inherit" }}>⚙ Config</button>
+            </div>
+            <div style={{ padding: "10px 16px", borderBottom: "1px solid #334155", background: emailToken ? "#064E3B44" : "#78350F44", flexShrink: 0 }}>
+              {emailToken ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 11, color: "#34D399", fontWeight: 600 }}>✓ Connected to Outlook</span>
+                  <button onClick={() => { setEmailToken(null); setEmailTokenExpiry(null); }} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 5, border: "1px solid #34D39944", background: "none", color: "#34D399", cursor: "pointer", fontFamily: "inherit" }}>Sign out</button>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontSize: 11, color: "#FBBF24", fontWeight: 600, marginBottom: 6 }}>Sign in to load emails</div>
+                  {(!cfg.clientId || !cfg.tenantId) ? (
+                    <div style={{ fontSize: 11, color: "#D97706" }}>Click "⚙ Config" to enter Azure AD credentials</div>
+                  ) : (
+                    <button onClick={authenticateEmail} style={{ ...S.btnPrimary, fontSize: 11, padding: "5px 12px", width: "auto" }}>Sign in with Microsoft</button>
+                  )}
+                </div>
+              )}
+            </div>
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {poList.map(po => {
+                const poNum = po.PoNumber ?? "";
+                const isSelected = emailSelPO === poNum;
+                const unread = (emailsMap[poNum] || []).filter((e: any) => !e.isRead).length;
+                const color = STATUS_COLORS[po.StatusName ?? ""] ?? "#6B7280";
+                return (
+                  <div key={poNum} onClick={() => { setEmailSelPO(poNum === emailSelPO ? null : poNum); setEmailTabCur("inbox"); setEmailSelMsg(null); setEmailThreadMsgs([]); if (poNum !== emailSelPO && emailToken) loadPOEmails(poNum); }}
+                    style={{ padding: "11px 16px", borderBottom: "1px solid #334155", cursor: "pointer", background: isSelected ? OUTLOOK_BLUE + "18" : "transparent", borderLeft: isSelected ? "3px solid " + OUTLOOK_BLUE : "3px solid transparent", transition: "all 0.12s" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: isSelected ? OUTLOOK_BLUE : "#F1F5F9", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontFamily: "monospace" }}>{poNum}</div>
+                        <div style={{ fontSize: 11, color: "#6B7280" }}>{po.VendorName ?? "Unknown"}</div>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}>
+                        {unread > 0 && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 10, background: OUTLOOK_BLUE, color: "#fff", fontWeight: 700 }}>{unread}</span>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {poList.length === 0 && <div style={{ padding: 24, fontSize: 13, color: "#6B7280", textAlign: "center" }}>No POs loaded — sync first</div>}
+            </div>
+          </div>
+
+          {/* RIGHT: email panel */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {!emailSelPO ? (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#6B7280" }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>📧</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: "#D1D5DB", marginBottom: 6 }}>Select a PO to view emails</div>
+                <div style={{ fontSize: 13 }}>Emails are filtered by subject prefix [PO-{"{number}"}]</div>
+              </div>
+            ) : (
+              <>
+                <div style={{ padding: "14px 20px", borderBottom: "1px solid #334155", background: "#1E293B", display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "#F1F5F9", fontFamily: "monospace" }}>PO {emailSelPO}</div>
+                    <div style={{ fontSize: 12, color: "#6B7280" }}>{pos.find(p => p.PoNumber === emailSelPO)?.VendorName ?? ""} · Prefix: {getPrefix(emailSelPO)}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+                    {emailLastRefresh[emailSelPO] && <span style={{ fontSize: 10, color: "#6B7280" }}>Updated {Math.round((Date.now() - emailLastRefresh[emailSelPO]) / 1000)}s ago</span>}
+                    <button onClick={() => loadPOEmails(emailSelPO)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #334155", background: "none", color: "#94A3B8", cursor: "pointer", fontFamily: "inherit" }}>↻ Refresh</button>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", borderBottom: "1px solid #334155", background: "#1E293B", flexShrink: 0 }}>
+                  {(["inbox", "thread", "compose"] as const).map(tab => (
+                    <button key={tab} onClick={() => { setEmailTabCur(tab); if (tab === "compose") { setEmailComposeSubject(getPrefix(emailSelPO) + " "); } }}
+                      style={{ padding: "9px 18px", border: "none", borderBottom: emailTabCur === tab ? "2px solid " + OUTLOOK_BLUE : "2px solid transparent", background: "none", color: emailTabCur === tab ? OUTLOOK_BLUE : "#6B7280", fontWeight: emailTabCur === tab ? 700 : 500, cursor: "pointer", fontFamily: "inherit", fontSize: 12, textTransform: "capitalize" }}>{tab}</button>
+                  ))}
+                </div>
+
+                <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+                  {!emailToken ? (
+                    <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 40 }}><div style={{ fontSize: 28, marginBottom: 8 }}>🔒</div><div style={{ fontSize: 13 }}>Sign in with Microsoft to view emails</div></div>
+                  ) : isLoadingE && emailTabCur === "inbox" ? (
+                    <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 40, fontSize: 13 }}>Loading emails…</div>
+                  ) : eError && emailTabCur === "inbox" ? (
+                    <div style={{ background: "#7F1D1D", border: "1px solid #EF4444", borderRadius: 8, padding: "12px 16px", color: "#FCA5A5", fontSize: 13 }}>⚠ {eError}</div>
+                  ) : emailTabCur === "inbox" ? (
+                    selEmails.length === 0 ? (
+                      <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 40 }}><div style={{ fontSize: 28, marginBottom: 8 }}>📧</div><div style={{ fontSize: 13 }}>No emails matching "{getPrefix(emailSelPO)}"</div></div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {selEmails.map((em: any) => {
+                          const sender = (em.from?.emailAddress) ? em.from.emailAddress.name || em.from.emailAddress.address : "Unknown";
+                          const initials = sender.split(" ").map((w: string) => w[0] || "").join("").toUpperCase().slice(0, 2);
+                          const time = em.receivedDateTime ? new Date(em.receivedDateTime).toLocaleString() : "";
+                          return (
+                            <div key={em.id} onClick={() => { loadFullEmail(em.id); if (em.conversationId) loadEmailThread(em.conversationId); }}
+                              style={{ background: em.isRead ? "#0F172A" : OUTLOOK_BLUE + "15", border: "1px solid " + (em.isRead ? "#334155" : OUTLOOK_BLUE + "44"), borderRadius: 10, padding: "12px 16px", cursor: "pointer", transition: "all 0.12s" }}>
+                              <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                                <div style={{ width: 34, height: 34, borderRadius: "50%", background: OUTLOOK_BLUE + "22", border: "2px solid " + OUTLOOK_BLUE, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: OUTLOOK_BLUE, flexShrink: 0 }}>{initials}</div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
+                                    <span style={{ fontSize: 13, fontWeight: em.isRead ? 500 : 700, color: "#F1F5F9" }}>{sender}</span>
+                                    <span style={{ fontSize: 11, color: "#6B7280" }}>{time}</span>
+                                    {em.hasAttachments && <span style={{ fontSize: 11, color: "#6B7280" }}>📎</span>}
+                                    {!em.isRead && <span style={{ width: 8, height: 8, borderRadius: "50%", background: OUTLOOK_BLUE, flexShrink: 0 }} />}
+                                  </div>
+                                  <div style={{ fontSize: 13, fontWeight: em.isRead ? 400 : 600, color: "#E2E8F0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{em.subject}</div>
+                                  <div style={{ fontSize: 12, color: "#6B7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 2 }}>{em.bodyPreview || ""}</div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {emailNextLinks[emailSelPO] && (
+                          <button onClick={() => loadPOEmails(emailSelPO, emailNextLinks[emailSelPO]!)} disabled={emailLoadingOlder} style={{ ...S.btnPrimary, opacity: emailLoadingOlder ? 0.6 : 1, fontSize: 12 }}>{emailLoadingOlder ? "Loading…" : "Load older emails"}</button>
+                        )}
+                      </div>
+                    )
+                  ) : emailTabCur === "thread" ? (
+                    <div>
+                      {emailThreadLoading ? (
+                        <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 24, fontSize: 13 }}>Loading thread…</div>
+                      ) : emailThreadMsgs.length === 0 ? (
+                        <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 40, fontSize: 13 }}>Click an email to view its conversation thread</div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
+                          {emailThreadMsgs.map((msg: any) => {
+                            const sender = (msg.from?.emailAddress) ? msg.from.emailAddress.name || msg.from.emailAddress.address : "Unknown";
+                            const initials = sender.split(" ").map((w: string) => w[0] || "").join("").toUpperCase().slice(0, 2);
+                            const time = msg.receivedDateTime ? new Date(msg.receivedDateTime).toLocaleString() : "";
+                            const htmlBody = (msg.body?.content) || "";
+                            return (
+                              <div key={msg.id} style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 10, padding: "14px 18px" }}>
+                                <div style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 10 }}>
+                                  <div style={{ width: 30, height: 30, borderRadius: "50%", background: OUTLOOK_BLUE + "22", border: "2px solid " + OUTLOOK_BLUE, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: OUTLOOK_BLUE, flexShrink: 0 }}>{initials}</div>
+                                  <div style={{ flex: 1 }}>
+                                    <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                                      <span style={{ fontSize: 13, fontWeight: 700, color: "#F1F5F9" }}>{sender}</span>
+                                      <span style={{ fontSize: 11, color: "#6B7280" }}>{time}</span>
+                                    </div>
+                                    <div style={{ fontSize: 12, color: "#6B7280" }}>{msg.subject}</div>
+                                  </div>
+                                </div>
+                                <iframe sandbox="allow-same-origin" srcDoc={htmlBody} style={{ width: "100%", border: "none", minHeight: 100, borderRadius: 6, background: "#F8FAFC" }}
+                                  onLoad={e => { try { const h = (e.target as HTMLIFrameElement).contentDocument!.body.scrollHeight; (e.target as HTMLIFrameElement).style.height = Math.min(h + 20, 400) + "px"; } catch (_) {} }} />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {emailSelMsg && (
+                        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                          <input value={emailReply} onChange={e => setEmailReply(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); doReply(emailSelMsg.id, emailReply); setEmailReply(""); } }} placeholder="Write a reply…" style={{ ...S.input, flex: 1 }} />
+                          <button onClick={() => { doReply(emailSelMsg.id, emailReply); setEmailReply(""); }} style={{ ...S.btnPrimary, width: "auto", padding: "10px 20px" }}>Reply</button>
+                        </div>
+                      )}
+                    </div>
+                  ) : emailTabCur === "compose" ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                      <div>
+                        <label style={S.label}>To (comma-separated)</label>
+                        <input value={emailComposeTo} onChange={e => setEmailComposeTo(e.target.value)} placeholder="email@example.com" style={S.input} />
+                      </div>
+                      <div>
+                        <label style={S.label}>Subject</label>
+                        <input value={emailComposeSubject} onChange={e => setEmailComposeSubject(e.target.value)} style={S.input} />
+                      </div>
+                      <div>
+                        <label style={S.label}>Body</label>
+                        <textarea value={emailComposeBody} onChange={e => setEmailComposeBody(e.target.value)} rows={10} style={{ ...S.textarea, minHeight: 150 }} placeholder="Type your message…" />
+                      </div>
+                      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                        <button onClick={() => setEmailTabCur("inbox")} style={S.btnSecondary}>Cancel</button>
+                        <button onClick={doSendEmail} disabled={!emailComposeTo.trim() || !emailComposeSubject.trim()} style={{ ...S.btnPrimary, width: "auto", opacity: (!emailComposeTo.trim() || !emailComposeSubject.trim()) ? 0.5 : 1 }}>Send Email</button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                {emailToken && emailSelPO && emailTabCur === "inbox" && (
+                  <div style={{ borderTop: "1px solid #334155", background: "#1E293B", flexShrink: 0 }}>
+                    {emailSendErr && (
+                      <div style={{ padding: "6px 20px", background: "#7F1D1D", borderBottom: "1px solid #EF4444", display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 12, color: "#FCA5A5", flex: 1 }}>⚠ {emailSendErr}</span>
+                        <button onClick={() => setEmailSendErr(null)} style={{ fontSize: 11, border: "none", background: "none", color: "#FCA5A5", cursor: "pointer", fontFamily: "inherit", fontWeight: 700 }}>✕</button>
+                      </div>
+                    )}
+                    <div style={{ padding: "10px 20px", display: "flex", gap: 8, alignItems: "center" }}>
+                      <button onClick={() => { setEmailTabCur("compose"); setEmailComposeSubject(getPrefix(emailSelPO) + " "); }} style={{ ...S.btnPrimary, width: "auto", fontSize: 11, padding: "7px 14px" }}>+ New Email</button>
+                      <span style={{ fontSize: 11, color: "#6B7280" }}>{selEmails.length} email{selEmails.length !== 1 ? "s" : ""}</span>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
   // MAIN RENDER
   // ════════════════════════════════════════════════════════════════════════════
   return (
@@ -1455,6 +1838,7 @@ export default function TandAApp() {
           <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("dashboard"); }}>Dashboard</button>
           <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("list"); }}>All POs</button>
           <button style={view === "templates" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("templates"); }}>Templates</button>
+          <button style={view === "email" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("email"); }}>📧 Email</button>
           <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing} title="Sync POs from Xoro">
             {syncing ? "⏳ Syncing…" : "🔄 Sync"}
           </button>
@@ -1770,6 +2154,9 @@ export default function TandAApp() {
             </>
           );
         })()}
+
+        {/* ── EMAIL ── */}
+        {view === "email" && emailViewPanel()}
       </div>
 
       {selected      && DetailPanel()}
