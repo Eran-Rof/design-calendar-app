@@ -1085,59 +1085,62 @@ export default function TandAApp() {
 
     const showPO = detailMode === "po" || detailMode === "all";
     const showMilestones = detailMode === "milestones" || detailMode === "all";
+    const totalQty = items.reduce((s, i) => s + (i.QtyOrder ?? 0), 0);
 
-    const tabBtn = (label: string, mode: "header" | "po" | "milestones" | "all") => (
-      <button onClick={() => setDetailMode(mode)} style={{
-        padding: "8px 16px", borderRadius: 6, border: "none", fontSize: 13, cursor: "pointer",
-        background: detailMode === mode ? "#3B82F620" : "transparent",
-        color: detailMode === mode ? "#60A5FA" : "#94A3B8",
-        fontWeight: detailMode === mode ? 700 : 400,
-      }}>{label}</button>
-    );
+    const tabStyle = (mode: string): React.CSSProperties => ({
+      flex: 1, padding: "12px 20px", fontSize: 16, cursor: "pointer", fontWeight: 700,
+      border: "1px solid #334155", borderBottom: detailMode === mode ? "none" : "1px solid #334155",
+      background: detailMode === mode ? "#1E293B" : "#0F172A",
+      color: detailMode === mode ? "#60A5FA" : "#6B7280",
+      borderRadius: "10px 10px 0 0",
+      marginBottom: detailMode === mode ? -1 : 0,
+      position: "relative" as const,
+      zIndex: detailMode === mode ? 1 : 0,
+    });
 
     return (
-      <div style={{ position: "fixed", inset: 0, top: 56, background: "#0F172A", zIndex: 150, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+      <div style={{ position: "fixed", inset: 0, top: 56, background: "#0F172A", zIndex: 90, overflowY: "auto", display: "flex", flexDirection: "column", fontSize: "120%" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto", width: "100%", padding: "24px 20px", flex: 1 }}>
           {/* Header */}
           <div style={{ ...S.detailHeader, borderLeft: `4px solid ${statusColor}`, borderRadius: 12, marginBottom: 16 }}>
             <div>
-              <div style={S.detailPONum}>{selected.PoNumber ?? "—"}</div>
-              <div style={S.detailVendor}>{selected.VendorName ?? "Unknown Vendor"}</div>
+              <div style={{ ...S.detailPONum, fontSize: 24 }}>{selected.PoNumber ?? "—"}</div>
+              <div style={{ ...S.detailVendor, fontSize: 18 }}>{selected.VendorName ?? "Unknown Vendor"}</div>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <span style={{ ...S.badge, background: statusColor + "33", color: statusColor, border: `1px solid ${statusColor}66` }}>
+              <span style={{ ...S.badge, background: statusColor + "33", color: statusColor, border: `1px solid ${statusColor}66`, fontSize: 14, padding: "4px 12px" }}>
                 {selected.StatusName ?? "Unknown"}
               </span>
-              <button style={S.closeBtn} onClick={() => setSelected(null)}>✕ Close</button>
+              <button style={{ ...S.closeBtn, fontSize: 16, padding: "4px 10px" }} onClick={() => setSelected(null)}>✕ Close</button>
             </div>
           </div>
 
           {/* Key info grid — always visible */}
-          <div style={{ ...S.infoGrid, marginBottom: 16 }}>
-            <InfoCell label="Order Date"     value={fmtDate(selected.DateOrder)} />
-            <InfoCell label="Vendor Req Date" value={fmtDate(selected.VendorReqDate)} />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 14, marginBottom: 20 }}>
+            <InfoCell label="Order Date" value={fmtDate(selected.DateOrder)} />
             <InfoCell label="Expected Delivery" value={
               <span style={{ color: days !== null && days < 0 ? "#EF4444" : days !== null && days <= 7 ? "#F59E0B" : "#10B981" }}>
                 {fmtDate(selected.DateExpectedDelivery)}
-                {days !== null && <span style={{ fontSize: 11, marginLeft: 6 }}>
+                {days !== null && <span style={{ fontSize: 13, marginLeft: 6 }}>
                   {days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "Today!" : `in ${days}d`}
                 </span>}
               </span>
             } />
+            <InfoCell label="Country of Origin" value={(() => {
+              const vendor = dcVendors.find(v => v.name === selected.VendorName);
+              return (vendor as any)?.country || "—";
+            })()} />
             <InfoCell label="Total Value" value={fmtCurrency(total, selected.CurrencyCode)} />
-            <InfoCell label="Currency"    value={selected.CurrencyCode ?? "—"} />
-            <InfoCell label="Payment Terms" value={selected.PaymentTermsName ?? "—"} />
-            <InfoCell label="Ship Method"  value={selected.ShipMethodName ?? "—"} />
-            <InfoCell label="Carrier"      value={selected.CarrierName ?? "—"} />
-            <InfoCell label="Buyer"        value={selected.BuyerName ?? "—"} />
+            <InfoCell label="Total Qty" value={totalQty.toLocaleString()} />
           </div>
 
-          {/* Tab buttons */}
-          <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "#1E293B", borderRadius: 8, padding: 4 }}>
-            {tabBtn("PO Details", "po")}
-            {tabBtn("Milestones", "milestones")}
-            {tabBtn("All", "all")}
+          {/* Tabs */}
+          <div style={{ display: "flex", gap: 2, marginBottom: 0 }}>
+            <button style={tabStyle("po")} onClick={() => setDetailMode("po")}>PO Details</button>
+            <button style={tabStyle("milestones")} onClick={() => setDetailMode("milestones")}>Milestones</button>
+            <button style={tabStyle("all")} onClick={() => setDetailMode("all")}>All</button>
           </div>
+          <div style={{ border: "1px solid #334155", borderTop: "none", borderRadius: "0 0 10px 10px", background: "#1E293B", padding: 20, marginBottom: 20 }}>
 
           {/* PO Details section */}
           {showPO && selected.Memo && (
@@ -1292,6 +1295,8 @@ export default function TandAApp() {
                 <button style={S.btnPrimary} onClick={addNote}>Add Note</button>
               </div>
             </div>}
+          {detailMode === "header" && <p style={{ color: "#6B7280", fontSize: 15 }}>Select a tab above to view details.</p>}
+          </div>
         </div>
       </div>
     );
@@ -1367,9 +1372,9 @@ export default function TandAApp() {
           <span style={S.navSub}>via XoroERP</span>
         </div>
         <div style={S.navRight}>
-          <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => setView("dashboard")}>Dashboard</button>
-          <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => setView("list")}>All POs</button>
-          <button style={view === "templates" ? S.navBtnActive : S.navBtn} onClick={() => setView("templates")}>Templates</button>
+          <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("dashboard"); }}>Dashboard</button>
+          <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("list"); }}>All POs</button>
+          <button style={view === "templates" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("templates"); }}>Templates</button>
           <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing} title="Sync POs from Xoro">
             {syncing ? "⏳ Syncing…" : "🔄 Sync"}
           </button>
