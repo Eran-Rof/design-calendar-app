@@ -281,7 +281,8 @@ function milestoneUid() { return "ms_" + Math.random().toString(36).slice(2, 10)
 function fmtDate(d?: string) {
   if (!d) return "—";
   const dt = new Date(d);
-  return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  if (isNaN(dt.getTime())) return d;
+  return `${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")}/${dt.getFullYear()}`;
 }
 function fmtCurrency(n?: number, code = "USD") {
   if (n == null) return "—";
@@ -1115,7 +1116,7 @@ export default function TandAApp() {
                               return (
                                 <div key={m.id} style={{ display: "grid", gridTemplateColumns: "1fr 90px 90px 100px 60px", gap: 6, padding: "6px 12px", borderTop: "1px solid #1E293B", alignItems: "center", fontSize: 12 }}>
                                   <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
-                                  <span style={{ color: "#9CA3AF", textAlign: "center", fontSize: 11 }}>{m.expected_date || "—"}</span>
+                                  <span style={{ color: "#9CA3AF", textAlign: "center", fontSize: 11 }}>{fmtDate(m.expected_date ?? undefined)}</span>
                                   <input type="date" style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#F1F5F9", fontSize: 11, padding: "2px 4px" }}
                                     value={m.actual_date || ""}
                                     onChange={e => {
@@ -1307,7 +1308,7 @@ export default function TandAApp() {
                         onClick={() => { const p = pos.find(x => x.PoNumber === m.po_number); if (p) setSelected(p); }}>
                         <span style={{ color: "#60A5FA", fontFamily: "monospace", fontSize: 11 }}>{m.po_number}</span>
                         <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
-                        <span style={{ color: "#9CA3AF" }}>{m.expected_date}</span>
+                        <span style={{ color: "#9CA3AF" }}>{fmtDate(m.expected_date ?? undefined)}</span>
                         <span style={{ color: MILESTONE_STATUS_COLORS[m.status] || "#6B7280", fontSize: 11 }}>{m.status}</span>
                         <span style={{ color: daysRem !== null && daysRem <= 7 ? "#F59E0B" : "#10B981", fontWeight: 600, textAlign: "right" }}>
                           {daysRem !== null ? `${daysRem}d` : "—"}
@@ -1334,7 +1335,7 @@ export default function TandAApp() {
                         onClick={() => { const p = pos.find(x => x.PoNumber === m.po_number); if (p) setSelected(p); }}>
                         <span style={{ color: "#60A5FA", fontFamily: "monospace", fontSize: 11 }}>{m.po_number}</span>
                         <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
-                        <span style={{ color: "#9CA3AF" }}>{m.expected_date}</span>
+                        <span style={{ color: "#9CA3AF" }}>{fmtDate(m.expected_date ?? undefined)}</span>
                         <span style={{ color: MILESTONE_STATUS_COLORS[m.status] || "#6B7280", fontSize: 11 }}>{m.status}</span>
                         <span style={{ color: "#EF4444", fontWeight: 600, textAlign: "right" }}>{daysLate}d</span>
                       </div>
