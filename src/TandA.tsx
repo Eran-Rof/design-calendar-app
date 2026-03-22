@@ -715,6 +715,14 @@ export default function TandAApp() {
       if (idx >= 0) arr[idx] = m; else arr.push(m);
       return { ...prev, [m.po_number]: arr };
     });
+    // Clear collapsed overrides for this PO so auto-collapse/expand recalculates
+    if (!skipHistory) {
+      setCollapsedCats(prev => {
+        const next = { ...prev };
+        WIP_CATEGORIES.forEach(cat => { delete next[cat + m.po_number]; });
+        return next;
+      });
+    }
   }
 
   async function saveMilestones(ms: Milestone[]) {
