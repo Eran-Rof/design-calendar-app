@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, Fragment } from "react";
 
 // ─── THEME D: SLATE BLUE & RED ────────────────────────────────────────────────
 const TH = {
@@ -18,6 +18,19 @@ const TH = {
   shadow: "rgba(0,0,0,0.12)",
   shadowMd: "rgba(0,0,0,0.18)",
 };
+
+// ─── Day/Days label helper ───────────────────────────────────────────────────
+function fmtDays(n: number): string {
+  const v = Number.isInteger(n) ? `${n}` : n.toFixed(1);
+  return `${v} ${Math.abs(n) === 1 ? "Day" : "Days"}`;
+}
+
+// ─── GLOBAL CONFIRM ─────────────────────────────────────────────────────────
+let _showConfirm: (opts: { message: string; action: string; onConfirm: () => void }) => void = () => {};
+
+function appConfirm(message: string, action: string, onConfirm: () => void) {
+  _showConfirm({ message, action, onConfirm });
+}
 
 // ─── TEAMS BRAND COLORS
 const TEAMS_PURPLE = "#5b5ea6";
@@ -250,6 +263,22 @@ const PHASE_KEYS = [
   "DDP",
 ];
 
+
+// Default task templates — used when no custom templates exist
+const DEFAULT_TASK_TEMPLATES = [
+  { id: "tpl_concept",  phase: "Concept",        daysBeforeDDP: 168, status: "Not Started", notes: "" },
+  { id: "tpl_design",   phase: "Design",          daysBeforeDDP: 154, status: "Not Started", notes: "" },
+  { id: "tpl_techpack", phase: "Tech Pack",       daysBeforeDDP: 140, status: "Not Started", notes: "" },
+  { id: "tpl_costing",  phase: "Costing",         daysBeforeDDP: 126, status: "Not Started", notes: "" },
+  { id: "tpl_sampling", phase: "Sampling",        daysBeforeDDP: 112, status: "Not Started", notes: "" },
+  { id: "tpl_revision", phase: "Revision",        daysBeforeDDP: 84,  status: "Not Started", notes: "" },
+  { id: "tpl_po",       phase: "Purchase Order",  daysBeforeDDP: 70,  status: "Not Started", notes: "" },
+  { id: "tpl_prod",     phase: "Production",      daysBeforeDDP: 42,  status: "Not Started", notes: "" },
+  { id: "tpl_qc",       phase: "QC",              daysBeforeDDP: 14,  status: "Not Started", notes: "" },
+  { id: "tpl_ship",     phase: "Ship Date",       daysBeforeDDP: 21,  status: "Not Started", notes: "" },
+  { id: "tpl_ddp",      phase: "DDP",             daysBeforeDDP: 0,   status: "Not Started", notes: "" },
+];
+
 const STATUS_CONFIG = {
   "Not Started": {
     color: "#6B7280",
@@ -290,52 +319,6 @@ const STATUS_CONFIG = {
 };
 
 // ─── USER/AUTH SYSTEM ─────────────────────────────────────────────────────────
-const DEFAULT_USERS = [
-  {
-    id: "u1",
-    username: "admin",
-    password: "admin123",
-    name: "Admin User",
-    role: "admin",
-    color: "#CC2200",
-    initials: "AD",
-    teamMemberId: null,
-    teamsEmail: "",
-  },
-  {
-    id: "u2",
-    username: "alex",
-    password: "pass123",
-    name: "Alex Rivera",
-    role: "user",
-    color: "#E74C3C",
-    initials: "AR",
-    teamMemberId: "t1",
-    teamsEmail: "",
-  },
-  {
-    id: "u3",
-    username: "jordan",
-    password: "pass123",
-    name: "Jordan Lee",
-    role: "user",
-    color: "#3498DB",
-    initials: "JL",
-    teamMemberId: "t2",
-    teamsEmail: "",
-  },
-  {
-    id: "u4",
-    username: "sam",
-    password: "pass123",
-    name: "Sam Chen",
-    role: "user",
-    color: "#2ECC71",
-    initials: "SC",
-    teamMemberId: "t3",
-    teamsEmail: "",
-  },
-];
 
 const SAMPLE_VENDORS = [
   {
@@ -640,6 +623,58 @@ function addDays(ds, n) {
 function diffDays(a, b) {
   return Math.round((parseLocalDate(a) - parseLocalDate(b)) / 86400000);
 }
+
+// ── Business-day helpers (Mon–Thu=1, Fri=0.5, Sat/Sun/Holiday=0) ─────────────
+const HOLIDAYS = new Set([
+  "2024-01-01","2024-01-15","2024-02-19","2024-05-27","2024-06-19","2024-07-04",
+  "2024-09-02","2024-10-14","2024-11-11","2024-11-28","2024-12-25",
+  "2025-01-01","2025-01-20","2025-02-17","2025-05-26","2025-06-19","2025-07-04",
+  "2025-09-01","2025-10-13","2025-11-11","2025-11-27","2025-12-25",
+  "2026-01-01","2026-01-19","2026-02-16","2026-05-25","2026-06-19","2026-07-04",
+  "2026-09-07","2026-10-12","2026-11-11","2026-11-26","2026-12-25",
+]);
+function toDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function dayWeight(d) {
+  const ds = toDateStr(d);
+  if (HOLIDAYS.has(ds)) return 0;
+  const dow = d.getDay();
+  if (dow === 0 || dow === 6) return 0;
+  return dow === 5 ? 0.5 : 1;
+}
+function diffBusinessDays(a, b) {
+  const da = parseLocalDate(a), db = parseLocalDate(b);
+  if (toDateStr(da) === toDateStr(db)) return 0;
+  let days = 0;
+  const d = new Date(db);
+  const dir = da > db ? 1 : -1;
+  while (toDateStr(d) !== toDateStr(da)) {
+    d.setDate(d.getDate() + dir);
+    days += dir * dayWeight(d);
+  }
+  return days;
+}
+function addBusinessDays(ds, n) {
+  if (n === 0) return ds;
+  const d = parseLocalDate(ds);
+  let remaining = Math.abs(n);
+  const dir = n > 0 ? 1 : -1;
+  while (remaining > 0) {
+    d.setDate(d.getDate() + dir);
+    remaining = Math.max(0, remaining - dayWeight(d));
+  }
+  return toDateStr(d);
+}
+function snapToBusinessDay(ds) {
+  const d = parseLocalDate(ds);
+  while (dayWeight(d) === 0) d.setDate(d.getDate() + 1);
+  return toDateStr(d);
+}
+function getBusinessDaysUntil(ds) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  return diffBusinessDays(ds, toDateStr(today));
+}
 function fileToDataURL(f) {
   return new Promise((res, rej) => {
     const r = new FileReader();
@@ -649,43 +684,32 @@ function fileToDataURL(f) {
   });
 }
 
-// Upload a file directly to Dropbox and return a shared link URL
+// Upload a file to Supabase Storage and return a permanent public URL
 async function dbxUploadFileGlobal(file, folder = "images") {
-  const DBX_TOKEN = "sl.u.AGUcjMEcACemDUZHoLi92xdgZ13WI8iSDzLrDH79Xgcn7fQKuN8tfpn01xSY-JhTMgcNe-tGiNYqsVkrbII3NoWk0KO1MumGTJV1CX1DZb7qCUFR9lOlx9oQoAtuuAiMockw9inV9CuMwsVRIAA7h5qrrjKqAZ65SfmWt0bq73FFlircuF1x7LkEsABbzJGznX7y5q8Qo76unECnZw_QOKIF7JeYlshwpIbb-6i4qktHbqbOZ5lHEe5U2nuCmE1QVj80sMPoFvcRTa-D1WptAgnL_gHlZqnsLppUPlJ17RVpoXfmF5qkxC6q3P_d5Et2x_4MUKPAeeMc9cGp2vHZBITl5Uqs472avmEnAaa8Ob9g7eeJIIVcQOlg7gXwgpeoxeyuTYHGaAeOiyoNCihv8QBP3SPTA0HnK0KnaXLixBddFtUo97JPVxMDeEsdEeiXqooalU2qJ_BAqOHbk6zUEb3EaZa-2LpslUdktWiP6YaGJgUePX-2JBS4BmN_rfIjVlsikaObNC1U9hhX1ea0FHuThyzijnVqVdze9-fcFszuvJIar3eXf7tzXPzW_JahCXJr-eMdNx68Bpu7Bj-485LL_P0F09mhS219DTWoBVoflXSOF9UE8eE8kiybDGL__qfFfRJwB_-8qEFoDRj1f-wcrWxRYx16yZdiEYBXaMM7KR83Fhiru2gFNFSExAERAqZdBC_PWIicVhHl7nRkAMnlZ7Wu9uu3CGA1v_MqXXgXxvqaqpWlMJxjJMyNHZfA5Th3VwA9NNgB3nOK0umNT8BUVx371VRqreNByWsme6Ara66ZRd9EuPwFQAoz3-q64KqgbfRRiPWjv7edgi6e49BEUBE26B7e1XW2muTnJxncZfp8jF3g9g0P5pBiNf9Z_7w5gXRyU2ZhfNuHrb2epYnBQrq_LyEOsZC2aG2cQgyqRr5-6vdsH0giZoXneSUCqEsuaNmIgY7zLb9gd98oRy1DnwcEpwJY7Ja_lzwMKR9-Bc9MPLt9x_zYQKYR7TRTFOPQDLCtce6wJ4o5r5AbYmn0Vo33ceURUtI6_I3fRH1Bv3W7pydx9QAgI2BVF-2OD2Rwzai2MUghm3yUah-wYjbQGao7VYRT9h7Fcr--qW8W0GYMgGZYbO7_J7A5KixWGA375AH3-_4L4n87IlfxNqd8nvEb7e2hABTrznLm1dgMzYBCSF-O7tFEr24TzWfsA9L0awYgw1v2qN-9-eESJphwJ6KyYNa78ar2cCgc6M6Xsnza8fZJa-BcJrBI-gW_Y830PoQMtsCtgglC4KBu6W0sAwzgr98EKjOgGHNB7Le0qzLO-HAFUyepGOZ2q3bVU0_poNEgEfjpXanfvDtAxZ00Jjdn5AhKumbb9gwxnEmKgAIRmf9eOxr99jABC4Y6GdtBMX3PV6MHRB1N0W11-HpFtO6tTZ5Ui-YEWYPfZfuwqyMG2poXqlepeJNpbTPT65bjtOpMTAb6LZ23M5ezFEOf";
+  const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
+  const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
+  const BUCKET = "Attachments";
   try {
     const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-    const path = `/${folder}/${safeName}`;
-    const uploadRes = await fetch("https://content.dropboxapi.com/2/files/upload", {
+    const filePath = `${folder}/${safeName}`;
+    const res = await fetch(`${SB_URL}/storage/v1/object/${BUCKET}/${filePath}`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${DBX_TOKEN}`,
-        "Dropbox-API-Arg": JSON.stringify({ path, mode: "overwrite", autorename: false, mute: true }),
-        "Content-Type": "application/octet-stream",
+        "apikey": SB_KEY,
+        "Authorization": `Bearer ${SB_KEY}`,
+        "Content-Type": file.type || "application/octet-stream",
+        "x-upsert": "true",
       },
       body: file,
     });
-    if (!uploadRes.ok) { console.warn("Dropbox file upload failed"); return null; }
-    const linkRes = await fetch("https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${DBX_TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ path, settings: { requested_visibility: "public" } }),
-    });
-    if (linkRes.ok) {
-      const linkData = await linkRes.json();
-      return (linkData.url || "").replace("?dl=0", "?raw=1").replace("www.dropbox.com", "dl.dropboxusercontent.com");
+    const resText = await res.text();
+    if (!res.ok) {
+      console.warn("Supabase upload failed:", res.status, resText);
+      return null;
     }
-    const existRes = await fetch("https://api.dropboxapi.com/2/sharing/list_shared_links", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${DBX_TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ path }),
-    });
-    if (existRes.ok) {
-      const existData = await existRes.json();
-      const existing = existData.links?.[0]?.url;
-      if (existing) return existing.replace("?dl=0", "?raw=1").replace("www.dropbox.com", "dl.dropboxusercontent.com");
-    }
-    return null;
-  } catch (e) { console.warn("dbxUploadFileGlobal error", e); return null; }
+    console.log("[SB Storage] uploaded:", filePath);
+    return `${SB_URL}/storage/v1/object/public/${BUCKET}/${filePath}`;
+  } catch (e) { console.warn("sbUploadFile error", e); return null; }
 }
 function getChannelForCustomer(customer) {
   return CUSTOMER_CHANNEL_MAP[customer] || "";
@@ -751,29 +775,31 @@ function generateTasks({
   customer,
   orderType,
   channelType,
+  taskTemplates,
 }) {
   const vendor = vendors.find((v) => v.id === vendorId);
   const transit = vendor?.transitDays || 21;
-  const lead = vendor?.lead || {
-    Concept: 168,
-    Design: 154,
-    "Tech Pack": 140,
-    Costing: 126,
-    Sampling: 112,
-    Revision: 84,
-    "Purchase Order": 70,
-    Production: 42,
-    QC: 14,
-    "Ship Date": 0,
-    DDP: 0,
-  };
+
+  // Use task templates if available, else fall back to DEFAULT_TASK_TEMPLATES
+  const templates = (taskTemplates && taskTemplates.length > 0)
+    ? taskTemplates
+    : DEFAULT_TASK_TEMPLATES;
+
+  // Vendor can override daysBeforeDDP per phase via vendor.leadOverrides
+  const vendorOverrides = vendor?.leadOverrides || {};
+
   const isPrivate = getBrand(brand).isPrivateLabel;
 
-  let phases = PHASE_KEYS.map((name) => {
-    if (name === "Ship Date") return { name, daysBack: transit };
-    if (name === "DDP") return { name, daysBack: 0 };
-    if (name === "QC") return { name, daysBack: null }; // resolved below: Production + 3 days
-    return { name, daysBack: lead[name] ?? 0 };
+  // Build phases from templates
+  let phases = templates.map((tpl) => {
+    // Vendor override takes priority, then template default
+    let daysBack = vendorOverrides[tpl.phase] !== undefined
+      ? Number(vendorOverrides[tpl.phase])
+      : Number(tpl.daysBeforeDDP ?? 0);
+    if (isNaN(daysBack)) daysBack = 0;
+    // Ship Date uses transit days
+    if (tpl.phase === "Ship Date") daysBack = transit;
+    return { name: tpl.phase, daysBack, status: tpl.status || "Not Started", notes: tpl.notes || "", templateId: tpl.id };
   });
 
   if (isPrivate) {
@@ -782,19 +808,21 @@ function generateTasks({
     phases.splice(
       bulkIdx,
       0,
-      { name: "Line Review", daysBack: bulkDays + 42 },
-      { name: "Compliance/Testing", daysBack: bulkDays + 21 }
+      { name: "Line Review", daysBack: bulkDays + 42, status: "Not Started", notes: "" },
+      { name: "Compliance/Testing", daysBack: bulkDays + 21, status: "Not Started", notes: "" }
     );
   }
 
-  // QC = Production due date + 3 days (always 3 days after production completes)
+  // QC = Production due date + 3 days
   const prodPhase = phases.find((p) => p.name === "Production");
-  const prodDue = prodPhase ? addDays(ddpDate, -prodPhase.daysBack) : ddpDate;
-  const qcDue = addDays(prodDue, 3);
-  const qcDaysBack = Math.max(0, diffDays(ddpDate, qcDue));
-  phases = phases.map((p) =>
-    p.name === "QC" ? { ...p, daysBack: qcDaysBack } : p
-  );
+  if (prodPhase) {
+    const prodDue = addDays(ddpDate, -prodPhase.daysBack);
+    const qcDue = addDays(prodDue, 3);
+    const qcDaysBack = Math.max(0, diffDays(ddpDate, qcDue));
+    phases = phases.map((p) =>
+      p.name === "QC" ? { ...p, daysBack: qcDaysBack } : p
+    );
+  }
 
   const shipDate = addDays(ddpDate, -transit);
   const base = {
@@ -816,18 +844,22 @@ function generateTasks({
     graphicId: graphicId || null,
   };
 
-  return phases.map((p) => ({
-    id: uid(),
-    ...base,
-    phase: p.name,
-    status: "Not Started",
-    due: addDays(ddpDate, -p.daysBack),
-    originalDue: addDays(ddpDate, -p.daysBack),
-    notes: "",
-    assigneeId: null,
-    history: [],
-    images: [],
-  }));
+  return phases.map((p) => {
+    const daysBack = isNaN(p.daysBack) ? 0 : Math.max(0, p.daysBack);
+    const due = ddpDate ? addDays(ddpDate, -daysBack) : "";
+    return {
+      id: uid(),
+      ...base,
+      phase: p.name,
+      status: p.status || "Not Started",
+      due,
+      originalDue: due,
+      notes: p.notes || "",
+      assigneeId: null,
+      history: [],
+      images: [],
+    };
+  });
 }
 
 function cascadeDates(tasks, collectionKey, changedTaskId, newDue) {
@@ -956,6 +988,8 @@ function SettingsDropdown({
   onSeasons,
   onCustomers,
   onOrderTypes,
+  onRoles,
+  onTasks,
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -975,6 +1009,8 @@ function SettingsDropdown({
     { icon: "📐", label: "Sizes", onClick: onSizes, always: false },
     { icon: "🗂️", label: "Categories", onClick: onCategories, always: false },
     { icon: "📋", label: "Order Types", onClick: onOrderTypes, always: false },
+    { icon: "📋", label: "Tasks", onClick: onTasks, always: false },
+    { icon: "🎭", label: "Roles", onClick: onRoles, always: false },
     { icon: "👤", label: "Users", onClick: onUsers, always: false },
   ].filter((it) => it.always || isAdmin);
   return (
@@ -1053,8 +1089,16 @@ function SettingsDropdown({
 }
 
 // ─── CUSTOMER MANAGER ─────────────────────────────────────────────────────────
-function CustomerManager({ customers, setCustomers }) {
-  const [editing, setEditing] = useState(null); // null | "new" | index
+function CustomerManager({ customers, setCustomers, isAdmin = false }) {
+  const [editing, setEditing] = useState(null);
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage this section.</div>
+    </div>
+  );
+ // null | "new" | index
   const [form, setForm] = useState({ name: "", channel: "" });
 
   function save() {
@@ -1105,7 +1149,7 @@ function CustomerManager({ customers, setCustomers }) {
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => { setForm({ name: c.name || c, channel: c.channel || "" }); setEditing(i); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
-              <button onClick={() => setCustomers((cs) => cs.filter((_, j) => j !== i))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
+              <button onClick={() => appConfirm("You are about to delete this customer. This action cannot be undone.", "Delete", () => setCustomers((cs) => cs.filter((_, j) => j !== i)))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
             </div>
           </div>
         ))}
@@ -1116,9 +1160,17 @@ function CustomerManager({ customers, setCustomers }) {
 }
 
 // ─── ORDER TYPE MANAGER ──────────────────────────────────────────────────────
-function OrderTypeManager({ orderTypes, setOrderTypes }) {
+function OrderTypeManager({ orderTypes, setOrderTypes, isAdmin = false }) {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState("");
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage this section.</div>
+    </div>
+  );
+
 
   function save() {
     const val = form.trim();
@@ -1166,7 +1218,7 @@ function OrderTypeManager({ orderTypes, setOrderTypes }) {
             <div style={{ flex: 1, fontSize: 14, fontWeight: 700, color: TH.text }}>{ot}</div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => { setForm(ot); setEditing(i); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
-              <button onClick={() => setOrderTypes((arr) => arr.filter((_, j) => j !== i))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
+              <button onClick={() => appConfirm("You are about to delete this order type. This action cannot be undone.", "Delete", () => setOrderTypes((arr) => arr.filter((_, j) => j !== i)))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
             </div>
           </div>
         ))}
@@ -1176,9 +1228,88 @@ function OrderTypeManager({ orderTypes, setOrderTypes }) {
   );
 }
 
+
+// ─── ROLE MANAGER ─────────────────────────────────────────────────────────────
+function RoleManager({ roles, setRoles, isAdmin = false }) {
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState("");
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage this section.</div>
+    </div>
+  );
+
+
+  function save() {
+    const val = form.trim();
+    if (!val) return;
+    if (editing === "new") {
+      if (roles.includes(val)) return;
+      setRoles((s) => [...s, val]);
+    } else {
+      setRoles((s) => s.map((x, i) => (i === editing ? val : x)));
+    }
+    setEditing(null);
+    setForm("");
+  }
+
+  if (editing !== null)
+    return (
+      <div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: TH.text, marginBottom: 20 }}>
+          {editing === "new" ? "Add Role" : "Edit Role"}
+        </div>
+        <label style={S.lbl}>Role Name</label>
+        <input
+          style={S.inp}
+          value={form}
+          onChange={(e) => setForm(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && save()}
+          placeholder="e.g. Product Developer"
+          autoFocus
+        />
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button onClick={() => { setEditing(null); setForm(""); }} style={{ padding: "9px 18px", borderRadius: 8, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+          <button disabled={!form.trim()} onClick={save} style={{ ...S.btn, opacity: form.trim() ? 1 : 0.5 }}>Save Role</button>
+        </div>
+      </div>
+    );
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <span style={S.sec}>Roles ({roles.length})</span>
+        <button onClick={() => { setForm(""); setEditing("new"); }} style={S.btn}>+ Add Role</button>
+      </div>
+      <div style={{ display: "grid", gap: 8 }}>
+        {roles.map((role, i) => (
+          <div key={i} style={{ ...S.card, display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={{ flex: 1, fontSize: 14, fontWeight: 700, color: TH.text }}>🎭 {role}</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => { setForm(role); setEditing(i); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
+              <button onClick={() => appConfirm("You are about to delete this role. This action cannot be undone.", "Delete", () => setRoles((arr) => arr.filter((_, j) => j !== i)))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      {roles.length === 0 && <div style={{ textAlign: "center", color: TH.textMuted, padding: "24px", fontSize: 13, border: `1px dashed ${TH.border}`, borderRadius: 10 }}>No roles yet.</div>}
+    </div>
+  );
+}
+
 // ─── SEASON MANAGER ───────────────────────────────────────────────────────────
-function SeasonManager({ seasons, setSeasons }) {
+function SeasonManager({ seasons, setSeasons, isAdmin = false }) {
   const [editing, setEditing] = useState(null); // null | "new" | index
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage this section.</div>
+    </div>
+  );
+
   const [form, setForm] = useState("");
 
   function save() {
@@ -1234,7 +1365,7 @@ function SeasonManager({ seasons, setSeasons }) {
                 Edit
               </button>
               <button
-                onClick={() => setSeasons((ss) => ss.filter((_, j) => j !== i))}
+                onClick={() => appConfirm("You are about to delete this season. This action cannot be undone.", "Delete", () => setSeasons((ss) => ss.filter((_, j) => j !== i)))}
                 style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}
               >
                 Delete
@@ -1253,7 +1384,7 @@ function SeasonManager({ seasons, setSeasons }) {
 }
 
 // ─── BRAND MANAGER ────────────────────────────────────────────────────────────
-function BrandManager({ brands, setBrands }) {
+function BrandManager({ brands, setBrands, isAdmin = false }) {
   const BLANK = () => ({
     id: uid(),
     name: "",
@@ -1262,9 +1393,23 @@ function BrandManager({ brands, setBrands }) {
     isPrivateLabel: false,
   });
   const [editing, setEditing] = useState(null);
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage this section.</div>
+    </div>
+  );
   const [form, setForm] = useState(null);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage this section.</div>
+    </div>
+  );
   function save() {
     const b = {
       ...form,
@@ -1510,9 +1655,9 @@ function BrandManager({ brands, setBrands }) {
                 Edit
               </button>
               <button
-                onClick={() =>
-                  setBrands((bs) => bs.filter((x) => x.id !== b.id))
-                }
+                onClick={() => {
+                  appConfirm("You are about to delete this brand. This action cannot be undone.", "Delete", () => setBrands((bs) => bs.filter((x) => x.id !== b.id)));
+                }}
                 style={{
                   padding: "5px 12px",
                   borderRadius: 7,
@@ -1549,8 +1694,10 @@ function BrandManager({ brands, setBrands }) {
 }
 
 // ─── LOGIN SCREEN ─────────────────────────────────────────────────────────────
-function LoginScreen({ users, onLogin, teamsConfig, onTeamsToken, onTeamsTokenExpiry }) {
-  const [username, setUsername] = useState("");
+function LoginScreen({ users, onLogin, teamsConfig, onTeamsToken }) {
+  const [username, setUsername] = useState(() => {
+    try { return localStorage.getItem("last_username") || ""; } catch { return ""; }
+  });
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -1582,22 +1729,20 @@ function LoginScreen({ users, onLogin, teamsConfig, onTeamsToken, onTeamsTokenEx
         "&login_hint=" + encodeURIComponent(user.teamsEmail) +
         "&response_mode=fragment";
       const popup = window.open(authUrl, "msauth", "width=500,height=700,left=400,top=100");
-      const { token, expiresIn } = await new Promise<{ token: string; expiresIn: number }>((resolve, reject) => {
+      const token = await new Promise((resolve, reject) => {
         const timer = setInterval(() => {
           try {
             if (popup.closed) { clearInterval(timer); reject(new Error("Closed")); return; }
             const hash = popup.location.hash;
             if (hash && hash.includes("access_token")) {
               clearInterval(timer); popup.close();
-              const params = new URLSearchParams(hash.substring(1));
-              resolve({ token: params.get("access_token")!, expiresIn: parseInt(params.get("expires_in") || "3600", 10) });
+              resolve(new URLSearchParams(hash.substring(1)).get("access_token"));
             }
           } catch (_) {}
         }, 300);
         setTimeout(() => { clearInterval(timer); if (!popup.closed) popup.close(); reject(new Error("Timeout")); }, 120000);
       });
       onTeamsToken(token);
-      onTeamsTokenExpiry(Date.now() + expiresIn * 1000);
       setTeamsAuthStatus("ok");
     } catch (e) {
       setTeamsAuthStatus("skipped");
@@ -1606,12 +1751,15 @@ function LoginScreen({ users, onLogin, teamsConfig, onTeamsToken, onTeamsTokenEx
   }
 
   function handleLogin() {
-    const user = users.find(
+    // Check against Supabase users, with fallback admin for emergencies
+    const allUsers = users;
+    const user = allUsers.find(
       (u) =>
         u.username.toLowerCase() === username.trim().toLowerCase() && u.password === password
     );
     if (user) {
       setError("");
+      try { localStorage.setItem("last_username", username.trim()); localStorage.setItem("plm_last_user", username.trim()); } catch {}
       doTeamsAuth(user);
     } else setError("Invalid username or password.");
   }
@@ -1750,26 +1898,35 @@ function LoginScreen({ users, onLogin, teamsConfig, onTeamsToken, onTeamsTokenEx
 }
 
 // ─── USER MANAGER (admin only) ───────────────────────────────────────────────
-function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser }) {
+function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, roles = ROLES, setRoles }) {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(null);
   const [createTeamMember, setCreateTeamMember] = useState(false);
-  const [tmRole, setTmRole] = useState(ROLES[0]);
+  const [tmRole, setTmRole] = useState((roles || ROLES)[0]);
   const [tmColor, setTmColor] = useState("#3498DB");
   const [newRoleInput, setNewRoleInput] = useState("");
-  const [availableRoles, setAvailableRoles] = useState([...ROLES]);
+  const availableRoles = roles || ROLES;
+  const setAvailableRoles = setRoles || (() => {});
   const TEAM_COLORS = ["#E74C3C","#3498DB","#2ECC71","#9B59B6","#F39C12","#1ABC9C","#E67E22","#E91E63","#00BCD4","#8BC34A"];
-  const BLANK = () => ({ id: uid(), username: "", password: "", name: "", role: "user", color: "#3498DB", initials: "", teamMemberId: null, teamsEmail: "", permissions: { view_all: false, edit_all: false, view_own: true, edit_own: true } });
+  const BLANK = () => ({ id: uid(), username: "", password: "", name: "", role: "user", color: "#3498DB", initials: "", avatar: null, teamMemberId: null, teamsEmail: "", permissions: { view_all: false, edit_all: false, view_own: true, edit_own: true } });
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const setPerm = (k, v) => setForm((f) => ({ ...f, permissions: { ...f.permissions, [k]: v } }));
+  const userAvatarRef = useRef<HTMLInputElement>(null);
+  async function handleUserAvatar(e) { const f = e.target.files[0]; if (!f) return; set("avatar", await fileToDataURL(f)); }
 
   function save() {
     const initials = form.name.split(" ").map((w) => w[0] || "").join("").toUpperCase().slice(0, 2);
     let teamMemberId = form.teamMemberId;
     if (editing === "new" && createTeamMember) {
-      const newMember = { id: uid(), name: form.name, role: tmRole, initials, color: tmColor, avatar: null };
+      const newMember = { id: uid(), name: form.name, role: tmRole, initials, color: tmColor, avatar: form.avatar || null };
       setTeam((t) => [...t, newMember]);
       teamMemberId = newMember.id;
+    } else if (teamMemberId) {
+      // Sync linked team member: update name, initials, avatar, color
+      setTeam((t) => t.map((m) => {
+        if (m.id !== teamMemberId) return m;
+        return { ...m, name: form.name, initials, avatar: form.avatar ?? m.avatar, color: form.color };
+      }));
     }
     const u = { ...form, initials, teamMemberId };
     if (editing === "new") setUsers((us) => [...us, u]);
@@ -1797,6 +1954,19 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser }) {
     <div>
       <label style={S.lbl}>Full Name</label>
       <input style={S.inp} value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Full name" />
+      <label style={S.lbl}>Avatar</label>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 14 }}>
+        <Avatar member={form} size={52} />
+        <div>
+          <input ref={userAvatarRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleUserAvatar} />
+          <button onClick={() => userAvatarRef.current?.click()} style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12, marginBottom: 6, display: "block" }}>Upload Photo</button>
+          {form.avatar && <button onClick={() => set("avatar", null)} style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>Remove</button>}
+        </div>
+      </div>
+      <label style={S.lbl}>Color</label>
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+        {TEAM_COLORS.map((c) => <div key={c} onClick={() => set("color", c)} style={{ width: 28, height: 28, borderRadius: "50%", background: c, cursor: "pointer", border: `3px solid ${form.color === c ? "#1A202C" : "transparent"}` }} />)}
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <div>
           <label style={S.lbl}>Username</label>
@@ -1877,7 +2047,7 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser }) {
       <div style={{ display: "grid", gap: 8 }}>
         {users.map((u) => (
           <div key={u.id} style={{ ...S.card, display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{ width: 40, height: 40, borderRadius: "50%", background: u.color + "22", border: `2px solid ${u.color}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, color: u.color, flexShrink: 0 }}>{u.initials}</div>
+            <Avatar member={{ ...u, initials: u.initials || u.name?.[0]?.toUpperCase() }} size={40} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: TH.text }}>{u.name}</div>
               <div style={{ fontSize: 12, color: TH.textMuted }}>
@@ -1887,7 +2057,7 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser }) {
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => { setForm({ ...u, permissions: u.permissions || { view_own: true, edit_own: true } }); setEditing(u.id); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
-              {u.role !== "admin" && <button onClick={() => setUsers((us) => us.filter((x) => x.id !== u.id))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Remove</button>}
+              <button onClick={() => appConfirm("You are about to remove this user. This action cannot be undone.", "Remove", () => setUsers((us) => us.filter((x) => x.id !== u.id)))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Remove</button>
             </div>
           </div>
         ))}
@@ -1956,12 +2126,14 @@ function Modal({ title, onClose, children, wide, extraWide }) {
           background: TH.surface,
           border: `1px solid ${TH.border}`,
           borderRadius: 18,
-          padding: 32,
+          padding: 0,
           width: "100%",
           maxWidth: mw,
           maxHeight: "93vh",
           overflowY: "auto",
           boxShadow: `0 40px 100px rgba(0,0,0,0.4)`,
+          display: "flex",
+          flexDirection: "column",
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -1970,7 +2142,13 @@ function Modal({ title, onClose, children, wide, extraWide }) {
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            marginBottom: 26,
+            padding: "22px 32px 18px",
+            position: "sticky",
+            top: 0,
+            background: TH.surface,
+            zIndex: 10,
+            borderRadius: "18px 18px 0 0",
+            borderBottom: `1px solid ${TH.border}`,
           }}
         >
           <span
@@ -1998,7 +2176,9 @@ function Modal({ title, onClose, children, wide, extraWide }) {
             ×
           </button>
         </div>
-        {children}
+        <div style={{ padding: "28px 32px 32px", flex: 1 }}>
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -2094,33 +2274,62 @@ function ConfirmModal({
   );
 }
 
-function ImageUploader({ images = [], onChange, label = "Images" }) {
+function ImageUploader({ images = [], onChange, label = "Attachments" }) {
   const fileRef = useRef();
   const focusStealRef = useRef<HTMLButtonElement>(null);
   const [urlInput, setUrlInput] = useState("");
   const [draggingOver, setDraggingOver] = useState(false);
+  const [lightbox, setLightbox] = useState<string | null>(null);
 
   const [uploading, setUploading] = useState(false);
+  const [uploadingCount, setUploadingCount] = useState(0);
+  // Keep a ref to track pending uploads so we can update the parent correctly
+  const pendingImagesRef = useRef([]);
 
   async function handleFiles(files) {
-    const validFiles = Array.from(files).filter(f => f.type.startsWith("image/") || f.name.match(/\.(pdf|ai|eps|psd|png|jpg|jpeg|gif|webp|svg)$/i));
+    const validFiles = Array.from(files).filter(f =>
+      f.type.startsWith("image/") || f.name.match(/\.(pdf|ai|eps|psd|png|jpg|jpeg|gif|webp|svg)$/i)
+    );
     if (!validFiles.length) return;
-    setUploading(true);
-    const imgs = [];
+
+    // Step 1: immediately add placeholders so user can keep working
+    const newImgs = [];
     for (const f of validFiles) {
-      // Try Dropbox upload first
-      const dbxUrl = await dbxUploadFileGlobal(f, "images");
-      if (dbxUrl) {
-        imgs.push({ id: uid(), src: dbxUrl, name: f.name, type: "dropbox" });
-      } else {
-        // Fallback to base64 if Dropbox fails
-        const d = await fileToDataURL(f);
-        imgs.push({ id: uid(), src: d, name: f.name, type: "base64" });
-      }
+      const isImg = f.type.startsWith("image/");
+      const preview = isImg ? await fileToDataURL(f) : null;
+      newImgs.push({ id: uid(), src: preview || "", name: f.name, type: "uploading", file: f });
     }
-    setUploading(false);
-    onChange([...images, ...imgs]);
+
+    const combined = [...images, ...newImgs];
+    pendingImagesRef.current = combined;
+    onChange(combined);
     if (fileRef.current) fileRef.current.value = "";
+    setUploadingCount(c => c + newImgs.length);
+
+    // Step 2: upload each file to Dropbox in the background
+    for (const img of newImgs) {
+      (async () => {
+        try {
+          const dbxUrl = await dbxUploadFileGlobal(img.file, "images");
+          // Update the ref and call onChange with a plain array (no function updater)
+          pendingImagesRef.current = pendingImagesRef.current.map(i =>
+            i.id === img.id
+              ? { id: i.id, src: dbxUrl || i.src, name: i.name, type: dbxUrl ? "dropbox" : "base64" }
+              : i
+          );
+          onChange(pendingImagesRef.current);
+        } catch (e) {
+          console.warn("Background upload error:", e);
+          // On error, mark as base64 (already has preview)
+          pendingImagesRef.current = pendingImagesRef.current.map(i =>
+            i.id === img.id ? { ...i, type: "base64", file: undefined } : i
+          );
+          onChange(pendingImagesRef.current);
+        } finally {
+          setUploadingCount(c => Math.max(0, c - 1));
+        }
+      })();
+    }
   }
   function addUrl() {
     if (!urlInput.trim()) return;
@@ -2190,17 +2399,25 @@ function ImageUploader({ images = [], onChange, label = "Images" }) {
               style={{ position: "relative", width: 80, height: 80 }}
             >
               {isImage ? (
-              <img
-                src={img.src}
-                alt={img.name}
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                  borderRadius: 8,
-                  border: `1px solid ${TH.border}`,
-                }}
-              />
+              <div style={{ position: "relative", width: "100%", height: "100%", cursor: img.type !== "uploading" ? "zoom-in" : "default" }} onClick={() => img.type !== "uploading" && setLightbox(img.src)}>
+                <img
+                  src={img.src}
+                  alt={img.name}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    borderRadius: 8,
+                    border: `1px solid ${TH.border}`,
+                    opacity: img.type === "uploading" ? 0.4 : 1,
+                  }}
+                />
+                {img.type === "uploading" && (
+                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8, fontSize: 16 }}>⏳</div>
+                )}
+              </div>
+              ) : img.type === "uploading" ? (
+              <div style={{ width: "100%", height: "100%", borderRadius: 8, border: `1px solid ${TH.border}`, display: "flex", alignItems: "center", justifyContent: "center", background: TH.surfaceHi, fontSize: 20 }}>⏳</div>
               ) : (
               <a href={img.src} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
                 <div style={{
@@ -2292,11 +2509,31 @@ function ImageUploader({ images = [], onChange, label = "Images" }) {
         }}
         onClick={() => fileRef.current.click()}
       >
-        {uploading ? "⏳ Uploading to Dropbox…" : draggingOver ? "Drop files here" : "📁 Upload or Drag & Drop (Images, PDF, AI, PSD)"}
+        {draggingOver ? "Drop files here" : "📁 Upload or Drag & Drop (Images, PDF, AI, PSD)"}
       </div>
-      {uploading && (
-        <div style={{ fontSize: 11, color: TH.primary, marginTop: 6, textAlign: "center" }}>
-          Uploading file to Dropbox…
+      {uploadingCount > 0 && (
+        <div style={{ fontSize: 11, color: TH.primary, marginTop: 6, textAlign: "center", display: "flex", alignItems: "center", gap: 6, justifyContent: "center" }}>
+          <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: TH.primary, animation: "pulse 1s infinite" }} />
+          Uploading {uploadingCount} file{uploadingCount > 1 ? "s" : ""} to Dropbox in background…
+        </div>
+      )}
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div
+          onClick={() => setLightbox(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", cursor: "zoom-out" }}
+        >
+          <img
+            src={lightbox}
+            alt="Preview"
+            style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.5)", objectFit: "contain" }}
+            onClick={e => e.stopPropagation()}
+          />
+          <button
+            onClick={() => setLightbox(null)}
+            style={{ position: "fixed", top: 20, right: 20, background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", width: 36, height: 36, borderRadius: "50%", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+          >✕</button>
         </div>
       )}
     </div>
@@ -2307,7 +2544,11 @@ function ContextMenu({ x, y, items, onClose }) {
   useEffect(() => {
     const h = () => onClose();
     window.addEventListener("click", h);
-    return () => window.removeEventListener("click", h);
+    window.addEventListener("scroll", h, true);
+    return () => {
+      window.removeEventListener("click", h);
+      window.removeEventListener("scroll", h, true);
+    };
   }, [onClose]);
   return (
     <div
@@ -2324,6 +2565,7 @@ function ContextMenu({ x, y, items, onClose }) {
         boxShadow: `0 16px 40px ${TH.shadowMd}`,
       }}
       onClick={(e) => e.stopPropagation()}
+      onMouseLeave={onClose}
     >
       {items.map((item, i) =>
         item === "---" ? (
@@ -2385,7 +2627,49 @@ function DateInput({ value, onChange, onBlur, style, disabled, min }) {
 }
 
 // ─── VENDOR FORM ──────────────────────────────────────────────────────────────
-function VendorForm({ vendor, onSave, onCancel }) {
+function LeadTimeCell({ value, onCommit }) {
+  const [local, setLocal] = useState(String(value ?? ""));
+  useEffect(() => { setLocal(String(value ?? "")); }, [value]);
+  return (
+    <input
+      type="number"
+      min="0"
+      value={local}
+      onChange={e => setLocal(e.target.value)}
+      onBlur={() => {
+        const n = parseInt(local);
+        if (!isNaN(n) && n >= 0) onCommit(n);
+        else setLocal(String(value ?? ""));
+      }}
+      style={{ width: 75, padding: "5px 8px", borderRadius: 6, border: `1px solid ${TH.border}`, background: "#fff", color: TH.text, fontFamily: "inherit", fontSize: 13, textAlign: "center", outline: "none" }}
+    />
+  );
+}
+
+const DEFAULT_WIP_TEMPLATES_DC = [
+  { id: "wip_labdip",    phase: "Lab Dip / Strike Off",      category: "Pre-Production", daysBeforeDDP: 120 },
+  { id: "wip_trims",     phase: "Trims",                     category: "Pre-Production", daysBeforeDDP: 110 },
+  { id: "wip_rawgoods",  phase: "Raw Goods Available",       category: "Fabric T&A",     daysBeforeDDP: 100 },
+  { id: "wip_fabprint",  phase: "Fabric at Printing Mill",   category: "Fabric T&A",     daysBeforeDDP: 90  },
+  { id: "wip_fabfg",     phase: "Fabric Finished Goods",     category: "Fabric T&A",     daysBeforeDDP: 80  },
+  { id: "wip_fabfact",   phase: "Fabric at Factory",         category: "Fabric T&A",     daysBeforeDDP: 70  },
+  { id: "wip_fabcut",    phase: "Fabric at Cutting Line",    category: "Fabric T&A",     daysBeforeDDP: 60  },
+  { id: "wip_fitsample", phase: "Fit Sample",                category: "Samples",        daysBeforeDDP: 90  },
+  { id: "wip_ppsample",  phase: "PP Sample",                 category: "Samples",        daysBeforeDDP: 75  },
+  { id: "wip_ppapproval",phase: "PP Approval",               category: "Samples",        daysBeforeDDP: 65  },
+  { id: "wip_sizeset",   phase: "Size Set",                  category: "Samples",        daysBeforeDDP: 55  },
+  { id: "wip_fabready",  phase: "Fabric Ready",              category: "Production",     daysBeforeDDP: 50  },
+  { id: "wip_prodstart", phase: "Prod Start",                category: "Production",     daysBeforeDDP: 42  },
+  { id: "wip_packstart", phase: "Packing Start",             category: "Production",     daysBeforeDDP: 28  },
+  { id: "wip_prodend",   phase: "Prod End",                  category: "Production",     daysBeforeDDP: 21  },
+  { id: "wip_topsample", phase: "Top Sample",                category: "Transit",        daysBeforeDDP: 18  },
+  { id: "wip_exfactory", phase: "Ex Factory",                category: "Transit",        daysBeforeDDP: 14  },
+  { id: "wip_packdocs",  phase: "Packing List / Docs Rec'd", category: "Transit",        daysBeforeDDP: 7   },
+  { id: "wip_inhouse",   phase: "In House / DDP",            category: "Transit",        daysBeforeDDP: 0   },
+];
+
+function VendorForm({ vendor, onSave, onCancel, taskTemplates }) {
+  const templates = (taskTemplates && taskTemplates.length > 0) ? taskTemplates : DEFAULT_TASK_TEMPLATES;
   const [f, setF] = useState(
     vendor || {
       id: uid(),
@@ -2396,24 +2680,47 @@ function VendorForm({ vendor, onSave, onCancel }) {
       contact: "",
       email: "",
       moq: 0,
-      lead: {
-        Concept: 168,
-        Design: 154,
-        "Tech Pack": 140,
-        Costing: 126,
-        Sampling: 112,
-        Revision: 84,
-        "Purchase Order": 70,
-        Production: 42,
-        QC: 14,
-        "Ship Date": 0,
-        DDP: 0,
-      },
+      leadOverrides: {},
+      wipLeadOverrides: {},
     }
   );
+  const [leadTab, setLeadTab] = useState("design");
+  const [wipTpls, setWipTpls] = useState([]);
+  // Load wip_templates from app_data on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
+        const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
+        const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.wip_templates&select=value`, {
+          headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` },
+        });
+        const rows = await res.json();
+        if (Array.isArray(rows) && rows.length > 0 && rows[0].value) {
+          const parsed = JSON.parse(rows[0].value);
+          if (Array.isArray(parsed) && parsed.length > 0) { setWipTpls(parsed); return; }
+        }
+      } catch {}
+      setWipTpls(DEFAULT_WIP_TEMPLATES_DC);
+    })();
+  }, []);
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
-  const setL = (k, v) =>
-    setF((x) => ({ ...x, lead: { ...x.lead, [k]: parseInt(v) || 0 } }));
+  const setOverride = (phase, val) =>
+    setF((x) => ({ ...x, leadOverrides: { ...(x.leadOverrides || {}), [phase]: parseInt(val) || 0 } }));
+  const clearOverride = (phase) =>
+    setF((x) => {
+      const next = { ...(x.leadOverrides || {}) };
+      delete next[phase];
+      return { ...x, leadOverrides: next };
+    });
+  const setWipOverride = (phase, val) =>
+    setF((x) => ({ ...x, wipLeadOverrides: { ...(x.wipLeadOverrides || {}), [phase]: parseInt(val) || 0 } }));
+  const clearWipOverride = (phase) =>
+    setF((x) => {
+      const next = { ...(x.wipLeadOverrides || {}) };
+      delete next[phase];
+      return { ...x, wipLeadOverrides: next };
+    });
   const toggleCat = (c) =>
     setF((x) => ({
       ...x,
@@ -2508,39 +2815,130 @@ function VendorForm({ vendor, onSave, onCancel }) {
           </button>
         ))}
       </div>
-      <span style={S.sec}>Lead Times (days before DDP)</span>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4,1fr)",
-          gap: 10,
-          marginBottom: 20,
-        }}
-      >
-        {[
-          "Concept",
-          "Design",
-          "Tech Pack",
-          "Costing",
-          "Sampling",
-          "Revision",
-          "Purchase Order",
-          "Production",
-          "QC",
-        ].map((phase) => (
-          <div key={phase}>
-            <div style={{ fontSize: 10, color: TH.textMuted, marginBottom: 3 }}>
-              {phase}
-            </div>
-            <input
-              type="number"
-              style={{ ...S.inp, marginBottom: 0, padding: "7px 10px" }}
-              value={f.lead[phase] || 0}
-              onChange={(e) => setL(phase, e.target.value)}
-            />
-          </div>
-        ))}
+      {/* Lead Times Tab Bar */}
+      <div style={{ display: "flex", gap: 0, marginBottom: 14, borderBottom: `2px solid ${TH.border}` }}>
+        <button onClick={() => setLeadTab("design")} style={{ padding: "8px 16px", border: "none", borderBottom: leadTab === "design" ? `2px solid ${TH.primary}` : "2px solid transparent", marginBottom: -2, background: "none", color: leadTab === "design" ? TH.primary : TH.textMuted, fontWeight: leadTab === "design" ? 700 : 400, cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}>
+          Design Lead Times
+        </button>
+        <button onClick={() => setLeadTab("production")} style={{ padding: "8px 16px", border: "none", borderBottom: leadTab === "production" ? `2px solid ${TH.primary}` : "2px solid transparent", marginBottom: -2, background: "none", color: leadTab === "production" ? TH.primary : TH.textMuted, fontWeight: leadTab === "production" ? 700 : 400, cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}>
+          Production Lead Times
+        </button>
       </div>
+      {leadTab === "design" && (<>
+      <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 10, lineHeight: 1.5 }}>
+        Sorted earliest→latest. Edit either column — they stay in sync. Tab out to re-sort. <span style={{ color: TH.primary }}>•custom</span> means this vendor differs from the template default.
+      </div>
+      {(() => {
+        const overrides = f.leadOverrides || {};
+        const sortedTpls = [...templates]
+          .filter(tpl => tpl.phase !== "DDP" && tpl.phase !== "Ship Date")
+          .sort((a, b) => {
+            const av = overrides[a.phase] ?? a.daysBeforeDDP ?? 0;
+            const bv = overrides[b.phase] ?? b.daysBeforeDDP ?? 0;
+            return bv - av; // descending = longest (earliest) first
+          });
+        return (
+          <div style={{ border: `1px solid ${TH.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 20 }}>
+            {/* Header */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px 36px", background: TH.surfaceHi, padding: "7px 14px", fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `1px solid ${TH.border}` }}>
+              <span>Phase</span>
+              <span style={{ textAlign: "center" }}>Days Before DDP</span>
+              <span style={{ textAlign: "center" }}>From Prev Task</span>
+              <span />
+            </div>
+            {sortedTpls.map((tpl, idx) => {
+              const effectiveDays = overrides[tpl.phase] ?? tpl.daysBeforeDDP ?? 0;
+              const prevTpl = idx > 0 ? sortedTpls[idx - 1] : null;
+              const prevEffective = prevTpl ? (overrides[prevTpl.phase] ?? prevTpl.daysBeforeDDP ?? 0) : null;
+              const fromPrev = prevEffective !== null ? prevEffective - effectiveDays : null;
+              const hasOverride = overrides[tpl.phase] !== undefined;
+              return (
+                <div key={tpl.phase} style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px 36px", padding: "8px 14px", borderBottom: idx < sortedTpls.length - 1 ? `1px solid ${TH.border}` : "none", alignItems: "center", background: idx % 2 === 0 ? "#fff" : TH.surfaceHi }}>
+                  <div style={{ fontSize: 13, color: TH.text, display: "flex", alignItems: "center", gap: 6 }}>
+                    {tpl.phase}
+                    {hasOverride
+                      ? <span style={{ fontSize: 10, color: TH.primary, fontWeight: 700, background: TH.primary + "15", padding: "1px 6px", borderRadius: 8 }}>custom</span>
+                      : <span style={{ fontSize: 10, color: TH.border }}>tpl</span>
+                    }
+                  </div>
+                  <div style={{ textAlign: "center" }}>
+                    <LeadTimeCell
+                      value={effectiveDays}
+                      onCommit={n => setOverride(tpl.phase, n)}
+                    />
+                  </div>
+                  <div style={{ textAlign: "center" }}>
+                    {fromPrev !== null ? (
+                      <LeadTimeCell
+                        value={fromPrev}
+                        onCommit={n => {
+                          const newDDP = (prevEffective ?? 0) - n;
+                          if (newDDP >= 0) setOverride(tpl.phase, newDDP);
+                        }}
+                      />
+                    ) : (
+                      <span style={{ fontSize: 12, color: TH.textMuted }}>—</span>
+                    )}
+                  </div>
+                  <div style={{ textAlign: "center" }}>
+                    {hasOverride && (
+                      <button onClick={() => clearOverride(tpl.phase)} title="Reset to template default" style={{ padding: "3px 6px", borderRadius: 5, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 11, lineHeight: 1 }}>✕</button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+      </>)}
+      {leadTab === "production" && (<>
+      <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 10, lineHeight: 1.5 }}>
+        Production milestone lead times for this vendor. <span style={{ color: TH.primary }}>•custom</span> means this vendor differs from the production template default.
+      </div>
+      {(() => {
+        const overrides = f.wipLeadOverrides || {};
+        const prodTpls = wipTpls.length > 0 ? wipTpls : DEFAULT_WIP_TEMPLATES_DC;
+        const sortedProd = [...prodTpls].sort((a, b) => (b.daysBeforeDDP ?? 0) - (a.daysBeforeDDP ?? 0));
+        return (
+          <div style={{ border: `1px solid ${TH.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 20 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 140px 120px 36px", background: TH.surfaceHi, padding: "7px 14px", fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `1px solid ${TH.border}` }}>
+              <span>Phase</span>
+              <span style={{ textAlign: "center" }}>Category</span>
+              <span style={{ textAlign: "center" }}>Days Before DDP</span>
+              <span />
+            </div>
+            {sortedProd.map((tpl, idx) => {
+              const effectiveDays = overrides[tpl.phase] ?? tpl.daysBeforeDDP ?? 0;
+              const hasOverride = overrides[tpl.phase] !== undefined;
+              return (
+                <div key={tpl.phase} style={{ display: "grid", gridTemplateColumns: "1fr 140px 120px 36px", padding: "8px 14px", borderBottom: idx < sortedProd.length - 1 ? `1px solid ${TH.border}` : "none", alignItems: "center", background: idx % 2 === 0 ? "#fff" : TH.surfaceHi }}>
+                  <div style={{ fontSize: 13, color: TH.text, display: "flex", alignItems: "center", gap: 6 }}>
+                    {tpl.phase}
+                    {hasOverride
+                      ? <span style={{ fontSize: 10, color: TH.primary, fontWeight: 700, background: TH.primary + "15", padding: "1px 6px", borderRadius: 8 }}>custom</span>
+                      : <span style={{ fontSize: 10, color: TH.border }}>tpl</span>
+                    }
+                  </div>
+                  <div style={{ textAlign: "center", fontSize: 11, color: TH.textMuted }}>{tpl.category}</div>
+                  <div style={{ textAlign: "center" }}>
+                    <LeadTimeCell
+                      value={effectiveDays}
+                      onCommit={n => setWipOverride(tpl.phase, n)}
+                    />
+                  </div>
+                  <div style={{ textAlign: "center" }}>
+                    {hasOverride && (
+                      <button onClick={() => clearWipOverride(tpl.phase)} title="Reset to template default" style={{ padding: "3px 6px", borderRadius: 5, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 11, lineHeight: 1 }}>✕</button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+      </>)}
       <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
         <button
           onClick={onCancel}
@@ -2568,9 +2966,16 @@ function VendorForm({ vendor, onSave, onCancel }) {
   );
 }
 
-function VendorManager({ vendors, setVendors }) {
+function VendorManager({ vendors, setVendors, isAdmin = false, taskTemplates }) {
   const fileRef = useRef();
   const [msg, setMsg] = useState(null);
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage this section.</div>
+    </div>
+  );
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState("");
 
@@ -2658,6 +3063,7 @@ function VendorManager({ vendors, setVendors }) {
           Add New Vendor
         </div>
         <VendorForm
+          taskTemplates={taskTemplates}
           onSave={(v) => {
             setVendors((vs) => [...vs, { ...v, id: uid() }]);
             setEditing(null);
@@ -2675,6 +3081,7 @@ function VendorManager({ vendors, setVendors }) {
         </div>
         <VendorForm
           vendor={v}
+          taskTemplates={taskTemplates}
           onSave={(u) => {
             setVendors((vs) => vs.map((x) => (x.id === editing ? u : x)));
             setEditing(null);
@@ -2914,9 +3321,9 @@ function VendorManager({ vendors, setVendors }) {
                 Edit
               </button>
               <button
-                onClick={() =>
-                  setVendors((vs) => vs.filter((x) => x.id !== v.id))
-                }
+                onClick={() => {
+                  appConfirm("You are about to remove this vendor. This action cannot be undone.", "Remove", () => setVendors((vs) => vs.filter((x) => x.id !== v.id)));
+                }}
                 style={{
                   padding: "5px 12px",
                   borderRadius: 7,
@@ -2951,7 +3358,7 @@ function VendorManager({ vendors, setVendors }) {
 }
 
 // ─── TEAM MANAGER ─────────────────────────────────────────────────────────────
-function TeamManager({ team, setTeam, isAdmin }) {
+function TeamManager({ team, setTeam, users, setUsers, isAdmin, roles = ROLES, setRoles }) {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(null);
   const [availableRoles, setAvailableRoles] = useState([...ROLES]);
@@ -2964,8 +3371,18 @@ function TeamManager({ team, setTeam, isAdmin }) {
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   async function handleAvatar(e) { const f = e.target.files[0]; if (!f) return; set("avatar", await fileToDataURL(f)); }
   function save() {
-    if (editing === "new") setTeam((t) => [...t, form]);
-    else setTeam((t) => t.map((m) => (m.id === editing ? form : m)));
+    if (editing === "new") {
+      setTeam((t) => [...t, form]);
+    } else {
+      setTeam((t) => t.map((m) => (m.id === editing ? form : m)));
+      // Sync linked user: update name, initials, avatar, color
+      if (setUsers) {
+        setUsers((us) => us.map((u) => {
+          if (u.teamMemberId !== editing) return u;
+          return { ...u, name: form.name, initials: form.initials, avatar: form.avatar ?? u.avatar, color: form.color };
+        }));
+      }
+    }
     setEditing(null); setForm(null); setNewRoleInput("");
   }
   function addRoleOnTheFly() {
@@ -3032,7 +3449,7 @@ function TeamManager({ team, setTeam, isAdmin }) {
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => openEdit(m)} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
-              <button onClick={() => setTeam((t) => t.filter((x) => x.id !== m.id))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Remove</button>
+              <button onClick={() => appConfirm("You are about to remove this team member. This action cannot be undone.", "Remove", () => setTeam((t) => t.filter((x) => x.id !== m.id)))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Remove</button>
             </div>
           </div>
         ))}
@@ -3057,6 +3474,9 @@ function SkuManager({ skus = [], onChange, brand, category, availableSizes }) {
     return 0;
   });
   const [editing, setEditing] = useState(null);
+
+  const [selectedSkus, setSelectedSkus] = useState(new Set());
+  const [showPrice, setShowPrice] = useState(false);
   const [form, setForm] = useState(null);
   const [autoCount, setAutoCount] = useState(3);
   const [showAuto, setShowAuto] = useState(false);
@@ -3430,7 +3850,7 @@ function SkuManager({ skus = [], onChange, brand, category, availableSizes }) {
         <ImageUploader
           images={form.images || []}
           onChange={(v) => set("images", v)}
-          label="Style Images"
+          label="Attachments"
         />
         <div
           style={{
@@ -3600,8 +4020,46 @@ function SkuManager({ skus = [], onChange, brand, category, availableSizes }) {
           No SKUs yet. Add manually or use Auto-Generate.
         </div>
       )}
+      {/* SKU selection toolbar */}
+      {skus.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+          {selectedSkus.size === 0 ? (
+            <span style={{ fontSize: 12, color: TH.textMuted }}>Click checkboxes to select SKUs for a CAD page</span>
+          ) : (
+            <>
+              <span style={{ fontSize: 12, color: TH.textMuted }}>{selectedSkus.size} SKU{selectedSkus.size > 1 ? "s" : ""} selected</span>
+              <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: TH.text, cursor: "pointer" }}>
+                <input type="checkbox" checked={showPrice} onChange={e => setShowPrice(e.target.checked)} />
+                Show Selling Price
+              </label>
+              <button
+                onClick={() => {
+                  const sel = skus.filter(s => selectedSkus.has(s.id));
+                  const url = buildSkuCadPage(sel, brand, showPrice, "link");
+                  navigator.clipboard.writeText(url).then(() => alert("CAD link copied!")).catch(() => prompt("Copy link:", url));
+                }}
+                style={{ padding: "4px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}
+              >🔗 Copy Link</button>
+              <button
+                onClick={() => {
+                  const sel = skus.filter(s => selectedSkus.has(s.id));
+                  const url = buildSkuCadPage(sel, brand, showPrice, "open");
+                  window.open(url, "_blank");
+                }}
+                style={{ padding: "4px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}
+              >🖨️ Open CAD Page</button>
+              <button
+                onClick={() => { setSelectedSkus(new Set()); setShowPrice(false); }}
+                style={{ padding: "4px 10px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}
+              >✕ Clear</button>
+            </>
+          )}
+        </div>
+      )}
       <div style={{ display: "grid", gap: 8 }}>
-        {skus.map((s) => (
+        {skus.map((s) => {
+          const isSelected = selectedSkus.has(s.id);
+          return (
           <div
             key={s.id}
             style={{
@@ -3609,8 +4067,21 @@ function SkuManager({ skus = [], onChange, brand, category, availableSizes }) {
               display: "flex",
               gap: 14,
               alignItems: "flex-start",
+              border: isSelected ? `2px solid ${TH.primary}` : S.card.border,
+              background: isSelected ? TH.primary + "08" : S.card.background,
             }}
           >
+            {/* Checkbox */}
+            <div
+              onClick={() => setSelectedSkus(prev => {
+                const next = new Set(prev);
+                if (next.has(s.id)) next.delete(s.id); else next.add(s.id);
+                return next;
+              })}
+              style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${isSelected ? TH.primary : TH.border}`, background: isSelected ? TH.primary : "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, marginTop: 4 }}
+            >
+              {isSelected && <span style={{ color: "#fff", fontSize: 11, fontWeight: 700 }}>✓</span>}
+            </div>
             {s.images?.[0] ? (
               <img
                 src={s.images[0].src}
@@ -3831,19 +4302,246 @@ function SkuManager({ skus = [], onChange, brand, category, availableSizes }) {
               )}
             </div>
           </div>
-        ))}
+        ); })}
       </div>
     </div>
   );
 }
 
 // ─── TASK EDIT MODAL ──────────────────────────────────────────────────────────
+
+// ─── BUILD ATTACHMENT PAGE (data URL for print/share) ────────────────────────
+
+// ─── NOTE INPUT ───────────────────────────────────────────────────────────────
+function NoteInput({ onAdd }) {
+  const [text, setText] = useState("");
+  function submit() {
+    const t = text.trim();
+    if (!t) return;
+    onAdd(t);
+    setText("");
+  }
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+      <textarea
+        style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `1px solid ${TH.border}`, fontFamily: "inherit", fontSize: 13, lineHeight: 1.5, resize: "vertical", minHeight: 70, outline: "none", color: TH.text, background: "#fff" }}
+        placeholder="Add a note..."
+        value={text}
+        onChange={e => setText(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === "Enter" && e.metaKey) { e.preventDefault(); submit(); }
+        }}
+      />
+      <button
+        onClick={submit}
+        disabled={!text.trim()}
+        style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: text.trim() ? TH.primary : TH.border, color: "#fff", cursor: text.trim() ? "pointer" : "default", fontFamily: "inherit", fontSize: 13, fontWeight: 600, flexShrink: 0, marginBottom: 0 }}
+      >
+        Add Note
+      </button>
+    </div>
+  );
+}
+
+
+// ─── BUILD SKU CAD PAGE ───────────────────────────────────────────────────────
+function buildSkuCadPage(skus, brand, showPrice, mode = "open") {
+  const brandName = brand?.name || "ROF";
+  const isLink = mode === "link";
+
+  const skuCards = skus.map(s => {
+    const img = s.images?.[0]?.src || "";
+    const imgHtml = img
+      ? `<img src="${img}" class="sku-img" alt="${s.styleNum || ""}" ondblclick="enlargeImg(this)" title="Double-click to enlarge" />`
+      : `<div class="sku-img-placeholder">👕</div>`;
+
+    const details = [
+      s.description ? `<div class="detail-row"><span class="detail-label">Description</span><span class="detail-val">${s.description}</span></div>` : "",
+      s.colorways ? `<div class="detail-row"><span class="detail-label">Colorways</span><span class="detail-val">${s.colorways}</span></div>` : "",
+      s.fabric ? `<div class="detail-row"><span class="detail-label">Fabric</span><span class="detail-val">${s.fabric}</span></div>` : "",
+      s.sizes?.length ? `<div class="detail-row"><span class="detail-label">Sizes</span><span class="detail-val">${s.sizes.join(" · ")}</span></div>` : "",
+      s.wholesale ? `<div class="detail-row"><span class="detail-label">Wholesale</span><span class="detail-val">$${s.wholesale}</span></div>` : "",
+      s.retail ? `<div class="detail-row"><span class="detail-label">Retail</span><span class="detail-val">$${s.retail}</span></div>` : "",
+      showPrice ? `<div class="detail-row price-row"><span class="detail-label">Price</span><span class="detail-val ${s.targetSelling ? 'price-val' : 'price-tbd'}">${s.targetSelling ? "$" + s.targetSelling : "TBD"}</span></div>` : "",
+    ].filter(Boolean).join("");
+
+    return `
+    <div class="sku-card">
+      <div class="sku-header">
+        <div class="style-num">${s.styleNum || "—"}</div>
+      </div>
+      <div class="sku-body">
+        <div class="img-wrap">${imgHtml}</div>
+        <div class="details">${details}</div>
+      </div>
+    </div>`;
+  }).join("");
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>${brandName} CAD Page</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #fff; color: #1A202C; }
+    .page-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 32px; border-bottom: 3px solid #C8210A; margin-bottom: 28px; }
+    .brand-logo { font-size: 22px; font-weight: 900; color: #C8210A; letter-spacing: -0.5px; text-transform: uppercase; }
+    .brand-sub { font-size: 11px; color: #718096; margin-top: 2px; letter-spacing: 0.05em; text-transform: uppercase; }
+    .page-date { font-size: 11px; color: #718096; text-align: right; }
+
+    /* Grid: cards in each row share equal height so details always align at the same level */
+    .skus-grid { display: grid; grid-template-columns: repeat(auto-fill, 280px); gap: 24px; padding: 0 32px 40px; align-items: stretch; }
+
+    /* Each card is a flex column so the details block is pushed to the bottom */
+    .sku-card { width: 280px; border: 1px solid #E2E8F0; border-radius: 10px; overflow: hidden; break-inside: avoid; display: flex; flex-direction: column; }
+    .sku-header { background: #1A202C; padding: 8px 14px; flex-shrink: 0; }
+    .style-num { font-size: 13px; font-weight: 800; color: #fff; letter-spacing: 0.05em; }
+
+    /* Body fills remaining card height, image area grows, details stay at bottom */
+    .sku-body { padding: 14px; display: flex; flex-direction: column; flex: 1; }
+    .img-wrap { flex: 1; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; min-height: 180px; }
+    .sku-img { max-width: 240px; max-height: 260px; width: 100%; object-fit: contain; border-radius: 6px; cursor: zoom-in; }
+    .sku-img-placeholder { width: 240px; height: 200px; display: flex; align-items: center; justify-content: center; font-size: 48px; background: #F7FAFC; border-radius: 6px; }
+
+    /* Details always pinned to bottom of card */
+    .details { flex-shrink: 0; display: flex; flex-direction: column; gap: 5px; }
+    .detail-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; border-bottom: 1px solid #F0F0F0; padding-bottom: 4px; }
+    .detail-label { color: #718096; font-weight: 500; flex-shrink: 0; margin-right: 8px; }
+    .detail-val { color: #1A202C; font-weight: 600; text-align: right; }
+    .price-row { border-top: 2px solid #C8210A; padding-top: 6px; margin-top: 4px; border-bottom: none; }
+    .price-val { color: #C8210A; font-size: 14px; font-weight: 800; }
+    .price-tbd { color: #A0AEC0; font-size: 13px; font-weight: 600; font-style: italic; }
+    .price-tbd { color: #A0AEC0; font-size: 13px; font-weight: 600; font-style: italic; }
+    .lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:9999; align-items:center; justify-content:center; cursor:zoom-out; }
+    .lightbox.active { display:flex; }
+    .lightbox img { max-width:92vw; max-height:92vh; border-radius:10px; object-fit:contain; }
+    .lb-close { position:fixed; top:16px; right:20px; color:#fff; font-size:28px; cursor:pointer; background:none; border:none; }
+    .footer { padding: 16px 32px; border-top: 1px solid #E2E8F0; font-size: 11px; color: #CBD5E0; text-align: center; }
+    @media print {
+      .lightbox { display:none !important; }
+      .sku-card { break-inside: avoid; page-break-inside: avoid; }
+      body { padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page-header">
+    <div>
+      <div class="brand-logo">${brandName}</div>
+      <div class="brand-sub">Product Line Sheet${isLink ? "" : " · Confidential"}</div>
+    </div>
+    <div class="page-date">Generated ${new Date().toLocaleDateString()}</div>
+  </div>
+  <div class="skus-grid">${skuCards}</div>
+  <div class="footer">ROF Design Calendar · ${new Date().getFullYear()}</div>
+  <div class="lightbox" id="lb" onclick="closeLb()">
+    <button class="lb-close" onclick="closeLb()">✕</button>
+    <img id="lb-img" src="" onclick="event.stopPropagation()" />
+  </div>
+  <script>
+    function enlargeImg(img) { document.getElementById("lb-img").src=img.src; document.getElementById("lb").classList.add("active"); }
+    function closeLb() { document.getElementById("lb").classList.remove("active"); }
+    document.addEventListener("keydown", e => e.key==="Escape" && closeLb());
+  <\/script>
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: "text/html" });
+  return URL.createObjectURL(blob);
+}
+
+function buildAttachmentPage(task, taskOrig, collData, brand, mode = "open") {
+  // mode = "link" (minimal header) or "open" (full header with sample due)
+  const images = task.images || [];
+
+  const metaParts = [
+    task.season,
+    task.category,
+    task.phase,
+    collData?.customer ? `Customer: ${collData.customer}` : null,
+    task.due ? `Due: ${task.due}` : null,
+    task.status,
+  ].filter(Boolean).join(" · ");
+
+  const sampleDue = collData?.sampleDueDate;
+
+  // Header HTML differs by mode
+  const headerHtml = mode === "link"
+    ? `<div class="brand-name">${brand?.name || ""}</div>
+       <div class="collection">${task.collection || ""}</div>`
+    : `<div class="brand-name">${brand?.name || ""}</div>
+       <div class="collection">${task.collection || ""}${sampleDue ? ` <span class="sample-due">· Samples Due: ${sampleDue}</span>` : ""}</div>
+       <div class="meta">${metaParts}</div>`;
+
+  const imagesHtml = images.map(img => {
+    const isImg = img.src?.startsWith("http") || img.src?.startsWith("data:image");
+    if (!isImg) return `<div class="attachment file-attachment"><div class="file-icon">📎</div><div class="file-name">${img.name || "File"}</div></div>`;
+    return `<div class="attachment"><img src="${img.src}" alt="${img.name || ""}" ondblclick="enlargeImg(this)" title="Double-click to enlarge · Right-click to save/print" /><div class="img-info">${img.name || ""}</div></div>`;
+  }).join("");
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>${task.collection || ""} – ${task.phase || ""}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 32px; color: #1A202C; background: #fff; }
+    .header { border-bottom: 3px solid #C8210A; padding-bottom: 16px; margin-bottom: 24px; }
+    .brand-name { font-size: 11px; font-weight: 700; color: #C8210A; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+    .collection { font-size: 22px; font-weight: 800; color: #1A202C; margin-bottom: 6px; }
+    .sample-due { font-size: 14px; font-weight: 600; color: #B45309; }
+    .meta { font-size: 12px; color: #718096; line-height: 1.6; }
+    .phase-badge { display: inline-block; background: #C8210A; color: #fff; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 12px; margin-bottom: 16px; }
+    .attachments { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 8px; }
+    .attachment { break-inside: avoid; }
+    .attachment img { max-width: 280px; max-height: 320px; border-radius: 8px; border: 1px solid #E2E8F0; object-fit: contain; display: block; cursor: zoom-in; transition: transform 0.1s; }
+    .attachment img:hover { border-color: #C8210A; }
+    .img-info { font-size: 11px; color: #718096; margin-top: 4px; max-width: 280px; word-break: break-all; }
+    .file-attachment { width: 120px; height: 120px; border: 1px solid #E2E8F0; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .file-icon { font-size: 36px; }
+    .file-name { font-size: 11px; color: #718096; margin-top: 4px; text-align: center; padding: 0 8px; word-break: break-all; }
+    .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #E2E8F0; font-size: 11px; color: #CBD5E0; }
+    .lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:9999; align-items:center; justify-content:center; cursor:zoom-out; }
+    .lightbox.active { display:flex; }
+    .lightbox img { max-width:92vw; max-height:92vh; border-radius:10px; object-fit:contain; cursor:default; }
+    .lightbox-close { position:fixed; top:16px; right:20px; color:#fff; font-size:28px; cursor:pointer; background:none; border:none; font-family:inherit; }
+    @media print { .lightbox { display:none !important; } }
+  </style>
+</head>
+<body>
+  <div class="header">${headerHtml}</div>
+  <div class="phase-badge">${task.phase || ""}</div>
+  <div class="attachments">${imagesHtml}</div>
+  <div class="footer">Generated ${new Date().toLocaleDateString()} · ROF Design Calendar</div>
+  <div class="lightbox" id="lb" onclick="closeLb()">
+    <button class="lightbox-close" onclick="closeLb()">✕</button>
+    <img id="lb-img" src="" onclick="event.stopPropagation()" />
+  </div>
+  <script>
+    function enlargeImg(img) {
+      document.getElementById('lb-img').src = img.src;
+      document.getElementById('lb').classList.add('active');
+    }
+    function closeLb() {
+      document.getElementById('lb').classList.remove('active');
+    }
+    document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeLb(); });
+  <\/script>
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: "text/html" });
+  return URL.createObjectURL(blob);
+}
+
 function TaskEditModal({
   task,
   team,
   collections,
   allTasks,
   onSave,
+  onQuietSave,
   onSaveCascade,
   onDelete,
   onClose,
@@ -3860,6 +4558,8 @@ function TaskEditModal({
   });
   const [tab, setTab] = useState("details");
   const [cascadeWarn, setCascadeWarn] = useState(null);
+  const [selectedAttachments, setSelectedAttachments] = useState(new Set());
+  const [selectMode, setSelectMode] = useState(false);
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
 
   const collKey = `${task.brand}||${task.collection}`;
@@ -3917,23 +4617,39 @@ function TaskEditModal({
     const { updatedTasks, ddpChanged, newDDP, oldDDP, affectedCount } =
       cascadeDates(allTasks, collKey, task.id, f.due);
 
-    // Build history entry if date changed
+    // Build history entries for ALL changed fields
+    const now = new Date().toISOString();
+    const newEntries = [];
+    const track = (field, from, to) => {
+      if (String(from || "") !== String(to || "")) {
+        newEntries.push({ id: uid(), field, from: String(from || "—"), to: String(to || "—"), changedBy: currentUser.name, at: now });
+      }
+    };
+    const fmtDate = (d) => d ? formatDate(d) : "—";
+    track("due date", fmtDate(task.due), fmtDate(f.due));
+    track("status", task.status, f.status);
+    track("vendor", task.vendorName, f.vendorName);
+    track("order type", task.orderType, f.orderType);
+    track("category", task.category, f.category);
+    track("season", task.season, f.season);
+    track("customer", task.customer, f.customer);
+    // Assignee by name
+    const fromAssignee = team?.find(m => m.id === task.assigneeId)?.name || "Unassigned";
+    const toAssignee = team?.find(m => m.id === f.assigneeId)?.name || "Unassigned";
+    track("assignee", fromAssignee, toAssignee);
+    // Notes: detect new notes added, capture content
+    const oldNotes = Array.isArray(task.notes) ? task.notes : (task.notes ? [task.notes] : []);
+    const newNotes = Array.isArray(f.notes) ? f.notes : (f.notes ? [f.notes] : []);
+    if (newNotes.length > oldNotes.length) {
+      const addedNotes = newNotes.slice(oldNotes.length);
+      addedNotes.forEach(note => {
+        const text = typeof note === "string" ? note : note?.text || "";
+        newEntries.push({ id: uid(), field: "note added", from: "", to: text.substring(0, 100) || "(empty note)", changedBy: currentUser.name, at: now });
+      });
+    }
     const dateChanged = f.due !== task.due;
-    const fWithHistory = dateChanged
-      ? {
-          ...f,
-          history: [
-            ...(f.history || []),
-            {
-              id: uid(),
-              field: "due date",
-              from: task.due,
-              to: f.due,
-              changedBy: currentUser.name,
-              at: new Date().toISOString(),
-            },
-          ],
-        }
+    const fWithHistory = newEntries.length > 0
+      ? { ...f, history: [...(f.history || []), ...newEntries] }
       : f;
 
     if (ddpChanged) {
@@ -4019,7 +4735,7 @@ function TaskEditModal({
     { id: "details", label: "Details" },
     {
       id: "images",
-      label: `Images${f.images?.length ? " (" + f.images.length + ")" : ""}`,
+      label: `Attachments${f.images?.length ? " (" + f.images.length + ")" : ""}`,
     },
     { id: "skus", label: `SKUs${skus.length ? " (" + skus.length + ")" : ""}` },
     {
@@ -4297,178 +5013,65 @@ function TaskEditModal({
                   </div>
                 );
               })()}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 12,
-                }}
-              >
-                <div>
-                  <label style={S.lbl}>Customer</label>
-                  {/* FIX: use select+datalist combo so it always works */}
-                  <select
-                    style={{ ...S.inp, marginBottom: 0 }}
-                    value={f.customer || ""}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      set("customer", v);
-                      if (v && !f.channelType) {
-                        const custObj = (customerList || []).find(c => (typeof c === "string" ? c : c.name) === v);
-                        const ch = (custObj && typeof custObj !== "string" && custObj.channel) || getChannelForCustomer(v);
-                        if (ch) set("channelType", ch);
-                      }
-                    }}
-                    disabled={!canEdit}
-                  >
-                    <option value="">-- Select --</option>
-                    {(customerList || DEFAULT_CUSTOMERS).map((c) => {
-                      const name = typeof c === "string" ? c : c.name;
-                      return <option key={name} value={name}>{name}</option>;
-                    })}
-                  </select>
-                </div>
-                <div>
-                  <label style={S.lbl}>Order Type</label>
-                  <select
-                    style={{ ...S.inp, marginBottom: 0 }}
-                    value={f.orderType || ""}
-                    onChange={(e) => set("orderType", e.target.value)}
-                    disabled={!canEdit}
-                  >
-                    <option value="">-- Select --</option>
-                    {orderTypes.map((o) => (
-                      <option key={o}>{o}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div style={{ height: 12 }} />
-              <label style={S.lbl}>
-                Channel Type{" "}
-                <span
-                  style={{
-                    textTransform: "none",
-                    fontWeight: 400,
-                    color: TH.textMuted,
-                  }}
-                >
-                  (auto-fills from customer)
-                </span>
-              </label>
-              <select
-                style={S.inp}
-                value={f.channelType || ""}
-                onChange={(e) => set("channelType", e.target.value)}
-                disabled={!canEdit}
-              >
-                <option value="">-- Select --</option>
-                {CHANNEL_TYPES.map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </select>
+
               <label style={S.lbl}>Notes</label>
-              <textarea
-                style={{ ...S.inp, minHeight: 80, resize: "vertical" }}
-                value={f.notes || ""}
-                onChange={(e) => set("notes", e.target.value)}
-                disabled={!canEdit}
-                placeholder="Add notes..."
-              />
+              {/* Existing notes log */}
+              {(() => {
+                const notesList = Array.isArray(f.notes) ? f.notes :
+                  (f.notes ? [{ id: "legacy", text: f.notes, by: "—", at: null }] : []);
+                return notesList.length > 0 ? (
+                  <div style={{ marginBottom: 10, maxHeight: 220, overflowY: "auto", border: `1px solid ${TH.border}`, borderRadius: 8, background: TH.surfaceHi }}>
+                    {notesList.map((n, i) => (
+                      <div key={n.id || i} style={{ padding: "10px 14px", borderBottom: i < notesList.length - 1 ? `1px solid ${TH.border}` : "none" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: TH.primary }}>{n.by}</span>
+                          {n.at && <span style={{ fontSize: 10, color: TH.textMuted }}>{new Date(n.at).toLocaleString()}</span>}
+                        </div>
+                        <div style={{ fontSize: 13, color: TH.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{n.text}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null;
+              })()}
+              {/* New note input */}
+              {canEdit && (
+                <NoteInput onAdd={(text) => {
+                  const newNote = { id: uid(), text, by: currentUser?.name || "User", at: new Date().toISOString() };
+                  const existing = Array.isArray(f.notes) ? f.notes : (f.notes ? [{ id: "legacy", text: f.notes, by: "—", at: null }] : []);
+                  const updatedNotes = [...existing, newNote];
+                  // Auto-save note immediately + add to history
+                  const histEntry = { id: uid(), field: "note added", from: "", to: text.substring(0, 80), changedBy: currentUser?.name || "User", at: new Date().toISOString() };
+                  const updatedTask = { ...f, notes: updatedNotes, history: [...(f.history || []), histEntry] };
+                  setF(updatedTask); // Update local state
+                  (onQuietSave || onSave)(updatedTask); // quiet save — do not close modal
+                }} />
+              )}
             </div>
             <div>
               <label style={S.lbl}>Assign To</label>
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 6,
-                  marginBottom: 14,
-                }}
-              >
-                <button
-                  onClick={() => handleAssign(null)}
+              <div style={{ marginBottom: 14 }}>
+                <select
                   disabled={!canEdit}
+                  value={f.assigneeId || ""}
+                  onChange={e => handleAssign(e.target.value || null)}
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    padding: "8px 12px",
-                    borderRadius: 8,
-                    border: `1px solid ${
-                      !f.assigneeId ? TH.primary : TH.border
-                    }`,
-                    background: !f.assigneeId
-                      ? TH.primary + "15"
-                      : "transparent",
-                    cursor: canEdit ? "pointer" : "default",
-                    fontFamily: "inherit",
-                    textAlign: "left",
+                    ...S.inp,
+                    marginBottom: 0,
+                    borderColor: f.assigneeId
+                      ? (team.find(m => m.id === f.assigneeId)?.color || TH.border)
+                      : TH.border,
+                    color: f.assigneeId
+                      ? (team.find(m => m.id === f.assigneeId)?.color || TH.text)
+                      : TH.textMuted,
+                    fontWeight: f.assigneeId ? 600 : 400,
+                    opacity: canEdit ? 1 : 0.6,
                   }}
                 >
-                  <div
-                    style={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: "50%",
-                      background: TH.surfaceHi,
-                      border: `1px solid ${TH.border}`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 12,
-                      color: TH.textMuted,
-                    }}
-                  >
-                    ?
-                  </div>
-                  <span
-                    style={{
-                      fontSize: 13,
-                      color: !f.assigneeId ? TH.primary : TH.textMuted,
-                    }}
-                  >
-                    Unassigned
-                  </span>
-                </button>
-                {team.map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => handleAssign(m.id)}
-                    disabled={!canEdit}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: "8px 12px",
-                      borderRadius: 8,
-                      border: `1px solid ${
-                        f.assigneeId === m.id ? m.color + "88" : TH.border
-                      }`,
-                      background:
-                        f.assigneeId === m.id ? m.color + "22" : "transparent",
-                      cursor: canEdit ? "pointer" : "default",
-                      fontFamily: "inherit",
-                      textAlign: "left",
-                    }}
-                  >
-                    <Avatar member={m} size={28} />
-                    <div>
-                      <div
-                        style={{
-                          fontSize: 13,
-                          fontWeight: 600,
-                          color: f.assigneeId === m.id ? m.color : TH.text,
-                        }}
-                      >
-                        {m.name}
-                      </div>
-                      <div style={{ fontSize: 11, color: TH.textMuted }}>
-                        {m.role}
-                      </div>
-                    </div>
-                  </button>
-                ))}
+                  <option value="">— Unassigned —</option>
+                  {team.map(m => (
+                    <option key={m.id} value={m.id}>{m.name} · {m.role}</option>
+                  ))}
+                </select>
               </div>
               {(pd || designer || graphic) && (
                 <div>
@@ -4508,11 +5111,119 @@ function TaskEditModal({
         )}
 
         {tab === "images" && (
-          <ImageUploader
-            images={f.images || []}
-            onChange={(v) => canEdit && set("images", v)}
-            label="Task Images / Concepts"
-          />
+          <div>
+            {/* Select mode toolbar */}
+            {(f.images || []).length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                {!selectMode ? (
+                  <button
+                    onClick={() => { setSelectMode(true); setSelectedAttachments(new Set()); }}
+                    style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}
+                  >
+                    ☑️ Select Attachments
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => {
+                        const all = new Set((f.images || []).map(i => i.id));
+                        setSelectedAttachments(prev => prev.size === all.size ? new Set() : all);
+                      }}
+                      style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.primary, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}
+                    >
+                      {selectedAttachments.size === (f.images || []).length ? "Deselect All" : "Select All"}
+                    </button>
+                    <button
+                      onClick={() => { setSelectMode(false); setSelectedAttachments(new Set()); }}
+                      style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}
+                    >
+                      Cancel
+                    </button>
+                    {selectedAttachments.size > 0 && (
+                      <>
+                        <span style={{ fontSize: 12, color: TH.textMuted, marginLeft: 4 }}>{selectedAttachments.size} selected</span>
+                        <button
+                          onClick={() => {
+                            const selected = (f.images || []).filter(i => selectedAttachments.has(i.id));
+                            const url = buildAttachmentPage({ ...f, images: selected }, task, collData, brand, "link");
+                            navigator.clipboard.writeText(url).then(() => alert("Link copied to clipboard!")).catch(() => {
+                              prompt("Copy this link:", url);
+                            });
+                          }}
+                          style={{ padding: "5px 14px", borderRadius: 7, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}
+                        >
+                          🔗 Copy Link
+                        </button>
+                        <button
+                          onClick={() => {
+                            const selected = (f.images || []).filter(i => selectedAttachments.has(i.id));
+                            const url = buildAttachmentPage({ ...f, images: selected }, task, collData, brand, "open");
+                            window.open(url, "_blank");
+                          }}
+                          style={{ padding: "5px 14px", borderRadius: 7, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}
+                        >
+                          🖨️ Open & Print
+                        </button>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Image uploader with selection overlay when in select mode */}
+            {selectMode ? (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
+                {(f.images || []).map(img => {
+                  const isSelected = selectedAttachments.has(img.id);
+                  const isImage = img.name?.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i) || img.src?.startsWith("data:image") || img.src?.includes("supabase");
+                  const ext = (img.name || "").split(".").pop()?.toUpperCase() || "FILE";
+                  const fileIcons = { PDF: "📄", AI: "🎨", EPS: "🎨", PSD: "🖼️", SVG: "🔷" };
+                  return (
+                    <div
+                      key={img.id}
+                      onClick={() => {
+                        setSelectedAttachments(prev => {
+                          const next = new Set(prev);
+                          if (next.has(img.id)) next.delete(img.id); else next.add(img.id);
+                          return next;
+                        });
+                      }}
+                      style={{
+                        position: "relative", width: 80, height: 80, borderRadius: 8, overflow: "hidden",
+                        border: `2px solid ${isSelected ? TH.primary : TH.border}`,
+                        cursor: "pointer", flexShrink: 0,
+                        background: TH.surfaceHi,
+                        boxShadow: isSelected ? `0 0 0 2px ${TH.primary}44` : "none",
+                      }}
+                    >
+                      {isImage
+                        ? <img src={img.src} alt={img.name} style={{ width: "100%", height: "100%", objectFit: "cover", opacity: isSelected ? 1 : 0.6 }} />
+                        : <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontSize: 22, opacity: isSelected ? 1 : 0.6 }}>{fileIcons[ext] || "📎"}<div style={{ fontSize: 9, color: TH.textMuted, marginTop: 2 }}>{ext}</div></div>
+                      }
+                      {/* Checkmark */}
+                      <div style={{
+                        position: "absolute", top: 4, right: 4,
+                        width: 18, height: 18, borderRadius: "50%",
+                        background: isSelected ? TH.primary : "rgba(255,255,255,0.8)",
+                        border: `2px solid ${isSelected ? TH.primary : "#ccc"}`,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 10, color: "#fff", fontWeight: 700,
+                      }}>
+                        {isSelected ? "✓" : ""}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <ImageUploader
+                images={f.images || []}
+                onChange={(v) => canEdit && set("images", v)}
+                label="Attachments"
+              />
+            )}
+          </div>
         )}
         {tab === "skus" && (
           <div>
@@ -4526,6 +5237,11 @@ function TaskEditModal({
               onChange={(newSkus) => {
                 if (!canEdit) return;
                 onSkuChange(collKey, newSkus);
+                // Add SKU change to task history (quiet save — do not close modal)
+                const skuHistEntry = { id: uid(), field: "SKUs updated", from: `${skus.length} SKUs`, to: `${newSkus.length} SKUs`, changedBy: currentUser?.name || "User", at: new Date().toISOString() };
+                const updatedWithHist = { ...f, history: [...(f.history || []), skuHistEntry] };
+                setF(updatedWithHist);
+                (onQuietSave || onSave)(updatedWithHist);
               }}
               brand={task.brand}
               category={task.category}
@@ -4537,78 +5253,42 @@ function TaskEditModal({
         {tab === "history" && (
           <div>
             {(!f.history || f.history.length === 0) && (
-              <div
-                style={{
-                  textAlign: "center",
-                  color: TH.textMuted,
-                  padding: "32px",
-                  fontSize: 13,
-                }}
-              >
+              <div style={{ textAlign: "center", color: TH.textMuted, padding: "32px", fontSize: 13 }}>
                 No changes recorded yet.
               </div>
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {[...(f.history || [])].reverse().map((h) => (
-                <div
-                  key={h.id}
-                  style={{
-                    background: TH.surfaceHi,
-                    borderRadius: 10,
-                    padding: "12px 16px",
-                    borderLeft: `3px solid ${TH.primary}33`,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      marginBottom: 4,
-                    }}
-                  >
-                    <span
-                      style={{ fontSize: 12, fontWeight: 600, color: TH.text }}
-                    >
-                      {h.changedBy}
-                    </span>
-                    <span style={{ fontSize: 11, color: TH.textMuted }}>
-                      {formatDT(h.at)}
-                    </span>
+              {[...(f.history || [])].reverse().map((h) => {
+                const FIELD_ICONS = { "due date": "📅", "status": "🔄", "assignee": "👤", "vendor": "🏭", "note added": "📝", "order type": "📦", "category": "🗂️", "season": "🌿", "customer": "🏪" };
+                const icon = FIELD_ICONS[h.field] || "✏️";
+                const isNoteAdded = h.field === "note added";
+                const accentColor = h.field === "due date" ? "#1D4ED8" : h.field === "status" ? "#059669" : h.field === "note added" ? "#7C3AED" : TH.primary;
+                return (
+                  <div key={h.id} style={{ background: TH.surfaceHi, borderRadius: 10, padding: "12px 16px", borderLeft: `3px solid ${accentColor}55` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 14 }}>{icon}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: accentColor, textTransform: "capitalize" }}>{h.field}</span>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: TH.textSub }}>{h.changedBy}</span>
+                        <span style={{ fontSize: 10, color: TH.textMuted }}>{formatDT(h.at)}</span>
+                      </div>
+                    </div>
+                    {isNoteAdded ? (
+                      <div style={{ fontSize: 12, color: TH.textSub, background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 6, padding: "6px 10px", fontStyle: "italic" }}>
+                        "{h.to}"
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12 }}>
+                        <span style={{ background: "#FEF2F2", border: "1px solid #FCA5A5", padding: "2px 8px", borderRadius: 5, color: "#991B1B", textDecoration: "line-through" }}>{h.from || "—"}</span>
+                        <span style={{ color: TH.textMuted, fontSize: 14 }}>→</span>
+                        <span style={{ background: "#F0FDF4", border: "1px solid #86EFAC", padding: "2px 8px", borderRadius: 5, color: "#166534", fontWeight: 600 }}>{h.to || "—"}</span>
+                      </div>
+                    )}
                   </div>
-                  <div style={{ fontSize: 12, color: TH.textMuted }}>
-                    Changed{" "}
-                    <span style={{ color: TH.primary, fontWeight: 600 }}>
-                      {h.field}
-                    </span>{" "}
-                    from{" "}
-                    <span
-                      style={{
-                        background: TH.surfaceHi,
-                        border: `1px solid ${TH.border}`,
-                        padding: "1px 7px",
-                        borderRadius: 4,
-                        color: TH.text,
-                      }}
-                    >
-                      {h.from || "—"}
-                    </span>{" "}
-                    →{" "}
-                    <span
-                      style={{
-                        background: TH.primary + "15",
-                        border: `1px solid ${TH.primary}44`,
-                        padding: "1px 7px",
-                        borderRadius: 4,
-                        color: TH.primary,
-                        fontWeight: 600,
-                      }}
-                    >
-                      {h.to}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -4626,7 +5306,7 @@ function TaskEditModal({
         >
           {canEdit ? (
             <button
-              onClick={() => onDelete(task.id)}
+              onClick={() => appConfirm("You are about to delete this task. This action cannot be undone.", "Delete", () => onDelete(task.id))}
               style={{
                 background: "none",
                 border: "none",
@@ -4908,8 +5588,47 @@ function DaysBackInput({ value, onCommit }) {
   );
 }
 
+
+// ─── PREV TASK INPUT (deferred commit – no DDP warning mid-typing) ────────────
+function PrevTaskInput({ fromPrev, onCommit }) {
+  const [local, setLocal] = useState(fromPrev != null ? String(fromPrev) : "");
+  useEffect(() => {
+    setLocal(fromPrev != null ? String(fromPrev) : "");
+  }, [fromPrev]);
+  function commit() {
+    const n = parseInt(local);
+    if (!isNaN(n) && n >= 0) onCommit(n);
+    else setLocal(fromPrev != null ? String(fromPrev) : "");
+  }
+  return (
+    <input
+      type="number"
+      min="0"
+      value={local}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") { e.preventDefault(); commit(); }
+        if (e.key === "Escape") setLocal(fromPrev != null ? String(fromPrev) : "");
+      }}
+      style={{
+        width: 64,
+        padding: "4px 6px",
+        borderRadius: 6,
+        border: `1px solid ${TH.border}`,
+        background: "#FFFFFF",
+        color: TH.text,
+        fontFamily: "inherit",
+        fontSize: 12,
+        textAlign: "center",
+        outline: "none",
+      }}
+    />
+  );
+}
+
 // ─── COLLECTION WIZARD ────────────────────────────────────────────────────────
-function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSave, onClose }) {
+function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSave, onClose, taskTemplates }) {
   const [step, setStep] = useState(1);
 
   // Compute initial recommended vendor for Denim (default category)
@@ -4923,8 +5642,15 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
   function calcDdpFromVendor(vendorId) {
     const v = vendors.find((vv) => vv.id === vendorId);
     if (!v) return "";
-    const maxLead = Math.max(...Object.values(v.lead).filter((x) => x > 0), 0);
-    const total = maxLead + (v.transitDays || 0);
+    // Use task templates + vendor overrides to find max lead time
+    const templates = (taskTemplates && taskTemplates.length > 0) ? taskTemplates : DEFAULT_TASK_TEMPLATES;
+    const overrides = v.leadOverrides || v.lead || {};
+    const leadValues = templates.map(tpl => {
+      const val = overrides[tpl.phase] !== undefined ? overrides[tpl.phase] : tpl.daysBeforeDDP;
+      return Number(val) || 0;
+    }).filter(x => x > 0);
+    const maxLead = leadValues.length > 0 ? Math.max(...leadValues) : 168;
+    const total = maxLead + (v.transitDays || 21);
     return addDays(new Date().toISOString().split("T")[0], total);
   }
 
@@ -4952,6 +5678,41 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
   // Editable preview phases: [{name, daysBack, due, edited}]
   const [editPhases, setEditPhases] = useState([]);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  // Step 2 lead times — [{phase, days}] in template order, controlled state for cascade
+  const [step2Leads, setStep2Leads] = useState([]);
+
+  function initStep2Leads(vendorId) {
+    const v = vendors.find(vv => vv.id === vendorId);
+    const overrides = v ? (v.leadOverrides || v.lead || {}) : {};
+    const tpls = (taskTemplates && taskTemplates.length > 0) ? taskTemplates : [];
+    setStep2Leads(
+      tpls
+        .filter(t => t.phase !== "DDP" && t.phase !== "Ship Date")
+        .map(t => ({ phase: t.phase, days: overrides[t.phase] ?? t.daysBeforeDDP ?? 0 }))
+    );
+  }
+
+  function applyStep2Update(idx, newDays) {
+    setStep2Leads(prev => {
+      const leads = [...prev];
+      const delta = newDays - leads[idx].days;
+      leads[idx] = { ...leads[idx], days: newDays };
+      // Cascade: shift all subsequent tasks by same delta
+      for (let i = idx + 1; i < leads.length; i++) {
+        leads[i] = { ...leads[i], days: Math.max(0, leads[i].days + delta) };
+      }
+      // Sync to selV.leadOverrides so generateTasks picks it up
+      if (selV) {
+        const map = {};
+        leads.forEach(l => { map[l.phase] = l.days; });
+        selV.leadOverrides = map;
+        if (selV.lead) leads.forEach(l => { selV.lead[l.phase] = l.days; });
+      }
+      return leads;
+    });
+    set("_leadOverride", Date.now());
+  }
   // Creation date clamping — warn user if earliest task predates today
   const [creationDateWarn, setCreationDateWarn] = useState(null);
 
@@ -4970,7 +5731,14 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
 
   // Build preview tasks from editPhases
   const previewTasks =
-    form.ddpDate && form.vendorId ? generateTasks({ ...form, vendors }) : [];
+    (() => {
+    try {
+      return form.ddpDate && form.vendorId ? generateTasks({ ...form, vendors, taskTemplates }) : [];
+    } catch(e) {
+      console.error("[generateTasks error]", e);
+      return [];
+    }
+  })();
 
   // Proportional resize helper: compress pre-Production phases so first task = today, DDP unchanged
   function applyProportionalResize(rawPhases) {
@@ -5003,10 +5771,10 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
     return [...resized, ...postPhases];
   }
 
-  // When we reach step 3, initialize editPhases from generated tasks
+  // When we have vendor + DDP on step 2, initialize editPhases from generated tasks
   // Enforce: no task date may be before today (creation date)
   useEffect(() => {
-    if (step === 3 && previewTasks.length > 0 && editPhases.length === 0) {
+    if (step === 2 && previewTasks.length > 0 && editPhases.length === 0) {
       const rawPhases = previewTasks.map((t) => ({
         id: t.id,
         name: t.phase,
@@ -5037,7 +5805,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
         setEditPhases(rawPhases);
       }
     }
-  }, [step]);
+  }, [step, previewTasks.length, editPhases.length]);
 
   // When vendor changes, recalc DDP from vendor lead times, then recalc ship/cancel
   useEffect(() => {
@@ -5051,6 +5819,8 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
           cancelDate: addDays(addDays(newDdp, 24), 6),
         }));
       }
+      // Re-initialize step 2 lead times from new vendor's overrides
+      initStep2Leads(form.vendorId);
     }
   }, [form.vendorId]);
 
@@ -5212,7 +5982,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
       {step === 1 && (
         <div>
           <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 18 }}>
-            Step 1 of 3 — Brand, Collection & Team
+            Step 1 of 2 — Brand, Collection & Team
           </div>
           <label style={S.lbl}>Brand</label>
           <select
@@ -5413,7 +6183,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
       {step === 2 && (
         <div>
           <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 18 }}>
-            Step 2 of 3 — Vendor & Dates
+            Step 2 of 2 — Vendor & Dates
           </div>
           <label style={S.lbl}>
             Vendor{" "}
@@ -5488,110 +6258,59 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
                   ))}
                 </div>
               </div>
-              <div
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  color: TH.textMuted,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.08em",
-                  marginBottom: 8,
-                }}
-              >
+              <div style={{ fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
                 Task Lead Times — Days Before DDP (editable)
               </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(3,1fr)",
-                  gap: 8,
-                }}
-              >
-                {[
-                  "Concept",
-                  "Design",
-                  "Tech Pack",
-                  "Costing",
-                  "Sampling",
-                  "Revision",
-                  "Purchase Order",
-                  "Production",
-                ].map((phase) => {
-                  const val = selV.lead[phase] ?? 0;
-                  const calcDate = form.ddpDate
-                    ? addDays(form.ddpDate, -val)
-                    : "";
-                  return (
-                    <div
-                      key={phase}
-                      style={{
-                        background: TH.surfaceHi,
-                        borderRadius: 8,
-                        padding: "10px 12px",
-                        border: `1px solid ${TH.border}`,
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontSize: 10,
-                          color: TH.textMuted,
-                          marginBottom: 6,
-                          fontWeight: 600,
-                        }}
-                      >
-                        {phase}
-                      </div>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                        }}
-                      >
-                        <input
-                          type="number"
-                          min="0"
-                          defaultValue={val}
-                          onBlur={(e) => {
-                            const n = parseInt(e.target.value) || 0;
-                            set("vendorId", form.vendorId); // trigger re-render
-                            // Update local vendor lead time for preview
-                            selV.lead[phase] = n;
-                            set("_leadOverride", Date.now());
-                          }}
-                          style={{
-                            width: 60,
-                            padding: "4px 8px",
-                            borderRadius: 6,
-                            border: `1px solid ${TH.primary}44`,
-                            background: "#fff",
-                            color: TH.text,
-                            fontFamily: "inherit",
-                            fontSize: 13,
-                            fontWeight: 700,
-                            textAlign: "center",
-                          }}
-                        />
-                        <span style={{ fontSize: 10, color: TH.textMuted }}>
-                          days
-                        </span>
-                      </div>
-                      {calcDate && (
-                        <div
-                          style={{
-                            fontSize: 11,
-                            color: TH.primary,
-                            marginTop: 4,
-                            fontWeight: 600,
-                          }}
-                        >
-                          {formatDate(calcDate)}
-                        </div>
-                      )}
+              {/* Lead times table */}
+              {(() => {
+                const leads = step2Leads.length > 0 ? step2Leads : (
+                  (taskTemplates && taskTemplates.length > 0 ? taskTemplates : [])
+                    .filter(t => t.phase !== "DDP" && t.phase !== "Ship Date")
+                    .map(t => {
+                      const overrides = selV.leadOverrides || selV.lead || {};
+                      return { phase: t.phase, days: overrides[t.phase] ?? t.daysBeforeDDP ?? 0 };
+                    })
+                );
+                return (
+                  <div style={{ border: `1px solid ${TH.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 4 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px 90px", background: TH.surfaceHi, padding: "7px 12px", fontSize: 10, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `1px solid ${TH.border}` }}>
+                      <span>Phase</span>
+                      <span style={{ textAlign: "center" }}>Days Before DDP</span>
+                      <span style={{ textAlign: "center" }}>From Prev</span>
+                      <span style={{ textAlign: "center" }}>Due Date</span>
                     </div>
-                  );
-                })}
-              </div>
+                    {leads.map((lead, idx) => {
+                      const fromPrev = idx > 0 ? leads[idx - 1].days - lead.days : null;
+                      const calcDate = form.ddpDate ? addDays(form.ddpDate, -lead.days) : "";
+                      return (
+                        <div key={lead.phase} style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px 90px", padding: "7px 12px", borderBottom: idx < leads.length - 1 ? `1px solid ${TH.border}` : "none", alignItems: "center", background: idx % 2 === 0 ? "#fff" : TH.surfaceHi }}>
+                          <div style={{ fontSize: 13, color: TH.text, fontWeight: 600 }}>{lead.phase}</div>
+                          <div style={{ textAlign: "center" }}>
+                            <LeadTimeCell
+                              value={lead.days}
+                              onCommit={n => applyStep2Update(idx, n)}
+                            />
+                          </div>
+                          <div style={{ textAlign: "center" }}>
+                            {fromPrev !== null ? (
+                              <LeadTimeCell
+                                value={fromPrev}
+                                onCommit={n => {
+                                  const prevDays = leads[idx - 1].days;
+                                  applyStep2Update(idx, Math.max(0, prevDays - n));
+                                }}
+                              />
+                            ) : <span style={{ fontSize: 12, color: TH.textMuted }}>—</span>}
+                          </div>
+                          <div style={{ textAlign: "center", fontSize: 12, color: TH.primary, fontWeight: 600 }}>
+                            {calcDate ? formatDate(calcDate) : "—"}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -5668,47 +6387,8 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
             </div>
           )}
 
-          <div style={{ display: "flex", gap: 12 }}>
-            <button
-              onClick={() => setStep(1)}
-              style={{
-                flex: 1,
-                padding: "12px",
-                borderRadius: 10,
-                border: `1px solid ${TH.border}`,
-                background: "none",
-                color: TH.textMuted,
-                cursor: "pointer",
-                fontFamily: "inherit",
-              }}
-            >
-              ← Back
-            </button>
-            <button
-              disabled={!s2ok}
-              onClick={() => {
-                setEditPhases([]);
-                setStep(3);
-              }}
-              style={{
-                ...S.btn,
-                flex: 2,
-                padding: "12px",
-                fontSize: 14,
-                opacity: s2ok ? 1 : 0.5,
-              }}
-            >
-              Preview Timeline →
-            </button>
-          </div>
-        </div>
-      )}
-
-      {step === 3 && (
-        <div>
-          <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 16 }}>
-            Step 3 of 3 — Review & Edit Timeline
-          </div>
+          {form.ddpDate && selV && editPhases.length > 0 && (
+            <>
           <div style={{ ...S.card, marginBottom: 16 }}>
             <div
               style={{
@@ -6041,27 +6721,11 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
                       const prevDue = editPhases[i - 1]?.due;
                       const fromPrev = prevDue ? diffDays(ep.due, prevDue) : null;
                       return (
-                        <input
-                          type="number"
-                          min="0"
-                          value={fromPrev ?? ""}
-                          onChange={(e) => {
-                            const n = parseInt(e.target.value);
-                            if (isNaN(n) || n < 0) return;
+                        <PrevTaskInput
+                          fromPrev={fromPrev}
+                          onCommit={(n) => {
                             const newDue = addDays(editPhases[i - 1].due, n);
                             updatePhaseDue(i, newDue);
-                          }}
-                          style={{
-                            width: 64,
-                            padding: "4px 6px",
-                            borderRadius: 6,
-                            border: `1px solid ${TH.border}`,
-                            background: "#FFFFFF",
-                            color: TH.text,
-                            fontFamily: "inherit",
-                            fontSize: 12,
-                            textAlign: "center",
-                            outline: "none",
                           }}
                         />
                       );
@@ -6297,13 +6961,12 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
               </div>
             </div>
           )}
+            </>
+          )}
 
           <div style={{ display: "flex", gap: 12 }}>
             <button
-              onClick={() => {
-                setEditPhases([]);
-                setStep(2);
-              }}
+              onClick={() => setStep(1)}
               style={{
                 flex: 1,
                 padding: "12px",
@@ -6318,6 +6981,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
               ← Back
             </button>
             <button
+              disabled={editPhases.length === 0}
               onClick={() =>
                 onSave(buildFinalTasks(), {
                   gender: form.gender,
@@ -6330,7 +6994,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
                   sampleDueDate: form.sampleDueDate,
                 })
               }
-              style={{ ...S.btn, flex: 2, padding: "12px", fontSize: 14 }}
+              style={{ ...S.btn, flex: 2, padding: "12px", fontSize: 14, opacity: editPhases.length === 0 ? 0.5 : 1 }}
             >
               ✓ Create {editPhases.length} Tasks
             </button>
@@ -6342,8 +7006,15 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
 }
 
 // ─── CATEGORY MANAGER ────────────────────────────────────────────────────────
-function CategoryManager({ categories, setCategories }) {
+function CategoryManager({ categories, setCategories, isAdmin = false }) {
   const [newCat, setNewCat] = useState("");
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage this section.</div>
+    </div>
+  );
   const [newSub, setNewSub] = useState({});
   const [editCat, setEditCat] = useState(null); // {id, name}
   const [editName, setEditName] = useState("");
@@ -6355,7 +7026,8 @@ function CategoryManager({ categories, setCategories }) {
     setNewCat("");
   }
   function deleteCategory(id) {
-    setCategories((cs) => cs.filter((c) => c.id !== id));
+    appConfirm("You are about to delete this category and all its subcategories. This action cannot be undone.", "Delete", () => setCategories((cs) => cs.filter((c) => c.id !== id)));
+    return;
   }
   function renameCategory(id, name) {
     setCategories((cs) => cs.map((c) => (c.id === id ? { ...c, name } : c)));
@@ -6374,13 +7046,16 @@ function CategoryManager({ categories, setCategories }) {
     setNewSub((s) => ({ ...s, [catId]: "" }));
   }
   function deleteSubCategory(catId, sub) {
-    setCategories((cs) =>
-      cs.map((c) =>
-        c.id === catId
-          ? { ...c, subCategories: c.subCategories.filter((s) => s !== sub) }
-          : c
-      )
-    );
+    appConfirm(`You are about to delete the subcategory "${sub}". This action cannot be undone.`, "Delete", () => {
+      setCategories((cs) =>
+        cs.map((c) =>
+          c.id === catId
+            ? { ...c, subCategories: c.subCategories.filter((s) => s !== sub) }
+            : c
+        )
+      );
+    });
+    return;
   }
 
   return (
@@ -6613,8 +7288,15 @@ function CategoryManager({ categories, setCategories }) {
 }
 
 // ─── SIZE LIBRARY ─────────────────────────────────────────────────────────────
-function SizeLibrary({ sizes, setSizes }) {
+function SizeLibrary({ sizes, setSizes, isAdmin = false }) {
   const [newSize, setNewSize] = useState("");
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage this section.</div>
+    </div>
+  );
   function addSize() {
     const s = newSize.trim().toUpperCase();
     if (!s || sizes.includes(s)) {
@@ -7079,34 +7761,426 @@ function EditCollectionModal({
 }
 
 // ─── ADD TASK MODAL ───────────────────────────────────────────────────────────
+
+// ─── TASK MANAGER (Settings) ──────────────────────────────────────────────────
+function TaskManager({ taskTemplates, setTaskTemplates, isAdmin, vendors, setVendors }) {
+  // Task Manager = Template Manager: defines which phases auto-populate per vendor
+  const [editing, setEditing] = useState(null); // null | "new" | template object
+  const [form, setForm] = useState(null);
+
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage task templates.</div>
+    </div>
+  );
+
+  const templates = (taskTemplates && taskTemplates.length > 0) ? taskTemplates : DEFAULT_TASK_TEMPLATES;
+
+  const [insertAfter, setInsertAfter] = useState<string>("__end__");
+
+  // Get the effective previous task's daysBeforeDDP given a position value
+  function prevDaysForPosition(pos, excludeId?) {
+    const tpls = excludeId ? templates.filter(t => t.id !== excludeId) : templates;
+    if (pos === "__start__") return null;
+    if (pos === "__end__") return tpls[tpls.length - 1]?.daysBeforeDDP ?? null;
+    return tpls.find(t => t.id === pos)?.daysBeforeDDP ?? null;
+  }
+
+  function startNew() {
+    const lastTpl = templates[templates.length - 1];
+    const defDuration = 30;
+    const defDDP = lastTpl ? Math.max(0, lastTpl.daysBeforeDDP - defDuration) : 0;
+    setForm({ id: uid(), phase: "", daysBeforeDDP: defDDP, durationDays: defDuration, status: "Not Started", notes: "" });
+    setInsertAfter("__end__");
+    setEditing("new");
+  }
+
+  function startEdit(tpl) {
+    const idx = templates.findIndex(t => t.id === tpl.id);
+    const prevTpl = idx > 0 ? templates[idx - 1] : null;
+    const durationDays = prevTpl ? Math.max(0, prevTpl.daysBeforeDDP - tpl.daysBeforeDDP) : (tpl.durationDays ?? 30);
+    const pos = idx === 0 ? "__start__" : templates[idx - 1].id;
+    setForm({ ...tpl, durationDays });
+    setInsertAfter(pos);
+    setEditing(tpl.id);
+  }
+
+  function handlePositionChange(val) {
+    setInsertAfter(val);
+    if (!form) return;
+    const prevD = prevDaysForPosition(val, editing !== "new" ? form.id : undefined);
+    if (prevD !== null) {
+      const dur = form.durationDays || 30;
+      setForm(f => ({ ...f, daysBeforeDDP: Math.max(0, prevD - dur) }));
+    }
+  }
+
+  function handleDurationChange(n) {
+    const prevD = prevDaysForPosition(insertAfter, editing !== "new" ? form.id : undefined);
+    const newDDP = prevD !== null ? Math.max(0, prevD - n) : form.daysBeforeDDP;
+    setForm(f => ({ ...f, durationDays: n, daysBeforeDDP: newDDP }));
+  }
+
+  function handleDDPChange(n) {
+    const prevD = prevDaysForPosition(insertAfter, editing !== "new" ? form.id : undefined);
+    const newDur = prevD !== null ? Math.max(0, prevD - n) : form.durationDays;
+    setForm(f => ({ ...f, daysBeforeDDP: n, durationDays: newDur }));
+  }
+
+  function saveForm() {
+    if (!form.phase.trim()) return;
+    const savedForm = { ...form, durationDays: form.durationDays ?? 0 };
+
+    if (editing === "new") {
+      let newTemplates;
+      if (insertAfter === "__end__") newTemplates = [...templates, savedForm];
+      else if (insertAfter === "__start__") newTemplates = [savedForm, ...templates];
+      else {
+        const idx = templates.findIndex(t => t.id === insertAfter);
+        const arr = [...templates];
+        arr.splice(idx + 1, 0, savedForm);
+        newTemplates = arr;
+      }
+      setTaskTemplates(newTemplates);
+      if (setVendors && vendors) {
+        setVendors(vs => vs.map(v => ({
+          ...v,
+          leadOverrides: { ...(v.leadOverrides || v.lead || {}), [form.phase]: form.daysBeforeDDP }
+        })));
+      }
+    } else {
+      const oldIdx = templates.findIndex(t => t.id === form.id);
+      const oldDays = templates[oldIdx]?.daysBeforeDDP ?? form.daysBeforeDDP;
+      const delta = savedForm.daysBeforeDDP - oldDays;
+
+      // Remove from old position, reinsert at new position
+      let arr = templates.filter(t => t.id !== form.id);
+      if (insertAfter === "__end__") arr = [...arr, savedForm];
+      else if (insertAfter === "__start__") arr = [savedForm, ...arr];
+      else {
+        const insertIdx = arr.findIndex(t => t.id === insertAfter);
+        arr.splice(insertIdx + 1, 0, savedForm);
+      }
+
+      // Cascade DDP delta to all tasks AFTER the edited one
+      if (delta !== 0) {
+        const editedNewIdx = arr.findIndex(t => t.id === form.id);
+        arr = arr.map((t, i) => i > editedNewIdx ? { ...t, daysBeforeDDP: Math.max(0, t.daysBeforeDDP + delta) } : t);
+      }
+
+      setTaskTemplates(arr);
+    }
+    setEditing(null);
+    setForm(null);
+  }
+  function deleteTemplate(id) {
+    appConfirm("You are about to delete this task template. This action cannot be undone.", "Delete", () => setTaskTemplates(templates.filter(t => t.id !== id)));
+  }
+  function moveUp(idx) {
+    if (idx === 0) return;
+    const arr = [...templates];
+    [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
+    setTaskTemplates(arr);
+  }
+  function moveDown(idx) {
+    if (idx === templates.length - 1) return;
+    const arr = [...templates];
+    [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
+    setTaskTemplates(arr);
+  }
+
+  if (editing !== null) return (
+    <div>
+      <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
+        <button onClick={() => { setEditing(null); setForm(null); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>← Back</button>
+        <span style={S.sec}>{editing === "new" ? "New Task Template" : "Edit Task Template"}</span>
+      </div>
+
+      {/* Row 1: Phase name + Position */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+        <div>
+          <label style={S.lbl}>Phase / Task Name *</label>
+          <input
+            style={S.inp}
+            value={form.phase}
+            onChange={e => setForm(f => ({ ...f, phase: e.target.value }))}
+            placeholder="e.g. Concept, Sampling, QC..."
+          />
+        </div>
+        <div>
+          <label style={S.lbl}>Position — Place After</label>
+          <select style={S.inp} value={insertAfter} onChange={e => handlePositionChange(e.target.value)}>
+            <option value="__start__">— Beginning (first task)</option>
+            {templates.filter(t => t.id !== form.id).map(t => <option key={t.id} value={t.id}>After: {t.phase}</option>)}
+            <option value="__end__">— End (last task)</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Row 2: Days Before DDP + Days to Complete */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+        <div>
+          <label style={S.lbl}>Days Before DDP</label>
+          <input
+            type="number"
+            min="0"
+            style={S.inp}
+            value={form.daysBeforeDDP}
+            onChange={e => handleDDPChange(parseInt(e.target.value) || 0)}
+          />
+          {(() => {
+            const prevD = prevDaysForPosition(insertAfter, editing !== "new" ? form.id : undefined);
+            const tpls = editing !== "new" ? templates.filter(t => t.id !== form.id) : templates;
+            const nextAfterPos = insertAfter === "__start__" ? tpls[0] : insertAfter === "__end__" ? null : tpls[tpls.findIndex(t => t.id === insertAfter) + 1];
+            if (!prevD && !nextAfterPos) return null;
+            return (
+              <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>
+                {prevD !== null ? `${prevD - form.daysBeforeDDP}d after prev` : ""}
+                {prevD !== null && nextAfterPos ? " · " : ""}
+                {nextAfterPos ? `${form.daysBeforeDDP - nextAfterPos.daysBeforeDDP}d before "${nextAfterPos.phase}"` : ""}
+              </div>
+            );
+          })()}
+        </div>
+        <div>
+          <label style={S.lbl}>Days to Complete Task</label>
+          <input
+            type="number"
+            min="0"
+            style={S.inp}
+            value={form.durationDays ?? 0}
+            onChange={e => handleDurationChange(parseInt(e.target.value) || 0)}
+          />
+          <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>
+            Gap between this task's due date and the previous task's due date. Changing this auto-updates Days Before DDP and cascades to subsequent tasks on save.
+          </div>
+        </div>
+      </div>
+
+      {/* Row 3: Status + (spacer) */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+        <div>
+          <label style={S.lbl}>Default Status</label>
+          <select style={S.inp} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+            {Object.keys(STATUS_CONFIG).map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div />
+      </div>
+
+      <label style={S.lbl}>Default Notes</label>
+      <textarea
+        style={{ ...S.inp, minHeight: 80, resize: "vertical" }}
+        value={form.notes}
+        onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+        placeholder="Optional default notes for this task..."
+      />
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+        <button onClick={() => { setEditing(null); setForm(null); }} style={{ padding: "9px 18px", borderRadius: 8, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+        <button disabled={!form.phase.trim()} onClick={saveForm} style={{ ...S.btn, opacity: form.phase.trim() ? 1 : 0.4 }}>Save Template</button>
+      </div>
+    </div>
+  );
+
+  const [tmTab, setTmTab] = useState("design");
+  const [wipTplsReadOnly, setWipTplsReadOnly] = useState([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
+        const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
+        const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.wip_templates&select=value`, {
+          headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` },
+        });
+        const rows = await res.json();
+        if (Array.isArray(rows) && rows.length > 0 && rows[0].value) {
+          const parsed = JSON.parse(rows[0].value);
+          if (Array.isArray(parsed) && parsed.length > 0) { setWipTplsReadOnly(parsed); return; }
+        }
+      } catch {}
+      setWipTplsReadOnly(DEFAULT_WIP_TEMPLATES_DC);
+    })();
+  }, []);
+
+  return (
+    <div>
+      {/* Tab bar */}
+      <div style={{ display: "flex", gap: 0, marginBottom: 16, borderBottom: `2px solid ${TH.border}` }}>
+        <button onClick={() => setTmTab("design")} style={{ padding: "8px 16px", border: "none", borderBottom: tmTab === "design" ? `2px solid ${TH.primary}` : "2px solid transparent", marginBottom: -2, background: "none", color: tmTab === "design" ? TH.primary : TH.textMuted, fontWeight: tmTab === "design" ? 700 : 400, cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}>
+          Design (editable)
+        </button>
+        <button onClick={() => setTmTab("production")} style={{ padding: "8px 16px", border: "none", borderBottom: tmTab === "production" ? `2px solid ${TH.primary}` : "2px solid transparent", marginBottom: -2, background: "none", color: tmTab === "production" ? TH.primary : TH.textMuted, fontWeight: tmTab === "production" ? 700 : 400, cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}>
+          Production (read-only)
+        </button>
+      </div>
+
+      {tmTab === "design" && (<>
+      <div style={{ marginBottom: 12, padding: "10px 14px", background: TH.primary + "08", border: `1px solid ${TH.primary}22`, borderRadius: 8, fontSize: 12, color: TH.textMuted, lineHeight: 1.5 }}>
+        <strong style={{ color: TH.text }}>Task Templates</strong> define which phases are auto-generated when a collection is created with a vendor. Vendors can override the default lead times. Order matters — tasks appear in this order on the timeline.
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+        <button onClick={startNew} style={S.btn}>+ Add Task Template</button>
+      </div>
+      <div style={{ display: "grid", gap: 6 }}>
+        {templates.map((tpl, idx) => (
+          <div key={tpl.id} style={{ ...S.card, display: "flex", alignItems: "center", gap: 10 }}>
+            {/* Reorder buttons */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <button onClick={() => moveUp(idx)} disabled={idx === 0} style={{ padding: "1px 6px", borderRadius: 4, border: `1px solid ${TH.border}`, background: "none", color: idx === 0 ? TH.border : TH.textMuted, cursor: idx === 0 ? "default" : "pointer", fontFamily: "inherit", fontSize: 11, lineHeight: 1 }}>▲</button>
+              <button onClick={() => moveDown(idx)} disabled={idx === templates.length - 1} style={{ padding: "1px 6px", borderRadius: 4, border: `1px solid ${TH.border}`, background: "none", color: idx === templates.length - 1 ? TH.border : TH.textMuted, cursor: idx === templates.length - 1 ? "default" : "pointer", fontFamily: "inherit", fontSize: 11, lineHeight: 1 }}>▼</button>
+            </div>
+            <div style={{ width: 24, height: 24, borderRadius: "50%", background: TH.primary + "15", color: TH.primary, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{idx + 1}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: TH.text }}>{tpl.phase}</div>
+              <div style={{ fontSize: 11, color: TH.textMuted }}>
+                {tpl.daysBeforeDDP}d before DDP
+                {idx > 0 ? ` · ${templates[idx - 1].daysBeforeDDP - tpl.daysBeforeDDP}d from "${templates[idx - 1].phase}"` : ""}
+                {tpl.durationDays ? ` · ${tpl.durationDays}d to complete` : ""}
+                {" "}· Default: {tpl.status}
+                {tpl.notes ? ` · "${tpl.notes.substring(0, 40)}${tpl.notes.length > 40 ? "…" : ""}"` : ""}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={() => startEdit(tpl)} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
+              <button onClick={() => deleteTemplate(tpl.id)} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
+            </div>
+          </div>
+        ))}
+        {templates.length === 0 && <div style={{ textAlign: "center", color: TH.textMuted, padding: "24px", fontSize: 13, border: `1px dashed ${TH.border}`, borderRadius: 10 }}>No templates yet. Add a task template to define what phases are generated per vendor.</div>}
+      </div>
+      </>)}
+
+      {tmTab === "production" && (<>
+      <div style={{ marginBottom: 12, padding: "10px 14px", background: TH.primary + "08", border: `1px solid ${TH.primary}22`, borderRadius: 8, fontSize: 12, color: TH.textMuted, lineHeight: 1.5 }}>
+        <strong style={{ color: TH.text }}>Production Milestone Templates</strong> are managed in the PO WIP app. This is a read-only view showing the current production milestone phases.
+      </div>
+      <div style={{ border: `1px solid ${TH.border}`, borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "40px 1fr 140px 120px", background: TH.surfaceHi, padding: "7px 14px", fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `1px solid ${TH.border}` }}>
+          <span>#</span><span>Phase</span><span style={{ textAlign: "center" }}>Category</span><span style={{ textAlign: "center" }}>Days Before DDP</span>
+        </div>
+        {wipTplsReadOnly.map((tpl, idx) => (
+          <div key={tpl.id || idx} style={{ display: "grid", gridTemplateColumns: "40px 1fr 140px 120px", padding: "8px 14px", borderBottom: idx < wipTplsReadOnly.length - 1 ? `1px solid ${TH.border}` : "none", alignItems: "center", background: idx % 2 === 0 ? "#fff" : TH.surfaceHi }}>
+            <span style={{ fontSize: 11, color: TH.textMuted }}>{idx + 1}</span>
+            <span style={{ fontSize: 13, color: TH.text }}>{tpl.phase}</span>
+            <span style={{ fontSize: 11, color: TH.textMuted, textAlign: "center" }}>{tpl.category}</span>
+            <span style={{ fontSize: 13, color: TH.text, textAlign: "center" }}>{tpl.daysBeforeDDP}</span>
+          </div>
+        ))}
+        {wipTplsReadOnly.length === 0 && <div style={{ padding: 20, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>No production templates found. Create them in the PO WIP app.</div>}
+      </div>
+      </>)}
+    </div>
+  );
+}
+
+
 function AddTaskModal({ tasks, vendors, team, collections, onSave, onClose }) {
-  const collOptions = [
-    ...new Set(tasks.map((t) => `${t.brand}||${t.collection}`)),
-  ];
+  const collOptions = [...new Set(tasks.map((t) => `${t.brand}||${t.collection}`))];
   const todayStr = new Date().toISOString().split("T")[0];
+
   const [form, setForm] = useState({
     collKey: collOptions[0] || "",
-    phase: "Custom",
+    phase: "",
     due: todayStr,
     status: "Not Started",
     assigneeId: "",
     notes: "",
+    insertAfter: "__end__",
+    daysBeforeDDP: 0,
+    daysToComplete: 0,
   });
   const setF = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-  function handleSave() {
-    if (!form.collKey || !form.phase || !form.due) return;
+  // Tasks in selected collection sorted by due date
+  const collTasks = form.collKey
+    ? [...tasks.filter(t => `${t.brand}||${t.collection}` === form.collKey)]
+        .sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : 0))
+    : [];
+
+  // Reference task for DDP/metadata
+  const refTask = (() => {
+    if (!form.collKey) return null;
     const [brand, collection] = form.collKey.split("||");
-    const refTask = tasks.find(
-      (t) => t.brand === brand && t.collection === collection
-    );
-    const newTask = {
-      id: uid(),
-      brand,
-      collection,
-      phase: form.phase,
-      due: form.due,
-      originalDue: form.due,
+    return tasks.find(t => t.brand === brand && t.collection === collection) || null;
+  })();
+
+  // Previous task based on insertAfter position
+  const prevTask = form.insertAfter === "__start__"
+    ? null
+    : form.insertAfter === "__end__"
+    ? collTasks[collTasks.length - 1] || null
+    : collTasks.find(t => t.id === form.insertAfter) || null;
+
+  // When position changes: auto-fill due + recompute linked fields
+  function handlePositionChange(val) {
+    let autoDue = form.due;
+    if (val === "__start__" && collTasks.length > 0) {
+      autoDue = addDays(collTasks[0].due, -14);
+    } else if (val === "__end__" && collTasks.length > 0) {
+      autoDue = addDays(collTasks[collTasks.length - 1].due, 14);
+    } else {
+      const idx = collTasks.findIndex(t => t.id === val);
+      const prev = collTasks[idx];
+      const next = collTasks[idx + 1];
+      autoDue = prev && next
+        ? addDays(prev.due, Math.max(1, Math.round(diffDays(next.due, prev.due) / 2)))
+        : prev ? addDays(prev.due, 14) : form.due;
+    }
+    const newPrev = val === "__start__" ? null : val === "__end__" ? collTasks[collTasks.length - 1] : collTasks.find(t => t.id === val);
+    const ddp = refTask?.ddpDate;
+    setForm(f => ({
+      ...f,
+      insertAfter: val,
+      due: autoDue,
+      daysBeforeDDP: ddp ? diffDays(ddp, autoDue) : f.daysBeforeDDP,
+      daysToComplete: newPrev ? diffDays(autoDue, newPrev.due) : 0,
+    }));
+  }
+
+  // When due date changes: recompute daysBeforeDDP + daysToComplete
+  function handleDueChange(v) {
+    const ddp = refTask?.ddpDate;
+    setForm(f => ({
+      ...f,
+      due: v,
+      daysBeforeDDP: ddp ? diffDays(ddp, v) : f.daysBeforeDDP,
+      daysToComplete: prevTask ? diffDays(v, prevTask.due) : f.daysToComplete,
+    }));
+  }
+
+  // When daysBeforeDDP changes: recompute due + daysToComplete
+  function handleDDPDaysChange(n) {
+    const ddp = refTask?.ddpDate;
+    if (!ddp) return;
+    const newDue = addDays(ddp, -n);
+    setForm(f => ({
+      ...f,
+      daysBeforeDDP: n,
+      due: newDue,
+      daysToComplete: prevTask ? diffDays(newDue, prevTask.due) : f.daysToComplete,
+    }));
+  }
+
+  // When daysToComplete changes: recompute due + daysBeforeDDP
+  function handleDaysToCompleteChange(n) {
+    if (!prevTask) return;
+    const newDue = addDays(prevTask.due, n);
+    const ddp = refTask?.ddpDate;
+    setForm(f => ({
+      ...f,
+      daysToComplete: n,
+      due: newDue,
+      daysBeforeDDP: ddp ? diffDays(ddp, newDue) : f.daysBeforeDDP,
+    }));
+  }
+
+  function handleSave() {
+    if (!form.collKey || !form.phase.trim() || !form.due) return;
+    const [brand, collection] = form.collKey.split("||");
+    const base = {
+      brand, collection,
       status: form.status,
       assigneeId: form.assigneeId || null,
       notes: form.notes,
@@ -7121,124 +8195,124 @@ function AddTaskModal({ tasks, vendors, team, collections, onSave, onClose }) {
       customer: refTask?.customer || "",
       orderType: refTask?.orderType || "",
       channelType: refTask?.channelType || "",
-      images: refTask?.images || [],
-      skus: [],
-      isCustomTask: true,
+      images: [], skus: [], history: [],
     };
-    onSave(newTask);
+    onSave({ id: uid(), ...base, phase: form.phase, due: form.due, originalDue: form.due, isCustomTask: true });
   }
+
+  const ddp = refTask?.ddpDate;
+  const canSave = !!form.collKey && !!form.phase.trim() && !!form.due;
 
   return (
     <Modal title="Add Task to Timeline" onClose={onClose}>
       <div>
+        {/* Collection — full width */}
         <label style={S.lbl}>Collection</label>
-        <select
-          style={S.inp}
-          value={form.collKey}
-          onChange={(e) => setF("collKey", e.target.value)}
-        >
+        <select style={S.inp} value={form.collKey} onChange={e => {
+          setF("collKey", e.target.value);
+          setF("insertAfter", "__end__");
+        }}>
           <option value="">-- Select Collection --</option>
-          {collOptions.map((k) => {
+          {collOptions.map(k => {
             const [brand, coll] = k.split("||");
-            const bObj = getBrand(brand);
-            return (
-              <option key={k} value={k}>
-                {bObj?.short} — {coll}
-              </option>
-            );
+            return <option key={k} value={k}>{getBrand(brand)?.short} — {coll}</option>;
           })}
         </select>
 
-        <label style={S.lbl}>Task / Phase Name</label>
-        <input
-          style={S.inp}
-          value={form.phase}
-          onChange={(e) => setF("phase", e.target.value)}
-          placeholder="e.g. Proto Review, Lab Dip, Final Approval…"
-        />
-
-        <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}
-        >
+        {/* Row 1: Phase Name | Position */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div>
-            <label style={S.lbl}>Due Date</label>
-            <DateInput
-              style={{ ...S.inp, marginBottom: 0 }}
-              value={form.due}
-              onChange={(v) => setF("due", v)}
+            <label style={S.lbl}>Phase / Task Name *</label>
+            <input
+              style={S.inp}
+              value={form.phase}
+              onChange={e => setF("phase", e.target.value)}
+              placeholder="e.g. Proto Review, Lab Dip…"
             />
           </div>
           <div>
-            <label style={S.lbl}>Status</label>
-            <select
-              style={{ ...S.inp, marginBottom: 0 }}
-              value={form.status}
-              onChange={(e) => setF("status", e.target.value)}
-            >
-              {Object.keys(STATUS_CONFIG).map((s) => (
-                <option key={s}>{s}</option>
-              ))}
+            <label style={S.lbl}>Position — Place After</label>
+            <select style={S.inp} value={form.insertAfter} onChange={e => handlePositionChange(e.target.value)}>
+              {collTasks.length === 0
+                ? <option value="__end__">— (no tasks yet) —</option>
+                : <>
+                    <option value="__start__">— Before all tasks —</option>
+                    {collTasks.map(t => <option key={t.id} value={t.id}>{t.phase} ({formatDate(t.due)})</option>)}
+                    <option value="__end__">— After all tasks —</option>
+                  </>
+              }
             </select>
           </div>
         </div>
-        <div style={{ height: 14 }} />
 
+        {/* Row 2: Due Date | Days Before DDP */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+          <div>
+            <label style={S.lbl}>Due Date</label>
+            <DateInput style={{ ...S.inp, marginBottom: 0 }} value={form.due} onChange={handleDueChange} />
+            {prevTask && (
+              <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>
+                {diffDays(form.due, prevTask.due)}d after "{prevTask.phase}"
+              </div>
+            )}
+          </div>
+          <div>
+            <label style={S.lbl}>
+              Days Before DDP
+              {!ddp && <span style={{ color: TH.textMuted, fontWeight: 400, textTransform: "none" }}> — no DDP set</span>}
+            </label>
+            <input
+              type="number" min="0"
+              style={{ ...S.inp, marginBottom: 0 }}
+              value={form.daysBeforeDDP}
+              disabled={!ddp}
+              onChange={e => handleDDPDaysChange(parseInt(e.target.value) || 0)}
+            />
+            {ddp && (
+              <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>
+                DDP: {formatDate(ddp)}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Row 3: Days to Complete | Status */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+          <div>
+            <label style={S.lbl}>
+              Days to Complete Task
+              {prevTask && <span style={{ color: TH.textMuted, fontWeight: 400, textTransform: "none" }}> from "{prevTask.phase}"</span>}
+            </label>
+            <input
+              type="number" min="0"
+              style={{ ...S.inp, marginBottom: 0 }}
+              value={form.daysToComplete}
+              disabled={!prevTask}
+              onChange={e => handleDaysToCompleteChange(parseInt(e.target.value) || 0)}
+            />
+            {!prevTask && <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>Select a position first</div>}
+          </div>
+          <div>
+            <label style={S.lbl}>Status</label>
+            <select style={{ ...S.inp, marginBottom: 0 }} value={form.status} onChange={e => setF("status", e.target.value)}>
+              {Object.keys(STATUS_CONFIG).map(s => <option key={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* Row 4: Assignee */}
         <label style={S.lbl}>Assignee</label>
-        <select
-          style={S.inp}
-          value={form.assigneeId}
-          onChange={(e) => setF("assigneeId", e.target.value)}
-        >
+        <select style={S.inp} value={form.assigneeId} onChange={e => setF("assigneeId", e.target.value)}>
           <option value="">-- None --</option>
-          {team.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name} ({m.role})
-            </option>
-          ))}
+          {team.map(m => <option key={m.id} value={m.id}>{m.name} ({m.role})</option>)}
         </select>
 
         <label style={S.lbl}>Notes</label>
-        <textarea
-          style={{ ...S.inp, height: 72, resize: "vertical" } as any}
-          value={form.notes}
-          onChange={(e) => setF("notes", e.target.value)}
-          placeholder="Optional notes…"
-        />
+        <textarea style={{ ...S.inp, height: 72, resize: "vertical" } as any} value={form.notes} onChange={e => setF("notes", e.target.value)} placeholder="Optional notes…" />
 
-        <div
-          style={{
-            display: "flex",
-            gap: 10,
-            justifyContent: "flex-end",
-            marginTop: 6,
-          }}
-        >
-          <button
-            onClick={onClose}
-            style={{
-              padding: "9px 22px",
-              borderRadius: 8,
-              border: `1px solid ${TH.border}`,
-              background: "none",
-              color: TH.textSub,
-              fontWeight: 600,
-              cursor: "pointer",
-              fontFamily: "inherit",
-              fontSize: 13,
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!form.collKey || !form.phase || !form.due}
-            style={{
-              ...S.btn,
-              opacity: !form.collKey || !form.phase || !form.due ? 0.5 : 1,
-            }}
-          >
-            Add Task
-          </button>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
+          <button onClick={onClose} style={{ padding: "9px 22px", borderRadius: 8, border: `1px solid ${TH.border}`, background: "none", color: TH.textSub, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}>Cancel</button>
+          <button onClick={handleSave} disabled={!canSave} style={{ ...S.btn, opacity: canSave ? 1 : 0.5 }}>Add Task</button>
         </div>
       </div>
     </Modal>
@@ -7884,83 +8958,22 @@ document.addEventListener('click',()=>{if(activeCtx){activeCtx.style.display='no
   );
 }
 
-// ─── COLLECTION IMAGE BUTTON (concept / sku submenu) ─────────────────────────
+// ─── COLLECTION ATTACHMENTS BUTTON ───────────────────────────────────────────
 function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
-  const [open, setOpen] = useState(false);
-  const [gallery, setGallery] = useState(null); // { title, images }
-  const ref = useRef(null);
+  const [showModal, setShowModal] = useState(false);
+  const [lightbox, setLightbox] = useState(null);
+  const [brandId, collName] = collKey.split("||");
 
-  useEffect(() => {
-    function handle(e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
-  }, []);
-
-  function openConcept(e) {
-    e.stopPropagation();
-    setOpen(false);
-    const [brandId, collName] = collKey.split("||");
-    const conceptTask = tasks.find(
-      (t) => `${t.brand}||${t.collection}` === collKey && t.phase === "Concept"
-    );
-    const imgs = (conceptTask?.images || collData?.conceptImages || []).map(
-      (img) => ({
-        ...img,
-        title: collName,
-        subtitle: "Concept Image",
-        meta: {
-          Brand: getBrand(brandId)?.name,
-          Season: conceptTask?.season || "",
-          Category: conceptTask?.category || "",
-          Customer: collData?.customer || conceptTask?.customer || "",
-        },
-      })
-    );
-    setGallery({ title: `Concept Images — ${collName}`, images: imgs });
-  }
-
-  function openSkus(e) {
-    e.stopPropagation();
-    setOpen(false);
-    const [brandId, collName] = collKey.split("||");
-    const refTask = tasks.find(
-      (t) => `${t.brand}||${t.collection}` === collKey
-    );
-    const skus = collData?.skus || [];
-    const imgs = [];
-    skus.forEach((sku) => {
-      if (sku.images?.length) {
-        sku.images.forEach((img) => {
-          imgs.push({
-            ...img,
-            title: sku.styleNum || "SKU",
-            subtitle: sku.description || "",
-            meta: {
-              Style: sku.styleNum || "",
-              Description: sku.description || "",
-              Colorways: sku.colorways || "",
-              Fabric: sku.fabric || "",
-              Units: sku.units ? String(sku.units) : "",
-              Season: refTask?.season || "",
-              Brand: getBrand(brandId)?.name || "",
-              Collection: collName,
-            },
-          });
-        });
-      }
-    });
-    setGallery({ title: `SKU Images — ${collName}`, images: imgs });
-  }
+  // All tasks in this collection
+  const collTasks = tasks.filter(t => `${t.brand}||${t.collection}` === collKey);
+  const totalAttachments = collTasks.reduce((a, t) => a + (t.images?.length || 0), 0);
+  const skus = collData?.skus || [];
+  const skuAttachments = skus.reduce((a, s) => a + (s.images?.length || 0), 0);
 
   return (
-    <div ref={ref} style={{ position: "relative", flex: 1 }}>
+    <>
       <button
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((v) => !v);
-        }}
+        onClick={(e) => { e.stopPropagation(); setShowModal(true); }}
         style={{
           width: "100%",
           padding: "4px 6px",
@@ -7974,454 +8987,251 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
           fontWeight: 700,
         }}
       >
-        🖼️ Images
+        📎 Attachments{(totalAttachments + skuAttachments) > 0 ? ` (${totalAttachments + skuAttachments})` : ""}
       </button>
-      {open && (
+
+      {showModal && (
         <div
-          style={{
-            position: "absolute",
-            bottom: "calc(100% + 6px)",
-            left: 0,
-            right: 0,
-            background: "#1A202C",
-            border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: 8,
-            boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
-            zIndex: 500,
-            overflow: "hidden",
-          }}
+          onClick={() => setShowModal(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 9000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
         >
-          {[
-            { label: "🎨 Concept Images", fn: openConcept },
-            { label: "👕 SKU Images", fn: openSkus },
-          ].map(({ label, fn }) => (
-            <button
-              key={label}
-              onClick={fn}
-              style={{
-                display: "block",
-                width: "100%",
-                padding: "9px 12px",
-                border: "none",
-                background: "none",
-                color: "rgba(255,255,255,0.85)",
-                cursor: "pointer",
-                fontFamily: "inherit",
-                fontSize: 11,
-                fontWeight: 600,
-                textAlign: "left",
-                borderBottom: "1px solid rgba(255,255,255,0.07)",
-              }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.background = "rgba(255,255,255,0.1)")
-              }
-              onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
-            >
-              {label}
-            </button>
-          ))}
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: "#fff", borderRadius: 14, width: "100%", maxWidth: 680, maxHeight: "80vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 60px rgba(0,0,0,0.4)" }}
+          >
+            {/* Header */}
+            <div style={{ padding: "18px 22px", borderBottom: "1px solid #E2E8F0", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#1A202C" }}>📎 Attachments — {collName}</div>
+                <div style={{ fontSize: 12, color: "#718096", marginTop: 2 }}>{totalAttachments + skuAttachments} total attachment{(totalAttachments + skuAttachments) !== 1 ? "s" : ""}</div>
+              </div>
+              <button onClick={() => setShowModal(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#718096", padding: "4px 8px" }}>✕</button>
+            </div>
+
+            {/* Body */}
+            <div style={{ overflowY: "auto", padding: "16px 22px", flex: 1 }}>
+              {collTasks.length === 0 && skus.length === 0 && (
+                <div style={{ textAlign: "center", color: "#718096", padding: 40, fontSize: 14 }}>No tasks in this collection yet.</div>
+              )}
+
+              {/* Tasks */}
+              {collTasks.map(t => (
+                <div key={t.id} style={{ marginBottom: 20 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#1A202C" }}>{t.phase}</div>
+                    <div style={{ fontSize: 11, color: "#718096" }}>· {t.status} · Due: {t.due || "—"}</div>
+                    {(t.images?.length || 0) === 0 && <div style={{ fontSize: 11, color: "#CBD5E0", marginLeft: "auto" }}>No attachments</div>}
+                  </div>
+                  {(t.images?.length || 0) > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {t.images.map((img, i) => {
+                        const isImage = img.name?.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i) || img.src?.startsWith("data:image") || img.src?.includes("supabase");
+                        const ext = (img.name || "").split(".").pop()?.toUpperCase() || "FILE";
+                        const fileIcons = { PDF: "📄", AI: "🎨", EPS: "🎨", PSD: "🖼️", SVG: "🔷" };
+                        return (
+                          <div
+                            key={i}
+                            onClick={() => isImage && setLightbox(img.src)}
+                            style={{ width: 72, height: 72, borderRadius: 8, overflow: "hidden", border: "1px solid #E2E8F0", cursor: isImage ? "zoom-in" : "default", flexShrink: 0, background: "#F7FAFC", display: "flex", alignItems: "center", justifyContent: "center" }}
+                          >
+                            {isImage
+                              ? <img src={img.src} alt={img.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                              : <div style={{ textAlign: "center", fontSize: 22 }}>{fileIcons[ext] || "📎"}<div style={{ fontSize: 9, color: "#718096", marginTop: 2 }}>{ext}</div></div>
+                            }
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div style={{ height: 1, background: "#EDF2F7", marginTop: 12 }} />
+                </div>
+              ))}
+
+              {/* SKU attachments */}
+              {skuAttachments > 0 && (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1A202C", marginBottom: 8 }}>👕 SKU Images</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {skus.flatMap(s => (s.images || []).map((img, i) => (
+                      <div
+                        key={`${s.styleNum}-${i}`}
+                        onClick={() => setLightbox(img.src)}
+                        style={{ width: 72, height: 72, borderRadius: 8, overflow: "hidden", border: "1px solid #E2E8F0", cursor: "zoom-in", flexShrink: 0 }}
+                      >
+                        <img src={img.src} alt={img.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      </div>
+                    )))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
-      {gallery && (
-        <ImageGalleryModal
-          title={gallery.title}
-          images={gallery.images}
-          onClose={() => setGallery(null)}
-        />
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div onClick={() => setLightbox(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center", cursor: "zoom-out" }}>
+          <img src={lightbox} alt="" style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 10, objectFit: "contain" }} onClick={e => e.stopPropagation()} />
+          <button onClick={() => setLightbox(null)} style={{ position: "fixed", top: 20, right: 20, background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", width: 36, height: 36, borderRadius: "50%", fontSize: 18, cursor: "pointer" }}>✕</button>
+        </div>
       )}
-    </div>
+    </>
   );
 }
 
-// ─── FILTER BAR with collapsible Brand + Season dropdowns ────────────────────
+
+// ─── FILTER BAR ─────────────────────────────────────────────────────────────
 function FilterBar({
-  brands,
-  seasons,
-  filterBrand,
-  setFilterBrand,
-  filterSeason,
-  setFilterSeason,
-  canViewAll,
+  brands, seasons, customers, vendors,
+  filterBrand, setFilterBrand,
+  filterSeason, setFilterSeason,
+  filterCustomer, setFilterCustomer,
+  filterVendor, setFilterVendor,
 }) {
-  const [brandOpen, setBrandOpen] = useState(false);
-  const [seasonOpen, setSeasonOpen] = useState(false);
-  const brandRef = useRef(null);
-  const seasonRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const [openSection, setOpenSection] = useState(null);
+  const ref = useRef(null);
 
   useEffect(() => {
     function handle(e) {
-      if (brandRef.current && !brandRef.current.contains(e.target))
-        setBrandOpen(false);
-      if (seasonRef.current && !seasonRef.current.contains(e.target))
-        setSeasonOpen(false);
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
     }
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
   }, []);
 
-  function toggleBrand(id) {
-    setFilterBrand((prev) => {
+  function toggle(set, val) {
+    set((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-  function toggleSeason(s) {
-    setFilterSeason((prev) => {
-      const next = new Set(prev);
-      if (next.has(s)) next.delete(s);
-      else next.add(s);
+      if (next.has(val)) next.delete(val); else next.add(val);
       return next;
     });
   }
 
-  const brandCount = filterBrand.size;
-  const seasonCount = filterSeason.size;
+  const totalActive = filterBrand.size + filterSeason.size + filterCustomer.size + filterVendor.size;
+  const hasActive = totalActive > 0;
 
-  const brandLabel =
-    brandCount === 0
-      ? "All Brands"
-      : brandCount === 1
-      ? brands.find((b) => filterBrand.has(b.id))?.short || "1 Brand"
-      : `${brandCount} Brands`;
+  // Build active filter chips for display
+  const activeChips = [
+    ...[...filterBrand].map(id => ({ label: brands.find(b => b.id === id)?.name || id, clear: () => toggle(setFilterBrand, id) })),
+    ...[...filterSeason].map(s => ({ label: s, clear: () => toggle(setFilterSeason, s) })),
+    ...[...filterCustomer].map(c => ({ label: c, clear: () => toggle(setFilterCustomer, c) })),
+    ...[...filterVendor].map(v => ({ label: v, clear: () => toggle(setFilterVendor, v) })),
+  ];
 
-  const seasonLabel =
-    seasonCount === 0
-      ? "All Seasons"
-      : seasonCount === 1
-      ? [...filterSeason][0]
-      : `${seasonCount} Seasons`;
-
-  const dropBtn = (label, isActive, onClick) => (
-    <button
-      onClick={onClick}
-      style={{
-        padding: "5px 12px",
-        borderRadius: 8,
-        border: `1px solid ${
-          isActive ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.15)"
-        }`,
-        background: isActive ? "rgba(255,255,255,0.12)" : "none",
-        color: isActive ? "#fff" : "rgba(255,255,255,0.7)",
-        cursor: "pointer",
-        fontFamily: "inherit",
-        fontSize: 12,
-        fontWeight: 600,
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        whiteSpace: "nowrap",
-        transition: "all 0.15s",
-      }}
-    >
-      {label}
-      <span style={{ fontSize: 9, opacity: 0.6 }}>▼</span>
-    </button>
-  );
-
-  const multiItem = (label, isChecked, onToggle, color) => (
-    <button
-      key={label}
-      onClick={(e) => {
-        e.stopPropagation();
-        onToggle();
-      }}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        width: "100%",
-        padding: "8px 14px",
-        border: "none",
-        background: isChecked ? "rgba(255,255,255,0.1)" : "none",
-        color: "rgba(255,255,255,0.85)",
-        cursor: "pointer",
-        fontFamily: "inherit",
-        fontSize: 12,
-        fontWeight: isChecked ? 700 : 500,
-        textAlign: "left",
-        borderBottom: "1px solid rgba(255,255,255,0.05)",
-      }}
-      onMouseEnter={(e) =>
-        (e.currentTarget.style.background = "rgba(255,255,255,0.08)")
-      }
-      onMouseLeave={(e) =>
-        (e.currentTarget.style.background = isChecked
-          ? "rgba(255,255,255,0.1)"
-          : "none")
-      }
-    >
-      <div
-        style={{
-          width: 14,
-          height: 14,
-          borderRadius: 3,
-          flexShrink: 0,
-          border: `2px solid ${isChecked ? "#fff" : "rgba(255,255,255,0.3)"}`,
-          background: isChecked ? "#fff" : "transparent",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        {isChecked && (
-          <span
-            style={{
-              fontSize: 9,
-              color: "#1A202C",
-              fontWeight: 900,
-              lineHeight: 1,
-            }}
-          >
-            ✓
-          </span>
+  const Section = ({ title, items, filterSet, setFilter, getKey, getLabel, getColor }) => {
+    const isOpen = openSection === title;
+    const activeCount = items.filter(i => filterSet.has(getKey(i))).length;
+    return (
+      <div>
+        <button
+          onClick={() => setOpenSection(isOpen ? null : title)}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            width: "100%", padding: "9px 14px", border: "none",
+            background: "none", color: activeCount > 0 ? "#fff" : "rgba(255,255,255,0.7)",
+            cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: activeCount > 0 ? 700 : 500,
+          }}
+          onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
+          onMouseLeave={e => e.currentTarget.style.background = "none"}
+        >
+          <span>{title}{activeCount > 0 ? ` (${activeCount})` : ""}</span>
+          <span style={{ opacity: 0.5, fontSize: 9 }}>{isOpen ? "▲" : "▼"}</span>
+        </button>
+        {isOpen && (
+          <div style={{ paddingBottom: 4 }}>
+            {items.map(i => {
+              const key = getKey(i);
+              const checked = filterSet.has(key);
+              const color = getColor ? getColor(i) : null;
+              return (
+                <button
+                  key={key}
+                  onClick={() => toggle(setFilter, key)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8, width: "100%",
+                    padding: "6px 14px 6px 28px", border: "none",
+                    background: checked ? "rgba(200,33,10,0.12)" : "none",
+                    color: checked ? "#fff" : "rgba(255,255,255,0.65)",
+                    cursor: "pointer", fontFamily: "inherit", fontSize: 12,
+                    fontWeight: checked ? 600 : 400, textAlign: "left",
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = checked ? "rgba(200,33,10,0.15)" : "rgba(255,255,255,0.06)"}
+                  onMouseLeave={e => e.currentTarget.style.background = checked ? "rgba(200,33,10,0.12)" : "none"}
+                >
+                  {color && <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />}
+                  {getLabel(i)}
+                  {checked && <span style={{ marginLeft: "auto", color: "#C8210A", fontSize: 13 }}>✓</span>}
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
-      {color && (
-        <span
-          style={{
-            width: 10,
-            height: 10,
-            borderRadius: "50%",
-            background: color,
-            flexShrink: 0,
-          }}
-        />
-      )}
-      {label}
-    </button>
-  );
-
-  const dropMenu: any = {
-    position: "absolute",
-    top: "calc(100% + 6px)",
-    left: 0,
-    background: "#1A202C",
-    border: "1px solid rgba(255,255,255,0.12)",
-    borderRadius: 10,
-    boxShadow: "0 8px 32px rgba(0,0,0,0.45)",
-    minWidth: 190,
-    zIndex: 999,
-    overflow: "hidden",
+    );
   };
 
+  const divider = <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "2px 0" }} />;
+
   return (
-    <div
-      style={{
-        padding: "10px 22px",
-        borderBottom: "1px solid rgba(255,255,255,0.1)",
-        display: "flex",
-        gap: 8,
-        alignItems: "center",
-        background: "#2D3748dd",
-        backdropFilter: "blur(8px)",
-      }}
-    >
-      {/* Brand multi-select dropdown */}
-      <div ref={brandRef} style={{ position: "relative" }}>
-        {dropBtn(`Brand: ${brandLabel}`, brandCount > 0, () => {
-          setBrandOpen((v) => !v);
-          setSeasonOpen(false);
-        })}
-        {brandOpen && (
-          <div style={dropMenu}>
-            {/* All Brands — clears selection */}
-            <button
-              onClick={() => {
-                setFilterBrand(new Set());
-              }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                width: "100%",
-                padding: "8px 14px",
-                border: "none",
-                background: brandCount === 0 ? "rgba(255,255,255,0.1)" : "none",
-                color: brandCount === 0 ? "#fff" : "rgba(255,255,255,0.6)",
-                cursor: "pointer",
-                fontFamily: "inherit",
-                fontSize: 12,
-                fontWeight: brandCount === 0 ? 700 : 500,
-                borderBottom: "1px solid rgba(255,255,255,0.08)",
-              }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.background = "rgba(255,255,255,0.08)")
-              }
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.background =
-                  brandCount === 0 ? "rgba(255,255,255,0.1)" : "none")
-              }
-            >
-              <div
-                style={{
-                  width: 14,
-                  height: 14,
-                  borderRadius: 3,
-                  flexShrink: 0,
-                  border: `2px solid ${
-                    brandCount === 0 ? "#fff" : "rgba(255,255,255,0.3)"
-                  }`,
-                  background: brandCount === 0 ? "#fff" : "transparent",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                {brandCount === 0 && (
-                  <span
-                    style={{
-                      fontSize: 9,
-                      color: "#1A202C",
-                      fontWeight: 900,
-                      lineHeight: 1,
-                    }}
-                  >
-                    ✓
-                  </span>
-                )}
-              </div>
-              All Brands
-            </button>
-            {brands.map((b) =>
-              multiItem(
-                b.name,
-                filterBrand.has(b.id),
-                () => toggleBrand(b.id),
-                b.color
-              )
-            )}
-          </div>
-        )}
-      </div>
-
-      <span
-        style={{
-          width: 1,
-          height: 18,
-          background: "rgba(255,255,255,0.15)",
-          flexShrink: 0,
-        }}
-      />
-
-      {/* Season multi-select dropdown */}
-      <div ref={seasonRef} style={{ position: "relative" }}>
-        {dropBtn(`Season: ${seasonLabel}`, seasonCount > 0, () => {
-          setSeasonOpen((v) => !v);
-          setBrandOpen(false);
-        })}
-        {seasonOpen && (
-          <div style={dropMenu}>
-            <button
-              onClick={() => {
-                setFilterSeason(new Set());
-              }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                width: "100%",
-                padding: "8px 14px",
-                border: "none",
-                background:
-                  seasonCount === 0 ? "rgba(255,255,255,0.1)" : "none",
-                color: seasonCount === 0 ? "#fff" : "rgba(255,255,255,0.6)",
-                cursor: "pointer",
-                fontFamily: "inherit",
-                fontSize: 12,
-                fontWeight: seasonCount === 0 ? 700 : 500,
-                borderBottom: "1px solid rgba(255,255,255,0.08)",
-              }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.background = "rgba(255,255,255,0.08)")
-              }
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.background =
-                  seasonCount === 0 ? "rgba(255,255,255,0.1)" : "none")
-              }
-            >
-              <div
-                style={{
-                  width: 14,
-                  height: 14,
-                  borderRadius: 3,
-                  flexShrink: 0,
-                  border: `2px solid ${
-                    seasonCount === 0 ? "#fff" : "rgba(255,255,255,0.3)"
-                  }`,
-                  background: seasonCount === 0 ? "#fff" : "transparent",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                {seasonCount === 0 && (
-                  <span
-                    style={{
-                      fontSize: 9,
-                      color: "#1A202C",
-                      fontWeight: 900,
-                      lineHeight: 1,
-                    }}
-                  >
-                    ✓
-                  </span>
-                )}
-              </div>
-              All Seasons
-            </button>
-            {seasons.map((s) =>
-              multiItem(s, filterSeason.has(s), () => toggleSeason(s), null)
-            )}
-          </div>
-        )}
-      </div>
-
-      {(brandCount > 0 || seasonCount > 0) && (
+    <div style={{ padding: "10px 22px", borderBottom: "1px solid rgba(255,255,255,0.1)", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", background: "#2D3748dd", backdropFilter: "blur(8px)", position: "sticky", top: 64, zIndex: 99 }}>
+      {/* Filters button */}
+      <div ref={ref} style={{ position: "relative" }}>
         <button
-          onClick={() => {
-            setFilterBrand(new Set());
-            setFilterSeason(new Set());
-          }}
+          onClick={() => setOpen(v => !v)}
           style={{
-            padding: "4px 10px",
-            borderRadius: 6,
-            border: "1px solid rgba(255,255,255,0.15)",
-            background: "none",
-            color: "rgba(255,255,255,0.5)",
-            cursor: "pointer",
-            fontFamily: "inherit",
-            fontSize: 11,
+            padding: "5px 12px", borderRadius: 8,
+            border: `1px solid ${hasActive ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.15)"}`,
+            background: hasActive ? "rgba(255,255,255,0.12)" : "none",
+            color: hasActive ? "#fff" : "rgba(255,255,255,0.7)",
+            cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600,
+            display: "flex", alignItems: "center", gap: 6,
           }}
         >
-          ✕ Clear
+          🔽 Filters
+          {hasActive && (
+            <span style={{ background: "#C8210A", color: "#fff", borderRadius: 10, fontSize: 10, padding: "1px 6px", fontWeight: 700 }}>
+              {totalActive}
+            </span>
+          )}
         </button>
-      )}
+        {open && (
+          <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, background: "#1A202C", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, boxShadow: "0 8px 32px rgba(0,0,0,0.45)", minWidth: 200, zIndex: 999, paddingBottom: 8 }}>
+            <Section title="Brand" items={brands} filterSet={filterBrand} setFilter={setFilterBrand} getKey={b => b.id} getLabel={b => b.name} getColor={b => b.color} />
+            {divider}
+            <Section title="Season" items={seasons} filterSet={filterSeason} setFilter={setFilterSeason} getKey={s => s} getLabel={s => s} getColor={null} />
+            {divider}
+            <Section title="Customer" items={customers.map(c => typeof c === "string" ? c : c.name)} filterSet={filterCustomer} setFilter={setFilterCustomer} getKey={c => c} getLabel={c => c} getColor={null} />
+            {divider}
+            <Section title="Vendor" items={vendors.map(v => v.name)} filterSet={filterVendor} setFilter={setFilterVendor} getKey={v => v} getLabel={v => v} getColor={null} />
+            {hasActive && (
+              <div style={{ padding: "8px 14px 0", borderTop: "1px solid rgba(255,255,255,0.08)", marginTop: 4 }}>
+                <button
+                  onClick={() => { setFilterBrand(new Set()); setFilterSeason(new Set()); setFilterCustomer(new Set()); setFilterVendor(new Set()); setOpen(false); }}
+                  style={{ width: "100%", padding: "7px", borderRadius: 7, border: "1px solid rgba(255,255,255,0.15)", background: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}
+                >
+                  ✕ Clear All Filters
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
-      {!canViewAll && (
-        <span
-          style={{
-            marginLeft: "auto",
-            fontSize: 11,
-            color: TH.primary,
-            background: TH.primary + "15",
-            border: `1px solid ${TH.primary}44`,
-            padding: "3px 10px",
-            borderRadius: 20,
-            fontWeight: 600,
-            whiteSpace: "nowrap",
-          }}
-        >
-          👁 My Tasks Only
-        </span>
-      )}
+      {/* Active filter chips shown to the right */}
+      {activeChips.map((chip, i) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: "rgba(200,33,10,0.2)", border: "1px solid rgba(200,33,10,0.4)", borderRadius: 20, padding: "3px 8px 3px 10px", fontSize: 11, color: "#fff", fontWeight: 500 }}>
+          {chip.label}
+          <button onClick={chip.clear} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer", padding: 0, fontSize: 12, lineHeight: 1, marginLeft: 2 }}>✕</button>
+        </div>
+      ))}
     </div>
   );
 }
 
 // ─── MICROSOFT TEAMS VIEW ─────────────────────────────────────────────────────
-function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, teamsToken, setTeamsToken, teamsTokenExpiry, setTeamsTokenExpiry, showTeamsConfig, setShowTeamsConfig, getBrand }) {
+function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, teamsToken, setTeamsToken, showTeamsConfig, setShowTeamsConfig, getBrand }) {
   const [selectedCollKey, setSelectedCollKey] = useState(null);
   const [messages, setMessages] = useState({});
   const [loading, setLoading] = useState({});
@@ -8438,22 +9248,8 @@ function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, te
   const [selectedMsg, setSelectedMsg] = useState(null);
   const [replies, setReplies] = useState([]);
   const [loadingReplies, setLoadingReplies] = useState(false);
-  const [nextLinks, setNextLinks] = useState<Record<string, string | null>>({});
-  const [loadingOlder, setLoadingOlder] = useState(false);
-  const [lastRefresh, setLastRefresh] = useState<Record<string, number>>({});
-  const [sendError, setSendError] = useState<string | null>(null);
   const token = teamsToken;
   const cfg = teamsConfig;
-
-  function tokenIsValid() {
-    return !!token && (!teamsTokenExpiry || Date.now() < teamsTokenExpiry);
-  }
-
-  function handleTokenExpired() {
-    setTeamsToken(null);
-    setTeamsTokenExpiry(null);
-    setAuthStatus("idle");
-  }
 
   async function authenticate() {
     if (!cfg.clientId || !cfg.tenantId) { setAuthStatus("error"); return; }
@@ -8464,37 +9260,27 @@ function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, te
         "&scope=" + encodeURIComponent(["https://graph.microsoft.com/ChannelMessage.Read.All","https://graph.microsoft.com/Team.ReadBasic.All","https://graph.microsoft.com/Channel.ReadBasic.All","https://graph.microsoft.com/ChannelMessage.Send","https://graph.microsoft.com/Mail.Read","https://graph.microsoft.com/Mail.Send"].join(" ")) +
         "&response_mode=fragment&prompt=select_account";
       const popup = window.open(authUrl, "msauth", "width=500,height=700,left=400,top=100");
-      const { accessToken, expiresIn } = await new Promise<{ accessToken: string; expiresIn: number }>((resolve, reject) => {
+      const result = await new Promise((resolve, reject) => {
         const timer = setInterval(() => {
           try {
             if (popup.closed) { clearInterval(timer); reject(new Error("Popup closed")); return; }
             const hash = popup.location.hash;
-            if (hash && hash.includes("access_token")) {
-              clearInterval(timer); popup.close();
-              const params = new URLSearchParams(hash.substring(1));
-              resolve({ accessToken: params.get("access_token")!, expiresIn: parseInt(params.get("expires_in") || "3600", 10) });
-            }
+            if (hash && hash.includes("access_token")) { clearInterval(timer); popup.close(); resolve(new URLSearchParams(hash.substring(1)).get("access_token")); }
           } catch (_) {}
         }, 300);
         setTimeout(() => { clearInterval(timer); if (!popup.closed) popup.close(); reject(new Error("Timeout")); }, 120000);
       });
-      setTeamsToken(accessToken);
-      setTeamsTokenExpiry(Date.now() + expiresIn * 1000);
-      setAuthStatus("ok");
+      setTeamsToken(result); setAuthStatus("ok");
     } catch (e) { setAuthStatus("error"); }
   }
 
   async function graph(path) {
-    if (!tokenIsValid()) { handleTokenExpired(); throw new Error("Token expired — please sign in again"); }
     const r = await fetch("https://graph.microsoft.com/v1.0" + path, { headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" } });
-    if (r.status === 401) { handleTokenExpired(); throw new Error("Session expired — please sign in again"); }
     if (!r.ok) throw new Error("Graph " + r.status + ": " + await r.text());
     return r.json();
   }
   async function graphPost(path, body) {
-    if (!tokenIsValid()) { handleTokenExpired(); throw new Error("Token expired — please sign in again"); }
     const r = await fetch("https://graph.microsoft.com/v1.0" + path, { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    if (r.status === 401) { handleTokenExpired(); throw new Error("Session expired — please sign in again"); }
     if (!r.ok) throw new Error("Graph " + r.status + ": " + await r.text());
     return r.json();
   }
@@ -8518,26 +9304,13 @@ function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, te
     const updated = { ...cfg, channelMap: nm };
     setTeamsConfig(updated); try { localStorage.setItem("teamsConfig", JSON.stringify(updated)); } catch(_) {}
   }
-  async function loadMessages(collKey, olderUrl?: string) {
+  async function loadMessages(collKey) {
     const mapping = cfg.channelMap[collKey];
     if (!mapping || !token) return;
-    if (olderUrl) { setLoadingOlder(true); } else { setLoading(l => ({ ...l, [collKey]: true })); }
-    setErrors(e => ({ ...e, [collKey]: null }));
-    try {
-      const url = olderUrl || ("/teams/" + mapping.teamId + "/channels/" + mapping.channelId + "/messages?$top=50");
-      const d = await graph(url);
-      const filtered = (d.value || []).filter((m: any) => m.messageType === "message");
-      if (olderUrl) {
-        setMessages(m => ({ ...m, [collKey]: [...(m[collKey] || []), ...filtered] }));
-      } else {
-        setMessages(m => ({ ...m, [collKey]: filtered }));
-      }
-      setNextLinks(nl => ({ ...nl, [collKey]: d["@odata.nextLink"] ? d["@odata.nextLink"].replace("https://graph.microsoft.com/v1.0", "") : null }));
-      setLastRefresh(lr => ({ ...lr, [collKey]: Date.now() }));
-    }
-    catch(e: any) { setErrors(err => ({ ...err, [collKey]: e.message })); }
+    setLoading(l => ({ ...l, [collKey]: true })); setErrors(e => ({ ...e, [collKey]: null }));
+    try { const d = await graph("/teams/" + mapping.teamId + "/channels/" + mapping.channelId + "/messages?$top=50"); setMessages(m => ({ ...m, [collKey]: (d.value || []).filter(m => m.messageType === "message") })); }
+    catch(e) { setErrors(err => ({ ...err, [collKey]: e.message })); }
     setLoading(l => ({ ...l, [collKey]: false }));
-    setLoadingOlder(false);
   }
   async function loadReplies(collKey, messageId) {
     const mapping = cfg.channelMap[collKey];
@@ -8550,17 +9323,15 @@ function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, te
   async function sendMessage(collKey) {
     const mapping = cfg.channelMap[collKey];
     if (!mapping || !newMsg.trim() || !token) return;
-    setSendError(null);
     try { const sent = await graphPost("/teams/" + mapping.teamId + "/channels/" + mapping.channelId + "/messages", { body: { content: newMsg.trim(), contentType: "text" } }); setMessages(m => ({ ...m, [collKey]: [sent, ...(m[collKey] || [])] })); setNewMsg(""); }
-    catch(e: any) { setSendError("Failed to send: " + e.message); }
+    catch(e) { alert("Failed to send: " + e.message); }
   }
   async function sendReply(collKey, messageId) {
     const mapping = cfg.channelMap[collKey];
     const text = replyText[messageId] || "";
     if (!mapping || !text.trim() || !token) return;
-    setSendError(null);
     try { const sent = await graphPost("/teams/" + mapping.teamId + "/channels/" + mapping.channelId + "/messages/" + messageId + "/replies", { body: { content: text.trim(), contentType: "text" } }); setReplies(r => [...r, sent]); setReplyText(r => ({ ...r, [messageId]: "" })); }
-    catch(e: any) { setSendError("Failed to reply: " + e.message); }
+    catch(e) { alert("Failed to reply: " + e.message); }
   }
   function saveConfig() {
     setTeamsConfig(configForm); try { localStorage.setItem("teamsConfig", JSON.stringify(configForm)); } catch(_) {}
@@ -8569,15 +9340,6 @@ function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, te
 
   useEffect(() => { if (token) loadTeams(); }, [token]);
   useEffect(() => { if (selectedCollKey && token) loadMessages(selectedCollKey); }, [selectedCollKey, token]);
-
-  // Auto-refresh messages every 30 seconds
-  useEffect(() => {
-    if (!selectedCollKey || !tokenIsValid() || !cfg.channelMap[selectedCollKey]) return;
-    const interval = setInterval(() => {
-      if (tokenIsValid()) loadMessages(selectedCollKey);
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [selectedCollKey, token, teamsTokenExpiry]);
 
   const selectedColl = selectedCollKey ? collMap[selectedCollKey] : null;
   const brand = selectedColl ? getBrand(selectedColl.brand) : null;
@@ -8623,7 +9385,7 @@ function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, te
             {token ? (
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 11, color: "#065F46", fontWeight: 600 }}>✓ Connected to Microsoft Teams</span>
-                <button onClick={() => { setTeamsToken(null); setTeamsTokenExpiry(null); setAuthStatus("idle"); }} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 5, border: "1px solid #6EE7B7", background: "none", color: "#065F46", cursor: "pointer", fontFamily: "inherit" }}>Sign out</button>
+                <button onClick={() => { setTeamsToken(null); setAuthStatus("idle"); }} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 5, border: "1px solid #6EE7B7", background: "none", color: "#065F46", cursor: "pointer", fontFamily: "inherit" }}>Sign out</button>
               </div>
             ) : (
               <div>
@@ -8684,7 +9446,6 @@ function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, te
                     {mapping ? (
                       <>
                         <span style={{ fontSize: 11, color: "#065F46", background: "#D1FAE5", padding: "3px 8px", borderRadius: 6 }}>Channel linked</span>
-                        {lastRefresh[selectedCollKey] && <span style={{ fontSize: 10, color: TH.textMuted }}>Updated {Math.round((Date.now() - lastRefresh[selectedCollKey]) / 1000)}s ago</span>}
                         <button onClick={() => loadMessages(selectedCollKey)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid " + TH.border, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit" }}>↻ Refresh</button>
                         <button onClick={() => unmapChannel(selectedCollKey)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit" }}>Unlink</button>
                       </>
@@ -8754,11 +9515,7 @@ function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, te
                       {msgs.map(msg => {
                         const author = (msg.from && msg.from.user && msg.from.user.displayName) || "Unknown";
                         const initials = author.split(" ").map(w => w[0] || "").join("").toUpperCase().slice(0, 2);
-                        const rawHtml = ((msg.body && msg.body.content) || "");
-                        const clean = rawHtml.replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n").replace(/<[^>]+>/g, "").trim();
-                        const links: Array<{ href: string; text: string }> = [];
-                        rawHtml.replace(/<a[^>]+href="([^"]*)"[^>]*>([^<]*)<\/a>/gi, (_, href, text) => { links.push({ href, text }); return ""; });
-                        const attachments = (msg.attachments || []).map((a: any) => a.name || a.contentType || "Attachment");
+                        const clean = ((msg.body && msg.body.content) || "").replace(/<[^>]+>/g, "").trim();
                         const time = msg.createdDateTime ? new Date(msg.createdDateTime).toLocaleString() : "";
                         return (
                           <div key={msg.id} style={{ background: "#fff", border: "1px solid " + TH.border, borderRadius: 10, padding: "12px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
@@ -8769,18 +9526,13 @@ function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, te
                                   <span style={{ fontSize: 13, fontWeight: 700, color: TH.text }}>{author}</span>
                                   <span style={{ fontSize: 11, color: TH.textMuted }}>{time}</span>
                                 </div>
-                                <div style={{ fontSize: 13, color: TH.textSub, lineHeight: 1.5, wordBreak: "break-word", whiteSpace: "pre-wrap" }}>{clean || "[Attachment or card]"}</div>
-                                {links.length > 0 && <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 6 }}>{links.map((l, i) => <a key={i} href={l.href} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: TH.primary }}>{l.text || l.href}</a>)}</div>}
-                                {attachments.length > 0 && <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 6 }}>{attachments.map((name, i) => <span key={i} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 6, background: TH.surfaceHi, border: "1px solid " + TH.border, color: TH.textMuted }}>📎 {name}</span>)}</div>}
+                                <div style={{ fontSize: 13, color: TH.textSub, lineHeight: 1.5, wordBreak: "break-word" }}>{clean || "[Attachment or card]"}</div>
                                 <button onClick={() => loadReplies(selectedCollKey, msg.id)} style={{ marginTop: 6, fontSize: 11, padding: "3px 9px", borderRadius: 6, border: "1px solid " + TH.border, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit" }}>💬 View Thread</button>
                               </div>
                             </div>
                           </div>
                         );
                       })}
-                      {nextLinks[selectedCollKey] && (
-                        <button onClick={() => loadMessages(selectedCollKey, nextLinks[selectedCollKey]!)} disabled={loadingOlder} style={{ ...S.btn, width: "100%", padding: "10px", opacity: loadingOlder ? 0.6 : 1, fontSize: 12 }}>{loadingOlder ? "Loading…" : "Load older messages"}</button>
-                      )}
                     </div>
                   )
                 ) : (
@@ -8796,9 +9548,7 @@ function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, te
                         {replies.map(r => {
                           const author = (r.from && r.from.user && r.from.user.displayName) || "Unknown";
                           const initials = author.split(" ").map(w => w[0] || "").join("").toUpperCase().slice(0, 2);
-                          const rawHtml = ((r.body && r.body.content) || "");
-                          const clean = rawHtml.replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n").replace(/<[^>]+>/g, "").trim();
-                          const attachments = (r.attachments || []).map((a: any) => a.name || a.contentType || "Attachment");
+                          const clean = ((r.body && r.body.content) || "").replace(/<[^>]+>/g, "").trim();
                           const time = r.createdDateTime ? new Date(r.createdDateTime).toLocaleString() : "";
                           return (
                             <div key={r.id} style={{ background: TH.surfaceHi, border: "1px solid " + TH.border, borderRadius: 8, padding: "10px 14px" }}>
@@ -8809,8 +9559,7 @@ function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, te
                                     <span style={{ fontSize: 12, fontWeight: 700, color: TH.text }}>{author}</span>
                                     <span style={{ fontSize: 10, color: TH.textMuted }}>{time}</span>
                                   </div>
-                                  <div style={{ fontSize: 12, color: TH.textSub, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{clean || "[Attachment]"}</div>
-                                  {attachments.length > 0 && <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 4 }}>{attachments.map((name, i) => <span key={i} style={{ fontSize: 10, padding: "1px 6px", borderRadius: 5, background: TH.surface, border: "1px solid " + TH.border, color: TH.textMuted }}>📎 {name}</span>)}</div>}
+                                  <div style={{ fontSize: 12, color: TH.textSub, lineHeight: 1.5 }}>{clean || "[Attachment]"}</div>
                                 </div>
                               </div>
                             </div>
@@ -8829,17 +9578,9 @@ function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, te
               </div>
 
               {mapping && token && msgTab === "channel" && (
-                <div style={{ borderTop: "1px solid " + TH.border, background: "#fff", flexShrink: 0 }}>
-                  {sendError && (
-                    <div style={{ padding: "6px 20px", background: "#FEF2F2", borderBottom: "1px solid #FCA5A5", display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 12, color: "#B91C1C", flex: 1 }}>⚠ {sendError}</span>
-                      <button onClick={() => setSendError(null)} style={{ fontSize: 11, border: "none", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontWeight: 700 }}>✕</button>
-                    </div>
-                  )}
-                  <div style={{ padding: "12px 20px", display: "flex", gap: 10 }}>
-                    <input value={newMsg} onChange={e => setNewMsg(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(selectedCollKey); }}} placeholder={"Message " + (selectedColl ? selectedColl.collection : "") + "…"} style={{ ...S.inp, flex: 1, marginBottom: 0 }} />
-                    <button onClick={() => sendMessage(selectedCollKey)} disabled={!newMsg.trim()} style={{ ...S.btn, opacity: newMsg.trim() ? 1 : 0.5 }}>Send</button>
-                  </div>
+                <div style={{ padding: "12px 20px", borderTop: "1px solid " + TH.border, background: "#fff", display: "flex", gap: 10, flexShrink: 0 }}>
+                  <input value={newMsg} onChange={e => setNewMsg(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(selectedCollKey); }}} placeholder={"Message " + (selectedColl ? selectedColl.collection : "") + "…"} style={{ ...S.inp, flex: 1, marginBottom: 0 }} />
+                  <button onClick={() => sendMessage(selectedCollKey)} disabled={!newMsg.trim()} style={{ ...S.btn, opacity: newMsg.trim() ? 1 : 0.5 }}>Send</button>
                 </div>
               )}
             </>
@@ -9277,85 +10018,185 @@ function OutlookView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, 
   );
 }
 
+
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
+
+// usePersistSb must be defined outside App so React hooks rules are satisfied
+// It references sbSave which is passed as a parameter
+function usePersistSb(initial, sbKey, sbSaveFn) {
+  const [val, setVal] = useState(initial);
+  const setter = (updater) => {
+    setVal((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      if (sbSaveFn) sbSaveFn(sbKey, next);
+      return next;
+    });
+  };
+  return [val, setter];
+}
+
 export default function App() {
-  // ── Dropbox persistence ───────────────────────────────────────────────────
-  const DBX_TOKEN = "sl.u.AGUcjMEcACemDUZHoLi92xdgZ13WI8iSDzLrDH79Xgcn7fQKuN8tfpn01xSY-JhTMgcNe-tGiNYqsVkrbII3NoWk0KO1MumGTJV1CX1DZb7qCUFR9lOlx9oQoAtuuAiMockw9inV9CuMwsVRIAA7h5qrrjKqAZ65SfmWt0bq73FFlircuF1x7LkEsABbzJGznX7y5q8Qo76unECnZw_QOKIF7JeYlshwpIbb-6i4qktHbqbOZ5lHEe5U2nuCmE1QVj80sMPoFvcRTa-D1WptAgnL_gHlZqnsLppUPlJ17RVpoXfmF5qkxC6q3P_d5Et2x_4MUKPAeeMc9cGp2vHZBITl5Uqs472avmEnAaa8Ob9g7eeJIIVcQOlg7gXwgpeoxeyuTYHGaAeOiyoNCihv8QBP3SPTA0HnK0KnaXLixBddFtUo97JPVxMDeEsdEeiXqooalU2qJ_BAqOHbk6zUEb3EaZa-2LpslUdktWiP6YaGJgUePX-2JBS4BmN_rfIjVlsikaObNC1U9hhX1ea0FHuThyzijnVqVdze9-fcFszuvJIar3eXf7tzXPzW_JahCXJr-eMdNx68Bpu7Bj-485LL_P0F09mhS219DTWoBVoflXSOF9UE8eE8kiybDGL__qfFfRJwB_-8qEFoDRj1f-wcrWxRYx16yZdiEYBXaMM7KR83Fhiru2gFNFSExAERAqZdBC_PWIicVhHl7nRkAMnlZ7Wu9uu3CGA1v_MqXXgXxvqaqpWlMJxjJMyNHZfA5Th3VwA9NNgB3nOK0umNT8BUVx371VRqreNByWsme6Ara66ZRd9EuPwFQAoz3-q64KqgbfRRiPWjv7edgi6e49BEUBE26B7e1XW2muTnJxncZfp8jF3g9g0P5pBiNf9Z_7w5gXRyU2ZhfNuHrb2epYnBQrq_LyEOsZC2aG2cQgyqRr5-6vdsH0giZoXneSUCqEsuaNmIgY7zLb9gd98oRy1DnwcEpwJY7Ja_lzwMKR9-Bc9MPLt9x_zYQKYR7TRTFOPQDLCtce6wJ4o5r5AbYmn0Vo33ceURUtI6_I3fRH1Bv3W7pydx9QAgI2BVF-2OD2Rwzai2MUghm3yUah-wYjbQGao7VYRT9h7Fcr--qW8W0GYMgGZYbO7_J7A5KixWGA375AH3-_4L4n87IlfxNqd8nvEb7e2hABTrznLm1dgMzYBCSF-O7tFEr24TzWfsA9L0awYgw1v2qN-9-eESJphwJ6KyYNa78ar2cCgc6M6Xsnza8fZJa-BcJrBI-gW_Y830PoQMtsCtgglC4KBu6W0sAwzgr98EKjOgGHNB7Le0qzLO-HAFUyepGOZ2q3bVU0_poNEgEfjpXanfvDtAxZ00Jjdn5AhKumbb9gwxnEmKgAIRmf9eOxr99jABC4Y6GdtBMX3PV6MHRB1N0W11-HpFtO6tTZ5Ui-YEWYPfZfuwqyMG2poXqlepeJNpbTPT65bjtOpMTAb6LZ23M5ezFEOf";
-  
-  async function dbxUpload(filename, data) {
-    console.log("[DBX] uploading:", filename);
+  // ── Confirm modal state ────────────────────────────────────────────────
+  const [confirmState, setConfirmState] = useState<{ message: string; action: string; onConfirm: () => void } | null>(null);
+  _showConfirm = (opts) => setConfirmState(opts);
+
+  // ── Supabase persistence ─────────────────────────────────────────────────
+  const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
+  const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
+
+  // ── Key-value store for reference data (users, brands, vendors etc) ───────
+  async function sbSave(key, value) {
     try {
-      const res = await fetch("https://content.dropboxapi.com/2/files/upload", {
+      await fetch(`${SB_URL}/rest/v1/app_data`, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${DBX_TOKEN}`,
-          "Dropbox-API-Arg": JSON.stringify({
-            path: `/${filename}`,
-            mode: "overwrite",
-            autorename: false,
-            mute: true,
-          }),
-          "Content-Type": "application/octet-stream",
+          "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`,
+          "Content-Type": "application/json",
+          "Prefer": "resolution=merge-duplicates,return=minimal",
         },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ key, value: JSON.stringify(value) }),
       });
-      const txt = await res.text();
-      if (!res.ok) {
-        console.error("[DBX] upload FAILED", res.status, txt);
-      } else {
-        console.log("[DBX] upload OK:", filename);
-      }
-    } catch (e) { console.error("[DBX] upload ERROR:", e); }
+    } catch(e) { console.error("[SB] save error:", key, e); }
   }
 
-  async function dbxDownload(filename) {
-    console.log("[DBX] downloading:", filename);
+  async function sbLoad(key) {
     try {
-      const res = await fetch("https://content.dropboxapi.com/2/files/download", {
+      const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.${key}&select=value`, {
+        headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` },
+      });
+      if (!res.ok) return null;
+      const rows = await res.json();
+      return rows.length ? JSON.parse(rows[0].value) : null;
+    } catch(e) { return null; }
+  }
+
+  // ── Individual row operations for tasks (fast upsert/delete) ─────────────
+  async function sbSaveTask(task) {
+    try {
+      // Store entire task as jsonb in the data column, id as primary key
+      await fetch(`${SB_URL}/rest/v1/tasks`, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${DBX_TOKEN}`,
-          "Dropbox-API-Arg": JSON.stringify({ path: `/${filename}` }),
+          "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`,
+          "Content-Type": "application/json",
+          "Prefer": "resolution=merge-duplicates,return=minimal",
         },
+        body: JSON.stringify({ id: task.id, data: task }),
       });
-      if (!res.ok) {
-        const txt = await res.text();
-        console.warn("[DBX] download FAILED", filename, res.status, txt);
-        return null;
-      }
-      const text = await res.text();
-      console.log("[DBX] download OK:", filename);
-      return JSON.parse(text);
-    } catch (e) { console.error("[DBX] download ERROR:", filename, e); return null; }
+    } catch(e) { console.error("[SB] save task error:", e); }
+  }
+
+  async function sbDeleteTask(id) {
+    try {
+      await fetch(`${SB_URL}/rest/v1/tasks?id=eq.${id}`, {
+        method: "DELETE",
+        headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` },
+      });
+    } catch(e) { console.error("[SB] delete task error:", e); }
+  }
+
+  async function sbLoadTasks() {
+    try {
+      const res = await fetch(`${SB_URL}/rest/v1/tasks?select=data`, {
+        headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` },
+      });
+      if (!res.ok) return null;
+      const rows = await res.json();
+      return rows.map(r => r.data);
+    } catch(e) { return null; }
+  }
+
+  // ── Individual row operations for collections ─────────────────────────────
+  async function sbSaveCollection(key, data) {
+    try {
+      await fetch(`${SB_URL}/rest/v1/collections`, {
+        method: "POST",
+        headers: {
+          "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`,
+          "Content-Type": "application/json",
+          "Prefer": "resolution=merge-duplicates,return=minimal",
+        },
+        body: JSON.stringify({ id: key, data }),
+      });
+    } catch(e) { console.error("[SB] save collection error:", e); }
+  }
+
+  async function sbLoadCollections() {
+    try {
+      const res = await fetch(`${SB_URL}/rest/v1/collections?select=id,data`, {
+        headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` },
+      });
+      if (!res.ok) return null;
+      const rows = await res.json();
+      const obj = {};
+      rows.forEach(r => { obj[r.id] = r.data; });
+      return obj;
+    } catch(e) { return null; }
   }
 
   const [dbxLoaded, setDbxLoaded] = useState(false);
 
-  function usePersist(key, fallback) {
-    const [val, setVal] = useState(fallback);
-    const setter = (updater) => {
-      setVal((prev) => {
-        const next = typeof updater === "function" ? updater(prev) : updater;
-        dbxUpload(`${key}.json`, next);
-        return next;
-      });
-    };
-    return [val, setter];
-  }
+  // usePersistSb defined outside App component below
 
-  const [users, setUsers] = usePersist("rof_users", DEFAULT_USERS);
+  const [users, setUsers] = usePersistSb([], "users", sbSave);
   const [currentUser, setCurrentUser] = useState(null);
-  const [brands, setBrands] = usePersist("rof_brands", BRANDS);
-  const [seasons, setSeasons] = usePersist("rof_seasons", SEASONS);
-  const [customers, setCustomers] = usePersist("rof_customers", DEFAULT_CUSTOMERS.map(n => ({ name: n, channel: CUSTOMER_CHANNEL_MAP[n] || "" })));
-  const [vendors, setVendors] = usePersist("rof_vendors", SAMPLE_VENDORS);
-  const [team, setTeam] = usePersist("rof_team", SAMPLE_TEAM);
-  const [tasks, setTasks] = usePersist("rof_tasks", []);
-  const [collections, setCollections] = usePersist("rof_collections", {});
+
+  // Auto-login from PLM launcher session
+  useEffect(() => {
+    try {
+      const plmUser = sessionStorage.getItem("plm_user");
+      if (plmUser) setCurrentUser(JSON.parse(plmUser));
+    } catch {}
+  }, []);
+  const [brands, setBrands] = usePersistSb([], "brands", sbSave);
+  const [seasons, setSeasons] = usePersistSb([], "seasons", sbSave);
+  const [customers, setCustomers] = usePersistSb([], "customers", sbSave);
+  const [vendors, setVendors] = usePersistSb([], "vendors", sbSave);
+  const [team, setTeam] = usePersistSb([], "team", sbSave);
+  const [tasks, _setTasksRaw] = useState([]);
+  const setTasks = (updater) => {
+    _setTasksRaw((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      // Save all changed/new tasks to Supabase individually
+      if (Array.isArray(next) && Array.isArray(prev)) {
+        next.forEach(t => {
+          const old = prev.find(p => p.id === t.id);
+          if (!old || JSON.stringify(old) !== JSON.stringify(t)) {
+            sbSaveTask(t);
+          }
+        });
+        // Delete removed tasks
+        prev.forEach(t => {
+          if (!next.find(n => n.id === t.id)) sbDeleteTask(t.id);
+        });
+      }
+      return next;
+    });
+  };
+  const [collections, _setCollRaw] = useState({});
+  const setCollections = (updater) => {
+    _setCollRaw((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      // Save each new/changed collection to Supabase
+      Object.entries(next).forEach(([key, val]) => {
+        const prevStr = JSON.stringify(prev[key] || {});
+        const nextStr = JSON.stringify(val);
+        if (prevStr !== nextStr) {
+          sbSaveCollection(key, val);
+        }
+      });
+      return next;
+    });
+  };
   const [view, setView] = useState("dashboard");
+  const [listView, setListView] = useState(false);
+  const [expandedColl, setExpandedColl] = useState<string | null>(null);
   const [filterBrand, setFilterBrand] = useState<Set<string>>(new Set());
   const [filterSeason, setFilterSeason] = useState<Set<string>>(new Set());
+  const [filterCustomer, setFilterCustomer] = useState<Set<string>>(new Set());
+  const [filterVendor, setFilterVendor] = useState<Set<string>>(new Set());
   const [focusCollKey, setFocusCollKey] = useState(null);
+  const [pendingDeleteColl, setPendingDeleteColl] = useState<string | null>(null);
   const [showNav, setShowNav] = useState(true);
   const [showWizard, setShowWizard] = useState(false);
   const [showVendors, setShowVendors] = useState(false);
@@ -9363,8 +10204,8 @@ export default function App() {
   const [showUsers, setShowUsers] = useState(false);
   const [showSizeLib, setShowSizeLib] = useState(false);
   const [showCatLib, setShowCatLib] = useState(false);
-  const [sizeLibrary, setSizeLibrary] = usePersist("rof_sizes", DEFAULT_SIZES);
-  const [categoryLib, setCategoryLib] = usePersist("rof_categories", DEFAULT_CATEGORIES);
+  const [sizeLibrary, setSizeLibrary] = usePersistSb([], "size_library", sbSave);
+  const [categoryLib, setCategoryLib] = usePersistSb([], "categories", sbSave);
   const [editTask, setEditTask] = useState(null);
   const [dragId, setDragId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
@@ -9376,15 +10217,19 @@ export default function App() {
   const [showSeasons, setShowSeasons] = useState(false);
   const [showCustomers, setShowCustomers] = useState(false);
   const [showOrderTypes, setShowOrderTypes] = useState(false);
-  const [orderTypes, setOrderTypes] = usePersist("rof_orderTypes", [...ORDER_TYPES]);
+  const [showRoles, setShowRoles] = useState(false);
+  const [showTaskManager, setShowTaskManager] = useState(false);
+  const [orderTypes, setOrderTypes] = usePersistSb([], "order_types", sbSave);
+  const [roles, setRoles] = usePersistSb([], "roles", sbSave);
+  const [taskTemplates, setTaskTemplates] = usePersistSb([], "task_templates", sbSave);
   const [miniCalDragOver, setMiniCalDragOver] = useState(null);
   const [teamsConfig, setTeamsConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem("teamsConfig") || "null") || { clientId: "", tenantId: "", channelMap: {} }; }
     catch { return { clientId: "", tenantId: "", channelMap: {} }; }
   });
   const [teamsToken, setTeamsToken] = useState(null);
-  const [teamsTokenExpiry, setTeamsTokenExpiry] = useState<number | null>(null);
   const [showTeamsConfig, setShowTeamsConfig] = useState(false);
+  const [teamsTokenExpiry, setTeamsTokenExpiry] = useState(null);
   const [showEmailConfig, setShowEmailConfig] = useState(false);
 
   // Override getBrand to use stateful brands
@@ -9393,28 +10238,50 @@ export default function App() {
   // Shadow the global getBrand with the stateful version for all inner components
   const getBrand = getBrandDyn;
 
-  // ── Load all data from Dropbox on startup ────────────────────────────────
+  // ── Load all data from Supabase on startup ───────────────────────────────
   useEffect(() => {
     async function loadAll() {
-      const files = [
-        ["rof_tasks", setTasks],
-        ["rof_collections", setCollections],
-        ["rof_vendors", setVendors],
-        ["rof_team", setTeam],
-        ["rof_users", setUsers],
-        ["rof_brands", setBrands],
-        ["rof_seasons", setSeasons],
-        ["rof_customers", setCustomers],
-        ["rof_sizes", setSizeLibrary],
-        ["rof_categories", setCategoryLib],
-        ["rof_orderTypes", setOrderTypes],
-      ];
-      await Promise.all(
-        files.map(async ([key, setter]) => {
-          const data = await dbxDownload(`${key}.json`);
-          if (data !== null) setter(data);
-        })
-      );
+      console.log("[SB] loadAll starting...");
+      try {
+        // Load reference data from key-value store + tasks/collections from individual rows
+        const [
+          users, brands, seasons, customers, vendors, team,
+          sizes, categories, orderTypes, rolesData, taskTemplatesData,
+          tasks, collections
+        ] = await Promise.all([
+          sbLoad("users"),
+          sbLoad("brands"),
+          sbLoad("seasons"),
+          sbLoad("customers"),
+          sbLoad("vendors"),
+          sbLoad("team"),
+          sbLoad("size_library"),
+          sbLoad("categories"),
+          sbLoad("order_types"),
+          sbLoad("roles"),
+          sbLoad("task_templates"),
+          sbLoadTasks(),
+          sbLoadCollections(),
+        ]);
+
+        if (users) setUsers(users);
+        if (brands) setBrands(brands);
+        if (seasons) setSeasons(seasons);
+        if (customers) setCustomers(customers);
+        if (vendors) setVendors(vendors);
+        if (team) setTeam(team);
+        if (sizes) setSizeLibrary(sizes);
+        if (categories) setCategoryLib(categories);
+        if (orderTypes) setOrderTypes(orderTypes);
+        if (rolesData) setRoles(rolesData);
+        if (taskTemplatesData) setTaskTemplates(taskTemplatesData);
+        if (tasks?.length) _setTasksRaw(tasks);
+        if (collections && Object.keys(collections).length) _setCollRaw(collections);
+
+        console.log("[SB] loadAll complete");
+      } catch(e) {
+        console.error("[SB] loadAll error:", e);
+      }
       setDbxLoaded(true);
     }
     loadAll();
@@ -9482,13 +10349,13 @@ export default function App() {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", background: "#0F172A", gap: 16 }}>
         <div style={{ fontSize: 32 }}>🔄</div>
-        <div style={{ color: "#fff", fontSize: 16, fontWeight: 600 }}>Loading from Dropbox…</div>
+        <div style={{ color: "#fff", fontSize: 16, fontWeight: 600 }}>Loading from Supabase…</div>
         <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Syncing your data</div>
       </div>
     );
 
   if (!currentUser)
-    return <LoginScreen users={users} onLogin={setCurrentUser} teamsConfig={teamsConfig} onTeamsToken={setTeamsToken} onTeamsTokenExpiry={setTeamsTokenExpiry} />;
+    return <LoginScreen users={users} onLogin={setCurrentUser} teamsConfig={teamsConfig} onTeamsToken={setTeamsToken} />;
 
   const isAdmin = currentUser.role === "admin";
   const canViewAll = isAdmin || currentUser.permissions?.view_all;
@@ -9497,11 +10364,16 @@ export default function App() {
   const visibleTasks = canViewAll
     ? tasks
     : tasks.filter((t) => t.assigneeId === currentUser.teamMemberId);
-  const filtered = visibleTasks.filter(
-    (t) =>
+  const filtered = visibleTasks.filter((t) => {
+    const collKey = `${t.brand}||${t.collection}`;
+    const coll = collections[collKey] || {};
+    return (
       (filterBrand.size === 0 || filterBrand.has(t.brand)) &&
-      (filterSeason.size === 0 || filterSeason.has(t.season))
-  );
+      (filterSeason.size === 0 || filterSeason.has(t.season)) &&
+      (filterCustomer.size === 0 || filterCustomer.has(coll.customer || "")) &&
+      (filterVendor.size === 0 || filterVendor.has(t.vendorName || ""))
+    );
+  });
   const overdue = filtered.filter(
     (t) => getDaysUntil(t.due) < 0 && t.status !== "Complete"
   );
@@ -9516,15 +10388,10 @@ export default function App() {
 
   function addCollection(newTasks, meta) {
     const key = `${newTasks[0].brand}||${newTasks[0].collection}`;
-    // Concept images: grab images from concept task and copy to all tasks
+    // Each task keeps its own images — no spreading
     const conceptTask = newTasks.find((t) => t.phase === "Concept");
     const conceptImages = conceptTask?.images || [];
-    const tasksWithImages =
-      conceptImages.length > 0
-        ? newTasks.map((t) =>
-            t.phase === "Concept" ? t : { ...t, images: [...conceptImages] }
-          )
-        : newTasks;
+    const tasksWithImages = newTasks;
     setCollections((c) => ({
       ...c,
       [key]: {
@@ -9548,31 +10415,24 @@ export default function App() {
 
   function saveTask(f) {
     const clean = { ...f };
-    // If this is the Concept task and images changed, copy images to all other tasks in collection
-    if (clean.phase === "Concept" && clean.images?.length > 0) {
-      const collKey = `${clean.brand}||${clean.collection}`;
-      setTasks((ts) =>
-        ts.map((t) => {
-          if (t.id === clean.id) return clean;
-          if (
-            `${t.brand}||${t.collection}` === collKey &&
-            t.phase !== "Concept"
-          )
-            return { ...t, images: [...clean.images] };
-          return t;
-        })
-      );
-    } else {
-      setTasks((ts) => ts.map((t) => (t.id === f.id ? clean : t)));
-    }
+    setTasks((ts) => ts.map((t) => (t.id === clean.id ? clean : t)));
+    sbSaveTask(clean); // Fast individual row upsert
     setEditTask(null);
+  }
+  function quietSaveTask(f) {
+    // Save without closing modal (used by SKU and note auto-saves)
+    const clean = { ...f };
+    setTasks((ts) => ts.map((t) => (t.id === clean.id ? clean : t)));
+    sbSaveTask(clean);
   }
 
   function saveCascade(updatedTasks) {
     setTasks(updatedTasks);
+    updatedTasks.forEach(t => sbSaveTask(t));
   }
   function deleteTask(id) {
     setTasks((ts) => ts.filter((t) => t.id !== id));
+    sbDeleteTask(id); // Fast individual row delete
     setEditTask(null);
   }
 
@@ -9642,11 +10502,16 @@ export default function App() {
       };
     collMap[k].tasks.push(t);
   });
-  const collList = Object.values(collMap).filter(
-    (c) =>
+  const collList = Object.values(collMap).filter((c) => {
+    const collKey = `${c.brand}||${c.collection}`;
+    const coll = collections[collKey] || {};
+    return (
       (filterBrand.size === 0 || filterBrand.has(c.brand)) &&
-      (filterSeason.size === 0 || filterSeason.has(c.season))
-  );
+      (filterSeason.size === 0 || filterSeason.has(c.season)) &&
+      (filterCustomer.size === 0 || filterCustomer.has(coll.customer || "")) &&
+      (filterVendor.size === 0 || filterVendor.has(c.vendorName || ""))
+    );
+  });
   const allCustomers = [
     ...new Set(
       Object.values(collections)
@@ -9908,6 +10773,7 @@ export default function App() {
   };
 
   const Dashboard = () => {
+    const collListView = listView;
     // Stat filter config
     const STAT_META = {
       overdue: {
@@ -10819,13 +11685,111 @@ export default function App() {
             {/* Collections grid */}
             {showCollections && (
               <>
-                <span style={S.sec}>
-                  Collections{" "}
-                  <span style={{ color: TH.textSub2, fontWeight: 400 }}>
-                    — click to focus · right-click for options
+                <div style={{ marginBottom: 12 }}>
+                  <span style={S.sec}>
+                    Collections{" "}
+                    <span style={{ color: TH.textSub2, fontWeight: 400 }}>
+                      — click to focus · right-click for options
+                    </span>
                   </span>
-                </span>
-                <div
+                </div>
+
+                {/* LIST VIEW */}
+                {collListView && (
+                  <div style={{ marginBottom: 28, border: `1px solid ${TH.border}`, borderRadius: 12, overflow: "hidden" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, fontFamily: "inherit" }}>
+                      <thead>
+                        <tr style={{ background: TH.header, borderBottom: `2px solid ${TH.header}` }}>
+                          {["Brand", "Collection", "Season", "Vendor", "DDP", "Progress", "Next Task"].map(h => (
+                            <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: "rgba(255,255,255,0.75)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {collList.map((c, ri) => {
+                          const brand = getBrand(c.brand);
+                          const done = c.tasks.filter(t => ["Complete","Approved"].includes(t.status)).length;
+                          const pct = Math.round((done / c.tasks.length) * 100);
+                          const ddpTask = c.tasks.find(t => t.phase === "DDP");
+                          const next = c.tasks.filter(t => !["Complete","Approved"].includes(t.status)).sort((a,b) => new Date(a.due).getTime() - new Date(b.due).getTime())[0];
+                          const isExpanded = expandedColl === c.key;
+                          const sortedTasks = [...c.tasks].sort((a,b) => new Date(a.due).getTime() - new Date(b.due).getTime());
+                          const rowBg = isExpanded ? "#E8EDF5" : ri % 2 === 0 ? "#FFFFFF" : "#F1F5F9";
+                          return (
+                            <Fragment key={c.key}>
+                              <tr onClick={() => setExpandedColl(isExpanded ? null : c.key)}
+                                style={{ borderBottom: `1px solid ${TH.border}`, cursor: "pointer", background: rowBg, transition: "background 0.1s" }}
+                                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#DDE3EE"}
+                                onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = rowBg}>
+                                <td style={{ padding: "10px 14px" }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <div style={{ width: 10, height: 10, borderRadius: 2, background: brand.color, flexShrink: 0 }} />
+                                    <span style={{ fontWeight: 700, color: brand.color }}>{brand.short || brand.name}</span>
+                                  </div>
+                                </td>
+                                <td style={{ padding: "10px 14px", fontWeight: 600, color: TH.text }}>
+                                  {isExpanded ? "▼ " : "▶ "}{c.collection}
+                                </td>
+                                <td style={{ padding: "10px 14px", color: TH.textSub2 }}>{c.season || "—"}</td>
+                                <td style={{ padding: "10px 14px", color: TH.textSub2 }}>{c.vendorName || "—"}</td>
+                                <td style={{ padding: "10px 14px", color: ddpTask ? TH.text : TH.textSub2, fontWeight: ddpTask ? 600 : 400 }}>{ddpTask ? formatDate(ddpTask.due) : "—"}</td>
+                                <td style={{ padding: "10px 14px" }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <div style={{ flex: 1, height: 6, background: "#CBD5E0", borderRadius: 3, minWidth: 60 }}>
+                                      <div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? "#10B981" : brand.color, borderRadius: 3, transition: "width 0.3s" }} />
+                                    </div>
+                                    <span style={{ fontSize: 11, color: TH.textSub2, flexShrink: 0 }}>{pct}%</span>
+                                  </div>
+                                </td>
+                                <td style={{ padding: "10px 14px", color: next ? TH.text : TH.textSub2 }}>{next ? `${next.phase} · ${formatDate(next.due)}` : "All done"}</td>
+                              </tr>
+                              {isExpanded && (
+                                <tr>
+                                  <td colSpan={7} style={{ background: "#EEF2F9", padding: 0, borderBottom: `2px solid ${TH.border}` }}>
+                                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, fontFamily: "inherit" }}>
+                                      <thead>
+                                        <tr style={{ background: "#3A4A5C", borderBottom: `1px solid #2D3748` }}>
+                                          {["Phase", "Due Date", "Business Days Left", "Status", "Assignee"].map(h => (
+                                            <th key={h} style={{ padding: "7px 14px 7px 28px", textAlign: "left", fontWeight: 600, color: "rgba(255,255,255,0.7)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</th>
+                                          ))}
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {sortedTasks.map((t, ti) => {
+                                          const sc = STATUS_CONFIG[t.status] || STATUS_CONFIG["Not Started"];
+                                          const assignee = team.find(m => m.id === t.assigneeId);
+                                          const bd = getBusinessDaysUntil(t.due);
+                                          const innerBg = ti % 2 === 0 ? "#F8FAFC" : "#FFFFFF";
+                                          return (
+                                            <tr key={t.id} onClick={e => { e.stopPropagation(); setEditTask(t); }}
+                                              style={{ borderBottom: `1px solid ${TH.border}`, cursor: "pointer", background: innerBg }}
+                                              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#E2E8F0"}
+                                              onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = innerBg}>
+                                              <td style={{ padding: "8px 14px 8px 28px", fontWeight: 600, color: TH.text }}>{t.phase}</td>
+                                              <td style={{ padding: "8px 14px 8px 28px", color: TH.textSub2 }}>{formatDate(t.due)}</td>
+                                              <td style={{ padding: "8px 14px 8px 28px", color: bd < 0 ? "#B91C1C" : bd <= 5 ? "#B45309" : TH.textSub, fontWeight: bd < 0 ? 700 : 400 }}>{t.status === "Complete" ? "Done" : fmtDays(bd)}</td>
+                                              <td style={{ padding: "8px 14px 8px 28px" }}>
+                                                <span style={{ background: sc.bg, color: sc.color, border: `1px solid ${sc.border}`, padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 600 }}>{t.status}</span>
+                                              </td>
+                                              <td style={{ padding: "8px 14px 8px 28px", color: TH.textSub2 }}>{assignee?.name || "—"}</td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </td>
+                                </tr>
+                              )}
+                            </Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* GRID VIEW */}
+                {!collListView && <div
                   style={{
                     display: "grid",
                     gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))",
@@ -10890,7 +11854,7 @@ export default function App() {
                             left: 0,
                             right: 0,
                             height: 3,
-                            background: `linear-gradient(90deg,${brand.color},${brand.color}44)`,
+                            background: TH.primary,
                           }}
                         />
                         <div
@@ -10903,9 +11867,9 @@ export default function App() {
                           }}
                         >
                           <div>
-                            {/* Line 1: Collection Name — app red */}
+                            {/* Line 1: Brand · Collection Name · Sample Due */}
                             <div style={{ fontSize: 11, fontWeight: 700, color: TH.primary, marginBottom: 2 }}>
-                              {c.collection}
+                              {brand.short || brand.name} · {c.collection}{collData.sampleDueDate ? ` · Sample: ${formatDate(collData.sampleDueDate)}` : ""}
                             </div>
                             {/* Line 2: Season Year · Gender · Category */}
                             <div style={{ fontSize: 11, color: TH.textSub2 }}>
@@ -11119,18 +12083,11 @@ export default function App() {
                             📅 Calendar
                           </button>
                           {/* Images button with concept/sku submenu */}
-                          <CollImageBtn
-                            collKey={c.key}
-                            collData={collData}
-                            brand={brand}
-                            collections={collections}
-                            tasks={tasks}
-                          />
                         </div>
                       </div>
                     );
                   })}
-                </div>
+                </div>}
                 {!statFilter && dueThisWeek.length > 0 && (
                   <>
                     <span style={S.sec}>Due This Week</span>
@@ -11198,6 +12155,115 @@ export default function App() {
           )}
         </div>
       );
+    if (listView) {
+      // Build collection rows from src tasks, sorted by earliest DDP
+      const collMap2: Record<string, { key: string; brand: string; collection: string; tasks: typeof src }> = {};
+      src.forEach(t => {
+        const key = `${t.brand}||${t.collection}`;
+        if (!collMap2[key]) collMap2[key] = { key, brand: t.brand, collection: t.collection, tasks: [] };
+        collMap2[key].tasks.push(t);
+      });
+      const collRows = Object.values(collMap2).sort((a, b) => {
+        const aDDP = a.tasks.find(t => t.phase === "DDP")?.due || a.tasks[0]?.due || "";
+        const bDDP = b.tasks.find(t => t.phase === "DDP")?.due || b.tasks[0]?.due || "";
+        return aDDP < bDDP ? -1 : 1;
+      });
+      return (
+        <div style={{ border: `1px solid ${TH.border}`, borderRadius: 12, overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, fontFamily: "inherit" }}>
+            <thead>
+              <tr style={{ background: TH.header, borderBottom: `2px solid ${TH.header}` }}>
+                {["Brand", "Collection", "Season", "Vendor", "DDP", "Progress", "Next Task"].map(h => (
+                  <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: "rgba(255,255,255,0.75)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {collRows.map((c, ri) => {
+                const brand = getBrand(c.brand);
+                const done = c.tasks.filter(t => ["Complete","Approved"].includes(t.status)).length;
+                const pct = Math.round((done / c.tasks.length) * 100);
+                const ddpTask = c.tasks.find(t => t.phase === "DDP");
+                const next = c.tasks.filter(t => !["Complete","Approved"].includes(t.status)).sort((a,b) => new Date(a.due).getTime() - new Date(b.due).getTime())[0];
+                const isExpanded = expandedColl === c.key;
+                const sortedTasks = [...c.tasks].sort((a,b) => new Date(a.due).getTime() - new Date(b.due).getTime());
+                const rowBg = isExpanded ? "#E8EDF5" : ri % 2 === 0 ? "#FFFFFF" : "#F1F5F9";
+                const season = c.tasks[0]?.season || "—";
+                const vendorName = c.tasks[0]?.vendorName || "—";
+                return (
+                  <Fragment key={c.key}>
+                    <tr onClick={() => setExpandedColl(isExpanded ? null : c.key)}
+                      style={{ borderBottom: `1px solid ${TH.border}`, cursor: "pointer", background: rowBg, transition: "background 0.1s" }}
+                      onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#DDE3EE"}
+                      onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = rowBg}>
+                      <td style={{ padding: "10px 14px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ width: 10, height: 10, borderRadius: 2, background: brand.color, flexShrink: 0 }} />
+                          <span style={{ fontWeight: 700, color: brand.color }}>{brand.short || brand.name}</span>
+                        </div>
+                      </td>
+                      <td style={{ padding: "10px 14px", fontWeight: 600, color: TH.text }}>
+                        {isExpanded ? "▼ " : "▶ "}{c.collection}
+                      </td>
+                      <td style={{ padding: "10px 14px", color: TH.textSub2 }}>{season}</td>
+                      <td style={{ padding: "10px 14px", color: TH.textSub2 }}>{vendorName}</td>
+                      <td style={{ padding: "10px 14px", color: ddpTask ? TH.text : TH.textSub2, fontWeight: ddpTask ? 600 : 400 }}>{ddpTask ? formatDate(ddpTask.due) : "—"}</td>
+                      <td style={{ padding: "10px 14px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ flex: 1, height: 6, background: "#CBD5E0", borderRadius: 3, minWidth: 60 }}>
+                            <div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? "#10B981" : brand.color, borderRadius: 3, transition: "width 0.3s" }} />
+                          </div>
+                          <span style={{ fontSize: 11, color: TH.textSub2, flexShrink: 0 }}>{pct}%</span>
+                        </div>
+                      </td>
+                      <td style={{ padding: "10px 14px", color: next ? TH.text : TH.textSub2 }}>{next ? `${next.phase} · ${formatDate(next.due)}` : "All done"}</td>
+                    </tr>
+                    {isExpanded && (
+                      <tr>
+                        <td colSpan={7} style={{ background: "#EEF2F9", padding: 0, borderBottom: `2px solid ${TH.border}` }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, fontFamily: "inherit" }}>
+                            <thead>
+                              <tr style={{ background: "#3A4A5C", borderBottom: `1px solid #2D3748` }}>
+                                {["Phase", "Due Date", "Business Days Left", "Status", "Assignee"].map(h => (
+                                  <th key={h} style={{ padding: "7px 14px 7px 28px", textAlign: "left", fontWeight: 600, color: "rgba(255,255,255,0.7)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {sortedTasks.map((t, ti) => {
+                                const sc = STATUS_CONFIG[t.status] || STATUS_CONFIG["Not Started"];
+                                const assignee = team.find(m => m.id === t.assigneeId);
+                                const bd = getBusinessDaysUntil(t.due);
+                                const innerBg = ti % 2 === 0 ? "#F8FAFC" : "#FFFFFF";
+                                return (
+                                  <tr key={t.id} onClick={e => { e.stopPropagation(); setEditTask(t); }}
+                                    style={{ borderBottom: `1px solid ${TH.border}`, cursor: "pointer", background: innerBg }}
+                                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#E2E8F0"}
+                                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = innerBg}>
+                                    <td style={{ padding: "8px 14px 8px 28px", fontWeight: 600, color: TH.text }}>{t.phase}</td>
+                                    <td style={{ padding: "8px 14px 8px 28px", color: TH.textSub2 }}>{formatDate(t.due)}</td>
+                                    <td style={{ padding: "8px 14px 8px 28px", color: bd < 0 ? "#B91C1C" : bd <= 5 ? "#B45309" : TH.textSub, fontWeight: bd < 0 ? 700 : 400 }}>{t.status === "Complete" ? "Done" : fmtDays(bd)}</td>
+                                    <td style={{ padding: "8px 14px 8px 28px" }}>
+                                      <span style={{ background: sc.bg, color: sc.color, border: `1px solid ${sc.border}`, padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 600 }}>{t.status}</span>
+                                    </td>
+                                    <td style={{ padding: "8px 14px 8px 28px", color: TH.textSub2 }}>{assignee?.name || "—"}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
     return (
       <div
         style={{
@@ -11307,10 +12373,18 @@ export default function App() {
                         flexWrap: "wrap",
                       }}
                     >
-                      {/* Line 1: Collection — grey */}
+                      {/* Line 1: Brand · Collection · Sample Due */}
+                      <span style={{ fontWeight: 700, color: TH.primary }}>
+                        {brand.short || brand.name}
+                      </span>
                       <span style={{ fontWeight: 700, color: TH.textMuted }}>
                         {cname}
                       </span>
+                      {collData.sampleDueDate && (
+                        <span style={{ fontWeight: 600, color: "#B45309" }}>
+                          · Sample Due: {formatDate(collData.sampleDueDate)}
+                        </span>
+                      )}
                       {/* Season · Year · Gender · Category */}
                       <span style={{ fontWeight: 400, color: TH.textMuted }}>
                         {ctasks[0]?.season ? `${ctasks[0].season}` : ""}
@@ -11354,11 +12428,45 @@ export default function App() {
                         gap: 0,
                       }}
                     >
+                      {/* ── DROP ZONE before first card ── */}
+                      {(() => {
+                        const beforeKey = `${bid}-${cname}-gap-before`;
+                        const isBefore = dragOverId === beforeKey;
+                        return (
+                          <div
+                            onDragOver={e => { e.preventDefault(); e.stopPropagation(); if (dragOverId !== beforeKey) setDragOverId(beforeKey); }}
+                            onDragEnter={e => { e.preventDefault(); setDragOverId(beforeKey); }}
+                            onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverId(null); }}
+                            onDrop={e => {
+                              e.preventDefault(); e.stopPropagation();
+                              const droppedId = e.dataTransfer.getData("text/plain") || dragId;
+                              if (!droppedId || !sorted.length) return;
+                              const newDue = snapToBusinessDay(addDays(sorted[0].due, -1));
+                              const droppedTask = tasks.find(x => x.id === droppedId);
+                              if (droppedTask) {
+                                const updated = { ...droppedTask, due: newDue };
+                                setTasks(ts => ts.map(x => x.id === droppedId ? updated : x));
+                                sbSaveTask(updated);
+                              }
+                              setDragId(null); setDragOverId(null);
+                            }}
+                            style={{ width: isBefore ? 52 : 28, minHeight: "100%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "copy", transition: "width 0.12s", position: "relative", zIndex: 2 }}
+                          >
+                            {isBefore && (
+                              <div style={{ width: 4, height: "100%", minHeight: 80, background: brand.color, borderRadius: 4, boxShadow: `0 0 0 3px ${brand.color}44`, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                <div style={{ width: 24, height: 24, borderRadius: "50%", background: brand.color, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3, position: "absolute" }}>
+                                  <span style={{ color: "#fff", fontSize: 14, fontWeight: 900, lineHeight: 1 }}>+</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                       {sorted.map((t, i) => {
                         const sc =
                             STATUS_CONFIG[t.status] ||
                             STATUS_CONFIG["Not Started"],
-                          days = getDaysUntil(t.due),
+                          days = getBusinessDaysUntil(t.due),
                           isOver = days < 0 && t.status !== "Complete",
                           isPL =
                             t.phase === "Line Review" ||
@@ -11378,24 +12486,24 @@ export default function App() {
                           t.status === "Complete"
                             ? "Done"
                             : isOver
-                            ? `${Math.abs(days)}d over`
+                            ? `${fmtDays(Math.abs(days))} over`
                             : days === 0
                             ? "Today"
-                            : `${days}d`;
+                            : fmtDays(days);
                         const isDraggingThis = dragId === t.id;
                         const gapKey = `${bid}-${cname}-gap-${i}`;
                         const isGapActive = dragOverId === gapKey;
 
-                        // Days from concept (first task) to this task
+                        // Business days from concept (first task) to this task
                         const conceptTask = sorted[0];
                         const daysFromConcept = conceptTask
-                          ? diffDays(t.due, conceptTask.due)
+                          ? diffBusinessDays(t.due, conceptTask.due)
                           : 0;
 
-                        // Days from previous task to this task
+                        // Business days from previous task to this task
                         const prevTask = sorted[i - 1];
                         const daysFromPrev = prevTask
-                          ? diffDays(t.due, prevTask.due)
+                          ? diffBusinessDays(t.due, prevTask.due)
                           : null;
 
                         return (
@@ -11601,9 +12709,7 @@ export default function App() {
                                   >
                                     {daysFromPrev == null
                                       ? "—"
-                                      : daysFromPrev === 0
-                                      ? "0d"
-                                      : `${daysFromPrev}d`}
+                                      : fmtDays(daysFromPrev)}
                                   </div>
                                 </div>
 
@@ -11651,31 +12757,21 @@ export default function App() {
                                   if (!droppedId) return;
                                   const prevTask = sorted[i];
                                   const nextTask = sorted[i + 1];
-                                  const prevMs = parseLocalDate(
-                                    prevTask.due
-                                  ).getTime();
-                                  const nextMs = parseLocalDate(
-                                    nextTask.due
-                                  ).getTime();
-                                  const midMs = Math.round(
-                                    (prevMs + nextMs) / 2
-                                  );
+                                  const prevMs = parseLocalDate(prevTask.due).getTime();
+                                  const nextMs = parseLocalDate(nextTask.due).getTime();
+                                  const midMs = Math.round((prevMs + nextMs) / 2);
                                   const mid = new Date(midMs);
-                                  const mm = String(
-                                    mid.getMonth() + 1
-                                  ).padStart(2, "0");
-                                  const dd = String(mid.getDate()).padStart(
-                                    2,
-                                    "0"
-                                  );
-                                  const newDue = `${mid.getFullYear()}-${mm}-${dd}`;
-                                  setTasks((ts) =>
-                                    ts.map((x) =>
-                                      x.id === droppedId
-                                        ? { ...x, due: newDue }
-                                        : x
-                                    )
-                                  );
+                                  let newDue = snapToBusinessDay(toDateStr(mid));
+                                  // Enforce minimum 1 calendar day from each neighbor
+                                  if (newDue <= prevTask.due) newDue = addDays(prevTask.due, 1);
+                                  if (newDue >= nextTask.due) newDue = addDays(nextTask.due, -1);
+                                  if (newDue <= prevTask.due) newDue = prevTask.due; // fallback
+                                  const droppedTask = tasks.find(x => x.id === droppedId);
+                                  if (droppedTask) {
+                                    const updated = { ...droppedTask, due: newDue };
+                                    setTasks(ts => ts.map(x => x.id === droppedId ? updated : x));
+                                    sbSaveTask(updated);
+                                  }
                                   setDragId(null);
                                   setDragOverId(null);
                                 }}
@@ -12222,6 +13318,7 @@ export default function App() {
         color: TH.text,
       }}
     >
+      {confirmState && <ConfirmModal title="Are you sure?" message={confirmState.message} confirmLabel={confirmState.action} danger onConfirm={() => { confirmState.onConfirm(); setConfirmState(null); }} onCancel={() => setConfirmState(null)} />}
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;}::-webkit-scrollbar{width:10px;height:10px;}::-webkit-scrollbar-track{background:#E2E8EE;border-radius:5px;}::-webkit-scrollbar-thumb{background:#CBD5E0;border-radius:5px;}::-webkit-scrollbar-thumb:hover{background:#A0AEC0;}select option{background:#FFFFFF;color:#1A202C;}`}</style>
 
       {/* ── IDLE WARNING BANNER ── */}
@@ -12313,6 +13410,23 @@ export default function App() {
           {[["dashboard","Dashboard"],["timeline","Timeline"],["calendar","Calendar"]].map(([v,label]) =>
             navBtn(v, label)
           )}
+          {currentUser?.apps?.tanda?.access && (
+            <a
+              href="/tanda"
+              style={{
+                padding: "7px 12px", borderRadius: 8,
+                border: "1px solid rgba(255,255,255,0.15)",
+                color: "rgba(255,255,255,0.7)", fontWeight: 600,
+                fontFamily: "inherit", fontSize: 12,
+                textDecoration: "none", whiteSpace: "nowrap",
+                transition: "all 0.2s",
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
+              onMouseLeave={e => (e.currentTarget.style.background = "none")}
+            >
+              T&A
+            </a>
+          )}
         </div>
         <div
           style={{
@@ -12322,6 +13436,17 @@ export default function App() {
             alignItems: "center",
           }}
         >
+          {/* List view toggle — shown for dashboard and timeline */}
+          {(view === "dashboard" || view === "timeline") && (
+            <div style={{ display: "flex", gap: 2, background: "rgba(255,255,255,0.08)", borderRadius: 8, padding: "3px", border: "1px solid rgba(255,255,255,0.15)" }}>
+              {[["⊞", false, "Grid view"], ["☰", true, "List view"]].map(([icon, isListMode, title]) => (
+                <button key={String(isListMode)} title={title as string} onClick={() => setListView(isListMode as boolean)}
+                  style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: listView === isListMode ? "rgba(255,255,255,0.18)" : "none", color: listView === isListMode ? "#fff" : "rgba(255,255,255,0.55)", cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 600, transition: "all 0.15s" }}>
+                  {icon}
+                </button>
+              ))}
+            </div>
+          )}
           {/* Settings master dropdown */}
           <SettingsDropdown
             isAdmin={isAdmin}
@@ -12334,6 +13459,8 @@ export default function App() {
             onSeasons={() => setShowSeasons(true)}
             onCustomers={() => setShowCustomers(true)}
             onOrderTypes={() => setShowOrderTypes(true)}
+            onRoles={() => setShowRoles(true)}
+            onTasks={() => setShowTaskManager(true)}
           />
           <div
             style={{
@@ -12343,23 +13470,7 @@ export default function App() {
             }}
           />
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div
-              style={{
-                width: 30,
-                height: 30,
-                borderRadius: "50%",
-                background: currentUser.color + "44",
-                border: `2px solid ${currentUser.color}`,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 11,
-                fontWeight: 700,
-                color: currentUser.color,
-              }}
-            >
-              {currentUser.initials}
-            </div>
+            <Avatar member={currentUser} size={30} />
             <div style={{ display: "flex", flexDirection: "column" }}>
               <span
                 style={{
@@ -12381,7 +13492,22 @@ export default function App() {
               </span>
             </div>
             <button
-              onClick={() => setCurrentUser(null)}
+              onClick={() => window.location.href = "/"}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 6,
+                border: "1px solid rgba(255,255,255,0.15)",
+                background: "none",
+                color: "rgba(255,255,255,0.5)",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                fontSize: 11,
+              }}
+            >
+              ← PLM
+            </button>
+            <button
+              onClick={() => { sessionStorage.removeItem("plm_user"); window.location.href = "/"; }}
               style={{
                 padding: "4px 10px",
                 borderRadius: 6,
@@ -12403,10 +13529,16 @@ export default function App() {
       <FilterBar
         brands={brands}
         seasons={seasons}
+        customers={customers}
+        vendors={vendors}
         filterBrand={filterBrand}
         setFilterBrand={setFilterBrand}
         filterSeason={filterSeason}
         setFilterSeason={setFilterSeason}
+        filterCustomer={filterCustomer}
+        setFilterCustomer={setFilterCustomer}
+        filterVendor={filterVendor}
+        setFilterVendor={setFilterVendor}
         canViewAll={canViewAll}
       />
 
@@ -12425,8 +13557,6 @@ export default function App() {
             setTeamsConfig={setTeamsConfig}
             teamsToken={teamsToken}
             setTeamsToken={setTeamsToken}
-            teamsTokenExpiry={teamsTokenExpiry}
-            setTeamsTokenExpiry={setTeamsTokenExpiry}
             showTeamsConfig={showTeamsConfig}
             setShowTeamsConfig={setShowTeamsConfig}
             getBrand={getBrand}
@@ -12472,6 +13602,7 @@ export default function App() {
             team={team}
             customers={customers}
             seasons={seasons}
+            taskTemplates={taskTemplates}
             onSave={addCollection}
             onClose={() => setShowWizard(false)}
           />
@@ -12483,42 +13614,58 @@ export default function App() {
           onClose={() => setShowVendors(false)}
           wide
         >
-          <VendorManager vendors={vendors} setVendors={setVendors} />
+          <VendorManager vendors={vendors} setVendors={setVendors} isAdmin={isAdmin} taskTemplates={taskTemplates} />
         </Modal>
       )}
       {showTeam && (
         <Modal title="Team Members" onClose={() => setShowTeam(false)} wide>
-          <TeamManager team={team} setTeam={setTeam} isAdmin={isAdmin} />
+          <TeamManager team={team} setTeam={setTeam} users={users} setUsers={setUsers} isAdmin={isAdmin} roles={roles} setRoles={setRoles} />
         </Modal>
       )}
       {showUsers && (
         <Modal title="User Management" onClose={() => setShowUsers(false)} wide>
-          <UserManager users={users} setUsers={setUsers} team={team} setTeam={setTeam} isAdmin={isAdmin} currentUser={currentUser} />
+          <UserManager users={users} setUsers={setUsers} team={team} setTeam={setTeam} isAdmin={isAdmin} currentUser={currentUser}  roles={roles} setRoles={setRoles} />
         </Modal>
       )}
       {showCustomers && (
         <Modal title="Customer Manager" onClose={() => setShowCustomers(false)} wide>
-          <CustomerManager customers={customers} setCustomers={setCustomers} />
+          <CustomerManager customers={customers} setCustomers={setCustomers} isAdmin={isAdmin} />
         </Modal>
       )}
       {showOrderTypes && (
         <Modal title="Order Types" onClose={() => setShowOrderTypes(false)} wide>
-          <OrderTypeManager orderTypes={orderTypes} setOrderTypes={setOrderTypes} />
+          <OrderTypeManager orderTypes={orderTypes} setOrderTypes={setOrderTypes} isAdmin={isAdmin} />
+        </Modal>
+      )}
+      {showTaskManager && (
+        <Modal title="Task Manager" onClose={() => setShowTaskManager(false)} wide>
+          <TaskManager
+            taskTemplates={taskTemplates}
+            setTaskTemplates={setTaskTemplates}
+            isAdmin={isAdmin}
+            vendors={vendors}
+            setVendors={setVendors}
+          />
+        </Modal>
+      )}
+      {showRoles && (
+        <Modal title="Role Manager" onClose={() => setShowRoles(false)} wide>
+          <RoleManager roles={roles} setRoles={setRoles} isAdmin={isAdmin} />
         </Modal>
       )}
       {showSeasons && (
         <Modal title="Season Manager" onClose={() => setShowSeasons(false)} wide>
-          <SeasonManager seasons={seasons} setSeasons={setSeasons} />
+          <SeasonManager seasons={seasons} setSeasons={setSeasons} isAdmin={isAdmin} />
         </Modal>
       )}
       {showBrands && (
         <Modal title="Brand Manager" onClose={() => setShowBrands(false)} wide>
-          <BrandManager brands={brands} setBrands={setBrands} />
+          <BrandManager brands={brands} setBrands={setBrands} isAdmin={isAdmin} />
         </Modal>
       )}
       {showSizeLib && (
         <Modal title="Size Library" onClose={() => setShowSizeLib(false)} wide>
-          <SizeLibrary sizes={sizeLibrary} setSizes={setSizeLibrary} />
+          <SizeLibrary sizes={sizeLibrary} setSizes={setSizeLibrary} isAdmin={isAdmin} />
         </Modal>
       )}
       {showCatLib && (
@@ -12530,6 +13677,7 @@ export default function App() {
           <CategoryManager
             categories={categoryLib}
             setCategories={setCategoryLib}
+            isAdmin={isAdmin}
           />
         </Modal>
       )}
@@ -12541,6 +13689,7 @@ export default function App() {
           allTasks={tasks}
           vendors={vendors}
           onSave={saveTask}
+          onQuietSave={quietSaveTask}
           onSaveCascade={saveCascade}
           onDelete={deleteTask}
           onClose={() => setEditTask(null)}
@@ -12610,22 +13759,30 @@ export default function App() {
                     label: "Delete Collection",
                     danger: true,
                     onClick: () => {
-                      const [brand, coll] = ctxMenu.collKey.split("||");
-                      setTasks((ts) =>
-                        ts.filter(
-                          (t) => !(t.brand === brand && t.collection === coll)
-                        )
-                      );
-                      setCollections((c) => {
-                        const n = { ...c };
-                        delete n[ctxMenu.collKey];
-                        return n;
-                      });
+                      setPendingDeleteColl(ctxMenu.collKey);
+                      setCtxMenu(null);
                     },
                   },
                 ]
               : []),
           ]}
+        />
+      )}
+
+      {/* ── DELETE COLLECTION CONFIRMATION ── */}
+      {pendingDeleteColl && (
+        <ConfirmModal
+          title="Delete Collection"
+          message={`Are you sure you want to delete "${pendingDeleteColl.split("||")[1]}"? This will permanently remove all tasks in this collection and cannot be undone.`}
+          confirmLabel="Delete"
+          danger
+          onConfirm={() => {
+            const [brand, coll] = pendingDeleteColl.split("||");
+            setTasks(ts => ts.filter(t => !(t.brand === brand && t.collection === coll)));
+            setCollections(c => { const n = { ...c }; delete n[pendingDeleteColl]; return n; });
+            setPendingDeleteColl(null);
+          }}
+          onCancel={() => setPendingDeleteColl(null)}
         />
       )}
 
