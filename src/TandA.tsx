@@ -1775,15 +1775,16 @@ export default function TandAApp() {
 
             return (
               <>
-                {/* Matrix — collapsible */}
-                <div style={{ marginBottom: 12 }}>
-                  <div onClick={() => setMatrixCollapsed(!matrixCollapsed)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none", marginBottom: matrixCollapsed ? 0 : 10 }}>
+                {/* Matrix — collapsible, milestone-tab style */}
+                <div style={{ marginBottom: 8 }}>
+                  <div onClick={() => setMatrixCollapsed(!matrixCollapsed)}
+                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#0F172A", borderRadius: matrixCollapsed ? 8 : "8px 8px 0 0", cursor: "pointer", userSelect: "none" }}>
                     <span style={{ color: "#6B7280", fontSize: 12 }}>{matrixCollapsed ? "▶" : "▼"}</span>
-                    <span style={S.sectionLabel as any}>Item Matrix</span>
-                    <span style={{ color: "#6B7280", fontSize: 11 }}>({bases.length} base parts, {sizeOrder.length} sizes)</span>
+                    <span style={{ color: "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Item Matrix</span>
+                    <span style={{ color: "#6B7280", fontSize: 11, marginLeft: "auto" }}>{bases.length} base parts · {sizeOrder.length} sizes</span>
                   </div>
                   {!matrixCollapsed && (
-                    <div style={{ overflowX: "auto" }}>
+                    <div style={{ overflowX: "auto", background: "#0F172A", borderRadius: "0 0 8px 8px" }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                         <thead>
                           <tr style={{ background: "#0F172A" }}>
@@ -1838,15 +1839,16 @@ export default function TandAApp() {
                   )}
                 </div>
 
-                {/* Line Items — collapsible */}
+                {/* Line Items — collapsible, milestone-tab style */}
                 <div style={{ marginBottom: 20 }}>
-                  <div onClick={() => setLineItemsCollapsed(!lineItemsCollapsed)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none", marginBottom: lineItemsCollapsed ? 0 : 10 }}>
+                  <div onClick={() => setLineItemsCollapsed(!lineItemsCollapsed)}
+                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#0F172A", borderRadius: lineItemsCollapsed ? 8 : "8px 8px 0 0", cursor: "pointer", userSelect: "none" }}>
                     <span style={{ color: "#6B7280", fontSize: 12 }}>{lineItemsCollapsed ? "▶" : "▼"}</span>
-                    <span style={S.sectionLabel as any}>Line Items</span>
-                    <span style={{ color: "#6B7280", fontSize: 11 }}>({items.length} items)</span>
+                    <span style={{ color: "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Line Items</span>
+                    <span style={{ color: "#6B7280", fontSize: 11, marginLeft: "auto" }}>{items.length} items</span>
                   </div>
                   {!lineItemsCollapsed && (
-                    <div style={S.itemsTable}>
+                    <div style={{ ...S.itemsTable, borderRadius: "0 0 8px 8px" }}>
                       <div style={S.itemsHeader}>
                         <span>SKU</span><span>Description</span><span>Qty</span><span>Unit Price</span><span>Total</span>
                       </div>
