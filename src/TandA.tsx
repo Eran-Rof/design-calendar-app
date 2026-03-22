@@ -1709,18 +1709,29 @@ export default function TandAApp() {
             const cats = WIP_CATEGORIES.filter(cat => poMs.some(m => m.category === cat));
             return (
               <div style={{ background: "#1E293B", borderRadius: 10, padding: "14px 18px", marginBottom: 16 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
                   <span style={{ color: "#94A3B8", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Production Progress</span>
-                  <span style={{ color: pct === 100 ? "#10B981" : "#60A5FA", fontSize: 14, fontWeight: 800, fontFamily: "monospace" }}>{pct}%</span>
+                  <span style={{ color: pct === 100 ? "#10B981" : "#60A5FA", fontSize: 14, fontWeight: 800, fontFamily: "monospace" }}>{pct}% complete</span>
                   <span style={{ color: "#6B7280", fontSize: 11 }}>{complete}/{active} milestones</span>
-                  {delayed > 0 && <span style={{ color: "#EF4444", fontSize: 11, fontWeight: 600 }}>⚠ {delayed} delayed</span>}
                 </div>
-                <div style={{ height: 8, borderRadius: 4, background: "#0F172A", overflow: "hidden", marginBottom: 12 }}>
-                  <div style={{ display: "flex", height: "100%" }}>
-                    <div style={{ width: `${pct}%`, background: "#10B981", transition: "width 0.3s" }} />
-                    <div style={{ width: `${inProgPct}%`, background: "#3B82F6", transition: "width 0.3s" }} />
-                    <div style={{ width: `${delayedPct}%`, background: "#EF4444", transition: "width 0.3s" }} />
-                  </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+                  {([
+                    ["Complete", complete, "#10B981", "#34D399"],
+                    ["In Progress", inProg, "#3B82F6", "#60A5FA"],
+                    ["Delayed", delayed, "#EF4444", "#F87171"],
+                    ["Not Started", active - complete - inProg - delayed, "#4B5563", "#6B7280"],
+                  ] as [string, number, string, string][]).filter(([, count]) => count > 0).map(([label, count, color, colorLt]) => {
+                    const statusPct = active > 0 ? Math.round((count / active) * 100) : 0;
+                    return (
+                      <div key={label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ width: 90, fontSize: 11, color, fontWeight: 600, textAlign: "right", flexShrink: 0 }}>{label}</span>
+                        <div style={{ flex: 1, height: 10, borderRadius: 5, background: "#0F172A", overflow: "hidden" }}>
+                          <div style={{ width: `${statusPct}%`, height: "100%", background: `linear-gradient(90deg, ${colorLt}, ${color})`, borderRadius: 5, transition: "width 0.3s", minWidth: count > 0 ? 4 : 0 }} />
+                        </div>
+                        <span style={{ width: 55, fontSize: 11, color: "#94A3B8", fontFamily: "monospace", flexShrink: 0 }}>{count} ({statusPct}%)</span>
+                      </div>
+                    );
+                  })}
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {cats.map(cat => {
