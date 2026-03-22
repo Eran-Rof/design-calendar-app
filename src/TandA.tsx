@@ -315,6 +315,7 @@ export default function TandAApp() {
   const [lineItemsCollapsed, setLineItemsCollapsed] = useState(true);
   const [poInfoCollapsed, setPoInfoCollapsed] = useState(false);
   const [progressCollapsed, setProgressCollapsed] = useState(false);
+  const [acceptedBlocked, setAcceptedBlocked] = useState<Set<string>>(new Set());
   const [showBulkUpdate, setShowBulkUpdate] = useState(false);
   const [bulkVendor, setBulkVendor] = useState("");
   const [bulkPhase, setBulkPhase] = useState("");
@@ -742,7 +743,11 @@ export default function TandAApp() {
     if (!skipHistory) {
       setCollapsedCats(prev => {
         const next = { ...prev };
-        WIP_CATEGORIES.forEach(cat => { delete next[cat + m.po_number]; });
+        WIP_CATEGORIES.forEach(cat => {
+          const key = cat + m.po_number;
+          // Don't reset categories the user explicitly accepted as blocked
+          if (!acceptedBlocked.has(key)) delete next[key];
+        });
         return next;
       });
     }
@@ -1049,9 +1054,11 @@ export default function TandAApp() {
   }
 
   function openCategoryWithCheck(poNum: string, cat: string, po?: XoroPO | null, switchView?: boolean) {
+    const key = cat + poNum;
     const info = isCatBlocked(poNum, cat);
-    if (info.blocked) {
+    if (info.blocked && !acceptedBlocked.has(key)) {
       if (!window.confirm(`"${cat}" is blocked by "${info.delayedCat}"${info.daysLate > 0 ? ` (${info.daysLate}d late)` : ""}. View anyway?`)) return;
+      setAcceptedBlocked(prev => new Set(prev).add(key));
     }
     setDetailMode("milestones");
     setNewNote("");
@@ -2236,10 +2243,12 @@ export default function TandAApp() {
                       <div key={cat} style={{ marginBottom: 8 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: cascade.blocked ? "#1A1520" : "#0F172A", borderRadius: collapsed ? 8 : "8px 8px 0 0", cursor: "pointer", userSelect: "none", borderLeft: cascade.blocked ? "3px solid #F59E0B" : "3px solid transparent" }}
                           onClick={() => {
-                            if (collapsed && cascade.blocked) {
+                            const catKey = cat + poNum;
+                            if (collapsed && cascade.blocked && !acceptedBlocked.has(catKey)) {
                               if (!window.confirm(`"${cat}" is blocked by "${cascade.delayedCat}"${cascade.upstreamDelay > 0 ? ` (${cascade.upstreamDelay}d late)` : ""}. View anyway?`)) return;
+                              setAcceptedBlocked(prev => new Set(prev).add(catKey));
                             }
-                            setCollapsedCats(prev => ({ ...prev, [cat + poNum]: !collapsed }));
+                            setCollapsedCats(prev => ({ ...prev, [catKey]: !collapsed }));
                           }}>
                           <span style={{ color: "#6B7280", fontSize: 12 }}>{collapsed ? "▶" : "▼"}</span>
                           <span style={{ color: "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>{cat}</span>
