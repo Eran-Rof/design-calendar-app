@@ -233,6 +233,7 @@ interface Milestone {
   actual_date: string | null;
   status: string;
   status_date: string | null;
+  status_dates: Record<string, string> | null;
   notes: string;
   updated_at: string;
   updated_by: string;
@@ -698,16 +699,23 @@ export default function TandAApp() {
   }
 
   async function saveMilestone(m: Milestone, skipHistory = false) {
-    // Auto-record status_date when status changes
     const existing = (milestones[m.po_number] || []).find(x => x.id === m.id);
+    // When status changes, store date per status in status_dates map
     if (existing && existing.status !== m.status) {
-      m.status_date = m.status_date || new Date().toISOString().split("T")[0];
+      const today = new Date().toISOString().split("T")[0];
+      const dates = { ...(m.status_dates || existing.status_dates || {}) };
+      // Record today for the new status (if it doesn't already have a date)
+      if (!dates[m.status]) dates[m.status] = today;
+      m.status_dates = dates;
+      // Set status_date to the date for the current status
+      m.status_date = dates[m.status] || today;
     }
     // Track changes for history
     if (!skipHistory && existing) {
       const changes: string[] = [];
       if (existing.status !== m.status) changes.push(`Status: ${existing.status} → ${m.status} (${m.status_date || "today"})`);
-      if (existing.status_date !== m.status_date) changes.push(`Status Date: ${existing.status_date || "—"} → ${m.status_date || "—"}`);
+      if (existing.status !== m.status && existing.status_date !== m.status_date) {} // already logged above
+      else if (existing.status_date !== m.status_date) changes.push(`Status Date: ${existing.status_date || "—"} → ${m.status_date || "—"}`);
       if (existing.notes !== m.notes) changes.push(`Notes updated`);
       if (changes.length > 0) {
         addHistory(m.po_number, `${m.phase}: ${changes.join(", ")}`);
@@ -778,6 +786,7 @@ export default function TandAApp() {
         actual_date: null,
         status: "Not Started",
         status_date: null,
+        status_dates: null,
         notes: "",
         updated_at: new Date().toISOString(),
         updated_by: user?.name || "",
@@ -2019,17 +2028,30 @@ export default function TandAApp() {
                                     value={m.status}
                                     onChange={e => {
                                       const newStatus = e.target.value;
-                                      const statusDate = new Date().toISOString().split("T")[0];
-                                      saveMilestone({ ...m, status: newStatus, status_date: statusDate, updated_at: new Date().toISOString(), updated_by: user?.name || "" });
+                                      const oldStatus = m.status;
+                                      const dates = { ...(m.status_dates || {}) };
+                                      // Ask if user wants to clear the old status date (e.g. switching away from Complete)
+                                      if (oldStatus !== "Not Started" && dates[oldStatus]) {
+                                        if (window.confirm(`Clear the "${oldStatus}" date (${dates[oldStatus]})? Click OK to clear, Cancel to keep it.`)) {
+                                          delete dates[oldStatus];
+                                        }
+                                      }
+                                      // Set date for the new status (use existing if already recorded, otherwise today)
+                                      const today = new Date().toISOString().split("T")[0];
+                                      if (newStatus !== "Not Started" && !dates[newStatus]) dates[newStatus] = today;
+                                      const statusDate = dates[newStatus] || null;
+                                      saveMilestone({ ...m, status: newStatus, status_date: statusDate, status_dates: Object.keys(dates).length > 0 ? dates : null, updated_at: new Date().toISOString(), updated_by: user?.name || "" });
                                     }}>
                                     {MILESTONE_STATUSES.map(s => <option key={s} value={s} style={{ color: MILESTONE_STATUS_COLORS[s] }}>{s}</option>)}
                                   </select>
-                                  <input type="date" style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: m.status_date ? "#60A5FA" : "#334155", fontSize: 12, padding: "5px 6px", width: "100%", boxSizing: "border-box" }}
-                                    title="Date the status was changed"
-                                    value={m.status_date || ""}
+                                  <input type="date" style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: (m.status_dates || {})[m.status] ? "#60A5FA" : "#334155", fontSize: 12, padding: "5px 6px", width: "100%", boxSizing: "border-box" }}
+                                    title={`Date for "${m.status}" status`}
+                                    value={(m.status_dates || {})[m.status] || m.status_date || ""}
                                     onChange={e => {
                                       const val = e.target.value || null;
-                                      saveMilestone({ ...m, status_date: val, updated_at: new Date().toISOString(), updated_by: user?.name || "" });
+                                      const dates = { ...(m.status_dates || {}) };
+                                      if (val) dates[m.status] = val; else delete dates[m.status];
+                                      saveMilestone({ ...m, status_date: val, status_dates: Object.keys(dates).length > 0 ? dates : null, updated_at: new Date().toISOString(), updated_by: user?.name || "" });
                                     }} />
                                   <span style={{ color: daysColor, fontWeight: 600, textAlign: "right", fontSize: 12 }}>
                                     {m.status === "Complete" ? "Done" : m.status === "N/A" ? "—" : daysRem === null ? "—" : daysRem < 0 ? `${Math.abs(daysRem)}d late` : daysRem === 0 ? "Today" : `${daysRem}d`}
