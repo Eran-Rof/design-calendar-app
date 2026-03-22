@@ -306,7 +306,7 @@ export default function TandAApp() {
   const [pos, setPos]           = useState<XoroPO[]>([]);
   const [notes, setNotes]       = useState<LocalNote[]>([]);
   const [selected, setSelected] = useState<XoroPO | null>(null);
-  const [detailMode, setDetailMode] = useState<"header" | "po" | "milestones" | "notes" | "history" | "matrix" | "all">("header");
+  const [detailMode, setDetailMode] = useState<"header" | "po" | "milestones" | "notes" | "history" | "matrix" | "email" | "all">("header");
   const [loading, setLoading]   = useState(false);
   const [syncing, setSyncing]   = useState(false);
   const [syncErr, setSyncErr]   = useState("");
@@ -366,6 +366,21 @@ export default function TandAApp() {
   const [emailReply, setEmailReply] = useState("");
   const [emailConfigForm, setEmailConfigForm] = useState({ clientId: "", tenantId: "", emailMap: {} });
   const [emailPOSearch, setEmailPOSearch] = useState("");
+  // Detail-panel email tab state (separate from main email view)
+  const [dtlEmails, setDtlEmails] = useState<Record<string, any[]>>({});
+  const [dtlEmailLoading, setDtlEmailLoading] = useState<Record<string, boolean>>({});
+  const [dtlEmailErr, setDtlEmailErr] = useState<Record<string, string | null>>({});
+  const [dtlEmailSel, setDtlEmailSel] = useState<any>(null);
+  const [dtlEmailThread, setDtlEmailThread] = useState<any[]>([]);
+  const [dtlThreadLoading, setDtlThreadLoading] = useState(false);
+  const [dtlEmailTab, setDtlEmailTab] = useState<"inbox" | "thread" | "compose">("inbox");
+  const [dtlComposeTo, setDtlComposeTo] = useState("");
+  const [dtlComposeSubject, setDtlComposeSubject] = useState("");
+  const [dtlComposeBody, setDtlComposeBody] = useState("");
+  const [dtlSendErr, setDtlSendErr] = useState<string | null>(null);
+  const [dtlReply, setDtlReply] = useState("");
+  const [dtlNextLink, setDtlNextLink] = useState<Record<string, string | null>>({});
+  const [dtlLoadingOlder, setDtlLoadingOlder] = useState(false);
 
   // ── Email auth + Graph helpers ──────────────────────────────────────────
   function emailTokenIsValid() {
@@ -415,6 +430,57 @@ export default function TandAApp() {
     if (r.status === 202 || r.status === 200) return r.status === 202 ? {} : r.json();
     if (!r.ok) throw new Error("Graph " + r.status + ": " + await r.text());
     return r.json();
+  }
+
+  // ── Detail panel email helpers ───────────────────────────────────────────
+  async function loadDtlEmails(poNum: string, olderUrl?: string) {
+    if (!emailToken) return;
+    const prefix = "[PO-" + poNum + "]";
+    if (olderUrl) { setDtlLoadingOlder(true); } else { setDtlEmailLoading(l => ({ ...l, [poNum]: true })); }
+    setDtlEmailErr(e => ({ ...e, [poNum]: null }));
+    try {
+      const url = olderUrl || ("/me/messages?$filter=" + encodeURIComponent("contains(subject,'" + prefix + "')") + "&$top=25&$orderby=receivedDateTime%20desc&$select=id,subject,from,receivedDateTime,bodyPreview,conversationId,isRead,hasAttachments");
+      const d = await emailGraph(url);
+      const items = d.value || [];
+      if (olderUrl) { setDtlEmails(m => ({ ...m, [poNum]: [...(m[poNum] || []), ...items] })); }
+      else { setDtlEmails(m => ({ ...m, [poNum]: items })); }
+      setDtlNextLink(nl => ({ ...nl, [poNum]: d["@odata.nextLink"] ? d["@odata.nextLink"].replace("https://graph.microsoft.com/v1.0", "") : null }));
+    } catch (e: any) { setDtlEmailErr(err => ({ ...err, [poNum]: e.message })); }
+    setDtlEmailLoading(l => ({ ...l, [poNum]: false }));
+    setDtlLoadingOlder(false);
+  }
+  async function loadDtlFullEmail(id: string) {
+    try { const d = await emailGraph("/me/messages/" + id); setDtlEmailSel(d); } catch (e) { console.error(e); }
+  }
+  async function loadDtlThread(conversationId: string) {
+    setDtlThreadLoading(true);
+    try {
+      const d = await emailGraph("/me/messages?$filter=" + encodeURIComponent("conversationId eq '" + conversationId + "'") + "&$orderby=receivedDateTime%20asc&$select=id,subject,from,receivedDateTime,body,conversationId,isRead,hasAttachments");
+      setDtlEmailThread(d.value || []);
+    } catch (e) { setDtlEmailThread([]); }
+    setDtlThreadLoading(false);
+    setDtlEmailTab("thread");
+  }
+  async function dtlSendEmail(poNum: string) {
+    if (!dtlComposeTo.trim() || !dtlComposeSubject.trim()) return;
+    setDtlSendErr(null);
+    try {
+      await emailGraphPost("/me/sendMail", {
+        message: { subject: dtlComposeSubject, body: { contentType: "HTML", content: dtlComposeBody || " " }, toRecipients: dtlComposeTo.split(",").map(e => ({ emailAddress: { address: e.trim() } })) },
+      });
+      setDtlComposeTo(""); setDtlComposeSubject(""); setDtlComposeBody("");
+      setDtlEmailTab("inbox");
+      setTimeout(() => loadDtlEmails(poNum), 2000);
+    } catch (e: any) { setDtlSendErr("Failed to send: " + e.message); }
+  }
+  async function dtlReplyToEmail(messageId: string) {
+    if (!dtlReply.trim()) return;
+    setDtlSendErr(null);
+    try {
+      await emailGraphPost("/me/messages/" + messageId + "/reply", { comment: dtlReply });
+      setDtlReply("");
+      if (dtlEmailSel?.conversationId) loadDtlThread(dtlEmailSel.conversationId);
+    } catch (e: any) { setDtlSendErr("Failed to reply: " + e.message); }
   }
 
   // ── PLM session auto-login ────────────────────────────────────────────────
@@ -1274,6 +1340,7 @@ export default function TandAApp() {
             <button style={tabStyle("milestones")} onClick={() => setDetailMode("milestones")}>Milestones</button>
             <button style={tabStyle("notes")} onClick={() => setDetailMode("notes")}>Notes</button>
             <button style={tabStyle("history")} onClick={() => setDetailMode("history")}>History</button>
+            <button style={tabStyle("email")} onClick={() => { setDetailMode("email"); setDtlEmailTab("inbox"); const pn = selected.PoNumber ?? ""; if (pn && emailToken && !dtlEmails[pn]?.length) loadDtlEmails(pn); }}>📧 Email</button>
             <button style={tabStyle("all")} onClick={() => setDetailMode("all")}>All</button>
           </div>
           <div style={{ border: "1px solid #334155", borderTop: "none", borderRadius: "0 0 10px 10px", background: "#1E293B", padding: 20, marginBottom: 20 }}>
@@ -1411,6 +1478,165 @@ export default function TandAApp() {
                       </tfoot>
                     </table>
                   </div>
+                </div>
+              );
+            })()}
+
+            {/* Email Tab */}
+            {(detailMode === "email" || detailMode === "all") && (() => {
+              const OUTLOOK_BLUE = "#0078D4";
+              const pn = selected.PoNumber ?? "";
+              const prefix = "[PO-" + pn + "]";
+              const dtlList = dtlEmails[pn] || [];
+              const isLoading = !!dtlEmailLoading[pn];
+              const err = dtlEmailErr[pn];
+
+              return (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <div style={S.sectionLabel}>Emails for {prefix}</div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      {emailToken && <button onClick={() => loadDtlEmails(pn)} style={{ ...S.btnSecondary, fontSize: 11, padding: "4px 10px" }}>↻ Refresh</button>}
+                    </div>
+                  </div>
+
+                  {!emailToken ? (
+                    <div style={{ textAlign: "center", padding: "30px 0" }}>
+                      <div style={{ fontSize: 28, marginBottom: 8 }}>🔒</div>
+                      <div style={{ color: "#6B7280", fontSize: 13, marginBottom: 12 }}>Sign in with Microsoft to view emails</div>
+                      {(!emailConfig.clientId || !emailConfig.tenantId) ? (
+                        <div style={{ color: "#D97706", fontSize: 12 }}>Configure Azure AD credentials in the main Email view first</div>
+                      ) : (
+                        <button onClick={authenticateEmail} style={{ ...S.btnPrimary, width: "auto", fontSize: 12, padding: "8px 18px" }}>Sign in with Microsoft</button>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ display: "flex", gap: 2, marginBottom: 12 }}>
+                        {(["inbox", "thread", "compose"] as const).map(tab => (
+                          <button key={tab} onClick={() => { setDtlEmailTab(tab); if (tab === "compose") setDtlComposeSubject(prefix + " "); }}
+                            style={{ padding: "8px 16px", border: "1px solid #334155", borderBottom: dtlEmailTab === tab ? "none" : "1px solid #334155", background: dtlEmailTab === tab ? "#1E293B" : "#0F172A", color: dtlEmailTab === tab ? OUTLOOK_BLUE : "#6B7280", fontWeight: dtlEmailTab === tab ? 700 : 500, cursor: "pointer", fontFamily: "inherit", fontSize: 12, borderRadius: "8px 8px 0 0", textTransform: "capitalize" }}>{tab}</button>
+                        ))}
+                      </div>
+
+                      {dtlEmailTab === "inbox" && (
+                        <>
+                          {isLoading ? (
+                            <div style={{ textAlign: "center", color: "#6B7280", padding: "24px 0", fontSize: 13 }}>Loading emails…</div>
+                          ) : err ? (
+                            <div style={{ background: "#7F1D1D", border: "1px solid #EF4444", borderRadius: 8, padding: "12px 16px", color: "#FCA5A5", fontSize: 13 }}>⚠ {err}</div>
+                          ) : dtlList.length === 0 ? (
+                            <div style={{ textAlign: "center", color: "#6B7280", padding: "24px 0" }}>
+                              <div style={{ fontSize: 24, marginBottom: 6 }}>📧</div>
+                              <div style={{ fontSize: 13 }}>No emails matching "{prefix}"</div>
+                            </div>
+                          ) : (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              {dtlList.map((em: any) => {
+                                const sender = em.from?.emailAddress ? em.from.emailAddress.name || em.from.emailAddress.address : "Unknown";
+                                const initials = sender.split(" ").map((w: string) => w[0] || "").join("").toUpperCase().slice(0, 2);
+                                const time = em.receivedDateTime ? new Date(em.receivedDateTime).toLocaleString() : "";
+                                return (
+                                  <div key={em.id} onClick={() => { loadDtlFullEmail(em.id); if (em.conversationId) loadDtlThread(em.conversationId); }}
+                                    style={{ background: em.isRead ? "#0F172A" : OUTLOOK_BLUE + "15", border: "1px solid " + (em.isRead ? "#334155" : OUTLOOK_BLUE + "44"), borderRadius: 8, padding: "10px 14px", cursor: "pointer", transition: "all 0.12s" }}>
+                                    <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                                      <div style={{ width: 30, height: 30, borderRadius: "50%", background: OUTLOOK_BLUE + "22", border: "2px solid " + OUTLOOK_BLUE, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: OUTLOOK_BLUE, flexShrink: 0 }}>{initials}</div>
+                                      <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
+                                          <span style={{ fontSize: 12, fontWeight: em.isRead ? 500 : 700, color: "#F1F5F9" }}>{sender}</span>
+                                          <span style={{ fontSize: 10, color: "#6B7280" }}>{time}</span>
+                                          {em.hasAttachments && <span style={{ fontSize: 10, color: "#6B7280" }}>📎</span>}
+                                          {!em.isRead && <span style={{ width: 7, height: 7, borderRadius: "50%", background: OUTLOOK_BLUE, flexShrink: 0 }} />}
+                                        </div>
+                                        <div style={{ fontSize: 12, fontWeight: em.isRead ? 400 : 600, color: "#E2E8F0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{em.subject}</div>
+                                        <div style={{ fontSize: 11, color: "#6B7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>{em.bodyPreview || ""}</div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              {dtlNextLink[pn] && (
+                                <button onClick={() => loadDtlEmails(pn, dtlNextLink[pn]!)} disabled={dtlLoadingOlder} style={{ ...S.btnPrimary, opacity: dtlLoadingOlder ? 0.6 : 1, fontSize: 12 }}>{dtlLoadingOlder ? "Loading…" : "Load older emails"}</button>
+                              )}
+                            </div>
+                          )}
+                          <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
+                            <button onClick={() => { setDtlEmailTab("compose"); setDtlComposeSubject(prefix + " "); }} style={{ ...S.btnPrimary, width: "auto", fontSize: 11, padding: "7px 14px" }}>+ New Email</button>
+                            <span style={{ fontSize: 11, color: "#6B7280" }}>{dtlList.length} email{dtlList.length !== 1 ? "s" : ""}</span>
+                          </div>
+                        </>
+                      )}
+
+                      {dtlEmailTab === "thread" && (
+                        <div>
+                          {dtlThreadLoading ? (
+                            <div style={{ textAlign: "center", color: "#6B7280", padding: "24px 0", fontSize: 13 }}>Loading thread…</div>
+                          ) : dtlEmailThread.length === 0 ? (
+                            <div style={{ textAlign: "center", color: "#6B7280", padding: "24px 0", fontSize: 13 }}>Click an email to view its thread</div>
+                          ) : (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+                              {dtlEmailThread.map((msg: any) => {
+                                const sender = msg.from?.emailAddress ? msg.from.emailAddress.name || msg.from.emailAddress.address : "Unknown";
+                                const initials = sender.split(" ").map((w: string) => w[0] || "").join("").toUpperCase().slice(0, 2);
+                                const time = msg.receivedDateTime ? new Date(msg.receivedDateTime).toLocaleString() : "";
+                                const htmlBody = msg.body?.content || "";
+                                return (
+                                  <div key={msg.id} style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: "12px 16px" }}>
+                                    <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 8 }}>
+                                      <div style={{ width: 28, height: 28, borderRadius: "50%", background: OUTLOOK_BLUE + "22", border: "2px solid " + OUTLOOK_BLUE, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: OUTLOOK_BLUE, flexShrink: 0 }}>{initials}</div>
+                                      <div style={{ flex: 1 }}>
+                                        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                                          <span style={{ fontSize: 12, fontWeight: 700, color: "#F1F5F9" }}>{sender}</span>
+                                          <span style={{ fontSize: 10, color: "#6B7280" }}>{time}</span>
+                                        </div>
+                                        <div style={{ fontSize: 11, color: "#6B7280" }}>{msg.subject}</div>
+                                      </div>
+                                    </div>
+                                    <iframe sandbox="allow-same-origin" srcDoc={htmlBody} style={{ width: "100%", border: "none", minHeight: 80, borderRadius: 6, background: "#F8FAFC" }}
+                                      onLoad={e => { try { const h = (e.target as HTMLIFrameElement).contentDocument!.body.scrollHeight; (e.target as HTMLIFrameElement).style.height = Math.min(h + 20, 400) + "px"; } catch (_) {} }} />
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                          {dtlEmailSel && (
+                            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                              <input value={dtlReply} onChange={e => setDtlReply(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); dtlReplyToEmail(dtlEmailSel.id); } }} placeholder="Write a reply…" style={{ ...S.input, flex: 1 }} />
+                              <button onClick={() => dtlReplyToEmail(dtlEmailSel.id)} style={{ ...S.btnPrimary, width: "auto", padding: "10px 20px" }}>Reply</button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {dtlEmailTab === "compose" && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                          <div>
+                            <label style={S.label}>To (comma-separated)</label>
+                            <input value={dtlComposeTo} onChange={e => setDtlComposeTo(e.target.value)} placeholder="email@example.com" style={S.input} />
+                          </div>
+                          <div>
+                            <label style={S.label}>Subject</label>
+                            <input value={dtlComposeSubject} onChange={e => setDtlComposeSubject(e.target.value)} style={S.input} />
+                          </div>
+                          <div>
+                            <label style={S.label}>Body</label>
+                            <textarea value={dtlComposeBody} onChange={e => setDtlComposeBody(e.target.value)} rows={8} style={{ ...S.textarea, minHeight: 120 }} placeholder="Type your message…" />
+                          </div>
+                          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                            <button onClick={() => setDtlEmailTab("inbox")} style={S.btnSecondary}>Cancel</button>
+                            <button onClick={() => dtlSendEmail(pn)} disabled={!dtlComposeTo.trim() || !dtlComposeSubject.trim()} style={{ ...S.btnPrimary, width: "auto", opacity: (!dtlComposeTo.trim() || !dtlComposeSubject.trim()) ? 0.5 : 1 }}>Send Email</button>
+                          </div>
+                        </div>
+                      )}
+
+                      {dtlSendErr && (
+                        <div style={{ marginTop: 8, background: "#7F1D1D", border: "1px solid #EF4444", borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 12, color: "#FCA5A5", flex: 1 }}>⚠ {dtlSendErr}</span>
+                          <button onClick={() => setDtlSendErr(null)} style={{ border: "none", background: "none", color: "#FCA5A5", cursor: "pointer", fontFamily: "inherit", fontWeight: 700, fontSize: 11 }}>✕</button>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               );
             })()}
