@@ -317,6 +317,7 @@ export default function TandAApp() {
   const [progressCollapsed, setProgressCollapsed] = useState(false);
   const [acceptedBlocked, setAcceptedBlocked] = useState<Set<string>>(new Set());
   const [blockedModal, setBlockedModal] = useState<{ cat: string; delayedCat: string; daysLate: number; onConfirm: () => void } | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{ title: string; message: string; icon: string; confirmText: string; confirmColor: string; cancelText?: string; onConfirm: () => void; onCancel?: () => void } | null>(null);
   const [showBulkUpdate, setShowBulkUpdate] = useState(false);
   const [bulkVendor, setBulkVendor] = useState("");
   const [bulkPhase, setBulkPhase] = useState("");
@@ -750,7 +751,7 @@ export default function TandAApp() {
       const catJustCompleted = m.status === "Complete" && catMs.every(x => x.status === "Complete" || x.status === "N/A");
 
       if (catJustCompleted) {
-        // Delay collapse by 2 seconds so user sees the green checkmark
+        // Delay collapse by 4 seconds so user sees the green checkmark
         setTimeout(() => {
           setCollapsedCats(prev => {
             const next = { ...prev };
@@ -760,7 +761,7 @@ export default function TandAApp() {
             });
             return next;
           });
-        }, 2000);
+        }, 4000);
       } else {
         setCollapsedCats(prev => {
           const next = { ...prev };
@@ -1341,7 +1342,7 @@ export default function TandAApp() {
                   </div>
                   {isManual && (
                     <button style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 12 }}
-                      onClick={e => { e.stopPropagation(); if (window.confirm(`Are you sure you want to remove vendor "${v}"?`)) removeManualVendor(v); }}>✕</button>
+                      onClick={e => { e.stopPropagation(); setConfirmModal({ title: "Remove Vendor", message: `Are you sure you want to remove vendor "${v}"?`, icon: "🗑", confirmText: "Remove", confirmColor: "#EF4444", onConfirm: () => removeManualVendor(v) }); }}>✕</button>
                   )}
                 </div>
               );
@@ -1750,7 +1751,7 @@ export default function TandAApp() {
                 Excel
               </button>
               <button style={{ ...S.btnSecondary, fontSize: 12, padding: "6px 14px", display: "flex", alignItems: "center", gap: 4 }} onClick={() => printPODetail()}>🖨️ Print</button>
-              <button onClick={() => { if (window.confirm(`Delete PO ${selected.PoNumber}? This will permanently remove the PO, all milestones, notes, and history.`)) deletePO(selected.PoNumber ?? ""); }}
+              <button onClick={() => setConfirmModal({ title: "Delete PO", message: `Delete PO ${selected.PoNumber}? This will permanently remove the PO, all milestones, notes, and history.`, icon: "🗑", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => deletePO(selected.PoNumber ?? "") })}
                 style={{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 6, padding: "4px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}
                 onMouseEnter={e => { e.currentTarget.style.background = "#EF4444"; e.currentTarget.style.color = "#fff"; }}
                 onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "#EF4444"; }}>🗑 Delete PO</button>
@@ -2194,7 +2195,7 @@ export default function TandAApp() {
                       )}
                       {poMs.length > 0 && (
                         <button style={{ ...S.btnSecondary, fontSize: 11, padding: "4px 10px" }} onClick={() => {
-                          if (window.confirm("Regenerate milestones? Your actual dates, statuses, and notes will be preserved.")) regenerateMilestones(selected);
+                          setConfirmModal({ title: "Regenerate Milestones", message: "Regenerate milestones? Your statuses, dates, and notes will be preserved.", icon: "🔄", confirmText: "Regenerate", confirmColor: "#3B82F6", onConfirm: () => regenerateMilestones(selected) });
                         }}>
                           Regenerate
                         </button>
@@ -2315,17 +2316,17 @@ export default function TandAApp() {
                                       const newStatus = e.target.value;
                                       const oldStatus = m.status;
                                       const dates = { ...(m.status_dates || {}) };
-                                      // Ask if user wants to clear the Complete date when switching away from Complete
+                                      const doSave = (d: Record<string, string>) => {
+                                        const today2 = new Date().toISOString().split("T")[0];
+                                        if (newStatus !== "Not Started" && !d[newStatus]) d[newStatus] = today2;
+                                        const statusDate = d[newStatus] || null;
+                                        saveMilestone({ ...m, status: newStatus, status_date: statusDate, status_dates: Object.keys(d).length > 0 ? d : null, updated_at: new Date().toISOString(), updated_by: user?.name || "" });
+                                      };
                                       if (oldStatus === "Complete" && dates[oldStatus]) {
-                                        if (window.confirm(`Clear the "Complete" date (${dates[oldStatus]})? Click OK to clear, Cancel to keep it.`)) {
-                                          delete dates[oldStatus];
-                                        }
+                                        setConfirmModal({ title: "Clear Complete Date", message: `Clear the "Complete" date (${dates[oldStatus]})?`, icon: "📅", confirmText: "Clear Date", confirmColor: "#F59E0B", cancelText: "Keep Date", onConfirm: () => { delete dates[oldStatus]; doSave(dates); }, onCancel: () => doSave(dates) });
+                                        return;
                                       }
-                                      // Set date for the new status (use existing if already recorded, otherwise today)
-                                      const today = new Date().toISOString().split("T")[0];
-                                      if (newStatus !== "Not Started" && !dates[newStatus]) dates[newStatus] = today;
-                                      const statusDate = dates[newStatus] || null;
-                                      saveMilestone({ ...m, status: newStatus, status_date: statusDate, status_dates: Object.keys(dates).length > 0 ? dates : null, updated_at: new Date().toISOString(), updated_by: user?.name || "" });
+                                      doSave(dates);
                                     }}>
                                     {MILESTONE_STATUSES.map(s => <option key={s} value={s} style={{ color: MILESTONE_STATUS_COLORS[s] }}>{s}</option>)}
                                   </select>
@@ -3022,7 +3023,7 @@ export default function TandAApp() {
                   )}
                   {isAdmin && tplVendor !== "__default__" && (
                     <button style={{ ...S.btnSecondary, fontSize: 12, padding: "6px 12px", borderColor: "#EF4444", color: "#EF4444" }}
-                      onClick={() => { if (window.confirm(`Delete template for "${tplVendor}"? POs will fall back to default.`)) { deleteVendorTemplate(tplVendor); setTplVendor("__default__"); } }}>
+                      onClick={() => setConfirmModal({ title: "Delete Template", message: `Delete template for "${tplVendor}"? POs will fall back to default template.`, icon: "🗑", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => { deleteVendorTemplate(tplVendor); setTplVendor("__default__"); } })}>
                       Delete Template
                     </button>
                   )}
@@ -3115,7 +3116,7 @@ export default function TandAApp() {
                           {i < currentTemplates.length - 1 && <button style={{ background: "none", border: "1px solid #334155", color: "#6B7280", borderRadius: 4, cursor: "pointer", padding: "2px 6px", fontSize: 10 }}
                             onClick={() => { const arr = [...currentTemplates]; [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]]; saveVendorTemplates(tplVendor, arr); }}>↓</button>}
                           <button style={{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 4, cursor: "pointer", padding: "2px 6px", fontSize: 10 }}
-                            onClick={() => { if (window.confirm(`Delete "${tpl.phase}"?`)) saveVendorTemplates(tplVendor, currentTemplates.filter(t => t.id !== tpl.id)); }}>✕</button>
+                            onClick={() => setConfirmModal({ title: "Delete Phase", message: `Delete "${tpl.phase}" from this template?`, icon: "🗑", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => saveVendorTemplates(tplVendor, currentTemplates.filter(t => t.id !== tpl.id)) })}>✕</button>
                         </div>
                       )}
                     </div>
@@ -3379,6 +3380,23 @@ export default function TandAApp() {
           </div>
         </div>
       )}
+      {confirmModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => { confirmModal.onCancel?.(); setConfirmModal(null); }}>
+          <div style={{ background: "#1E293B", borderRadius: 16, width: 420, border: `1px solid ${confirmModal.confirmColor}44`, boxShadow: "0 24px 64px rgba(0,0,0,0.5)", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
+            <div style={{ background: `${confirmModal.confirmColor}15`, padding: "20px 24px", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: `${confirmModal.confirmColor}22`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>{confirmModal.icon}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#F1F5F9" }}>{confirmModal.title}</div>
+            </div>
+            <div style={{ padding: "20px 24px" }}>
+              <p style={{ color: "#D1D5DB", fontSize: 14, margin: "0 0 20px", lineHeight: 1.6 }}>{confirmModal.message}</p>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={() => { confirmModal.onCancel?.(); setConfirmModal(null); }} style={{ flex: 1, padding: "10px 20px", borderRadius: 8, border: "1px solid #334155", background: "none", color: "#94A3B8", cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 600 }}>{confirmModal.cancelText || "Cancel"}</button>
+                <button onClick={() => { confirmModal.onConfirm(); setConfirmModal(null); }} style={{ flex: 1, padding: "10px 20px", borderRadius: 8, border: "none", background: `linear-gradient(135deg, ${confirmModal.confirmColor}, ${confirmModal.confirmColor}CC)`, color: "#fff", cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 700 }}>{confirmModal.confirmText}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {showBulkUpdate && (
         <div style={S.modalOverlay} onClick={() => setShowBulkUpdate(false)}>
           <div style={{ ...S.modal, width: 520 }} onClick={e => e.stopPropagation()}>
@@ -3441,7 +3459,7 @@ export default function TandAApp() {
                       <button style={{ ...S.btnPrimary, flex: 2, opacity: (!bulkStatus || bulkUpdating) ? 0.5 : 1 }}
                         disabled={!bulkStatus || bulkUpdating}
                         onClick={() => {
-                          if (window.confirm(`Update ${matching.length} milestones to "${bulkStatus}" for ${bulkVendor}?`)) bulkUpdateMilestones();
+                          setConfirmModal({ title: "Bulk Update", message: `Update ${matching.length} milestones to "${bulkStatus}" for ${bulkVendor}?`, icon: "⚡", confirmText: "Update All", confirmColor: "#3B82F6", onConfirm: bulkUpdateMilestones });
                         }}>
                         {bulkUpdating ? "Updating…" : `Update ${matching.length} Milestones`}
                       </button>
