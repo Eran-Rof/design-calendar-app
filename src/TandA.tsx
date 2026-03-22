@@ -310,7 +310,9 @@ export default function TandAApp() {
   const [pos, setPos]           = useState<XoroPO[]>([]);
   const [notes, setNotes]       = useState<LocalNote[]>([]);
   const [selected, setSelected] = useState<XoroPO | null>(null);
-  const [detailMode, setDetailMode] = useState<"header" | "po" | "milestones" | "notes" | "history" | "matrix" | "email" | "all">("header");
+  const [detailMode, setDetailMode] = useState<"header" | "po" | "milestones" | "notes" | "history" | "matrix" | "email" | "all">("po");
+  const [matrixCollapsed, setMatrixCollapsed] = useState(false);
+  const [lineItemsCollapsed, setLineItemsCollapsed] = useState(true);
   const [loading, setLoading]   = useState(false);
   const [syncing, setSyncing]   = useState(false);
   const [syncErr, setSyncErr]   = useState("");
@@ -1435,21 +1437,15 @@ export default function TandAApp() {
 
     const wb = XLSX.utils.book_new();
 
-    if (mode === "po" || mode === "header") {
-      const lineData: any[][] = [["SKU", "Description", "Qty", "Unit Price", "Total"]];
-      items.forEach(item => { lineData.push([item.ItemNumber ?? "", item.Description ?? "", item.QtyOrder ?? 0, item.UnitPrice ?? 0, (item.QtyOrder ?? 0) * (item.UnitPrice ?? 0)]); });
-      lineData.push(["TOTAL", "", items.reduce((s, i) => s + (i.QtyOrder ?? 0), 0), "", totalVal]);
-      XLSX.utils.book_append_sheet(wb, styleSheet(lineData, [22, 32, 12, 14, 16], { totalRow: true, dollarCols: [3, 4], qtyCols: [2] }), "PO Details");
-      XLSX.writeFile(wb, `${poNum}_PO_Details.xlsx`);
-
-    } else if (mode === "matrix") {
+    if (mode === "po" || mode === "header" || mode === "matrix") {
+      // Matrix sheet
       const parsed = items.map(item => {
         const sku = item.ItemNumber ?? ""; const parts = sku.split("-");
         return { base: parts[0] || sku, color: parts.length >= 2 ? parts[1] : "", size: parts.length >= 3 ? parts.slice(2).join("-") : "", qty: item.QtyOrder ?? 0, price: item.UnitPrice ?? 0, desc: item.Description ?? "" };
       });
       const sizeOrder: string[] = [];
       parsed.forEach(p => { if (p.size && !sizeOrder.includes(p.size)) sizeOrder.push(p.size); });
-      const rows: any[][] = [["Base Part", "Description", "Color", ...sizeOrder, "Total", "PO Cost", "Total Cost"]];
+      const mxRows: any[][] = [["Base Part", "Description", "Color", ...sizeOrder, "Total", "PO Cost", "Total Cost"]];
       const bases: string[] = [];
       const byBase: Record<string, { color: string; desc: string; sizes: Record<string, number>; price: number }[]> = {};
       parsed.forEach(p => {
@@ -1460,15 +1456,20 @@ export default function TandAApp() {
       });
       bases.forEach(base => { byBase[base].forEach(row => {
         const rt = Object.values(row.sizes).reduce((s, q) => s + q, 0);
-        rows.push([base, row.desc, row.color, ...sizeOrder.map(sz => row.sizes[sz] || 0), rt, row.price, rt * row.price]);
+        mxRows.push([base, row.desc, row.color, ...sizeOrder.map(sz => row.sizes[sz] || 0), rt, row.price, rt * row.price]);
       }); });
-      rows.push(["", "", "GRAND TOTAL", ...sizeOrder.map(sz => parsed.filter(p => p.size === sz).reduce((s, p) => s + p.qty, 0)), items.reduce((s, i) => s + (i.QtyOrder ?? 0), 0), "", totalVal]);
+      mxRows.push(["", "", "GRAND TOTAL", ...sizeOrder.map(sz => parsed.filter(p => p.size === sz).reduce((s, p) => s + p.qty, 0)), items.reduce((s, i) => s + (i.QtyOrder ?? 0), 0), "", totalVal]);
       const nSz = sizeOrder.length;
-      const dollarCols = [3 + nSz + 1, 3 + nSz + 2]; // PO Cost, Total Cost
-      const qtyCols = [...sizeOrder.map((_, i) => 3 + i), 3 + nSz]; // size cols + Total col
-      const colW = [18, 26, 14, ...sizeOrder.map(() => 10), 10, 12, 14];
-      XLSX.utils.book_append_sheet(wb, styleSheet(rows, colW, { totalRow: true, dollarCols, qtyCols }), "Matrix");
-      XLSX.writeFile(wb, `${poNum}_Matrix.xlsx`);
+      const mxDollar = [3 + nSz + 1, 3 + nSz + 2];
+      const mxQty = [...sizeOrder.map((_, i) => 3 + i), 3 + nSz];
+      const mxW = [18, 26, 14, ...sizeOrder.map(() => 10), 10, 12, 14];
+      XLSX.utils.book_append_sheet(wb, styleSheet(mxRows, mxW, { totalRow: true, dollarCols: mxDollar, qtyCols: mxQty }), "Matrix");
+      // Line Items sheet
+      const lineData: any[][] = [["SKU", "Description", "Qty", "Unit Price", "Total"]];
+      items.forEach(item => { lineData.push([item.ItemNumber ?? "", item.Description ?? "", item.QtyOrder ?? 0, item.UnitPrice ?? 0, (item.QtyOrder ?? 0) * (item.UnitPrice ?? 0)]); });
+      lineData.push(["TOTAL", "", items.reduce((s, i) => s + (i.QtyOrder ?? 0), 0), "", totalVal]);
+      XLSX.utils.book_append_sheet(wb, styleSheet(lineData, [22, 32, 12, 14, 16], { totalRow: true, dollarCols: [3, 4], qtyCols: [2] }), "Line Items");
+      XLSX.writeFile(wb, `${poNum}_PO_Details.xlsx`);
 
     } else if (mode === "milestones") {
       const poMs = milestones[poNum] || [];
@@ -1648,10 +1649,61 @@ export default function TandAApp() {
             {selected.Tags && <InfoCell label="Tags" value={selected.Tags} />}
           </div>
 
+          {/* Milestone Progress Bar + Quick Status */}
+          {(() => {
+            const poMs = milestones[selected.PoNumber ?? ""] || [];
+            if (poMs.length === 0) return null;
+            const complete = poMs.filter(m => m.status === "Complete").length;
+            const inProg = poMs.filter(m => m.status === "In Progress").length;
+            const delayed = poMs.filter(m => m.status === "Delayed").length;
+            const na = poMs.filter(m => m.status === "N/A").length;
+            const active = poMs.length - na;
+            const pct = active > 0 ? Math.round((complete / active) * 100) : 0;
+            const delayedPct = active > 0 ? Math.round((delayed / active) * 100) : 0;
+            const inProgPct = active > 0 ? Math.round((inProg / active) * 100) : 0;
+            // Category summary
+            const cats = WIP_CATEGORIES.filter(cat => poMs.some(m => m.category === cat));
+            return (
+              <div style={{ background: "#1E293B", borderRadius: 10, padding: "14px 18px", marginBottom: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+                  <span style={{ color: "#94A3B8", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Production Progress</span>
+                  <span style={{ color: pct === 100 ? "#10B981" : "#60A5FA", fontSize: 14, fontWeight: 800, fontFamily: "monospace" }}>{pct}%</span>
+                  <span style={{ color: "#6B7280", fontSize: 11 }}>{complete}/{active} milestones</span>
+                  {delayed > 0 && <span style={{ color: "#EF4444", fontSize: 11, fontWeight: 600 }}>⚠ {delayed} delayed</span>}
+                </div>
+                <div style={{ height: 8, borderRadius: 4, background: "#0F172A", overflow: "hidden", marginBottom: 12 }}>
+                  <div style={{ display: "flex", height: "100%" }}>
+                    <div style={{ width: `${pct}%`, background: "#10B981", transition: "width 0.3s" }} />
+                    <div style={{ width: `${inProgPct}%`, background: "#3B82F6", transition: "width 0.3s" }} />
+                    <div style={{ width: `${delayedPct}%`, background: "#EF4444", transition: "width 0.3s" }} />
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {cats.map(cat => {
+                    const catMs = poMs.filter(m => m.category === cat);
+                    const catDone = catMs.filter(m => m.status === "Complete").length;
+                    const catNA = catMs.filter(m => m.status === "N/A").length;
+                    const catActive = catMs.length - catNA;
+                    const allDone = catActive > 0 && catDone === catActive;
+                    const hasDelayed = catMs.some(m => m.status === "Delayed");
+                    const hasInProg = catMs.some(m => m.status === "In Progress");
+                    const dotColor = allDone ? "#10B981" : hasDelayed ? "#EF4444" : hasInProg ? "#3B82F6" : "#6B7280";
+                    return (
+                      <div key={cat} onClick={() => setDetailMode("milestones")} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 6, background: "#0F172A", border: "1px solid #334155", cursor: "pointer", transition: "border-color 0.15s" }}>
+                        <div style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor }} />
+                        <span style={{ fontSize: 11, color: "#D1D5DB" }}>{cat}</span>
+                        <span style={{ fontSize: 10, color: "#6B7280", fontFamily: "monospace" }}>{catDone}/{catActive}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Tabs */}
           <div style={{ display: "flex", gap: 2, marginBottom: 0 }}>
-            <button style={tabStyle("po")} onClick={() => setDetailMode("po")}>PO Details</button>
-            <button style={tabStyle("matrix")} onClick={() => setDetailMode("matrix")}>Matrix</button>
+            <button style={tabStyle("po")} onClick={() => setDetailMode("po")}>PO / Matrix</button>
             <button style={tabStyle("milestones")} onClick={() => setDetailMode("milestones")}>Milestones</button>
             <button style={tabStyle("notes")} onClick={() => setDetailMode("notes")}>Notes</button>
             <button style={tabStyle("email")} onClick={() => { setDetailMode("email"); setDtlEmailTab("inbox"); const pn = selected.PoNumber ?? ""; if (pn && emailToken && !dtlEmails[pn]?.length) loadDtlEmails(pn); }}>📧 Email</button>
@@ -1660,144 +1712,122 @@ export default function TandAApp() {
           </div>
           <div style={{ border: "1px solid #334155", borderTop: "none", borderRadius: "0 0 10px 10px", background: "#1E293B", padding: 20, marginBottom: 20 }}>
 
-          {/* PO Details section */}
-          {showPO && selected.Memo && (
-              <div style={S.memoBox}>
-                <div style={S.sectionLabel}>Memo</div>
-                <p style={{ color: "#D1D5DB", fontSize: 14, margin: 0 }}>{selected.Memo}</p>
-              </div>
-            )}
+          {/* PO / Matrix combined section */}
+          {showPO && items.length > 0 && (() => {
+            // Matrix data
+            const parsed = items.map(item => {
+              const sku = item.ItemNumber ?? ""; const parts = sku.split("-");
+              return { base: parts[0] || sku, color: parts.length >= 2 ? parts[1] : "", size: parts.length >= 3 ? parts.slice(2).join("-") : "", qty: item.QtyOrder ?? 0, price: item.UnitPrice ?? 0, desc: item.Description ?? "" };
+            });
+            const sizeOrder: string[] = [];
+            parsed.forEach(p => { if (p.size && !sizeOrder.includes(p.size)) sizeOrder.push(p.size); });
+            const bases: string[] = [];
+            const byBase: Record<string, { color: string; desc: string; sizes: Record<string, number>; price: number }[]> = {};
+            parsed.forEach(p => {
+              if (!byBase[p.base]) { byBase[p.base] = []; bases.push(p.base); }
+              let row = byBase[p.base].find(r => r.color === p.color);
+              if (!row) { row = { color: p.color, desc: p.desc, sizes: {}, price: p.price }; byBase[p.base].push(row); }
+              row.sizes[p.size] = (row.sizes[p.size] || 0) + p.qty;
+            });
 
-            {showPO && selected.Tags && (
-              <div style={{ marginBottom: 16 }}>
-                <div style={S.sectionLabel}>Tags</div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {selected.Tags.split(",").map(t => (
-                    <span key={t} style={S.tagChip}>{t.trim()}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Line items */}
-            {showPO && items.length > 0 && (
-              <div style={{ marginBottom: 20 }}>
-                <div style={S.sectionLabel}>Line Items ({items.length})</div>
-                <div style={S.itemsTable}>
-                  <div style={S.itemsHeader}>
-                    <span>SKU</span><span>Description</span><span>Qty</span><span>Unit Price</span><span>Total</span>
+            return (
+              <>
+                {/* Matrix — collapsible */}
+                <div style={{ marginBottom: 12 }}>
+                  <div onClick={() => setMatrixCollapsed(!matrixCollapsed)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none", marginBottom: matrixCollapsed ? 0 : 10 }}>
+                    <span style={{ color: "#6B7280", fontSize: 12 }}>{matrixCollapsed ? "▶" : "▼"}</span>
+                    <span style={S.sectionLabel as any}>Item Matrix</span>
+                    <span style={{ color: "#6B7280", fontSize: 11 }}>({bases.length} base parts, {sizeOrder.length} sizes)</span>
                   </div>
-                  {items.map((item, i) => (
-                    <div key={i} style={S.itemRow}>
-                      <span style={{ color: "#60A5FA", fontFamily: "monospace" }}>{item.ItemNumber ?? "—"}</span>
-                      <span style={{ color: "#D1D5DB" }}>{item.Description ?? "—"}</span>
-                      <span style={{ color: "#E5E7EB", textAlign: "right" }}>{item.QtyOrder ?? 0}</span>
-                      <span style={{ color: "#E5E7EB", textAlign: "right" }}>{fmtCurrency(item.UnitPrice, selected.CurrencyCode)}</span>
-                      <span style={{ color: "#10B981", textAlign: "right", fontWeight: 600 }}>
-                        {fmtCurrency((item.QtyOrder ?? 0) * (item.UnitPrice ?? 0), selected.CurrencyCode)}
-                      </span>
-                    </div>
-                  ))}
-                  <div style={S.itemsTotal}>
-                    <span style={{ gridColumn: "1/5", textAlign: "right", color: "#9CA3AF" }}>Total</span>
-                    <span style={{ color: "#10B981", fontWeight: 700 }}>{fmtCurrency(total, selected.CurrencyCode)}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Matrix View */}
-            {(detailMode === "matrix" || detailMode === "all") && items.length > 0 && (() => {
-              // Parse items: chars before first "-" = base, before second "-" = color, after third "-" = size
-              const parsed = items.map(item => {
-                const sku = item.ItemNumber ?? "";
-                const parts = sku.split("-");
-                const base = parts[0] || sku;
-                const color = parts.length >= 2 ? parts[1] : "";
-                const size = parts.length >= 3 ? parts.slice(2).join("-") : "";
-                return { base, color, size, qty: item.QtyOrder ?? 0, price: item.UnitPrice ?? 0, desc: item.Description ?? "", raw: sku };
-              });
-              // Collect all unique sizes in order of appearance
-              const sizeOrder: string[] = [];
-              parsed.forEach(p => { if (p.size && !sizeOrder.includes(p.size)) sizeOrder.push(p.size); });
-              // Group by base part
-              const bases: string[] = [];
-              const byBase: Record<string, { color: string; desc: string; sizes: Record<string, number>; price: number }[]> = {};
-              parsed.forEach(p => {
-                if (!byBase[p.base]) { byBase[p.base] = []; bases.push(p.base); }
-                let row = byBase[p.base].find(r => r.color === p.color);
-                if (!row) { row = { color: p.color, desc: p.desc, sizes: {}, price: p.price }; byBase[p.base].push(row); }
-                row.sizes[p.size] = (row.sizes[p.size] || 0) + p.qty;
-              });
-
-              return (
-                <div style={{ marginBottom: 20 }}>
-                  <div style={S.sectionLabel}>Item Matrix</div>
-                  <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                      <thead>
-                        <tr style={{ background: "#0F172A" }}>
-                          <th style={{ padding: "10px 14px", textAlign: "left", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Base Part</th>
-                          <th style={{ padding: "10px 14px", textAlign: "left", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Description</th>
-                          <th style={{ padding: "10px 14px", textAlign: "left", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Color</th>
-                          {sizeOrder.map(sz => (
-                            <th key={sz} style={{ padding: "10px 14px", textAlign: "center", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155", minWidth: 60 }}>{sz}</th>
-                          ))}
-                          <th style={{ padding: "10px 14px", textAlign: "center", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Total</th>
-                          <th style={{ padding: "10px 14px", textAlign: "right", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>PO Cost</th>
-                          <th style={{ padding: "10px 14px", textAlign: "right", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Total Cost</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {bases.map((base, bi) => {
-                          const rows = byBase[base];
-                          const baseTotal: Record<string, number> = {};
-                          let baseTotalQty = 0;
-                          let baseTotalCost = 0;
-                          rows.forEach(r => {
-                            Object.entries(r.sizes).forEach(([sz, qty]) => { baseTotal[sz] = (baseTotal[sz] || 0) + qty; });
-                          });
-                          return rows.map((row, ri) => {
-                            const rowTotal = Object.values(row.sizes).reduce((s, q) => s + q, 0);
-                            const rowCost = rowTotal * row.price;
-                            baseTotalQty += rowTotal;
-                            baseTotalCost += rowCost;
-                            const isLast = ri === rows.length - 1;
-                            return (
-                              <tr key={base + "-" + row.color} style={{ borderBottom: isLast && bi < bases.length - 1 ? "2px solid #334155" : "1px solid #1E293B" }}>
-                                {ri === 0 ? (
-                                  <td rowSpan={rows.length} style={{ padding: "10px 14px", color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, verticalAlign: "top", borderRight: "1px solid #334155" }}>{base}</td>
-                                ) : null}
-                                <td style={{ padding: "8px 14px", color: "#9CA3AF", fontSize: 12 }}>{row.desc || "—"}</td>
-                                <td style={{ padding: "8px 14px", color: "#D1D5DB" }}>{row.color || "—"}</td>
-                                {sizeOrder.map(sz => (
-                                  <td key={sz} style={{ padding: "8px 14px", textAlign: "center", color: row.sizes[sz] ? "#E5E7EB" : "#334155", fontFamily: "monospace" }}>{row.sizes[sz] || "—"}</td>
-                                ))}
-                                <td style={{ padding: "8px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 700, fontFamily: "monospace" }}>{rowTotal}</td>
-                                <td style={{ padding: "8px 14px", textAlign: "right", color: "#9CA3AF", fontFamily: "monospace" }}>{fmtCurrency(row.price, selected.CurrencyCode)}</td>
-                                <td style={{ padding: "8px 14px", textAlign: "right", color: "#10B981", fontWeight: 600, fontFamily: "monospace" }}>{fmtCurrency(rowCost, selected.CurrencyCode)}</td>
-                              </tr>
-                            );
-                          });
-                        })}
-                      </tbody>
-                      <tfoot>
-                        <tr style={{ borderTop: "2px solid #334155", background: "#0F172A" }}>
-                          <td colSpan={3} style={{ padding: "12px 14px", color: "#9CA3AF", fontWeight: 700, textAlign: "right" }}>Grand Total</td>
-                          {sizeOrder.map(sz => {
-                            const colTotal = parsed.filter(p => p.size === sz).reduce((s, p) => s + p.qty, 0);
-                            return <td key={sz} style={{ padding: "12px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 700, fontFamily: "monospace" }}>{colTotal}</td>;
+                  {!matrixCollapsed && (
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                        <thead>
+                          <tr style={{ background: "#0F172A" }}>
+                            <th style={{ padding: "10px 14px", textAlign: "left", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Base Part</th>
+                            <th style={{ padding: "10px 14px", textAlign: "left", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Description</th>
+                            <th style={{ padding: "10px 14px", textAlign: "left", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Color</th>
+                            {sizeOrder.map(sz => (
+                              <th key={sz} style={{ padding: "10px 14px", textAlign: "center", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155", minWidth: 60 }}>{sz}</th>
+                            ))}
+                            <th style={{ padding: "10px 14px", textAlign: "center", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Total</th>
+                            <th style={{ padding: "10px 14px", textAlign: "right", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>PO Cost</th>
+                            <th style={{ padding: "10px 14px", textAlign: "right", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Total Cost</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {bases.map((base, bi) => {
+                            const rows = byBase[base];
+                            return rows.map((row, ri) => {
+                              const rowTotal = Object.values(row.sizes).reduce((s, q) => s + q, 0);
+                              const rowCost = rowTotal * row.price;
+                              const isLast = ri === rows.length - 1;
+                              return (
+                                <tr key={base + "-" + row.color} style={{ borderBottom: isLast && bi < bases.length - 1 ? "2px solid #334155" : "1px solid #1E293B" }}>
+                                  {ri === 0 ? <td rowSpan={rows.length} style={{ padding: "10px 14px", color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, verticalAlign: "top", borderRight: "1px solid #334155" }}>{base}</td> : null}
+                                  <td style={{ padding: "8px 14px", color: "#9CA3AF", fontSize: 12 }}>{row.desc || "—"}</td>
+                                  <td style={{ padding: "8px 14px", color: "#D1D5DB" }}>{row.color || "—"}</td>
+                                  {sizeOrder.map(sz => (
+                                    <td key={sz} style={{ padding: "8px 14px", textAlign: "center", color: row.sizes[sz] ? "#E5E7EB" : "#334155", fontFamily: "monospace" }}>{row.sizes[sz] || "—"}</td>
+                                  ))}
+                                  <td style={{ padding: "8px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 700, fontFamily: "monospace" }}>{rowTotal}</td>
+                                  <td style={{ padding: "8px 14px", textAlign: "right", color: "#9CA3AF", fontFamily: "monospace" }}>{fmtCurrency(row.price, selected.CurrencyCode)}</td>
+                                  <td style={{ padding: "8px 14px", textAlign: "right", color: "#10B981", fontWeight: 600, fontFamily: "monospace" }}>{fmtCurrency(rowCost, selected.CurrencyCode)}</td>
+                                </tr>
+                              );
+                            });
                           })}
-                          <td style={{ padding: "12px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 800, fontFamily: "monospace" }}>{totalQty}</td>
-                          <td style={{ padding: "12px 14px" }} />
-                          <td style={{ padding: "12px 14px", textAlign: "right", color: "#10B981", fontWeight: 800, fontFamily: "monospace" }}>{fmtCurrency(total, selected.CurrencyCode)}</td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ borderTop: "2px solid #334155", background: "#0F172A" }}>
+                            <td colSpan={3} style={{ padding: "12px 14px", color: "#9CA3AF", fontWeight: 700, textAlign: "right" }}>Grand Total</td>
+                            {sizeOrder.map(sz => {
+                              const colTotal = parsed.filter(p => p.size === sz).reduce((s, p) => s + p.qty, 0);
+                              return <td key={sz} style={{ padding: "12px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 700, fontFamily: "monospace" }}>{colTotal}</td>;
+                            })}
+                            <td style={{ padding: "12px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 800, fontFamily: "monospace" }}>{totalQty}</td>
+                            <td style={{ padding: "12px 14px" }} />
+                            <td style={{ padding: "12px 14px", textAlign: "right", color: "#10B981", fontWeight: 800, fontFamily: "monospace" }}>{fmtCurrency(total, selected.CurrencyCode)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
                 </div>
-              );
-            })()}
+
+                {/* Line Items — collapsible */}
+                <div style={{ marginBottom: 20 }}>
+                  <div onClick={() => setLineItemsCollapsed(!lineItemsCollapsed)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none", marginBottom: lineItemsCollapsed ? 0 : 10 }}>
+                    <span style={{ color: "#6B7280", fontSize: 12 }}>{lineItemsCollapsed ? "▶" : "▼"}</span>
+                    <span style={S.sectionLabel as any}>Line Items</span>
+                    <span style={{ color: "#6B7280", fontSize: 11 }}>({items.length} items)</span>
+                  </div>
+                  {!lineItemsCollapsed && (
+                    <div style={S.itemsTable}>
+                      <div style={S.itemsHeader}>
+                        <span>SKU</span><span>Description</span><span>Qty</span><span>Unit Price</span><span>Total</span>
+                      </div>
+                      {items.map((item, i) => (
+                        <div key={i} style={S.itemRow}>
+                          <span style={{ color: "#60A5FA", fontFamily: "monospace" }}>{item.ItemNumber ?? "—"}</span>
+                          <span style={{ color: "#D1D5DB" }}>{item.Description ?? "—"}</span>
+                          <span style={{ color: "#E5E7EB", textAlign: "right" }}>{item.QtyOrder ?? 0}</span>
+                          <span style={{ color: "#E5E7EB", textAlign: "right" }}>{fmtCurrency(item.UnitPrice, selected.CurrencyCode)}</span>
+                          <span style={{ color: "#10B981", textAlign: "right", fontWeight: 600 }}>
+                            {fmtCurrency((item.QtyOrder ?? 0) * (item.UnitPrice ?? 0), selected.CurrencyCode)}
+                          </span>
+                        </div>
+                      ))}
+                      <div style={S.itemsTotal}>
+                        <span style={{ gridColumn: "1/5", textAlign: "right", color: "#9CA3AF" }}>Total</span>
+                        <span style={{ color: "#10B981", fontWeight: 700 }}>{fmtCurrency(total, selected.CurrencyCode)}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
 
             {/* Email Tab */}
             {(detailMode === "email" || detailMode === "all") && (() => {
