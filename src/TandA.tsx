@@ -2626,7 +2626,7 @@ export default function TandAApp() {
           <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => setView("list")}>All POs</button>
           <button style={view === "templates" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("templates"); }}>Templates</button>
           <button style={view === "email" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("email"); }}>📧 Email</button>
-          <button style={view === "timeline" ? S.navBtnActive : S.navBtn} onClick={() => setView("timeline")}>📊 Timeline</button>
+          <button style={view === "timeline" ? S.navBtnActive : S.navBtn} onClick={() => { if (selected) setSearch(selected.PoNumber ?? ""); setView("timeline"); }}>📊 Timeline</button>
           <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing} title="Sync POs from Xoro">
             {syncing ? "⏳ Syncing…" : "🔄 Sync"}
           </button>
@@ -3066,7 +3066,7 @@ export default function TandAApp() {
                       const statusColor = STATUS_COLORS[po.StatusName ?? ""] ?? "#6B7280";
                       const isSelected = selected?.PoNumber === poNum;
                       return (
-                        <div key={poNum} ref={el => { if (isSelected && el) setTimeout(() => el.scrollIntoView({ block: "center", behavior: "smooth" }), 100); }}
+                        <div key={poNum}
                           onClick={() => { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(po); }}
                           style={{ height: ROW_H, display: "flex", alignItems: "center", gap: 8, padding: "0 12px", borderBottom: "1px solid #0F172A", background: isSelected ? "#334155" : idx % 2 === 0 ? "#1E293B" : "#1A2332", cursor: "pointer", borderLeft: isSelected ? "3px solid #60A5FA" : "3px solid transparent" }}
                           onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = "#334155"; }}
