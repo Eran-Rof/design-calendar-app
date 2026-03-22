@@ -707,7 +707,7 @@ export default function TandAApp() {
     if (!skipHistory && existing) {
       const changes: string[] = [];
       if (existing.status !== m.status) changes.push(`Status: ${existing.status} → ${m.status} (${m.status_date || "today"})`);
-      if (existing.actual_date !== m.actual_date) changes.push(`Actual Date: ${existing.actual_date || "—"} → ${m.actual_date || "—"}`);
+      if (existing.status_date !== m.status_date) changes.push(`Status Date: ${existing.status_date || "—"} → ${m.status_date || "—"}`);
       if (existing.notes !== m.notes) changes.push(`Notes updated`);
       if (changes.length > 0) {
         addHistory(m.po_number, `${m.phase}: ${changes.join(", ")}`);
@@ -1463,9 +1463,9 @@ export default function TandAApp() {
 
     } else if (mode === "milestones") {
       const poMs = milestones[poNum] || [];
-      const rows: any[][] = [["Category", "Milestone", "Expected Date", "Actual Date", "Status", "Status Date", "Notes"]];
-      poMs.forEach(m => { rows.push([m.category, m.phase, m.expected_date ?? "", m.actual_date ?? "", m.status, m.status_date ?? "", m.notes ?? ""]); });
-      XLSX.utils.book_append_sheet(wb, styleSheet(rows, [20, 26, 14, 14, 14, 14, 30]), "Milestones");
+      const rows: any[][] = [["Category", "Milestone", "Expected Date", "Status", "Status Date", "Notes"]];
+      poMs.forEach(m => { rows.push([m.category, m.phase, m.expected_date ?? "", m.status, m.status_date ?? "", m.notes ?? ""]); });
+      XLSX.utils.book_append_sheet(wb, styleSheet(rows, [20, 26, 14, 14, 14, 30]), "Milestones");
       XLSX.writeFile(wb, `${poNum}_Milestones.xlsx`);
 
     } else if (mode === "notes") {
@@ -1482,9 +1482,9 @@ export default function TandAApp() {
       XLSX.utils.book_append_sheet(wb, styleSheet(lineData, [22, 32, 12, 14, 16], { totalRow: true, dollarCols: [3, 4], qtyCols: [2] }), "Line Items");
       const poMs = milestones[poNum] || [];
       if (poMs.length > 0) {
-        const msRows: any[][] = [["Category", "Milestone", "Expected Date", "Actual Date", "Status", "Status Date", "Notes"]];
-        poMs.forEach(m => { msRows.push([m.category, m.phase, m.expected_date ?? "", m.actual_date ?? "", m.status, m.status_date ?? "", m.notes ?? ""]); });
-        XLSX.utils.book_append_sheet(wb, styleSheet(msRows, [20, 26, 14, 14, 14, 14, 30]), "Milestones");
+        const msRows: any[][] = [["Category", "Milestone", "Expected Date", "Status", "Status Date", "Notes"]];
+        poMs.forEach(m => { msRows.push([m.category, m.phase, m.expected_date ?? "", m.status, m.status_date ?? "", m.notes ?? ""]); });
+        XLSX.utils.book_append_sheet(wb, styleSheet(msRows, [20, 26, 14, 14, 14, 30]), "Milestones");
       }
       XLSX.writeFile(wb, `${poNum}_All.xlsx`);
     } else {
@@ -2001,10 +2001,9 @@ export default function TandAApp() {
                         </div>
                         {!collapsed && (
                           <div style={{ background: "#0F172A", borderRadius: "0 0 8px 8px", overflow: "hidden" }}>
-                            <div style={{ display: "grid", gridTemplateColumns: "1.5fr 90px 120px 110px 100px 55px", gap: 6, padding: "5px 14px", background: "#1E293B" }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1.5fr 100px 120px 120px 55px", gap: 6, padding: "5px 14px", background: "#1E293B" }}>
                               <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>Milestone</span>
                               <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Due Date</span>
-                              <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Actual Date</span>
                               <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Status</span>
                               <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Status Date</span>
                               <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "right" }}>Days</span>
@@ -2013,15 +2012,9 @@ export default function TandAApp() {
                               const daysRem = m.expected_date ? Math.ceil((new Date(m.expected_date).getTime() - Date.now()) / 86400000) : null;
                               const daysColor = m.status === "Complete" ? "#10B981" : m.status === "N/A" ? "#6B7280" : daysRem === null ? "#6B7280" : daysRem < 0 ? "#EF4444" : daysRem <= 7 ? "#F59E0B" : "#10B981";
                               return (
-                                <div key={m.id} style={{ display: "grid", gridTemplateColumns: "1.5fr 90px 120px 110px 100px 55px", gap: 6, padding: "8px 14px", borderTop: "1px solid #1E293B", alignItems: "center" }}>
+                                <div key={m.id} style={{ display: "grid", gridTemplateColumns: "1.5fr 100px 120px 120px 55px", gap: 6, padding: "8px 14px", borderTop: "1px solid #1E293B", alignItems: "center" }}>
                                   <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
                                   <span style={{ color: "#9CA3AF", textAlign: "center", fontSize: 12 }}>{fmtDate(m.expected_date ?? undefined)}</span>
-                                  <input type="date" style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: "#F1F5F9", fontSize: 12, padding: "5px 6px", width: "100%", boxSizing: "border-box" }}
-                                    value={m.actual_date || ""}
-                                    onChange={e => {
-                                      const val = e.target.value || null;
-                                      saveMilestone({ ...m, actual_date: val, updated_at: new Date().toISOString(), updated_by: user?.name || "" });
-                                    }} />
                                   <select style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: MILESTONE_STATUS_COLORS[m.status] || "#6B7280", fontSize: 12, padding: "5px 6px", width: "100%", boxSizing: "border-box" }}
                                     value={m.status}
                                     onChange={e => {
@@ -2031,8 +2024,8 @@ export default function TandAApp() {
                                     }}>
                                     {MILESTONE_STATUSES.map(s => <option key={s} value={s} style={{ color: MILESTONE_STATUS_COLORS[s] }}>{s}</option>)}
                                   </select>
-                                  <input type="date" style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: m.status_date ? "#60A5FA" : "#334155", fontSize: 11, padding: "4px 5px", width: "100%", boxSizing: "border-box" }}
-                                    title="Status change date"
+                                  <input type="date" style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: m.status_date ? "#60A5FA" : "#334155", fontSize: 12, padding: "5px 6px", width: "100%", boxSizing: "border-box" }}
+                                    title="Date the status was changed"
                                     value={m.status_date || ""}
                                     onChange={e => {
                                       const val = e.target.value || null;
