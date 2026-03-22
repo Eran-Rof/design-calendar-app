@@ -1424,6 +1424,7 @@ export default function TandAApp() {
                         <tr style={{ background: "#0F172A" }}>
                           <th style={{ padding: "10px 14px", textAlign: "left", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Base Part</th>
                           <th style={{ padding: "10px 14px", textAlign: "left", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Color</th>
+                          <th style={{ padding: "10px 14px", textAlign: "left", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Description</th>
                           {sizeOrder.map(sz => (
                             <th key={sz} style={{ padding: "10px 14px", textAlign: "center", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155", minWidth: 60 }}>{sz}</th>
                           ))}
@@ -1453,6 +1454,7 @@ export default function TandAApp() {
                                   <td rowSpan={rows.length} style={{ padding: "10px 14px", color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, verticalAlign: "top", borderRight: "1px solid #334155" }}>{base}</td>
                                 ) : null}
                                 <td style={{ padding: "8px 14px", color: "#D1D5DB" }}>{row.color || "—"}</td>
+                                <td style={{ padding: "8px 14px", color: "#9CA3AF", fontSize: 12 }}>{row.desc || "—"}</td>
                                 {sizeOrder.map(sz => (
                                   <td key={sz} style={{ padding: "8px 14px", textAlign: "center", color: row.sizes[sz] ? "#E5E7EB" : "#334155", fontFamily: "monospace" }}>{row.sizes[sz] || "—"}</td>
                                 ))}
@@ -1466,7 +1468,7 @@ export default function TandAApp() {
                       </tbody>
                       <tfoot>
                         <tr style={{ borderTop: "2px solid #334155", background: "#0F172A" }}>
-                          <td colSpan={2} style={{ padding: "12px 14px", color: "#9CA3AF", fontWeight: 700, textAlign: "right" }}>Grand Total</td>
+                          <td colSpan={3} style={{ padding: "12px 14px", color: "#9CA3AF", fontWeight: 700, textAlign: "right" }}>Grand Total</td>
                           {sizeOrder.map(sz => {
                             const colTotal = parsed.filter(p => p.size === sz).reduce((s, p) => s + p.qty, 0);
                             return <td key={sz} style={{ padding: "12px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 700, fontFamily: "monospace" }}>{colTotal}</td>;
