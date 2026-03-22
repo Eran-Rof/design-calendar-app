@@ -498,7 +498,7 @@ export default function TandAApp() {
   useEffect(() => {
     if ((window as any).XLSX) return;
     const s = document.createElement("script");
-    s.src = "https://cdn.jsdelivr.net/npm/xlsx-js-style@1.6.0/dist/xlsx.bundle.min.js";
+    s.src = "https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.min.js";
     document.head.appendChild(s);
   }, []);
 
