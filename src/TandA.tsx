@@ -3165,7 +3165,7 @@ export default function TandAApp() {
         })()}
       </div>
 
-      {selected      && DetailPanel()}
+      {selected && view !== "timeline" && DetailPanel()}
       {showSettings  && <SettingsModal />}
       {showSyncModal && <SyncModal />}
       {showBulkUpdate && (
