@@ -2975,7 +2975,7 @@ export default function TandAApp() {
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     <div style={{ display: "flex", gap: 12, fontSize: 12, color: "#94A3B8", alignItems: "center" }}>
                       <span style={{ fontSize: 10, color: "#6B7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, width: 80, flexShrink: 0 }}>Milestones:</span>
-                      {[["linear-gradient(135deg,#10B981,#059669)","Complete"],["linear-gradient(135deg,#3B82F6,#2563EB)","In Progress"],["linear-gradient(135deg,#EF4444,#DC2626)","Delayed"],["linear-gradient(135deg,#4B5563,#374151)","Not Started"]].map(([c,l]) => (
+                      {[["linear-gradient(90deg,#34D399,#059669)","Complete"],["linear-gradient(90deg,#60A5FA,#1D4ED8)","In Progress"],["linear-gradient(90deg,#F87171,#991B1B)","Delayed"],["linear-gradient(90deg,#6B7280,#1F2937)","Not Started"]].map(([c,l]) => (
                         <span key={l} style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 24, height: 14, borderRadius: 7, background: c }} />{l}</span>
                       ))}
                     </div>
@@ -3095,7 +3095,7 @@ export default function TandAApp() {
                               const allDone = catMs.every(m => m.status === "Complete" || m.status === "N/A");
                               const hasDelayed = catMs.some(m => m.status === "Delayed");
                               const hasInProg = catMs.some(m => m.status === "In Progress");
-                              const barGradient = allDone ? "linear-gradient(135deg, #10B981, #059669)" : hasDelayed ? "linear-gradient(135deg, #EF4444, #DC2626)" : hasInProg ? "linear-gradient(135deg, #3B82F6, #2563EB)" : "linear-gradient(135deg, #4B5563, #374151)";
+                              const barGradient = allDone ? "linear-gradient(90deg, #34D399, #059669)" : hasDelayed ? "linear-gradient(90deg, #F87171, #991B1B)" : hasInProg ? "linear-gradient(90deg, #60A5FA, #1D4ED8)" : "linear-gradient(90deg, #6B7280, #1F2937)";
                               const barH = 24;
                               const barY = 6 + catIdx * (barH + 3);
                               const catDone = catMs.filter(m => m.status === "Complete").length;
