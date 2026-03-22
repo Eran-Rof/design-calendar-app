@@ -2931,8 +2931,8 @@ export default function TandAApp() {
           const chartWidth = totalDays * dayWidth;
           const today = new Date();
           const todayOffset = Math.floor((today.getTime() - startDate.getTime()) / DAY) * dayWidth;
-          const LEFT_W = 260;
-          const ROW_H = 72;
+          const LEFT_W = 300;
+          const ROW_H = 110;
 
           // Build week columns
           const weeks: { date: Date; offset: number }[] = [];
@@ -2969,9 +2969,9 @@ export default function TandAApp() {
                     <option value="All">All Vendors ({posWithMs.length})</option>
                     {tlVendors.map(v => <option key={v} value={v}>{v}</option>)}
                   </select>
-                  <div style={{ display: "flex", gap: 12, fontSize: 12, color: "#94A3B8" }}>
+                  <div style={{ display: "flex", gap: 14, fontSize: 14, color: "#94A3B8" }}>
                     {[["#10B981","Complete"],["#3B82F6","In Progress"],["#EF4444","Delayed"],["#4B5563","Not Started"]].map(([c,l]) => (
-                      <span key={l} style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 16, height: 12, borderRadius: 3, background: c }} />{l}</span>
+                      <span key={l} style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 24, height: 18, borderRadius: 4, background: c }} />{l}</span>
                     ))}
                   </div>
                 </div>
@@ -2990,11 +2990,11 @@ export default function TandAApp() {
                   {/* Frozen left column */}
                   <div style={{ width: LEFT_W, flexShrink: 0, zIndex: 3, background: "#1E293B", paddingBottom: 18 }}>
                     {/* Header cells */}
-                    <div style={{ height: 32, background: "#0F172A", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", padding: "0 14px" }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: 1 }}>Month</span>
+                    <div style={{ height: 38, background: "#0F172A", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", padding: "0 16px" }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: 1 }}>Month</span>
                     </div>
-                    <div style={{ height: 28, background: "#0F172A", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", padding: "0 14px" }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.5 }}>Week of</span>
+                    <div style={{ height: 34, background: "#0F172A", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", padding: "0 16px" }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.5 }}>Week of</span>
                     </div>
                     {/* PO labels */}
                     {filteredPOs.map((po, idx) => {
@@ -3009,15 +3009,15 @@ export default function TandAApp() {
                           style={{ height: ROW_H, display: "flex", alignItems: "center", gap: 8, padding: "0 12px", borderBottom: "1px solid #0F172A", background: idx % 2 === 0 ? "#1E293B" : "#1A2332", cursor: "pointer" }}
                           onMouseEnter={e => e.currentTarget.style.background = "#334155"}
                           onMouseLeave={e => e.currentTarget.style.background = idx % 2 === 0 ? "#1E293B" : "#1A2332"}>
-                          <div style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor, flexShrink: 0 }} />
+                          <div style={{ width: 10, height: 10, borderRadius: "50%", background: statusColor, flexShrink: 0 }} />
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 14, fontWeight: 700, color: "#60A5FA", fontFamily: "monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{poNum}</div>
-                            <div style={{ fontSize: 12, color: "#94A3B8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{po.VendorName ?? ""}</div>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: "#60A5FA", fontFamily: "monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{poNum}</div>
+                            <div style={{ fontSize: 14, color: "#94A3B8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{po.VendorName ?? ""}</div>
                           </div>
-                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0 }}>
-                            <span style={{ fontSize: 12, color: pct === 100 ? "#10B981" : "#6B7280", fontWeight: 700, fontFamily: "monospace" }}>{pct}%</span>
-                            <div style={{ width: 40, height: 4, borderRadius: 2, background: "#334155", overflow: "hidden" }}>
-                              <div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? "#10B981" : "#3B82F6", borderRadius: 2 }} />
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
+                            <span style={{ fontSize: 14, color: pct === 100 ? "#10B981" : "#6B7280", fontWeight: 700, fontFamily: "monospace" }}>{pct}%</span>
+                            <div style={{ width: 56, height: 6, borderRadius: 3, background: "#334155", overflow: "hidden" }}>
+                              <div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? "#10B981" : "#3B82F6", borderRadius: 3 }} />
                             </div>
                           </div>
                         </div>
@@ -3029,21 +3029,21 @@ export default function TandAApp() {
                   <div className="tl-scroll" style={{ flex: 1, overflowX: "auto", borderLeft: "2px solid #334155", paddingBottom: 4 }}>
                     <div style={{ width: chartWidth, minWidth: "100%" }}>
                       {/* Month header row */}
-                      <div style={{ height: 32, position: "relative", background: "#0F172A", borderBottom: "1px solid #334155" }}>
+                      <div style={{ height: 38, position: "relative", background: "#0F172A", borderBottom: "1px solid #334155" }}>
                         {monthSpans.map((ms, i) => (
                           <div key={i} style={{ position: "absolute", left: ms.left, width: ms.width, height: "100%", display: "flex", alignItems: "center", justifyContent: "center", borderRight: "1px solid #334155" }}>
-                            <span style={{ fontSize: 13, fontWeight: 700, color: "#D1D5DB", letterSpacing: 0.5 }}>{ms.label}</span>
+                            <span style={{ fontSize: 15, fontWeight: 700, color: "#D1D5DB", letterSpacing: 0.5 }}>{ms.label}</span>
                           </div>
                         ))}
                       </div>
                       {/* Week header row */}
-                      <div style={{ height: 28, position: "relative", background: "#0F172A", borderBottom: "1px solid #334155" }}>
+                      <div style={{ height: 34, position: "relative", background: "#0F172A", borderBottom: "1px solid #334155" }}>
                         {weeks.map((w, i) => {
                           const wWidth = i < weeks.length - 1 ? weeks[i + 1].offset - w.offset : 7 * dayWidth;
                           const isThisWeek = today.getTime() >= w.date.getTime() && today.getTime() < w.date.getTime() + 7 * DAY;
                           return (
                             <div key={i} style={{ position: "absolute", left: w.offset, width: wWidth, height: "100%", display: "flex", alignItems: "center", justifyContent: "center", borderRight: "1px solid #1E293B", background: isThisWeek ? "#F59E0B15" : "transparent" }}>
-                              <span style={{ fontSize: 11, color: isThisWeek ? "#F59E0B" : "#6B7280", fontWeight: isThisWeek ? 700 : 500 }}>
+                              <span style={{ fontSize: 13, color: isThisWeek ? "#F59E0B" : "#6B7280", fontWeight: isThisWeek ? 700 : 500 }}>
                                 {w.date.toLocaleDateString("en-US", { month: "numeric", day: "numeric" })}
                               </span>
                             </div>
@@ -3081,14 +3081,14 @@ export default function TandAApp() {
                               const hasDelayed = catMs.some(m => m.status === "Delayed");
                               const hasInProg = catMs.some(m => m.status === "In Progress");
                               const barColor = allDone ? "#10B981" : hasDelayed ? "#EF4444" : hasInProg ? "#3B82F6" : "#4B5563";
-                              const barH = 12;
-                              const barY = 4 + catIdx * (barH + 2);
+                              const barH = 18;
+                              const barY = 4 + catIdx * (barH + 3);
                               const catDone = catMs.filter(m => m.status === "Complete").length;
                               const catActive = catMs.filter(m => m.status !== "N/A").length;
                               return (
                                 <div key={cat} title={`${cat}: ${catDone}/${catActive} complete\n${catStart} → ${catEnd}`}
                                   style={{ position: "absolute", left: x1, width: barW, top: barY, height: barH, borderRadius: 3, background: barColor, minWidth: 6, zIndex: 1, display: "flex", alignItems: "center", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }}>
-                                  {barW > 50 && <span style={{ fontSize: 9, color: "#fff", fontWeight: 700, paddingLeft: 5, whiteSpace: "nowrap", opacity: 0.95 }}>{cat}</span>}
+                                  {barW > 60 && <span style={{ fontSize: 11, color: "#fff", fontWeight: 700, paddingLeft: 6, whiteSpace: "nowrap", opacity: 0.95 }}>{cat}</span>}
                                 </div>
                               );
                             })}
