@@ -1270,7 +1270,7 @@ export default function TandAApp() {
     const valStyle = (isEven: boolean) => ({ font: { sz: 11, color: { rgb: "1A202C" } }, fill: fill(isEven ? LIGHT_GRAY : WHITE), border, alignment: { vertical: "center" } });
 
     // Helper: style a sheet with title row, column headers, alternating rows, totals
-    function styleSheet(ws: any, data: any[][], colWidths: number[], opts?: { titleColSpan?: number; totalRow?: boolean; labelValuePairs?: boolean }) {
+    function styleSheet(data: any[][], colWidths: number[], opts?: { titleColSpan?: number; totalRow?: boolean; labelValuePairs?: boolean }) {
       const cols = opts?.titleColSpan || data[0]?.length || 2;
       // Insert title rows at top
       const titleRow = [po.VendorName + " — " + poNum];
