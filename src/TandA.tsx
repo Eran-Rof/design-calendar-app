@@ -2975,8 +2975,8 @@ export default function TandAApp() {
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     <div style={{ display: "flex", gap: 12, fontSize: 12, color: "#94A3B8", alignItems: "center" }}>
                       <span style={{ fontSize: 10, color: "#6B7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, width: 80, flexShrink: 0 }}>Milestones:</span>
-                      {[["#10B981","Complete"],["#3B82F6","In Progress"],["#EF4444","Delayed"],["#4B5563","Not Started"]].map(([c,l]) => (
-                        <span key={l} style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 20, height: 12, borderRadius: 3, background: c }} />{l}</span>
+                      {[["linear-gradient(135deg,#10B981,#059669)","Complete"],["linear-gradient(135deg,#3B82F6,#2563EB)","In Progress"],["linear-gradient(135deg,#EF4444,#DC2626)","Delayed"],["linear-gradient(135deg,#4B5563,#374151)","Not Started"]].map(([c,l]) => (
+                        <span key={l} style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 24, height: 14, borderRadius: 7, background: c }} />{l}</span>
                       ))}
                     </div>
                     <div style={{ display: "flex", gap: 12, fontSize: 12, color: "#94A3B8", alignItems: "center" }}>
@@ -3095,14 +3095,14 @@ export default function TandAApp() {
                               const allDone = catMs.every(m => m.status === "Complete" || m.status === "N/A");
                               const hasDelayed = catMs.some(m => m.status === "Delayed");
                               const hasInProg = catMs.some(m => m.status === "In Progress");
-                              const barColor = allDone ? "#10B981" : hasDelayed ? "#EF4444" : hasInProg ? "#3B82F6" : "#4B5563";
+                              const barGradient = allDone ? "linear-gradient(135deg, #10B981, #059669)" : hasDelayed ? "linear-gradient(135deg, #EF4444, #DC2626)" : hasInProg ? "linear-gradient(135deg, #3B82F6, #2563EB)" : "linear-gradient(135deg, #4B5563, #374151)";
                               const barH = 24;
                               const barY = 6 + catIdx * (barH + 3);
                               const catDone = catMs.filter(m => m.status === "Complete").length;
                               const catActive = catMs.filter(m => m.status !== "N/A").length;
                               return (
                                 <div key={cat} title={`${cat}: ${catDone}/${catActive} complete\n${catStart} → ${catEnd}`}
-                                  style={{ position: "absolute", left: x1, width: barW, top: barY, height: barH, borderRadius: 3, background: barColor, minWidth: 6, zIndex: 1, display: "flex", alignItems: "center", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }}>
+                                  style={{ position: "absolute", left: x1, width: barW, top: barY, height: barH, borderRadius: barH / 2, background: barGradient, minWidth: 6, zIndex: 1, display: "flex", alignItems: "center", overflow: "hidden", boxShadow: "0 2px 6px rgba(0,0,0,0.35)" }}>
                                   <span style={{ fontSize: 13, color: "#fff", fontWeight: 700, paddingLeft: 6, whiteSpace: "nowrap", opacity: 0.95 }}>{cat}</span>
                                 </div>
                               );
