@@ -3064,11 +3064,13 @@ export default function TandAApp() {
                       const active = poMs.filter(m => m.status !== "N/A").length;
                       const pct = active > 0 ? Math.round((complete / active) * 100) : 0;
                       const statusColor = STATUS_COLORS[po.StatusName ?? ""] ?? "#6B7280";
+                      const isSelected = selected?.PoNumber === poNum;
                       return (
-                        <div key={poNum} onClick={() => { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(po); }}
-                          style={{ height: ROW_H, display: "flex", alignItems: "center", gap: 8, padding: "0 12px", borderBottom: "1px solid #0F172A", background: idx % 2 === 0 ? "#1E293B" : "#1A2332", cursor: "pointer" }}
-                          onMouseEnter={e => e.currentTarget.style.background = "#334155"}
-                          onMouseLeave={e => e.currentTarget.style.background = idx % 2 === 0 ? "#1E293B" : "#1A2332"}>
+                        <div key={poNum} ref={el => { if (isSelected && el) setTimeout(() => el.scrollIntoView({ block: "center", behavior: "smooth" }), 100); }}
+                          onClick={() => { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(po); }}
+                          style={{ height: ROW_H, display: "flex", alignItems: "center", gap: 8, padding: "0 12px", borderBottom: "1px solid #0F172A", background: isSelected ? "#334155" : idx % 2 === 0 ? "#1E293B" : "#1A2332", cursor: "pointer", borderLeft: isSelected ? "3px solid #60A5FA" : "3px solid transparent" }}
+                          onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = "#334155"; }}
+                          onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = idx % 2 === 0 ? "#1E293B" : "#1A2332"; }}>
                           <div style={{ width: 12, height: 12, borderRadius: "50%", background: statusColor, flexShrink: 0 }} />
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 18, fontWeight: 700, color: "#60A5FA", fontFamily: "monospace" }}>{poNum}</div>
@@ -3119,7 +3121,7 @@ export default function TandAApp() {
                         const poNum = po.PoNumber ?? "";
                         const poMs = milestones[poNum] || [];
                         return (
-                          <div key={poNum} style={{ height: ROW_H, position: "relative", borderBottom: "1px solid #0F172A", background: idx % 2 === 0 ? "#1E293B" : "#1A2332", cursor: "pointer" }}
+                          <div key={poNum} style={{ height: ROW_H, position: "relative", borderBottom: "1px solid #0F172A", background: selected?.PoNumber === poNum ? "#334155" : idx % 2 === 0 ? "#1E293B" : "#1A2332", cursor: "pointer" }}
                             onClick={() => { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(po); }}>
                             {/* Week grid lines */}
                             {weeks.map((w, i) => (
