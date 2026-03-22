@@ -1339,8 +1339,8 @@ export default function TandAApp() {
             <button style={tabStyle("matrix")} onClick={() => setDetailMode("matrix")}>Matrix</button>
             <button style={tabStyle("milestones")} onClick={() => setDetailMode("milestones")}>Milestones</button>
             <button style={tabStyle("notes")} onClick={() => setDetailMode("notes")}>Notes</button>
-            <button style={tabStyle("history")} onClick={() => setDetailMode("history")}>History</button>
             <button style={tabStyle("email")} onClick={() => { setDetailMode("email"); setDtlEmailTab("inbox"); const pn = selected.PoNumber ?? ""; if (pn && emailToken && !dtlEmails[pn]?.length) loadDtlEmails(pn); }}>📧 Email</button>
+            <button style={tabStyle("history")} onClick={() => setDetailMode("history")}>History</button>
             <button style={tabStyle("all")} onClick={() => setDetailMode("all")}>All</button>
           </div>
           <div style={{ border: "1px solid #334155", borderTop: "none", borderRadius: "0 0 10px 10px", background: "#1E293B", padding: 20, marginBottom: 20 }}>
