@@ -751,14 +751,23 @@ export default function TandAApp() {
       const catJustCompleted = m.status === "Complete" && catMs.every(x => x.status === "Complete" || x.status === "N/A");
 
       if (catJustCompleted) {
-        // Delay collapse by 4 seconds so user sees the green checkmark
+        // Keep the completed category open immediately (override auto-collapse)
+        const completedKey = m.category + m.po_number;
+        setCollapsedCats(prev => {
+          const next = { ...prev };
+          // Clear other categories so they recalculate
+          WIP_CATEGORIES.forEach(cat => {
+            const key = cat + m.po_number;
+            if (key === completedKey) { next[key] = false; } // force open
+            else if (!acceptedBlocked.has(key)) { delete next[key]; }
+          });
+          return next;
+        });
+        // After 4 seconds, release the override so it collapses naturally
         setTimeout(() => {
           setCollapsedCats(prev => {
             const next = { ...prev };
-            WIP_CATEGORIES.forEach(cat => {
-              const key = cat + m.po_number;
-              if (!acceptedBlocked.has(key)) delete next[key];
-            });
+            delete next[completedKey];
             return next;
           });
         }, 4000);
