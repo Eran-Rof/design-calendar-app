@@ -1245,25 +1245,29 @@ export default function TandAApp() {
   function exportPOExcel(po: XoroPO, items: any[], mode: string) {
     const XLSX = (window as any).XLSX;
     if (!XLSX) { alert("Excel library still loading — try again in a moment."); return; }
+    try { _exportPOExcelInner(XLSX, po, items, mode); } catch (e: any) { console.error("Excel export error:", e); alert("Excel export failed: " + e.message); }
+  }
+  function _exportPOExcelInner(XLSX: any, po: XoroPO, items: any[], mode: string) {
     const poNum = po.PoNumber ?? "PO";
     const totalVal = items.reduce((s, i) => s + (i.QtyOrder ?? 0) * (i.UnitPrice ?? 0), 0);
     const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 
-    // ── Style definitions ──
-    const BRAND = "1E293B"; const BRAND_LT = "334155"; const WHITE = "FFFFFF"; const LIGHT_GRAY = "F1F5F9"; const MED_GRAY = "E2E8F0";
-    const GREEN = "0D9488"; const AMBER = "D97706";
-    const border = { top: { style: "thin", color: { rgb: "CBD5E0" } }, bottom: { style: "thin", color: { rgb: "CBD5E0" } }, left: { style: "thin", color: { rgb: "CBD5E0" } }, right: { style: "thin", color: { rgb: "CBD5E0" } } };
-    const titleStyle = { font: { bold: true, sz: 14, color: { rgb: WHITE } }, fill: { fgColor: { rgb: BRAND } }, alignment: { horizontal: "left", vertical: "center" } };
-    const subtitleStyle = { font: { sz: 10, color: { rgb: "94A3B8" } }, fill: { fgColor: { rgb: BRAND } }, alignment: { horizontal: "left" } };
-    const colHeaderStyle = { font: { bold: true, sz: 11, color: { rgb: WHITE } }, fill: { fgColor: { rgb: BRAND_LT } }, alignment: { horizontal: "center", vertical: "center" }, border };
-    const colHeaderLeftStyle = { ...colHeaderStyle, alignment: { horizontal: "left", vertical: "center" } };
-    const cellStyle = (isEven: boolean) => ({ font: { sz: 11, color: { rgb: "1A202C" } }, fill: { fgColor: { rgb: isEven ? LIGHT_GRAY : WHITE } }, border, alignment: { vertical: "center" } });
-    const cellCenterStyle = (isEven: boolean) => ({ ...cellStyle(isEven), alignment: { horizontal: "center", vertical: "center" } });
-    const cellRightStyle = (isEven: boolean) => ({ ...cellStyle(isEven), alignment: { horizontal: "right", vertical: "center" } });
-    const totalRowStyle = { font: { bold: true, sz: 11, color: { rgb: WHITE } }, fill: { fgColor: { rgb: BRAND } }, border, alignment: { horizontal: "right", vertical: "center" } };
-    const totalCenterStyle = { ...totalRowStyle, alignment: { horizontal: "center", vertical: "center" } };
-    const labelStyle = (isEven: boolean) => ({ font: { bold: true, sz: 11, color: { rgb: BRAND_LT } }, fill: { fgColor: { rgb: isEven ? LIGHT_GRAY : WHITE } }, border, alignment: { vertical: "center" } });
-    const valStyle = (isEven: boolean) => ({ font: { sz: 11, color: { rgb: "1A202C" } }, fill: { fgColor: { rgb: isEven ? LIGHT_GRAY : WHITE } }, border, alignment: { vertical: "center" } });
+    // ── Style definitions (xlsx-js-style requires patternType:"solid" in fill) ──
+    const BRAND = "1E293B"; const BRAND_LT = "334155"; const WHITE = "FFFFFF"; const LIGHT_GRAY = "F1F5F9";
+    const bdr = { style: "thin", color: { rgb: "CBD5E0" } };
+    const border = { top: bdr, bottom: bdr, left: bdr, right: bdr };
+    const fill = (rgb: string) => ({ patternType: "solid", fgColor: { rgb } });
+    const titleStyle = { font: { bold: true, sz: 14, color: { rgb: WHITE } }, fill: fill(BRAND), alignment: { horizontal: "left", vertical: "center" }, border };
+    const subtitleStyle = { font: { sz: 10, color: { rgb: "94A3B8" }, italic: true }, fill: fill(BRAND), alignment: { horizontal: "left" }, border };
+    const colHeaderStyle = { font: { bold: true, sz: 11, color: { rgb: WHITE } }, fill: fill(BRAND_LT), alignment: { horizontal: "center", vertical: "center" }, border };
+    const colHeaderLeftStyle = { font: { bold: true, sz: 11, color: { rgb: WHITE } }, fill: fill(BRAND_LT), alignment: { horizontal: "left", vertical: "center" }, border };
+    const cellStyle = (isEven: boolean) => ({ font: { sz: 11, color: { rgb: "1A202C" } }, fill: fill(isEven ? LIGHT_GRAY : WHITE), border, alignment: { vertical: "center" } });
+    const cellCenterStyle = (isEven: boolean) => ({ font: { sz: 11, color: { rgb: "1A202C" } }, fill: fill(isEven ? LIGHT_GRAY : WHITE), border, alignment: { horizontal: "center", vertical: "center" } });
+    const cellRightStyle = (isEven: boolean) => ({ font: { sz: 11, color: { rgb: "1A202C" } }, fill: fill(isEven ? LIGHT_GRAY : WHITE), border, alignment: { horizontal: "right", vertical: "center" } });
+    const totalRowStyle = { font: { bold: true, sz: 11, color: { rgb: WHITE } }, fill: fill(BRAND), border, alignment: { horizontal: "right", vertical: "center" } };
+    const totalCenterStyle = { font: { bold: true, sz: 11, color: { rgb: WHITE } }, fill: fill(BRAND), border, alignment: { horizontal: "center", vertical: "center" } };
+    const labelStyle = (isEven: boolean) => ({ font: { bold: true, sz: 11, color: { rgb: BRAND_LT } }, fill: fill(isEven ? LIGHT_GRAY : WHITE), border, alignment: { vertical: "center" } });
+    const valStyle = (isEven: boolean) => ({ font: { sz: 11, color: { rgb: "1A202C" } }, fill: fill(isEven ? LIGHT_GRAY : WHITE), border, alignment: { vertical: "center" } });
 
     // Helper: style a sheet with title row, column headers, alternating rows, totals
     function styleSheet(ws: any, data: any[][], colWidths: number[], opts?: { titleColSpan?: number; totalRow?: boolean; labelValuePairs?: boolean }) {
