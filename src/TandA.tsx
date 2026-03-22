@@ -2931,7 +2931,7 @@ export default function TandAApp() {
           const chartWidth = totalDays * dayWidth;
           const today = new Date();
           const todayOffset = Math.floor((today.getTime() - startDate.getTime()) / DAY) * dayWidth;
-          const LEFT_W = 300;
+          const LEFT_W = 360;
           const ROW_H = 110;
 
           // Build week columns
@@ -3011,8 +3011,8 @@ export default function TandAApp() {
                           onMouseLeave={e => e.currentTarget.style.background = idx % 2 === 0 ? "#1E293B" : "#1A2332"}>
                           <div style={{ width: 10, height: 10, borderRadius: "50%", background: statusColor, flexShrink: 0 }} />
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 16, fontWeight: 700, color: "#60A5FA", fontFamily: "monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{poNum}</div>
-                            <div style={{ fontSize: 14, color: "#94A3B8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{po.VendorName ?? ""}</div>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: "#60A5FA", fontFamily: "monospace" }}>{poNum}</div>
+                            <div style={{ fontSize: 14, color: "#94A3B8", lineHeight: 1.3 }}>{po.VendorName ?? ""}</div>
                           </div>
                           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
                             <span style={{ fontSize: 14, color: pct === 100 ? "#10B981" : "#6B7280", fontWeight: 700, fontFamily: "monospace" }}>{pct}%</span>
