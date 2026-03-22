@@ -2969,10 +2969,19 @@ export default function TandAApp() {
                     <option value="All">All Vendors ({posWithMs.length})</option>
                     {tlVendors.map(v => <option key={v} value={v}>{v}</option>)}
                   </select>
-                  <div style={{ display: "flex", gap: 14, fontSize: 14, color: "#94A3B8" }}>
-                    {[["#10B981","Complete"],["#3B82F6","In Progress"],["#EF4444","Delayed"],["#4B5563","Not Started"]].map(([c,l]) => (
-                      <span key={l} style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 24, height: 18, borderRadius: 4, background: c }} />{l}</span>
-                    ))}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ display: "flex", gap: 12, fontSize: 12, color: "#94A3B8", alignItems: "center" }}>
+                      <span style={{ fontSize: 10, color: "#6B7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Milestones:</span>
+                      {[["#10B981","Complete"],["#3B82F6","In Progress"],["#EF4444","Delayed"],["#4B5563","Not Started"]].map(([c,l]) => (
+                        <span key={l} style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 20, height: 12, borderRadius: 3, background: c }} />{l}</span>
+                      ))}
+                    </div>
+                    <div style={{ display: "flex", gap: 12, fontSize: 12, color: "#94A3B8", alignItems: "center" }}>
+                      <span style={{ fontSize: 10, color: "#6B7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>PO Status:</span>
+                      {[["#3B82F6","Open"],["#8B5CF6","Released"],["#F59E0B","Pending"],["#9CA3AF","Draft"]].map(([c,l]) => (
+                        <span key={l} style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: "50%", background: c }} />{l}</span>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>
