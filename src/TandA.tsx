@@ -365,6 +365,7 @@ export default function TandAApp() {
   const [emailLastRefresh, setEmailLastRefresh] = useState<Record<string, number>>({});
   const [emailReply, setEmailReply] = useState("");
   const [emailConfigForm, setEmailConfigForm] = useState({ clientId: "", tenantId: "", emailMap: {} });
+  const [emailPOSearch, setEmailPOSearch] = useState("");
 
   // ── Email auth + Graph helpers ──────────────────────────────────────────
   function emailTokenIsValid() {
@@ -1628,6 +1629,9 @@ export default function TandAApp() {
               <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6B7280" }}>POs ({poList.length})</span>
               <button onClick={() => { setEmailConfigForm({ ...cfg }); setShowEmailConfig(true); }} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 6, border: "1px solid #334155", background: "none", color: "#6B7280", cursor: "pointer", fontFamily: "inherit" }}>⚙ Config</button>
             </div>
+            <div style={{ padding: "8px 16px", borderBottom: "1px solid #334155", flexShrink: 0 }}>
+              <input value={emailPOSearch} onChange={e => setEmailPOSearch(e.target.value)} placeholder="🔍 Search PO#, vendor, memo, tags…" style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, padding: "7px 10px", color: "#F1F5F9", fontSize: 12, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
+            </div>
             <div style={{ padding: "10px 16px", borderBottom: "1px solid #334155", background: emailToken ? "#064E3B44" : "#78350F44", flexShrink: 0 }}>
               {emailToken ? (
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -1646,7 +1650,7 @@ export default function TandAApp() {
               )}
             </div>
             <div style={{ flex: 1, overflowY: "auto" }}>
-              {poList.map(po => {
+              {(() => { const s = emailPOSearch.toLowerCase(); return poList.filter(p => !s || (p.PoNumber ?? "").toLowerCase().includes(s) || (p.VendorName ?? "").toLowerCase().includes(s) || (p.Memo ?? "").toLowerCase().includes(s) || (p.Tags ?? "").toLowerCase().includes(s) || (p.StatusName ?? "").toLowerCase().includes(s)); })().map(po => {
                 const poNum = po.PoNumber ?? "";
                 const isSelected = emailSelPO === poNum;
                 const unread = (emailsMap[poNum] || []).filter((e: any) => !e.isRead).length;

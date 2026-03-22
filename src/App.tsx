@@ -9592,8 +9592,9 @@ function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, te
 }
 
 // ─── MICROSOFT OUTLOOK EMAIL VIEW ─────────────────────────────────────────────
-function OutlookView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, teamsToken, setTeamsToken, teamsTokenExpiry, setTeamsTokenExpiry, showEmailConfig, setShowEmailConfig, getBrand }) {
+function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, setTeamsConfig, teamsToken, setTeamsToken, teamsTokenExpiry, setTeamsTokenExpiry, showEmailConfig, setShowEmailConfig, getBrand }) {
   const [selectedCollKey, setSelectedCollKey] = useState(null);
+  const [collSearch, setCollSearch] = useState("");
   const [emails, setEmails] = useState({});
   const [loading, setLoading] = useState({});
   const [errors, setErrors] = useState({});
@@ -9805,6 +9806,9 @@ function OutlookView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, 
             <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: TH.textMuted }}>Projects ({collList.length})</span>
             {isAdmin && <button onClick={() => { setConfigForm({ ...cfg }); setShowEmailConfig(true); }} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 6, border: "1px solid " + TH.border, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit" }}>⚙ Config</button>}
           </div>
+          <div style={{ padding: "8px 16px", borderBottom: "1px solid " + TH.border, flexShrink: 0 }}>
+            <input value={collSearch} onChange={e => setCollSearch(e.target.value)} placeholder="🔍 Collection, vendor, or SKU…" style={{ ...S.inp, marginBottom: 0, fontSize: 12, padding: "7px 10px" }} />
+          </div>
           <div style={{ padding: "10px 16px", borderBottom: "1px solid " + TH.border, background: token ? "#ECFDF5" : "#FFF7ED", flexShrink: 0 }}>
             {token ? (
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -9823,7 +9827,7 @@ function OutlookView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, 
             )}
           </div>
           <div style={{ flex: 1, overflowY: "auto" }}>
-            {collList.map(c => {
+            {(() => { const s = collSearch.toLowerCase(); return collList.filter(c => { if (!s) return true; const b = getBrand(c.brand); const skus = (collections[c.key] || {}).skus || []; return (c.collection || "").toLowerCase().includes(s) || (c.vendorName || "").toLowerCase().includes(s) || (b ? b.name : "").toLowerCase().includes(s) || (b ? b.short : "").toLowerCase().includes(s) || skus.some(sk => ((sk.styleNum || "") + " " + (sk.name || "")).toLowerCase().includes(s)); }); })().map(c => {
               const b = getBrand(c.brand);
               const hasPrefix = !!(cfg.emailMap && cfg.emailMap[c.key]);
               const isSelected = selectedCollKey === c.key;
@@ -13566,6 +13570,7 @@ export default function App() {
           <OutlookView
             collList={collList}
             collMap={collMap}
+            collections={collections}
             isAdmin={isAdmin}
             teamsConfig={teamsConfig}
             setTeamsConfig={setTeamsConfig}
