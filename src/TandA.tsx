@@ -3067,7 +3067,7 @@ export default function TandAApp() {
                       const isSelected = selected?.PoNumber === poNum;
                       return (
                         <div key={poNum}
-                          onClick={() => { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(po); }}
+                          onClick={() => { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(po); setView("list"); }}
                           style={{ height: ROW_H, display: "flex", alignItems: "center", gap: 8, padding: "0 12px", borderBottom: "1px solid #0F172A", background: isSelected ? "#334155" : idx % 2 === 0 ? "#1E293B" : "#1A2332", cursor: "pointer", borderLeft: isSelected ? "3px solid #60A5FA" : "3px solid transparent" }}
                           onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = "#334155"; }}
                           onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = idx % 2 === 0 ? "#1E293B" : "#1A2332"; }}>
@@ -3122,7 +3122,7 @@ export default function TandAApp() {
                         const poMs = milestones[poNum] || [];
                         return (
                           <div key={poNum} style={{ height: ROW_H, position: "relative", borderBottom: "1px solid #0F172A", background: selected?.PoNumber === poNum ? "#334155" : idx % 2 === 0 ? "#1E293B" : "#1A2332", cursor: "pointer" }}
-                            onClick={() => { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(po); }}>
+                            onClick={() => { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(po); setView("list"); }}>
                             {/* Week grid lines */}
                             {weeks.map((w, i) => (
                               <div key={i} style={{ position: "absolute", left: w.offset, top: 0, bottom: 0, borderLeft: "1px solid #0F172A33" }} />
@@ -3150,7 +3150,10 @@ export default function TandAApp() {
                               const catActive = catMs.filter(m => m.status !== "N/A").length;
                               return (
                                 <div key={cat} title={`${cat}: ${catDone}/${catActive} complete\n${catStart} → ${catEnd}`}
-                                  style={{ position: "absolute", left: x1, width: barW, top: barY, height: barH, borderRadius: barH / 2, background: barGradient, minWidth: 6, zIndex: 1, display: "flex", alignItems: "center", overflow: "hidden", boxShadow: "0 2px 6px rgba(0,0,0,0.35)" }}>
+                                  onClick={e => { e.stopPropagation(); setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(po); setView("list"); setCollapsedCats(prev => { const next = { ...prev }; WIP_CATEGORIES.forEach(c => { next[c + poNum] = c !== cat; }); return next; }); }}
+                                  style={{ position: "absolute", left: x1, width: barW, top: barY, height: barH, borderRadius: barH / 2, background: barGradient, minWidth: 6, zIndex: 3, display: "flex", alignItems: "center", overflow: "hidden", boxShadow: "0 2px 6px rgba(0,0,0,0.35)", cursor: "pointer", transition: "filter 0.15s" }}
+                                  onMouseEnter={e => e.currentTarget.style.filter = "brightness(1.2)"}
+                                  onMouseLeave={e => e.currentTarget.style.filter = "none"}>
                                   <span style={{ fontSize: 13, color: "#fff", fontWeight: 700, paddingLeft: 6, whiteSpace: "nowrap", opacity: 0.95 }}>{cat}</span>
                                 </div>
                               );
