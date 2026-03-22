@@ -1028,6 +1028,39 @@ export default function TandAApp() {
     });
   });
 
+  function isCatBlocked(poNum: string, cat: string): { blocked: boolean; delayedCat: string; daysLate: number } {
+    const poMs = milestones[poNum] || [];
+    const grouped: Record<string, Milestone[]> = {};
+    poMs.forEach(m => { if (!grouped[m.category]) grouped[m.category] = []; grouped[m.category].push(m); });
+    const activeCats = WIP_CATEGORIES.filter(c => grouped[c]?.length);
+    const catIdx = activeCats.indexOf(cat);
+    for (let p = 0; p < catIdx; p++) {
+      const prevCat = activeCats[p];
+      const prevMs = grouped[prevCat] || [];
+      if (prevMs.every(m => m.status === "Complete" || m.status === "N/A")) continue;
+      const maxLate = prevMs.reduce((max, m) => {
+        if (m.status === "Complete" || m.status === "N/A" || !m.expected_date) return max;
+        const d = Math.ceil((Date.now() - new Date(m.expected_date).getTime()) / 86400000);
+        return d > 0 ? Math.max(max, d) : max;
+      }, 0);
+      return { blocked: true, delayedCat: prevCat, daysLate: maxLate };
+    }
+    return { blocked: false, delayedCat: "", daysLate: 0 };
+  }
+
+  function openCategoryWithCheck(poNum: string, cat: string, po?: XoroPO | null, switchView?: boolean) {
+    const info = isCatBlocked(poNum, cat);
+    if (info.blocked) {
+      if (!window.confirm(`"${cat}" is blocked by "${info.delayedCat}"${info.daysLate > 0 ? ` (${info.daysLate}d late)` : ""}. View anyway?`)) return;
+    }
+    setDetailMode("milestones");
+    setNewNote("");
+    setSearch("");
+    if (po) setSelected(po);
+    if (switchView) setView("list");
+    setCollapsedCats(prev => { const next = { ...prev }; WIP_CATEGORIES.forEach(c => { next[c + poNum] = c !== cat; }); return next; });
+  }
+
   async function addNote() {
     if (!newNote.trim() || !selected || !user) return;
     const noteText = newNote.trim();
@@ -1773,10 +1806,10 @@ export default function TandAApp() {
                 {!progressCollapsed && <div style={{ background: "#0F172A", borderRadius: "0 0 8px 8px", padding: "12px 14px" }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
                   {([
-                    ["Complete", complete, "#10B981", "#34D399"],
-                    ["In Progress", inProg, "#3B82F6", "#60A5FA"],
-                    ["Delayed", delayed, "#EF4444", "#F87171"],
-                    ["Not Started", active - complete - inProg - delayed, "#4B5563", "#6B7280"],
+                    ["Complete", complete, "#059669", "#34D399"],
+                    ["In Progress", inProg, "#1D4ED8", "#60A5FA"],
+                    ["Delayed", delayed, "#991B1B", "#F87171"],
+                    ["Not Started", active - complete - inProg - delayed, "#1F2937", "#6B7280"],
                   ] as [string, number, string, string][]).filter(([, count]) => count > 0).map(([label, count, color, colorLt]) => {
                     const statusPct = active > 0 ? Math.round((count / active) * 100) : 0;
                     return (
@@ -1801,7 +1834,7 @@ export default function TandAApp() {
                     const hasInProg = catMs.some(m => m.status === "In Progress");
                     const dotColor = allDone ? "#10B981" : hasDelayed ? "#EF4444" : hasInProg ? "#3B82F6" : "#6B7280";
                     return (
-                      <div key={cat} onClick={() => { setDetailMode("milestones"); const poNum = selected.PoNumber ?? ""; setCollapsedCats(prev => { const next = { ...prev }; WIP_CATEGORIES.forEach(c => { next[c + poNum] = c !== cat; }); return next; }); }} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 6, background: "#0F172A", border: "1px solid #334155", cursor: "pointer", transition: "border-color 0.15s" }}
+                      <div key={cat} onClick={() => openCategoryWithCheck(selected.PoNumber ?? "", cat)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 6, background: "#0F172A", border: "1px solid #334155", cursor: "pointer", transition: "border-color 0.15s" }}
                         onMouseEnter={e => e.currentTarget.style.borderColor = dotColor}
                         onMouseLeave={e => e.currentTarget.style.borderColor = "#334155"}>
                         <div style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor }} />
@@ -2823,7 +2856,7 @@ export default function TandAApp() {
                   </div>
                   {cascadeAlerts.sort((a, b) => b.daysLate - a.daysLate).slice(0, 20).map((a, i) => (
                     <div key={i} style={{ display: "grid", gridTemplateColumns: "110px 1fr 120px 120px 70px", padding: "8px 12px", borderTop: "1px solid #1E293B", gap: 8, cursor: "pointer", background: "#0F172A" }}
-                      onClick={() => { const p = pos.find(x => x.PoNumber === a.poNum); if (p) { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(p); setCollapsedCats(prev => { const next = { ...prev }; WIP_CATEGORIES.forEach(c => { next[c + a.poNum] = c !== a.blockedCat; }); return next; }); } }}>
+                      onClick={() => { const p = pos.find(x => x.PoNumber === a.poNum); if (p) openCategoryWithCheck(a.poNum, a.blockedCat, p); }}>
                       <span style={{ color: "#60A5FA", fontFamily: "monospace", fontSize: 11 }}>{a.poNum}</span>
                       <span style={{ color: "#D1D5DB" }}>{a.vendor}</span>
                       <span style={{ color: "#F59E0B", fontWeight: 600 }}>{a.blockedCat}</span>
@@ -3255,7 +3288,7 @@ export default function TandAApp() {
                               const catActive = catMs.filter(m => m.status !== "N/A").length;
                               return (
                                 <div key={cat} title={`${cat}: ${catDone}/${catActive} complete\n${catStart} → ${catEnd}`}
-                                  onClick={e => { e.stopPropagation(); setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(po); setView("list"); setCollapsedCats(prev => { const next = { ...prev }; WIP_CATEGORIES.forEach(c => { next[c + poNum] = c !== cat; }); return next; }); }}
+                                  onClick={e => { e.stopPropagation(); openCategoryWithCheck(poNum, cat, po, true); }}
                                   style={{ position: "absolute", left: x1, width: barW, top: barY, height: barH, borderRadius: barH / 2, background: barGradient, minWidth: 6, zIndex: 3, display: "flex", alignItems: "center", overflow: "hidden", boxShadow: "0 2px 6px rgba(0,0,0,0.35)", cursor: "pointer", transition: "filter 0.15s" }}
                                   onMouseEnter={e => e.currentTarget.style.filter = "brightness(1.2)"}
                                   onMouseLeave={e => e.currentTarget.style.filter = "none"}>
