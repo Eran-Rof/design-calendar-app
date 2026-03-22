@@ -742,15 +742,35 @@ export default function TandAApp() {
     });
     // Clear collapsed overrides for this PO so auto-collapse/expand recalculates
     if (!skipHistory) {
-      setCollapsedCats(prev => {
-        const next = { ...prev };
-        WIP_CATEGORIES.forEach(cat => {
-          const key = cat + m.po_number;
-          // Don't reset categories the user explicitly accepted as blocked
-          if (!acceptedBlocked.has(key)) delete next[key];
+      // Check if this milestone completing finishes its entire category
+      const updatedMs = [...(milestones[m.po_number] || [])];
+      const idx2 = updatedMs.findIndex(x => x.id === m.id);
+      if (idx2 >= 0) updatedMs[idx2] = m;
+      const catMs = updatedMs.filter(x => x.category === m.category);
+      const catJustCompleted = m.status === "Complete" && catMs.every(x => x.status === "Complete" || x.status === "N/A");
+
+      if (catJustCompleted) {
+        // Delay collapse by 2 seconds so user sees the green checkmark
+        setTimeout(() => {
+          setCollapsedCats(prev => {
+            const next = { ...prev };
+            WIP_CATEGORIES.forEach(cat => {
+              const key = cat + m.po_number;
+              if (!acceptedBlocked.has(key)) delete next[key];
+            });
+            return next;
+          });
+        }, 2000);
+      } else {
+        setCollapsedCats(prev => {
+          const next = { ...prev };
+          WIP_CATEGORIES.forEach(cat => {
+            const key = cat + m.po_number;
+            if (!acceptedBlocked.has(key)) delete next[key];
+          });
+          return next;
         });
-        return next;
-      });
+      }
     }
   }
 
@@ -2259,7 +2279,7 @@ export default function TandAApp() {
                             setCollapsedCats(prev => ({ ...prev, [catKey]: !collapsed }));
                           }}>
                           <span style={{ color: "#6B7280", fontSize: 12 }}>{collapsed ? "▶" : "▼"}</span>
-                          <span style={{ color: "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>{cat}</span>
+                          <span style={{ color: catComplete === catMs.length ? "#10B981" : "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, transition: "color 0.5s" }}>{cat}{catComplete === catMs.length ? " ✓" : ""}</span>
                           {cascade.blocked && (
                             <span style={{ fontSize: 10, color: "#F59E0B", fontWeight: 600, padding: "1px 6px", borderRadius: 4, background: "#F59E0B18", border: "1px solid #F59E0B33" }}>
                               ⚠ Blocked by {cascade.delayedCat}{cascade.upstreamDelay > 0 ? ` (${cascade.upstreamDelay}d late)` : ""}
