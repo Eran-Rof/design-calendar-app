@@ -45,13 +45,19 @@ export default async function handler(req) {
   const xoroUrl = `https://res.xorosoft.io/api/xerp/${path}${xoroParams.toString() ? "?" + xoroParams.toString() : ""}`;
 
   try {
+    // 25-second timeout to stay within Vercel's edge limit
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25000);
+
     const xoroRes = await fetch(xoroUrl, {
       method: "GET",
       headers: {
         "Authorization": authHeader,
         "Content-Type": "application/json",
       },
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     const text = await xoroRes.text();
 
@@ -67,6 +73,7 @@ export default async function handler(req) {
 
     return new Response(text, { status: 200, headers: cors });
   } catch (err) {
-    return new Response(JSON.stringify({ error: "Proxy error: " + err.message }), { status: 500, headers: cors });
+    const msg = err.name === "AbortError" ? "Xoro API timed out (25s). Try syncing with fewer filters or a specific PO number." : "Proxy error: " + err.message;
+    return new Response(JSON.stringify({ error: msg }), { status: 500, headers: cors });
   }
 }

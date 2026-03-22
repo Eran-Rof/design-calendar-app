@@ -853,25 +853,36 @@ export default function TandAApp() {
     setSyncErr("");
     setShowSyncModal(false);
     try {
-      // Fetch POs from Xoro — pass filters to API for server-side filtering
+      // Fetch POs from Xoro — sync one status at a time to avoid timeouts
       let all: XoroPO[] = [];
-      let page = 1;
-      let totalPages = 1;
-      do {
+      const statusList = filters?.statuses?.length ? filters.statuses : ALL_PO_STATUSES;
+
+      for (const status of statusList) {
         if (controller.signal.aborted) throw new Error("Sync cancelled.");
-        const { pos: batch, totalPages: tp } = await fetchXoroPOs({
-          page,
-          signal: controller.signal,
-          statuses: filters?.statuses,
-          vendors: filters?.vendors,
-          poNumber: filters?.poNumber,
-          dateFrom: filters?.dateFrom,
-          dateTo: filters?.dateTo,
-        });
-        all = [...all, ...batch];
-        totalPages = tp;
-        page++;
-      } while (page <= totalPages && page <= 20);
+        let page = 1;
+        let totalPages = 1;
+        do {
+          if (controller.signal.aborted) throw new Error("Sync cancelled.");
+          try {
+            const { pos: batch, totalPages: tp } = await fetchXoroPOs({
+              page,
+              signal: controller.signal,
+              statuses: [status],
+              vendors: filters?.vendors,
+              poNumber: filters?.poNumber,
+              dateFrom: filters?.dateFrom,
+              dateTo: filters?.dateTo,
+            });
+            all = [...all, ...batch];
+            totalPages = tp;
+          } catch (e: any) {
+            // If a single status times out, log and continue with next status
+            console.warn(`Sync warning: ${status} page ${page} failed:`, e.message);
+            break;
+          }
+          page++;
+        } while (page <= totalPages && page <= 10);
+      }
 
       // Client-side fallback filter (in case API missed some)
       all = applyFilters(all, filters);
