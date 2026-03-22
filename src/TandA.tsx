@@ -313,6 +313,7 @@ export default function TandAApp() {
   const [detailMode, setDetailMode] = useState<"header" | "po" | "milestones" | "notes" | "history" | "matrix" | "email" | "all">("po");
   const [matrixCollapsed, setMatrixCollapsed] = useState(false);
   const [lineItemsCollapsed, setLineItemsCollapsed] = useState(true);
+  const [poInfoCollapsed, setPoInfoCollapsed] = useState(false);
   const [showBulkUpdate, setShowBulkUpdate] = useState(false);
   const [bulkVendor, setBulkVendor] = useState("");
   const [bulkPhase, setBulkPhase] = useState("");
@@ -1666,31 +1667,58 @@ export default function TandAApp() {
             </div>
           </div>
 
-          {/* Key info grid — always visible, all Xoro fields */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, marginBottom: 20 }}>
-            <InfoCell label="Order Date" value={fmtDate(selected.DateOrder)} />
-            <InfoCell label="Expected Delivery" value={
-              <span style={{ color: days !== null && days < 0 ? "#EF4444" : days !== null && days <= 7 ? "#F59E0B" : "#10B981" }}>
-                {fmtDate(selected.DateExpectedDelivery)}
-                {days !== null && <span style={{ fontSize: 13, marginLeft: 6 }}>
-                  {days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "Today!" : `in ${days}d`}
-                </span>}
-              </span>
-            } />
-            <InfoCell label="Vendor Req Date" value={fmtDate(selected.VendorReqDate) || "—"} />
-            <InfoCell label="Total Value" value={fmtCurrency(total, selected.CurrencyCode)} />
-            <InfoCell label="Total Qty" value={totalQty.toLocaleString()} />
-            <InfoCell label="Currency" value={selected.CurrencyCode ?? "USD"} />
-            <InfoCell label="Payment Terms" value={selected.PaymentTermsName || "—"} />
-            <InfoCell label="Ship Method" value={selected.ShipMethodName || "—"} />
-            <InfoCell label="Carrier" value={selected.CarrierName || "—"} />
-            <InfoCell label="Buyer" value={selected.BuyerName || "—"} />
-            <InfoCell label="Country of Origin" value={(() => {
-              const vendor = dcVendors.find(v => v.name === selected.VendorName);
-              return (vendor as any)?.country || "—";
-            })()} />
-            {selected.Memo && <InfoCell label="Memo" value={selected.Memo} />}
-            {selected.Tags && <InfoCell label="Tags" value={selected.Tags} />}
+          {/* PO Info — collapsible, compact 2-row layout */}
+          <div style={{ marginBottom: 12 }}>
+            <div onClick={() => setPoInfoCollapsed(!poInfoCollapsed)}
+              style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#0F172A", borderRadius: poInfoCollapsed ? 8 : "8px 8px 0 0", cursor: "pointer", userSelect: "none" }}>
+              <span style={{ color: "#6B7280", fontSize: 12 }}>{poInfoCollapsed ? "▶" : "▼"}</span>
+              <span style={{ color: "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>PO Info</span>
+              {poInfoCollapsed && <span style={{ color: "#6B7280", fontSize: 11, marginLeft: "auto" }}>
+                {fmtDate(selected.DateOrder)} · {fmtCurrency(total, selected.CurrencyCode)} · {totalQty.toLocaleString()} units
+              </span>}
+            </div>
+            {!poInfoCollapsed && (
+              <div style={{ background: "#0F172A", borderRadius: "0 0 8px 8px", padding: "10px 14px" }}>
+                {/* Row 1 */}
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+                  {[
+                    ["Order", fmtDate(selected.DateOrder)],
+                    ["Expected", (() => { const c = days !== null && days < 0 ? "#EF4444" : days !== null && days <= 7 ? "#F59E0B" : "#10B981"; const suffix = days === null ? "" : days < 0 ? ` (${Math.abs(days)}d late)` : days === 0 ? " (Today!)" : ` (${days}d)`; return { text: (fmtDate(selected.DateExpectedDelivery) || "—") + suffix, color: c }; })()],
+                    ["Vendor Req", fmtDate(selected.VendorReqDate) || "—"],
+                    ["Value", fmtCurrency(total, selected.CurrencyCode)],
+                    ["Qty", totalQty.toLocaleString()],
+                    ["Currency", selected.CurrencyCode ?? "USD"],
+                  ].map(([label, val]) => {
+                    const isObj = typeof val === "object" && val !== null && "text" in val;
+                    const text = isObj ? (val as any).text : String(val);
+                    const color = isObj ? (val as any).color : "#D1D5DB";
+                    return (
+                      <div key={String(label)} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 10px", background: "#1E293B", borderRadius: 6, border: "1px solid #334155" }}>
+                        <span style={{ fontSize: 10, color: "#6B7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3 }}>{String(label)}:</span>
+                        <span style={{ fontSize: 12, color, fontWeight: 600 }}>{text}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Row 2 */}
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {[
+                    ["Payment", selected.PaymentTermsName || "—"],
+                    ["Ship", selected.ShipMethodName || "—"],
+                    ["Carrier", selected.CarrierName || "—"],
+                    ["Buyer", selected.BuyerName || "—"],
+                    ["Origin", (() => { const v = dcVendors.find(v => v.name === selected.VendorName); return (v as any)?.country || "—"; })()],
+                    ...(selected.Memo ? [["Memo", selected.Memo]] : []),
+                    ...(selected.Tags ? [["Tags", selected.Tags]] : []),
+                  ].map(([label, val]) => (
+                    <div key={String(label)} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 10px", background: "#1E293B", borderRadius: 6, border: "1px solid #334155" }}>
+                      <span style={{ fontSize: 10, color: "#6B7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3 }}>{String(label)}:</span>
+                      <span style={{ fontSize: 12, color: "#D1D5DB", fontWeight: 500, maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(val)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Milestone Progress Bar + Quick Status */}
