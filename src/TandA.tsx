@@ -884,14 +884,24 @@ export default function TandAApp() {
           { onConflict: "po_number" }
         );
       }
+      // Auto-delete POs with status Closed or Received
+      const autoDeleteStatuses = ["Closed", "Received"];
+      const toDelete = all.filter(po => autoDeleteStatuses.includes(po.StatusName ?? ""));
+      for (const po of toDelete) {
+        const pn = po.PoNumber ?? "";
+        if (pn) await deletePO(pn);
+      }
+      const deletedCount = toDelete.length;
+
       // reload full cache
       await loadCachedPOs();
       setLastSync(now);
       // Log sync to history for each synced PO
-      for (const po of all.slice(0, 5)) {
-        addHistory(po.PoNumber ?? "", `PO synced from Xoro (${all.length} POs in batch)`);
+      const synced = all.filter(po => !autoDeleteStatuses.includes(po.StatusName ?? ""));
+      for (const po of synced.slice(0, 5)) {
+        addHistory(po.PoNumber ?? "", `PO synced from Xoro (${synced.length} POs in batch${deletedCount > 0 ? `, ${deletedCount} closed/received POs removed` : ""})`);
       }
-      if (all.length > 5) addHistory(all[0]?.PoNumber ?? "", `... and ${all.length - 5} more POs synced`);
+      if (synced.length > 5) addHistory(synced[0]?.PoNumber ?? "", `... and ${synced.length - 5} more POs synced`);
     } catch (e: any) {
       if (e.name === "AbortError") setSyncErr("Sync timed out or was cancelled. Check your Xoro API credentials and try again.");
       else setSyncErr(e.message ?? "Sync failed");
@@ -967,6 +977,27 @@ export default function TandAApp() {
       created_at: new Date().toISOString(),
     });
     await loadNotes();
+  }
+
+  async function deletePO(poNumber: string) {
+    if (!poNumber) return;
+    // Delete from tanda_pos
+    await sb.from("tanda_pos").delete(`po_number=eq.${encodeURIComponent(poNumber)}`);
+    // Delete all milestones for this PO
+    const poMs = milestones[poNumber] || [];
+    for (const m of poMs) {
+      await sb.from("tanda_milestones").delete(`id=eq.${encodeURIComponent(m.id)}`);
+    }
+    // Delete all notes and history for this PO
+    const poNotes = notes.filter(n => n.po_number === poNumber);
+    for (const n of poNotes) {
+      if (n.id) await sb.from("tanda_notes").delete(`id=eq.${encodeURIComponent(n.id)}`);
+    }
+    // Remove from local state
+    setPos(prev => prev.filter(p => (p.PoNumber ?? "") !== poNumber));
+    setMilestones(prev => { const next = { ...prev }; delete next[poNumber]; return next; });
+    setNotes(prev => prev.filter(n => n.po_number !== poNumber));
+    if (selected?.PoNumber === poNumber) setSelected(null);
   }
 
   const allPONotes = notes.filter(n => n.po_number === selected?.PoNumber);
@@ -1542,6 +1573,10 @@ export default function TandAApp() {
                 Excel
               </button>
               <button style={{ ...S.btnSecondary, fontSize: 12, padding: "6px 14px", display: "flex", alignItems: "center", gap: 4 }} onClick={() => printPODetail()}>🖨️ Print</button>
+              <button onClick={() => { if (window.confirm(`Delete PO ${selected.PoNumber}? This will permanently remove the PO, all milestones, notes, and history.`)) deletePO(selected.PoNumber ?? ""); }}
+                style={{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 6, padding: "4px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}
+                onMouseEnter={e => { e.currentTarget.style.background = "#EF4444"; e.currentTarget.style.color = "#fff"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "#EF4444"; }}>🗑 Delete PO</button>
               <button style={{ ...S.closeBtn, fontSize: 16, padding: "4px 10px" }} onClick={() => setSelected(null)}>✕ Close</button>
             </div>
           </div>
