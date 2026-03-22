@@ -1621,8 +1621,8 @@ export default function TandAApp() {
             </div>
           </div>
 
-          {/* Key info grid — always visible */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 14, marginBottom: 20 }}>
+          {/* Key info grid — always visible, all Xoro fields */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, marginBottom: 20 }}>
             <InfoCell label="Order Date" value={fmtDate(selected.DateOrder)} />
             <InfoCell label="Expected Delivery" value={
               <span style={{ color: days !== null && days < 0 ? "#EF4444" : days !== null && days <= 7 ? "#F59E0B" : "#10B981" }}>
@@ -1632,12 +1632,20 @@ export default function TandAApp() {
                 </span>}
               </span>
             } />
+            <InfoCell label="Vendor Req Date" value={fmtDate(selected.VendorReqDate) || "—"} />
+            <InfoCell label="Total Value" value={fmtCurrency(total, selected.CurrencyCode)} />
+            <InfoCell label="Total Qty" value={totalQty.toLocaleString()} />
+            <InfoCell label="Currency" value={selected.CurrencyCode ?? "USD"} />
+            <InfoCell label="Payment Terms" value={selected.PaymentTermsName || "—"} />
+            <InfoCell label="Ship Method" value={selected.ShipMethodName || "—"} />
+            <InfoCell label="Carrier" value={selected.CarrierName || "—"} />
+            <InfoCell label="Buyer" value={selected.BuyerName || "—"} />
             <InfoCell label="Country of Origin" value={(() => {
               const vendor = dcVendors.find(v => v.name === selected.VendorName);
               return (vendor as any)?.country || "—";
             })()} />
-            <InfoCell label="Total Value" value={fmtCurrency(total, selected.CurrencyCode)} />
-            <InfoCell label="Total Qty" value={totalQty.toLocaleString()} />
+            {selected.Memo && <InfoCell label="Memo" value={selected.Memo} />}
+            {selected.Tags && <InfoCell label="Tags" value={selected.Tags} />}
           </div>
 
           {/* Tabs */}
