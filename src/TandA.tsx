@@ -314,6 +314,7 @@ export default function TandAApp() {
   const [matrixCollapsed, setMatrixCollapsed] = useState(false);
   const [lineItemsCollapsed, setLineItemsCollapsed] = useState(true);
   const [poInfoCollapsed, setPoInfoCollapsed] = useState(false);
+  const [progressCollapsed, setProgressCollapsed] = useState(false);
   const [showBulkUpdate, setShowBulkUpdate] = useState(false);
   const [bulkVendor, setBulkVendor] = useState("");
   const [bulkPhase, setBulkPhase] = useState("");
@@ -1735,12 +1736,16 @@ export default function TandAApp() {
             // Category summary
             const cats = WIP_CATEGORIES.filter(cat => poMs.some(m => m.category === cat));
             return (
-              <div style={{ background: "#1E293B", borderRadius: 10, padding: "14px 18px", marginBottom: 16 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-                  <span style={{ color: "#94A3B8", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Production Progress</span>
-                  <span style={{ color: "#10B981", fontSize: 14, fontWeight: 800, fontFamily: "monospace" }}>{pct}% complete</span>
+              <div style={{ marginBottom: 12 }}>
+                <div onClick={() => setProgressCollapsed(!progressCollapsed)}
+                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#0F172A", borderRadius: progressCollapsed ? 8 : "8px 8px 0 0", cursor: "pointer", userSelect: "none" }}>
+                  <span style={{ color: "#6B7280", fontSize: 12 }}>{progressCollapsed ? "▶" : "▼"}</span>
+                  <span style={{ color: "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Production Progress</span>
+                  <span style={{ color: "#10B981", fontSize: 14, fontWeight: 800, fontFamily: "monospace" }}>{pct}%</span>
                   <span style={{ color: "#6B7280", fontSize: 11 }}>{complete}/{active} milestones</span>
+                  {delayed > 0 && <span style={{ color: "#EF4444", fontSize: 11, fontWeight: 600 }}>⚠ {delayed} delayed</span>}
                 </div>
+                {!progressCollapsed && <div style={{ background: "#0F172A", borderRadius: "0 0 8px 8px", padding: "12px 14px" }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
                   {([
                     ["Complete", complete, "#10B981", "#34D399"],
@@ -1781,6 +1786,7 @@ export default function TandAApp() {
                     );
                   })}
                 </div>
+                </div>}
               </div>
             );
           })()}
