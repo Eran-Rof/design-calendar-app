@@ -1486,8 +1486,9 @@ export default function TandAApp() {
         const sku = item.ItemNumber ?? ""; const parts = sku.split("-");
         return { base: parts[0] || sku, color: parts.length >= 2 ? parts[1] : "", size: parts.length >= 3 ? parts.slice(2).join("-") : "", qty: item.QtyOrder ?? 0, price: item.UnitPrice ?? 0, desc: item.Description ?? "" };
       });
-      const sizeOrder: string[] = [];
-      parsed.forEach(p => { if (p.size && !sizeOrder.includes(p.size)) sizeOrder.push(p.size); });
+      const sizeSet = new Set<string>();
+      parsed.forEach(p => { if (p.size) sizeSet.add(p.size); });
+      const sizeOrder = [...sizeSet].sort((a, b) => { const na = parseFloat(a), nb = parseFloat(b); if (!isNaN(na) && !isNaN(nb)) return na - nb; if (!isNaN(na)) return -1; if (!isNaN(nb)) return 1; return 0; });
       const mxRows: any[][] = [["Base Part", "Description", "Color", ...sizeOrder, "Total", "PO Cost", "Total Cost"]];
       const bases: string[] = [];
       const byBase: Record<string, { color: string; desc: string; sizes: Record<string, number>; price: number }[]> = {};
