@@ -198,7 +198,7 @@ interface User {
   role?: string;
 }
 
-type View = "dashboard" | "list" | "detail" | "templates" | "email";
+type View = "dashboard" | "list" | "detail" | "templates" | "email" | "timeline";
 
 const STATUS_COLORS: Record<string, string> = {
   Open:       "#3B82F6",
@@ -313,6 +313,12 @@ export default function TandAApp() {
   const [detailMode, setDetailMode] = useState<"header" | "po" | "milestones" | "notes" | "history" | "matrix" | "email" | "all">("po");
   const [matrixCollapsed, setMatrixCollapsed] = useState(false);
   const [lineItemsCollapsed, setLineItemsCollapsed] = useState(true);
+  const [showBulkUpdate, setShowBulkUpdate] = useState(false);
+  const [bulkVendor, setBulkVendor] = useState("");
+  const [bulkPhase, setBulkPhase] = useState("");
+  const [bulkStatus, setBulkStatus] = useState("");
+  const [bulkCategory, setBulkCategory] = useState("");
+  const [bulkUpdating, setBulkUpdating] = useState(false);
   const [loading, setLoading]   = useState(false);
   const [syncing, setSyncing]   = useState(false);
   const [syncErr, setSyncErr]   = useState("");
@@ -1040,6 +1046,43 @@ export default function TandAApp() {
     setMilestones(prev => { const next = { ...prev }; delete next[poNumber]; return next; });
     setNotes(prev => prev.filter(n => n.po_number !== poNumber));
     if (selected?.PoNumber === poNumber) setSelected(null);
+  }
+
+  async function bulkUpdateMilestones() {
+    if (!bulkVendor || !bulkStatus) return;
+    setBulkUpdating(true);
+    const vendorPOs = pos.filter(p => (p.VendorName ?? "") === bulkVendor);
+    const today = new Date().toISOString().split("T")[0];
+    let count = 0;
+    for (const po of vendorPOs) {
+      const poNum = po.PoNumber ?? "";
+      const poMs = milestones[poNum] || [];
+      for (const m of poMs) {
+        const matchPhase = !bulkPhase || m.phase === bulkPhase;
+        const matchCat = !bulkCategory || m.category === bulkCategory;
+        if (matchPhase && matchCat && m.status !== bulkStatus && m.status !== "N/A") {
+          const dates = { ...(m.status_dates || {}) };
+          if (bulkStatus !== "Not Started" && !dates[bulkStatus]) dates[bulkStatus] = today;
+          await saveMilestone({
+            ...m,
+            status: bulkStatus,
+            status_date: dates[bulkStatus] || today,
+            status_dates: Object.keys(dates).length > 0 ? dates : null,
+            updated_at: new Date().toISOString(),
+            updated_by: user?.name || "",
+          }, true);
+          count++;
+        }
+      }
+    }
+    if (count > 0) {
+      addHistory(vendorPOs[0]?.PoNumber ?? "", `Bulk update: ${count} milestones → ${bulkStatus} for vendor ${bulkVendor}${bulkCategory ? ` (${bulkCategory})` : ""}${bulkPhase ? ` (${bulkPhase})` : ""}`);
+    }
+    setBulkUpdating(false);
+    setShowBulkUpdate(false);
+    setBulkPhase("");
+    setBulkCategory("");
+    alert(`Updated ${count} milestones to "${bulkStatus}" across ${vendorPOs.length} POs for ${bulkVendor}.`);
   }
 
   const allPONotes = notes.filter(n => n.po_number === selected?.PoNumber);
@@ -2533,6 +2576,7 @@ export default function TandAApp() {
           <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("list"); }}>All POs</button>
           <button style={view === "templates" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("templates"); }}>Templates</button>
           <button style={view === "email" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("email"); }}>📧 Email</button>
+          <button style={view === "timeline" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("timeline"); }}>📊 Timeline</button>
           <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing} title="Sync POs from Xoro">
             {syncing ? "⏳ Syncing…" : "🔄 Sync"}
           </button>
@@ -2575,6 +2619,14 @@ export default function TandAApp() {
               <StatCard label="Completion Rate"     value={`${milestoneCompletionRate}%`}   color="#10B981" icon="📊" />
               <StatCard label="Total Milestones"    value={allMilestonesList.length}        color="#8B5CF6" icon="🏭" />
             </div>
+              <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+                <button style={{ ...S.btnSecondary, display: "flex", alignItems: "center", gap: 6 }} onClick={() => { setShowBulkUpdate(true); setBulkVendor(""); setBulkPhase(""); setBulkCategory(""); setBulkStatus(""); }}>
+                  ⚡ Bulk Milestone Update
+                </button>
+                <button style={{ ...S.btnSecondary, display: "flex", alignItems: "center", gap: 6 }} onClick={() => setView("timeline")}>
+                  📊 View Timeline
+                </button>
+              </div>
 
             {/* Upcoming Milestones */}
             {upcomingMilestones.length > 0 && (
@@ -2851,11 +2903,210 @@ export default function TandAApp() {
 
         {/* ── EMAIL ── */}
         {view === "email" && emailViewPanel()}
+
+        {/* ── TIMELINE ── */}
+        {view === "timeline" && (() => {
+          // Filter POs that have milestones
+          const posWithMs = pos.filter(po => (milestones[po.PoNumber ?? ""] || []).length > 0);
+          // Vendor filter for timeline
+          const tlVendors = [...new Set(posWithMs.map(p => p.VendorName ?? ""))].sort();
+          const [tlVendorFilter, setTlVendorFilter] = [filterVendor, setFilterVendor];
+          const filteredPOs = tlVendorFilter === "All" ? posWithMs : posWithMs.filter(p => (p.VendorName ?? "") === tlVendorFilter);
+
+          // Calculate date range across all visible milestones
+          let minDate = Infinity, maxDate = -Infinity;
+          filteredPOs.forEach(po => {
+            const ms = milestones[po.PoNumber ?? ""] || [];
+            ms.forEach(m => {
+              if (m.expected_date) { const d = new Date(m.expected_date).getTime(); if (d < minDate) minDate = d; if (d > maxDate) maxDate = d; }
+              if (m.status_date) { const d = new Date(m.status_date).getTime(); if (d < minDate) minDate = d; if (d > maxDate) maxDate = d; }
+            });
+          });
+          if (!isFinite(minDate)) { minDate = Date.now(); maxDate = Date.now() + 90 * 86400000; }
+          // Add 14-day padding
+          minDate -= 14 * 86400000;
+          maxDate += 14 * 86400000;
+          const range = maxDate - minDate;
+          const toPercent = (d: string) => ((new Date(d).getTime() - minDate) / range) * 100;
+          const today = new Date();
+          const todayPct = ((today.getTime() - minDate) / range) * 100;
+
+          // Month markers
+          const months: { label: string; pct: number }[] = [];
+          const startMonth = new Date(minDate);
+          startMonth.setDate(1);
+          while (startMonth.getTime() < maxDate) {
+            const pct = ((startMonth.getTime() - minDate) / range) * 100;
+            if (pct >= 0 && pct <= 100) months.push({ label: startMonth.toLocaleDateString("en-US", { month: "short", year: "2-digit" }), pct });
+            startMonth.setMonth(startMonth.getMonth() + 1);
+          }
+
+          return (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <h2 style={{ margin: 0, color: "#F1F5F9", fontSize: 20, fontWeight: 700 }}>Production Timeline</h2>
+                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  <select style={S.select} value={tlVendorFilter} onChange={e => setFilterVendor(e.target.value)}>
+                    <option value="All">All Vendors ({posWithMs.length})</option>
+                    {tlVendors.map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                  <div style={{ display: "flex", gap: 12, fontSize: 11 }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 2, background: "#10B981" }} /> Complete</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 2, background: "#3B82F6" }} /> In Progress</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 2, background: "#EF4444" }} /> Delayed</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 2, background: "#6B7280" }} /> Not Started</span>
+                  </div>
+                </div>
+              </div>
+              <div style={{ background: "#1E293B", borderRadius: 12, overflow: "hidden", border: "1px solid #334155" }}>
+                {/* Month header */}
+                <div style={{ position: "relative", height: 32, borderBottom: "1px solid #334155", background: "#0F172A" }}>
+                  {months.map((m, i) => (
+                    <div key={i} style={{ position: "absolute", left: `calc(200px + ${m.pct}% * (100% - 200px) / 100)`, top: 0, height: "100%", borderLeft: "1px solid #334155", display: "flex", alignItems: "center", paddingLeft: 6 }}>
+                      <span style={{ fontSize: 10, color: "#6B7280", whiteSpace: "nowrap" }}>{m.label}</span>
+                    </div>
+                  ))}
+                  {/* Today line in header */}
+                  <div style={{ position: "absolute", left: `calc(200px + ${todayPct}% * (100% - 200px) / 100)`, top: 0, height: "100%", borderLeft: "2px solid #F59E0B", zIndex: 2 }}>
+                    <span style={{ fontSize: 9, color: "#F59E0B", position: "absolute", top: 2, left: 4, whiteSpace: "nowrap", fontWeight: 700 }}>Today</span>
+                  </div>
+                </div>
+
+                {/* PO rows */}
+                {filteredPOs.length === 0 ? (
+                  <div style={{ padding: 40, textAlign: "center", color: "#6B7280" }}>No POs with milestones{tlVendorFilter !== "All" ? ` for ${tlVendorFilter}` : ""}</div>
+                ) : filteredPOs.map(po => {
+                  const poNum = po.PoNumber ?? "";
+                  const poMs = milestones[poNum] || [];
+                  const statusColor = STATUS_COLORS[po.StatusName ?? ""] ?? "#6B7280";
+                  const complete = poMs.filter(m => m.status === "Complete").length;
+                  const total = poMs.filter(m => m.status !== "N/A").length;
+
+                  return (
+                    <div key={poNum} style={{ display: "flex", borderBottom: "1px solid #1E293B", minHeight: 44 }}
+                      onClick={() => { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(po); }}>
+                      {/* Left: PO info */}
+                      <div style={{ width: 200, flexShrink: 0, padding: "8px 12px", borderRight: "1px solid #334155", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor, flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: "#60A5FA", fontFamily: "monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{poNum}</div>
+                          <div style={{ fontSize: 10, color: "#6B7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{po.VendorName ?? ""}</div>
+                        </div>
+                        <span style={{ fontSize: 9, color: "#6B7280", fontFamily: "monospace" }}>{complete}/{total}</span>
+                      </div>
+                      {/* Right: Gantt bars */}
+                      <div style={{ flex: 1, position: "relative", cursor: "pointer" }}>
+                        {/* Today line */}
+                        <div style={{ position: "absolute", left: `${todayPct}%`, top: 0, bottom: 0, borderLeft: "2px solid #F59E0B44", zIndex: 1 }} />
+                        {/* Category bars */}
+                        {WIP_CATEGORIES.map(cat => {
+                          const catMs = poMs.filter(m => m.category === cat);
+                          if (catMs.length === 0) return null;
+                          const dates = catMs.map(m => m.expected_date).filter(Boolean) as string[];
+                          if (dates.length === 0) return null;
+                          const catStart = dates.reduce((min, d) => d < min ? d : min, dates[0]);
+                          const catEnd = dates.reduce((max, d) => d > max ? d : max, dates[0]);
+                          const left = toPercent(catStart);
+                          const right = toPercent(catEnd);
+                          const width = Math.max(right - left, 0.5);
+                          const allDone = catMs.every(m => m.status === "Complete" || m.status === "N/A");
+                          const hasDelayed = catMs.some(m => m.status === "Delayed");
+                          const hasInProg = catMs.some(m => m.status === "In Progress");
+                          const barColor = allDone ? "#10B981" : hasDelayed ? "#EF4444" : hasInProg ? "#3B82F6" : "#6B7280";
+                          const catIdx = WIP_CATEGORIES.indexOf(cat);
+                          const barTop = 4 + catIdx * 7;
+                          return (
+                            <div key={cat} title={`${cat}: ${catMs.filter(m=>m.status==="Complete").length}/${catMs.filter(m=>m.status!=="N/A").length}`}
+                              style={{ position: "absolute", left: `${left}%`, width: `${width}%`, top: barTop, height: 5, borderRadius: 2, background: barColor, minWidth: 4, opacity: 0.9 }} />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          );
+        })()}
       </div>
 
       {selected      && DetailPanel()}
       {showSettings  && <SettingsModal />}
       {showSyncModal && <SyncModal />}
+      {showBulkUpdate && (
+        <div style={S.modalOverlay} onClick={() => setShowBulkUpdate(false)}>
+          <div style={{ ...S.modal, width: 520 }} onClick={e => e.stopPropagation()}>
+            <div style={S.modalHeader}>
+              <h2 style={S.modalTitle}>Bulk Milestone Update</h2>
+              <button style={S.closeBtn} onClick={() => setShowBulkUpdate(false)}>✕</button>
+            </div>
+            <div style={S.modalBody}>
+              <p style={{ color: "#9CA3AF", fontSize: 13, marginTop: 0, marginBottom: 16 }}>
+                Update milestones across all POs for a specific vendor. Select a vendor, optionally filter by category or phase, then choose the new status.
+              </p>
+              <label style={S.label}>Vendor</label>
+              <select style={{ ...S.select, width: "100%", marginBottom: 12 }} value={bulkVendor} onChange={e => { setBulkVendor(e.target.value); setBulkPhase(""); setBulkCategory(""); }}>
+                <option value="">Select vendor…</option>
+                {[...new Set(pos.map(p => p.VendorName ?? "").filter(Boolean))].sort().map(v => {
+                  const vPOs = pos.filter(p => (p.VendorName ?? "") === v);
+                  const vMs = vPOs.flatMap(p => milestones[p.PoNumber ?? ""] || []);
+                  return <option key={v} value={v}>{v} ({vPOs.length} POs, {vMs.length} milestones)</option>;
+                })}
+              </select>
+
+              {bulkVendor && (() => {
+                const vendorPOs = pos.filter(p => (p.VendorName ?? "") === bulkVendor);
+                const vendorMs = vendorPOs.flatMap(p => milestones[p.PoNumber ?? ""] || []);
+                const cats = WIP_CATEGORIES.filter(c => vendorMs.some(m => m.category === c));
+                const phases = [...new Set(vendorMs.filter(m => !bulkCategory || m.category === bulkCategory).map(m => m.phase))];
+                const matching = vendorMs.filter(m => {
+                  const matchPhase = !bulkPhase || m.phase === bulkPhase;
+                  const matchCat = !bulkCategory || m.category === bulkCategory;
+                  return matchPhase && matchCat && m.status !== "N/A";
+                });
+
+                return (
+                  <>
+                    <label style={S.label}>Category (optional)</label>
+                    <select style={{ ...S.select, width: "100%", marginBottom: 12 }} value={bulkCategory} onChange={e => { setBulkCategory(e.target.value); setBulkPhase(""); }}>
+                      <option value="">All Categories</option>
+                      {cats.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+
+                    <label style={S.label}>Phase (optional)</label>
+                    <select style={{ ...S.select, width: "100%", marginBottom: 12 }} value={bulkPhase} onChange={e => setBulkPhase(e.target.value)}>
+                      <option value="">All Phases</option>
+                      {phases.map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+
+                    <label style={S.label}>New Status</label>
+                    <select style={{ ...S.select, width: "100%", marginBottom: 16 }} value={bulkStatus} onChange={e => setBulkStatus(e.target.value)}>
+                      <option value="">Select status…</option>
+                      {MILESTONE_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+
+                    <div style={{ background: "#0F172A", borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 12, color: "#9CA3AF" }}>
+                      <strong style={{ color: "#60A5FA" }}>Preview:</strong> {matching.length} milestones across {vendorPOs.length} POs
+                      {bulkStatus && <span> will be set to <strong style={{ color: MILESTONE_STATUS_COLORS[bulkStatus] || "#fff" }}>{bulkStatus}</strong></span>}
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <button style={{ ...S.btnSecondary, flex: 1 }} onClick={() => setShowBulkUpdate(false)}>Cancel</button>
+                      <button style={{ ...S.btnPrimary, flex: 2, opacity: (!bulkStatus || bulkUpdating) ? 0.5 : 1 }}
+                        disabled={!bulkStatus || bulkUpdating}
+                        onClick={() => {
+                          if (window.confirm(`Update ${matching.length} milestones to "${bulkStatus}" for ${bulkVendor}?`)) bulkUpdateMilestones();
+                        }}>
+                        {bulkUpdating ? "Updating…" : `Update ${matching.length} Milestones`}
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 
