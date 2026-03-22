@@ -770,7 +770,7 @@ export default function TandAApp() {
             delete next[completedKey];
             return next;
           });
-        }, 4000);
+        }, 2000);
       } else {
         setCollapsedCats(prev => {
           const next = { ...prev };
