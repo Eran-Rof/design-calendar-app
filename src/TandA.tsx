@@ -494,6 +494,14 @@ export default function TandAApp() {
     setSessionChecked(true);
   }, []);
 
+  // Load XLSX library dynamically
+  useEffect(() => {
+    if ((window as any).XLSX) return;
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    document.head.appendChild(s);
+  }, []);
+
   // ── Auth ──────────────────────────────────────────────────────────────────
   const [loginName, setLoginName] = useState("");
   const [loginPass, setLoginPass] = useState("");
@@ -1207,6 +1215,114 @@ export default function TandAApp() {
   );
 
   // ════════════════════════════════════════════════════════════════════════════
+  // PRINT + EXCEL EXPORT HELPERS
+  // ════════════════════════════════════════════════════════════════════════════
+  function printPODetail() {
+    const content = document.getElementById("po-detail-content");
+    if (!content) return;
+    const win = window.open("", "_blank", "width=900,height=700");
+    if (!win) return;
+    win.document.write(`<!DOCTYPE html><html><head><title>PO Detail</title><style>
+      body { font-family: 'DM Sans','Segoe UI',sans-serif; color: #1a1a1a; padding: 24px; font-size: 13px; }
+      table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+      th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; font-size: 12px; }
+      th { background: #f0f0f0; font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; }
+      h1 { font-size: 20px; margin: 0 0 4px; } h2 { font-size: 14px; color: #666; margin: 0 0 16px; }
+      .section { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #888; font-weight: 600; margin: 16px 0 8px; }
+      .info-grid { display: grid; grid-template-columns: repeat(5,1fr); gap: 8px; margin-bottom: 16px; }
+      .info-cell { border: 1px solid #ddd; border-radius: 6px; padding: 8px; }
+      .info-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: #888; margin-bottom: 2px; }
+      .info-value { font-size: 13px; font-weight: 600; }
+      iframe { display: none; } button { display: none; } input { display: none; } textarea { display: none; } select { display: none; }
+      @media print { body { padding: 0; } }
+    </style></head><body>`);
+    win.document.write(content.innerHTML);
+    win.document.write("</body></html>");
+    win.document.close();
+    setTimeout(() => { win.print(); win.close(); }, 400);
+  }
+
+  function exportPOExcel(po: XoroPO, items: any[], mode: string) {
+    const XLSX = (window as any).XLSX;
+    if (!XLSX) { alert("Excel library still loading — try again in a moment."); return; }
+    const wb = XLSX.utils.book_new();
+    const poNum = po.PoNumber ?? "PO";
+
+    // Sheet 1: PO Header
+    const headerData = [
+      ["PO Number", po.PoNumber ?? ""],
+      ["Vendor", po.VendorName ?? ""],
+      ["Status", po.StatusName ?? ""],
+      ["Order Date", po.DateOrder ?? ""],
+      ["Expected Delivery", po.DateExpectedDelivery ?? ""],
+      ["Vendor Req Date", po.VendorReqDate ?? ""],
+      ["Currency", po.CurrencyCode ?? "USD"],
+      ["Payment Terms", po.PaymentTermsName ?? ""],
+      ["Ship Method", po.ShipMethodName ?? ""],
+      ["Carrier", po.CarrierName ?? ""],
+      ["Buyer", po.BuyerName ?? ""],
+      ["Memo", po.Memo ?? ""],
+      ["Tags", po.Tags ?? ""],
+      ["Total Amount", po.TotalAmount ?? 0],
+    ];
+    const wsHeader = XLSX.utils.aoa_to_sheet(headerData);
+    wsHeader["!cols"] = [{ wch: 20 }, { wch: 40 }];
+    XLSX.utils.book_append_sheet(wb, wsHeader, "PO Info");
+
+    // Sheet 2: Line Items
+    const lineRows = [["SKU", "Description", "Qty", "Unit Price", "Total"]];
+    items.forEach(item => {
+      lineRows.push([item.ItemNumber ?? "", item.Description ?? "", item.QtyOrder ?? 0, item.UnitPrice ?? 0, (item.QtyOrder ?? 0) * (item.UnitPrice ?? 0)]);
+    });
+    const totalVal = items.reduce((s, i) => s + (i.QtyOrder ?? 0) * (i.UnitPrice ?? 0), 0);
+    lineRows.push(["", "", items.reduce((s, i) => s + (i.QtyOrder ?? 0), 0), "", totalVal]);
+    const wsLines = XLSX.utils.aoa_to_sheet(lineRows);
+    wsLines["!cols"] = [{ wch: 20 }, { wch: 30 }, { wch: 10 }, { wch: 12 }, { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, wsLines, "Line Items");
+
+    // Sheet 3: Matrix
+    const parsed = items.map(item => {
+      const sku = item.ItemNumber ?? "";
+      const parts = sku.split("-");
+      return { base: parts[0] || sku, color: parts.length >= 2 ? parts[1] : "", size: parts.length >= 3 ? parts.slice(2).join("-") : "", qty: item.QtyOrder ?? 0, price: item.UnitPrice ?? 0, desc: item.Description ?? "" };
+    });
+    const sizeOrder: string[] = [];
+    parsed.forEach(p => { if (p.size && !sizeOrder.includes(p.size)) sizeOrder.push(p.size); });
+    const matrixRows: any[][] = [["Base Part", "Description", "Color", ...sizeOrder, "Total", "PO Cost", "Total Cost"]];
+    const bases: string[] = [];
+    const byBase: Record<string, { color: string; desc: string; sizes: Record<string, number>; price: number }[]> = {};
+    parsed.forEach(p => {
+      if (!byBase[p.base]) { byBase[p.base] = []; bases.push(p.base); }
+      let row = byBase[p.base].find(r => r.color === p.color);
+      if (!row) { row = { color: p.color, desc: p.desc, sizes: {}, price: p.price }; byBase[p.base].push(row); }
+      row.sizes[p.size] = (row.sizes[p.size] || 0) + p.qty;
+    });
+    bases.forEach(base => {
+      byBase[base].forEach(row => {
+        const rowTotal = Object.values(row.sizes).reduce((s, q) => s + q, 0);
+        matrixRows.push([base, row.desc, row.color, ...sizeOrder.map(sz => row.sizes[sz] || 0), rowTotal, row.price, rowTotal * row.price]);
+      });
+    });
+    // Grand total row
+    matrixRows.push(["", "", "Grand Total", ...sizeOrder.map(sz => parsed.filter(p => p.size === sz).reduce((s, p) => s + p.qty, 0)), items.reduce((s, i) => s + (i.QtyOrder ?? 0), 0), "", totalVal]);
+    const wsMatrix = XLSX.utils.aoa_to_sheet(matrixRows);
+    wsMatrix["!cols"] = [{ wch: 16 }, { wch: 12 }, { wch: 24 }, ...sizeOrder.map(() => ({ wch: 8 })), { wch: 8 }, { wch: 10 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, wsMatrix, "Matrix");
+
+    // Sheet 4: Milestones
+    const poMs = milestones[poNum] || [];
+    if (poMs.length > 0) {
+      const msRows: any[][] = [["Category", "Milestone", "Expected Date", "Actual Date", "Status", "Notes"]];
+      poMs.forEach(m => { msRows.push([m.category, m.name, m.expected_date ?? "", m.actual_date ?? "", m.status, m.notes ?? ""]); });
+      const wsMs = XLSX.utils.aoa_to_sheet(msRows);
+      wsMs["!cols"] = [{ wch: 18 }, { wch: 24 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 30 }];
+      XLSX.utils.book_append_sheet(wb, wsMs, "Milestones");
+    }
+
+    XLSX.writeFile(wb, `${poNum}_detail.xlsx`);
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
   // PO DETAIL PANEL
   // ════════════════════════════════════════════════════════════════════════════
   const DetailPanel = () => {
@@ -1299,7 +1415,7 @@ export default function TandAApp() {
 
     return (
       <div style={{ position: "fixed", inset: 0, top: 56, background: "#0F172A", zIndex: 90, overflowY: "auto", display: "flex", flexDirection: "column", fontSize: "120%" }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto", width: "100%", padding: "24px 20px", flex: 1 }}>
+        <div id="po-detail-content" style={{ maxWidth: 1200, margin: "0 auto", width: "100%", padding: "24px 20px", flex: 1 }}>
           {/* Header */}
           <div style={{ ...S.detailHeader, borderLeft: `4px solid ${statusColor}`, borderRadius: 12, marginBottom: 16 }}>
             <div>
@@ -1310,6 +1426,8 @@ export default function TandAApp() {
               <span style={{ ...S.badge, background: statusColor + "33", color: statusColor, border: `1px solid ${statusColor}66`, fontSize: 14, padding: "4px 12px" }}>
                 {selected.StatusName ?? "Unknown"}
               </span>
+              <button style={{ ...S.btnSecondary, fontSize: 12, padding: "6px 14px", display: "flex", alignItems: "center", gap: 4 }} onClick={() => exportPOExcel(selected, items, detailMode)}>📥 Excel</button>
+              <button style={{ ...S.btnSecondary, fontSize: 12, padding: "6px 14px", display: "flex", alignItems: "center", gap: 4 }} onClick={() => printPODetail()}>🖨️ Print</button>
               <button style={{ ...S.closeBtn, fontSize: 16, padding: "4px 10px" }} onClick={() => setSelected(null)}>✕ Close</button>
             </div>
           </div>
@@ -1423,8 +1541,8 @@ export default function TandAApp() {
                       <thead>
                         <tr style={{ background: "#0F172A" }}>
                           <th style={{ padding: "10px 14px", textAlign: "left", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Base Part</th>
-                          <th style={{ padding: "10px 14px", textAlign: "left", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Color</th>
                           <th style={{ padding: "10px 14px", textAlign: "left", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Description</th>
+                          <th style={{ padding: "10px 14px", textAlign: "left", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Color</th>
                           {sizeOrder.map(sz => (
                             <th key={sz} style={{ padding: "10px 14px", textAlign: "center", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155", minWidth: 60 }}>{sz}</th>
                           ))}
@@ -1453,8 +1571,8 @@ export default function TandAApp() {
                                 {ri === 0 ? (
                                   <td rowSpan={rows.length} style={{ padding: "10px 14px", color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, verticalAlign: "top", borderRight: "1px solid #334155" }}>{base}</td>
                                 ) : null}
-                                <td style={{ padding: "8px 14px", color: "#D1D5DB" }}>{row.color || "—"}</td>
                                 <td style={{ padding: "8px 14px", color: "#9CA3AF", fontSize: 12 }}>{row.desc || "—"}</td>
+                                <td style={{ padding: "8px 14px", color: "#D1D5DB" }}>{row.color || "—"}</td>
                                 {sizeOrder.map(sz => (
                                   <td key={sz} style={{ padding: "8px 14px", textAlign: "center", color: row.sizes[sz] ? "#E5E7EB" : "#334155", fontFamily: "monospace" }}>{row.sizes[sz] || "—"}</td>
                                 ))}
