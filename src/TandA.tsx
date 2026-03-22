@@ -2030,9 +2030,9 @@ export default function TandAApp() {
                                       const newStatus = e.target.value;
                                       const oldStatus = m.status;
                                       const dates = { ...(m.status_dates || {}) };
-                                      // Ask if user wants to clear the old status date (e.g. switching away from Complete)
-                                      if (oldStatus !== "Not Started" && dates[oldStatus]) {
-                                        if (window.confirm(`Clear the "${oldStatus}" date (${dates[oldStatus]})? Click OK to clear, Cancel to keep it.`)) {
+                                      // Ask if user wants to clear the Complete date when switching away from Complete
+                                      if (oldStatus === "Complete" && dates[oldStatus]) {
+                                        if (window.confirm(`Clear the "Complete" date (${dates[oldStatus]})? Click OK to clear, Cancel to keep it.`)) {
                                           delete dates[oldStatus];
                                         }
                                       }
