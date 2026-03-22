@@ -2235,7 +2235,12 @@ export default function TandAApp() {
                     return (
                       <div key={cat} style={{ marginBottom: 8 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: cascade.blocked ? "#1A1520" : "#0F172A", borderRadius: collapsed ? 8 : "8px 8px 0 0", cursor: "pointer", userSelect: "none", borderLeft: cascade.blocked ? "3px solid #F59E0B" : "3px solid transparent" }}
-                          onClick={() => setCollapsedCats(prev => ({ ...prev, [cat + poNum]: !collapsed }))}>
+                          onClick={() => {
+                            if (collapsed && cascade.blocked) {
+                              if (!window.confirm(`"${cat}" is blocked by "${cascade.delayedCat}"${cascade.upstreamDelay > 0 ? ` (${cascade.upstreamDelay}d late)` : ""}. View anyway?`)) return;
+                            }
+                            setCollapsedCats(prev => ({ ...prev, [cat + poNum]: !collapsed }));
+                          }}>
                           <span style={{ color: "#6B7280", fontSize: 12 }}>{collapsed ? "▶" : "▼"}</span>
                           <span style={{ color: "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>{cat}</span>
                           {cascade.blocked && (
