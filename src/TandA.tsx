@@ -1678,30 +1678,29 @@ export default function TandAApp() {
               </span>}
             </div>
             {!poInfoCollapsed && (
-              <div style={{ background: "#0F172A", borderRadius: "0 0 8px 8px", padding: "10px 14px" }}>
+              <div style={{ background: "#0F172A", borderRadius: "0 0 8px 8px", padding: "14px 16px" }}>
                 {/* Row 1 */}
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
                   {[
                     ["Order", fmtDate(selected.DateOrder)],
                     ["Expected", (() => { const c = days !== null && days < 0 ? "#EF4444" : days !== null && days <= 7 ? "#F59E0B" : "#10B981"; const suffix = days === null ? "" : days < 0 ? ` (${Math.abs(days)}d late)` : days === 0 ? " (Today!)" : ` (${days}d)`; return { text: (fmtDate(selected.DateExpectedDelivery) || "—") + suffix, color: c }; })()],
                     ["Vendor Req", fmtDate(selected.VendorReqDate) || "—"],
                     ["Value", fmtCurrency(total, selected.CurrencyCode)],
                     ["Qty", totalQty.toLocaleString()],
-                    ["Currency", selected.CurrencyCode ?? "USD"],
                   ].map(([label, val]) => {
                     const isObj = typeof val === "object" && val !== null && "text" in val;
                     const text = isObj ? (val as any).text : String(val);
                     const color = isObj ? (val as any).color : "#D1D5DB";
                     return (
-                      <div key={String(label)} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 10px", background: "#1E293B", borderRadius: 6, border: "1px solid #334155" }}>
-                        <span style={{ fontSize: 10, color: "#6B7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3 }}>{String(label)}:</span>
-                        <span style={{ fontSize: 12, color, fontWeight: 600 }}>{text}</span>
+                      <div key={String(label)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", background: "#1E293B", borderRadius: 8, border: "1px solid #334155" }}>
+                        <span style={{ fontSize: 13, color: "#6B7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3 }}>{String(label)}:</span>
+                        <span style={{ fontSize: 16, color, fontWeight: 700 }}>{text}</span>
                       </div>
                     );
                   })}
                 </div>
                 {/* Row 2 */}
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {[
                     ["Payment", selected.PaymentTermsName || "—"],
                     ["Ship", selected.ShipMethodName || "—"],
@@ -1711,9 +1710,9 @@ export default function TandAApp() {
                     ...(selected.Memo ? [["Memo", selected.Memo]] : []),
                     ...(selected.Tags ? [["Tags", selected.Tags]] : []),
                   ].map(([label, val]) => (
-                    <div key={String(label)} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 10px", background: "#1E293B", borderRadius: 6, border: "1px solid #334155" }}>
-                      <span style={{ fontSize: 10, color: "#6B7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3 }}>{String(label)}:</span>
-                      <span style={{ fontSize: 12, color: "#D1D5DB", fontWeight: 500, maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(val)}</span>
+                    <div key={String(label)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", background: "#1E293B", borderRadius: 8, border: "1px solid #334155" }}>
+                      <span style={{ fontSize: 13, color: "#6B7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3 }}>{String(label)}:</span>
+                      <span style={{ fontSize: 16, color: "#D1D5DB", fontWeight: 600, maxWidth: 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(val)}</span>
                     </div>
                   ))}
                 </div>
@@ -1739,7 +1738,7 @@ export default function TandAApp() {
               <div style={{ background: "#1E293B", borderRadius: 10, padding: "14px 18px", marginBottom: 16 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
                   <span style={{ color: "#94A3B8", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Production Progress</span>
-                  <span style={{ color: pct === 100 ? "#10B981" : "#60A5FA", fontSize: 14, fontWeight: 800, fontFamily: "monospace" }}>{pct}% complete</span>
+                  <span style={{ color: "#10B981", fontSize: 14, fontWeight: 800, fontFamily: "monospace" }}>{pct}% complete</span>
                   <span style={{ color: "#6B7280", fontSize: 11 }}>{complete}/{active} milestones</span>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
@@ -1772,7 +1771,9 @@ export default function TandAApp() {
                     const hasInProg = catMs.some(m => m.status === "In Progress");
                     const dotColor = allDone ? "#10B981" : hasDelayed ? "#EF4444" : hasInProg ? "#3B82F6" : "#6B7280";
                     return (
-                      <div key={cat} onClick={() => setDetailMode("milestones")} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 6, background: "#0F172A", border: "1px solid #334155", cursor: "pointer", transition: "border-color 0.15s" }}>
+                      <div key={cat} onClick={() => { setDetailMode("milestones"); const poNum = selected.PoNumber ?? ""; setCollapsedCats(prev => { const next = { ...prev }; WIP_CATEGORIES.forEach(c => { next[c + poNum] = c !== cat; }); return next; }); }} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 6, background: "#0F172A", border: "1px solid #334155", cursor: "pointer", transition: "border-color 0.15s" }}
+                        onMouseEnter={e => e.currentTarget.style.borderColor = dotColor}
+                        onMouseLeave={e => e.currentTarget.style.borderColor = "#334155"}>
                         <div style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor }} />
                         <span style={{ fontSize: 11, color: "#D1D5DB" }}>{cat}</span>
                         <span style={{ fontSize: 10, color: "#6B7280", fontFamily: "monospace" }}>{catDone}/{catActive}</span>
