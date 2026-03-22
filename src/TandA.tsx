@@ -1003,6 +1003,31 @@ export default function TandAApp() {
     .sort((a, b) => (a.expected_date ?? "").localeCompare(b.expected_date ?? ""))
     .slice(0, 15);
 
+  // Cascade alerts: POs where upstream delays block downstream categories
+  const cascadeAlerts: { poNum: string; vendor: string; blockedCat: string; delayedCat: string; daysLate: number }[] = [];
+  pos.forEach(po => {
+    const poNum = po.PoNumber ?? "";
+    const poMs = milestones[poNum] || [];
+    if (poMs.length === 0) return;
+    const grouped: Record<string, Milestone[]> = {};
+    poMs.forEach(m => { if (!grouped[m.category]) grouped[m.category] = []; grouped[m.category].push(m); });
+    const activeCats = WIP_CATEGORIES.filter(c => grouped[c]?.length);
+    activeCats.forEach((cat, idx) => {
+      for (let p = 0; p < idx; p++) {
+        const prevCat = activeCats[p];
+        const prevMs = grouped[prevCat] || [];
+        if (prevMs.every(m => m.status === "Complete" || m.status === "N/A")) continue;
+        const maxLate = prevMs.reduce((max, m) => {
+          if (m.status === "Complete" || m.status === "N/A" || !m.expected_date) return max;
+          const d = Math.ceil((Date.now() - new Date(m.expected_date).getTime()) / 86400000);
+          return d > 0 ? Math.max(max, d) : max;
+        }, 0);
+        if (maxLate > 0) cascadeAlerts.push({ poNum, vendor: po.VendorName ?? "", blockedCat: cat, delayedCat: prevCat, daysLate: maxLate });
+        break; // only report the first blocking predecessor
+      }
+    });
+  });
+
   async function addNote() {
     if (!newNote.trim() || !selected || !user) return;
     const noteText = newNote.trim();
@@ -2114,29 +2139,77 @@ export default function TandAApp() {
                   {poMs.length === 0 && !ddp && <p style={{ color: "#6B7280", fontSize: 13 }}>No expected delivery date — cannot generate milestones.</p>}
                   {poMs.length === 0 && ddp && hasVendorTpl && <p style={{ color: "#6B7280", fontSize: 13 }}>No milestones yet. Click "Generate Milestones" to create them.</p>}
                   {(() => {
-                    // Find the first category that is not fully complete
+                    // Dependency & cascade logic
                     const activeCats = WIP_CATEGORIES.filter(cat => grouped[cat]?.length);
-                    const firstIncompleteCat = activeCats.find(cat => {
-                      const ms = grouped[cat];
-                      return ms.some(m => m.status !== "Complete" && m.status !== "N/A");
+                    const firstIncompleteCat = activeCats.find(cat => grouped[cat].some(m => m.status !== "Complete" && m.status !== "N/A"));
+
+                    // Calculate cascade delays: for each category, check if any predecessor is late
+                    const cascadeInfo: Record<string, { blocked: boolean; upstreamDelay: number; delayedCat: string }> = {};
+                    activeCats.forEach((cat, idx) => {
+                      cascadeInfo[cat] = { blocked: false, upstreamDelay: 0, delayedCat: "" };
+                      // Check all preceding categories
+                      for (let p = 0; p < idx; p++) {
+                        const prevCat = activeCats[p];
+                        const prevMs = grouped[prevCat] || [];
+                        const prevDone = prevMs.every(m => m.status === "Complete" || m.status === "N/A");
+                        if (!prevDone) {
+                          cascadeInfo[cat].blocked = true;
+                          // Calculate max days late from predecessor's overdue milestones
+                          const maxLate = prevMs.reduce((max, m) => {
+                            if (m.status === "Complete" || m.status === "N/A" || !m.expected_date) return max;
+                            const daysLate = Math.ceil((Date.now() - new Date(m.expected_date).getTime()) / 86400000);
+                            return daysLate > 0 ? Math.max(max, daysLate) : max;
+                          }, 0);
+                          if (maxLate > cascadeInfo[cat].upstreamDelay) {
+                            cascadeInfo[cat].upstreamDelay = maxLate;
+                            cascadeInfo[cat].delayedCat = prevCat;
+                          }
+                        }
+                      }
                     });
+
                     return activeCats;
                   })().map(cat => {
                     const catMs = grouped[cat];
                     const catComplete = catMs.filter(m => m.status === "Complete").length;
-                    const allDone = catComplete === catMs.length;
-                    // Default: collapsed unless it's the first incomplete category
                     const activeCats = WIP_CATEGORIES.filter(c => grouped[c]?.length);
                     const firstIncompleteCat = activeCats.find(c => grouped[c].some(m => m.status !== "Complete" && m.status !== "N/A"));
                     const defaultCollapsed = cat !== firstIncompleteCat;
                     const key = cat + poNum;
                     const collapsed = collapsedCats[key] !== undefined ? collapsedCats[key] : defaultCollapsed;
+
+                    // Cascade info for this category
+                    const cascade = (() => {
+                      const info = { blocked: false, upstreamDelay: 0, delayedCat: "" };
+                      const catIdx = activeCats.indexOf(cat);
+                      for (let p = 0; p < catIdx; p++) {
+                        const prevCat = activeCats[p];
+                        const prevMs = grouped[prevCat] || [];
+                        const prevDone = prevMs.every(m => m.status === "Complete" || m.status === "N/A");
+                        if (!prevDone) {
+                          info.blocked = true;
+                          const maxLate = prevMs.reduce((max, m) => {
+                            if (m.status === "Complete" || m.status === "N/A" || !m.expected_date) return max;
+                            const daysLate = Math.ceil((Date.now() - new Date(m.expected_date).getTime()) / 86400000);
+                            return daysLate > 0 ? Math.max(max, daysLate) : max;
+                          }, 0);
+                          if (maxLate > info.upstreamDelay) { info.upstreamDelay = maxLate; info.delayedCat = prevCat; }
+                        }
+                      }
+                      return info;
+                    })();
+
                     return (
                       <div key={cat} style={{ marginBottom: 8 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#0F172A", borderRadius: collapsed ? 8 : "8px 8px 0 0", cursor: "pointer", userSelect: "none" }}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: cascade.blocked ? "#1A1520" : "#0F172A", borderRadius: collapsed ? 8 : "8px 8px 0 0", cursor: "pointer", userSelect: "none", borderLeft: cascade.blocked ? "3px solid #F59E0B" : "3px solid transparent" }}
                           onClick={() => setCollapsedCats(prev => ({ ...prev, [cat + poNum]: !collapsed }))}>
                           <span style={{ color: "#6B7280", fontSize: 12 }}>{collapsed ? "▶" : "▼"}</span>
                           <span style={{ color: "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>{cat}</span>
+                          {cascade.blocked && (
+                            <span style={{ fontSize: 10, color: "#F59E0B", fontWeight: 600, padding: "1px 6px", borderRadius: 4, background: "#F59E0B18", border: "1px solid #F59E0B33" }}>
+                              ⚠ Blocked by {cascade.delayedCat}{cascade.upstreamDelay > 0 ? ` (${cascade.upstreamDelay}d late)` : ""}
+                            </span>
+                          )}
                           <span style={{ color: "#6B7280", fontSize: 11, marginLeft: "auto" }}>{catComplete}/{catMs.length}</span>
                         </div>
                         {!collapsed && (
@@ -2151,10 +2224,16 @@ export default function TandAApp() {
                             {catMs.map(m => {
                               const daysRem = m.expected_date ? Math.ceil((new Date(m.expected_date).getTime() - Date.now()) / 86400000) : null;
                               const daysColor = m.status === "Complete" ? "#10B981" : m.status === "N/A" ? "#6B7280" : daysRem === null ? "#6B7280" : daysRem < 0 ? "#EF4444" : daysRem <= 7 ? "#F59E0B" : "#10B981";
+                              // Cascade: if blocked, show projected date shifted by upstream delay
+                              const projectedDate = cascade.upstreamDelay > 0 && m.expected_date && m.status !== "Complete" && m.status !== "N/A"
+                                ? new Date(new Date(m.expected_date).getTime() + cascade.upstreamDelay * 86400000).toISOString().slice(0, 10) : null;
                               return (
-                                <div key={m.id} style={{ display: "grid", gridTemplateColumns: "1.5fr 100px 120px 120px 55px", gap: 6, padding: "8px 14px", borderTop: "1px solid #1E293B", alignItems: "center" }}>
+                                <div key={m.id} style={{ display: "grid", gridTemplateColumns: "1.5fr 100px 120px 120px 55px", gap: 6, padding: "8px 14px", borderTop: "1px solid #1E293B", alignItems: "center", background: cascade.blocked && m.status !== "Complete" && m.status !== "N/A" ? "#F59E0B08" : "transparent" }}>
                                   <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
-                                  <span style={{ color: "#9CA3AF", textAlign: "center", fontSize: 12 }}>{fmtDate(m.expected_date ?? undefined)}</span>
+                                  <span style={{ textAlign: "center", fontSize: 12 }}>
+                                    <span style={{ color: projectedDate ? "#F59E0B" : "#9CA3AF" }}>{fmtDate(m.expected_date ?? undefined)}</span>
+                                    {projectedDate && <div style={{ fontSize: 9, color: "#F59E0B", marginTop: 1 }}>→ {fmtDate(projectedDate)}</div>}
+                                  </span>
                                   <select style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: MILESTONE_STATUS_COLORS[m.status] || "#6B7280", fontSize: 12, padding: "5px 6px", width: "100%", boxSizing: "border-box" }}
                                     value={m.status}
                                     onChange={e => {
@@ -2726,6 +2805,32 @@ export default function TandAApp() {
                       </div>
                     );
                   })}
+                </div>
+              </div>
+            )}
+
+            {/* Cascade Alerts */}
+            {cascadeAlerts.length > 0 && (
+              <div style={S.card}>
+                <h3 style={{ ...S.cardTitle, color: "#F59E0B" }}>⚠ Cascade Alerts — {cascadeAlerts.length} Blocked Categories</h3>
+                <div style={{ fontSize: 12 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "110px 1fr 120px 120px 70px", padding: "8px 12px", background: "#0F172A", borderRadius: "8px 8px 0 0", gap: 8 }}>
+                    <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>PO #</span>
+                    <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>Vendor</span>
+                    <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>Blocked</span>
+                    <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>Delayed By</span>
+                    <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "right" }}>Days Late</span>
+                  </div>
+                  {cascadeAlerts.sort((a, b) => b.daysLate - a.daysLate).slice(0, 20).map((a, i) => (
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: "110px 1fr 120px 120px 70px", padding: "8px 12px", borderTop: "1px solid #1E293B", gap: 8, cursor: "pointer", background: "#0F172A" }}
+                      onClick={() => { const p = pos.find(x => x.PoNumber === a.poNum); if (p) { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(p); setCollapsedCats(prev => { const next = { ...prev }; WIP_CATEGORIES.forEach(c => { next[c + a.poNum] = c !== a.blockedCat; }); return next; }); } }}>
+                      <span style={{ color: "#60A5FA", fontFamily: "monospace", fontSize: 11 }}>{a.poNum}</span>
+                      <span style={{ color: "#D1D5DB" }}>{a.vendor}</span>
+                      <span style={{ color: "#F59E0B", fontWeight: 600 }}>{a.blockedCat}</span>
+                      <span style={{ color: "#EF4444" }}>{a.delayedCat}</span>
+                      <span style={{ color: "#EF4444", fontWeight: 700, textAlign: "right" }}>{a.daysLate}d</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
