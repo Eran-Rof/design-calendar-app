@@ -2977,11 +2977,18 @@ export default function TandAApp() {
                 </div>
               </div>
 
+              {/* Scrollbar styles */}
+              <style>{`
+                .tl-scroll::-webkit-scrollbar { height: 14px; }
+                .tl-scroll::-webkit-scrollbar-track { background: #0F172A; border-radius: 7px; margin: 0 4px; }
+                .tl-scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 7px; border: 2px solid #0F172A; }
+                .tl-scroll::-webkit-scrollbar-thumb:hover { background: #64748B; }
+              `}</style>
               {/* Chart container */}
               <div style={{ background: "#1E293B", borderRadius: 12, border: "1px solid #334155", overflow: "hidden" }}>
                 <div style={{ display: "flex" }}>
                   {/* Frozen left column */}
-                  <div style={{ width: LEFT_W, flexShrink: 0, zIndex: 3, background: "#1E293B" }}>
+                  <div style={{ width: LEFT_W, flexShrink: 0, zIndex: 3, background: "#1E293B", paddingBottom: 18 }}>
                     {/* Header cells */}
                     <div style={{ height: 32, background: "#0F172A", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", padding: "0 14px" }}>
                       <span style={{ fontSize: 12, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: 1 }}>Month</span>
@@ -3019,7 +3026,7 @@ export default function TandAApp() {
                   </div>
 
                   {/* Scrollable chart area */}
-                  <div style={{ flex: 1, overflowX: "auto", borderLeft: "2px solid #334155" }}>
+                  <div className="tl-scroll" style={{ flex: 1, overflowX: "auto", borderLeft: "2px solid #334155", paddingBottom: 4 }}>
                     <div style={{ width: chartWidth, minWidth: "100%" }}>
                       {/* Month header row */}
                       <div style={{ height: 32, position: "relative", background: "#0F172A", borderBottom: "1px solid #334155" }}>
