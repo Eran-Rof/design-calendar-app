@@ -81,6 +81,8 @@ function mapXoroRaw(raw: any[]): XoroPO[] {
 
 // All PO statuses — Xoro only returns "Open" by default, so we must request all explicitly
 const ALL_PO_STATUSES = ["Open", "Released", "Received", "Closed", "Cancelled", "Pending", "Draft"];
+// Active statuses — skip Closed/Received/Cancelled since we auto-delete them anyway
+const ACTIVE_PO_STATUSES = ["Open", "Released", "Pending", "Draft"];
 
 interface XoroFetchOpts {
   page?: number;
@@ -854,8 +856,9 @@ export default function TandAApp() {
     setShowSyncModal(false);
     try {
       // Fetch POs from Xoro — sync one status at a time to avoid timeouts
+      // Only fetch active statuses by default (skip Closed/Received/Cancelled — we auto-delete those)
       let all: XoroPO[] = [];
-      const statusList = filters?.statuses?.length ? filters.statuses : ALL_PO_STATUSES;
+      const statusList = filters?.statuses?.length ? filters.statuses : ACTIVE_PO_STATUSES;
 
       for (const status of statusList) {
         if (controller.signal.aborted) throw new Error("Sync cancelled.");
@@ -903,14 +906,19 @@ export default function TandAApp() {
           { onConflict: "po_number" }
         );
       }
-      // Auto-delete POs with status Closed or Received
+      // Auto-delete POs with status Closed, Received, or Cancelled
+      // Check both freshly synced POs AND existing cached POs
       const autoDeleteStatuses = ["Closed", "Received", "Cancelled"];
-      const toDelete = all.filter(po => autoDeleteStatuses.includes(po.StatusName ?? ""));
-      for (const po of toDelete) {
-        const pn = po.PoNumber ?? "";
-        if (pn) await deletePO(pn);
+      const toDeleteFromSync = all.filter(po => autoDeleteStatuses.includes(po.StatusName ?? ""));
+      const toDeleteFromCache = pos.filter(po => autoDeleteStatuses.includes(po.StatusName ?? ""));
+      const toDeleteNums = new Set([
+        ...toDeleteFromSync.map(po => po.PoNumber ?? ""),
+        ...toDeleteFromCache.map(po => po.PoNumber ?? ""),
+      ].filter(Boolean));
+      for (const pn of toDeleteNums) {
+        await deletePO(pn);
       }
-      const deletedCount = toDelete.length;
+      const deletedCount = toDeleteNums.size;
 
       // reload full cache
       await loadCachedPOs();
