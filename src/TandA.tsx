@@ -1441,7 +1441,13 @@ export default function TandAApp() {
               <span style={{ ...S.badge, background: statusColor + "33", color: statusColor, border: `1px solid ${statusColor}66`, fontSize: 14, padding: "4px 12px" }}>
                 {selected.StatusName ?? "Unknown"}
               </span>
-              <button style={{ ...S.btnSecondary, fontSize: 12, padding: "6px 14px", display: "flex", alignItems: "center", gap: 4 }} onClick={() => exportPOExcel(selected, items, detailMode)}>📥 Excel</button>
+              <button onClick={() => exportPOExcel(selected, items, detailMode)}
+                style={{ background: "#1D6F42", border: "none", borderRadius: 6, padding: "6px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: "#fff", fontSize: 12, fontWeight: 600, fontFamily: "inherit", transition: "background 0.15s" }}
+                onMouseEnter={e => e.currentTarget.style.background = "#155734"}
+                onMouseLeave={e => e.currentTarget.style.background = "#1D6F42"}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" fill="#fff" fillOpacity=".2" stroke="#fff" strokeWidth="1.5"/><path d="M14 2v6h6" stroke="#fff" strokeWidth="1.5"/><path d="M8 13l2.5 4M8 17l2.5-4M13 13v4M15.5 13v4M13 15h2.5" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                Excel
+              </button>
               <button style={{ ...S.btnSecondary, fontSize: 12, padding: "6px 14px", display: "flex", alignItems: "center", gap: 4 }} onClick={() => printPODetail()}>🖨️ Print</button>
               <button style={{ ...S.closeBtn, fontSize: 16, padding: "4px 10px" }} onClick={() => setSelected(null)}>✕ Close</button>
             </div>
