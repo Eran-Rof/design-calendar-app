@@ -885,7 +885,7 @@ export default function TandAApp() {
         );
       }
       // Auto-delete POs with status Closed or Received
-      const autoDeleteStatuses = ["Closed", "Received"];
+      const autoDeleteStatuses = ["Closed", "Received", "Cancelled"];
       const toDelete = all.filter(po => autoDeleteStatuses.includes(po.StatusName ?? ""));
       for (const po of toDelete) {
         const pn = po.PoNumber ?? "";
