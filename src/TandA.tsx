@@ -316,6 +316,7 @@ export default function TandAApp() {
   const [poInfoCollapsed, setPoInfoCollapsed] = useState(false);
   const [progressCollapsed, setProgressCollapsed] = useState(false);
   const [acceptedBlocked, setAcceptedBlocked] = useState<Set<string>>(new Set());
+  const [blockedModal, setBlockedModal] = useState<{ cat: string; delayedCat: string; daysLate: number; onConfirm: () => void } | null>(null);
   const [showBulkUpdate, setShowBulkUpdate] = useState(false);
   const [bulkVendor, setBulkVendor] = useState("");
   const [bulkPhase, setBulkPhase] = useState("");
@@ -1056,16 +1057,20 @@ export default function TandAApp() {
   function openCategoryWithCheck(poNum: string, cat: string, po?: XoroPO | null, switchView?: boolean) {
     const key = cat + poNum;
     const info = isCatBlocked(poNum, cat);
-    if (info.blocked && !acceptedBlocked.has(key)) {
-      if (!window.confirm(`"${cat}" is blocked by "${info.delayedCat}"${info.daysLate > 0 ? ` (${info.daysLate}d late)` : ""}. View anyway?`)) return;
+    const doOpen = () => {
       setAcceptedBlocked(prev => new Set(prev).add(key));
+      setDetailMode("milestones");
+      setNewNote("");
+      setSearch("");
+      if (po) setSelected(po);
+      if (switchView) setView("list");
+      setCollapsedCats(prev => { const next = { ...prev }; WIP_CATEGORIES.forEach(c => { next[c + poNum] = c !== cat; }); return next; });
+    };
+    if (info.blocked && !acceptedBlocked.has(key)) {
+      setBlockedModal({ cat, delayedCat: info.delayedCat, daysLate: info.daysLate, onConfirm: doOpen });
+    } else {
+      doOpen();
     }
-    setDetailMode("milestones");
-    setNewNote("");
-    setSearch("");
-    if (po) setSelected(po);
-    if (switchView) setView("list");
-    setCollapsedCats(prev => { const next = { ...prev }; WIP_CATEGORIES.forEach(c => { next[c + poNum] = c !== cat; }); return next; });
   }
 
   async function addNote() {
@@ -1813,10 +1818,10 @@ export default function TandAApp() {
                 {!progressCollapsed && <div style={{ background: "#0F172A", borderRadius: "0 0 8px 8px", padding: "12px 14px" }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
                   {([
-                    ["Complete", complete, "#059669", "#34D399"],
-                    ["In Progress", inProg, "#1D4ED8", "#60A5FA"],
-                    ["Delayed", delayed, "#991B1B", "#F87171"],
-                    ["Not Started", active - complete - inProg - delayed, "#1F2937", "#6B7280"],
+                    ["Complete", complete, "#047857", "#6EE7B7"],
+                    ["In Progress", inProg, "#1E3A8A", "#93C5FD"],
+                    ["Delayed", delayed, "#7F1D1D", "#FCA5A5"],
+                    ["Not Started", active - complete - inProg - delayed, "#111827", "#9CA3AF"],
                   ] as [string, number, string, string][]).filter(([, count]) => count > 0).map(([label, count, color, colorLt]) => {
                     const statusPct = active > 0 ? Math.round((count / active) * 100) : 0;
                     return (
@@ -2245,8 +2250,11 @@ export default function TandAApp() {
                           onClick={() => {
                             const catKey = cat + poNum;
                             if (collapsed && cascade.blocked && !acceptedBlocked.has(catKey)) {
-                              if (!window.confirm(`"${cat}" is blocked by "${cascade.delayedCat}"${cascade.upstreamDelay > 0 ? ` (${cascade.upstreamDelay}d late)` : ""}. View anyway?`)) return;
-                              setAcceptedBlocked(prev => new Set(prev).add(catKey));
+                              setBlockedModal({ cat, delayedCat: cascade.delayedCat, daysLate: cascade.upstreamDelay, onConfirm: () => {
+                                setAcceptedBlocked(prev => new Set(prev).add(catKey));
+                                setCollapsedCats(prev => ({ ...prev, [catKey]: false }));
+                              }});
+                              return;
                             }
                             setCollapsedCats(prev => ({ ...prev, [catKey]: !collapsed }));
                           }}>
@@ -3325,6 +3333,32 @@ export default function TandAApp() {
       {selected && view !== "timeline" && DetailPanel()}
       {showSettings  && <SettingsModal />}
       {showSyncModal && <SyncModal />}
+      {blockedModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setBlockedModal(null)}>
+          <div style={{ background: "#1E293B", borderRadius: 16, width: 420, border: "1px solid #F59E0B44", boxShadow: "0 24px 64px rgba(0,0,0,0.5)", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
+            <div style={{ background: "linear-gradient(135deg, #F59E0B22, #EF444422)", padding: "20px 24px", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: "#F59E0B22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>⚠️</div>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#F1F5F9" }}>Category Blocked</div>
+                <div style={{ fontSize: 12, color: "#94A3B8" }}>Dependency not yet complete</div>
+              </div>
+            </div>
+            <div style={{ padding: "20px 24px" }}>
+              <p style={{ color: "#D1D5DB", fontSize: 14, margin: "0 0 16px", lineHeight: 1.6 }}>
+                <strong style={{ color: "#F59E0B" }}>{blockedModal.cat}</strong> is blocked by <strong style={{ color: "#EF4444" }}>{blockedModal.delayedCat}</strong>
+                {blockedModal.daysLate > 0 && <span>, which is <strong style={{ color: "#EF4444" }}>{blockedModal.daysLate} days late</strong></span>}.
+              </p>
+              <p style={{ color: "#6B7280", fontSize: 12, margin: "0 0 20px" }}>
+                The predecessor category must be completed before this phase should begin. You can still view it if needed.
+              </p>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={() => setBlockedModal(null)} style={{ flex: 1, padding: "10px 20px", borderRadius: 8, border: "1px solid #334155", background: "none", color: "#94A3B8", cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 600 }}>Cancel</button>
+                <button onClick={() => { blockedModal.onConfirm(); setBlockedModal(null); }} style={{ flex: 1, padding: "10px 20px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #F59E0B, #D97706)", color: "#fff", cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 700 }}>View Anyway</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {showBulkUpdate && (
         <div style={S.modalOverlay} onClick={() => setShowBulkUpdate(false)}>
           <div style={{ ...S.modal, width: 520 }} onClick={e => e.stopPropagation()}>
