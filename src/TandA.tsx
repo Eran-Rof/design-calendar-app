@@ -3090,8 +3090,8 @@ export default function TandAApp() {
                               const catActive = catMs.filter(m => m.status !== "N/A").length;
                               return (
                                 <div key={cat} title={`${cat}: ${catDone}/${catActive} complete\n${catStart} → ${catEnd}`}
-                                  style={{ position: "absolute", left: x1, width: barW, top: barY, height: barH, borderRadius: 3, background: barColor, minWidth: 6, zIndex: 1, display: "flex", alignItems: "center", overflow: "visible", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }}>
-                                  <span style={{ fontSize: 10, color: "#fff", fontWeight: 700, paddingLeft: 4, whiteSpace: "nowrap", opacity: 0.95, textShadow: "0 1px 3px rgba(0,0,0,0.7)" }}>{cat}</span>
+                                  style={{ position: "absolute", left: x1, width: barW, top: barY, height: barH, borderRadius: 3, background: barColor, minWidth: 6, zIndex: 1, display: "flex", alignItems: "center", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }}>
+                                  <span style={{ fontSize: 10, color: "#fff", fontWeight: 700, paddingLeft: 4, whiteSpace: "nowrap", opacity: 0.95 }}>{cat}</span>
                                 </div>
                               );
                             })}
