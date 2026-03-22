@@ -2623,10 +2623,10 @@ export default function TandAApp() {
         </div>
         <div style={S.navRight}>
           <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("dashboard"); }}>Dashboard</button>
-          <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("list"); }}>All POs</button>
+          <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => setView("list")}>All POs</button>
           <button style={view === "templates" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("templates"); }}>Templates</button>
           <button style={view === "email" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("email"); }}>📧 Email</button>
-          <button style={view === "timeline" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("timeline"); }}>📊 Timeline</button>
+          <button style={view === "timeline" ? S.navBtnActive : S.navBtn} onClick={() => setView("timeline")}>📊 Timeline</button>
           <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing} title="Sync POs from Xoro">
             {syncing ? "⏳ Syncing…" : "🔄 Sync"}
           </button>
