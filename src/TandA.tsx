@@ -1639,9 +1639,9 @@ export default function TandAApp() {
 
     return (
       <div style={{ position: "fixed", inset: 0, top: 56, background: "#0F172A", zIndex: 90, overflowY: "auto", display: "flex", flexDirection: "column", fontSize: "120%" }}>
-        <div id="po-detail-content" style={{ maxWidth: 1200, margin: "0 auto", width: "100%", padding: "24px 20px", flex: 1 }}>
-          {/* Header */}
-          <div style={{ ...S.detailHeader, borderLeft: `4px solid ${statusColor}`, borderRadius: 12, marginBottom: 16 }}>
+        <div id="po-detail-content" style={{ maxWidth: "90%", margin: "0 auto", width: "100%", padding: "24px 20px", flex: 1 }}>
+          {/* Header — sticky */}
+          <div style={{ ...S.detailHeader, borderLeft: `4px solid ${statusColor}`, borderRadius: 12, marginBottom: 16, position: "sticky", top: 0, zIndex: 10, background: "#0F172A" }}>
             <div>
               <div style={{ ...S.detailPONum, fontSize: 24 }}>{selected.PoNumber ?? "—"}</div>
               <div style={{ ...S.detailVendor, fontSize: 18 }}>{selected.VendorName ?? "Unknown Vendor"}</div>
@@ -3279,7 +3279,7 @@ const S: Record<string, React.CSSProperties> = {
   navBtnDanger:{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 6, padding: "5px 12px", fontSize: 13, cursor: "pointer" },
   userPill:   { background: "#334155", color: "#94A3B8", borderRadius: 20, padding: "4px 12px", fontSize: 12 },
 
-  content:    { maxWidth: 1200, margin: "0 auto", padding: "24px 20px" },
+  content:    { maxWidth: "90%", margin: "0 auto", padding: "24px 20px" },
   statsRow:   { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginBottom: 20 },
   statCard:   { background: "#1E293B", borderRadius: 12, padding: 20, display: "flex", flexDirection: "column", gap: 6 },
   card:       { background: "#1E293B", borderRadius: 12, padding: 20, marginBottom: 20 },
