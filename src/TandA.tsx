@@ -2979,22 +2979,24 @@ export default function TandAApp() {
 
               {/* Scrollbar styles */}
               <style>{`
-                .tl-scroll::-webkit-scrollbar { height: 14px; }
+                .tl-scroll::-webkit-scrollbar { height: 14px; width: 14px; }
                 .tl-scroll::-webkit-scrollbar-track { background: #0F172A; border-radius: 7px; margin: 0 4px; }
                 .tl-scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 7px; border: 2px solid #0F172A; }
                 .tl-scroll::-webkit-scrollbar-thumb:hover { background: #64748B; }
+                .tl-left::-webkit-scrollbar { width: 0; display: none; }
               `}</style>
               {/* Chart container */}
-              <div style={{ background: "#1E293B", borderRadius: 12, border: "1px solid #334155", overflow: "hidden" }}>
-                <div style={{ display: "flex" }}>
+              <div style={{ background: "#1E293B", borderRadius: 12, border: "1px solid #334155", overflow: "hidden", maxHeight: "calc(100vh - 180px)" }}>
+                <div style={{ display: "flex", maxHeight: "calc(100vh - 180px)" }}>
                   {/* Frozen left column */}
-                  <div style={{ width: LEFT_W, flexShrink: 0, zIndex: 3, background: "#1E293B", paddingBottom: 18 }}>
+                  <div style={{ width: LEFT_W, flexShrink: 0, zIndex: 5, background: "#1E293B", paddingBottom: 18, overflowY: "auto", overflowX: "hidden" }} className="tl-left"
+                    onScroll={e => { const chart = e.currentTarget.nextElementSibling; if (chart) chart.scrollTop = e.currentTarget.scrollTop; }}>
                     {/* Header cells */}
-                    <div style={{ height: 38, background: "#0F172A", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", padding: "0 16px" }}>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: 1 }}>Month</span>
+                    <div style={{ height: 38, background: "#0F172A", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", padding: "0 16px", position: "sticky", top: 0, zIndex: 4 }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: 1 }}>PO / Vendor</span>
                     </div>
-                    <div style={{ height: 34, background: "#0F172A", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", padding: "0 16px" }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.5 }}>Week of</span>
+                    <div style={{ height: 34, background: "#0F172A", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", padding: "0 16px", position: "sticky", top: 38, zIndex: 4 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: "#6B7280" }}>{filteredPOs.length} POs</span>
                     </div>
                     {/* PO labels */}
                     {filteredPOs.map((po, idx) => {
@@ -3026,18 +3028,19 @@ export default function TandAApp() {
                   </div>
 
                   {/* Scrollable chart area */}
-                  <div className="tl-scroll" style={{ flex: 1, overflowX: "auto", borderLeft: "2px solid #334155", paddingBottom: 4 }}>
+                  <div className="tl-scroll" style={{ flex: 1, overflowX: "auto", overflowY: "auto", borderLeft: "2px solid #334155", paddingBottom: 4 }}
+                    onScroll={e => { const left = e.currentTarget.previousElementSibling; if (left) left.scrollTop = e.currentTarget.scrollTop; }}>
                     <div style={{ width: chartWidth, minWidth: "100%" }}>
-                      {/* Month header row */}
-                      <div style={{ height: 38, position: "relative", background: "#0F172A", borderBottom: "1px solid #334155" }}>
+                      {/* Month header row — sticky */}
+                      <div style={{ height: 38, position: "sticky", top: 0, zIndex: 4, background: "#0F172A", borderBottom: "1px solid #334155" }}>
                         {monthSpans.map((ms, i) => (
                           <div key={i} style={{ position: "absolute", left: ms.left, width: ms.width, height: "100%", display: "flex", alignItems: "center", justifyContent: "center", borderRight: "1px solid #334155" }}>
                             <span style={{ fontSize: 15, fontWeight: 700, color: "#D1D5DB", letterSpacing: 0.5 }}>{ms.label}</span>
                           </div>
                         ))}
                       </div>
-                      {/* Week header row */}
-                      <div style={{ height: 34, position: "relative", background: "#0F172A", borderBottom: "1px solid #334155" }}>
+                      {/* Week header row — sticky */}
+                      <div style={{ height: 34, position: "sticky", top: 38, zIndex: 4, background: "#0F172A", borderBottom: "1px solid #334155" }}>
                         {weeks.map((w, i) => {
                           const wWidth = i < weeks.length - 1 ? weeks[i + 1].offset - w.offset : 7 * dayWidth;
                           const isThisWeek = today.getTime() >= w.date.getTime() && today.getTime() < w.date.getTime() + 7 * DAY;
@@ -3087,8 +3090,8 @@ export default function TandAApp() {
                               const catActive = catMs.filter(m => m.status !== "N/A").length;
                               return (
                                 <div key={cat} title={`${cat}: ${catDone}/${catActive} complete\n${catStart} → ${catEnd}`}
-                                  style={{ position: "absolute", left: x1, width: barW, top: barY, height: barH, borderRadius: 3, background: barColor, minWidth: 6, zIndex: 1, display: "flex", alignItems: "center", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }}>
-                                  {barW > 60 && <span style={{ fontSize: 11, color: "#fff", fontWeight: 700, paddingLeft: 6, whiteSpace: "nowrap", opacity: 0.95 }}>{cat}</span>}
+                                  style={{ position: "absolute", left: x1, width: barW, top: barY, height: barH, borderRadius: 3, background: barColor, minWidth: 6, zIndex: 1, display: "flex", alignItems: "center", overflow: "visible", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }}>
+                                  <span style={{ fontSize: 10, color: "#fff", fontWeight: 700, paddingLeft: 4, whiteSpace: "nowrap", opacity: 0.95, textShadow: "0 1px 3px rgba(0,0,0,0.7)" }}>{cat}</span>
                                 </div>
                               );
                             })}
