@@ -1247,79 +1247,94 @@ export default function TandAApp() {
     if (!XLSX) { alert("Excel library still loading — try again in a moment."); return; }
     const wb = XLSX.utils.book_new();
     const poNum = po.PoNumber ?? "PO";
-
-    // Sheet 1: PO Header
-    const headerData = [
-      ["PO Number", po.PoNumber ?? ""],
-      ["Vendor", po.VendorName ?? ""],
-      ["Status", po.StatusName ?? ""],
-      ["Order Date", po.DateOrder ?? ""],
-      ["Expected Delivery", po.DateExpectedDelivery ?? ""],
-      ["Vendor Req Date", po.VendorReqDate ?? ""],
-      ["Currency", po.CurrencyCode ?? "USD"],
-      ["Payment Terms", po.PaymentTermsName ?? ""],
-      ["Ship Method", po.ShipMethodName ?? ""],
-      ["Carrier", po.CarrierName ?? ""],
-      ["Buyer", po.BuyerName ?? ""],
-      ["Memo", po.Memo ?? ""],
-      ["Tags", po.Tags ?? ""],
-      ["Total Amount", po.TotalAmount ?? 0],
-    ];
-    const wsHeader = XLSX.utils.aoa_to_sheet(headerData);
-    wsHeader["!cols"] = [{ wch: 20 }, { wch: 40 }];
-    XLSX.utils.book_append_sheet(wb, wsHeader, "PO Info");
-
-    // Sheet 2: Line Items
-    const lineRows = [["SKU", "Description", "Qty", "Unit Price", "Total"]];
-    items.forEach(item => {
-      lineRows.push([item.ItemNumber ?? "", item.Description ?? "", item.QtyOrder ?? 0, item.UnitPrice ?? 0, (item.QtyOrder ?? 0) * (item.UnitPrice ?? 0)]);
-    });
     const totalVal = items.reduce((s, i) => s + (i.QtyOrder ?? 0) * (i.UnitPrice ?? 0), 0);
-    lineRows.push(["", "", items.reduce((s, i) => s + (i.QtyOrder ?? 0), 0), "", totalVal]);
-    const wsLines = XLSX.utils.aoa_to_sheet(lineRows);
-    wsLines["!cols"] = [{ wch: 20 }, { wch: 30 }, { wch: 10 }, { wch: 12 }, { wch: 14 }];
-    XLSX.utils.book_append_sheet(wb, wsLines, "Line Items");
 
-    // Sheet 3: Matrix
-    const parsed = items.map(item => {
-      const sku = item.ItemNumber ?? "";
-      const parts = sku.split("-");
-      return { base: parts[0] || sku, color: parts.length >= 2 ? parts[1] : "", size: parts.length >= 3 ? parts.slice(2).join("-") : "", qty: item.QtyOrder ?? 0, price: item.UnitPrice ?? 0, desc: item.Description ?? "" };
-    });
-    const sizeOrder: string[] = [];
-    parsed.forEach(p => { if (p.size && !sizeOrder.includes(p.size)) sizeOrder.push(p.size); });
-    const matrixRows: any[][] = [["Base Part", "Description", "Color", ...sizeOrder, "Total", "PO Cost", "Total Cost"]];
-    const bases: string[] = [];
-    const byBase: Record<string, { color: string; desc: string; sizes: Record<string, number>; price: number }[]> = {};
-    parsed.forEach(p => {
-      if (!byBase[p.base]) { byBase[p.base] = []; bases.push(p.base); }
-      let row = byBase[p.base].find(r => r.color === p.color);
-      if (!row) { row = { color: p.color, desc: p.desc, sizes: {}, price: p.price }; byBase[p.base].push(row); }
-      row.sizes[p.size] = (row.sizes[p.size] || 0) + p.qty;
-    });
-    bases.forEach(base => {
-      byBase[base].forEach(row => {
-        const rowTotal = Object.values(row.sizes).reduce((s, q) => s + q, 0);
-        matrixRows.push([base, row.desc, row.color, ...sizeOrder.map(sz => row.sizes[sz] || 0), rowTotal, row.price, rowTotal * row.price]);
+    if (mode === "po" || mode === "header") {
+      // PO Info + Line Items
+      const headerData = [
+        ["PO Number", po.PoNumber ?? ""], ["Vendor", po.VendorName ?? ""], ["Status", po.StatusName ?? ""],
+        ["Order Date", po.DateOrder ?? ""], ["Expected Delivery", po.DateExpectedDelivery ?? ""],
+        ["Vendor Req Date", po.VendorReqDate ?? ""], ["Currency", po.CurrencyCode ?? "USD"],
+        ["Payment Terms", po.PaymentTermsName ?? ""], ["Ship Method", po.ShipMethodName ?? ""],
+        ["Carrier", po.CarrierName ?? ""], ["Buyer", po.BuyerName ?? ""],
+        ["Memo", po.Memo ?? ""], ["Tags", po.Tags ?? ""], ["Total Amount", po.TotalAmount ?? 0],
+      ];
+      const wsH = XLSX.utils.aoa_to_sheet(headerData);
+      wsH["!cols"] = [{ wch: 20 }, { wch: 40 }];
+      XLSX.utils.book_append_sheet(wb, wsH, "PO Info");
+      const lineRows: any[][] = [["SKU", "Description", "Qty", "Unit Price", "Total"]];
+      items.forEach(item => { lineRows.push([item.ItemNumber ?? "", item.Description ?? "", item.QtyOrder ?? 0, item.UnitPrice ?? 0, (item.QtyOrder ?? 0) * (item.UnitPrice ?? 0)]); });
+      lineRows.push(["", "", items.reduce((s, i) => s + (i.QtyOrder ?? 0), 0), "", totalVal]);
+      const wsL = XLSX.utils.aoa_to_sheet(lineRows);
+      wsL["!cols"] = [{ wch: 20 }, { wch: 30 }, { wch: 10 }, { wch: 12 }, { wch: 14 }];
+      XLSX.utils.book_append_sheet(wb, wsL, "Line Items");
+      XLSX.writeFile(wb, `${poNum}_PO_Details.xlsx`);
+    } else if (mode === "matrix") {
+      const parsed = items.map(item => {
+        const sku = item.ItemNumber ?? ""; const parts = sku.split("-");
+        return { base: parts[0] || sku, color: parts.length >= 2 ? parts[1] : "", size: parts.length >= 3 ? parts.slice(2).join("-") : "", qty: item.QtyOrder ?? 0, price: item.UnitPrice ?? 0, desc: item.Description ?? "" };
       });
-    });
-    // Grand total row
-    matrixRows.push(["", "", "Grand Total", ...sizeOrder.map(sz => parsed.filter(p => p.size === sz).reduce((s, p) => s + p.qty, 0)), items.reduce((s, i) => s + (i.QtyOrder ?? 0), 0), "", totalVal]);
-    const wsMatrix = XLSX.utils.aoa_to_sheet(matrixRows);
-    wsMatrix["!cols"] = [{ wch: 16 }, { wch: 12 }, { wch: 24 }, ...sizeOrder.map(() => ({ wch: 8 })), { wch: 8 }, { wch: 10 }, { wch: 12 }];
-    XLSX.utils.book_append_sheet(wb, wsMatrix, "Matrix");
-
-    // Sheet 4: Milestones
-    const poMs = milestones[poNum] || [];
-    if (poMs.length > 0) {
-      const msRows: any[][] = [["Category", "Milestone", "Expected Date", "Actual Date", "Status", "Notes"]];
-      poMs.forEach(m => { msRows.push([m.category, m.name, m.expected_date ?? "", m.actual_date ?? "", m.status, m.notes ?? ""]); });
-      const wsMs = XLSX.utils.aoa_to_sheet(msRows);
-      wsMs["!cols"] = [{ wch: 18 }, { wch: 24 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 30 }];
-      XLSX.utils.book_append_sheet(wb, wsMs, "Milestones");
+      const sizeOrder: string[] = [];
+      parsed.forEach(p => { if (p.size && !sizeOrder.includes(p.size)) sizeOrder.push(p.size); });
+      const rows: any[][] = [["Base Part", "Description", "Color", ...sizeOrder, "Total", "PO Cost", "Total Cost"]];
+      const bases: string[] = [];
+      const byBase: Record<string, { color: string; desc: string; sizes: Record<string, number>; price: number }[]> = {};
+      parsed.forEach(p => {
+        if (!byBase[p.base]) { byBase[p.base] = []; bases.push(p.base); }
+        let row = byBase[p.base].find(r => r.color === p.color);
+        if (!row) { row = { color: p.color, desc: p.desc, sizes: {}, price: p.price }; byBase[p.base].push(row); }
+        row.sizes[p.size] = (row.sizes[p.size] || 0) + p.qty;
+      });
+      bases.forEach(base => { byBase[base].forEach(row => {
+        const rt = Object.values(row.sizes).reduce((s, q) => s + q, 0);
+        rows.push([base, row.desc, row.color, ...sizeOrder.map(sz => row.sizes[sz] || 0), rt, row.price, rt * row.price]);
+      }); });
+      rows.push(["", "", "Grand Total", ...sizeOrder.map(sz => parsed.filter(p => p.size === sz).reduce((s, p) => s + p.qty, 0)), items.reduce((s, i) => s + (i.QtyOrder ?? 0), 0), "", totalVal]);
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws["!cols"] = [{ wch: 16 }, { wch: 24 }, { wch: 12 }, ...sizeOrder.map(() => ({ wch: 8 })), { wch: 8 }, { wch: 10 }, { wch: 12 }];
+      XLSX.utils.book_append_sheet(wb, ws, "Matrix");
+      XLSX.writeFile(wb, `${poNum}_Matrix.xlsx`);
+    } else if (mode === "milestones") {
+      const poMs = milestones[poNum] || [];
+      const rows: any[][] = [["Category", "Milestone", "Expected Date", "Actual Date", "Status", "Notes"]];
+      poMs.forEach(m => { rows.push([m.category, m.name, m.expected_date ?? "", m.actual_date ?? "", m.status, m.notes ?? ""]); });
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws["!cols"] = [{ wch: 18 }, { wch: 24 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 30 }];
+      XLSX.utils.book_append_sheet(wb, ws, "Milestones");
+      XLSX.writeFile(wb, `${poNum}_Milestones.xlsx`);
+    } else if (mode === "notes") {
+      const poNotes = notes.filter(n => n.poNumber === poNum);
+      const rows: any[][] = [["Date", "User", "Note"]];
+      poNotes.forEach(n => { rows.push([n.date ?? "", n.user ?? "", n.text ?? ""]); });
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws["!cols"] = [{ wch: 20 }, { wch: 16 }, { wch: 50 }];
+      XLSX.utils.book_append_sheet(wb, ws, "Notes");
+      XLSX.writeFile(wb, `${poNum}_Notes.xlsx`);
+    } else if (mode === "all") {
+      // Export everything
+      const headerData = [
+        ["PO Number", po.PoNumber ?? ""], ["Vendor", po.VendorName ?? ""], ["Status", po.StatusName ?? ""],
+        ["Order Date", po.DateOrder ?? ""], ["Expected Delivery", po.DateExpectedDelivery ?? ""],
+        ["Currency", po.CurrencyCode ?? "USD"], ["Memo", po.Memo ?? ""], ["Tags", po.Tags ?? ""], ["Total Amount", po.TotalAmount ?? 0],
+      ];
+      const wsH = XLSX.utils.aoa_to_sheet(headerData); wsH["!cols"] = [{ wch: 20 }, { wch: 40 }];
+      XLSX.utils.book_append_sheet(wb, wsH, "PO Info");
+      const lineRows: any[][] = [["SKU", "Description", "Qty", "Unit Price", "Total"]];
+      items.forEach(item => { lineRows.push([item.ItemNumber ?? "", item.Description ?? "", item.QtyOrder ?? 0, item.UnitPrice ?? 0, (item.QtyOrder ?? 0) * (item.UnitPrice ?? 0)]); });
+      lineRows.push(["", "", items.reduce((s, i) => s + (i.QtyOrder ?? 0), 0), "", totalVal]);
+      const wsL = XLSX.utils.aoa_to_sheet(lineRows); wsL["!cols"] = [{ wch: 20 }, { wch: 30 }, { wch: 10 }, { wch: 12 }, { wch: 14 }];
+      XLSX.utils.book_append_sheet(wb, wsL, "Line Items");
+      const poMs = milestones[poNum] || [];
+      if (poMs.length > 0) {
+        const msRows: any[][] = [["Category", "Milestone", "Expected Date", "Actual Date", "Status", "Notes"]];
+        poMs.forEach(m => { msRows.push([m.category, m.name, m.expected_date ?? "", m.actual_date ?? "", m.status, m.notes ?? ""]); });
+        const wsM = XLSX.utils.aoa_to_sheet(msRows); wsM["!cols"] = [{ wch: 18 }, { wch: 24 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 30 }];
+        XLSX.utils.book_append_sheet(wb, wsM, "Milestones");
+      }
+      XLSX.writeFile(wb, `${poNum}_All.xlsx`);
+    } else {
+      alert("Excel export not available for this tab.");
     }
-
-    XLSX.writeFile(wb, `${poNum}_detail.xlsx`);
   }
 
   // ════════════════════════════════════════════════════════════════════════════
