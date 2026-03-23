@@ -14,29 +14,13 @@ async function mount() {
     const { default: TandA } = await import("./TandA");
     root.render(<StrictMode><TandA /></StrictMode>);
   } else if (path.startsWith("/techpack")) {
-    root.render(
-      <StrictMode>
-        <TechPackPlaceholder />
-      </StrictMode>
-    );
+    const { default: TechPack } = await import("./TechPack");
+    root.render(<StrictMode><TechPack /></StrictMode>);
   } else {
     // Root "/" — PLM Launcher
     const { default: PLMApp } = await import("./PLM");
     root.render(<StrictMode><PLMApp /></StrictMode>);
   }
-}
-
-function TechPackPlaceholder() {
-  return (
-    <div style={{ minHeight: "100vh", background: "#F9FAFB", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>
-      <div style={{ fontSize: 64, marginBottom: 16 }}>📐</div>
-      <h1 style={{ color: "#111827", fontSize: 28, fontWeight: 700, margin: "0 0 8px" }}>Tech Packs</h1>
-      <p style={{ color: "#6B7280", fontSize: 16, margin: "0 0 32px" }}>Coming soon — this module is under development</p>
-      <a href="/" style={{ background: "#CC2200", color: "#fff", padding: "12px 24px", borderRadius: 8, textDecoration: "none", fontWeight: 600, fontSize: 14 }}>
-        ← Back to Launcher
-      </a>
-    </div>
-  );
 }
 
 mount();
