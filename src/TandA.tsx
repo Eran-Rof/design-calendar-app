@@ -198,7 +198,7 @@ interface User {
   role?: string;
 }
 
-type View = "dashboard" | "list" | "detail" | "templates" | "email" | "timeline";
+type View = "dashboard" | "list" | "detail" | "templates" | "email" | "activity" | "vendors" | "timeline";
 
 const STATUS_COLORS: Record<string, string> = {
   Open:       "#3B82F6",
@@ -315,6 +315,9 @@ export default function TandAApp() {
   const [lineItemsCollapsed, setLineItemsCollapsed] = useState(true);
   const [poInfoCollapsed, setPoInfoCollapsed] = useState(false);
   const [progressCollapsed, setProgressCollapsed] = useState(false);
+  const [editingNote, setEditingNote] = useState<string | null>(null);
+  const [addingPhase, setAddingPhase] = useState(false);
+  const [newPhaseForm, setNewPhaseForm] = useState({ name: "", category: "Pre-Production" });
   const [acceptedBlocked, setAcceptedBlocked] = useState<Set<string>>(new Set());
   const [blockedModal, setBlockedModal] = useState<{ cat: string; delayedCat: string; daysLate: number; onConfirm: () => void } | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ title: string; message: string; icon: string; confirmText: string; confirmColor: string; cancelText?: string; onConfirm: () => void; onCancel?: () => void } | null>(null);
@@ -2316,12 +2319,13 @@ export default function TandAApp() {
                         </div>
                         {!collapsed && (
                           <div style={{ background: "#0F172A", borderRadius: "0 0 8px 8px", overflow: "hidden" }}>
-                            <div style={{ display: "grid", gridTemplateColumns: "1.5fr 100px 120px 120px 55px", gap: 6, padding: "5px 14px", background: "#1E293B" }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1.5fr 100px 120px 120px 55px 32px", gap: 6, padding: "5px 14px", background: "#1E293B" }}>
                               <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>Milestone</span>
                               <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Due Date</span>
                               <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Status</span>
                               <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Status Date</span>
                               <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "right" }}>Days</span>
+                              <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>📝</span>
                             </div>
                             {catMs.map(m => {
                               const daysRem = m.expected_date ? Math.ceil((new Date(m.expected_date).getTime() - Date.now()) / 86400000) : null;
@@ -2330,7 +2334,8 @@ export default function TandAApp() {
                               const projectedDate = cascade.upstreamDelay > 0 && m.expected_date && m.status !== "Complete" && m.status !== "N/A"
                                 ? new Date(new Date(m.expected_date).getTime() + cascade.upstreamDelay * 86400000).toISOString().slice(0, 10) : null;
                               return (
-                                <div key={m.id} style={{ display: "grid", gridTemplateColumns: "1.5fr 100px 120px 120px 55px", gap: 6, padding: "8px 14px", borderTop: "1px solid #1E293B", alignItems: "center", background: cascade.blocked && m.status !== "Complete" && m.status !== "N/A" ? "#F59E0B08" : "transparent" }}>
+                                <div key={m.id} style={{ display: "contents" }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "1.5fr 100px 120px 120px 55px 32px", gap: 6, padding: "8px 14px", borderTop: "1px solid #1E293B", alignItems: "center", background: cascade.blocked && m.status !== "Complete" && m.status !== "N/A" ? "#F59E0B08" : "transparent" }}>
                                   <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
                                   <span style={{ textAlign: "center", fontSize: 12 }}>
                                     <span style={{ color: projectedDate ? "#F59E0B" : "#9CA3AF" }}>{fmtDate(m.expected_date ?? undefined)}</span>
@@ -2368,6 +2373,14 @@ export default function TandAApp() {
                                   <span style={{ color: daysColor, fontWeight: 600, textAlign: "right", fontSize: 12 }}>
                                     {m.status === "Complete" ? "Done" : m.status === "N/A" ? "—" : daysRem === null ? "—" : daysRem < 0 ? `${Math.abs(daysRem)}d late` : daysRem === 0 ? "Today" : `${daysRem}d`}
                                   </span>
+                                  <span style={{ textAlign: "center", cursor: "pointer", fontSize: 14, opacity: m.notes ? 1 : 0.4 }} title={m.notes || "Add note"} onClick={e => { e.stopPropagation(); setEditingNote(editingNote === m.id ? null : m.id); }}>📝</span>
+                                </div>
+                                {editingNote === m.id && (
+                                  <div style={{ padding: "6px 14px 10px", borderTop: "1px solid #1E293B" }}>
+                                    <textarea value={m.notes || ""} onChange={e => saveMilestone({ ...m, notes: e.target.value, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true)} placeholder="Add a note..." rows={2}
+                                      style={{ width: "100%", background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: "#D1D5DB", fontSize: 12, padding: "6px 10px", resize: "vertical", fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
+                                  </div>
+                                )}
                                 </div>
                               );
                             })}
@@ -2376,6 +2389,35 @@ export default function TandAApp() {
                       </div>
                     );
                   })}
+                  {poMs.length > 0 && (
+                    <div style={{ marginTop: 8 }}>
+                      {!addingPhase ? (
+                        <button onClick={() => setAddingPhase(true)} style={{ ...S.btnSecondary, fontSize: 11, padding: "5px 12px" }}>+ Add Custom Phase</button>
+                      ) : (
+                        <div style={{ background: "#0F172A", borderRadius: 8, padding: 12, display: "flex", gap: 8, alignItems: "flex-end" }}>
+                          <div style={{ flex: 1 }}>
+                            <label style={{ color: "#6B7280", fontSize: 10, display: "block", marginBottom: 3, textTransform: "uppercase" }}>Phase Name</label>
+                            <input value={newPhaseForm.name} onChange={e => setNewPhaseForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Client Approval" style={{ ...S.input, marginBottom: 0, fontSize: 12, padding: "6px 10px" }} />
+                          </div>
+                          <div style={{ width: 160 }}>
+                            <label style={{ color: "#6B7280", fontSize: 10, display: "block", marginBottom: 3, textTransform: "uppercase" }}>Category</label>
+                            <select value={newPhaseForm.category} onChange={e => setNewPhaseForm(f => ({ ...f, category: e.target.value }))} style={{ ...S.select, width: "100%", fontSize: 12, padding: "6px 8px" }}>
+                              {WIP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                          </div>
+                          <button onClick={() => {
+                            if (!newPhaseForm.name.trim()) return;
+                            const newM: Milestone = { id: milestoneUid(), po_number: poNum, phase: newPhaseForm.name.trim(), category: newPhaseForm.category, sort_order: poMs.length, days_before_ddp: 0, expected_date: null, actual_date: null, status: "Not Started", status_date: null, status_dates: null, notes: "", updated_at: new Date().toISOString(), updated_by: user?.name || "" };
+                            saveMilestone(newM, true);
+                            addHistory(poNum, `Custom phase added: "${newPhaseForm.name.trim()}" in ${newPhaseForm.category}`);
+                            setNewPhaseForm({ name: "", category: "Pre-Production" });
+                            setAddingPhase(false);
+                          }} style={{ ...S.btnPrimary, fontSize: 11, padding: "7px 14px", width: "auto", whiteSpace: "nowrap" }}>Add</button>
+                          <button onClick={() => { setAddingPhase(false); setNewPhaseForm({ name: "", category: "Pre-Production" }); }} style={{ ...S.btnSecondary, fontSize: 11, padding: "7px 10px" }}>✕</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -2807,6 +2849,8 @@ export default function TandAApp() {
           <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => setView("list")}>All POs</button>
           <button style={view === "templates" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("templates"); }}>Templates</button>
           <button style={view === "email" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("email"); }}>📧 Email</button>
+          <button style={view === "activity" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("activity"); }}>📋 Activity</button>
+          <button style={view === "vendors" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("vendors"); }}>🏆 Vendors</button>
           <button style={view === "timeline" ? S.navBtnActive : S.navBtn} onClick={() => { if (selected) setSearch(selected.PoNumber ?? ""); setView("timeline"); }}>📊 Timeline</button>
           <button style={S.navBtn} onClick={() => { setShowBulkUpdate(true); setBulkVendor(""); setBulkPhase(""); setBulkPhases([]); setBulkCategory(""); setBulkStatus(""); setBulkPOs([]); setBulkPOSearch(""); }}>⚡ Bulk Update</button>
           <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing} title="Sync POs from Xoro">
@@ -3153,6 +3197,112 @@ export default function TandAApp() {
 
         {/* ── EMAIL ── */}
         {view === "email" && emailViewPanel()}
+
+        {/* ── ACTIVITY ── */}
+        {view === "activity" && (() => {
+          const historyEntries = notes.filter(n => n.status_override === "__history__").sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? "")).slice(0, 100);
+          return (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <h2 style={{ margin: 0, color: "#F1F5F9", fontSize: 20, fontWeight: 700 }}>Activity Feed</h2>
+                <span style={{ color: "#6B7280", fontSize: 12 }}>{historyEntries.length} recent activities</span>
+              </div>
+              <div style={{ background: "#1E293B", borderRadius: 12, border: "1px solid #334155", overflow: "hidden" }}>
+                {historyEntries.length === 0 ? (
+                  <div style={{ padding: 40, textAlign: "center", color: "#6B7280" }}>No activity recorded yet</div>
+                ) : historyEntries.map((entry, i) => {
+                  const isStatus = (entry.note ?? "").includes("Status:");
+                  const isBulk = (entry.note ?? "").includes("Bulk update");
+                  const isSync = (entry.note ?? "").includes("synced");
+                  const isGen = (entry.note ?? "").includes("generated") || (entry.note ?? "").includes("Regenerated");
+                  const icon = isBulk ? "⚡" : isSync ? "🔄" : isGen ? "🏭" : isStatus ? "📊" : "📝";
+                  const time = entry.created_at ? new Date(entry.created_at).toLocaleString() : "";
+                  const timeAgo = entry.created_at ? (() => { const ms = Date.now() - new Date(entry.created_at).getTime(); const m = Math.floor(ms / 60000); if (m < 60) return `${m}m ago`; const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`; return `${Math.floor(h / 24)}d ago`; })() : "";
+                  return (
+                    <div key={entry.id || i} style={{ display: "flex", gap: 12, padding: "12px 16px", borderBottom: "1px solid #0F172A", background: i % 2 === 0 ? "#1E293B" : "#1A2332", cursor: "pointer" }}
+                      onClick={() => { const p = pos.find(x => x.PoNumber === entry.po_number); if (p) { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(p); setView("list"); } }}>
+                      <div style={{ fontSize: 18, flexShrink: 0, width: 32, textAlign: "center" }}>{icon}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: "#60A5FA", fontFamily: "monospace" }}>{entry.po_number}</span>
+                          <span style={{ fontSize: 11, color: "#6B7280" }}>{entry.user_name}</span>
+                          <span style={{ fontSize: 10, color: "#4B5563", marginLeft: "auto", flexShrink: 0 }}>{timeAgo} · {time}</span>
+                        </div>
+                        <div style={{ fontSize: 13, color: "#D1D5DB", lineHeight: 1.4 }}>{entry.note}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          );
+        })()}
+
+        {/* ── VENDORS ── */}
+        {view === "vendors" && (() => {
+          const vendorStats: { vendor: string; totalMs: number; completed: number; onTime: number; late: number; avgDaysLate: number; poCount: number }[] = [];
+          const vendorNames = [...new Set(pos.map(p => p.VendorName ?? "").filter(Boolean))].sort();
+          vendorNames.forEach(vendor => {
+            const vPOs = pos.filter(p => (p.VendorName ?? "") === vendor);
+            const vMs = vPOs.flatMap(p => milestones[p.PoNumber ?? ""] || []).filter(m => m.status !== "N/A");
+            const completed = vMs.filter(m => m.status === "Complete");
+            let onTime = 0, late = 0, totalDaysLate = 0;
+            completed.forEach(m => {
+              const done = m.status_date || m.status_dates?.["Complete"];
+              if (done && m.expected_date) {
+                if (done <= m.expected_date) onTime++;
+                else { late++; totalDaysLate += Math.ceil((new Date(done).getTime() - new Date(m.expected_date).getTime()) / 86400000); }
+              } else { onTime++; }
+            });
+            if (vMs.length > 0) vendorStats.push({ vendor, totalMs: vMs.length, completed: completed.length, onTime, late, avgDaysLate: late > 0 ? Math.round(totalDaysLate / late) : 0, poCount: vPOs.length });
+          });
+          vendorStats.sort((a, b) => { const aPct = a.completed > 0 ? a.onTime / a.completed : 0; const bPct = b.completed > 0 ? b.onTime / b.completed : 0; return bPct - aPct; });
+
+          return (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <h2 style={{ margin: 0, color: "#F1F5F9", fontSize: 20, fontWeight: 700 }}>Vendor Scorecard</h2>
+                <span style={{ color: "#6B7280", fontSize: 12 }}>{vendorStats.length} vendors</span>
+              </div>
+              <div style={{ background: "#1E293B", borderRadius: 12, border: "1px solid #334155", overflow: "hidden" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 80px 80px 80px 90px 100px", gap: 8, padding: "12px 16px", background: "#0F172A", borderBottom: "1px solid #334155" }}>
+                  <span style={{ color: "#6B7280", fontSize: 11, fontWeight: 700, textTransform: "uppercase" }}>Vendor</span>
+                  <span style={{ color: "#6B7280", fontSize: 11, fontWeight: 700, textTransform: "uppercase", textAlign: "center" }}>POs</span>
+                  <span style={{ color: "#6B7280", fontSize: 11, fontWeight: 700, textTransform: "uppercase", textAlign: "center" }}>Milestones</span>
+                  <span style={{ color: "#6B7280", fontSize: 11, fontWeight: 700, textTransform: "uppercase", textAlign: "center" }}>On Time</span>
+                  <span style={{ color: "#6B7280", fontSize: 11, fontWeight: 700, textTransform: "uppercase", textAlign: "center" }}>Late</span>
+                  <span style={{ color: "#6B7280", fontSize: 11, fontWeight: 700, textTransform: "uppercase", textAlign: "center" }}>Avg Late</span>
+                  <span style={{ color: "#6B7280", fontSize: 11, fontWeight: 700, textTransform: "uppercase", textAlign: "center" }}>On-Time %</span>
+                </div>
+                {vendorStats.length === 0 ? (
+                  <div style={{ padding: 40, textAlign: "center", color: "#6B7280" }}>No milestone data yet</div>
+                ) : vendorStats.map((v, i) => {
+                  const pct = v.completed > 0 ? Math.round((v.onTime / v.completed) * 100) : 0;
+                  const pctColor = pct >= 90 ? "#10B981" : pct >= 70 ? "#F59E0B" : "#EF4444";
+                  return (
+                    <div key={v.vendor} style={{ display: "grid", gridTemplateColumns: "1fr 80px 80px 80px 80px 90px 100px", gap: 8, padding: "12px 16px", borderBottom: "1px solid #0F172A", background: i % 2 === 0 ? "#1E293B" : "#1A2332", cursor: "pointer" }}
+                      onClick={() => { setSearch(v.vendor); setView("list"); }}>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#F1F5F9" }}>{v.vendor}</div>
+                      </div>
+                      <span style={{ textAlign: "center", color: "#94A3B8", fontSize: 14, fontFamily: "monospace" }}>{v.poCount}</span>
+                      <span style={{ textAlign: "center", color: "#94A3B8", fontSize: 14, fontFamily: "monospace" }}>{v.completed}/{v.totalMs}</span>
+                      <span style={{ textAlign: "center", color: "#10B981", fontSize: 14, fontWeight: 700, fontFamily: "monospace" }}>{v.onTime}</span>
+                      <span style={{ textAlign: "center", color: v.late > 0 ? "#EF4444" : "#6B7280", fontSize: 14, fontWeight: 700, fontFamily: "monospace" }}>{v.late}</span>
+                      <span style={{ textAlign: "center", color: v.avgDaysLate > 0 ? "#F59E0B" : "#6B7280", fontSize: 14, fontFamily: "monospace" }}>{v.avgDaysLate > 0 ? `${v.avgDaysLate}d` : "—"}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "center" }}>
+                        <div style={{ width: 50, height: 8, borderRadius: 4, background: "#0F172A", overflow: "hidden" }}>
+                          <div style={{ width: `${pct}%`, height: "100%", background: pctColor, borderRadius: 4 }} />
+                        </div>
+                        <span style={{ color: pctColor, fontSize: 14, fontWeight: 800, fontFamily: "monospace" }}>{v.completed > 0 ? `${pct}%` : "—"}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          );
+        })()}
 
         {/* ── TIMELINE ── */}
         {view === "timeline" && (() => {
