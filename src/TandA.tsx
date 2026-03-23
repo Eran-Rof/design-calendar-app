@@ -3219,18 +3219,6 @@ export default function TandAApp() {
         {/* ── DASHBOARD ── */}
         {view === "dashboard" && (
           <>
-            {/* Quick Actions */}
-            <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
-              <button style={{ ...S.btnPrimary, fontSize: 12, padding: "8px 16px", width: "auto" }} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing}>{syncing ? "⏳ Syncing…" : "🔄 Sync from Xoro"}</button>
-              <button style={{ ...S.btnSecondary, fontSize: 12, padding: "8px 16px" }} onClick={() => { setShowBulkUpdate(true); setBulkVendor(""); setBulkPhase(""); setBulkPhases([]); setBulkCategory(""); setBulkStatus(""); setBulkPOs([]); setBulkPOSearch(""); }}>⚡ Bulk Update</button>
-              <button style={{ ...S.btnSecondary, fontSize: 12, padding: "8px 16px" }} onClick={() => setView("timeline")}>📊 Timeline</button>
-              <button style={{ ...S.btnSecondary, fontSize: 12, padding: "8px 16px" }} onClick={() => setView("vendors")}>🏆 Vendors</button>
-              <button style={{ ...S.btnSecondary, fontSize: 12, padding: "8px 16px" }} onClick={() => setView("activity")}>📋 Activity</button>
-              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ color: "#6B7280", fontSize: 11 }}>Last sync: {lastSync ? new Date(lastSync).toLocaleString() : "Never"}</span>
-              </div>
-            </div>
-
             {/* Row 1: Production Health Score + Key Stats */}
             <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 16, marginBottom: 16 }}>
               {/* Health Score Ring */}
@@ -3245,7 +3233,10 @@ export default function TandAApp() {
                 const circumference = 2 * Math.PI * 54;
                 const strokeDash = (healthScore / 100) * circumference;
                 return (
-                  <div style={{ background: "#1E293B", borderRadius: 12, padding: 20, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                  <div style={{ background: "#1E293B", borderRadius: 12, padding: 20, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "transform 0.15s" }}
+                    onClick={() => setView("timeline")}
+                    onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"}
+                    onMouseLeave={e => e.currentTarget.style.transform = "none"}>
                     <div style={{ position: "relative", width: 130, height: 130, marginBottom: 12 }}>
                       <svg width="130" height="130" viewBox="0 0 130 130">
                         <circle cx="65" cy="65" r="54" fill="none" stroke="#0F172A" strokeWidth="12" />
@@ -3265,21 +3256,21 @@ export default function TandAApp() {
 
               {/* Key Stats Grid */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
-                <StatCard label="Total POs" value={pos.length} color="#3B82F6" icon="📋" />
-                <StatCard label="Total Value" value={fmtCurrency(totalValue)} color="#10B981" icon="💰" />
-                <StatCard label="Overdue POs" value={overdue} color="#EF4444" icon="⚠️" />
-                <StatCard label="Due This Week" value={dueThisWeek} color="#F59E0B" icon="📅" />
-                <StatCard label="Overdue Milestones" value={overdueMilestones.length} color="#EF4444" icon="🚨" />
-                <StatCard label="Due This Week" value={dueThisWeekMilestones.length} color="#F59E0B" icon="📌" />
-                <StatCard label="Completion Rate" value={`${milestoneCompletionRate}%`} color="#10B981" icon="📊" />
-                <StatCard label="Cascade Alerts" value={cascadeAlerts.length} color="#F59E0B" icon="⚡" />
+                <StatCard label="Total POs" value={pos.length} color="#3B82F6" icon="📋" onClick={() => setView("list")} />
+                <StatCard label="Total Value" value={fmtCurrency(totalValue)} color="#10B981" icon="💰" onClick={() => setView("list")} />
+                <StatCard label="Overdue POs" value={overdue} color="#EF4444" icon="⚠️" onClick={() => { setFilterStatus("All"); setView("list"); }} />
+                <StatCard label="Due This Week" value={dueThisWeek} color="#F59E0B" icon="📅" onClick={() => setView("list")} />
+                <StatCard label="Overdue Milestones" value={overdueMilestones.length} color="#EF4444" icon="🚨" onClick={() => setView("timeline")} />
+                <StatCard label="Due This Week" value={dueThisWeekMilestones.length} color="#F59E0B" icon="📌" onClick={() => setView("timeline")} />
+                <StatCard label="Completion Rate" value={`${milestoneCompletionRate}%`} color="#10B981" icon="📊" onClick={() => setView("vendors")} />
+                <StatCard label="Cascade Alerts" value={cascadeAlerts.length} color="#F59E0B" icon="⚡" onClick={() => setView("timeline")} />
               </div>
             </div>
 
             {/* Row 2: Milestone Pipeline + Status Breakdown */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
               {/* Milestone Pipeline */}
-              <div style={S.card}>
+              <div style={{ ...S.card, cursor: "pointer" }} onClick={() => setView("timeline")}>
                 <h3 style={S.cardTitle}>Milestone Pipeline</h3>
                 {(() => {
                   const active = allMilestonesList.filter(m => m.status !== "N/A").length;
@@ -3309,7 +3300,7 @@ export default function TandAApp() {
               </div>
 
               {/* Category Progress */}
-              <div style={S.card}>
+              <div style={{ ...S.card, cursor: "pointer" }} onClick={() => setView("timeline")}>
                 <h3 style={S.cardTitle}>Progress by Category</h3>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {WIP_CATEGORIES.map(cat => {
@@ -4173,9 +4164,12 @@ export default function TandAApp() {
     </div>
   );
 
-  function StatCard({ label, value, color, icon }: { label: string; value: string | number; color: string; icon: string }) {
+  function StatCard({ label, value, color, icon, onClick }: { label: string; value: string | number; color: string; icon: string; onClick?: () => void }) {
     return (
-      <div style={{ ...S.statCard, borderTop: `3px solid ${color}` }}>
+      <div style={{ ...S.statCard, borderTop: `3px solid ${color}`, cursor: onClick ? "pointer" : "default", transition: "transform 0.15s, box-shadow 0.15s" }}
+        onClick={onClick}
+        onMouseEnter={e => { if (onClick) { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.3)"; } }}
+        onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; }}>
         <div style={{ fontSize: 24 }}>{icon}</div>
         <div style={{ fontSize: 28, fontWeight: 700, color, fontFamily: "monospace" }}>{value}</div>
         <div style={{ color: "#9CA3AF", fontSize: 13 }}>{label}</div>
