@@ -1123,8 +1123,14 @@ export default function TandAApp() {
     // Get all milestones for this PO sorted by sort_order
     const allMs = [...(milestones[poNum] || [])].sort((a, b) => a.sort_order - b.sort_order);
     const msIdx = allMs.findIndex(m => m.id === milestone.id);
-    // Save the changed milestone
-    await saveMilestone({ ...milestone, expected_date: newDate, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
+    // Save the changed milestone — if new date is >= today and status is Delayed, reset to Not Started
+    const today = new Date().toISOString().slice(0, 10);
+    const resetStatus = (date: string, currentStatus: string) => {
+      if (date >= today && currentStatus === "Delayed") return "Not Started";
+      return currentStatus;
+    };
+    const newStatus = resetStatus(newDate, milestone.status);
+    await saveMilestone({ ...milestone, expected_date: newDate, status: newStatus, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
     // Shift all subsequent milestones by the same number of days
     let shifted = 0;
     for (let i = msIdx + 1; i < allMs.length; i++) {
@@ -1132,7 +1138,9 @@ export default function TandAApp() {
       if (m.expected_date && m.status !== "Complete") {
         const d = new Date(m.expected_date);
         d.setDate(d.getDate() + diffDays);
-        await saveMilestone({ ...m, expected_date: d.toISOString().slice(0, 10), updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
+        const newDateStr = d.toISOString().slice(0, 10);
+        const mStatus = resetStatus(newDateStr, m.status);
+        await saveMilestone({ ...m, expected_date: newDateStr, status: mStatus, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
         shifted++;
       }
     }
