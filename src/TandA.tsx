@@ -1226,20 +1226,53 @@ export default function TandAApp() {
     if (data) {
       const entries = data.map((r: any) => { try { return JSON.parse(r.note); } catch { return null; } }).filter(Boolean);
       setAttachments(prev => ({ ...prev, [poNumber]: entries }));
+      // Purge any that have been soft-deleted for >24h
+      setTimeout(() => purgeExpiredAttachments(poNumber), 500);
     }
   }
   async function deleteAttachment(poNumber: string, attachId: string) {
     const entry = (attachments[poNumber] || []).find(a => a.id === attachId);
     if (!entry) return;
-    // Delete from Dropbox
-    const dbxPath = (entry as any).dbxPath || `/Eran Bitton/Apps/design-calendar-app/po-attachments/${poNumber}/${attachId}`;
-    try { await fetch(`/api/dropbox-proxy?action=delete&path=${encodeURIComponent(dbxPath)}`); } catch (e) { console.warn("Dropbox delete failed:", e); }
-    // Delete metadata
+    // Soft delete: mark as deleted with timestamp, don't remove from Dropbox yet
+    const updatedEntry = { ...entry, deleted_at: new Date().toISOString() };
+    // Update metadata in Supabase
     const { data } = await sb.from("tanda_notes").select("id,note", `po_number=eq.${encodeURIComponent(poNumber)}&status_override=eq.__attachment__`);
     const row = data?.find((r: any) => { try { return JSON.parse(r.note).id === attachId; } catch { return false; } });
-    if (row) await sb.from("tanda_notes").delete(`id=eq.${encodeURIComponent(row.id)}`);
-    setAttachments(prev => ({ ...prev, [poNumber]: (prev[poNumber] || []).filter(a => a.id !== attachId) }));
-    addHistory(poNumber, `Attachment deleted: ${entry.name}`);
+    if (row) {
+      await sb.from("tanda_notes").upsert({ id: row.id, po_number: poNumber, note: JSON.stringify(updatedEntry), status_override: "__attachment__", user_name: entry.uploaded_by, created_at: entry.uploaded_at }, { onConflict: "id" });
+    }
+    setAttachments(prev => ({ ...prev, [poNumber]: (prev[poNumber] || []).map(a => a.id === attachId ? updatedEntry : a) }));
+    addHistory(poNumber, `Attachment soft-deleted: ${entry.name} (undo available for 24h)`);
+  }
+
+  async function undoDeleteAttachment(poNumber: string, attachId: string) {
+    const entry = (attachments[poNumber] || []).find(a => a.id === attachId);
+    if (!entry) return;
+    const restoredEntry = { ...entry }; delete (restoredEntry as any).deleted_at;
+    const { data } = await sb.from("tanda_notes").select("id,note", `po_number=eq.${encodeURIComponent(poNumber)}&status_override=eq.__attachment__`);
+    const row = data?.find((r: any) => { try { return JSON.parse(r.note).id === attachId; } catch { return false; } });
+    if (row) {
+      await sb.from("tanda_notes").upsert({ id: row.id, po_number: poNumber, note: JSON.stringify(restoredEntry), status_override: "__attachment__", user_name: entry.uploaded_by, created_at: entry.uploaded_at }, { onConflict: "id" });
+    }
+    setAttachments(prev => ({ ...prev, [poNumber]: (prev[poNumber] || []).map(a => a.id === attachId ? restoredEntry : a) }));
+    addHistory(poNumber, `Attachment restored: ${entry.name}`);
+  }
+
+  async function purgeExpiredAttachments(poNumber: string) {
+    const files = attachments[poNumber] || [];
+    const now = Date.now();
+    for (const f of files) {
+      if ((f as any).deleted_at && now - new Date((f as any).deleted_at).getTime() > 24 * 60 * 60 * 1000) {
+        // 24h passed — permanently delete from Dropbox
+        const dbxPath = (f as any).dbxPath || `/Eran Bitton/Apps/design-calendar-app/po-attachments/${poNumber}/${f.id}`;
+        try { await fetch(`/api/dropbox-proxy?action=delete&path=${encodeURIComponent(dbxPath)}`); } catch (e) { console.warn("Purge failed:", e); }
+        const { data } = await sb.from("tanda_notes").select("id,note", `po_number=eq.${encodeURIComponent(poNumber)}&status_override=eq.__attachment__`);
+        const row = data?.find((r: any) => { try { return JSON.parse(r.note).id === f.id; } catch { return false; } });
+        if (row) await sb.from("tanda_notes").delete(`id=eq.${encodeURIComponent(row.id)}`);
+      }
+    }
+    // Remove purged from state
+    setAttachments(prev => ({ ...prev, [poNumber]: (prev[poNumber] || []).filter(a => !(a as any).deleted_at || now - new Date((a as any).deleted_at).getTime() <= 24 * 60 * 60 * 1000) }));
   }
 
   async function deletePO(poNumber: string) {
@@ -2159,7 +2192,7 @@ export default function TandAApp() {
               return (
                 <div style={{ marginBottom: 20 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                    <div style={S.sectionLabel}>Attachments ({files.length})</div>
+                    <div style={S.sectionLabel}>Attachments ({files.filter(f => !(f as any).deleted_at).length})</div>
                     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                       {uploadingAttachment && <span style={{ fontSize: 12, color: "#F59E0B" }}>Uploading…</span>}
                       <input ref={attachInputRef} type="file" multiple style={{ display: "none" }} onChange={async e => {
@@ -2179,7 +2212,20 @@ export default function TandAApp() {
                   ) : (
                     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                       {files.map(f => {
+                        const isDeleted = !!(f as any).deleted_at;
                         const timeAgo = f.uploaded_at ? (() => { const ms = Date.now() - new Date(f.uploaded_at).getTime(); const m = Math.floor(ms / 60000); if (m < 60) return `${m}m ago`; const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`; return `${Math.floor(h / 24)}d ago`; })() : "";
+                        const deleteTimeLeft = isDeleted ? (() => { const ms = 24 * 60 * 60 * 1000 - (Date.now() - new Date((f as any).deleted_at).getTime()); if (ms <= 0) return ""; const h = Math.floor(ms / 3600000); return `${h}h left to undo`; })() : "";
+                        if (isDeleted) return (
+                          <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "#0F172A", borderRadius: 8, border: "1px dashed #EF444444", opacity: 0.7 }}>
+                            <span style={{ fontSize: 24, flexShrink: 0 }}>🗑</span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, color: "#EF4444", fontWeight: 600, textDecoration: "line-through" }}>{f.name}</div>
+                              <div style={{ fontSize: 11, color: "#6B7280" }}>Deleted · {deleteTimeLeft}</div>
+                            </div>
+                            <button onClick={() => undoDeleteAttachment(pn, f.id)}
+                              style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #F59E0B", background: "none", color: "#F59E0B", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>↩ Undo</button>
+                          </div>
+                        );
                         return (
                           <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "#0F172A", borderRadius: 8, border: "1px solid #334155" }}>
                             <span style={{ fontSize: 24, flexShrink: 0 }}>{getIcon(f.type)}</span>
@@ -2188,8 +2234,8 @@ export default function TandAApp() {
                                 onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"} onMouseLeave={e => e.currentTarget.style.textDecoration = "none"}>{f.name}</a>
                               <div style={{ fontSize: 11, color: "#6B7280" }}>{fmtSize(f.size)} · {f.uploaded_by} · {timeAgo}</div>
                             </div>
-                            {f.type.startsWith("image/") && <img src={f.url} alt="" style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover", flexShrink: 0 }} />}
-                            <button onClick={e => { e.stopPropagation(); setConfirmModal({ title: "Delete Attachment", message: `Delete "${f.name}"?`, icon: "🗑", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => deleteAttachment(pn, f.id) }); }}
+                            {f.type.startsWith("image/") && f.url && <img src={f.url} alt="" style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover", flexShrink: 0 }} />}
+                            <button onClick={e => { e.stopPropagation(); setConfirmModal({ title: "Delete Attachment", message: `Delete "${f.name}"? You'll have 24 hours to undo.`, icon: "🗑", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => deleteAttachment(pn, f.id) }); }}
                               style={{ background: "none", border: "1px solid #EF444444", color: "#EF4444", borderRadius: 6, padding: "4px 8px", fontSize: 10, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>✕</button>
                           </div>
                         );
