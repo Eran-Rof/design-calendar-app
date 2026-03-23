@@ -2477,22 +2477,43 @@ export default function TandAApp() {
                             <button onClick={() => { setAddingPhase(false); setNewPhaseForm({ name: "", category: "Pre-Production", dueDate: "", afterPhase: "" }); }} style={{ ...S.btnSecondary, fontSize: 11, padding: "7px 12px" }}>Cancel</button>
                             <button onClick={() => {
                               if (!newPhaseForm.name.trim()) return;
-                              // Calculate sort_order: insert after the selected phase
-                              let sortOrder: number;
                               const allCatMs = poMs.filter(m => m.category === newPhaseForm.category).sort((a, b) => a.sort_order - b.sort_order);
+                              let sortOrder: number;
+                              let insertRef = "";
+
                               if (newPhaseForm.afterPhase) {
+                                // Explicit position: insert after selected phase
                                 const afterIdx = allCatMs.findIndex(m => m.id === newPhaseForm.afterPhase);
                                 if (afterIdx >= 0) {
                                   const afterSort = allCatMs[afterIdx].sort_order;
-                                  const nextSort = afterIdx + 1 < allCatMs.length ? allCatMs[afterIdx + 1].sort_order : afterSort + 10;
+                                  const nextSort = afterIdx + 1 < allCatMs.length ? allCatMs[afterIdx + 1].sort_order : afterSort + 100;
                                   sortOrder = afterSort + (nextSort - afterSort) / 2;
-                                } else { sortOrder = poMs.length; }
+                                  insertRef = " (after " + allCatMs[afterIdx].phase + ")";
+                                } else { sortOrder = (allCatMs.length + 1) * 100; }
+                              } else if (newPhaseForm.dueDate && allCatMs.length > 0) {
+                                // Auto-position by due date: find where it fits chronologically
+                                const dueMs = allCatMs.filter(m => m.expected_date);
+                                const insertAfterIdx = dueMs.reduce((best, m, i) => m.expected_date && m.expected_date <= newPhaseForm.dueDate ? i : best, -1);
+                                if (insertAfterIdx >= 0) {
+                                  const afterM = dueMs[insertAfterIdx];
+                                  const afterIdx = allCatMs.indexOf(afterM);
+                                  const afterSort = afterM.sort_order;
+                                  const nextSort = afterIdx + 1 < allCatMs.length ? allCatMs[afterIdx + 1].sort_order : afterSort + 100;
+                                  sortOrder = afterSort + (nextSort - afterSort) / 2;
+                                  insertRef = " (by date, after " + afterM.phase + ")";
+                                } else {
+                                  // Due date is before all existing — put first
+                                  sortOrder = allCatMs[0].sort_order - 100;
+                                  insertRef = " (by date, at beginning)";
+                                }
                               } else {
-                                sortOrder = allCatMs.length > 0 ? allCatMs[0].sort_order - 1 : 0;
+                                // No position info — add at end
+                                sortOrder = allCatMs.length > 0 ? allCatMs[allCatMs.length - 1].sort_order + 100 : 0;
                               }
+
                               const newM: Milestone = { id: milestoneUid(), po_number: poNum, phase: newPhaseForm.name.trim(), category: newPhaseForm.category, sort_order: sortOrder, days_before_ddp: 0, expected_date: newPhaseForm.dueDate || null, actual_date: null, status: "Not Started", status_date: null, status_dates: null, notes: "", note_entries: null, updated_at: new Date().toISOString(), updated_by: user?.name || "" };
                               saveMilestone(newM, true);
-                              addHistory(poNum, `Custom phase added: "${newPhaseForm.name.trim()}" in ${newPhaseForm.category}${newPhaseForm.afterPhase ? " (after " + (allCatMs.find(m => m.id === newPhaseForm.afterPhase)?.phase || "") + ")" : ""}`);
+                              addHistory(poNum, `Custom phase added: "${newPhaseForm.name.trim()}" in ${newPhaseForm.category}${insertRef}`);
                               setNewPhaseForm({ name: "", category: "Pre-Production", dueDate: "", afterPhase: "" });
                               setAddingPhase(false);
                             }} style={{ ...S.btnPrimary, fontSize: 11, padding: "7px 14px", width: "auto", whiteSpace: "nowrap" }}>Add Phase</button>
