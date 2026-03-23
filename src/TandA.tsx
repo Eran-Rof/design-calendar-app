@@ -196,6 +196,8 @@ interface User {
   name?: string;
   password: string;
   role?: string;
+  color?: string;
+  initials?: string;
 }
 
 type View = "dashboard" | "list" | "detail" | "templates" | "email" | "activity" | "vendors" | "timeline";
@@ -3031,7 +3033,10 @@ export default function TandAApp() {
             </button>
           )}
           <button style={S.navBtn} onClick={() => setShowSettings(true)}>⚙️ Settings</button>
-          <div style={S.userPill}>{user.name || user.username}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 28, height: 28, borderRadius: "50%", background: user.color ?? "#3B82F6", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{user.initials || (user.name || user.username || "?").split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2)}</div>
+            <span style={{ color: "#94A3B8", fontSize: 12, fontWeight: 600 }}>{user.name || user.username}</span>
+          </div>
           <button style={S.navBtn} onClick={() => window.location.href = "/"}>← PLM</button>
           <button style={S.navBtnDanger} onClick={() => { sessionStorage.removeItem("plm_user"); window.location.href = "/"; }}>Sign Out</button>
         </div>
