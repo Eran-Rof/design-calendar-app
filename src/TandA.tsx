@@ -325,6 +325,8 @@ export default function TandAApp() {
   const [bulkCategory, setBulkCategory] = useState("");
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [bulkPOs, setBulkPOs] = useState<string[]>([]);
+  const [bulkPOSearch, setBulkPOSearch] = useState("");
+  const [bulkPhases, setBulkPhases] = useState<string[]>([]);
   const [loading, setLoading]   = useState(false);
   const [syncing, setSyncing]   = useState(false);
   const [syncErr, setSyncErr]   = useState("");
@@ -1162,7 +1164,7 @@ export default function TandAApp() {
       const poNum = po.PoNumber ?? "";
       const poMs = milestones[poNum] || [];
       for (const m of poMs) {
-        const matchPhase = !bulkPhase || m.phase === bulkPhase;
+        const matchPhase = bulkPhases.length === 0 || bulkPhases.includes(m.phase);
         const matchCat = !bulkCategory || m.category === bulkCategory;
         if (matchPhase && matchCat && m.status !== bulkStatus && m.status !== "N/A") {
           const dates = { ...(m.status_dates || {}) };
@@ -1184,9 +1186,9 @@ export default function TandAApp() {
     }
     setBulkUpdating(false);
     setShowBulkUpdate(false);
-    setBulkPhase("");
+    setBulkPhase(""); setBulkPhases([]);
     setBulkCategory("");
-    setBulkPOs([]);
+    setBulkPOs([]); setBulkPOSearch("");
     setConfirmModal({ title: "Bulk Update Complete", message: `Updated ${count} milestones to "${bulkStatus}" across ${targetPOs.length} POs for ${bulkVendor}.`, icon: "✅", confirmText: "OK", confirmColor: "#10B981", onConfirm: () => {} });
   }
 
@@ -2794,7 +2796,7 @@ export default function TandAApp() {
           <button style={view === "templates" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("templates"); }}>Templates</button>
           <button style={view === "email" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("email"); }}>📧 Email</button>
           <button style={view === "timeline" ? S.navBtnActive : S.navBtn} onClick={() => { if (selected) setSearch(selected.PoNumber ?? ""); setView("timeline"); }}>📊 Timeline</button>
-          <button style={S.navBtn} onClick={() => { setShowBulkUpdate(true); setBulkVendor(""); setBulkPhase(""); setBulkCategory(""); setBulkStatus(""); setBulkPOs([]); }}>⚡ Bulk Update</button>
+          <button style={S.navBtn} onClick={() => { setShowBulkUpdate(true); setBulkVendor(""); setBulkPhase(""); setBulkPhases([]); setBulkCategory(""); setBulkStatus(""); setBulkPOs([]); setBulkPOSearch(""); }}>⚡ Bulk Update</button>
           <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing} title="Sync POs from Xoro">
             {syncing ? "⏳ Syncing…" : "🔄 Sync"}
           </button>
@@ -3430,16 +3432,18 @@ export default function TandAApp() {
                 const cats = WIP_CATEGORIES.filter(c => targetMs.some(m => m.category === c));
                 const phases = [...new Set(targetMs.filter(m => !bulkCategory || m.category === bulkCategory).map(m => m.phase))];
                 const matching = targetMs.filter(m => {
-                  const matchPhase = !bulkPhase || m.phase === bulkPhase;
+                  const matchPhase = bulkPhases.length === 0 || bulkPhases.includes(m.phase);
                   const matchCat = !bulkCategory || m.category === bulkCategory;
                   return matchPhase && matchCat && m.status !== "N/A";
                 });
+                const filteredVendorPOs = bulkPOSearch ? vendorPOs.filter(p => (p.PoNumber ?? "").toLowerCase().includes(bulkPOSearch.toLowerCase())) : vendorPOs;
 
                 return (
                   <>
                     <label style={S.label}>POs (optional — leave empty for all)</label>
+                    <input value={bulkPOSearch} onChange={e => setBulkPOSearch(e.target.value)} placeholder="🔍 Search PO#…" style={{ ...S.input, marginBottom: 6, fontSize: 12, padding: "6px 10px" }} />
                     <div style={{ marginBottom: 12, maxHeight: 140, overflowY: "auto", background: "#0F172A", borderRadius: 8, border: "1px solid #334155", padding: 6 }}>
-                      {vendorPOs.map(p => {
+                      {filteredVendorPOs.map(p => {
                         const pn = p.PoNumber ?? "";
                         const isChecked = bulkPOs.includes(pn);
                         const poMsCount = (milestones[pn] || []).length;
@@ -3454,19 +3458,31 @@ export default function TandAApp() {
                           </label>
                         );
                       })}
+                      {filteredVendorPOs.length === 0 && <div style={{ padding: 8, color: "#6B7280", fontSize: 12, textAlign: "center" }}>No POs match</div>}
                     </div>
 
                     <label style={S.label}>Category (optional)</label>
-                    <select style={{ ...S.select, width: "100%", marginBottom: 12 }} value={bulkCategory} onChange={e => { setBulkCategory(e.target.value); setBulkPhase(""); }}>
+                    <select style={{ ...S.select, width: "100%", marginBottom: 12 }} value={bulkCategory} onChange={e => { setBulkCategory(e.target.value); setBulkPhases([]); }}>
                       <option value="">All Categories</option>
                       {cats.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
 
-                    <label style={S.label}>Phase (optional)</label>
-                    <select style={{ ...S.select, width: "100%", marginBottom: 12 }} value={bulkPhase} onChange={e => setBulkPhase(e.target.value)}>
-                      <option value="">All Phases</option>
-                      {phases.map(p => <option key={p} value={p}>{p}</option>)}
-                    </select>
+                    <label style={S.label}>Phases (optional — leave empty for all)</label>
+                    <div style={{ marginBottom: 12, maxHeight: 120, overflowY: "auto", background: "#0F172A", borderRadius: 8, border: "1px solid #334155", padding: 6 }}>
+                      {phases.map(p => {
+                        const isChecked = bulkPhases.includes(p);
+                        return (
+                          <label key={p} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px", cursor: "pointer", borderRadius: 4 }}
+                            onMouseEnter={e => e.currentTarget.style.background = "#1E293B"}
+                            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                            <input type="checkbox" checked={isChecked} onChange={() => setBulkPhases(prev => isChecked ? prev.filter(x => x !== p) : [...prev, p])}
+                              style={{ accentColor: "#3B82F6" }} />
+                            <span style={{ fontSize: 12, color: "#D1D5DB" }}>{p}</span>
+                          </label>
+                        );
+                      })}
+                      {phases.length === 0 && <div style={{ padding: 8, color: "#6B7280", fontSize: 12, textAlign: "center" }}>No phases available</div>}
+                    </div>
 
                     <label style={S.label}>New Status</label>
                     <select style={{ ...S.select, width: "100%", marginBottom: 16 }} value={bulkStatus} onChange={e => setBulkStatus(e.target.value)}>
