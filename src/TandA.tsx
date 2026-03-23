@@ -2316,7 +2316,13 @@ export default function TandAApp() {
 
                     return activeCats;
                   })().map(cat => {
-                    const catMs = grouped[cat];
+                    const catMs = (grouped[cat] || []).sort((a, b) => {
+                      // Sort by expected_date first (chronological), then sort_order as tiebreaker
+                      if (a.expected_date && b.expected_date) { const d = a.expected_date.localeCompare(b.expected_date); if (d !== 0) return d; }
+                      if (a.expected_date && !b.expected_date) return -1;
+                      if (!a.expected_date && b.expected_date) return 1;
+                      return a.sort_order - b.sort_order;
+                    });
                     const catComplete = catMs.filter(m => m.status === "Complete").length;
                     const activeCats = WIP_CATEGORIES.filter(c => grouped[c]?.length);
                     const firstIncompleteCat = activeCats.find(c => grouped[c].some(m => m.status !== "Complete" && m.status !== "N/A"));
