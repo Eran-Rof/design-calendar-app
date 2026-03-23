@@ -1,7 +1,8 @@
 // api/dropbox-proxy.js — Vercel Serverless Function for Dropbox file operations
 // Handles token refresh automatically using the refresh token
 
-export const config = { maxDuration: 60, api: { bodyParser: false } };
+export const config = { maxDuration: 60 };
+
 
 let cachedToken = null;
 let tokenExpiry = 0;
@@ -45,6 +46,19 @@ export default async function handler(req, res) {
       // Upload file
       if (!dbxPath) return res.status(400).json({ error: "Missing path" });
 
+      // Get raw file bytes — handle both parsed and unparsed body
+      let fileBody;
+      try {
+        fileBody = await getRawBody(req);
+      } catch (e) {
+        // Body may have been consumed by Vercel's parser
+        if (req.body) {
+          fileBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body);
+        } else {
+          fileBody = Buffer.alloc(0);
+        }
+      }
+
       const dbxRes = await fetch("https://content.dropboxapi.com/2/files/upload", {
         method: "POST",
         headers: {
@@ -57,7 +71,7 @@ export default async function handler(req, res) {
           }),
           "Content-Type": "application/octet-stream",
         },
-        body: req.body ? Buffer.from(await getRawBody(req)) : Buffer.alloc(0),
+        body: fileBody,
       });
 
       const data = await dbxRes.json();
