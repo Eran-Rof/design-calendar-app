@@ -2376,7 +2376,7 @@ export default function TandAApp() {
                         </div>
                         {!collapsed && (
                           <div style={{ background: "#0F172A", borderRadius: "0 0 8px 8px", overflow: "hidden" }}>
-                            <div style={{ display: "grid", gridTemplateColumns: "1.5fr 100px 120px 120px 55px 32px", gap: 6, padding: "5px 14px", background: "#1E293B" }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1.5fr 130px 120px 120px 55px 32px", gap: 6, padding: "5px 14px", background: "#1E293B" }}>
                               <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>Milestone</span>
                               <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Due Date</span>
                               <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Status</span>
@@ -2392,7 +2392,7 @@ export default function TandAApp() {
                                 ? new Date(new Date(m.expected_date).getTime() + cascade.upstreamDelay * 86400000).toISOString().slice(0, 10) : null;
                               return (
                                 <div key={m.id} style={{ display: "contents" }}>
-                                <div style={{ display: "grid", gridTemplateColumns: "1.5fr 100px 120px 120px 55px 32px", gap: 6, padding: "8px 14px", borderTop: "1px solid #1E293B", alignItems: "center", background: cascade.blocked && m.status !== "Complete" && m.status !== "N/A" ? "#F59E0B08" : "transparent" }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "1.5fr 130px 120px 120px 55px 32px", gap: 6, padding: "8px 14px", borderTop: "1px solid #1E293B", alignItems: "center", background: cascade.blocked && m.status !== "Complete" && m.status !== "N/A" ? "#F59E0B08" : "transparent" }}>
                                   <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
                                   <div style={{ textAlign: "center" }}>
                                     <input type="date" value={m.expected_date || ""} onChange={e => cascadeDueDateChange(m, e.target.value)}
