@@ -324,6 +324,7 @@ export default function TandAApp() {
   const [bulkStatus, setBulkStatus] = useState("");
   const [bulkCategory, setBulkCategory] = useState("");
   const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [bulkPOs, setBulkPOs] = useState<string[]>([]);
   const [loading, setLoading]   = useState(false);
   const [syncing, setSyncing]   = useState(false);
   const [syncErr, setSyncErr]   = useState("");
@@ -1154,9 +1155,10 @@ export default function TandAApp() {
     if (!bulkVendor || !bulkStatus) return;
     setBulkUpdating(true);
     const vendorPOs = pos.filter(p => (p.VendorName ?? "") === bulkVendor);
+    const targetPOs = bulkPOs.length > 0 ? vendorPOs.filter(p => bulkPOs.includes(p.PoNumber ?? "")) : vendorPOs;
     const today = new Date().toISOString().split("T")[0];
     let count = 0;
-    for (const po of vendorPOs) {
+    for (const po of targetPOs) {
       const poNum = po.PoNumber ?? "";
       const poMs = milestones[poNum] || [];
       for (const m of poMs) {
@@ -1178,13 +1180,14 @@ export default function TandAApp() {
       }
     }
     if (count > 0) {
-      addHistory(vendorPOs[0]?.PoNumber ?? "", `Bulk update: ${count} milestones → ${bulkStatus} for vendor ${bulkVendor}${bulkCategory ? ` (${bulkCategory})` : ""}${bulkPhase ? ` (${bulkPhase})` : ""}`);
+      addHistory(targetPOs[0]?.PoNumber ?? "", `Bulk update: ${count} milestones → ${bulkStatus} for vendor ${bulkVendor}${bulkCategory ? ` (${bulkCategory})` : ""}${bulkPhase ? ` (${bulkPhase})` : ""} (${targetPOs.length} POs)`);
     }
     setBulkUpdating(false);
     setShowBulkUpdate(false);
     setBulkPhase("");
     setBulkCategory("");
-    alert(`Updated ${count} milestones to "${bulkStatus}" across ${vendorPOs.length} POs for ${bulkVendor}.`);
+    setBulkPOs([]);
+    setConfirmModal({ title: "Bulk Update Complete", message: `Updated ${count} milestones to "${bulkStatus}" across ${targetPOs.length} POs for ${bulkVendor}.`, icon: "✅", confirmText: "OK", confirmColor: "#10B981", onConfirm: () => {} });
   }
 
   const allPONotes = notes.filter(n => n.po_number === selected?.PoNumber);
@@ -2791,6 +2794,7 @@ export default function TandAApp() {
           <button style={view === "templates" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("templates"); }}>Templates</button>
           <button style={view === "email" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("email"); }}>📧 Email</button>
           <button style={view === "timeline" ? S.navBtnActive : S.navBtn} onClick={() => { if (selected) setSearch(selected.PoNumber ?? ""); setView("timeline"); }}>📊 Timeline</button>
+          <button style={S.navBtn} onClick={() => { setShowBulkUpdate(true); setBulkVendor(""); setBulkPhase(""); setBulkCategory(""); setBulkStatus(""); setBulkPOs([]); }}>⚡ Bulk Update</button>
           <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing} title="Sync POs from Xoro">
             {syncing ? "⏳ Syncing…" : "🔄 Sync"}
           </button>
@@ -2833,14 +2837,6 @@ export default function TandAApp() {
               <StatCard label="Completion Rate"     value={`${milestoneCompletionRate}%`}   color="#10B981" icon="📊" />
               <StatCard label="Total Milestones"    value={allMilestonesList.length}        color="#8B5CF6" icon="🏭" />
             </div>
-              <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
-                <button style={{ ...S.btnSecondary, display: "flex", alignItems: "center", gap: 6 }} onClick={() => { setShowBulkUpdate(true); setBulkVendor(""); setBulkPhase(""); setBulkCategory(""); setBulkStatus(""); }}>
-                  ⚡ Bulk Milestone Update
-                </button>
-                <button style={{ ...S.btnSecondary, display: "flex", alignItems: "center", gap: 6 }} onClick={() => setView("timeline")}>
-                  📊 View Timeline
-                </button>
-              </div>
 
             {/* Upcoming Milestones */}
             {upcomingMilestones.length > 0 && (
@@ -3429,10 +3425,11 @@ export default function TandAApp() {
 
               {bulkVendor && (() => {
                 const vendorPOs = pos.filter(p => (p.VendorName ?? "") === bulkVendor);
-                const vendorMs = vendorPOs.flatMap(p => milestones[p.PoNumber ?? ""] || []);
-                const cats = WIP_CATEGORIES.filter(c => vendorMs.some(m => m.category === c));
-                const phases = [...new Set(vendorMs.filter(m => !bulkCategory || m.category === bulkCategory).map(m => m.phase))];
-                const matching = vendorMs.filter(m => {
+                const targetPOs = bulkPOs.length > 0 ? vendorPOs.filter(p => bulkPOs.includes(p.PoNumber ?? "")) : vendorPOs;
+                const targetMs = targetPOs.flatMap(p => milestones[p.PoNumber ?? ""] || []);
+                const cats = WIP_CATEGORIES.filter(c => targetMs.some(m => m.category === c));
+                const phases = [...new Set(targetMs.filter(m => !bulkCategory || m.category === bulkCategory).map(m => m.phase))];
+                const matching = targetMs.filter(m => {
                   const matchPhase = !bulkPhase || m.phase === bulkPhase;
                   const matchCat = !bulkCategory || m.category === bulkCategory;
                   return matchPhase && matchCat && m.status !== "N/A";
@@ -3440,6 +3437,25 @@ export default function TandAApp() {
 
                 return (
                   <>
+                    <label style={S.label}>POs (optional — leave empty for all)</label>
+                    <div style={{ marginBottom: 12, maxHeight: 140, overflowY: "auto", background: "#0F172A", borderRadius: 8, border: "1px solid #334155", padding: 6 }}>
+                      {vendorPOs.map(p => {
+                        const pn = p.PoNumber ?? "";
+                        const isChecked = bulkPOs.includes(pn);
+                        const poMsCount = (milestones[pn] || []).length;
+                        return (
+                          <label key={pn} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px", cursor: "pointer", borderRadius: 4 }}
+                            onMouseEnter={e => e.currentTarget.style.background = "#1E293B"}
+                            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                            <input type="checkbox" checked={isChecked} onChange={() => setBulkPOs(prev => isChecked ? prev.filter(x => x !== pn) : [...prev, pn])}
+                              style={{ accentColor: "#3B82F6" }} />
+                            <span style={{ fontSize: 13, color: "#60A5FA", fontFamily: "monospace", fontWeight: 600 }}>{pn}</span>
+                            <span style={{ fontSize: 11, color: "#6B7280" }}>{poMsCount} milestones</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+
                     <label style={S.label}>Category (optional)</label>
                     <select style={{ ...S.select, width: "100%", marginBottom: 12 }} value={bulkCategory} onChange={e => { setBulkCategory(e.target.value); setBulkPhase(""); }}>
                       <option value="">All Categories</option>
@@ -3459,7 +3475,7 @@ export default function TandAApp() {
                     </select>
 
                     <div style={{ background: "#0F172A", borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 12, color: "#9CA3AF" }}>
-                      <strong style={{ color: "#60A5FA" }}>Preview:</strong> {matching.length} milestones across {vendorPOs.length} POs
+                      <strong style={{ color: "#60A5FA" }}>Preview:</strong> {matching.length} milestones across {targetPOs.length} POs{bulkPOs.length > 0 ? ` (${bulkPOs.length} selected)` : " (all)"}
                       {bulkStatus && <span> will be set to <strong style={{ color: MILESTONE_STATUS_COLORS[bulkStatus] || "#fff" }}>{bulkStatus}</strong></span>}
                     </div>
 
