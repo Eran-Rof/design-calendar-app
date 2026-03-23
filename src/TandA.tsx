@@ -2354,10 +2354,11 @@ export default function TandAApp() {
                                 <div key={m.id} style={{ display: "contents" }}>
                                 <div style={{ display: "grid", gridTemplateColumns: "1.5fr 100px 120px 120px 55px 32px", gap: 6, padding: "8px 14px", borderTop: "1px solid #1E293B", alignItems: "center", background: cascade.blocked && m.status !== "Complete" && m.status !== "N/A" ? "#F59E0B08" : "transparent" }}>
                                   <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
-                                  <span style={{ textAlign: "center", fontSize: 12 }}>
-                                    <span style={{ color: projectedDate ? "#F59E0B" : "#9CA3AF" }}>{fmtDate(m.expected_date ?? undefined)}</span>
+                                  <div style={{ textAlign: "center" }}>
+                                    <input type="date" value={m.expected_date || ""} onChange={e => saveMilestone({ ...m, expected_date: e.target.value || null, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true)}
+                                      style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: projectedDate ? "#F59E0B" : "#9CA3AF", fontSize: 12, padding: "4px 6px", width: "100%", boxSizing: "border-box", outline: "none" }} />
                                     {projectedDate && <div style={{ fontSize: 9, color: "#F59E0B", marginTop: 1 }}>→ {fmtDate(projectedDate)}</div>}
-                                  </span>
+                                  </div>
                                   <select style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: MILESTONE_STATUS_COLORS[m.status] || "#6B7280", fontSize: 12, padding: "5px 6px", width: "100%", boxSizing: "border-box" }}
                                     value={m.status}
                                     onChange={e => {
