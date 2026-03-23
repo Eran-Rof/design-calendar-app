@@ -1865,17 +1865,17 @@ export default function TandAApp() {
                 {!progressCollapsed && <div style={{ background: "#0F172A", borderRadius: "0 0 8px 8px", padding: "12px 14px" }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
                   {([
-                    ["Complete", complete, "#047857", "#6EE7B7"],
-                    ["In Progress", inProg, "#1E3A8A", "#93C5FD"],
-                    ["Delayed", delayed, "#7F1D1D", "#FCA5A5"],
-                    ["Not Started", active - complete - inProg - delayed, "#6B7280", "#9CA3AF"],
-                  ] as [string, number, string, string][]).filter(([, count]) => count > 0).map(([label, count, color, colorLt]) => {
-                    const statusPct = active > 0 ? Math.round((count / active) * 100) : 0;
+                    ["Complete", complete, "#10B981", "#6EE7B7", "#047857"],
+                    ["In Progress", inProg, "#3B82F6", "#93C5FD", "#1D4ED8"],
+                    ["Delayed", delayed, "#EF4444", "#FCA5A5", "#7F1D1D"],
+                    ["Not Started", active - complete - inProg - delayed, "#6B7280", "#6B7280", "#1F2937"],
+                  ] as [string, number, string, string, string][]).filter(([, count]) => (count as number) > 0).map(([label, count, labelColor, gradLight, gradDark]) => {
+                    const statusPct = active > 0 ? Math.round(((count as number) / active) * 100) : 0;
                     return (
-                      <div key={label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ width: 90, fontSize: 11, color, fontWeight: 600, textAlign: "right", flexShrink: 0 }}>{label}</span>
+                      <div key={label as string} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ width: 90, fontSize: 11, color: labelColor as string, fontWeight: 600, textAlign: "right", flexShrink: 0 }}>{label as string}</span>
                         <div style={{ flex: 1, height: 10, borderRadius: 5, background: "#0F172A", overflow: "hidden" }}>
-                          <div style={{ width: `${statusPct}%`, height: "100%", background: `linear-gradient(90deg, ${colorLt}, ${color})`, borderRadius: 5, transition: "width 0.3s", minWidth: count > 0 ? 4 : 0 }} />
+                          <div style={{ width: `${statusPct}%`, height: "100%", background: `linear-gradient(90deg, ${gradLight}, ${gradDark})`, borderRadius: 5, transition: "width 0.3s", minWidth: (count as number) > 0 ? 4 : 0 }} />
                         </div>
                         <span style={{ width: 55, fontSize: 11, color: "#94A3B8", fontFamily: "monospace", flexShrink: 0 }}>{count} ({statusPct}%)</span>
                       </div>
@@ -3221,7 +3221,7 @@ export default function TandAApp() {
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     <div style={{ display: "flex", gap: 12, fontSize: 12, color: "#94A3B8", alignItems: "center" }}>
                       <span style={{ fontSize: 10, color: "#6B7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, width: 80, flexShrink: 0 }}>Milestones:</span>
-                      {[["linear-gradient(90deg,#34D399,#059669)","Complete"],["linear-gradient(90deg,#60A5FA,#1D4ED8)","In Progress"],["linear-gradient(90deg,#F87171,#991B1B)","Delayed"],["linear-gradient(90deg,#6B7280,#1F2937)","Not Started"]].map(([c,l]) => (
+                      {[["linear-gradient(90deg,#6EE7B7,#047857)","Complete"],["linear-gradient(90deg,#93C5FD,#1D4ED8)","In Progress"],["linear-gradient(90deg,#FCA5A5,#7F1D1D)","Delayed"],["linear-gradient(90deg,#6B7280,#1F2937)","Not Started"]].map(([c,l]) => (
                         <span key={l} style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 24, height: 14, borderRadius: 7, background: c }} />{l}</span>
                       ))}
                     </div>
@@ -3357,7 +3357,7 @@ export default function TandAApp() {
                               const allDone = catMs.every(m => m.status === "Complete" || m.status === "N/A");
                               const hasDelayed = catMs.some(m => m.status === "Delayed");
                               const hasInProg = catMs.some(m => m.status === "In Progress");
-                              const barGradient = allDone ? "linear-gradient(90deg, #34D399, #059669)" : hasDelayed ? "linear-gradient(90deg, #F87171, #991B1B)" : hasInProg ? "linear-gradient(90deg, #60A5FA, #1D4ED8)" : "linear-gradient(90deg, #6B7280, #1F2937)";
+                              const barGradient = allDone ? "linear-gradient(90deg, #6EE7B7, #047857)" : hasDelayed ? "linear-gradient(90deg, #FCA5A5, #7F1D1D)" : hasInProg ? "linear-gradient(90deg, #93C5FD, #1D4ED8)" : "linear-gradient(90deg, #6B7280, #1F2937)";
                               const barH = 24;
                               const barY = 6 + catIdx * (barH + 3);
                               const catDone = catMs.filter(m => m.status === "Complete").length;
