@@ -1,7 +1,7 @@
 // api/dropbox-proxy.js — Vercel Serverless Function for Dropbox file operations
 // Handles token refresh automatically using the refresh token
 
-export const config = { maxDuration: 60 };
+export const config = { maxDuration: 60, api: { bodyParser: false } };
 
 let cachedToken = null;
 let tokenExpiry = 0;
@@ -9,15 +9,13 @@ let tokenExpiry = 0;
 async function getAccessToken() {
   if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
 
+  const appKey = (process.env.DROPBOX_APP_KEY || "").trim();
+  const appSecret = (process.env.DROPBOX_APP_SECRET || "").trim();
+  const refreshToken = (process.env.DROPBOX_REFRESH_TOKEN || "").trim();
   const res = await fetch("https://api.dropboxapi.com/oauth2/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: process.env.DROPBOX_REFRESH_TOKEN,
-      client_id: process.env.DROPBOX_APP_KEY,
-      client_secret: process.env.DROPBOX_APP_SECRET,
-    }),
+    body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(refreshToken)}&client_id=${encodeURIComponent(appKey)}&client_secret=${encodeURIComponent(appSecret)}`,
   });
 
   if (!res.ok) {
