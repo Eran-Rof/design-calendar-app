@@ -337,6 +337,9 @@ export default function TandAApp() {
   const [acceptedBlocked, setAcceptedBlocked] = useState<Set<string>>(new Set());
   const [blockedModal, setBlockedModal] = useState<{ cat: string; delayedCat: string; daysLate: number; onConfirm: () => void } | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ title: string; message: string; icon: string; confirmText: string; confirmColor: string; cancelText?: string; onConfirm: () => void; onCancel?: () => void } | null>(null);
+  const [askMeOpen, setAskMeOpen] = useState(false);
+  const [askMeQuery, setAskMeQuery] = useState("");
+  const [askMeHistory, setAskMeHistory] = useState<{ q: string; a: string }[]>([]);
   const [showBulkUpdate, setShowBulkUpdate] = useState(false);
   const [bulkVendor, setBulkVendor] = useState("");
   const [bulkPhase, setBulkPhase] = useState("");
@@ -1247,6 +1250,41 @@ export default function TandAApp() {
     } else {
       doOpen();
     }
+  }
+
+  // ── Ask Me — AI Help System ────────────────────────────────────────────
+  const askMeKnowledge: { keywords: string[]; answer: string }[] = [
+    { keywords: ["sync", "xoro", "import", "load", "po"], answer: "**Syncing POs from Xoro**\n\nClick **🔄 Sync** in the nav bar. You can filter by vendor, status, PO number, or date range. The sync fetches active POs (Open, Released, Pending, Draft) and auto-deletes Closed/Received/Cancelled ones.\n\nPOs sync one status at a time to avoid timeouts. If a status fails, it skips and continues with the rest." },
+    { keywords: ["milestone", "status", "change", "update"], answer: "**Changing Milestone Status**\n\nOpen any PO → Milestones tab. Each milestone has a status dropdown:\n• **Not Started** → default\n• **In Progress** → work has begun\n• **Delayed** → past due (auto-set when date passes)\n• **Complete** → finished\n• **N/A** → not applicable\n\nEach status change records the date automatically. When switching from Complete, you'll be asked whether to clear the completion date." },
+    { keywords: ["cascade", "blocked", "dependency", "dependencies"], answer: "**Cascade Dependencies**\n\nCategories follow a sequence: Pre-Production → Fabric T&A → Samples → Production → Transit. Each depends on the previous being Complete.\n\nIf a category is delayed, downstream categories show:\n• Yellow border + \"Blocked by X\" badge\n• Projected shifted due dates (→ arrow)\n• A confirmation dialog before opening\n\nThe Dashboard shows cascade alerts sorted by severity." },
+    { keywords: ["timeline", "gantt", "chart", "bar"], answer: "**Gantt Timeline**\n\nClick **📊 Timeline** in the nav bar. Shows all POs with milestone category bars:\n• 🟢 Green = Complete\n• 🔵 Blue = In Progress\n• 🔴 Red = Delayed\n• ⬜ Gray = Not Started\n\nClick a PO name → opens its detail. Click a bar → opens that specific category.\n\nThe search bar filters by PO#, vendor, memo, or tags. Selecting a PO in All POs and switching to Timeline auto-fills the search." },
+    { keywords: ["matrix", "size", "color", "base", "sku"], answer: "**Item Matrix**\n\nThe PO/Matrix tab parses each SKU by dashes:\n• Before 1st dash = **Base Part**\n• Between 1st and 2nd dash = **Color**\n• After 2nd dash = **Size**\n\nSizes sort numerically (5, 6, 7, 8, 10, 12...). Shows quantity per size, row totals, PO cost, and total cost. The Line Items section below shows the raw SKU list." },
+    { keywords: ["bulk", "update", "multiple", "vendor"], answer: "**Bulk Milestone Update**\n\nClick **⚡ Bulk Update** in the nav bar.\n\n1. Select a **vendor**\n2. Optionally filter by **POs** (search + checkboxes)\n3. Optionally filter by **category** and **phases**\n4. Select the **new status**\n5. Preview shows how many milestones will be affected\n6. Click Update\n\nPOs without milestones will have them auto-generated before the update." },
+    { keywords: ["excel", "export", "download", "spreadsheet"], answer: "**Excel Export**\n\nClick the green **Excel** button in any PO detail view. It exports the current tab:\n• **PO/Matrix** → Matrix sheet + Line Items sheet\n• **Milestones** → Milestone details\n• **Notes** → All notes\n• **All** → Everything combined\n\nEach export includes a styled header with PO info, colored headers, alternating rows, and number formatting ($#,##0.00 for dollars, #,##0 for quantities)." },
+    { keywords: ["print"], answer: "**Printing**\n\nClick the **🖨️ Print** button in any PO detail view. Opens a clean print-friendly popup with the current tab content. Buttons, inputs, and iframes are hidden for clean output." },
+    { keywords: ["note", "notes", "comment"], answer: "**Milestone Notes**\n\nEach milestone has a 📝 icon. Click it to expand the notes panel:\n• See existing notes with timestamps and who wrote them\n• Type a new note and press Enter or click Add\n• Notes are timestamped and user-identified\n• The icon shows a blue badge with the note count" },
+    { keywords: ["custom", "phase", "add phase"], answer: "**Adding Custom Phases**\n\nAt the bottom of the Milestones tab, click **+ Add Custom Phase**:\n• Enter a **phase name** (e.g. \"Lab Dip Review\")\n• Select a **category**\n• Optionally set a **due date** — or it auto-calculates\n• Choose **Insert After** to position it between existing phases\n\nIf you use Insert After without a due date, it auto-sets the midpoint between the adjacent phases." },
+    { keywords: ["due date", "change date", "shift", "cascade date"], answer: "**Changing Due Dates**\n\nClick any milestone's due date to edit it. When you change a date:\n• All subsequent milestones shift by the same number of days\n• Delayed milestones reset to Not Started if the new date is in the future\n• Change is logged to history with the shift amount\n\nExample: Moving a date forward by 5 days shifts all following milestones +5 days." },
+    { keywords: ["delete", "po", "remove"], answer: "**Deleting a PO**\n\nIn the PO detail view, click **🗑 Delete PO**. This permanently removes:\n• The PO record\n• All milestones\n• All notes and history\n• All attachments\n\nClosed, Received, and Cancelled POs are auto-deleted on sync." },
+    { keywords: ["attachment", "file", "upload", "dropbox"], answer: "**Attachments**\n\nOpen any PO → **📎 Files** tab:\n• Click **+ Upload Files** to upload one or multiple files\n• Files are stored in Dropbox at `/Eran Bitton/Apps/design-calendar-app/po-attachments/`\n• Click a filename to open/download\n• Image files show a thumbnail preview\n• Delete shows a 24-hour undo countdown — the file stays in Dropbox until the timer expires" },
+    { keywords: ["email", "outlook", "send", "inbox"], answer: "**Email Integration**\n\nThe **📧 Email** tab in PO detail shows Outlook emails matching the subject prefix [PO-{number}]:\n• **Inbox** — all matching emails with unread indicators\n• **Thread** — conversation view with HTML rendering\n• **Compose** — send new emails with pre-filled subject prefix\n\nRequires Azure AD setup with Mail.Read and Mail.Send permissions." },
+    { keywords: ["vendor", "scorecard", "performance", "on-time"], answer: "**Vendor Scorecard**\n\nClick **🏆 Vendors** in the nav bar. Shows per-vendor:\n• PO count and milestone completion\n• On-time vs late count\n• Average days late\n• On-time % with color-coded bar (🟢 ≥90%, 🟡 ≥70%, 🔴 <70%)\n\nClick a vendor to filter the PO list by that vendor." },
+    { keywords: ["activity", "feed", "history", "log"], answer: "**Activity Feed**\n\nClick **📋 Activity** in the nav bar. Shows a unified global feed of all recent changes:\n• Status changes, bulk updates, syncs, milestone generation\n• Contextual icons (⚡📊🔄🏭📝)\n• Time-ago labels\n• Click any row to open the relevant PO" },
+    { keywords: ["dashboard", "health", "score"], answer: "**Dashboard**\n\nThe dashboard shows:\n• **Production Health Score** — ring chart combining completion rate minus delay penalty\n• **8 stat cards** — all clickable to navigate to details\n• **Milestone Pipeline** — status distribution bars\n• **Progress by Category** — per-category completion\n• **Top Vendors** — best performers\n• **Cascade Alerts** — blocked categories sorted by severity\n• **Upcoming + Overdue** — side-by-side milestone tables" },
+    { keywords: ["template", "wip", "production template"], answer: "**Production Templates**\n\nClick **Templates** in the nav bar. Templates define the milestone phases for each vendor:\n• Default template applies to all vendors\n• Vendor-specific templates override the default\n• Each phase has: name, category, days before DDP\n• When a PO is opened for a vendor without a template, you're prompted to create one\n• Templates can be copied from existing vendors" },
+    { keywords: ["conflict", "realtime", "sync", "multi-user", "other user"], answer: "**Multi-User & Conflict Handling**\n\nThe app syncs every 10 seconds. When another user makes changes, your view updates automatically.\n\nIf you and another user edit the same milestone simultaneously, a conflict dialog appears:\n• **Use Mine** — saves your version\n• **Keep Theirs** — reloads the server version\n\nNo data is lost — you always choose which version to keep." },
+    { keywords: ["search", "find", "filter"], answer: "**Search & Filter**\n\nThe search bar in **All POs** filters by: PO#, vendor, memo, tags, status.\n\nIn **Timeline**, the same search filters the Gantt chart.\n\nIn **Email view**, search filters the PO/collection list.\n\nSearching a PO and opening it auto-clears the search. Closing a PO also clears the search." },
+  ];
+
+  function getAskMeAnswer(query: string): string {
+    const q = query.toLowerCase();
+    let bestMatch = { score: 0, answer: "" };
+    for (const item of askMeKnowledge) {
+      const score = item.keywords.reduce((s, kw) => s + (q.includes(kw.toLowerCase()) ? 1 : 0), 0);
+      if (score > bestMatch.score) bestMatch = { score, answer: item.answer };
+    }
+    if (bestMatch.score > 0) return bestMatch.answer;
+    return "I'm not sure about that. Try asking about:\n• **Syncing POs** from Xoro\n• **Milestones** — status, dependencies, cascade\n• **Timeline** — Gantt chart view\n• **Matrix** — size/color breakdown\n• **Bulk Update** — update multiple POs\n• **Excel Export** — download data\n• **Attachments** — file uploads\n• **Email** — Outlook integration\n• **Vendor Scorecard** — performance tracking\n• **Templates** — production templates\n• **Dashboard** — health score, stats\n• **Search** — filtering POs";
   }
 
   async function addNote() {
@@ -4228,6 +4266,59 @@ export default function TandAApp() {
           </div>
         </div>
       )}
+      {/* Ask Me — Floating Help Button + Panel */}
+      <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 250 }}>
+        {askMeOpen && (
+          <div style={{ position: "absolute", bottom: 60, right: 0, width: 380, maxHeight: 500, background: "#1E293B", borderRadius: 16, border: "1px solid #334155", boxShadow: "0 16px 48px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ padding: "14px 18px", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", justifyContent: "space-between", background: "linear-gradient(135deg, #3B82F6, #8B5CF6)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 20 }}>🤖</span>
+                <span style={{ color: "#fff", fontWeight: 700, fontSize: 15 }}>Ask Me Anything</span>
+              </div>
+              <button onClick={() => setAskMeOpen(false)} style={{ background: "none", border: "none", color: "#fff", fontSize: 16, cursor: "pointer", fontFamily: "inherit", opacity: 0.8 }}>✕</button>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px", display: "flex", flexDirection: "column", gap: 12, maxHeight: 360 }}>
+              {askMeHistory.length === 0 && (
+                <div style={{ textAlign: "center", padding: "20px 0", color: "#6B7280" }}>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>💡</div>
+                  <div style={{ fontSize: 13, marginBottom: 12 }}>Ask me anything about using PO WIP!</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
+                    {["How do I sync?", "Milestone status", "Timeline view", "Bulk update", "Excel export", "Cascade alerts"].map(q => (
+                      <button key={q} onClick={() => { const a = getAskMeAnswer(q); setAskMeHistory(h => [...h, { q, a }]); setAskMeQuery(""); }}
+                        style={{ padding: "4px 10px", borderRadius: 12, border: "1px solid #334155", background: "#0F172A", color: "#94A3B8", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>{q}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {askMeHistory.map((item, i) => (
+                <div key={i}>
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                    <div style={{ background: "#3B82F6", color: "#fff", padding: "8px 12px", borderRadius: "12px 12px 2px 12px", fontSize: 13, maxWidth: "80%" }}>{item.q}</div>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "flex-start" }}>
+                    <div style={{ background: "#0F172A", color: "#D1D5DB", padding: "10px 14px", borderRadius: "12px 12px 12px 2px", fontSize: 12, maxWidth: "90%", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                      {item.a.split(/\*\*(.*?)\*\*/g).map((part, j) => j % 2 === 1 ? <strong key={j} style={{ color: "#60A5FA" }}>{part}</strong> : part)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding: "10px 14px", borderTop: "1px solid #334155", display: "flex", gap: 8 }}>
+              <input value={askMeQuery} onChange={e => setAskMeQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && askMeQuery.trim()) { const a = getAskMeAnswer(askMeQuery); setAskMeHistory(h => [...h, { q: askMeQuery.trim(), a }]); setAskMeQuery(""); } }}
+                placeholder="Type your question..." style={{ flex: 1, background: "#0F172A", border: "1px solid #334155", borderRadius: 8, color: "#D1D5DB", fontSize: 13, padding: "8px 12px", outline: "none", fontFamily: "inherit" }} />
+              <button onClick={() => { if (askMeQuery.trim()) { const a = getAskMeAnswer(askMeQuery); setAskMeHistory(h => [...h, { q: askMeQuery.trim(), a }]); setAskMeQuery(""); } }}
+                style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #3B82F6, #8B5CF6)", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Ask</button>
+            </div>
+          </div>
+        )}
+        <button onClick={() => setAskMeOpen(!askMeOpen)}
+          style={{ width: 52, height: 52, borderRadius: "50%", border: "none", background: askMeOpen ? "linear-gradient(135deg, #8B5CF6, #3B82F6)" : "linear-gradient(135deg, #3B82F6, #8B5CF6)", color: "#fff", fontSize: 22, cursor: "pointer", boxShadow: "0 4px 16px rgba(59,130,246,0.4)", display: "flex", alignItems: "center", justifyContent: "center", transition: "transform 0.2s, box-shadow 0.2s" }}
+          onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.1)"; e.currentTarget.style.boxShadow = "0 6px 24px rgba(59,130,246,0.6)"; }}
+          onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 4px 16px rgba(59,130,246,0.4)"; }}>
+          {askMeOpen ? "✕" : "💬"}
+        </button>
+      </div>
     </div>
   );
 
