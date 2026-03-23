@@ -5049,6 +5049,19 @@ function TaskEditModal({
         onClose={onClose}
         extraWide
       >
+        {/* Undo confirm banner — top of card */}
+        {undoConfirm && undoConfirm.taskId === task.id && (
+          <div style={{ padding: "12px 16px", background: "#FFF3CD", border: "1px solid #FFC107", borderRadius: 10, marginBottom: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#856404" }}>↩ Undo last change to this card?</div>
+            {undoConfirm.description && (
+              <div style={{ fontSize: 12, color: "#92400E" }}>About to undo: <em>{undoConfirm.description}</em></div>
+            )}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => onUndoConfirm(true)} style={{ padding: "6px 18px", borderRadius: 6, border: "none", background: TH.primary, color: "#fff", cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 700 }}>Yes, Undo</button>
+              <button onClick={() => onUndoConfirm(false)} style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${TH.border}`, background: "none", color: TH.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Cancel</button>
+            </div>
+          </div>
+        )}
         <div
           style={{
             display: "flex",
@@ -5620,14 +5633,6 @@ function TaskEditModal({
             </button>
           ) : (
             <div />
-          )}
-          {/* Undo confirm banner */}
-          {undoConfirm && undoConfirm.taskId === task.id && (
-            <div style={{ padding: "10px 14px", background: "#FFF3CD", border: "1px solid #FFC107", borderRadius: 8, marginBottom: 10, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <span style={{ flex: 1, fontSize: 13, color: "#856404", fontWeight: 600 }}>Undo last change to this card?</span>
-              <button onClick={() => onUndoConfirm(true)} style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: TH.primary, color: "#fff", cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 700 }}>Yes, Undo</button>
-              <button onClick={() => onUndoConfirm(false)} style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${TH.border}`, background: "none", color: TH.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Cancel</button>
-            </div>
           )}
           <div
             style={{
@@ -10617,9 +10622,12 @@ export default function App() {
   const [genderSizes, setGenderSizes] = usePersistSb({}, "gender_sizes", sbSave);
   const [taskTemplates, setTaskTemplates] = usePersistSb([], "task_templates", sbSave);
   // ─── Undo stack (up to 4 entries) ───────────────────────────────────────────
-  const [undoStack, setUndoStack] = useState<Array<{prevTasks: any[], type: 'card' | 'drag', taskId?: string}>>([]);
-  const [undoConfirm, setUndoConfirm] = useState<{prevTasks: any[], taskId: string} | null>(null);
+  const [undoStack, setUndoStack] = useState<Array<{prevTasks: any[], type: 'card' | 'drag', taskId?: string, description?: string}>>([]);
+  const [undoConfirm, setUndoConfirm] = useState<{prevTasks: any[], taskId: string, description?: string} | null>(null);
   const [miniCalDragOver, setMiniCalDragOver] = useState(null);
+  // ─── Calendar view persistent month/year (lifted out of CalendarView to survive re-renders) ─
+  const [calViewYear, setCalViewYear] = useState(() => new Date().getFullYear());
+  const [calViewMonth, setCalViewMonth] = useState(() => new Date().getMonth());
   const [teamsConfig, setTeamsConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem("teamsConfig") || "null") || { clientId: "", tenantId: "", channelMap: {} }; }
     catch { return { clientId: "", tenantId: "", channelMap: {} }; }
@@ -10849,8 +10857,30 @@ export default function App() {
   }
 
   // ─── Undo helpers ────────────────────────────────────────────────────────────
-  function pushUndo(prevTasksSnapshot: any[], type: 'card' | 'drag', taskId?: string) {
-    setUndoStack(prev => [{ prevTasks: prevTasksSnapshot, type, taskId }, ...prev].slice(0, 4));
+  function buildUndoDescription(oldTask: any, newTask: any): string {
+    if (!oldTask || !newTask) return "";
+    const parts: string[] = [];
+    if (oldTask.status !== newTask.status) parts.push(`status: "${oldTask.status}" → "${newTask.status}"`);
+    if (oldTask.assigneeId !== newTask.assigneeId) {
+      const oldName = oldTask.assigneeName || oldTask.assigneeId || "unassigned";
+      const newName = newTask.assigneeName || newTask.assigneeId || "unassigned";
+      parts.push(`assignee: "${oldName}" → "${newName}"`);
+    }
+    if (oldTask.due !== newTask.due) parts.push(`due date: ${formatDate(oldTask.due)} → ${formatDate(newTask.due)}`);
+    if (oldTask.vendorName !== newTask.vendorName) parts.push(`vendor: "${oldTask.vendorName}" → "${newTask.vendorName}"`);
+    if (oldTask.category !== newTask.category) parts.push(`category: "${oldTask.category}" → "${newTask.category}"`);
+    return parts.length > 0 ? parts.join(", ") : "card edited";
+  }
+
+  function pushUndo(prevTasksSnapshot: any[], type: 'card' | 'drag', taskId?: string, newTask?: any) {
+    let description = "";
+    if (type === 'card' && taskId && newTask) {
+      const oldTask = prevTasksSnapshot.find((t: any) => t.id === taskId);
+      description = buildUndoDescription(oldTask, newTask);
+    } else if (type === 'drag') {
+      description = "card position moved";
+    }
+    setUndoStack(prev => [{ prevTasks: prevTasksSnapshot, type, taskId, description }, ...prev].slice(0, 4));
   }
 
   function handleUndo() {
@@ -10862,14 +10892,14 @@ export default function App() {
       entry.prevTasks.forEach((t: any) => sbSaveTask(t));
     } else {
       // Card change: open the card and show confirm dialog
-      setUndoConfirm({ prevTasks: entry.prevTasks, taskId: entry.taskId! });
+      setUndoConfirm({ prevTasks: entry.prevTasks, taskId: entry.taskId!, description: entry.description });
       const task = tasks.find((t: any) => t.id === entry.taskId);
       if (task) setEditTask(task);
     }
   }
 
   function saveTask(f) {
-    pushUndo(tasks, 'card', f.id);
+    pushUndo(tasks, 'card', f.id, f);
     const clean = { ...f };
     setTasks((ts) => ts.map((t) => (t.id === clean.id ? clean : t)));
     sbSaveTask(clean); // Fast individual row upsert
@@ -12908,6 +12938,7 @@ export default function App() {
                                 ? rawDue
                                 : snapToBusinessDay(rawDue);
                               if (droppedTask) {
+                                pushUndo(tasks, 'drag');
                                 const updated = { ...droppedTask, due: newDue };
                                 setTasks(ts => ts.map(x => x.id === droppedId ? updated : x));
                                 sbSaveTask(updated);
@@ -13237,6 +13268,7 @@ export default function App() {
                                   if (newDue <= prevTask.due) newDue = prevTask.due; // fallback
                                   const droppedTask = tasks.find(x => x.id === droppedId);
                                   if (droppedTask) {
+                                    pushUndo(tasks, 'drag');
                                     const updated = { ...droppedTask, due: newDue };
                                     setTasks(ts => ts.map(x => x.id === droppedId ? updated : x));
                                     sbSaveTask(updated);
@@ -13331,8 +13363,9 @@ export default function App() {
   // ── CALENDAR VIEW ──────────────────────────────────────────────────────────
   const CalendarView = () => {
     const today = new Date();
-    const [cy, setCy] = useState(today.getFullYear());
-    const [cm, setCm] = useState(today.getMonth());
+    // Use parent-level state so month persists when task modal opens/closes
+    const cy = calViewYear, setCy = setCalViewYear;
+    const cm = calViewMonth, setCm = setCalViewMonth;
     const [calDragOver, setCalDragOver] = useState(null); // dateString being hovered
     const fd = new Date(cy, cm, 1).getDay(),
       dim = new Date(cy, cm + 1, 0).getDate();
