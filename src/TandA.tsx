@@ -524,6 +524,8 @@ export default function TandAApp() {
 
   // ── PLM session auto-login ────────────────────────────────────────────────
   const [sessionChecked, setSessionChecked] = useState(false);
+  const realtimeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastDataHashRef = useRef<string>("");
 
   useEffect(() => {
     try {
@@ -754,6 +756,33 @@ export default function TandAApp() {
       if (existing.notes !== m.notes) changes.push(`Notes updated`);
       if (changes.length > 0) {
         addHistory(m.po_number, `${m.phase}: ${changes.join(", ")}`);
+      }
+    }
+    // Conflict detection: check if another user modified this milestone since we loaded it
+    if (existing) {
+      const { data: currentRow } = await sb.from("tanda_milestones").single("id,data", `id=eq.${encodeURIComponent(m.id)}`);
+      const serverData = (currentRow as any)?.data as Milestone | undefined;
+      if (serverData && serverData.updated_at && serverData.updated_at !== existing.updated_at) {
+        // Conflict detected — let user decide
+        setConfirmModal({
+          title: "Conflict Detected",
+          message: `"${m.phase}" was modified by ${serverData.updated_by || "another user"}.\n\nTheir status: ${serverData.status} · Your status: ${m.status}\n\nOverwrite with your changes?`,
+          icon: "⚠️",
+          confirmText: "Use Mine",
+          cancelText: "Keep Theirs",
+          confirmColor: "#3B82F6",
+          onConfirm: async () => {
+            await sb.from("tanda_milestones").upsert({ id: m.id, data: m }, { onConflict: "id" });
+            setMilestones(prev => {
+              const arr = [...(prev[m.po_number] || [])];
+              const idx2 = arr.findIndex(x => x.id === m.id);
+              if (idx2 >= 0) arr[idx2] = m; else arr.push(m);
+              return { ...prev, [m.po_number]: arr };
+            });
+          },
+          onCancel: async () => { await loadAllMilestones(); },
+        });
+        return; // Don't save yet — modal callbacks handle it
       }
     }
     await sb.from("tanda_milestones").upsert({ id: m.id, data: m }, { onConflict: "id" });
@@ -1023,6 +1052,44 @@ export default function TandAApp() {
   useEffect(() => {
     if (user) { loadCachedPOs(); loadNotes(); loadVendors(); loadWipTemplates(); loadAllMilestones(); loadDCVendors(); loadDesignTemplates(); }
   }, [user, loadCachedPOs, loadNotes, loadVendors]);
+
+  // ── Realtime sync — poll every 10 seconds for changes from other users ──
+  useEffect(() => {
+    if (!user) return;
+
+    const poll = async () => {
+      try {
+        // Quick check: fetch latest record hint from each table
+        const [posRes, msRes, notesRes] = await Promise.all([
+          fetch(`${SB_URL}/rest/v1/tanda_pos?select=po_number,synced_at&order=synced_at.desc&limit=1`, { headers: SB_HEADERS }),
+          fetch(`${SB_URL}/rest/v1/tanda_milestones?select=id&order=id.desc&limit=1`, { headers: SB_HEADERS }),
+          fetch(`${SB_URL}/rest/v1/tanda_notes?select=id,created_at&order=created_at.desc&limit=1`, { headers: SB_HEADERS }),
+        ]);
+        const [posData, msData, notesData] = await Promise.all([posRes.json(), msRes.json(), notesRes.json()]);
+        const hash = JSON.stringify({ p: posData, m: msData, n: notesData });
+
+        if (lastDataHashRef.current && hash !== lastDataHashRef.current) {
+          // Something changed — reload all tables
+          console.log("[Realtime] Change detected, reloading...");
+          await loadCachedPOs();
+          await loadAllMilestones();
+          await loadNotes();
+        }
+        lastDataHashRef.current = hash;
+      } catch {
+        // Silent fail — next poll will retry
+      }
+    };
+
+    // Capture initial hash then start interval
+    poll();
+    realtimeIntervalRef.current = setInterval(poll, 10000);
+
+    return () => {
+      if (realtimeIntervalRef.current) clearInterval(realtimeIntervalRef.current);
+      realtimeIntervalRef.current = null;
+    };
+  }, [user, loadCachedPOs, loadNotes]);
 
   // ── Auto-delay overdue milestones ────────────────────────────────────────
   const autoDelayedRef = useRef<Set<string>>(new Set());
