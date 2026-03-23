@@ -1200,20 +1200,21 @@ export default function TandAApp() {
     await loadNotes();
   }
 
-  // ── Attachments ──────────────────────────────────────────────────────────
-  const ATTACH_BUCKET = "Attachments";
+  // ── Attachments (Dropbox) ────────────────────────────────────────────────
   async function uploadAttachment(poNumber: string, file: File) {
     setUploadingAttachment(true);
     try {
       const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-      const filePath = `po-attachments/${poNumber}/${safeName}`;
-      const res = await fetch(`${SB_URL}/storage/v1/object/${ATTACH_BUCKET}/${filePath}`, {
-        method: "POST", headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`, "Content-Type": file.type || "application/octet-stream", "x-upsert": "true" }, body: file,
+      const dbxPath = `/Eran Bitton/Apps/design-calendar-app/po-attachments/${poNumber}/${safeName}`;
+      const res = await fetch("/api/dropbox-proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream", "X-Dropbox-Action": "upload", "X-Dropbox-Path": dbxPath },
+        body: file,
       });
       if (!res.ok) { console.warn("Upload failed:", res.status); setUploadingAttachment(false); return; }
-      const url = `${SB_URL}/storage/v1/object/public/${ATTACH_BUCKET}/${filePath}`;
-      const entry = { id: safeName, name: file.name, url, type: file.type, size: file.size, uploaded_by: user?.name || "", uploaded_at: new Date().toISOString() };
-      // Save metadata to tanda_notes with special status_override
+      const data = await res.json();
+      const url = data.shared_url || "";
+      const entry = { id: safeName, name: file.name, url, dbxPath: data.path_display || dbxPath, type: file.type, size: file.size, uploaded_by: user?.name || "", uploaded_at: new Date().toISOString() };
       await sb.from("tanda_notes").insert({ po_number: poNumber, note: JSON.stringify(entry), status_override: "__attachment__", user_name: user?.name || "", created_at: new Date().toISOString() });
       setAttachments(prev => ({ ...prev, [poNumber]: [...(prev[poNumber] || []), entry] }));
       addHistory(poNumber, `Attachment uploaded: ${file.name}`);
@@ -1230,10 +1231,10 @@ export default function TandAApp() {
   async function deleteAttachment(poNumber: string, attachId: string) {
     const entry = (attachments[poNumber] || []).find(a => a.id === attachId);
     if (!entry) return;
-    // Delete from storage
-    const filePath = `po-attachments/${poNumber}/${attachId}`;
-    await fetch(`${SB_URL}/storage/v1/object/${ATTACH_BUCKET}/${filePath}`, { method: "DELETE", headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` } });
-    // Delete metadata — find the note row
+    // Delete from Dropbox
+    const dbxPath = (entry as any).dbxPath || `/Eran Bitton/Apps/design-calendar-app/po-attachments/${poNumber}/${attachId}`;
+    try { await fetch(`/api/dropbox-proxy?action=delete&path=${encodeURIComponent(dbxPath)}`); } catch (e) { console.warn("Dropbox delete failed:", e); }
+    // Delete metadata
     const { data } = await sb.from("tanda_notes").select("id,note", `po_number=eq.${encodeURIComponent(poNumber)}&status_override=eq.__attachment__`);
     const row = data?.find((r: any) => { try { return JSON.parse(r.note).id === attachId; } catch { return false; } });
     if (row) await sb.from("tanda_notes").delete(`id=eq.${encodeURIComponent(row.id)}`);

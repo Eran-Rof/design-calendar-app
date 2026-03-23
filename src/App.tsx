@@ -686,30 +686,19 @@ function fileToDataURL(f) {
 
 // Upload a file to Supabase Storage and return a permanent public URL
 async function dbxUploadFileGlobal(file, folder = "images") {
-  const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
-  const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
-  const BUCKET = "Attachments";
   try {
     const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-    const filePath = `${folder}/${safeName}`;
-    const res = await fetch(`${SB_URL}/storage/v1/object/${BUCKET}/${filePath}`, {
+    const dbxPath = `/Eran Bitton/Apps/design-calendar-app/${folder}/${safeName}`;
+    const res = await fetch("/api/dropbox-proxy", {
       method: "POST",
-      headers: {
-        "apikey": SB_KEY,
-        "Authorization": `Bearer ${SB_KEY}`,
-        "Content-Type": file.type || "application/octet-stream",
-        "x-upsert": "true",
-      },
+      headers: { "Content-Type": "application/octet-stream", "X-Dropbox-Action": "upload", "X-Dropbox-Path": dbxPath },
       body: file,
     });
-    const resText = await res.text();
-    if (!res.ok) {
-      console.warn("Supabase upload failed:", res.status, resText);
-      return null;
-    }
-    console.log("[SB Storage] uploaded:", filePath);
-    return `${SB_URL}/storage/v1/object/public/${BUCKET}/${filePath}`;
-  } catch (e) { console.warn("sbUploadFile error", e); return null; }
+    if (!res.ok) { console.warn("Dropbox upload failed:", res.status); return null; }
+    const data = await res.json();
+    console.log("[Dropbox] uploaded:", data.path_display);
+    return data.shared_url || null;
+  } catch (e) { console.warn("Dropbox upload error", e); return null; }
 }
 function getChannelForCustomer(customer) {
   return CUSTOMER_CHANNEL_MAP[customer] || "";
