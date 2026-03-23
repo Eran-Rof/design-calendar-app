@@ -199,9 +199,13 @@ export default function PLMApp() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={S.userPill}>
-            <div style={{ ...S.avatarDot, background: user.color ?? "#CC2200" }}>
-              {user.initials ?? user.username?.[0]?.toUpperCase()}
-            </div>
+            {(user as any).avatar ? (
+              <img src={(user as any).avatar} alt={user.name ?? user.username} style={{ width: 32, height: 32, borderRadius: "50%", objectFit: "cover", border: `2px solid ${user.color ?? "#CC2200"}`, flexShrink: 0 }} />
+            ) : (
+              <div style={{ ...S.avatarDot, background: user.color ?? "#CC2200" }}>
+                {user.initials ?? user.username?.[0]?.toUpperCase()}
+              </div>
+            )}
             <span style={{ color: "#374151", fontSize: 14, fontWeight: 500 }}>{user.name ?? user.username}</span>
             {isAdmin && <span style={S.adminBadge}>Admin</span>}
           </div>
@@ -353,9 +357,13 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
               {users.map(u => (
                 <div key={u.id} style={S.userRow}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 160 }}>
-                    <div style={{ width: 32, height: 32, borderRadius: "50%", background: u.color ?? "#CC2200", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 12, fontWeight: 700 }}>
-                      {u.initials ?? u.username?.[0]?.toUpperCase()}
-                    </div>
+                    {(u as any).avatar ? (
+                      <img src={(u as any).avatar} alt={u.name ?? u.username} style={{ width: 32, height: 32, borderRadius: "50%", objectFit: "cover", border: `2px solid ${u.color ?? "#CC2200"}` }} />
+                    ) : (
+                      <div style={{ width: 32, height: 32, borderRadius: "50%", background: u.color ?? "#CC2200", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 12, fontWeight: 700 }}>
+                        {u.initials ?? u.username?.[0]?.toUpperCase()}
+                      </div>
+                    )}
                     <div>
                       <div style={{ fontWeight: 600, fontSize: 14, color: "#111827" }}>{u.name ?? u.username}</div>
                       <div style={{ fontSize: 12, color: "#6B7280" }}>@{u.username} · {u.role}</div>

@@ -675,6 +675,22 @@ function getBusinessDaysUntil(ds) {
   const today = new Date(); today.setHours(0,0,0,0);
   return diffBusinessDays(ds, toDateStr(today));
 }
+// ── Phase day-counting mode ───────────────────────────────────────────────────
+// Phases from Production onwards (post-PO) use plain calendar days.
+// All earlier phases (up to and including Purchase Order) use business days
+// where Mon–Thu = 1 day, Friday = 0.5 day, weekends/holidays = 0.
+const POST_PO_PHASES = new Set(["Production", "QC", "Ship Date", "DDP"]);
+function isPostPO(phase) { return POST_PO_PHASES.has(phase); }
+function addDaysForPhase(ds, n, phase) {
+  return isPostPO(phase) ? addDays(ds, n) : addBusinessDays(ds, n);
+}
+function diffDaysForPhase(a, b, phase) {
+  return isPostPO(phase) ? diffDays(a, b) : diffBusinessDays(a, b);
+}
+function getDaysUntilForPhase(ds, phase) {
+  return isPostPO(phase) ? getDaysUntil(ds) : getBusinessDaysUntil(ds);
+}
+
 function fileToDataURL(f) {
   return new Promise((res, rej) => {
     const r = new FileReader();
@@ -802,7 +818,7 @@ function generateTasks({
     );
   }
 
-  // QC = Production due date + 3 days
+  // QC = Production due date + 3 calendar days (post-PO = calendar days)
   const prodPhase = phases.find((p) => p.name === "Production");
   if (prodPhase) {
     const prodDue = addDays(ddpDate, -prodPhase.daysBack);
@@ -835,7 +851,9 @@ function generateTasks({
 
   return phases.map((p) => {
     const daysBack = isNaN(p.daysBack) ? 0 : Math.max(0, p.daysBack);
-    const due = ddpDate ? addDays(ddpDate, -daysBack) : "";
+    // Pre-PO phases use business days (Fri=0.5, weekends/holidays skip);
+    // post-PO phases (Production, QC, Ship Date, DDP) use calendar days.
+    const due = ddpDate ? addDaysForPhase(ddpDate, -daysBack, p.name) : "";
     return {
       id: uid(),
       ...base,
@@ -966,6 +984,126 @@ const S = {
 };
 
 // ─── SETTINGS DROPDOWN ───────────────────────────────────────────────────────
+// ─── ACTIVITY PANEL ───────────────────────────────────────────────────────────
+function ActivityPanel({ tasks, currentUser, isAdmin, team, onClose }) {
+  const canViewAll = isAdmin || currentUser.permissions?.view_all_activity;
+  const [daysBack, setDaysBack] = useState(1); // 1=today, 7=week, 30=month
+
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - (daysBack - 1));
+  cutoff.setHours(0, 0, 0, 0);
+
+  const allEntries = tasks.flatMap(t =>
+    (t.history || []).map(h => ({
+      ...h,
+      taskPhase: t.phase,
+      taskCollection: t.collection,
+      taskBrand: t.brand,
+    }))
+  );
+
+  const filtered = allEntries
+    .filter(h => {
+      if (!h.at) return false;
+      if (new Date(h.at) < cutoff) return false;
+      if (!canViewAll && h.changedBy !== currentUser.name) return false;
+      return true;
+    })
+    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+
+  const FIELD_ICONS = { "due date": "📅", "status": "🔄", "assignee": "👤", "vendor": "🏭", "note added": "📝", "order type": "📦", "category": "🗂️", "season": "🌿", "customer": "🏪" };
+
+  // Group by date label
+  const grouped: Record<string, typeof filtered> = {};
+  filtered.forEach(h => {
+    const d = new Date(h.at);
+    const today = new Date(); today.setHours(0,0,0,0);
+    const yesterday = new Date(today); yesterday.setDate(today.getDate()-1);
+    let label: string;
+    d.setHours(0,0,0,0);
+    if (d.getTime() === today.getTime()) label = "Today";
+    else if (d.getTime() === yesterday.getTime()) label = "Yesterday";
+    else label = formatDate(toDateStr(d));
+    if (!grouped[label]) grouped[label] = [];
+    grouped[label].push(h);
+  });
+
+  return (
+    <div style={{ position: "fixed", top: 0, right: 0, width: 420, height: "100vh", background: "#fff", boxShadow: "-4px 0 32px rgba(0,0,0,0.18)", zIndex: 1200, display: "flex", flexDirection: "column" }}>
+      {/* Header */}
+      <div style={{ padding: "18px 20px 14px", borderBottom: `1px solid ${TH.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: TH.header }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>Activity Log</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 2 }}>
+            {canViewAll ? "All team activity" : "Your activity only"}
+          </div>
+        </div>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.7)", fontSize: 18, cursor: "pointer", padding: "4px 8px" }}>✕</button>
+      </div>
+
+      {/* Filter pills */}
+      <div style={{ padding: "10px 16px", borderBottom: `1px solid ${TH.border}`, display: "flex", gap: 6 }}>
+        {[[1,"Today"],[7,"Last 7 Days"],[30,"Last 30 Days"]].map(([d, label]) => (
+          <button key={d} onClick={() => setDaysBack(d as number)}
+            style={{ padding: "4px 12px", borderRadius: 20, border: `1px solid ${daysBack === d ? TH.primary : TH.border}`, background: daysBack === d ? TH.primary : "none", color: daysBack === d ? "#fff" : TH.textMuted, cursor: "pointer", fontSize: 12, fontFamily: "inherit", fontWeight: 600 }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Entries */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px" }}>
+        {filtered.length === 0 && (
+          <div style={{ textAlign: "center", color: TH.textMuted, padding: "48px 24px", fontSize: 13 }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
+            No activity {daysBack === 1 ? "today" : `in the last ${daysBack} days`}.
+          </div>
+        )}
+        {Object.entries(grouped).map(([dateLabel, entries]) => (
+          <div key={dateLabel}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8, marginTop: 8 }}>{dateLabel}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {entries.map(h => {
+                const icon = FIELD_ICONS[h.field] || "✏️";
+                const accentColor = h.field === "due date" ? "#1D4ED8" : h.field === "status" ? "#059669" : h.field === "note added" ? "#7C3AED" : TH.primary;
+                const member = team.find(m => m.name === h.changedBy);
+                return (
+                  <div key={h.id} style={{ background: TH.surfaceHi, borderRadius: 8, padding: "10px 12px", borderLeft: `3px solid ${accentColor}55` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 13 }}>{icon}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: accentColor, textTransform: "capitalize" }}>{h.field}</span>
+                      </div>
+                      <span style={{ fontSize: 10, color: TH.textMuted }}>{formatDT(h.at)}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: TH.textMuted, marginBottom: 4 }}>
+                      <span style={{ fontWeight: 600, color: TH.textSub }}>{h.taskBrand} / {h.taskCollection}</span>
+                      {h.taskPhase && <span> · {h.taskPhase}</span>}
+                    </div>
+                    {h.field !== "note added" ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 11 }}>
+                        <span style={{ background: "#FEF2F2", border: "1px solid #FCA5A5", padding: "1px 6px", borderRadius: 4, color: "#991B1B", textDecoration: "line-through" }}>{h.from || "—"}</span>
+                        <span style={{ color: TH.textMuted }}>→</span>
+                        <span style={{ background: "#F0FDF4", border: "1px solid #86EFAC", padding: "1px 6px", borderRadius: 4, color: "#166534", fontWeight: 600 }}>{h.to || "—"}</span>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 11, color: TH.textSub, fontStyle: "italic" }}>"{h.to}"</div>
+                    )}
+                    <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                      {member && <Avatar member={member} size={16} />}
+                      <span style={{ fontSize: 11, color: TH.textMuted }}>{h.changedBy}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SettingsDropdown({
   isAdmin,
   onTeam,
@@ -979,6 +1117,7 @@ function SettingsDropdown({
   onOrderTypes,
   onRoles,
   onTasks,
+  onGenders,
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -997,6 +1136,7 @@ function SettingsDropdown({
     { icon: "🏪", label: "Customers", onClick: onCustomers, always: false },
     { icon: "📐", label: "Sizes", onClick: onSizes, always: false },
     { icon: "🗂️", label: "Categories", onClick: onCategories, always: false },
+    { icon: "⚧", label: "Genders", onClick: onGenders, always: false },
     { icon: "📋", label: "Order Types", onClick: onOrderTypes, always: false },
     { icon: "📋", label: "Tasks", onClick: onTasks, always: false },
     { icon: "🎭", label: "Roles", onClick: onRoles, always: false },
@@ -1284,6 +1424,149 @@ function RoleManager({ roles, setRoles, isAdmin = false }) {
         ))}
       </div>
       {roles.length === 0 && <div style={{ textAlign: "center", color: TH.textMuted, padding: "24px", fontSize: 13, border: `1px dashed ${TH.border}`, borderRadius: 10 }}>No roles yet.</div>}
+    </div>
+  );
+}
+
+// ─── GENDER MANAGER ───────────────────────────────────────────────────────────
+function GenderManager({ genders, setGenders, genderSizes, setGenderSizes, sizes = [], setSizes, isAdmin = false }) {
+  const [editing, setEditing] = useState(null); // null | "new" | index
+  const [form, setForm] = useState("");
+  const [selSizes, setSelSizes] = useState<string[]>([]);
+  const [newSizeInput, setNewSizeInput] = useState("");
+
+  if (!isAdmin) return (
+    <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
+      <div>Only admins can manage this section.</div>
+    </div>
+  );
+
+  // All available sizes: sizeLibrary if populated, else DEFAULT_SIZES
+  const allSizes = sizes && sizes.length > 0 ? sizes : DEFAULT_SIZES;
+
+  function openNew() { setForm(""); setSelSizes([]); setNewSizeInput(""); setEditing("new"); }
+  function openEdit(i) {
+    const g = genders[i];
+    setForm(g);
+    setSelSizes(genderSizes[g] || []);
+    setNewSizeInput("");
+    setEditing(i);
+  }
+
+  function save() {
+    const val = form.trim();
+    if (!val) return;
+    if (editing === "new") {
+      if (genders.includes(val)) return;
+      setGenders((s) => [...s, val]);
+    } else {
+      const oldLabel = genders[editing];
+      setGenders((s) => s.map((x, i) => (i === editing ? val : x)));
+      // If label changed, migrate sizes key
+      if (oldLabel !== val) {
+        setGenderSizes((gs) => {
+          const updated = { ...gs, [val]: selSizes };
+          delete updated[oldLabel];
+          return updated;
+        });
+        setEditing(null); setForm(""); setSelSizes([]); setNewSizeInput("");
+        return;
+      }
+    }
+    setGenderSizes((gs) => ({ ...gs, [val]: selSizes }));
+    setEditing(null); setForm(""); setSelSizes([]); setNewSizeInput("");
+  }
+
+  function toggleSize(sz) {
+    setSelSizes((s) => s.includes(sz) ? s.filter(x => x !== sz) : [...s, sz]);
+  }
+
+  function addNewSize() {
+    const s = newSizeInput.trim().toUpperCase();
+    if (!s) return;
+    // Add to global size library if not already there
+    if (setSizes && !allSizes.includes(s)) {
+      setSizes((prev: string[]) => [...prev, s]);
+    }
+    // Auto-select it for this gender
+    if (!selSizes.includes(s)) setSelSizes(prev => [...prev, s]);
+    setNewSizeInput("");
+  }
+
+  if (editing !== null)
+    return (
+      <div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: TH.text, marginBottom: 20 }}>
+          {editing === "new" ? "Add Gender" : "Edit Gender"}
+        </div>
+        <label style={S.lbl}>Gender Label</label>
+        <input
+          style={S.inp}
+          value={form}
+          onChange={(e) => setForm(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && save()}
+          placeholder="e.g. Men's"
+          autoFocus
+        />
+        <label style={{ ...S.lbl, marginTop: 12 }}>Default Sizes for this Gender</label>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+          {allSizes.map(sz => (
+            <button key={sz} onClick={() => toggleSize(sz)}
+              style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${selSizes.includes(sz) ? TH.primary : TH.border}`, background: selSizes.includes(sz) ? TH.primary : "none", color: selSizes.includes(sz) ? "#fff" : TH.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}>
+              {sz}
+            </button>
+          ))}
+        </div>
+        {/* Add a new size — syncs to Size Library */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          <input
+            style={{ ...S.inp, marginBottom: 0, flex: 1 }}
+            placeholder="Add new size (e.g. 4XL)"
+            value={newSizeInput}
+            onChange={(e) => setNewSizeInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addNewSize()}
+          />
+          <button onClick={addNewSize} style={{ ...S.btn, whiteSpace: "nowrap" }}>+ Add Size</button>
+        </div>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button onClick={() => { setEditing(null); setForm(""); setSelSizes([]); setNewSizeInput(""); }} style={{ padding: "9px 18px", borderRadius: 8, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+          <button disabled={!form.trim()} onClick={save} style={{ ...S.btn, opacity: form.trim() ? 1 : 0.5 }}>Save Gender</button>
+        </div>
+      </div>
+    );
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <span style={S.sec}>Genders ({genders.length})</span>
+        <button onClick={openNew} style={S.btn}>+ Add Gender</button>
+      </div>
+      <div style={{ display: "grid", gap: 8 }}>
+        {genders.map((g, i) => {
+          const sizes = genderSizes[g] || [];
+          return (
+            <div key={i} style={{ ...S.card, display: "flex", alignItems: "center", gap: 14 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: TH.text, marginBottom: 4 }}>⚧ {g}</div>
+                {sizes.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {sizes.map(sz => (
+                      <span key={sz} style={{ fontSize: 10, padding: "1px 6px", background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 4, color: TH.textMuted }}>{sz}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => openEdit(i)} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
+                <button onClick={() => appConfirm("Delete this gender option?", "Delete", () => { setGenders((arr) => arr.filter((_, j) => j !== i)); setGenderSizes((gs) => { const u = { ...gs }; delete u[g]; return u; }); })} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {genders.length === 0 && <div style={{ textAlign: "center", color: TH.textMuted, padding: "24px", fontSize: 13, border: `1px dashed ${TH.border}`, borderRadius: 10 }}>No genders defined.</div>}
     </div>
   );
 }
@@ -2011,7 +2294,7 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, rol
         <>
           <label style={S.lbl}>Permissions</label>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
-            {[["view_all","View All Collections"],["edit_all","Edit All Tasks"],["view_own","View Own Tasks Only"],["edit_own","Edit Own Tasks"]].map(([k, label]) => (
+            {[["view_all","View All Collections"],["edit_all","Edit All Tasks"],["view_own","View Own Tasks Only"],["edit_own","Edit Own Tasks"],["view_all_activity","View All Activity"]].map(([k, label]) => (
               <label key={k} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: TH.surfaceHi, borderRadius: 8, cursor: "pointer", border: `1px solid ${form.permissions?.[k] ? TH.primary : TH.border}` }}>
                 <input type="checkbox" checked={!!form.permissions?.[k]} onChange={(e) => setPerm(k, e.target.checked)} style={{ accentColor: TH.primary }} />
                 <span style={{ fontSize: 12, color: TH.textSub }}>{label}</span>
@@ -4575,6 +4858,9 @@ function TaskEditModal({
   onSkuChange,
   customerList,
   orderTypes,
+  genders: genderList,
+  undoConfirm,
+  onUndoConfirm,
 }) {
   const [f, setF] = useState({
     ...task,
@@ -4652,26 +4938,13 @@ function TaskEditModal({
     };
     const fmtDate = (d) => d ? formatDate(d) : "—";
     track("due date", fmtDate(task.due), fmtDate(f.due));
-    track("status", task.status, f.status);
+    // status and assignee are already tracked real-time by handleStatusChange / handleAssign — skip here to avoid duplicates
     track("vendor", task.vendorName, f.vendorName);
     track("order type", task.orderType, f.orderType);
     track("category", task.category, f.category);
     track("season", task.season, f.season);
     track("customer", task.customer, f.customer);
-    // Assignee by name
-    const fromAssignee = team?.find(m => m.id === task.assigneeId)?.name || "Unassigned";
-    const toAssignee = team?.find(m => m.id === f.assigneeId)?.name || "Unassigned";
-    track("assignee", fromAssignee, toAssignee);
-    // Notes: detect new notes added, capture content
-    const oldNotes = Array.isArray(task.notes) ? task.notes : (task.notes ? [task.notes] : []);
-    const newNotes = Array.isArray(f.notes) ? f.notes : (f.notes ? [f.notes] : []);
-    if (newNotes.length > oldNotes.length) {
-      const addedNotes = newNotes.slice(oldNotes.length);
-      addedNotes.forEach(note => {
-        const text = typeof note === "string" ? note : note?.text || "";
-        newEntries.push({ id: uid(), field: "note added", from: "", to: text.substring(0, 100) || "(empty note)", changedBy: currentUser.name, at: now });
-      });
-    }
+    // Notes are already tracked real-time when added (NoteInput auto-saves) — skip here to avoid duplicates
     const dateChanged = f.due !== task.due;
     const fWithHistory = newEntries.length > 0
       ? { ...f, history: [...(f.history || []), ...newEntries] }
@@ -5348,6 +5621,14 @@ function TaskEditModal({
           ) : (
             <div />
           )}
+          {/* Undo confirm banner */}
+          {undoConfirm && undoConfirm.taskId === task.id && (
+            <div style={{ padding: "10px 14px", background: "#FFF3CD", border: "1px solid #FFC107", borderRadius: 8, marginBottom: 10, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span style={{ flex: 1, fontSize: 13, color: "#856404", fontWeight: 600 }}>Undo last change to this card?</span>
+              <button onClick={() => onUndoConfirm(true)} style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: TH.primary, color: "#fff", cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 700 }}>Yes, Undo</button>
+              <button onClick={() => onUndoConfirm(false)} style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${TH.border}`, background: "none", color: TH.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Cancel</button>
+            </div>
+          )}
           <div
             style={{
               display: "flex",
@@ -5653,7 +5934,7 @@ function PrevTaskInput({ fromPrev, onCommit }) {
 }
 
 // ─── COLLECTION WIZARD ────────────────────────────────────────────────────────
-function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSave, onClose, taskTemplates }) {
+function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSave, onClose, taskTemplates, genders: genderList, genderSizes }) {
   const [step, setStep] = useState(1);
 
   // Compute initial recommended vendor for Denim (default category)
@@ -5700,6 +5981,8 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
     channelType: "Off-Price (Ross, TJX)",
     sampleDueDate: "",
   });
+  // Gender-specific sizes (auto-filled when gender changes)
+  const [selectedSizes, setSelectedSizes] = useState(() => (genderSizes && genderSizes["Men's"]) || []);
   // Editable preview phases: [{name, daysBack, due, edited}]
   const [editPhases, setEditPhases] = useState([]);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -5738,6 +6021,21 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
     });
     set("_leadOverride", Date.now());
   }
+
+  // When step2Leads change, immediately reflect updated dates in editPhases below
+  useEffect(() => {
+    if (step !== 2 || !form.ddpDate || step2Leads.length === 0) return;
+    setEditPhases(eps => {
+      if (!eps.length) return eps;
+      return eps.map(ep => {
+        const lead = step2Leads.find(l => l.phase === ep.name);
+        if (!lead) return ep; // DDP, Ship Date — keep unchanged
+        const newDue = addDaysForPhase(form.ddpDate, -lead.days, ep.name);
+        return { ...ep, due: newDue, daysBack: lead.days, edited: true };
+      });
+    });
+  }, [step2Leads]);
+
   // Creation date clamping — warn user if earliest task predates today
   const [creationDateWarn, setCreationDateWarn] = useState(null);
 
@@ -5766,6 +6064,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
   })();
 
   // Proportional resize helper: compress pre-Production phases so first task = today, DDP unchanged
+  // Pre-PO phases use business-day spans; post-PO phases stay on calendar days.
   function applyProportionalResize(rawPhases) {
     const ddpDate = form.ddpDate;
     const prodIdx = rawPhases.findIndex((p) => p.name === "Production");
@@ -5774,22 +6073,23 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
     if (prePhases.length === 0) return rawPhases;
     const origFirstDue = prePhases[0].due;
     const origProdDue = prodIdx >= 0 ? rawPhases[prodIdx].due : ddpDate;
-    const origSpan = diffDays(origProdDue, origFirstDue);
-    const newSpan = diffDays(origProdDue, todayStr);
+    // Use business days for the pre-PO span
+    const origSpan = diffBusinessDays(origProdDue, origFirstDue);
+    const newSpan = diffBusinessDays(origProdDue, todayStr);
     const resized = prePhases.map((p) => {
       if (origSpan <= 0)
         return {
           ...p,
           due: todayStr,
-          daysBack: diffDays(ddpDate, todayStr),
+          daysBack: diffBusinessDays(ddpDate, todayStr),
           edited: true,
         };
-      const ratio = origSpan > 0 ? diffDays(p.due, origFirstDue) / origSpan : 0;
-      const newDue = addDays(todayStr, Math.round(ratio * newSpan));
+      const ratio = origSpan > 0 ? diffBusinessDays(p.due, origFirstDue) / origSpan : 0;
+      const newDue = addBusinessDays(todayStr, Math.round(ratio * newSpan));
       return {
         ...p,
         due: newDue,
-        daysBack: diffDays(ddpDate, newDue),
+        daysBack: diffBusinessDays(ddpDate, newDue),
         edited: true,
       };
     });
@@ -5804,16 +6104,17 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
         id: t.id,
         name: t.phase,
         due: t.due,
-        daysBack: diffDays(form.ddpDate, t.due),
+        daysBack: diffDaysForPhase(form.ddpDate, t.due, t.phase),
       }));
       const firstTask = rawPhases[0];
       if (firstTask && firstTask.due < todayStr) {
         // Clamp: shift ALL tasks so first task = today, cascade forward
+        // Pre-PO phases shift by business days; post-PO by calendar days.
         const delta = diffDays(todayStr, firstTask.due);
         const clampedPhases = rawPhases.map((p) => ({
           ...p,
-          due: addDays(p.due, delta),
-          daysBack: diffDays(form.ddpDate, addDays(p.due, delta)),
+          due: addDaysForPhase(p.due, delta, p.name),
+          daysBack: diffDaysForPhase(form.ddpDate, addDaysForPhase(p.due, delta, p.name), p.name),
           edited: true,
         }));
         const ddpPhase = clampedPhases.find((p) => p.name === "DDP");
@@ -5875,15 +6176,15 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
       updated[idx] = {
         ...updated[idx],
         due: newDue,
-        daysBack: diffDays(form.ddpDate, newDue),
+        daysBack: diffDaysForPhase(form.ddpDate, newDue, updated[idx].name),
         edited: true,
       };
       for (let i = idx + 1; i < updated.length; i++) {
-        const nd = addDays(updated[i].due, delta);
+        const nd = addDaysForPhase(updated[i].due, delta, updated[i].name);
         updated[i] = {
           ...updated[i],
           due: nd,
-          daysBack: diffDays(form.ddpDate, nd),
+          daysBack: diffDaysForPhase(form.ddpDate, nd, updated[i].name),
           edited: true,
         };
       }
@@ -6080,10 +6381,15 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
               <select
                 style={{ ...S.inp, marginBottom: 0 }}
                 value={form.gender}
-                onChange={(e) => set("gender", e.target.value)}
+                onChange={(e) => {
+                  set("gender", e.target.value);
+                  if (genderSizes && genderSizes[e.target.value]?.length > 0) {
+                    setSelectedSizes(genderSizes[e.target.value]);
+                  }
+                }}
               >
-                {GENDERS.map((g) => (
-                  <option key={g}>{g}</option>
+                {(genderList || GENDERS).map((g) => (
+                  <option key={typeof g === "string" ? g : g.label}>{typeof g === "string" ? g : g.label}</option>
                 ))}
               </select>
             </div>
@@ -6306,7 +6612,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
                     </div>
                     {leads.map((lead, idx) => {
                       const fromPrev = idx > 0 ? leads[idx - 1].days - lead.days : null;
-                      const calcDate = form.ddpDate ? addDays(form.ddpDate, -lead.days) : "";
+                      const calcDate = form.ddpDate ? addDaysForPhase(form.ddpDate, -lead.days, lead.phase) : "";
                       return (
                         <div key={lead.phase} style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px 90px", padding: "7px 12px", borderBottom: idx < leads.length - 1 ? `1px solid ${TH.border}` : "none", alignItems: "center", background: idx % 2 === 0 ? "#fff" : TH.surfaceHi }}>
                           <div style={{ fontSize: 13, color: TH.text, fontWeight: 600 }}>{lead.phase}</div>
@@ -7017,6 +7323,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
                   orderType: form.orderType,
                   channelType: form.channelType,
                   sampleDueDate: form.sampleDueDate,
+                  availableSizes: selectedSizes.length > 0 ? selectedSizes : undefined,
                 })
               }
               style={{ ...S.btn, flex: 2, padding: "12px", fontSize: 14, opacity: editPhases.length === 0 ? 0.5 : 1 }}
@@ -7313,8 +7620,9 @@ function CategoryManager({ categories, setCategories, isAdmin = false }) {
 }
 
 // ─── SIZE LIBRARY ─────────────────────────────────────────────────────────────
-function SizeLibrary({ sizes, setSizes, isAdmin = false }) {
+function SizeLibrary({ sizes, setSizes, isAdmin = false, genders = [], genderSizes = {}, setGenderSizes = null }) {
   const [newSize, setNewSize] = useState("");
+  const [selGender, setSelGender] = useState(genders[0] || "");
   if (!isAdmin) return (
     <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
       <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
@@ -7473,6 +7781,47 @@ function SizeLibrary({ sizes, setSizes, isAdmin = false }) {
           Restore defaults
         </button>
       </div>
+      {/* ── Gender size assignment ── */}
+      {genders.length > 0 && setGenderSizes && (
+        <div style={{ marginTop: 24, borderTop: `1px solid ${TH.border}`, paddingTop: 18 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: TH.text, marginBottom: 10 }}>Assign Sizes by Gender</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center" }}>
+            <span style={{ fontSize: 12, color: TH.textMuted, whiteSpace: "nowrap" }}>Gender:</span>
+            <select value={selGender} onChange={e => setSelGender(e.target.value)}
+              style={{ ...S.inp, marginBottom: 0, flex: 1 }}>
+              {genders.map((g: string) => <option key={g}>{typeof g === "string" ? g : (g as any).label}</option>)}
+            </select>
+          </div>
+          {selGender && (
+            <div>
+              <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 8 }}>Click sizes to toggle for <strong>{selGender}</strong>:</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {[...sizes].sort((a, b) => {
+                  const na = parseFloat(a), nb = parseFloat(b);
+                  if (!isNaN(na) && !isNaN(nb)) return na - nb;
+                  return 0;
+                }).map((sz: string) => {
+                  const sel = (genderSizes[selGender] || []).includes(sz);
+                  return (
+                    <button key={sz} onClick={() => setGenderSizes((gs: any) => {
+                      const cur = gs[selGender] || [];
+                      return { ...gs, [selGender]: sel ? cur.filter((x: string) => x !== sz) : [...cur, sz] };
+                    })}
+                      style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${sel ? TH.primary : TH.border}`, background: sel ? TH.primary : "none", color: sel ? "#fff" : TH.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}>
+                      {sz}
+                    </button>
+                  );
+                })}
+              </div>
+              {(genderSizes[selGender] || []).length > 0 && (
+                <div style={{ marginTop: 8, fontSize: 11, color: TH.textMuted }}>
+                  Selected: {(genderSizes[selGender] || []).join(", ")}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -7654,7 +8003,7 @@ function EditCollectionModal({
             value={f.gender}
             onChange={(e) => set("gender", e.target.value)}
           >
-            {GENDERS.map((g) => (
+            {(genderList || GENDERS).map((g) => (
               <option key={g}>{g}</option>
             ))}
           </select>
@@ -10182,15 +10531,13 @@ export default function App() {
   // usePersistSb defined outside App component below
 
   const [users, setUsers] = usePersistSb([], "users", sbSave);
-  const [currentUser, setCurrentUser] = useState(null);
-
-  // Auto-login from PLM launcher session
-  useEffect(() => {
+  const [currentUser, setCurrentUser] = useState(() => {
+    // Read PLM session synchronously so there's never a login-screen flash
     try {
       const plmUser = sessionStorage.getItem("plm_user");
-      if (plmUser) setCurrentUser(JSON.parse(plmUser));
-    } catch {}
-  }, []);
+      return plmUser ? JSON.parse(plmUser) : null;
+    } catch { return null; }
+  });
   const [brands, setBrands] = usePersistSb([], "brands", sbSave);
   const [seasons, setSeasons] = usePersistSb([], "seasons", sbSave);
   const [customers, setCustomers] = usePersistSb([], "customers", sbSave);
@@ -10261,10 +10608,17 @@ export default function App() {
   const [showCustomers, setShowCustomers] = useState(false);
   const [showOrderTypes, setShowOrderTypes] = useState(false);
   const [showRoles, setShowRoles] = useState(false);
+  const [showGenders, setShowGenders] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
   const [showTaskManager, setShowTaskManager] = useState(false);
   const [orderTypes, setOrderTypes] = usePersistSb([], "order_types", sbSave);
   const [roles, setRoles] = usePersistSb([], "roles", sbSave);
+  const [genders, setGenders] = usePersistSb(GENDERS, "genders", sbSave);
+  const [genderSizes, setGenderSizes] = usePersistSb({}, "gender_sizes", sbSave);
   const [taskTemplates, setTaskTemplates] = usePersistSb([], "task_templates", sbSave);
+  // ─── Undo stack (up to 4 entries) ───────────────────────────────────────────
+  const [undoStack, setUndoStack] = useState<Array<{prevTasks: any[], type: 'card' | 'drag', taskId?: string}>>([]);
+  const [undoConfirm, setUndoConfirm] = useState<{prevTasks: any[], taskId: string} | null>(null);
   const [miniCalDragOver, setMiniCalDragOver] = useState(null);
   const [teamsConfig, setTeamsConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem("teamsConfig") || "null") || { clientId: "", tenantId: "", channelMap: {} }; }
@@ -10402,6 +10756,7 @@ export default function App() {
       warnTimer = setTimeout(() => setIdleWarning(true), IDLE_MS - 5 * 60 * 1000);
       // Log out at 60 minutes
       logoutTimer = setTimeout(() => {
+        sessionStorage.removeItem("plm_user");
         setCurrentUser(null);
         setIdleWarning(false);
         setTeamsToken(null);
@@ -10431,8 +10786,11 @@ export default function App() {
       </div>
     );
 
-  if (!currentUser)
-    return <LoginScreen users={users} onLogin={setCurrentUser} teamsConfig={teamsConfig} onTeamsToken={setTeamsToken} />;
+  if (!currentUser) {
+    // No active session — send back to PLM launcher to log in
+    window.location.replace("/");
+    return null;
+  }
 
   const isAdmin = currentUser.role === "admin";
   const canViewAll = isAdmin || currentUser.permissions?.view_all;
@@ -10482,7 +10840,7 @@ export default function App() {
         gender: meta?.gender,
         year: meta?.year,
         sampleDueDate: meta?.sampleDueDate,
-        availableSizes: sizeLibrary,
+        availableSizes: meta?.availableSizes || sizeLibrary,
       },
     }));
     setTasks((ts) => [...ts, ...tasksWithImages]);
@@ -10490,11 +10848,33 @@ export default function App() {
     setView("timeline");
   }
 
+  // ─── Undo helpers ────────────────────────────────────────────────────────────
+  function pushUndo(prevTasksSnapshot: any[], type: 'card' | 'drag', taskId?: string) {
+    setUndoStack(prev => [{ prevTasks: prevTasksSnapshot, type, taskId }, ...prev].slice(0, 4));
+  }
+
+  function handleUndo() {
+    if (undoStack.length === 0) return;
+    const [entry, ...rest] = undoStack;
+    setUndoStack(rest);
+    if (entry.type === 'drag') {
+      setTasks(entry.prevTasks);
+      entry.prevTasks.forEach((t: any) => sbSaveTask(t));
+    } else {
+      // Card change: open the card and show confirm dialog
+      setUndoConfirm({ prevTasks: entry.prevTasks, taskId: entry.taskId! });
+      const task = tasks.find((t: any) => t.id === entry.taskId);
+      if (task) setEditTask(task);
+    }
+  }
+
   function saveTask(f) {
+    pushUndo(tasks, 'card', f.id);
     const clean = { ...f };
     setTasks((ts) => ts.map((t) => (t.id === clean.id ? clean : t)));
     sbSaveTask(clean); // Fast individual row upsert
     setEditTask(null);
+    setUndoConfirm(null);
   }
   function quietSaveTask(f) {
     // Save without closing modal (used by SKU and note auto-saves)
@@ -10504,6 +10884,7 @@ export default function App() {
   }
 
   function saveCascade(updatedTasks) {
+    pushUndo(tasks, 'drag');
     setTasks(updatedTasks);
     updatedTasks.forEach(t => sbSaveTask(t));
   }
@@ -10516,6 +10897,7 @@ export default function App() {
   // Timeline drag: place dragged card at midpoint between its two neighbors
   function handleTimelineDrop(targetId, sortedCollTasks) {
     if (!dragId || dragId === targetId) return;
+    pushUndo(tasks, 'drag');
     setTasks((ts) => {
       const dragged = ts.find((t) => t.id === dragId);
       if (!dragged) return ts;
@@ -10548,6 +10930,7 @@ export default function App() {
   // Dashboard card drag: swap dates
   function handleDrop(targetId) {
     if (!dragId || dragId === targetId) return;
+    pushUndo(tasks, 'drag');
     setTasks((ts) => {
       const a = ts.find((t) => t.id === dragId),
         b = ts.find((t) => t.id === targetId);
@@ -12518,8 +12901,12 @@ export default function App() {
                               e.preventDefault(); e.stopPropagation();
                               const droppedId = e.dataTransfer.getData("text/plain") || dragId;
                               if (!droppedId || !sorted.length) return;
-                              const newDue = snapToBusinessDay(addDays(sorted[0].due, -1));
                               const droppedTask = tasks.find(x => x.id === droppedId);
+                              // Post-PO phases use calendar days; pre-PO snap to business day
+                              const rawDue = addDays(sorted[0].due, -1);
+                              const newDue = droppedTask && isPostPO(droppedTask.phase)
+                                ? rawDue
+                                : snapToBusinessDay(rawDue);
                               if (droppedTask) {
                                 const updated = { ...droppedTask, due: newDue };
                                 setTasks(ts => ts.map(x => x.id === droppedId ? updated : x));
@@ -12543,7 +12930,7 @@ export default function App() {
                         const sc =
                             STATUS_CONFIG[t.status] ||
                             STATUS_CONFIG["Not Started"],
-                          days = getBusinessDaysUntil(t.due),
+                          days = getDaysUntilForPhase(t.due, t.phase),
                           isOver = days < 0 && t.status !== "Complete",
                           isPL =
                             t.phase === "Line Review" ||
@@ -12571,16 +12958,17 @@ export default function App() {
                         const gapKey = `${bid}-${cname}-gap-${i}`;
                         const isGapActive = dragOverId === gapKey;
 
-                        // Business days from concept (first task) to this task
+                        // Days from concept (first task) to this task
+                        // Post-PO phases count calendar days; pre-PO count business days
                         const conceptTask = sorted[0];
                         const daysFromConcept = conceptTask
-                          ? diffBusinessDays(t.due, conceptTask.due)
+                          ? diffDaysForPhase(t.due, conceptTask.due, t.phase)
                           : 0;
 
-                        // Business days from previous task to this task
+                        // Days from previous task to this task (same logic)
                         const prevTask = sorted[i - 1];
                         const daysFromPrev = prevTask
-                          ? diffBusinessDays(t.due, prevTask.due)
+                          ? diffDaysForPhase(t.due, prevTask.due, t.phase)
                           : null;
 
                         return (
@@ -12838,7 +13226,11 @@ export default function App() {
                                   const nextMs = parseLocalDate(nextTask.due).getTime();
                                   const midMs = Math.round((prevMs + nextMs) / 2);
                                   const mid = new Date(midMs);
-                                  let newDue = snapToBusinessDay(toDateStr(mid));
+                                  const droppedTaskMid = tasks.find(x => x.id === droppedId);
+                                  // Post-PO phases use calendar days; pre-PO snap to business day
+                                  let newDue = droppedTaskMid && isPostPO(droppedTaskMid.phase)
+                                    ? toDateStr(mid)
+                                    : snapToBusinessDay(toDateStr(mid));
                                   // Enforce minimum 1 calendar day from each neighbor
                                   if (newDue <= prevTask.due) newDue = addDays(prevTask.due, 1);
                                   if (newDue >= nextTask.due) newDue = addDays(nextTask.due, -1);
@@ -13513,6 +13905,15 @@ export default function App() {
             alignItems: "center",
           }}
         >
+          {/* Undo button — always visible, disabled when nothing to undo */}
+          <button
+            onClick={handleUndo}
+            disabled={undoStack.length === 0}
+            title={undoStack.length > 0 ? `Undo last change (${undoStack.length} available)` : "Nothing to undo"}
+            style={{ padding: "7px 13px", borderRadius: 8, border: `1px solid ${undoStack.length > 0 ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.12)"}`, background: undoStack.length > 0 ? "rgba(255,255,255,0.12)" : "transparent", color: undoStack.length > 0 ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.3)", fontWeight: 600, cursor: undoStack.length > 0 ? "pointer" : "default", fontFamily: "inherit", fontSize: 12, display: "flex", alignItems: "center", gap: 5, transition: "all 0.15s" }}
+          >
+            ↩ Undo{undoStack.length > 1 ? ` (${undoStack.length})` : ""}
+          </button>
           {/* List view toggle — shown for dashboard and timeline */}
           {(view === "dashboard" || view === "timeline") && (
             <div style={{ display: "flex", gap: 2, background: "rgba(255,255,255,0.08)", borderRadius: 8, padding: "3px", border: "1px solid rgba(255,255,255,0.15)" }}>
@@ -13524,6 +13925,13 @@ export default function App() {
               ))}
             </div>
           )}
+          {/* Activity log button */}
+          <button
+            onClick={() => setShowActivity(v => !v)}
+            title="Activity Log"
+            style={{ padding: "7px 13px", borderRadius: 8, border: `1px solid ${showActivity ? TH.primary : "rgba(255,255,255,0.15)"}`, background: showActivity ? TH.primary + "33" : "none", color: showActivity ? "#fff" : "rgba(255,255,255,0.8)", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
+            📋 Activity
+          </button>
           {/* Settings master dropdown */}
           <SettingsDropdown
             isAdmin={isAdmin}
@@ -13538,6 +13946,7 @@ export default function App() {
             onOrderTypes={() => setShowOrderTypes(true)}
             onRoles={() => setShowRoles(true)}
             onTasks={() => setShowTaskManager(true)}
+            onGenders={() => setShowGenders(true)}
           />
           <div
             style={{
@@ -13681,6 +14090,8 @@ export default function App() {
             customers={customers}
             seasons={seasons}
             taskTemplates={taskTemplates}
+            genders={genders}
+            genderSizes={genderSizes}
             onSave={addCollection}
             onClose={() => setShowWizard(false)}
           />
@@ -13731,6 +14142,20 @@ export default function App() {
           <RoleManager roles={roles} setRoles={setRoles} isAdmin={isAdmin} />
         </Modal>
       )}
+      {showGenders && (
+        <Modal title="Gender Manager" onClose={() => setShowGenders(false)} wide>
+          <GenderManager genders={genders} setGenders={setGenders} genderSizes={genderSizes} setGenderSizes={setGenderSizes} sizes={sizeLibrary} setSizes={setSizeLibrary} isAdmin={isAdmin} />
+        </Modal>
+      )}
+      {showActivity && (
+        <ActivityPanel
+          tasks={tasks}
+          currentUser={currentUser}
+          isAdmin={isAdmin}
+          team={team}
+          onClose={() => setShowActivity(false)}
+        />
+      )}
       {showSeasons && (
         <Modal title="Season Manager" onClose={() => setShowSeasons(false)} wide>
           <SeasonManager seasons={seasons} setSeasons={setSeasons} isAdmin={isAdmin} />
@@ -13743,7 +14168,7 @@ export default function App() {
       )}
       {showSizeLib && (
         <Modal title="Size Library" onClose={() => setShowSizeLib(false)} wide>
-          <SizeLibrary sizes={sizeLibrary} setSizes={setSizeLibrary} isAdmin={isAdmin} />
+          <SizeLibrary sizes={sizeLibrary} setSizes={setSizeLibrary} isAdmin={isAdmin} genders={genders} genderSizes={genderSizes} setGenderSizes={setGenderSizes} />
         </Modal>
       )}
       {showCatLib && (
@@ -13774,6 +14199,16 @@ export default function App() {
           currentUser={currentUser}
           customerList={customers}
           orderTypes={orderTypes}
+          genders={genders}
+          undoConfirm={undoConfirm}
+          onUndoConfirm={(confirmed) => {
+            if (confirmed && undoConfirm) {
+              setTasks(undoConfirm.prevTasks);
+              undoConfirm.prevTasks.forEach((t: any) => sbSaveTask(t));
+            }
+            setUndoConfirm(null);
+            setEditTask(null);
+          }}
           onSkuChange={(key, newSkus) =>
             setCollections((c) => ({
               ...c,
