@@ -10102,7 +10102,21 @@ export default function App() {
   // ── Individual row operations for tasks (fast upsert/delete) ─────────────
   async function sbSaveTask(task) {
     try {
-      // Store entire task as jsonb in the data column, id as primary key
+      // Conflict check: fetch current server version
+      const checkRes = await fetch(`${SB_URL}/rest/v1/tasks?id=eq.${task.id}&select=data`, {
+        headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` },
+      });
+      if (checkRes.ok) {
+        const rows = await checkRes.json();
+        if (rows.length > 0) {
+          const serverTask = rows[0].data;
+          if (serverTask && serverTask.updatedAt && task.updatedAt && serverTask.updatedAt !== task.updatedAt && serverTask.updatedBy !== currentUser?.name) {
+            console.warn(`[SB] Conflict on task ${task.id}: server=${serverTask.updatedAt} local=${task.updatedAt}`);
+            // Last write wins but log it — the 10s poll will sync the latest version
+          }
+        }
+      }
+      // Save
       await fetch(`${SB_URL}/rest/v1/tasks`, {
         method: "POST",
         headers: {
@@ -10110,7 +10124,7 @@ export default function App() {
           "Content-Type": "application/json",
           "Prefer": "resolution=merge-duplicates,return=minimal",
         },
-        body: JSON.stringify({ id: task.id, data: task }),
+        body: JSON.stringify({ id: task.id, data: { ...task, updatedAt: new Date().toISOString(), updatedBy: currentUser?.name || "" } }),
       });
     } catch(e) { console.error("[SB] save task error:", e); }
   }
@@ -10145,7 +10159,7 @@ export default function App() {
           "Content-Type": "application/json",
           "Prefer": "resolution=merge-duplicates,return=minimal",
         },
-        body: JSON.stringify({ id: key, data }),
+        body: JSON.stringify({ id: key, data: { ...data, _updatedAt: new Date().toISOString(), _updatedBy: currentUser?.name || "" } }),
       });
     } catch(e) { console.error("[SB] save collection error:", e); }
   }
@@ -10315,6 +10329,40 @@ export default function App() {
     }
     loadAll();
   }, []);
+
+  // ── Realtime sync — poll every 10 seconds for changes from other users ──
+  const dcHashRef = useRef("");
+  useEffect(() => {
+    if (!currentUser || !dbxLoaded) return;
+    const poll = async () => {
+      try {
+        const [tasksRes, collRes, appRes] = await Promise.all([
+          fetch(`${SB_URL}/rest/v1/tasks?select=id&order=id.desc&limit=1`, { headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` } }),
+          fetch(`${SB_URL}/rest/v1/collections?select=id&order=id.desc&limit=1`, { headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` } }),
+          fetch(`${SB_URL}/rest/v1/app_data?select=key,value&order=key.asc&limit=3`, { headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` } }),
+        ]);
+        const [t, c, a] = await Promise.all([tasksRes.json(), collRes.json(), appRes.json()]);
+        const hash = JSON.stringify({ t, c, a: a?.map?.((r: any) => r.key) });
+        if (dcHashRef.current && hash !== dcHashRef.current) {
+          console.log("[DC Realtime] Change detected, reloading...");
+          const [newTasks, newColls] = await Promise.all([sbLoadTasks(), sbLoadCollections()]);
+          if (newTasks?.length) _setTasksRaw(newTasks);
+          if (newColls && Object.keys(newColls).length) _setCollRaw(newColls);
+          // Reload reference data
+          const refs = ["users","brands","seasons","customers","vendors","team","size_library","categories","order_types","roles","task_templates"];
+          const setters = [setUsers, setBrands, setSeasons, setCustomers, setVendors, setTeam, setSizeLibrary, setCategoryLib, setOrderTypes, setRoles, setTaskTemplates];
+          for (let i = 0; i < refs.length; i++) {
+            const val = await sbLoad(refs[i]);
+            if (val) (setters[i] as any)(val);
+          }
+        }
+        dcHashRef.current = hash;
+      } catch (e) { /* silent */ }
+    };
+    poll();
+    const interval = setInterval(poll, 10000);
+    return () => clearInterval(interval);
+  }, [currentUser, dbxLoaded]);
 
   // Load XLSX library dynamically
   useEffect(() => {
