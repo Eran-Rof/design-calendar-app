@@ -2480,6 +2480,7 @@ export default function TandAApp() {
                               const allCatMs = poMs.filter(m => m.category === newPhaseForm.category).sort((a, b) => a.sort_order - b.sort_order);
                               let sortOrder: number;
                               let insertRef = "";
+                              let autoDueDate = newPhaseForm.dueDate || "";
 
                               if (newPhaseForm.afterPhase) {
                                 // Explicit position: insert after selected phase
@@ -2489,6 +2490,20 @@ export default function TandAApp() {
                                   const nextSort = afterIdx + 1 < allCatMs.length ? allCatMs[afterIdx + 1].sort_order : afterSort + 100;
                                   sortOrder = afterSort + (nextSort - afterSort) / 2;
                                   insertRef = " (after " + allCatMs[afterIdx].phase + ")";
+                                  // Auto-calculate midpoint due date if not provided
+                                  if (!autoDueDate) {
+                                    const afterDate = allCatMs[afterIdx].expected_date;
+                                    const nextM = afterIdx + 1 < allCatMs.length ? allCatMs[afterIdx + 1] : null;
+                                    const nextDate = nextM?.expected_date;
+                                    if (afterDate && nextDate) {
+                                      const mid = new Date((new Date(afterDate).getTime() + new Date(nextDate).getTime()) / 2);
+                                      autoDueDate = mid.toISOString().slice(0, 10);
+                                    } else if (afterDate) {
+                                      // No next phase — add 7 days after
+                                      const d = new Date(afterDate); d.setDate(d.getDate() + 7);
+                                      autoDueDate = d.toISOString().slice(0, 10);
+                                    }
+                                  }
                                 } else { sortOrder = (allCatMs.length + 1) * 100; }
                               } else if (newPhaseForm.dueDate && allCatMs.length > 0) {
                                 // Auto-position by due date: find where it fits chronologically
@@ -2511,7 +2526,7 @@ export default function TandAApp() {
                                 sortOrder = allCatMs.length > 0 ? allCatMs[allCatMs.length - 1].sort_order + 100 : 0;
                               }
 
-                              const newM: Milestone = { id: milestoneUid(), po_number: poNum, phase: newPhaseForm.name.trim(), category: newPhaseForm.category, sort_order: sortOrder, days_before_ddp: 0, expected_date: newPhaseForm.dueDate || null, actual_date: null, status: "Not Started", status_date: null, status_dates: null, notes: "", note_entries: null, updated_at: new Date().toISOString(), updated_by: user?.name || "" };
+                              const newM: Milestone = { id: milestoneUid(), po_number: poNum, phase: newPhaseForm.name.trim(), category: newPhaseForm.category, sort_order: sortOrder, days_before_ddp: 0, expected_date: autoDueDate || null, actual_date: null, status: "Not Started", status_date: null, status_dates: null, notes: "", note_entries: null, updated_at: new Date().toISOString(), updated_by: user?.name || "" };
                               saveMilestone(newM, true);
                               addHistory(poNum, `Custom phase added: "${newPhaseForm.name.trim()}" in ${newPhaseForm.category}${insertRef}`);
                               setNewPhaseForm({ name: "", category: "Pre-Production", dueDate: "", afterPhase: "" });
