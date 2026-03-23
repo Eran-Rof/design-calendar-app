@@ -314,7 +314,10 @@ export default function TandAApp() {
   const [pos, setPos]           = useState<XoroPO[]>([]);
   const [notes, setNotes]       = useState<LocalNote[]>([]);
   const [selected, setSelected] = useState<XoroPO | null>(null);
-  const [detailMode, setDetailMode] = useState<"header" | "po" | "milestones" | "notes" | "history" | "matrix" | "email" | "all">("po");
+  const [detailMode, setDetailMode] = useState<"header" | "po" | "milestones" | "notes" | "history" | "matrix" | "email" | "attachments" | "all">("po");
+  const [attachments, setAttachments] = useState<Record<string, { id: string; name: string; url: string; type: string; size: number; uploaded_by: string; uploaded_at: string }[]>>({});
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const attachInputRef = useRef<HTMLInputElement>(null);
   const [matrixCollapsed, setMatrixCollapsed] = useState(false);
   const [lineItemsCollapsed, setLineItemsCollapsed] = useState(true);
   const [poInfoCollapsed, setPoInfoCollapsed] = useState(false);
@@ -1197,6 +1200,47 @@ export default function TandAApp() {
     await loadNotes();
   }
 
+  // ── Attachments ──────────────────────────────────────────────────────────
+  const ATTACH_BUCKET = "Attachments";
+  async function uploadAttachment(poNumber: string, file: File) {
+    setUploadingAttachment(true);
+    try {
+      const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      const filePath = `po-attachments/${poNumber}/${safeName}`;
+      const res = await fetch(`${SB_URL}/storage/v1/object/${ATTACH_BUCKET}/${filePath}`, {
+        method: "POST", headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`, "Content-Type": file.type || "application/octet-stream", "x-upsert": "true" }, body: file,
+      });
+      if (!res.ok) { console.warn("Upload failed:", res.status); setUploadingAttachment(false); return; }
+      const url = `${SB_URL}/storage/v1/object/public/${ATTACH_BUCKET}/${filePath}`;
+      const entry = { id: safeName, name: file.name, url, type: file.type, size: file.size, uploaded_by: user?.name || "", uploaded_at: new Date().toISOString() };
+      // Save metadata to tanda_notes with special status_override
+      await sb.from("tanda_notes").insert({ po_number: poNumber, note: JSON.stringify(entry), status_override: "__attachment__", user_name: user?.name || "", created_at: new Date().toISOString() });
+      setAttachments(prev => ({ ...prev, [poNumber]: [...(prev[poNumber] || []), entry] }));
+      addHistory(poNumber, `Attachment uploaded: ${file.name}`);
+    } catch (e) { console.error("Upload error:", e); }
+    setUploadingAttachment(false);
+  }
+  async function loadAttachments(poNumber: string) {
+    const { data } = await sb.from("tanda_notes").select("*", `po_number=eq.${encodeURIComponent(poNumber)}&status_override=eq.__attachment__`);
+    if (data) {
+      const entries = data.map((r: any) => { try { return JSON.parse(r.note); } catch { return null; } }).filter(Boolean);
+      setAttachments(prev => ({ ...prev, [poNumber]: entries }));
+    }
+  }
+  async function deleteAttachment(poNumber: string, attachId: string) {
+    const entry = (attachments[poNumber] || []).find(a => a.id === attachId);
+    if (!entry) return;
+    // Delete from storage
+    const filePath = `po-attachments/${poNumber}/${attachId}`;
+    await fetch(`${SB_URL}/storage/v1/object/${ATTACH_BUCKET}/${filePath}`, { method: "DELETE", headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` } });
+    // Delete metadata — find the note row
+    const { data } = await sb.from("tanda_notes").select("id,note", `po_number=eq.${encodeURIComponent(poNumber)}&status_override=eq.__attachment__`);
+    const row = data?.find((r: any) => { try { return JSON.parse(r.note).id === attachId; } catch { return false; } });
+    if (row) await sb.from("tanda_notes").delete(`id=eq.${encodeURIComponent(row.id)}`);
+    setAttachments(prev => ({ ...prev, [poNumber]: (prev[poNumber] || []).filter(a => a.id !== attachId) }));
+    addHistory(poNumber, `Attachment deleted: ${entry.name}`);
+  }
+
   async function deletePO(poNumber: string) {
     if (!poNumber) return;
     // Delete from tanda_pos
@@ -1978,6 +2022,7 @@ export default function TandAApp() {
             <button style={tabStyle("po")} onClick={() => setDetailMode("po")}>PO / Matrix</button>
             <button style={tabStyle("milestones")} onClick={() => setDetailMode("milestones")}>Milestones</button>
             <button style={tabStyle("notes")} onClick={() => setDetailMode("notes")}>Notes</button>
+            <button style={tabStyle("attachments")} onClick={() => { setDetailMode("attachments"); const pn = selected.PoNumber ?? ""; if (pn && !attachments[pn]) loadAttachments(pn); }}>📎 Files</button>
             <button style={tabStyle("email")} onClick={() => { setDetailMode("email"); setDtlEmailTab("inbox"); const pn = selected.PoNumber ?? ""; if (pn && emailToken && !dtlEmails[pn]?.length) loadDtlEmails(pn); }}>📧 Email</button>
             <button style={tabStyle("history")} onClick={() => setDetailMode("history")}>History</button>
             <button style={tabStyle("all")} onClick={() => setDetailMode("all")}>All</button>
@@ -2103,6 +2148,56 @@ export default function TandAApp() {
               </>
             );
           })()}
+
+            {/* Attachments Tab */}
+            {(detailMode === "attachments" || detailMode === "all") && (() => {
+              const pn = selected.PoNumber ?? "";
+              const files = attachments[pn] || [];
+              const fmtSize = (b: number) => b < 1024 ? b + " B" : b < 1048576 ? (b / 1024).toFixed(1) + " KB" : (b / 1048576).toFixed(1) + " MB";
+              const getIcon = (type: string) => type.startsWith("image/") ? "🖼️" : type.includes("pdf") ? "📄" : type.includes("sheet") || type.includes("excel") || type.includes("csv") ? "📊" : type.includes("word") || type.includes("doc") ? "📝" : "📎";
+              return (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <div style={S.sectionLabel}>Attachments ({files.length})</div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      {uploadingAttachment && <span style={{ fontSize: 12, color: "#F59E0B" }}>Uploading…</span>}
+                      <input ref={attachInputRef} type="file" multiple style={{ display: "none" }} onChange={async e => {
+                        const fileList = e.target.files; if (!fileList) return;
+                        for (let i = 0; i < fileList.length; i++) await uploadAttachment(pn, fileList[i]);
+                        e.target.value = "";
+                      }} />
+                      <button onClick={() => attachInputRef.current?.click()} disabled={uploadingAttachment} style={{ ...S.btnPrimary, fontSize: 11, padding: "6px 14px", width: "auto", opacity: uploadingAttachment ? 0.5 : 1 }}>+ Upload Files</button>
+                    </div>
+                  </div>
+                  {files.length === 0 ? (
+                    <div style={{ background: "#0F172A", borderRadius: 8, padding: 30, textAlign: "center" }}>
+                      <div style={{ fontSize: 32, marginBottom: 8 }}>📎</div>
+                      <div style={{ color: "#6B7280", fontSize: 13, marginBottom: 12 }}>No attachments yet</div>
+                      <button onClick={() => attachInputRef.current?.click()} style={{ ...S.btnSecondary, fontSize: 12 }}>Upload your first file</button>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {files.map(f => {
+                        const timeAgo = f.uploaded_at ? (() => { const ms = Date.now() - new Date(f.uploaded_at).getTime(); const m = Math.floor(ms / 60000); if (m < 60) return `${m}m ago`; const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`; return `${Math.floor(h / 24)}d ago`; })() : "";
+                        return (
+                          <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "#0F172A", borderRadius: 8, border: "1px solid #334155" }}>
+                            <span style={{ fontSize: 24, flexShrink: 0 }}>{getIcon(f.type)}</span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <a href={f.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "#60A5FA", fontWeight: 600, textDecoration: "none", display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                                onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"} onMouseLeave={e => e.currentTarget.style.textDecoration = "none"}>{f.name}</a>
+                              <div style={{ fontSize: 11, color: "#6B7280" }}>{fmtSize(f.size)} · {f.uploaded_by} · {timeAgo}</div>
+                            </div>
+                            {f.type.startsWith("image/") && <img src={f.url} alt="" style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover", flexShrink: 0 }} />}
+                            <button onClick={e => { e.stopPropagation(); setConfirmModal({ title: "Delete Attachment", message: `Delete "${f.name}"?`, icon: "🗑", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => deleteAttachment(pn, f.id) }); }}
+                              style={{ background: "none", border: "1px solid #EF444444", color: "#EF4444", borderRadius: 6, padding: "4px 8px", fontSize: 10, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>✕</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Email Tab */}
             {(detailMode === "email" || detailMode === "all") && (() => {
