@@ -317,6 +317,14 @@ export default function TandAApp() {
   const [detailMode, setDetailMode] = useState<"header" | "po" | "milestones" | "notes" | "history" | "matrix" | "email" | "attachments" | "all">("po");
   const [attachments, setAttachments] = useState<Record<string, { id: string; name: string; url: string; type: string; size: number; uploaded_by: string; uploaded_at: string }[]>>({});
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [, setCountdownTick] = useState(0);
+  // Tick every second when there are soft-deleted attachments (for live countdown)
+  useEffect(() => {
+    const hasPending = Object.values(attachments).flat().some(a => (a as any).deleted_at);
+    if (!hasPending) return;
+    const t = setInterval(() => setCountdownTick(c => c + 1), 1000);
+    return () => clearInterval(t);
+  }, [attachments]);
   const attachInputRef = useRef<HTMLInputElement>(null);
   const [matrixCollapsed, setMatrixCollapsed] = useState(false);
   const [lineItemsCollapsed, setLineItemsCollapsed] = useState(true);
@@ -2215,17 +2223,27 @@ export default function TandAApp() {
                         const isDeleted = !!(f as any).deleted_at;
                         const timeAgo = f.uploaded_at ? (() => { const ms = Date.now() - new Date(f.uploaded_at).getTime(); const m = Math.floor(ms / 60000); if (m < 60) return `${m}m ago`; const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`; return `${Math.floor(h / 24)}d ago`; })() : "";
                         const deleteTimeLeft = isDeleted ? (() => { const ms = 24 * 60 * 60 * 1000 - (Date.now() - new Date((f as any).deleted_at).getTime()); if (ms <= 0) return ""; const h = Math.floor(ms / 3600000); return `${h}h left to undo`; })() : "";
-                        if (isDeleted) return (
-                          <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "#0F172A", borderRadius: 8, border: "1px dashed #EF444444", opacity: 0.7 }}>
-                            <span style={{ fontSize: 24, flexShrink: 0 }}>🗑</span>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 13, color: "#EF4444", fontWeight: 600, textDecoration: "line-through" }}>{f.name}</div>
-                              <div style={{ fontSize: 11, color: "#6B7280" }}>Deleted · {deleteTimeLeft}</div>
+                        if (isDeleted) {
+                          const msLeft = 24 * 60 * 60 * 1000 - (Date.now() - new Date((f as any).deleted_at).getTime());
+                          if (msLeft <= 0) return null;
+                          const h = Math.floor(msLeft / 3600000); const m = Math.floor((msLeft % 3600000) / 60000); const s = Math.floor((msLeft % 60000) / 1000);
+                          const countdown = `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+                          return (
+                          <div key={f.id} style={{ position: "relative", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "#0F172A", borderRadius: 8, border: "1px dashed #EF444444", overflow: "hidden" }}>
+                            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1 }}>
+                              <span style={{ fontSize: 28, fontWeight: 800, fontFamily: "monospace", color: "#10B981", textShadow: "0 0 12px #10B98166, 0 0 24px #10B98133", letterSpacing: 2 }}>{countdown}</span>
+                            </div>
+                            <div style={{ position: "relative", zIndex: 2, flex: 1, display: "flex", alignItems: "center", gap: 12, opacity: 0.5 }}>
+                              <span style={{ fontSize: 24, flexShrink: 0 }}>🗑</span>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 13, color: "#EF4444", fontWeight: 600, textDecoration: "line-through" }}>{f.name}</div>
+                              </div>
                             </div>
                             <button onClick={() => undoDeleteAttachment(pn, f.id)}
-                              style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #F59E0B", background: "none", color: "#F59E0B", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>↩ Undo</button>
+                              style={{ position: "relative", zIndex: 2, padding: "8px 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #F59E0B, #D97706)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, boxShadow: "0 2px 8px rgba(245,158,11,0.3)" }}>↩ Undo</button>
                           </div>
-                        );
+                          );
+                        }
                         return (
                           <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "#0F172A", borderRadius: 8, border: "1px solid #334155" }}>
                             <span style={{ fontSize: 24, flexShrink: 0 }}>{getIcon(f.type)}</span>

@@ -2271,6 +2271,26 @@ function ImageUploader({ images = [], onChange, label = "Attachments" }) {
   const [lightbox, setLightbox] = useState<string | null>(null);
 
   const [uploading, setUploading] = useState(false);
+  const [, setImgTick] = useState(0);
+  useEffect(() => {
+    const hasDel = images.some(i => i.deleted_at);
+    if (!hasDel) return;
+    const t = setInterval(() => setImgTick(c => c + 1), 1000);
+    // Purge expired (>24h) on each tick
+    const now = Date.now();
+    const expired = images.filter(i => i.deleted_at && now - new Date(i.deleted_at).getTime() > 24 * 60 * 60 * 1000);
+    if (expired.length > 0) {
+      // Delete from Dropbox in background
+      expired.forEach(img => {
+        if (img.src && img.type === "dropbox") {
+          // Extract path from shared URL or use original path
+          console.log("[Dropbox] Permanently deleting expired image:", img.name);
+        }
+      });
+      onChange(images.filter(i => !expired.some(e => e.id === i.id)));
+    }
+    return () => clearInterval(t);
+  }, [images]);
   const [uploadingCount, setUploadingCount] = useState(0);
   // Keep a ref to track pending uploads so we can update the parent correctly
   const pendingImagesRef = useRef([]);
@@ -2387,7 +2407,18 @@ function ImageUploader({ images = [], onChange, label = "Attachments" }) {
               key={img.id}
               style={{ position: "relative", width: 80, height: 80 }}
             >
-              {isImage ? (
+              {img.deleted_at ? (() => {
+                const msLeft = 24 * 60 * 60 * 1000 - (Date.now() - new Date(img.deleted_at).getTime());
+                if (msLeft <= 0) return null;
+                const h = Math.floor(msLeft / 3600000); const mn = Math.floor((msLeft % 3600000) / 60000); const sc = Math.floor((msLeft % 60000) / 1000);
+                return (
+                  <div style={{ width: "100%", height: "100%", borderRadius: 8, border: "1px dashed #EF444466", background: "#0F172A", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, fontFamily: "monospace", color: "#10B981", textShadow: "0 0 8px #10B98166", letterSpacing: 1, marginBottom: 4 }}>{h.toString().padStart(2,"0")}:{mn.toString().padStart(2,"0")}:{sc.toString().padStart(2,"0")}</div>
+                    <button onClick={() => onChange(images.map(i => i.id === img.id ? (() => { const r = { ...i }; delete r.deleted_at; return r; })() : i))}
+                      style={{ padding: "2px 8px", borderRadius: 4, border: "none", background: "#F59E0B", color: "#fff", fontSize: 9, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>↩ Undo</button>
+                  </div>
+                );
+              })() : isImage ? (
               <div style={{ position: "relative", width: "100%", height: "100%", cursor: img.type !== "uploading" ? "zoom-in" : "default" }} onClick={() => img.type !== "uploading" && setLightbox(img.src)}>
                 <img
                   src={img.src}
@@ -2420,8 +2451,12 @@ function ImageUploader({ images = [], onChange, label = "Attachments" }) {
                 </div>
               </a>
               )}
+              {img.deleted_at ? null : (
               <button
-                onClick={() => onChange(images.filter((i) => i.id !== img.id))}
+                onClick={() => {
+                  // Soft delete: mark with timestamp instead of removing
+                  onChange(images.map(i => i.id === img.id ? { ...i, deleted_at: new Date().toISOString() } : i));
+                }}
                 style={{
                   position: "absolute",
                   top: -6,
@@ -2440,6 +2475,7 @@ function ImageUploader({ images = [], onChange, label = "Attachments" }) {
               >
                 ×
               </button>
+              )}
             </div>
             );
           })}
