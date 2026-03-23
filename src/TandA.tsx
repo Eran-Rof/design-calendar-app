@@ -1868,7 +1868,7 @@ export default function TandAApp() {
                     ["Complete", complete, "#047857", "#6EE7B7"],
                     ["In Progress", inProg, "#1E3A8A", "#93C5FD"],
                     ["Delayed", delayed, "#7F1D1D", "#FCA5A5"],
-                    ["Not Started", active - complete - inProg - delayed, "#111827", "#9CA3AF"],
+                    ["Not Started", active - complete - inProg - delayed, "#6B7280", "#9CA3AF"],
                   ] as [string, number, string, string][]).filter(([, count]) => count > 0).map(([label, count, color, colorLt]) => {
                     const statusPct = active > 0 ? Math.round((count / active) * 100) : 0;
                     return (
@@ -3263,8 +3263,17 @@ export default function TandAApp() {
                       const complete = poMs.filter(m => m.status === "Complete").length;
                       const active = poMs.filter(m => m.status !== "N/A").length;
                       const pct = active > 0 ? Math.round((complete / active) * 100) : 0;
+                      const inProg = poMs.filter(m => m.status === "In Progress").length;
+                      const delayed = poMs.filter(m => m.status === "Delayed").length;
+                      const notStarted = active - complete - inProg - delayed;
                       const statusColor = STATUS_COLORS[po.StatusName ?? ""] ?? "#6B7280";
                       const isSelected = selected?.PoNumber === poNum;
+                      const statusBars = [
+                        [complete, "#047857", "#6EE7B7"],
+                        [inProg, "#1D4ED8", "#93C5FD"],
+                        [delayed, "#7F1D1D", "#FCA5A5"],
+                        [notStarted, "#374151", "#9CA3AF"],
+                      ].filter(([c]) => (c as number) > 0) as [number, string, string][];
                       return (
                         <div key={poNum}
                           onClick={() => { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(po); setView("list"); }}
@@ -3276,11 +3285,16 @@ export default function TandAApp() {
                             <div style={{ fontSize: 18, fontWeight: 700, color: "#60A5FA", fontFamily: "monospace" }}>{poNum}</div>
                             <div style={{ fontSize: 15, color: "#94A3B8", lineHeight: 1.3 }}>{po.VendorName ?? ""}</div>
                           </div>
-                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
-                            <span style={{ fontSize: 16, color: pct === 100 ? "#10B981" : "#6B7280", fontWeight: 700, fontFamily: "monospace" }}>{pct}%</span>
-                            <div style={{ width: 70, height: 8, borderRadius: 4, background: "#334155", overflow: "hidden" }}>
-                              <div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? "#10B981" : "#3B82F6", borderRadius: 4 }} />
-                            </div>
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0, width: 96 }}>
+                            <span style={{ fontSize: 12, color: "#10B981", fontWeight: 700, fontFamily: "monospace" }}>{pct}%</span>
+                            {statusBars.map(([count, dark, light], i) => {
+                              const sPct = active > 0 ? Math.round(((count as number) / active) * 100) : 0;
+                              return (
+                                <div key={i} style={{ width: 96, height: 6, borderRadius: 3, background: "#0F172A", overflow: "hidden" }}>
+                                  <div style={{ width: `${sPct}%`, height: "100%", background: `linear-gradient(90deg, ${light}, ${dark})`, borderRadius: 3, minWidth: (count as number) > 0 ? 3 : 0 }} />
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       );
