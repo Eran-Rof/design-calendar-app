@@ -1160,6 +1160,16 @@ export default function TandAApp() {
     const targetPOs = bulkPOs.length > 0 ? vendorPOs.filter(p => bulkPOs.includes(p.PoNumber ?? "")) : vendorPOs;
     const today = new Date().toISOString().split("T")[0];
     let count = 0;
+    let generated = 0;
+    // Auto-generate milestones for POs that don't have them
+    for (const po of targetPOs) {
+      const poNum = po.PoNumber ?? "";
+      if (!(milestones[poNum]?.length) && po.DateExpectedDelivery) {
+        const result = await ensureMilestones(po);
+        if (result !== "needs_template" && Array.isArray(result) && result.length > 0) generated++;
+      }
+    }
+    // Now update milestones
     for (const po of targetPOs) {
       const poNum = po.PoNumber ?? "";
       const poMs = milestones[poNum] || [];
@@ -1181,15 +1191,17 @@ export default function TandAApp() {
         }
       }
     }
+    const poNums = targetPOs.map(p => p.PoNumber ?? "").filter(Boolean);
     if (count > 0) {
-      addHistory(targetPOs[0]?.PoNumber ?? "", `Bulk update: ${count} milestones → ${bulkStatus} for vendor ${bulkVendor}${bulkCategory ? ` (${bulkCategory})` : ""}${bulkPhase ? ` (${bulkPhase})` : ""} (${targetPOs.length} POs)`);
+      addHistory(targetPOs[0]?.PoNumber ?? "", `Bulk update: ${count} milestones → ${bulkStatus} for ${bulkVendor} [${poNums.join(", ")}]${bulkCategory ? ` (${bulkCategory})` : ""}`);
     }
     setBulkUpdating(false);
     setShowBulkUpdate(false);
     setBulkPhase(""); setBulkPhases([]);
     setBulkCategory("");
     setBulkPOs([]); setBulkPOSearch("");
-    setConfirmModal({ title: "Bulk Update Complete", message: `Updated ${count} milestones to "${bulkStatus}" across ${targetPOs.length} POs for ${bulkVendor}.`, icon: "✅", confirmText: "OK", confirmColor: "#10B981", onConfirm: () => {} });
+    const genMsg = generated > 0 ? ` (${generated} POs had milestones auto-generated)` : "";
+    setConfirmModal({ title: "Bulk Update Complete", message: `Updated ${count} milestones to "${bulkStatus}" for ${bulkVendor} — POs: ${poNums.join(", ")}${genMsg}`, icon: "✅", confirmText: "OK", confirmColor: "#10B981", onConfirm: () => {} });
   }
 
   const allPONotes = notes.filter(n => n.po_number === selected?.PoNumber);
@@ -3500,7 +3512,7 @@ export default function TandAApp() {
                       <button style={{ ...S.btnPrimary, flex: 2, opacity: (!bulkStatus || bulkUpdating) ? 0.5 : 1 }}
                         disabled={!bulkStatus || bulkUpdating}
                         onClick={() => {
-                          setConfirmModal({ title: "Bulk Update", message: `Update ${matching.length} milestones to "${bulkStatus}" for ${bulkVendor}?`, icon: "⚡", confirmText: "Update All", confirmColor: "#3B82F6", onConfirm: bulkUpdateMilestones });
+                          setConfirmModal({ title: "Bulk Update", message: `Update ${matching.length} milestones to "${bulkStatus}" for ${bulkVendor}?`, icon: "⚡", confirmText: "Update", confirmColor: "#3B82F6", onConfirm: bulkUpdateMilestones });
                         }}>
                         {bulkUpdating ? "Updating…" : `Update ${matching.length} Milestones`}
                       </button>
