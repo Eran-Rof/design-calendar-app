@@ -1107,6 +1107,40 @@ export default function TandAApp() {
     return { blocked: false, delayedCat: "", daysLate: 0 };
   }
 
+  async function cascadeDueDateChange(milestone: Milestone, newDate: string) {
+    const poNum = milestone.po_number;
+    const oldDate = milestone.expected_date;
+    if (!oldDate || !newDate || oldDate === newDate) {
+      // No old date or no change — just save this one
+      saveMilestone({ ...milestone, expected_date: newDate || null, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
+      return;
+    }
+    const diffDays = Math.round((new Date(newDate).getTime() - new Date(oldDate).getTime()) / 86400000);
+    if (diffDays === 0) {
+      saveMilestone({ ...milestone, expected_date: newDate, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
+      return;
+    }
+    // Get all milestones for this PO sorted by sort_order
+    const allMs = [...(milestones[poNum] || [])].sort((a, b) => a.sort_order - b.sort_order);
+    const msIdx = allMs.findIndex(m => m.id === milestone.id);
+    // Save the changed milestone
+    await saveMilestone({ ...milestone, expected_date: newDate, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
+    // Shift all subsequent milestones by the same number of days
+    let shifted = 0;
+    for (let i = msIdx + 1; i < allMs.length; i++) {
+      const m = allMs[i];
+      if (m.expected_date && m.status !== "Complete") {
+        const d = new Date(m.expected_date);
+        d.setDate(d.getDate() + diffDays);
+        await saveMilestone({ ...m, expected_date: d.toISOString().slice(0, 10), updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
+        shifted++;
+      }
+    }
+    if (shifted > 0) {
+      addHistory(poNum, `Due date changed for "${milestone.phase}": ${oldDate} → ${newDate} (${diffDays > 0 ? "+" : ""}${diffDays}d). ${shifted} subsequent milestone${shifted > 1 ? "s" : ""} shifted.`);
+    }
+  }
+
   function openCategoryWithCheck(poNum: string, cat: string, po?: XoroPO | null, switchView?: boolean) {
     const key = cat + poNum;
     const info = isCatBlocked(poNum, cat);
@@ -2355,7 +2389,7 @@ export default function TandAApp() {
                                 <div style={{ display: "grid", gridTemplateColumns: "1.5fr 100px 120px 120px 55px 32px", gap: 6, padding: "8px 14px", borderTop: "1px solid #1E293B", alignItems: "center", background: cascade.blocked && m.status !== "Complete" && m.status !== "N/A" ? "#F59E0B08" : "transparent" }}>
                                   <span style={{ color: "#D1D5DB" }}>{m.phase}</span>
                                   <div style={{ textAlign: "center" }}>
-                                    <input type="date" value={m.expected_date || ""} onChange={e => saveMilestone({ ...m, expected_date: e.target.value || null, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true)}
+                                    <input type="date" value={m.expected_date || ""} onChange={e => cascadeDueDateChange(m, e.target.value)}
                                       style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: projectedDate ? "#F59E0B" : "#9CA3AF", fontSize: 12, padding: "4px 6px", width: "100%", boxSizing: "border-box", outline: "none" }} />
                                     {projectedDate && <div style={{ fontSize: 9, color: "#F59E0B", marginTop: 1 }}>→ {fmtDate(projectedDate)}</div>}
                                   </div>
