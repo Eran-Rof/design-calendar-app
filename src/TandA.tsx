@@ -319,7 +319,7 @@ export default function TandAApp() {
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [msNoteText, setMsNoteText] = useState("");
   const [addingPhase, setAddingPhase] = useState(false);
-  const [newPhaseForm, setNewPhaseForm] = useState({ name: "", category: "Pre-Production" });
+  const [newPhaseForm, setNewPhaseForm] = useState({ name: "", category: "Pre-Production", dueDate: "", afterPhase: "" });
   const [acceptedBlocked, setAcceptedBlocked] = useState<Set<string>>(new Set());
   const [blockedModal, setBlockedModal] = useState<{ cat: string; delayedCat: string; daysLate: number; onConfirm: () => void } | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ title: string; message: string; icon: string; confirmText: string; confirmColor: string; cancelText?: string; onConfirm: () => void; onCancel?: () => void } | null>(null);
@@ -2431,29 +2431,61 @@ export default function TandAApp() {
                     <div style={{ marginTop: 8 }}>
                       {!addingPhase ? (
                         <button onClick={() => setAddingPhase(true)} style={{ ...S.btnSecondary, fontSize: 11, padding: "5px 12px" }}>+ Add Custom Phase</button>
-                      ) : (
-                        <div style={{ background: "#0F172A", borderRadius: 8, padding: 12, display: "flex", gap: 8, alignItems: "flex-end" }}>
-                          <div style={{ flex: 1 }}>
-                            <label style={{ color: "#6B7280", fontSize: 10, display: "block", marginBottom: 3, textTransform: "uppercase" }}>Phase Name</label>
-                            <input value={newPhaseForm.name} onChange={e => setNewPhaseForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Client Approval" style={{ ...S.input, marginBottom: 0, fontSize: 12, padding: "6px 10px" }} />
+                      ) : (() => {
+                        // Build list of phases in the selected category for "Insert After" dropdown
+                        const catPhases = poMs.filter(m => m.category === newPhaseForm.category).sort((a, b) => a.sort_order - b.sort_order);
+                        return (
+                        <div style={{ background: "#0F172A", borderRadius: 8, padding: 12 }}>
+                          <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                            <div style={{ flex: 1, minWidth: 140 }}>
+                              <label style={{ color: "#6B7280", fontSize: 10, display: "block", marginBottom: 3, textTransform: "uppercase" }}>Phase Name</label>
+                              <input value={newPhaseForm.name} onChange={e => setNewPhaseForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Client Approval" style={{ ...S.input, marginBottom: 0, fontSize: 12, padding: "6px 10px" }} />
+                            </div>
+                            <div style={{ width: 150 }}>
+                              <label style={{ color: "#6B7280", fontSize: 10, display: "block", marginBottom: 3, textTransform: "uppercase" }}>Category</label>
+                              <select value={newPhaseForm.category} onChange={e => setNewPhaseForm(f => ({ ...f, category: e.target.value, afterPhase: "" }))} style={{ ...S.select, width: "100%", fontSize: 12, padding: "6px 8px" }}>
+                                {WIP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                              </select>
+                            </div>
+                            <div style={{ width: 140 }}>
+                              <label style={{ color: "#6B7280", fontSize: 10, display: "block", marginBottom: 3, textTransform: "uppercase" }}>Due Date</label>
+                              <input type="date" value={newPhaseForm.dueDate} onChange={e => setNewPhaseForm(f => ({ ...f, dueDate: e.target.value }))} style={{ ...S.input, marginBottom: 0, fontSize: 12, padding: "5px 8px" }} />
+                            </div>
+                            <div style={{ width: 180 }}>
+                              <label style={{ color: "#6B7280", fontSize: 10, display: "block", marginBottom: 3, textTransform: "uppercase" }}>Insert After</label>
+                              <select value={newPhaseForm.afterPhase} onChange={e => setNewPhaseForm(f => ({ ...f, afterPhase: e.target.value }))} style={{ ...S.select, width: "100%", fontSize: 12, padding: "6px 8px" }}>
+                                <option value="">— At beginning —</option>
+                                {catPhases.map(p => <option key={p.id} value={p.id}>{p.phase}</option>)}
+                              </select>
+                            </div>
                           </div>
-                          <div style={{ width: 160 }}>
-                            <label style={{ color: "#6B7280", fontSize: 10, display: "block", marginBottom: 3, textTransform: "uppercase" }}>Category</label>
-                            <select value={newPhaseForm.category} onChange={e => setNewPhaseForm(f => ({ ...f, category: e.target.value }))} style={{ ...S.select, width: "100%", fontSize: 12, padding: "6px 8px" }}>
-                              {WIP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
+                          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                            <button onClick={() => { setAddingPhase(false); setNewPhaseForm({ name: "", category: "Pre-Production", dueDate: "", afterPhase: "" }); }} style={{ ...S.btnSecondary, fontSize: 11, padding: "7px 12px" }}>Cancel</button>
+                            <button onClick={() => {
+                              if (!newPhaseForm.name.trim()) return;
+                              // Calculate sort_order: insert after the selected phase
+                              let sortOrder: number;
+                              const allCatMs = poMs.filter(m => m.category === newPhaseForm.category).sort((a, b) => a.sort_order - b.sort_order);
+                              if (newPhaseForm.afterPhase) {
+                                const afterIdx = allCatMs.findIndex(m => m.id === newPhaseForm.afterPhase);
+                                if (afterIdx >= 0) {
+                                  const afterSort = allCatMs[afterIdx].sort_order;
+                                  const nextSort = afterIdx + 1 < allCatMs.length ? allCatMs[afterIdx + 1].sort_order : afterSort + 10;
+                                  sortOrder = afterSort + (nextSort - afterSort) / 2;
+                                } else { sortOrder = poMs.length; }
+                              } else {
+                                sortOrder = allCatMs.length > 0 ? allCatMs[0].sort_order - 1 : 0;
+                              }
+                              const newM: Milestone = { id: milestoneUid(), po_number: poNum, phase: newPhaseForm.name.trim(), category: newPhaseForm.category, sort_order: sortOrder, days_before_ddp: 0, expected_date: newPhaseForm.dueDate || null, actual_date: null, status: "Not Started", status_date: null, status_dates: null, notes: "", note_entries: null, updated_at: new Date().toISOString(), updated_by: user?.name || "" };
+                              saveMilestone(newM, true);
+                              addHistory(poNum, `Custom phase added: "${newPhaseForm.name.trim()}" in ${newPhaseForm.category}${newPhaseForm.afterPhase ? " (after " + (allCatMs.find(m => m.id === newPhaseForm.afterPhase)?.phase || "") + ")" : ""}`);
+                              setNewPhaseForm({ name: "", category: "Pre-Production", dueDate: "", afterPhase: "" });
+                              setAddingPhase(false);
+                            }} style={{ ...S.btnPrimary, fontSize: 11, padding: "7px 14px", width: "auto", whiteSpace: "nowrap" }}>Add Phase</button>
                           </div>
-                          <button onClick={() => {
-                            if (!newPhaseForm.name.trim()) return;
-                            const newM: Milestone = { id: milestoneUid(), po_number: poNum, phase: newPhaseForm.name.trim(), category: newPhaseForm.category, sort_order: poMs.length, days_before_ddp: 0, expected_date: null, actual_date: null, status: "Not Started", status_date: null, status_dates: null, notes: "", note_entries: null, updated_at: new Date().toISOString(), updated_by: user?.name || "" };
-                            saveMilestone(newM, true);
-                            addHistory(poNum, `Custom phase added: "${newPhaseForm.name.trim()}" in ${newPhaseForm.category}`);
-                            setNewPhaseForm({ name: "", category: "Pre-Production" });
-                            setAddingPhase(false);
-                          }} style={{ ...S.btnPrimary, fontSize: 11, padding: "7px 14px", width: "auto", whiteSpace: "nowrap" }}>Add</button>
-                          <button onClick={() => { setAddingPhase(false); setNewPhaseForm({ name: "", category: "Pre-Production" }); }} style={{ ...S.btnSecondary, fontSize: 11, padding: "7px 10px" }}>✕</button>
                         </div>
-                      )}
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
