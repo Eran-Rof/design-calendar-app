@@ -74,11 +74,10 @@ const APPS = [
   {
     id: "techpack" as const,
     name: "Tech Packs",
-    description: "Coming soon — technical specifications and garment details",
+    description: "Tech packs, spec sheets, costing, approvals, materials & sample tracking",
     icon: "📐",
     color: "#8B5CF6",
     path: "/techpack",
-    comingSoon: true,
   },
 ];
 
@@ -223,35 +222,32 @@ export default function PLMApp() {
           {APPS.map(app => {
             const perm = getPermission(user, app.id);
             const locked = !perm.access;
-            const soon   = app.comingSoon;
 
             return (
               <div key={app.id}
                 style={{
                   ...S.appCard,
-                  borderTop: `4px solid ${locked || soon ? "#E5E7EB" : app.color}`,
-                  opacity: locked || soon ? 0.6 : 1,
-                  cursor: locked || soon ? "not-allowed" : "pointer",
+                  borderTop: `4px solid ${locked ? "#E5E7EB" : app.color}`,
+                  opacity: locked ? 0.6 : 1,
+                  cursor: locked ? "not-allowed" : "pointer",
                 }}
-                onClick={() => !locked && !soon && openApp(app.path)}>
+                onClick={() => !locked && openApp(app.path)}>
 
                 <div style={{ fontSize: 40, marginBottom: 12 }}>{app.icon}</div>
-                <h3 style={{ ...S.appName, color: locked || soon ? "#9CA3AF" : "#111827" }}>
+                <h3 style={{ ...S.appName, color: locked ? "#9CA3AF" : "#111827" }}>
                   {app.name}
                 </h3>
                 <p style={S.appDesc}>{app.description}</p>
 
                 <div style={{ marginTop: "auto", paddingTop: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  {soon ? (
-                    <span style={S.comingSoonBadge}>Coming Soon</span>
-                  ) : locked ? (
+                  {locked ? (
                     <span style={S.lockedBadge}>🔒 No Access</span>
                   ) : (
                     <span style={{ ...S.accessBadge, background: app.color + "15", color: app.color, border: `1px solid ${app.color}30` }}>
                       {perm.readOnly ? "👁 Read Only" : "✏️ Read/Write"}
                     </span>
                   )}
-                  {!locked && !soon && (
+                  {!locked && (
                     <span style={{ color: app.color, fontSize: 20 }}>→</span>
                   )}
                 </div>
