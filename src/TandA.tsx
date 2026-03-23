@@ -235,6 +235,7 @@ interface Milestone {
   status_date: string | null;
   status_dates: Record<string, string> | null;
   notes: string;
+  note_entries: { text: string; user: string; date: string }[] | null;
   updated_at: string;
   updated_by: string;
 }
@@ -316,6 +317,7 @@ export default function TandAApp() {
   const [poInfoCollapsed, setPoInfoCollapsed] = useState(false);
   const [progressCollapsed, setProgressCollapsed] = useState(false);
   const [editingNote, setEditingNote] = useState<string | null>(null);
+  const [msNoteText, setMsNoteText] = useState("");
   const [addingPhase, setAddingPhase] = useState(false);
   const [newPhaseForm, setNewPhaseForm] = useState({ name: "", category: "Pre-Production" });
   const [acceptedBlocked, setAcceptedBlocked] = useState<Set<string>>(new Set());
@@ -840,6 +842,7 @@ export default function TandAApp() {
         status_date: null,
         status_dates: null,
         notes: "",
+        note_entries: null,
         updated_at: new Date().toISOString(),
         updated_by: user?.name || "",
       };
@@ -2373,14 +2376,49 @@ export default function TandAApp() {
                                   <span style={{ color: daysColor, fontWeight: 600, textAlign: "right", fontSize: 12 }}>
                                     {m.status === "Complete" ? "Done" : m.status === "N/A" ? "—" : daysRem === null ? "—" : daysRem < 0 ? `${Math.abs(daysRem)}d late` : daysRem === 0 ? "Today" : `${daysRem}d`}
                                   </span>
-                                  <span style={{ textAlign: "center", cursor: "pointer", fontSize: 14, opacity: m.notes ? 1 : 0.4 }} title={m.notes || "Add note"} onClick={e => { e.stopPropagation(); setEditingNote(editingNote === m.id ? null : m.id); }}>📝</span>
+                                  <span style={{ textAlign: "center", cursor: "pointer", fontSize: 14, opacity: (m.note_entries?.length || m.notes) ? 1 : 0.4, position: "relative" }} title={m.notes || "Add note"} onClick={e => { e.stopPropagation(); setEditingNote(editingNote === m.id ? null : m.id); setMsNoteText(""); }}>📝{(m.note_entries?.length ?? 0) > 0 && <span style={{ position: "absolute", top: -4, right: -6, fontSize: 8, background: "#3B82F6", color: "#fff", borderRadius: "50%", width: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>{m.note_entries!.length}</span>}</span>
                                 </div>
-                                {editingNote === m.id && (
-                                  <div style={{ padding: "6px 14px 10px", borderTop: "1px solid #1E293B" }}>
-                                    <textarea value={m.notes || ""} onChange={e => saveMilestone({ ...m, notes: e.target.value, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true)} placeholder="Add a note..." rows={2}
-                                      style={{ width: "100%", background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: "#D1D5DB", fontSize: 12, padding: "6px 10px", resize: "vertical", fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
-                                  </div>
-                                )}
+                                {editingNote === m.id && (() => {
+                                  const entries = m.note_entries || [];
+                                  // Show legacy note as first entry if exists and no entries yet
+                                  const legacy = m.notes && entries.length === 0 ? [{ text: m.notes, user: m.updated_by || "—", date: m.updated_at || "" }] : [];
+                                  const allNotes = [...legacy, ...entries];
+                                  return (
+                                    <div style={{ padding: "8px 14px 10px", borderTop: "1px solid #1E293B", background: "#1A2332" }}>
+                                      {allNotes.length > 0 && (
+                                        <div style={{ marginBottom: 8, maxHeight: 120, overflowY: "auto" }}>
+                                          {allNotes.map((n, i) => {
+                                            const timeAgo = n.date ? (() => { const ms = Date.now() - new Date(n.date).getTime(); const mins = Math.floor(ms / 60000); if (mins < 60) return `${mins}m ago`; const hrs = Math.floor(mins / 60); if (hrs < 24) return `${hrs}h ago`; return `${Math.floor(hrs / 24)}d ago`; })() : "";
+                                            return (
+                                              <div key={i} style={{ display: "flex", gap: 8, padding: "4px 0", borderBottom: i < allNotes.length - 1 ? "1px solid #0F172A" : "none" }}>
+                                                <div style={{ flex: 1, fontSize: 12, color: "#D1D5DB", lineHeight: 1.4 }}>{n.text}</div>
+                                                <div style={{ flexShrink: 0, textAlign: "right" }}>
+                                                  <div style={{ fontSize: 10, color: "#60A5FA", fontWeight: 600 }}>{n.user}</div>
+                                                  <div style={{ fontSize: 9, color: "#4B5563" }}>{timeAgo}</div>
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      )}
+                                      <div style={{ display: "flex", gap: 6 }}>
+                                        <input value={msNoteText} onChange={e => setMsNoteText(e.target.value)} placeholder="Add a note..." onKeyDown={e => {
+                                          if (e.key === "Enter" && msNoteText.trim()) {
+                                            const newEntry = { text: msNoteText.trim(), user: user?.name || "—", date: new Date().toISOString() };
+                                            saveMilestone({ ...m, note_entries: [...entries, newEntry], notes: [...allNotes.map(n => n.text), msNoteText.trim()].join(" | "), updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
+                                            setMsNoteText("");
+                                          }
+                                        }} style={{ flex: 1, background: "#0F172A", border: "1px solid #334155", borderRadius: 6, color: "#D1D5DB", fontSize: 12, padding: "6px 10px", fontFamily: "inherit", outline: "none" }} />
+                                        <button onClick={() => {
+                                          if (!msNoteText.trim()) return;
+                                          const newEntry = { text: msNoteText.trim(), user: user?.name || "—", date: new Date().toISOString() };
+                                          saveMilestone({ ...m, note_entries: [...entries, newEntry], notes: [...allNotes.map(n => n.text), msNoteText.trim()].join(" | "), updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
+                                          setMsNoteText("");
+                                        }} style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: "#3B82F6", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Add</button>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                                 </div>
                               );
                             })}
@@ -2407,7 +2445,7 @@ export default function TandAApp() {
                           </div>
                           <button onClick={() => {
                             if (!newPhaseForm.name.trim()) return;
-                            const newM: Milestone = { id: milestoneUid(), po_number: poNum, phase: newPhaseForm.name.trim(), category: newPhaseForm.category, sort_order: poMs.length, days_before_ddp: 0, expected_date: null, actual_date: null, status: "Not Started", status_date: null, status_dates: null, notes: "", updated_at: new Date().toISOString(), updated_by: user?.name || "" };
+                            const newM: Milestone = { id: milestoneUid(), po_number: poNum, phase: newPhaseForm.name.trim(), category: newPhaseForm.category, sort_order: poMs.length, days_before_ddp: 0, expected_date: null, actual_date: null, status: "Not Started", status_date: null, status_dates: null, notes: "", note_entries: null, updated_at: new Date().toISOString(), updated_by: user?.name || "" };
                             saveMilestone(newM, true);
                             addHistory(poNum, `Custom phase added: "${newPhaseForm.name.trim()}" in ${newPhaseForm.category}`);
                             setNewPhaseForm({ name: "", category: "Pre-Production" });
