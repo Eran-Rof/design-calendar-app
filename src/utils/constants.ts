@@ -1,0 +1,540 @@
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+export const BRANDS = [
+  {
+    id: "ring-of-fire",
+    name: "Ring of Fire",
+    short: "ROF",
+    color: "#C0392B",
+    isPrivateLabel: false,
+  },
+  {
+    id: "departed",
+    name: "Departed",
+    short: "DEP",
+    color: "#7F8C8D",
+    isPrivateLabel: false,
+  },
+  {
+    id: "fort-knox",
+    name: "Fort Knox",
+    short: "FKX",
+    color: "#92400E",
+    isPrivateLabel: false,
+  },
+  {
+    id: "axe-crown",
+    name: "Axe Crown",
+    short: "AXC",
+    color: "#1A5276",
+    isPrivateLabel: false,
+  },
+  {
+    id: "blue-rise",
+    name: "Blue Rise",
+    short: "BLR",
+    color: "#0E7490",
+    isPrivateLabel: false,
+  },
+  {
+    id: "ross-pl",
+    name: "Ross Private Label",
+    short: "RSP",
+    color: "#8E44AD",
+    isPrivateLabel: true,
+  },
+  {
+    id: "macys-pl",
+    name: "Macy's Private Label",
+    short: "MCP",
+    color: "#E74C3C",
+    isPrivateLabel: true,
+  },
+];
+
+export const SEASONS = ["Spring", "Summer", "Fall", "Holiday"];
+
+export const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+export const CATEGORIES = [
+  "Denim",
+  "Twill Pants",
+  "Fleece",
+  "Woven Tops",
+  "Knit Tops",
+  "Outerwear",
+  "Shorts",
+  "Printed T-Shirts",
+];
+
+export const DEFAULT_CATEGORIES = [
+  {
+    id: "cat1",
+    name: "Denim",
+    subCategories: [
+      "Slim Fit",
+      "Relaxed",
+      "Skinny",
+      "Boot Cut",
+      "Straight Leg",
+    ],
+  },
+  {
+    id: "cat2",
+    name: "Twill Pants",
+    subCategories: ["Slim Chino", "Cargo", "Flat Front", "Jogger"],
+  },
+  {
+    id: "cat3",
+    name: "Fleece",
+    subCategories: [
+      "Full-Zip Hoodie",
+      "Pullover",
+      "Quarter-Zip",
+      "Crew Neck",
+      "Sherpa",
+    ],
+  },
+  {
+    id: "cat4",
+    name: "Woven Tops",
+    subCategories: ["Oxford", "Flannel", "Poplin", "Chambray", "Plaid"],
+  },
+  {
+    id: "cat5",
+    name: "Knit Tops",
+    subCategories: ["Crew Neck Tee", "V-Neck", "Long Sleeve", "Henley", "Polo"],
+  },
+  {
+    id: "cat6",
+    name: "Outerwear",
+    subCategories: ["Puffer", "Bomber", "Fleece-Lined", "Windbreaker", "Coach"],
+  },
+  {
+    id: "cat7",
+    name: "Shorts",
+    subCategories: [
+      "Cargo",
+      '5" Inseam',
+      "Hybrid Board",
+      "Stretch",
+      "Twill Walk",
+    ],
+  },
+  {
+    id: "cat8",
+    name: "Printed T-Shirts",
+    subCategories: [
+      "Graphic Crew",
+      "All-Over Print",
+      "Logo Tee",
+      "Vintage Print",
+      "Band Tee",
+    ],
+  },
+];
+
+export const ROLES = [
+  "Product Developer",
+  "Designer",
+  "Graphic Artist",
+  "Merchandiser",
+  "Sales Rep",
+  "Tech Designer",
+  "Account Manager",
+];
+
+export const DEFAULT_SIZES = [
+  "XS",
+  "S",
+  "M",
+  "L",
+  "XL",
+  "XXL",
+  "2XL",
+  "3XL",
+  "28",
+  "30",
+  "32",
+  "34",
+  "36",
+  "38",
+];
+
+export const GENDERS = ["Men's", "Women's", "Boys", "Girls"];
+
+export const ORDER_TYPES = [
+  "Upfront",
+  "Projected",
+  "Stock",
+  "Custom",
+  "At Once",
+  "Future",
+];
+
+export const CHANNEL_TYPES = [
+  "Department Store",
+  "Off-Price (Ross, TJX)",
+  "E-Commerce",
+  "Private Label",
+  "Specialty Retail",
+  "Direct / DTC",
+];
+
+export const DEFAULT_CUSTOMERS = [
+  "Macy's",
+  "Ross",
+  "TJ Maxx",
+  "Burlington",
+  "Nordstrom",
+  "Target",
+  "Amazon",
+  "Kohl's",
+  "JCPenney",
+  "Belk",
+];
+
+export const PHASE_KEYS = [
+  "Concept",
+  "Design",
+  "Tech Pack",
+  "Costing",
+  "Sampling",
+  "Revision",
+  "Purchase Order",
+  "Production",
+  "QC",
+  "Ship Date",
+  "DDP",
+];
+
+// Default task templates — used when no custom templates exist
+export const DEFAULT_TASK_TEMPLATES = [
+  { id: "tpl_concept",  phase: "Concept",        daysBeforeDDP: 168, status: "Not Started", notes: "" },
+  { id: "tpl_design",   phase: "Design",          daysBeforeDDP: 154, status: "Not Started", notes: "" },
+  { id: "tpl_techpack", phase: "Tech Pack",       daysBeforeDDP: 140, status: "Not Started", notes: "" },
+  { id: "tpl_costing",  phase: "Costing",         daysBeforeDDP: 126, status: "Not Started", notes: "" },
+  { id: "tpl_sampling", phase: "Sampling",        daysBeforeDDP: 112, status: "Not Started", notes: "" },
+  { id: "tpl_revision", phase: "Revision",        daysBeforeDDP: 84,  status: "Not Started", notes: "" },
+  { id: "tpl_po",       phase: "Purchase Order",  daysBeforeDDP: 70,  status: "Not Started", notes: "" },
+  { id: "tpl_prod",     phase: "Production",      daysBeforeDDP: 42,  status: "Not Started", notes: "" },
+  { id: "tpl_qc",       phase: "QC",              daysBeforeDDP: 14,  status: "Not Started", notes: "" },
+  { id: "tpl_ship",     phase: "Ship Date",       daysBeforeDDP: 21,  status: "Not Started", notes: "" },
+  { id: "tpl_ddp",      phase: "DDP",             daysBeforeDDP: 0,   status: "Not Started", notes: "" },
+];
+
+export const STATUS_CONFIG: Record<string, { color: string; bg: string; dot: string; border: string }> = {
+  "Not Started": {
+    color: "#6B7280",
+    bg: "#F3F4F6",
+    dot: "#9CA3AF",
+    border: "#D1D5DB",
+  },
+  "In Progress": {
+    color: "#B45309",
+    bg: "#FFFBEB",
+    dot: "#F59E0B",
+    border: "#FCD34D",
+  },
+  Review: {
+    color: "#6D28D9",
+    bg: "#F5F3FF",
+    dot: "#8B5CF6",
+    border: "#C4B5FD",
+  },
+  Approved: {
+    color: "#065F46",
+    bg: "#ECFDF5",
+    dot: "#10B981",
+    border: "#6EE7B7",
+  },
+  Complete: {
+    color: "#047857",
+    bg: "#D1FAE5",
+    dot: "#059669",
+    border: "#34D399",
+  },
+  Delayed: {
+    color: "#B91C1C",
+    bg: "#FEF2F2",
+    dot: "#EF4444",
+    border: "#FCA5A5",
+  },
+};
+
+export const SAMPLE_VENDORS = [
+  {
+    id: "v1",
+    name: "Blue Star Apparel",
+    country: "China",
+    transitDays: 21,
+    categories: ["Denim", "Twill Pants", "Shorts"],
+    contact: "Wei Chen",
+    email: "wei@bluestar.cn",
+    moq: 500,
+    lead: {
+      Concept: 168,
+      Design: 154,
+      "Tech Pack": 140,
+      Costing: 126,
+      Sampling: 112,
+      Revision: 84,
+      "Purchase Order": 70,
+      Production: 42,
+      QC: 14,
+      "Ship Date": 0,
+      DDP: 0,
+    },
+  },
+  {
+    id: "v2",
+    name: "Delta Garments",
+    country: "Bangladesh",
+    transitDays: 21,
+    categories: ["Fleece", "Knit Tops", "Printed T-Shirts"],
+    contact: "Rahul Islam",
+    email: "rahul@deltagarments.com",
+    moq: 300,
+    lead: {
+      Concept: 140,
+      Design: 126,
+      "Tech Pack": 112,
+      Costing: 105,
+      Sampling: 84,
+      Revision: 56,
+      "Purchase Order": 42,
+      Production: 35,
+      QC: 10,
+      "Ship Date": 0,
+      DDP: 0,
+    },
+  },
+  {
+    id: "v3",
+    name: "Pacific Outerwear Co",
+    country: "China",
+    transitDays: 25,
+    categories: ["Outerwear", "Woven Tops"],
+    contact: "Lisa Huang",
+    email: "lisa@pacificow.cn",
+    moq: 200,
+    lead: {
+      Concept: 182,
+      Design: 168,
+      "Tech Pack": 154,
+      Costing: 140,
+      Sampling: 119,
+      Revision: 91,
+      "Purchase Order": 77,
+      Production: 56,
+      QC: 14,
+      "Ship Date": 0,
+      DDP: 0,
+    },
+  },
+  {
+    id: "v4",
+    name: "VN Textiles",
+    country: "Vietnam",
+    transitDays: 18,
+    categories: ["Knit Tops", "Woven Tops", "Shorts"],
+    contact: "Minh Tran",
+    email: "minh@vntex.vn",
+    moq: 400,
+    lead: {
+      Concept: 133,
+      Design: 119,
+      "Tech Pack": 105,
+      Costing: 98,
+      Sampling: 77,
+      Revision: 49,
+      "Purchase Order": 42,
+      Production: 35,
+      QC: 10,
+      "Ship Date": 0,
+      DDP: 0,
+    },
+  },
+  {
+    id: "v5",
+    name: "Crown Denim Ltd",
+    country: "Bangladesh",
+    transitDays: 21,
+    categories: ["Denim"],
+    contact: "Farhan Ali",
+    email: "farhan@crowndenim.com",
+    moq: 600,
+    lead: {
+      Concept: 154,
+      Design: 140,
+      "Tech Pack": 126,
+      Costing: 119,
+      Sampling: 98,
+      Revision: 63,
+      "Purchase Order": 56,
+      Production: 45,
+      QC: 14,
+      "Ship Date": 0,
+      DDP: 0,
+    },
+  },
+  {
+    id: "v6",
+    name: "Apex Fashion",
+    country: "Pakistan",
+    transitDays: 19,
+    categories: ["Fleece", "Printed T-Shirts", "Shorts"],
+    contact: "Imran Syed",
+    email: "imran@apexfashion.pk",
+    moq: 350,
+    lead: {
+      Concept: 140,
+      Design: 126,
+      "Tech Pack": 112,
+      Costing: 105,
+      Sampling: 84,
+      Revision: 56,
+      "Purchase Order": 42,
+      Production: 38,
+      QC: 10,
+      "Ship Date": 0,
+      DDP: 0,
+    },
+  },
+];
+
+export const SAMPLE_TEAM = [
+  {
+    id: "t1",
+    name: "Alex Rivera",
+    role: "Product Developer",
+    initials: "AR",
+    color: "#E74C3C",
+    avatar: null,
+  },
+  {
+    id: "t2",
+    name: "Jordan Lee",
+    role: "Designer",
+    initials: "JL",
+    color: "#3498DB",
+    avatar: null,
+  },
+  {
+    id: "t3",
+    name: "Sam Chen",
+    role: "Graphic Artist",
+    initials: "SC",
+    color: "#2ECC71",
+    avatar: null,
+  },
+  {
+    id: "t4",
+    name: "Morgan Davis",
+    role: "Merchandiser",
+    initials: "MD",
+    color: "#9B59B6",
+    avatar: null,
+  },
+  {
+    id: "t5",
+    name: "Taylor Kim",
+    role: "Tech Designer",
+    initials: "TK",
+    color: "#F39C12",
+    avatar: null,
+  },
+];
+
+// SKU auto-generate descriptors
+export const SKU_DESC_BY_CAT: Record<string, string[]> = {
+  Denim: [
+    "Slim Fit 5-Pocket Jean",
+    "Relaxed Tapered Denim",
+    "Straight Leg Jean",
+    "Skinny Fit Denim",
+    "Classic Boot Cut",
+  ],
+  "Twill Pants": [
+    "Slim Chino Pant",
+    "Cargo Twill Pant",
+    "Flat Front Slacks",
+    "Jogger Twill",
+    "Stretch Twill Slim",
+  ],
+  Fleece: [
+    "Full-Zip Hoodie",
+    "Pullover Fleece",
+    "Quarter-Zip Sweatshirt",
+    "Crew Neck Fleece",
+    "Sherpa Lined Hoodie",
+  ],
+  "Woven Tops": [
+    "Oxford Button-Down",
+    "Flannel Shirt",
+    "Poplin Woven Shirt",
+    "Chambray Shirt",
+    "Plaid Woven",
+  ],
+  "Knit Tops": [
+    "Crew Neck Tee",
+    "V-Neck Knit",
+    "Long Sleeve Thermal",
+    "Henley Knit",
+    "Polo Shirt",
+  ],
+  Outerwear: [
+    "Puffer Jacket",
+    "Bomber Jacket",
+    "Fleece-Lined Jacket",
+    "Windbreaker",
+    "Coach Jacket",
+  ],
+  Shorts: [
+    "Cargo Short",
+    '5" Inseam Short',
+    "Hybrid Board Short",
+    "Stretch Short",
+    "Twill Walk Short",
+  ],
+  "Printed T-Shirts": [
+    "Graphic Crew Tee",
+    "All-Over Print Tee",
+    "Logo Tee",
+    "Vintage Print Tee",
+    "Band Tee",
+  ],
+};
+
+export const COLORWAY_SETS = [
+  ["Black", "White", "Navy"],
+  ["Stone", "Olive", "Khaki"],
+  ["Red", "Black", "White"],
+  ["Indigo", "Rinse", "Light Wash"],
+  ["Charcoal", "Heather Grey", "Black"],
+  ["Cobalt", "Forest", "Burgundy"],
+  ["Sand", "Desert", "Brown"],
+];
+
+export const FABRICS = [
+  "100% Cotton",
+  "98% Cotton / 2% Elastane",
+  "80% Cotton / 20% Polyester",
+  "100% Polyester",
+  "Stretch Denim",
+  "Ripstop Nylon",
+  "French Terry",
+  "Jersey Knit",
+];
