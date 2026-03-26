@@ -27,13 +27,14 @@ interface User {
     design?: AppPermission;
     tanda?: AppPermission;
     techpack?: AppPermission;
+    ats?: AppPermission;
   };
 }
 
 const DEFAULT_PERMISSION: AppPermission = { access: true, readOnly: false, seeOthersData: false };
 const ADMIN_PERMISSION: AppPermission   = { access: true, readOnly: false, seeOthersData: true  };
 
-function getPermission(user: User, app: "design" | "tanda" | "techpack"): AppPermission {
+function getPermission(user: User, app: "design" | "tanda" | "techpack" | "ats"): AppPermission {
   if (user.role === "admin") return ADMIN_PERMISSION;
   return user.permissions?.[app] ?? DEFAULT_PERMISSION;
 }
@@ -78,6 +79,14 @@ const APPS = [
     icon: "📐",
     color: "#8B5CF6",
     path: "/techpack",
+  },
+  {
+    id: "ats" as const,
+    name: "ATS",
+    description: "Available to Sell — inventory snapshot grid, Xoro sync and Excel upload",
+    icon: "📦",
+    color: "#10B981",
+    path: "/ats",
   },
 ];
 
@@ -313,6 +322,7 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
         design:   { ...DEFAULT_PERMISSION },
         tanda:    { ...DEFAULT_PERMISSION },
         techpack: { ...DEFAULT_PERMISSION },
+        ats:      { ...DEFAULT_PERMISSION },
       },
     };
     setEditing(newUser);
@@ -333,9 +343,10 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
   }
 
   const APP_LABELS = [
-    { id: "design" as const, label: "Design Calendar", color: "#CC2200" },
-    { id: "tanda"  as const, label: "PO WIP",          color: "#3B82F6" },
-    { id: "techpack" as const, label: "Tech Packs",     color: "#8B5CF6" },
+    { id: "design" as const,   label: "Design Calendar", color: "#CC2200" },
+    { id: "tanda"  as const,   label: "PO WIP",          color: "#3B82F6" },
+    { id: "techpack" as const, label: "Tech Packs",      color: "#8B5CF6" },
+    { id: "ats" as const,      label: "ATS",             color: "#10B981" },
   ];
 
   return (
