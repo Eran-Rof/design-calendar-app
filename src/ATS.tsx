@@ -138,6 +138,7 @@ export default function ATSReport() {
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState("");
   const [lastSync, setLastSync] = useState("");
+  const [syncError, setSyncError] = useState<{ title: string; detail: string } | null>(null);
   const [hoveredCell, setHoveredCell] = useState<{ sku: string; date: string } | null>(null);
   const [pinnedSku, setPinnedSku] = useState<string | null>(null);
   const [showUpload, setShowUpload] = useState(false);
@@ -170,9 +171,16 @@ export default function ATSReport() {
         while (true) {
           const params = new URLSearchParams({ path, page: String(page), ...extraParams });
           const res  = await fetch(`/api/xoro-proxy?${params}`);
-          if (!res.ok) break;
-          const json = await res.json();
-          if (!json.Result) break;
+          if (!res.ok) throw new Error(`Xoro proxy returned HTTP ${res.status} for "${path}"`);
+          const text = await res.text();
+          let json: any;
+          try { json = JSON.parse(text); } catch {
+            throw new Error(`Xoro returned an unexpected response for "${path}". The endpoint path may be incorrect.`);
+          }
+          if (!json.Result) {
+            // Not a fatal error for optional endpoints — just return what we have
+            break;
+          }
           const rows = Array.isArray(json.Data) ? json.Data : json.Data?.Items ?? [];
           all.push(...rows);
           if (page >= (json.TotalPages ?? 1)) break;
@@ -183,7 +191,7 @@ export default function ATSReport() {
 
       // ── 1. Inventory (on-hand + Xoro's own available/on-order) ────────────
       setSyncStatus("Fetching inventory…");
-      const invItems = await fetchAllPages("inventory/getinventory");
+      const invItems = await fetchAllPages("inventory");
 
       // Base map: sku → snapshot from inventory
       const skuMap: Record<string, {
@@ -281,7 +289,10 @@ export default function ATSReport() {
     } catch (e) {
       console.error(e);
       setSyncStatus("");
-      alert("Sync failed: " + (e as Error).message);
+      setSyncError({
+        title: "Xoro Sync Failed",
+        detail: (e as Error).message,
+      });
     } finally {
       setSyncing(false);
     }
@@ -596,6 +607,40 @@ export default function ATSReport() {
           </div>
         )}
       </div>
+
+      {/* SYNC ERROR MODAL */}
+      {syncError && (
+        <div style={S.modalOverlay} onClick={() => setSyncError(null)}>
+          <div style={{ ...S.modal, width: 460, border: "1px solid #EF4444" }} onClick={e => e.stopPropagation()}>
+            <div style={{ ...S.modalHeader, borderBottom: "1px solid #7f1d1d" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(239,68,68,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>⚠</div>
+                <h2 style={{ ...S.modalTitle, color: "#FCA5A5" }}>{syncError.title}</h2>
+              </div>
+              <button style={S.closeBtn} onClick={() => setSyncError(null)}>✕</button>
+            </div>
+            <div style={{ ...S.modalBody, paddingTop: 20 }}>
+              <p style={{ color: "#F1F5F9", fontSize: 14, marginBottom: 16, lineHeight: 1.6 }}>
+                {syncError.detail}
+              </p>
+              <div style={{ background: "#0F172A", borderRadius: 8, padding: "10px 14px", marginBottom: 20, border: "1px solid #334155" }}>
+                <div style={{ color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, fontWeight: 600 }}>What to check</div>
+                <div style={{ color: "#94A3B8", fontSize: 12, lineHeight: 1.8 }}>
+                  • Verify <span style={{ color: "#60A5FA", fontFamily: "monospace" }}>VITE_XORO_API_KEY</span> and <span style={{ color: "#60A5FA", fontFamily: "monospace" }}>VITE_XORO_API_SECRET</span> are set in Vercel<br/>
+                  • Confirm Xoro API access is enabled for your account<br/>
+                  • Check the browser console for the full error trace
+                </div>
+              </div>
+              <button
+                style={{ ...S.navBtnPrimary, width: "100%", justifyContent: "center", padding: "10px 0" }}
+                onClick={() => setSyncError(null)}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* UPLOAD MODAL */}
       {showUpload && (
