@@ -507,10 +507,10 @@ const S: Record<string, React.CSSProperties> = {
   avatarDot:  { width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 11, fontWeight: 700 },
   adminBadge: { background: "#FEF2F2", color: "#CC2200", fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, border: "1px solid #FCA5A5" },
 
-  main:       { maxWidth: 960, margin: "0 auto", padding: "48px 24px" },
+  main:       { maxWidth: 1200, margin: "0 auto", padding: "48px 24px" },
   greeting:   { margin: "0 0 6px", fontSize: 26, fontWeight: 700, color: "#111827" },
   greetingSub:{ margin: "0 0 36px", fontSize: 15, color: "#6B7280" },
-  grid:       { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24 },
+  grid:       { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 24 },
 
   appCard:    { background: "#fff", borderRadius: 16, padding: 28, boxShadow: "0 2px 12px rgba(0,0,0,0.06)", display: "flex", flexDirection: "column", transition: "box-shadow 0.15s, transform 0.15s" },
   appName:    { margin: "0 0 8px", fontSize: 18, fontWeight: 700 },
