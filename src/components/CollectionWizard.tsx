@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import { TH } from "../utils/theme";
 import { S } from "../utils/styles";
-import { STATUS_CONFIG, DEFAULT_TASK_TEMPLATES } from "../utils/constants";
-import { uid, formatDate, addDays, diffDays, parseLocalDate, toDateStr, addDaysForPhase, diffDaysForPhase } from "../utils/dates";
-import { generateTasks } from "../utils/helpers";
-import { DateInput } from "./DateInput";
+import { STATUS_CONFIG, DEFAULT_TASK_TEMPLATES, GENDERS, CATEGORIES, CHANNEL_TYPES, DEFAULT_CUSTOMERS, BRANDS } from "../utils/constants";
+import { uid, formatDate, addDays, diffDays, parseLocalDate, toDateStr, addDaysForPhase, diffDaysForPhase, getBrand, diffBusinessDays, addBusinessDays, getDaysUntil } from "../utils/dates";
+import { generateTasks, getChannelForCustomer } from "../utils/helpers";
+import { DateInput, LeadTimeCell } from "./DateInput";
 
 // ─── DEFERRED DATE INPUT — only commits on blur/enter, not on every keystroke ─
 function DeferredDateInput({ value, onCommit, style }) {
@@ -175,8 +175,9 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
 
   function applyStep2Update(idx, newDays) {
     setStep2Leads(prev => {
-      const leads = [...prev];
-      const delta = newDays - leads[idx].days;
+      // If step2Leads was never initialized (templates loaded after mount), seed from displayLeads
+      const leads = prev.length > 0 ? [...prev] : [...displayLeads];
+      const delta = newDays - (leads[idx]?.days ?? newDays);
       leads[idx] = { ...leads[idx], days: newDays };
       // Cascade: shift all subsequent tasks by same delta
       for (let i = idx + 1; i < leads.length; i++) {
@@ -208,8 +209,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
     });
   }, [step2Leads]);
 
-  // Creation date clamping — warn user if earliest task predates today
-  const [creationDateWarn, setCreationDateWarn] = useState(null);
+  // (creationDateWarn removed — silently clamp on step 2 load instead of blocking dialog)
 
   const brand = getBrand(form.brand);
   const isPriv = brand.isPrivateLabel;
@@ -220,6 +220,17 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
     : vendors;
   const selV = vendors.find((v) => v.id === form.vendorId);
   const byRole = (r) => team.filter((m) => m.role === r);
+
+  // Computed lead times for step 2 — used by both the table and applyStep2Update
+  // step2Leads is authoritative when populated; falls back to template+vendor values
+  const displayLeads = step2Leads.length > 0 ? step2Leads : (
+    (taskTemplates && taskTemplates.length > 0 ? taskTemplates : [])
+      .filter((t: any) => t.phase !== "DDP" && t.phase !== "Ship Date")
+      .map((t: any) => {
+        const overrides = selV ? (selV.leadOverrides || selV.lead || {}) : {};
+        return { phase: t.phase, days: overrides[t.phase] ?? t.daysBeforeDDP ?? 0 };
+      })
+  );
 
   // Today's date string — no task may be scheduled before this
   const todayStr = new Date().toISOString().split("T")[0];
@@ -290,15 +301,17 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
           edited: true,
         }));
         const ddpPhase = clampedPhases.find((p) => p.name === "DDP");
-        const oldDDP = form.ddpDate;
         const newDDP = ddpPhase?.due;
-        if (newDDP && newDDP !== oldDDP) {
-          // DDP would shift — ask user: accept new DDP or proportionally resize
-          setCreationDateWarn({ oldDDP, newDDP, clampedPhases, rawPhases });
-          setEditPhases(rawPhases); // show raw until user decides
-        } else {
-          setEditPhases(clampedPhases);
+        // Silently accept the shifted DDP so the user isn't interrupted on page transition
+        if (newDDP && newDDP !== form.ddpDate) {
+          setForm(f => ({
+            ...f,
+            ddpDate: newDDP,
+            customerShipDate: addDays(newDDP, 24),
+            cancelDate: addDays(addDays(newDDP, 24), 6),
+          }));
         }
+        setEditPhases(clampedPhases);
       } else {
         setEditPhases(rawPhases);
       }
@@ -321,6 +334,13 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
       initStep2Leads(form.vendorId);
     }
   }, [form.vendorId]);
+
+  // Re-initialize step2Leads when taskTemplates finish loading (if empty at mount time)
+  useEffect(() => {
+    if (form.vendorId && taskTemplates && taskTemplates.length > 0 && step2Leads.length === 0) {
+      initStep2Leads(form.vendorId);
+    }
+  }, [taskTemplates?.length]);
 
   // When DDP changes manually, recalc ship/cancel
   useEffect(() => {
@@ -352,7 +372,8 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
         edited: true,
       };
       for (let i = idx + 1; i < updated.length; i++) {
-        const nd = addDaysForPhase(updated[i].due, delta, updated[i].name);
+        // Cascade as calendar-day shift — phase type governs user input interpretation only
+        const nd = addDays(updated[i].due, delta);
         updated[i] = {
           ...updated[i],
           due: nd,
@@ -377,7 +398,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
     phases[idx] = {
       ...phases[idx],
       due: newDue,
-      daysBack: diffDays(ddpDue, newDue),
+      daysBack: diffDaysForPhase(ddpDue, newDue, phases[idx].name),
       edited: true,
     };
 
@@ -396,11 +417,11 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
       for (let i = afterIdx; i < beforeDDP; i++) {
         if (origSpan <= 0) {
           // Degenerate: all collapse to newStart
-          phases[i] = { ...phases[i], due: newStart, daysBack: diffDays(ddpDue, newStart), edited: true };
+          phases[i] = { ...phases[i], due: newStart, daysBack: diffDaysForPhase(ddpDue, newStart, phases[i].name), edited: true };
         } else {
           const ratio = diffDays(editPhases[i].due, origStart) / origSpan;
           const nd = addDays(newStart, Math.round(ratio * totalSpan));
-          phases[i] = { ...phases[i], due: nd, daysBack: diffDays(ddpDue, nd), edited: true };
+          phases[i] = { ...phases[i], due: nd, daysBack: diffDaysForPhase(ddpDue, nd, phases[i].name), edited: true };
         }
       }
     }
@@ -442,7 +463,8 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
   }
 
   function updatePhaseDaysBack(idx, newDaysBack) {
-    const newDue = addDays(form.ddpDate, -newDaysBack);
+    const phase = editPhases[idx]?.name ?? "";
+    const newDue = addDaysForPhase(form.ddpDate, -newDaysBack, phase);
     updatePhaseDue(idx, newDue);
   }
 
@@ -766,25 +788,19 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
               </div>
               {/* Lead times table */}
               {(() => {
-                const leads = step2Leads.length > 0 ? step2Leads : (
-                  (taskTemplates && taskTemplates.length > 0 ? taskTemplates : [])
-                    .filter(t => t.phase !== "DDP" && t.phase !== "Ship Date")
-                    .map(t => {
-                      const overrides = selV.leadOverrides || selV.lead || {};
-                      return { phase: t.phase, days: overrides[t.phase] ?? t.daysBeforeDDP ?? 0 };
-                    })
-                );
+                const leads = displayLeads;
                 return (
                   <div style={{ border: `1px solid ${TH.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 4 }}>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px 90px", background: TH.surfaceHi, padding: "7px 12px", fontSize: 10, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `1px solid ${TH.border}` }}>
                       <span>Phase</span>
-                      <span style={{ textAlign: "center" }}>Days Before DDP</span>
-                      <span style={{ textAlign: "center" }}>From Prev</span>
+                      <span style={{ textAlign: "center" }}>Bus. Days Before DDP</span>
+                      <span style={{ textAlign: "center" }}>From Prev (bus. days)</span>
                       <span style={{ textAlign: "center" }}>Due Date</span>
                     </div>
                     {leads.map((lead, idx) => {
-                      const fromPrev = idx > 0 ? leads[idx - 1].days - lead.days : null;
                       const calcDate = form.ddpDate ? addDaysForPhase(form.ddpDate, -lead.days, lead.phase) : "";
+                      const prevCalcDate = idx > 0 && form.ddpDate ? addDaysForPhase(form.ddpDate, -leads[idx - 1].days, leads[idx - 1].phase) : null;
+                      const fromPrev = prevCalcDate && calcDate ? diffDaysForPhase(calcDate, prevCalcDate, lead.phase) : null;
                       return (
                         <div key={lead.phase} style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px 90px", padding: "7px 12px", borderBottom: idx < leads.length - 1 ? `1px solid ${TH.border}` : "none", alignItems: "center", background: idx % 2 === 0 ? "#fff" : TH.surfaceHi }}>
                           <div style={{ fontSize: 13, color: TH.text, fontWeight: 600 }}>{lead.phase}</div>
@@ -799,8 +815,10 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
                               <LeadTimeCell
                                 value={fromPrev}
                                 onCommit={n => {
-                                  const prevDays = leads[idx - 1].days;
-                                  applyStep2Update(idx, Math.max(0, prevDays - n));
+                                  if (!form.ddpDate || !prevCalcDate) return;
+                                  const newDate = addDaysForPhase(prevCalcDate, n, lead.phase);
+                                  const newDays = Math.round(diffDaysForPhase(form.ddpDate, newDate, lead.phase));
+                                  applyStep2Update(idx, Math.max(0, newDays));
                                 }}
                               />
                             ) : <span style={{ fontSize: 12, color: TH.textMuted }}>—</span>}
@@ -1035,7 +1053,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
                   lineHeight: 1.3,
                 }}
               >
-                Days To DDP
+                Bus. Days To DDP
               </span>
               <span
                 style={{
@@ -1050,7 +1068,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
                   lineHeight: 1.3,
                 }}
               >
-                From Prev Task
+                From Prev (bus. days)
               </span>
             </div>
             {editPhases.map((ep, i) => {
@@ -1222,12 +1240,12 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
                       <span style={{ fontSize: 12, color: TH.textMuted }}>—</span>
                     ) : (() => {
                       const prevDue = editPhases[i - 1]?.due;
-                      const fromPrev = prevDue ? diffDays(ep.due, prevDue) : null;
+                      const fromPrev = prevDue ? diffDaysForPhase(ep.due, prevDue, ep.name) : null;
                       return (
                         <PrevTaskInput
                           fromPrev={fromPrev}
                           onCommit={(n) => {
-                            const newDue = addDays(editPhases[i - 1].due, n);
+                            const newDue = addDaysForPhase(editPhases[i - 1].due, n, ep.name);
                             updatePhaseDue(i, newDue);
                           }}
                         />
@@ -1307,163 +1325,6 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
             </div>
           )}
 
-          {creationDateWarn && (
-            <div
-              style={{
-                position: "fixed",
-                inset: 0,
-                background: "rgba(0,0,0,0.55)",
-                backdropFilter: "blur(6px)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                zIndex: 2100,
-                padding: 16,
-              }}
-            >
-              <div
-                style={{
-                  background: "#FFFFFF",
-                  border: `1px solid ${TH.accentBdr}`,
-                  borderRadius: 16,
-                  padding: 32,
-                  maxWidth: 500,
-                  width: "100%",
-                  boxShadow: "0 40px 100px rgba(0,0,0,0.4)",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 18,
-                    fontWeight: 700,
-                    color: TH.text,
-                    marginBottom: 12,
-                  }}
-                >
-                  📅 Timeline Starts Before Today
-                </div>
-                <div
-                  style={{
-                    fontSize: 13,
-                    color: TH.textMuted,
-                    lineHeight: 1.65,
-                    marginBottom: 20,
-                  }}
-                >
-                  Using today as the first task date would push the{" "}
-                  <strong>DDP date</strong> from&nbsp;
-                  <strong style={{ color: TH.primary }}>
-                    {formatDate(creationDateWarn.oldDDP)}
-                  </strong>{" "}
-                  to&nbsp;
-                  <strong style={{ color: "#B91C1C" }}>
-                    {formatDate(creationDateWarn.newDDP)}
-                  </strong>
-                  .<br />
-                  <br />
-                  How would you like to handle this?
-                </div>
-                <div
-                  style={{ display: "flex", flexDirection: "column", gap: 10 }}
-                >
-                  <button
-                    onClick={() => {
-                      // Accept new DDP: use clamped phases as-is, update form DDP
-                      const newDDP = creationDateWarn.newDDP;
-                      set("ddpDate", newDDP);
-                      set("customerShipDate", addDays(newDDP, 24));
-                      set("cancelDate", addDays(addDays(newDDP, 24), 6));
-                      setEditPhases(creationDateWarn.clampedPhases);
-                      setCreationDateWarn(null);
-                    }}
-                    style={{
-                      padding: "12px 20px",
-                      borderRadius: 10,
-                      border: "none",
-                      background: `linear-gradient(135deg,${TH.primary},${TH.primaryLt})`,
-                      color: "#fff",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                      fontSize: 13,
-                      textAlign: "left",
-                    }}
-                  >
-                    ✓ Accept New DDP Date —{" "}
-                    <span style={{ fontWeight: 400 }}>
-                      {formatDate(creationDateWarn.newDDP)}
-                    </span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      // Proportionally resize pre-production phases to fit today → DDP
-                      const resized = applyProportionalResize(
-                        creationDateWarn.rawPhases
-                      );
-                      setEditPhases(resized);
-                      setCreationDateWarn(null);
-                    }}
-                    style={{
-                      padding: "12px 20px",
-                      borderRadius: 10,
-                      border: `2px solid ${TH.primary}`,
-                      background: TH.primary + "10",
-                      color: TH.primary,
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                      fontSize: 13,
-                      textAlign: "left",
-                    }}
-                  >
-                    ⚖️ Proportionally Resize Task Durations —{" "}
-                    <span style={{ fontWeight: 400 }}>
-                      keep DDP {formatDate(creationDateWarn.oldDDP)}
-                    </span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      // Keep DDP as-is: use raw phases unchanged, DDP stays fixed
-                      setEditPhases(creationDateWarn.rawPhases);
-                      setCreationDateWarn(null);
-                    }}
-                    style={{
-                      padding: "12px 20px",
-                      borderRadius: 10,
-                      border: "2px solid #065F46",
-                      background: "#ECFDF5",
-                      color: "#065F46",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                      fontSize: 13,
-                      textAlign: "left",
-                    }}
-                  >
-                    📌 Keep DDP as-is —{" "}
-                    <span style={{ fontWeight: 400 }}>
-                      use original dates, edit manually
-                    </span>
-                  </button>
-                  <button
-                    onClick={() => setCreationDateWarn(null)}
-                    style={{
-                      padding: "10px 20px",
-                      borderRadius: 10,
-                      border: `1px solid ${TH.border}`,
-                      background: "none",
-                      color: TH.textMuted,
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                      fontSize: 13,
-                    }}
-                  >
-                    Cancel — I'll adjust dates manually
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
             </>
           )}
 

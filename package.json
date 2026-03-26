@@ -5,12 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build --config \"vite.config 2.ts\" && cp \"dist/index 2.html\" dist/index.html",
-    "preview": "vite preview"
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "npm run build && node scripts/setup-vercel.mjs && vercel --prod --prebuilt"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.2",
-    "formidable": "^3.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "xlsx": "^0.18.5"

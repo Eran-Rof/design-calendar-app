@@ -1,360 +1,644 @@
-import React, { useState } from "react";
-import { TH } from "../utils/theme";
+import React, { useState, useEffect, useRef } from "react";
 import { TEAMS_PURPLE, TEAMS_PURPLE_LT } from "../utils/theme";
-import { S } from "../utils/styles";
-import { getBrand } from "../utils/dates";
+import { msSignIn, msRefreshTokens, MS_CLIENT_ID, MS_TENANT_ID } from "../utils/msAuth";
+
+const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
+
+async function sbSave(key: string, value: any) {
+  await fetch(`${SB_URL}/rest/v1/app_data`, {
+    method: "POST",
+    headers: {
+      "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`,
+      "Content-Type": "application/json",
+      "Prefer": "resolution=merge-duplicates,return=minimal",
+    },
+    body: JSON.stringify({ key, value: JSON.stringify(value) }),
+  });
+}
+
+async function sbLoad(key: string) {
+  const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.${key}&select=value`, {
+    headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` },
+  });
+  const rows = await res.json();
+  return rows?.length ? JSON.parse(rows[0].value) : null;
+}
 
 // ─── MICROSOFT TEAMS VIEW ─────────────────────────────────────────────────────
-function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, teamsToken, setTeamsToken, showTeamsConfig, setShowTeamsConfig, getBrand }) {
-  const [selectedCollKey, setSelectedCollKey] = useState(null);
-  const [messages, setMessages] = useState({});
-  const [loading, setLoading] = useState({});
-  const [errors, setErrors] = useState({});
-  const [replyText, setReplyText] = useState({});
+function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getBrand, currentUser }: {
+  collList: any[];
+  collMap: any;
+  isAdmin: boolean;
+  teamsToken: string | null;
+  setTeamsToken: (t: string | null) => void;
+  getBrand: (id: string) => any;
+  currentUser: any;
+}) {
+  const [selectedCollKey, setSelectedCollKey] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Record<string, any[]>>({});
+  const [loading, setLoading] = useState<Record<string, boolean>>({});
+  const [errors, setErrors] = useState<Record<string, string | null>>({});
   const [newMsg, setNewMsg] = useState("");
-  const [configForm, setConfigForm] = useState({ ...teamsConfig });
-  const [authStatus, setAuthStatus] = useState("idle");
-  const [teams, setTeams] = useState([]);
-  const [channels, setChannels] = useState({});
-  const [expandedTeam, setExpandedTeam] = useState(null);
-  const [loadingTeams, setLoadingTeams] = useState(false);
-  const [msgTab, setMsgTab] = useState("channel");
-  const [selectedMsg, setSelectedMsg] = useState(null);
-  const [replies, setReplies] = useState([]);
-  const [loadingReplies, setLoadingReplies] = useState(false);
+  const [authStatus, setAuthStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
+  const [authError, setAuthError] = useState("");
+  const [teamsTab, setTeamsTab] = useState<"channels" | "direct">("channels");
+  const [channelMap, setChannelMap] = useState<Record<string, { channelId: string; teamId: string }>>({});
+  const [teamId, setTeamId] = useState("");
+  const [creatingChannel, setCreatingChannel] = useState<string | null>(null);
+  const [tokenExpiry, setTokenExpiry] = useState(0);
+  const [teamsDirectTo, setTeamsDirectTo] = useState("");
+  const [teamsDirectMsg, setTeamsDirectMsg] = useState("");
+  const [teamsDirectSending, setTeamsDirectSending] = useState(false);
+  const [teamsDirectErr, setTeamsDirectErr] = useState<string | null>(null);
+  const [dmChatId, setDmChatId] = useState<string | null>(null);
+  const [dmRecipient, setDmRecipient] = useState("");
+  const [dmMessages, setDmMessages] = useState<any[]>([]);
+  const [dmLoading, setDmLoading] = useState(false);
+  const [dmError, setDmError] = useState<string | null>(null);
+  const [dmNewMsg, setDmNewMsg] = useState("");
+  const [dmSending, setDmSending] = useState(false);
+  const dmScrollRef = useRef<HTMLDivElement>(null);
+  const refreshingRef = useRef(false);
+
   const token = teamsToken;
-  const cfg = teamsConfig;
+  const configured = !!MS_CLIENT_ID && !!MS_TENANT_ID;
 
+  // ── Load channel map + team ID from Supabase on mount ──────────────────
+  useEffect(() => {
+    async function load() {
+      try {
+        const [cm, tid] = await Promise.all([
+          sbLoad("teams_channel_map"),
+          sbLoad("teams_team_id"),
+        ]);
+        if (cm) setChannelMap(cm);
+        if (tid) setTeamId(tid);
+      } catch(e) { console.error("Teams: load error", e); }
+    }
+    load();
+  }, []);
+
+  // ── Silently refresh token ~5 min before expiry ─────────────────────────
+  useEffect(() => {
+    if (!tokenExpiry || !token) return;
+    const msUntilExpiry = tokenExpiry - Date.now();
+    if (msUntilExpiry < 0) return;
+    const refreshIn = Math.max(msUntilExpiry - 5 * 60 * 1000, 0);
+    const t = setTimeout(async () => {
+      if (refreshingRef.current) return;
+      refreshingRef.current = true;
+      try {
+        const key = refreshTokenKey(currentUser);
+        if (!key) return;
+        const rt = await sbLoad(key);
+        if (!rt) return;
+        const tokens = await msRefreshTokens(rt);
+        setTeamsToken(tokens.accessToken);
+        setTokenExpiry(tokens.expiresAt);
+        await sbSave(key, tokens.refreshToken);
+      } catch(e) { console.warn("Teams: silent refresh failed", e); }
+      refreshingRef.current = false;
+    }, refreshIn);
+    return () => clearTimeout(t);
+  }, [tokenExpiry, token]);
+
+  // ── Load messages when selection changes ────────────────────────────────
+  useEffect(() => {
+    if (selectedCollKey && token && channelMap[selectedCollKey]) {
+      loadMessages(selectedCollKey);
+    }
+  }, [selectedCollKey, token]);
+
+  function refreshTokenKey(user: any) {
+    if (!user?.name) return null;
+    return `ms_refresh_${user.name.toLowerCase().replace(/\s+/g, "_")}`;
+  }
+
+  // ── Sign in via PKCE popup ───────────────────────────────────────────────
   async function authenticate() {
-    if (!cfg.clientId || !cfg.tenantId) { setAuthStatus("error"); return; }
+    if (!configured) { setAuthStatus("error"); setAuthError("Azure credentials not configured"); return; }
     setAuthStatus("loading");
+    setAuthError("");
     try {
-      const authUrl = "https://login.microsoftonline.com/" + cfg.tenantId + "/oauth2/v2.0/authorize?" +
-        "client_id=" + cfg.clientId + "&response_type=token&redirect_uri=" + encodeURIComponent(window.location.origin + "/auth-callback") +
-        "&scope=" + encodeURIComponent(["https://graph.microsoft.com/ChannelMessage.Read.All","https://graph.microsoft.com/Team.ReadBasic.All","https://graph.microsoft.com/Channel.ReadBasic.All","https://graph.microsoft.com/ChannelMessage.Send","https://graph.microsoft.com/Mail.Read","https://graph.microsoft.com/Mail.Send"].join(" ")) +
-        "&response_mode=fragment&prompt=select_account";
-      const popup = window.open(authUrl, "msauth", "width=500,height=700,left=400,top=100");
-      const result = await new Promise((resolve, reject) => {
-        const timer = setInterval(() => {
-          try {
-            if (popup.closed) { clearInterval(timer); reject(new Error("Popup closed")); return; }
-            const hash = popup.location.hash;
-            if (hash && hash.includes("access_token")) { clearInterval(timer); popup.close(); resolve(new URLSearchParams(hash.substring(1)).get("access_token")); }
-          } catch (_) {}
-        }, 300);
-        setTimeout(() => { clearInterval(timer); if (!popup.closed) popup.close(); reject(new Error("Timeout")); }, 120000);
-      });
-      setTeamsToken(result); setAuthStatus("ok");
-    } catch (e) { setAuthStatus("error"); }
+      const tokens = await msSignIn(currentUser?.teamsEmail || undefined);
+      setTeamsToken(tokens.accessToken);
+      setTokenExpiry(tokens.expiresAt);
+      const key = refreshTokenKey(currentUser);
+      if (key && tokens.refreshToken) await sbSave(key, tokens.refreshToken);
+      setAuthStatus("ok");
+    } catch(e: any) {
+      console.error("Teams auth error:", e);
+      setAuthError(e.message || "Sign-in failed");
+      setAuthStatus("error");
+    }
   }
 
-  async function graph(path) {
-    const r = await fetch("https://graph.microsoft.com/v1.0" + path, { headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" } });
-    if (!r.ok) throw new Error("Graph " + r.status + ": " + await r.text());
-    return r.json();
+  function signOut() {
+    setTeamsToken(null);
+    setTokenExpiry(0);
+    setAuthStatus("idle");
+    setAuthError("");
   }
-  async function graphPost(path, body) {
-    const r = await fetch("https://graph.microsoft.com/v1.0" + path, { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    if (!r.ok) throw new Error("Graph " + r.status + ": " + await r.text());
+
+  // ── Microsoft Graph helpers ──────────────────────────────────────────────
+  async function graph(path: string) {
+    const r = await fetch("https://graph.microsoft.com/v1.0" + path, {
+      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+    });
+    if (!r.ok) {
+      const body = await r.text();
+      throw new Error(`Graph ${r.status}: ${body}`);
+    }
     return r.json();
   }
 
-  async function loadTeams() {
-    if (!token) return;
-    setLoadingTeams(true);
-    try { const d = await graph("/me/joinedTeams"); setTeams(d.value || []); } catch(e) { console.error(e); }
-    setLoadingTeams(false);
+  async function graphPost(path: string, body: any) {
+    const r = await fetch("https://graph.microsoft.com/v1.0" + path, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const txt = await r.text();
+      throw new Error(`Graph ${r.status}: ${txt}`);
+    }
+    return r.json();
   }
-  async function loadChannels(teamId) {
-    try { const d = await graph("/teams/" + teamId + "/channels"); setChannels(c => ({ ...c, [teamId]: d.value || [] })); setExpandedTeam(teamId === expandedTeam ? null : teamId); }
-    catch(e) { console.error(e); }
+
+  // ── Find RING OF FIRE team ───────────────────────────────────────────────
+  async function findRofTeam(): Promise<string> {
+    if (teamId) return teamId;
+    const data = await graph("/me/joinedTeams");
+    const rofTeam = (data.value || []).find((t: any) =>
+      t.displayName?.toLowerCase().replace(/\s+/g, "").includes("ringoffire")
+    );
+    if (!rofTeam) throw new Error('Could not find "RING OF FIRE" in your joined Teams. Make sure your Microsoft account is a member of that team.');
+    await sbSave("teams_team_id", rofTeam.id);
+    setTeamId(rofTeam.id);
+    return rofTeam.id as string;
   }
-  function mapChannel(collKey, channelId, teamId) {
-    const updated = { ...cfg, channelMap: { ...cfg.channelMap, [collKey]: { channelId, teamId } } };
-    setTeamsConfig(updated); try { localStorage.setItem("teamsConfig", JSON.stringify(updated)); } catch(_) {}
+
+  // ── Auto-create / find channel then load messages ────────────────────────
+  async function startChat(collKey: string) {
+    setCreatingChannel(collKey);
+    setErrors(e => ({ ...e, [collKey]: null }));
+    try {
+      const tid = await findRofTeam();
+      const coll = collMap[collKey];
+      const slug = (coll?.collection || collKey)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 48);
+      const chName = `dc-${slug}`;
+
+      let channelId = "";
+      try {
+        const channels = await graph(`/teams/${tid}/channels`);
+        const existing = (channels.value || []).find((c: any) => c.displayName === chName);
+        if (existing) channelId = existing.id;
+      } catch(_) {}
+
+      if (!channelId) {
+        const ch = await graphPost(`/teams/${tid}/channels`, {
+          displayName: chName,
+          description: `Design Calendar — ${coll?.collection || collKey}${coll?.season ? " · " + coll.season : ""}`,
+          membershipType: "standard",
+        });
+        channelId = ch.id;
+      }
+
+      const newMap = { ...channelMap, [collKey]: { channelId, teamId: tid } };
+      setChannelMap(newMap);
+      await sbSave("teams_channel_map", newMap);
+      await loadMessages(collKey, { channelId, teamId: tid });
+    } catch(e: any) {
+      setErrors(err => ({ ...err, [collKey]: e.message }));
+    }
+    setCreatingChannel(null);
   }
-  function unmapChannel(collKey) {
-    const nm = { ...cfg.channelMap }; delete nm[collKey];
-    const updated = { ...cfg, channelMap: nm };
-    setTeamsConfig(updated); try { localStorage.setItem("teamsConfig", JSON.stringify(updated)); } catch(_) {}
-  }
-  async function loadMessages(collKey) {
-    const mapping = cfg.channelMap[collKey];
+
+  async function loadMessages(collKey: string, mp?: { channelId: string; teamId: string }) {
+    const mapping = mp || channelMap[collKey];
     if (!mapping || !token) return;
-    setLoading(l => ({ ...l, [collKey]: true })); setErrors(e => ({ ...e, [collKey]: null }));
-    try { const d = await graph("/teams/" + mapping.teamId + "/channels/" + mapping.channelId + "/messages?$top=50"); setMessages(m => ({ ...m, [collKey]: (d.value || []).filter(m => m.messageType === "message") })); }
-    catch(e) { setErrors(err => ({ ...err, [collKey]: e.message })); }
+    setLoading(l => ({ ...l, [collKey]: true }));
+    setErrors(e => ({ ...e, [collKey]: null }));
+    try {
+      const d = await graph(`/teams/${mapping.teamId}/channels/${mapping.channelId}/messages?$top=50`);
+      setMessages(m => ({ ...m, [collKey]: (d.value || []).filter((m: any) => m.messageType === "message") }));
+    } catch(e: any) {
+      setErrors(err => ({ ...err, [collKey]: e.message }));
+    }
     setLoading(l => ({ ...l, [collKey]: false }));
   }
-  async function loadReplies(collKey, messageId) {
-    const mapping = cfg.channelMap[collKey];
-    if (!mapping || !token) return;
-    setLoadingReplies(true); setSelectedMsg(messageId);
-    try { const d = await graph("/teams/" + mapping.teamId + "/channels/" + mapping.channelId + "/messages/" + messageId + "/replies"); setReplies(d.value || []); }
-    catch(e) { setReplies([]); }
-    setLoadingReplies(false); setMsgTab("replies");
-  }
-  async function sendMessage(collKey) {
-    const mapping = cfg.channelMap[collKey];
-    if (!mapping || !newMsg.trim() || !token) return;
-    try { const sent = await graphPost("/teams/" + mapping.teamId + "/channels/" + mapping.channelId + "/messages", { body: { content: newMsg.trim(), contentType: "text" } }); setMessages(m => ({ ...m, [collKey]: [sent, ...(m[collKey] || [])] })); setNewMsg(""); }
-    catch(e) { alert("Failed to send: " + e.message); }
-  }
-  async function sendReply(collKey, messageId) {
-    const mapping = cfg.channelMap[collKey];
-    const text = replyText[messageId] || "";
-    if (!mapping || !text.trim() || !token) return;
-    try { const sent = await graphPost("/teams/" + mapping.teamId + "/channels/" + mapping.channelId + "/messages/" + messageId + "/replies", { body: { content: text.trim(), contentType: "text" } }); setReplies(r => [...r, sent]); setReplyText(r => ({ ...r, [messageId]: "" })); }
-    catch(e) { alert("Failed to reply: " + e.message); }
-  }
-  function saveConfig() {
-    setTeamsConfig(configForm); try { localStorage.setItem("teamsConfig", JSON.stringify(configForm)); } catch(_) {}
-    setShowTeamsConfig(false);
+
+  async function sendMessage(collKey: string) {
+    const mp = channelMap[collKey];
+    if (!mp || !newMsg.trim() || !token) return;
+    try {
+      const sent = await graphPost(`/teams/${mp.teamId}/channels/${mp.channelId}/messages`, {
+        body: { content: newMsg.trim(), contentType: "text" },
+      });
+      setMessages(m => ({ ...m, [collKey]: [sent, ...(m[collKey] || [])] }));
+      setNewMsg("");
+    } catch(e: any) { alert("Failed to send: " + e.message); }
   }
 
-  useEffect(() => { if (token) loadTeams(); }, [token]);
-  useEffect(() => { if (selectedCollKey && token) loadMessages(selectedCollKey); }, [selectedCollKey, token]);
+  async function loadDmMessages(chatId: string) {
+    setDmLoading(true);
+    setDmError(null);
+    try {
+      const d = await graph(`/chats/${chatId}/messages?$top=50`);
+      const msgs = ((d.value || []) as any[]).filter(m => m.messageType === "message").reverse();
+      setDmMessages(msgs);
+      setTimeout(() => { if (dmScrollRef.current) dmScrollRef.current.scrollTop = dmScrollRef.current.scrollHeight; }, 50);
+    } catch(e: any) {
+      setDmError("Could not load messages: " + e.message);
+    }
+    setDmLoading(false);
+  }
+
+  async function teamsSendDirect() {
+    if (!teamsDirectTo.trim() || !teamsDirectMsg.trim()) return;
+    setTeamsDirectSending(true);
+    setTeamsDirectErr(null);
+    try {
+      const me = await graph("/me");
+      const chat = await graphPost("/chats", {
+        chatType: "oneOnOne",
+        members: [
+          { "@odata.type": "#microsoft.graph.aadUserConversationMember", roles: ["owner"], "user@odata.bind": `https://graph.microsoft.com/v1.0/users('${me.id}')` },
+          { "@odata.type": "#microsoft.graph.aadUserConversationMember", roles: ["owner"], "user@odata.bind": `https://graph.microsoft.com/v1.0/users('${teamsDirectTo.trim()}')` },
+        ],
+      });
+      await graphPost(`/chats/${chat.id}/messages`, { body: { content: teamsDirectMsg.trim(), contentType: "text" } });
+      setDmChatId(chat.id);
+      setDmRecipient(teamsDirectTo.trim());
+      setTeamsDirectMsg("");
+      await loadDmMessages(chat.id);
+    } catch(e: any) {
+      setTeamsDirectErr("Failed to send: " + e.message);
+    }
+    setTeamsDirectSending(false);
+  }
+
+  async function sendDmReply() {
+    if (!dmChatId || !dmNewMsg.trim()) return;
+    setDmSending(true);
+    setDmError(null);
+    try {
+      const sent = await graphPost(`/chats/${dmChatId}/messages`, { body: { content: dmNewMsg.trim(), contentType: "text" } });
+      setDmMessages(prev => [...prev, sent]);
+      setDmNewMsg("");
+      setTimeout(() => { if (dmScrollRef.current) dmScrollRef.current.scrollTop = dmScrollRef.current.scrollHeight; }, 50);
+    } catch(e: any) {
+      setDmError("Failed to send: " + e.message);
+    }
+    setDmSending(false);
+  }
 
   const selectedColl = selectedCollKey ? collMap[selectedCollKey] : null;
   const brand = selectedColl ? getBrand(selectedColl.brand) : null;
-  const mapping = selectedCollKey ? (cfg.channelMap && cfg.channelMap[selectedCollKey]) : null;
+  const mapping = selectedCollKey ? channelMap[selectedCollKey] : null;
   const msgs = (selectedCollKey ? messages[selectedCollKey] : null) || [];
   const isLoadingMsgs = selectedCollKey ? !!loading[selectedCollKey] : false;
   const msgError = selectedCollKey ? errors[selectedCollKey] : null;
-
-  if (showTeamsConfig) return (
-    <div style={{ maxWidth: 560, margin: "0 auto", padding: "8px 0" }}>
-      <div style={{ fontSize: 16, fontWeight: 700, color: TH.text, marginBottom: 18 }}>Microsoft Teams Configuration</div>
-      <div style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 10, padding: "12px 16px", marginBottom: 18, fontSize: 12, color: "#1E40AF", lineHeight: 1.6 }}>
-        <b>Azure AD Setup:</b> Register an app, enable implicit grant for Access tokens, add Graph API permissions
-        (ChannelMessage.Read.All, Team.ReadBasic.All, Channel.ReadBasic.All, ChannelMessage.Send),
-        set redirect URI to <b>{window.location.origin}/auth-callback</b>.
-      </div>
-      <label style={S.lbl}>Azure AD Client ID</label>
-      <input style={S.inp} value={configForm.clientId} onChange={e => setConfigForm(f => ({...f, clientId: e.target.value}))} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
-      <label style={S.lbl}>Tenant ID</label>
-      <input style={S.inp} value={configForm.tenantId} onChange={e => setConfigForm(f => ({...f, tenantId: e.target.value}))} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
-      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
-        <button onClick={() => setShowTeamsConfig(false)} style={{ padding: "9px 18px", borderRadius: 8, border: "1px solid " + TH.border, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
-        <button onClick={saveConfig} style={S.btn}>Save Configuration</button>
-      </div>
-    </div>
-  );
+  const isCreating = selectedCollKey ? creatingChannel === selectedCollKey : false;
 
   return (
     <div style={{ position: "relative" }}>
-      <button onClick={() => { const ev = new CustomEvent("closeTeamsView"); window.dispatchEvent(ev); }} title="Close Teams"
-        style={{ position: "absolute", top: 10, right: 10, zIndex: 10, width: 28, height: 28, borderRadius: "50%", border: "1px solid rgba(91,94,166,0.3)", background: "rgba(91,94,166,0.1)", color: TEAMS_PURPLE, cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, transition: "all 0.15s" }}
-        onMouseEnter={e => { e.currentTarget.style.background = TEAMS_PURPLE; e.currentTarget.style.color = "#fff"; }}
-        onMouseLeave={e => { e.currentTarget.style.background = "rgba(91,94,166,0.1)"; e.currentTarget.style.color = TEAMS_PURPLE; }}>✕</button>
-      <div style={{ display: "flex", height: "calc(100vh - 200px)", minHeight: 500, background: TH.surface, borderRadius: 12, border: "1px solid " + TH.border, overflow: "hidden" }}>
+      <button
+        onClick={() => { const ev = new CustomEvent("closeTeamsView"); window.dispatchEvent(ev); }}
+        title="Close Teams"
+        style={{ position: "absolute", top: 10, right: 10, zIndex: 10, width: 28, height: 28, borderRadius: "50%", border: `1px solid ${TEAMS_PURPLE}44`, background: `${TEAMS_PURPLE}15`, color: TEAMS_PURPLE, cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}
+      >✕</button>
 
-        {/* LEFT: project list */}
-        <div style={{ width: 280, flexShrink: 0, borderRight: "1px solid " + TH.border, overflowY: "auto", background: TH.surfaceHi, display: "flex", flexDirection: "column" }}>
-          <div style={{ padding: "14px 16px 10px", borderBottom: "1px solid " + TH.border, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: TH.textMuted }}>Projects ({collList.length})</span>
-            {isAdmin && <button onClick={() => { setConfigForm({ ...cfg }); setShowTeamsConfig(true); }} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 6, border: "1px solid " + TH.border, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit" }}>⚙ Config</button>}
+      <div style={{ display: "flex", height: "calc(100vh - 140px)", minHeight: 500, background: "#1E293B", borderRadius: 12, border: "1px solid #334155", overflow: "hidden" }}>
+
+        {/* ── LEFT: collection list ────────────────────────────────────────── */}
+        <div style={{ width: 280, flexShrink: 0, borderRight: "1px solid #334155", display: "flex", flexDirection: "column", background: "#0F172A" }}>
+          <div style={{ padding: "14px 16px 10px", borderBottom: "1px solid #334155", flexShrink: 0 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6B7280" }}>Collections ({collList.length})</span>
           </div>
-          <div style={{ padding: "10px 16px", borderBottom: "1px solid " + TH.border, background: token ? "#ECFDF5" : "#FFF7ED", flexShrink: 0 }}>
+
+          {/* Sign-in status bar */}
+          <div style={{ padding: "10px 16px", borderBottom: "1px solid #334155", background: token ? "#064E3B44" : "#78350F44", flexShrink: 0 }}>
             {token ? (
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 11, color: "#065F46", fontWeight: 600 }}>✓ Connected to Microsoft Teams</span>
-                <button onClick={() => { setTeamsToken(null); setAuthStatus("idle"); }} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 5, border: "1px solid #6EE7B7", background: "none", color: "#065F46", cursor: "pointer", fontFamily: "inherit" }}>Sign out</button>
+                <span style={{ fontSize: 11, color: "#34D399", fontWeight: 600 }}>✓ Connected to Microsoft Teams</span>
+                <button onClick={signOut} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 5, border: "1px solid #34D39944", background: "none", color: "#34D399", cursor: "pointer", fontFamily: "inherit" }}>Sign out</button>
               </div>
             ) : (
               <div>
-                <div style={{ fontSize: 11, color: "#92400E", fontWeight: 600, marginBottom: 6 }}>{authStatus === "error" ? "Authentication failed — check config" : "Sign in to load conversations"}</div>
-                {(!cfg.clientId || !cfg.tenantId) ? (
-                  <div style={{ fontSize: 11, color: "#B45309" }}>{isAdmin ? 'Click "⚙ Config" to enter Azure AD credentials' : "Contact an admin to set up Teams integration"}</div>
+                <div style={{ fontSize: 11, color: "#FBBF24", fontWeight: 600, marginBottom: 6 }}>
+                  {authStatus === "error" ? (authError || "Authentication failed") : "Sign in to use Teams"}
+                </div>
+                {!configured ? (
+                  <div style={{ fontSize: 11, color: "#D97706" }}>Azure credentials not configured — check Vercel env vars</div>
                 ) : (
-                  <button onClick={authenticate} disabled={authStatus === "loading"} style={{ ...S.btn, fontSize: 11, padding: "5px 12px", opacity: authStatus === "loading" ? 0.6 : 1 }}>{authStatus === "loading" ? "Signing in…" : "Sign in with Microsoft"}</button>
+                  <button
+                    onClick={authenticate}
+                    disabled={authStatus === "loading"}
+                    style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", opacity: authStatus === "loading" ? 0.6 : 1 }}
+                  >
+                    {authStatus === "loading" ? "Signing in…" : "Sign in with Microsoft"}
+                  </button>
                 )}
               </div>
             )}
           </div>
-          <div style={{ flex: 1, overflowY: "auto" }}>
-            {collList.map(c => {
-              const b = getBrand(c.brand);
-              const hasCh = !!(cfg.channelMap && cfg.channelMap[c.key]);
-              const isSelected = selectedCollKey === c.key;
-              const msgCount = (messages[c.key] || []).length;
-              return (
-                <div key={c.key} onClick={() => { setSelectedCollKey(c.key === selectedCollKey ? null : c.key); setMsgTab("channel"); setSelectedMsg(null); }}
-                  style={{ padding: "11px 16px", borderBottom: "1px solid " + TH.border, cursor: "pointer", background: isSelected ? TH.accent : "transparent", borderLeft: isSelected ? "3px solid " + TH.primary : "3px solid transparent", transition: "all 0.12s" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: b ? b.color : TH.textMuted, flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: isSelected ? TH.primary : TH.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.collection}</div>
-                      <div style={{ fontSize: 11, color: TH.textMuted }}>{b ? b.short : ""} · {c.season}</div>
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}>
-                      <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 10, background: hasCh ? "#D1FAE5" : TH.surfaceHi, color: hasCh ? "#065F46" : TH.textMuted, border: hasCh ? "none" : "1px solid " + TH.border, fontWeight: 700 }}>{hasCh ? "LINKED" : "UNLINKED"}</span>
-                      {msgCount > 0 && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 10, background: TH.primary, color: "#fff", fontWeight: 700 }}>{msgCount}</span>}
+
+          {/* Tabs: Channels | Direct Message */}
+          <div style={{ display: "flex", borderBottom: "1px solid #334155", flexShrink: 0 }}>
+            {(["channels", "direct"] as const).map(t => (
+              <button key={t} onClick={() => setTeamsTab(t)} style={{ flex: 1, padding: "9px 0", fontSize: 11, fontWeight: 700, fontFamily: "inherit", border: "none", borderBottom: teamsTab === t ? `2px solid ${TEAMS_PURPLE}` : "2px solid transparent", background: "none", color: teamsTab === t ? TEAMS_PURPLE_LT : "#6B7280", cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                {t === "channels" ? "DC Channels" : "Direct Message"}
+              </button>
+            ))}
+          </div>
+
+          {teamsTab === "channels" && (
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {collList.map(c => {
+                const b = getBrand(c.brand);
+                const hasCh = !!channelMap[c.key];
+                const isSelected = selectedCollKey === c.key;
+                const msgCount = (messages[c.key] || []).length;
+                return (
+                  <div
+                    key={c.key}
+                    onClick={() => { setSelectedCollKey(c.key === selectedCollKey ? null : c.key); }}
+                    style={{ padding: "11px 16px", borderBottom: "1px solid #1E293B", cursor: "pointer", background: isSelected ? `${TEAMS_PURPLE}22` : "transparent", borderLeft: isSelected ? `3px solid ${TEAMS_PURPLE}` : "3px solid transparent", transition: "all 0.12s" }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: b ? b.color : "#6B7280", flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: isSelected ? TEAMS_PURPLE_LT : "#F1F5F9", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.collection}</div>
+                        <div style={{ fontSize: 11, color: "#6B7280" }}>{b ? b.short : ""} · {c.season}</div>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}>
+                        <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 10, background: hasCh ? "#064E3B" : "#1E293B", color: hasCh ? "#34D399" : "#6B7280", border: hasCh ? "none" : "1px solid #334155", fontWeight: 700 }}>
+                          {hasCh ? "ACTIVE" : "NO CHAT"}
+                        </span>
+                        {msgCount > 0 && (
+                          <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 10, background: TEAMS_PURPLE, color: "#fff", fontWeight: 700 }}>{msgCount}</span>
+                        )}
+                      </div>
                     </div>
                   </div>
+                );
+              })}
+              {collList.length === 0 && (
+                <div style={{ padding: 24, fontSize: 13, color: "#6B7280", textAlign: "center" }}>No collections yet</div>
+              )}
+            </div>
+          )}
+
+          {teamsTab === "direct" && (
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {!token ? (
+                <div style={{ textAlign: "center", padding: "40px 20px" }}>
+                  <div style={{ fontSize: 32, marginBottom: 10 }}>🔒</div>
+                  <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 12 }}>Sign in with Microsoft</div>
+                  <button onClick={authenticate} disabled={authStatus === "loading"} style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                    {authStatus === "loading" ? "Signing in…" : "Sign in with Microsoft"}
+                  </button>
                 </div>
-              );
-            })}
-            {collList.length === 0 && <div style={{ padding: 24, fontSize: 13, color: TH.textMuted, textAlign: "center" }}>No collections yet</div>}
-          </div>
+              ) : (
+                <>
+                  <div style={{ padding: "10px 12px 6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "#6B7280", fontWeight: 600 }}>Direct Messages</span>
+                    {dmChatId && (
+                      <button onClick={() => { setDmChatId(null); setDmMessages([]); setDmRecipient(""); setDmError(null); setTeamsDirectErr(null); setTeamsDirectTo(""); setTeamsDirectMsg(""); }}
+                        style={{ fontSize: 10, padding: "3px 8px", borderRadius: 5, border: `1px solid ${TEAMS_PURPLE}44`, background: `${TEAMS_PURPLE}15`, color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit" }}>
+                        ✎ New
+                      </button>
+                    )}
+                  </div>
+                  {dmChatId ? (
+                    <div onClick={() => {}} style={{ padding: "10px 16px", borderBottom: "1px solid #1E293B", background: `${TEAMS_PURPLE}22`, borderLeft: `3px solid ${TEAMS_PURPLE}`, cursor: "default" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ width: 30, height: 30, borderRadius: "50%", background: `${TEAMS_PURPLE}33`, border: `2px solid ${TEAMS_PURPLE}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: TEAMS_PURPLE_LT, flexShrink: 0 }}>
+                          {dmRecipient.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: TEAMS_PURPLE_LT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{dmRecipient}</div>
+                          <div style={{ fontSize: 10, color: "#6B7280" }}>Active conversation</div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ padding: "12px 14px", fontSize: 12, color: "#6B7280" }}>No active conversations. Type a message on the right to start one.</div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* RIGHT: conversation panel */}
+        {/* ── RIGHT: conversation panel ─────────────────────────────────── */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          {!selectedCollKey ? (
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: TH.textMuted }}>
+          {teamsTab === "direct" ? (
+            !token ? (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#6B7280" }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>🔒</div>
+                <div style={{ fontSize: 14, color: "#94A3B8", marginBottom: 12 }}>Sign in to use Direct Message</div>
+                <button onClick={authenticate} disabled={authStatus === "loading"} style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 6, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                  {authStatus === "loading" ? "Signing in…" : "Sign in with Microsoft"}
+                </button>
+              </div>
+            ) : !dmChatId ? (
+              /* ── Compose form (full right panel) ── */
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                <div style={{ padding: "16px 24px 12px", borderBottom: "1px solid #334155", background: "#1E293B", flexShrink: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#F1F5F9" }}>New Direct Message</div>
+                  <div style={{ fontSize: 12, color: "#6B7280", marginTop: 2 }}>Send a Teams DM to any team member</div>
+                </div>
+                <div style={{ flex: 1, padding: "20px 24px", overflowY: "auto" }}>
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 5 }}>To (email address)</div>
+                    <input value={teamsDirectTo} onChange={e => { setTeamsDirectTo(e.target.value); setTeamsDirectErr(null); }}
+                      placeholder="colleague@ringoffire.com"
+                      style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 7, padding: "9px 12px", color: "#F1F5F9", fontSize: 13, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const }} />
+                  </div>
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 5 }}>Message</div>
+                    <textarea value={teamsDirectMsg} onChange={e => { setTeamsDirectMsg(e.target.value); setTeamsDirectErr(null); }}
+                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); teamsSendDirect(); } }}
+                      placeholder="Type your message… (Enter to send)" rows={6}
+                      style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 7, padding: "9px 12px", color: "#F1F5F9", fontSize: 13, outline: "none", fontFamily: "inherit", resize: "vertical" as const, boxSizing: "border-box" as const }} />
+                  </div>
+                  {teamsDirectErr && (
+                    <div style={{ background: "#1E293B", border: "1px solid #EF444444", borderRadius: 8, padding: "10px 14px", color: "#EF4444", fontSize: 12, marginBottom: 12 }}>
+                      ⚠ {teamsDirectErr}
+                    </div>
+                  )}
+                  <button onClick={teamsSendDirect} disabled={teamsDirectSending || !teamsDirectTo.trim() || !teamsDirectMsg.trim()}
+                    style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 8, padding: "11px 24px", fontSize: 13, fontWeight: 700, cursor: teamsDirectSending ? "wait" : "pointer", fontFamily: "inherit", opacity: (teamsDirectSending || !teamsDirectTo.trim() || !teamsDirectMsg.trim()) ? 0.6 : 1 }}>
+                    {teamsDirectSending ? "Sending…" : "Send Direct Message ↗"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* ── Conversation view ── */
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                <div style={{ padding: "14px 50px 14px 20px", borderBottom: "1px solid #334155", background: "#1E293B", display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+                  <div style={{ width: 34, height: 34, borderRadius: "50%", background: `${TEAMS_PURPLE}33`, border: `2px solid ${TEAMS_PURPLE}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: TEAMS_PURPLE_LT, flexShrink: 0 }}>
+                    {dmRecipient.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#F1F5F9", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dmRecipient}</div>
+                    <div style={{ fontSize: 11, color: "#6B7280" }}>Direct Message · Teams</div>
+                  </div>
+                  <button onClick={() => loadDmMessages(dmChatId)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #334155", background: "none", color: "#6B7280", cursor: "pointer", fontFamily: "inherit" }}>↻ Refresh</button>
+                </div>
+                {/* Error bar */}
+                {dmError && (
+                  <div style={{ background: "#1E293B", borderBottom: "1px solid #EF444444", padding: "8px 20px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                    <span style={{ fontSize: 12, color: "#EF4444", flex: 1 }}>⚠ {dmError}</span>
+                    <button onClick={() => setDmError(null)} style={{ border: "none", background: "none", color: "#EF4444", cursor: "pointer", fontFamily: "inherit", fontSize: 14 }}>✕</button>
+                  </div>
+                )}
+                <div ref={dmScrollRef} style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
+                  {dmLoading ? (
+                    <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 40, fontSize: 13 }}>Loading messages…</div>
+                  ) : dmMessages.length === 0 ? (
+                    <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 40, fontSize: 13 }}>No messages yet in this conversation</div>
+                  ) : (
+                    dmMessages.map((msg: any) => {
+                      const author = msg.from?.user?.displayName || "Unknown";
+                      const initials = author.split(" ").map((w: string) => w[0] || "").join("").toUpperCase().slice(0, 2);
+                      const clean = (msg.body?.content || "").replace(/<[^>]+>/g, "").trim();
+                      const time = msg.createdDateTime ? new Date(msg.createdDateTime).toLocaleString() : "";
+                      return (
+                        <div key={msg.id} style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 10, padding: "12px 16px" }}>
+                          <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                            <div style={{ width: 32, height: 32, borderRadius: "50%", background: `${TEAMS_PURPLE}33`, border: `2px solid ${TEAMS_PURPLE}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: TEAMS_PURPLE_LT, flexShrink: 0 }}>{initials}</div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: "#F1F5F9" }}>{author}</span>
+                                <span style={{ fontSize: 11, color: "#6B7280" }}>{time}</span>
+                              </div>
+                              <div style={{ fontSize: 13, color: "#CBD5E1", lineHeight: 1.5, wordBreak: "break-word" }}>{clean || "[Attachment]"}</div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+                <div style={{ padding: "12px 20px", borderTop: "1px solid #334155", background: "#1E293B", display: "flex", gap: 10, flexShrink: 0 }}>
+                  <input value={dmNewMsg} onChange={e => setDmNewMsg(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendDmReply(); }}}
+                    placeholder={`Reply to ${dmRecipient}…`}
+                    style={{ flex: 1, background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: "10px 14px", color: "#F1F5F9", fontSize: 13, outline: "none", fontFamily: "inherit" }} />
+                  <button onClick={sendDmReply} disabled={dmSending || !dmNewMsg.trim()}
+                    style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 12, fontWeight: 700, cursor: (dmSending || !dmNewMsg.trim()) ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: (dmSending || !dmNewMsg.trim()) ? 0.5 : 1 }}>
+                    {dmSending ? "…" : "Send"}
+                  </button>
+                </div>
+              </div>
+            )
+          ) : !selectedCollKey ? (
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#6B7280" }}>
               <div style={{ fontSize: 40, marginBottom: 12 }}>💬</div>
-              <div style={{ fontSize: 15, fontWeight: 600, color: TH.textSub, marginBottom: 6 }}>Select a project to view conversations</div>
-              <div style={{ fontSize: 13 }}>Each collection maps to a Microsoft Teams channel</div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: "#94A3B8", marginBottom: 6 }}>Select a collection to open its chat</div>
+              <div style={{ fontSize: 13 }}>Each collection gets its own Teams channel in RING OF FIRE</div>
             </div>
           ) : (
             <>
-              <div style={{ padding: "14px 20px", borderBottom: "1px solid " + TH.border, background: "#fff", display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
-                <div style={{ width: 10, height: 10, borderRadius: "50%", background: brand ? brand.color : TH.textMuted, flexShrink: 0 }} />
+              {/* Header */}
+              <div style={{ padding: "14px 50px 14px 20px", borderBottom: "1px solid #334155", background: "#1E293B", display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
+                <div style={{ width: 10, height: 10, borderRadius: "50%", background: brand ? brand.color : "#6B7280", flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: TH.text }}>{selectedColl ? selectedColl.collection : ""}</div>
-                  <div style={{ fontSize: 12, color: TH.textMuted }}>{brand ? brand.name : ""}{selectedColl ? " · " + selectedColl.season + " · " + selectedColl.category : ""}</div>
-                </div>
-                {isAdmin && (
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
-                    {mapping ? (
-                      <>
-                        <span style={{ fontSize: 11, color: "#065F46", background: "#D1FAE5", padding: "3px 8px", borderRadius: 6 }}>Channel linked</span>
-                        <button onClick={() => loadMessages(selectedCollKey)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid " + TH.border, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit" }}>↻ Refresh</button>
-                        <button onClick={() => unmapChannel(selectedCollKey)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit" }}>Unlink</button>
-                      </>
-                    ) : token ? (
-                      <button onClick={() => { if (!teams.length) loadTeams(); setExpandedTeam(expandedTeam ? null : "__picker__"); }} style={{ ...S.btn, fontSize: 11, padding: "5px 12px" }}>+ Link Channel</button>
-                    ) : null}
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#F1F5F9" }}>{selectedColl?.collection || ""}</div>
+                  <div style={{ fontSize: 12, color: "#6B7280" }}>
+                    {brand ? brand.name : ""}{selectedColl ? " · " + selectedColl.season + " · " + selectedColl.category : ""}
                   </div>
+                </div>
+                {mapping && token && (
+                  <button
+                    onClick={() => loadMessages(selectedCollKey)}
+                    style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #334155", background: "none", color: "#6B7280", cursor: "pointer", fontFamily: "inherit" }}
+                  >↻ Refresh</button>
                 )}
               </div>
 
-              {isAdmin && !mapping && token && (
-                <div style={{ padding: "12px 20px", background: "#FFFBEB", borderBottom: "1px solid #FCD34D", flexShrink: 0, overflowY: "auto", maxHeight: 240 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "#92400E", marginBottom: 10 }}>Link this project to a Teams channel:</div>
-                  {loadingTeams ? <div style={{ fontSize: 12, color: TH.textMuted }}>Loading teams…</div> :
-                    teams.length === 0 ? <button onClick={loadTeams} style={{ ...S.btn, fontSize: 11, padding: "5px 12px" }}>Load My Teams</button> : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {teams.map(tm => (
-                        <div key={tm.id}>
-                          <div onClick={() => loadChannels(tm.id)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 7, background: expandedTeam === tm.id ? "#EFF6FF" : TH.surfaceHi, cursor: "pointer", border: "1px solid " + TH.border }}>
-                            <span style={{ fontSize: 14 }}>👥</span>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: TH.text, flex: 1 }}>{tm.displayName}</span>
-                            <span style={{ fontSize: 10, color: TH.textMuted }}>{expandedTeam === tm.id ? "▲" : "▼"}</span>
-                          </div>
-                          {expandedTeam === tm.id && channels[tm.id] && (
-                            <div style={{ marginLeft: 16, marginTop: 4, display: "flex", flexDirection: "column", gap: 3 }}>
-                              {channels[tm.id].map(ch => (
-                                <div key={ch.id} onClick={() => mapChannel(selectedCollKey, ch.id, tm.id)}
-                                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 6, cursor: "pointer", background: "#fff", border: "1px solid " + TH.border }}
-                                  onMouseEnter={e => e.currentTarget.style.background = "#EFF6FF"}
-                                  onMouseLeave={e => e.currentTarget.style.background = "#fff"}>
-                                  <span style={{ fontSize: 12, color: TH.textMuted }}>#</span>
-                                  <span style={{ fontSize: 12, color: TH.text }}>{ch.displayName}</span>
-                                  <span style={{ fontSize: 10, color: TH.primary, marginLeft: "auto", fontWeight: 600 }}>Link →</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {mapping && (
-                <div style={{ display: "flex", borderBottom: "1px solid " + TH.border, background: "#fff", flexShrink: 0 }}>
-                  {[["channel","Channel Messages"],["replies", selectedMsg ? "Thread" : "Thread Replies"]].map(([tab, label]) => (
-                    <button key={tab} onClick={() => setMsgTab(tab)} style={{ padding: "9px 18px", border: "none", borderBottom: msgTab === tab ? "2px solid " + TH.primary : "2px solid transparent", background: "none", color: msgTab === tab ? TH.primary : TH.textMuted, fontWeight: msgTab === tab ? 700 : 500, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>{label}</button>
-                  ))}
-                </div>
-              )}
-
+              {/* Message area */}
               <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
                 {!token ? (
-                  <div style={{ textAlign: "center", color: TH.textMuted, paddingTop: 40 }}><div style={{ fontSize: 28, marginBottom: 8 }}>🔒</div><div style={{ fontSize: 13 }}>Sign in with Microsoft to view conversations</div></div>
+                  <div style={{ textAlign: "center", paddingTop: 60 }}>
+                    <div style={{ fontSize: 36, marginBottom: 12 }}>🔒</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#94A3B8", marginBottom: 8 }}>Sign in to use Teams chat</div>
+                    <button onClick={authenticate} disabled={authStatus === "loading"} style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 8, padding: "10px 22px", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                      {authStatus === "loading" ? "Signing in…" : "Sign in with Microsoft"}
+                    </button>
+                  </div>
                 ) : !mapping ? (
-                  <div style={{ textAlign: "center", color: TH.textMuted, paddingTop: 40 }}><div style={{ fontSize: 28, marginBottom: 8 }}>🔗</div><div style={{ fontSize: 13 }}>{isAdmin ? 'Click "+ Link Channel" above to connect a Teams channel' : "No Teams channel linked for this project yet"}</div></div>
+                  <div style={{ textAlign: "center", paddingTop: 60 }}>
+                    <div style={{ fontSize: 36, marginBottom: 12 }}>💬</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#94A3B8", marginBottom: 6 }}>No Teams channel yet for this collection</div>
+                    <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 20 }}>A channel will be created in the RING OF FIRE workspace</div>
+                    {msgError && (
+                      <div style={{ background: "#1E293B", border: "1px solid #EF444444", borderRadius: 8, padding: "10px 14px", color: "#EF4444", fontSize: 12, marginBottom: 16, textAlign: "left" }}>
+                        ⚠ {msgError}
+                      </div>
+                    )}
+                    <button
+                      onClick={() => startChat(selectedCollKey)}
+                      disabled={!!isCreating}
+                      style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 8, padding: "10px 22px", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: isCreating ? "wait" : "pointer", opacity: isCreating ? 0.7 : 1 }}
+                    >
+                      {isCreating ? "Creating channel…" : "💬 Start Teams Chat"}
+                    </button>
+                  </div>
                 ) : isLoadingMsgs ? (
-                  <div style={{ textAlign: "center", color: TH.textMuted, paddingTop: 40, fontSize: 13 }}>Loading messages…</div>
+                  <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 40, fontSize: 13 }}>Loading messages…</div>
                 ) : msgError ? (
-                  <div style={{ background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "12px 16px", color: "#B91C1C", fontSize: 13 }}>⚠ {msgError}</div>
-                ) : msgTab === "channel" ? (
-                  msgs.length === 0 ? (
-                    <div style={{ textAlign: "center", color: TH.textMuted, paddingTop: 40 }}><div style={{ fontSize: 28, marginBottom: 8 }}>💬</div><div style={{ fontSize: 13 }}>No messages yet</div></div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                      {msgs.map(msg => {
-                        const author = (msg.from && msg.from.user && msg.from.user.displayName) || "Unknown";
-                        const initials = author.split(" ").map(w => w[0] || "").join("").toUpperCase().slice(0, 2);
-                        const clean = ((msg.body && msg.body.content) || "").replace(/<[^>]+>/g, "").trim();
-                        const time = msg.createdDateTime ? new Date(msg.createdDateTime).toLocaleString() : "";
-                        return (
-                          <div key={msg.id} style={{ background: "#fff", border: "1px solid " + TH.border, borderRadius: 10, padding: "12px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
-                            <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                              <div style={{ width: 34, height: 34, borderRadius: "50%", background: TH.primary + "22", border: "2px solid " + TH.primary, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: TH.primary, flexShrink: 0 }}>{initials}</div>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
-                                  <span style={{ fontSize: 13, fontWeight: 700, color: TH.text }}>{author}</span>
-                                  <span style={{ fontSize: 11, color: TH.textMuted }}>{time}</span>
-                                </div>
-                                <div style={{ fontSize: 13, color: TH.textSub, lineHeight: 1.5, wordBreak: "break-word" }}>{clean || "[Attachment or card]"}</div>
-                                <button onClick={() => loadReplies(selectedCollKey, msg.id)} style={{ marginTop: 6, fontSize: 11, padding: "3px 9px", borderRadius: 6, border: "1px solid " + TH.border, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit" }}>💬 View Thread</button>
+                  <div style={{ background: "#1E293B", border: "1px solid #EF444444", borderRadius: 8, padding: "12px 16px", color: "#EF4444", fontSize: 13 }}>⚠ {msgError}</div>
+                ) : msgs.length === 0 ? (
+                  <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 40 }}>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>💬</div>
+                    <div style={{ fontSize: 13 }}>No messages yet — start the conversation!</div>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {msgs.map((msg: any) => {
+                      const author = msg.from?.user?.displayName || "Unknown";
+                      const initials = author.split(" ").map((w: string) => w[0] || "").join("").toUpperCase().slice(0, 2);
+                      const clean = (msg.body?.content || "").replace(/<[^>]+>/g, "").trim();
+                      const time = msg.createdDateTime ? new Date(msg.createdDateTime).toLocaleString() : "";
+                      return (
+                        <div key={msg.id} style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 10, padding: "12px 16px" }}>
+                          <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                            <div style={{ width: 34, height: 34, borderRadius: "50%", background: `${TEAMS_PURPLE}33`, border: `2px solid ${TEAMS_PURPLE}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: TEAMS_PURPLE_LT, flexShrink: 0 }}>{initials}</div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: "#F1F5F9" }}>{author}</span>
+                                <span style={{ fontSize: 11, color: "#6B7280" }}>{time}</span>
                               </div>
+                              <div style={{ fontSize: 13, color: "#CBD5E1", lineHeight: 1.5, wordBreak: "break-word" }}>{clean || "[Attachment]"}</div>
                             </div>
                           </div>
-                        );
-                      })}
-                    </div>
-                  )
-                ) : (
-                  <div>
-                    {!selectedMsg ? (
-                      <div style={{ textAlign: "center", color: TH.textMuted, paddingTop: 40, fontSize: 13 }}>Click "View Thread" on a message to open its replies</div>
-                    ) : loadingReplies ? (
-                      <div style={{ textAlign: "center", color: TH.textMuted, paddingTop: 24, fontSize: 13 }}>Loading replies…</div>
-                    ) : replies.length === 0 ? (
-                      <div style={{ textAlign: "center", color: TH.textMuted, paddingTop: 40, fontSize: 13 }}>No replies yet — be the first!</div>
-                    ) : (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
-                        {replies.map(r => {
-                          const author = (r.from && r.from.user && r.from.user.displayName) || "Unknown";
-                          const initials = author.split(" ").map(w => w[0] || "").join("").toUpperCase().slice(0, 2);
-                          const clean = ((r.body && r.body.content) || "").replace(/<[^>]+>/g, "").trim();
-                          const time = r.createdDateTime ? new Date(r.createdDateTime).toLocaleString() : "";
-                          return (
-                            <div key={r.id} style={{ background: TH.surfaceHi, border: "1px solid " + TH.border, borderRadius: 8, padding: "10px 14px" }}>
-                              <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                                <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#6D28D922", border: "2px solid #6D28D9", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#6D28D9", flexShrink: 0 }}>{initials}</div>
-                                <div style={{ flex: 1 }}>
-                                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 3 }}>
-                                    <span style={{ fontSize: 12, fontWeight: 700, color: TH.text }}>{author}</span>
-                                    <span style={{ fontSize: 10, color: TH.textMuted }}>{time}</span>
-                                  </div>
-                                  <div style={{ fontSize: 12, color: TH.textSub, lineHeight: 1.5 }}>{clean || "[Attachment]"}</div>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                    {selectedMsg && (
-                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                        <input value={(replyText[selectedMsg] || "")} onChange={e => setReplyText(r => ({...r, [selectedMsg]: e.target.value}))} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendReply(selectedCollKey, selectedMsg); }}} placeholder="Write a reply…" style={{ ...S.inp, flex: 1, marginBottom: 0 }} />
-                        <button onClick={() => sendReply(selectedCollKey, selectedMsg)} style={S.btn}>Reply</button>
-                      </div>
-                    )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
-              {mapping && token && msgTab === "channel" && (
-                <div style={{ padding: "12px 20px", borderTop: "1px solid " + TH.border, background: "#fff", display: "flex", gap: 10, flexShrink: 0 }}>
-                  <input value={newMsg} onChange={e => setNewMsg(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(selectedCollKey); }}} placeholder={"Message " + (selectedColl ? selectedColl.collection : "") + "…"} style={{ ...S.inp, flex: 1, marginBottom: 0 }} />
-                  <button onClick={() => sendMessage(selectedCollKey)} disabled={!newMsg.trim()} style={{ ...S.btn, opacity: newMsg.trim() ? 1 : 0.5 }}>Send</button>
+              {/* Send box */}
+              {mapping && token && (
+                <div style={{ padding: "12px 20px", borderTop: "1px solid #334155", background: "#1E293B", display: "flex", gap: 10, flexShrink: 0 }}>
+                  <input
+                    value={newMsg}
+                    onChange={e => setNewMsg(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(selectedCollKey); }}}
+                    placeholder={`Message ${selectedColl?.collection || ""}…`}
+                    style={{ flex: 1, background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: "10px 14px", color: "#F1F5F9", fontSize: 13, outline: "none", fontFamily: "inherit" }}
+                  />
+                  <button onClick={() => sendMessage(selectedCollKey)} disabled={!newMsg.trim()} style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 12, fontWeight: 700, cursor: newMsg.trim() ? "pointer" : "not-allowed", fontFamily: "inherit", opacity: newMsg.trim() ? 1 : 0.5 }}>Send</button>
                 </div>
               )}
             </>
@@ -364,6 +648,5 @@ function TeamsView({ collList, collMap, isAdmin, teamsConfig, setTeamsConfig, te
     </div>
   );
 }
-
 
 export default TeamsView;

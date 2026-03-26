@@ -27,7 +27,30 @@ function GenderManager({ genders, setGenders, genderSizes, setGenderSizes, sizes
   );
 
   // All available sizes: sizeLibrary if populated, else DEFAULT_SIZES
-  const allSizes = sizes && sizes.length > 0 ? sizes : DEFAULT_SIZES;
+  const rawSizes = sizes && sizes.length > 0 ? sizes : DEFAULT_SIZES;
+
+  // Sort: standard alpha first (XS→XXL), then extended alpha (2XL,3XL,…), then numeric
+  const ALPHA_ORDER = ["XS","S","M","L","XL","XXL"];
+  const EXTENDED_RE = /^(\d+)XL$/i;
+  function sizeSort(a: string, b: string): number {
+    const ai = ALPHA_ORDER.indexOf(a.toUpperCase());
+    const bi = ALPHA_ORDER.indexOf(b.toUpperCase());
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    const am = a.toUpperCase().match(EXTENDED_RE);
+    const bm = b.toUpperCase().match(EXTENDED_RE);
+    const aIsExt = !!am, bIsExt = !!bm;
+    const aIsNum = !isNaN(Number(a)), bIsNum = !isNaN(Number(b));
+    if (aIsExt && bIsExt) return Number(am![1]) - Number(bm![1]);
+    if (aIsExt) return bIsNum ? -1 : -1;
+    if (bIsExt) return aIsNum ? 1 : 1;
+    if (aIsNum && bIsNum) return Number(a) - Number(b);
+    if (aIsNum) return 1;
+    if (bIsNum) return -1;
+    return a.localeCompare(b);
+  }
+  const allSizes = [...rawSizes].sort(sizeSort);
 
   function openNew() { setForm(""); setSelSizes([]); setNewSizeInput(""); setEditing("new"); }
   function openEdit(i: number) {

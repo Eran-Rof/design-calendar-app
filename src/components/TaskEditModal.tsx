@@ -3,7 +3,7 @@ import { TH } from "../utils/theme";
 import { appConfirm } from "../utils/theme";
 import { S } from "../utils/styles";
 import { STATUS_CONFIG } from "../utils/constants";
-import { uid, getBrand, formatDate, formatDT, addDays, diffDays } from "../utils/dates";
+import { uid, getBrand, formatDate, formatDT, addDays, diffDays, addDaysForPhase, diffDaysForPhase, isPostPO, parseLocalDate, toDateStr, dayWeight } from "../utils/dates";
 import { cascadeDates } from "../utils/helpers";
 import { Modal } from "./Modal";
 import Avatar from "./Avatar";
@@ -431,36 +431,78 @@ function TaskEditModal({
                 const thisIdx = sortedColl.findIndex((t) => t.id === task.id);
                 const prevTask = thisIdx > 0 ? sortedColl[thisIdx - 1] : null;
                 if (!prevTask) return null;
-                const currentGap = diffDays(f.due, prevTask.due);
+                const currentGap = diffDaysForPhase(f.due, prevTask.due, f.phase);
+                const isCalDays = isPostPO(f.phase);
                 return (
                   <div style={{ marginBottom: 14 }}>
-                    <label style={S.lbl}>Days from Previous Task</label>
+                    <label style={S.lbl}>{isCalDays ? "Calendar" : "Business"} Days from Previous Task</label>
                     <div
                       style={{ display: "flex", alignItems: "center", gap: 10 }}
                     >
-                      <input
-                        type="number"
-                        disabled={!canEdit}
-                        value={currentGap}
-                        min={0}
-                        onChange={(e) => {
-                          const n = parseInt(e.target.value);
-                          if (isNaN(n) || n < 0) return;
-                          const newDue = addDays(prevTask.due, n);
-                          handleDueChange(newDue);
-                        }}
-                        style={{
-                          ...S.inp,
-                          marginBottom: 0,
-                          width: 90,
-                          textAlign: "center",
-                          fontWeight: 700,
-                          fontSize: 15,
-                          color: TH.primary,
-                          border: `1px solid ${TH.primary}44`,
-                          background: TH.primary + "06",
-                        }}
-                      />
+                      {/* Number display + custom ▲▼ buttons (native spinner is unreliable with 0.5-day business days) */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 0, border: `1px solid ${TH.primary}44`, borderRadius: 8, overflow: "hidden", background: TH.primary + "06" }}>
+                        <input
+                          type="number"
+                          disabled={!canEdit}
+                          value={currentGap}
+                          min={0}
+                          step={isCalDays ? 1 : 0.5}
+                          onChange={(e) => {
+                            const n = parseFloat(e.target.value);
+                            if (isNaN(n) || n < 0) return;
+                            const newDue = addDaysForPhase(prevTask.due, n, f.phase);
+                            handleDueChange(newDue);
+                          }}
+                          style={{
+                            ...S.inp,
+                            marginBottom: 0,
+                            width: 70,
+                            textAlign: "center",
+                            fontWeight: 700,
+                            fontSize: 15,
+                            color: TH.primary,
+                            border: "none",
+                            borderRadius: 0,
+                            background: "transparent",
+                            // hide native spinner arrows
+                            MozAppearance: "textfield",
+                          } as any}
+                        />
+                        <div style={{ display: "flex", flexDirection: "column", borderLeft: `1px solid ${TH.primary}44` }}>
+                          <button
+                            disabled={!canEdit}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              if (isCalDays) {
+                                handleDueChange(addDays(f.due, 1));
+                              } else {
+                                const d = parseLocalDate(f.due);
+                                d.setDate(d.getDate() + 1);
+                                while (dayWeight(d) === 0) d.setDate(d.getDate() + 1);
+                                handleDueChange(toDateStr(d));
+                              }
+                            }}
+                            style={{ background: "transparent", border: "none", color: TH.primary, cursor: "pointer", padding: "2px 7px", fontSize: 10, lineHeight: 1, borderBottom: `1px solid ${TH.primary}44` }}
+                          >▲</button>
+                          <button
+                            disabled={!canEdit || currentGap <= 0}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              if (isCalDays) {
+                                const n = Math.max(0, currentGap - 1);
+                                handleDueChange(addDaysForPhase(prevTask.due, n, f.phase));
+                              } else {
+                                const d = parseLocalDate(f.due);
+                                d.setDate(d.getDate() - 1);
+                                while (dayWeight(d) === 0) d.setDate(d.getDate() - 1);
+                                const result = toDateStr(d);
+                                if (result >= prevTask.due) handleDueChange(result);
+                              }
+                            }}
+                            style={{ background: "transparent", border: "none", color: currentGap <= 0 ? TH.textMuted : TH.primary, cursor: currentGap <= 0 ? "not-allowed" : "pointer", padding: "2px 7px", fontSize: 10, lineHeight: 1 }}
+                          >▼</button>
+                        </div>
+                      </div>
                       <div
                         style={{
                           fontSize: 12,
@@ -468,7 +510,7 @@ function TaskEditModal({
                           lineHeight: 1.4,
                         }}
                       >
-                        days after{" "}
+                        {isCalDays ? "calendar days" : "business days"} after{" "}
                         <span style={{ fontWeight: 700, color: TH.textSub2 }}>
                           {prevTask.phase}
                         </span>
@@ -476,6 +518,9 @@ function TaskEditModal({
                         <span style={{ fontSize: 11 }}>
                           (due {formatDate(prevTask.due)})
                         </span>
+                        {!isCalDays && (
+                          <><br /><span style={{ fontSize: 10, color: TH.textMuted }}>Mon–Thu=1d, Fri=0.5d</span></>
+                        )}
                       </div>
                     </div>
                     {currentGap < 0 && (

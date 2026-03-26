@@ -142,7 +142,12 @@ export default function ATSReport() {
   const [hoveredCell, setHoveredCell] = useState<{ sku: string; date: string } | null>(null);
   const [pinnedSku, setPinnedSku] = useState<string | null>(null);
   const [showUpload, setShowUpload] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [invFile, setInvFile] = useState<File | null>(null);
+  const [purFile, setPurFile] = useState<File | null>(null);
+  const [ordFile, setOrdFile] = useState<File | null>(null);
+  const invRef = useRef<HTMLInputElement>(null);
+  const purRef = useRef<HTMLInputElement>(null);
+  const ordRef = useRef<HTMLInputElement>(null);
   const tableRef = useRef<HTMLDivElement>(null);
 
   // ── Compute date range ──────────────────────────────────────────────────
@@ -330,25 +335,34 @@ export default function ATSReport() {
     }
   }
 
-  async function handleFileUpload(file: File) {
+  async function handleFileUpload(inv: File, pur: File, ord: File) {
     setUploadingFile(true);
     setShowUpload(false);
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("inventory", inv);
+      formData.append("purchases", pur);
+      formData.append("orders",    ord);
       const res = await fetch("/api/parse-excel", { method: "POST", body: formData });
-      if (!res.ok) throw new Error("Parse failed");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Parse failed" }));
+        throw new Error(err.error ?? "Parse failed");
+      }
       const parsed: ATSSnapshot[] = await res.json();
-      // Upsert parsed data
-      await fetch(`${SB_URL}/rest/v1/ats_snapshots`, {
-        method: "POST",
-        headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=representation" },
-        body: JSON.stringify(parsed),
-      });
+      // Upsert in batches of 500
+      for (let i = 0; i < parsed.length; i += 500) {
+        await fetch(`${SB_URL}/rest/v1/ats_snapshots`, {
+          method: "POST",
+          headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=representation" },
+          body: JSON.stringify(parsed.slice(i, i + 500)),
+        });
+      }
+      setInvFile(null); setPurFile(null); setOrdFile(null);
       setMockMode(false);
       await loadFromSupabase();
     } catch (e) {
       console.error(e);
+      setSyncError({ title: "Upload Failed", detail: (e as Error).message });
     } finally {
       setUploadingFile(false);
     }
@@ -398,6 +412,11 @@ export default function ATSReport() {
           </button>
           <button style={S.navBtn} onClick={() => setShowUpload(true)} disabled={uploadingFile}>
             {uploadingFile ? "Uploading…" : "Upload Excel"}
+            {!uploadingFile && (invFile || purFile || ordFile) && (
+              <span style={{ marginLeft: 6, background: "#10B981", color: "#fff", borderRadius: 10, padding: "1px 6px", fontSize: 11, fontWeight: 700 }}>
+                {[invFile, purFile, ordFile].filter(Boolean).length}/3
+              </span>
+            )}
           </button>
           <button style={S.navBtn} onClick={syncFromXoro} disabled={syncing}>
             {syncing ? (syncStatus || "Syncing…") : "Sync Xoro"}
@@ -645,45 +664,92 @@ export default function ATSReport() {
       {/* UPLOAD MODAL */}
       {showUpload && (
         <div style={S.modalOverlay} onClick={() => setShowUpload(false)}>
-          <div style={S.modal} onClick={e => e.stopPropagation()}>
+          <div style={{ ...S.modal, width: 560 }} onClick={e => e.stopPropagation()}>
             <div style={S.modalHeader}>
-              <h2 style={S.modalTitle}>Upload Excel File</h2>
+              <h2 style={S.modalTitle}>Upload Excel Files</h2>
               <button style={S.closeBtn} onClick={() => setShowUpload(false)}>✕</button>
             </div>
             <div style={S.modalBody}>
               <p style={{ color: "#9CA3AF", fontSize: 13, marginBottom: 20 }}>
-                Upload an .xlsx file with columns: SKU, Description, Category, Date, Qty Available, Qty On Hand, Qty On Order.
-                New data will be merged with existing records.
+                Upload all three Xoro report exports to compute Available to Sell. All files are required before processing.
               </p>
-              <div
-                style={S.dropZone}
-                onClick={() => fileRef.current?.click()}
-                onDragOver={e => e.preventDefault()}
-                onDrop={e => {
-                  e.preventDefault();
-                  const file = e.dataTransfer.files[0];
-                  if (file) handleFileUpload(file);
+
+              {/* File slot helper */}
+              {(
+                [
+                  { label: "Inventory Snapshot", sub: "On-hand quantities by SKU", key: "inv", file: invFile, setFile: setInvFile, ref: invRef, color: "#10B981" },
+                  { label: "Purchased Items Report", sub: "Open purchase orders (incoming)", key: "pur", file: purFile, setFile: setPurFile, ref: purRef, color: "#3B82F6" },
+                  { label: "All Orders Report", sub: "Sales orders by ship date (outgoing)", key: "ord", file: ordFile, setFile: setOrdFile, ref: ordRef, color: "#F59E0B" },
+                ] as Array<{ label: string; sub: string; key: string; file: File | null; setFile: (f: File | null) => void; ref: React.RefObject<HTMLInputElement>; color: string }>
+              ).map(slot => (
+                <div key={slot.key} style={{ marginBottom: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 2, background: slot.color, flexShrink: 0 }} />
+                    <span style={{ color: "#F1F5F9", fontWeight: 600, fontSize: 13 }}>{slot.label}</span>
+                    <span style={{ color: "#6B7280", fontSize: 12 }}>{slot.sub}</span>
+                  </div>
+                  <div
+                    style={{
+                      ...S.dropZone,
+                      padding: "14px 16px",
+                      borderColor: slot.file ? slot.color : "#334155",
+                      background: slot.file ? `${slot.color}10` : "transparent",
+                      display: "flex", alignItems: "center", gap: 12,
+                    }}
+                    onClick={() => slot.ref.current?.click()}
+                    onDragOver={e => e.preventDefault()}
+                    onDrop={e => {
+                      e.preventDefault();
+                      const f = e.dataTransfer.files[0];
+                      if (f) slot.setFile(f);
+                    }}
+                  >
+                    <span style={{ fontSize: 20, flexShrink: 0 }}>{slot.file ? "✓" : "↑"}</span>
+                    {slot.file ? (
+                      <div style={{ flex: 1, overflow: "hidden" }}>
+                        <div style={{ color: slot.color, fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{slot.file.name}</div>
+                        <div style={{ color: "#6B7280", fontSize: 11 }}>{(slot.file.size / 1024).toFixed(0)} KB</div>
+                      </div>
+                    ) : (
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: "#D1D5DB", fontSize: 13 }}>Drop file or click to browse</div>
+                        <div style={{ color: "#475569", fontSize: 11 }}>.xlsx</div>
+                      </div>
+                    )}
+                    {slot.file && (
+                      <button
+                        style={{ background: "none", border: "none", color: "#6B7280", cursor: "pointer", fontSize: 14, flexShrink: 0 }}
+                        onClick={e => { e.stopPropagation(); slot.setFile(null); }}
+                      >✕</button>
+                    )}
+                    <input
+                      ref={slot.ref}
+                      type="file"
+                      accept=".xlsx,.xls"
+                      style={{ display: "none" }}
+                      onChange={e => { const f = e.target.files?.[0]; if (f) slot.setFile(f); }}
+                    />
+                  </div>
+                </div>
+              ))}
+
+              <button
+                style={{
+                  ...S.navBtnPrimary,
+                  width: "100%", justifyContent: "center", padding: "11px 0", marginTop: 8, fontSize: 14,
+                  opacity: (invFile && purFile && ordFile) ? 1 : 0.4,
+                  cursor: (invFile && purFile && ordFile) ? "pointer" : "not-allowed",
+                }}
+                disabled={!(invFile && purFile && ordFile)}
+                onClick={() => {
+                  if (invFile && purFile && ordFile) {
+                    setShowUpload(false);
+                    handleFileUpload(invFile, purFile, ordFile);
+                  }
                 }}
               >
-                <div style={{ fontSize: 28, marginBottom: 8 }}>↑</div>
-                <div style={{ color: "#D1D5DB", fontWeight: 600, marginBottom: 4 }}>Drop your Excel file here</div>
-                <div style={{ color: "#6B7280", fontSize: 13 }}>or click to browse (.xlsx, .xls, .csv)</div>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  style={{ display: "none" }}
-                  onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload(f); }}
-                />
-              </div>
-              <div style={{ marginTop: 16, background: "#0F172A", borderRadius: 8, padding: 12 }}>
-                <div style={{ color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8, fontWeight: 600 }}>Expected columns</div>
-                {["SKU", "Description", "Category (optional)", "Date (YYYY-MM-DD)", "Qty Available", "Qty On Hand", "Qty On Order"].map(col => (
-                  <div key={col} style={{ color: "#9CA3AF", fontSize: 12, padding: "3px 0", borderBottom: "1px solid #1E293B" }}>
-                    <span style={{ fontFamily: "monospace", color: "#60A5FA" }}>{col}</span>
-                  </div>
-                ))}
-              </div>
+                {invFile && purFile && ordFile ? "Process All Files →" : `Select all 3 files (${[invFile, purFile, ordFile].filter(Boolean).length}/3 ready)`}
+              </button>
             </div>
           </div>
         </div>

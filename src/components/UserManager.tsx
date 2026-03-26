@@ -1,4 +1,5 @@
 import React, { useState, useRef } from "react";
+import { sha256, isHashed } from "../utils/hash";
 import { TH } from "../utils/theme";
 import { appConfirm } from "../utils/theme";
 import { S } from "../utils/styles";
@@ -32,7 +33,7 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, rol
   const userAvatarRef = useRef<HTMLInputElement>(null);
   async function handleUserAvatar(e: React.ChangeEvent<HTMLInputElement>) { const f = e.target.files?.[0]; if (!f) return; set("avatar", await fileToDataURL(f)); }
 
-  function save() {
+  async function save() {
     const initials = form.name.split(" ").map((w: string) => w[0] || "").join("").toUpperCase().slice(0, 2);
     let teamMemberId = form.teamMemberId;
     if (editing === "new" && createTeamMember) {
@@ -46,7 +47,15 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, rol
         return { ...m, name: form.name, initials, avatar: form.avatar ?? m.avatar, color: form.color };
       }));
     }
-    const u = { ...form, initials, teamMemberId };
+    // Hash password: if blank on edit keep existing; if new/changed and not already hashed, hash it
+    let password = form.password;
+    if (!password && editing !== "new") {
+      const existing = users.find((u: any) => u.id === editing);
+      password = existing?.password ?? "";
+    } else if (password && !isHashed(password)) {
+      password = await sha256(password);
+    }
+    const u = { ...form, password, initials, teamMemberId };
     if (editing === "new") setUsers((us: any[]) => [...us, u]);
     else setUsers((us: any[]) => us.map((x: any) => (x.id === editing ? u : x)));
     setEditing(null); setForm(null); setCreateTeamMember(false); setTmRole(ROLES[0]); setTmColor("#3498DB");
@@ -92,7 +101,7 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, rol
         </div>
         <div>
           <label style={S.lbl}>Password</label>
-          <input style={{ ...S.inp, marginBottom: 0 }} value={form.password} onChange={(e) => set("password", e.target.value)} placeholder="password" />
+          <input style={{ ...S.inp, marginBottom: 0 }} value={form.password} onChange={(e) => set("password", e.target.value)} placeholder={editing === "new" ? "password" : "Leave blank to keep current"} />
         </div>
       </div>
       <div style={{ height: 14 }} />
@@ -174,7 +183,7 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, rol
               </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => { setForm({ ...u, permissions: u.permissions || { view_own: true, edit_own: true } }); setEditing(u.id); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
+              <button onClick={() => { setForm({ ...u, password: "", permissions: u.permissions || { view_own: true, edit_own: true } }); setEditing(u.id); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
               <button onClick={() => appConfirm("You are about to remove this user. This action cannot be undone.", "Remove", () => setUsers((us: any[]) => us.filter((x: any) => x.id !== u.id)))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Remove</button>
             </div>
           </div>

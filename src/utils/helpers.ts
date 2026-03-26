@@ -224,11 +224,13 @@ export function cascadeDates(tasks: any[], collectionKey: string, changedTaskId:
   const ddpTask = collTasks.find((t) => t.phase === "DDP");
   const oldDDP = ddpTask?.due;
 
-  // Shift ALL tasks in the collection by the same delta — preserves all spacing
+  // Only shift tasks that come AFTER the changed task — tasks behind it stay unchanged
   const updatedTasks = tasks.map((t) => {
     if (`${t.brand}||${t.collection}` !== collectionKey) return t;
     if (t.id === changedTaskId) return { ...t, due: newDue };
-    return { ...t, due: addDays(t.due, delta) };
+    const tIdx = collTasks.findIndex((c) => c.id === t.id);
+    if (tIdx > changedIdx) return { ...t, due: addDays(t.due, delta) };
+    return t;
   });
 
   const newDDPTask = updatedTasks.find((t) => t.id === ddpTask?.id);
@@ -242,6 +244,6 @@ export function cascadeDates(tasks: any[], collectionKey: string, changedTaskId:
     newDDP,
     oldDDP,
     delta,
-    affectedCount: collTasks.length,
+    affectedCount: collTasks.length - changedIdx - 1,
   };
 }

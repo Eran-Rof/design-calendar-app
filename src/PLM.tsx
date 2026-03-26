@@ -1,9 +1,8 @@
 import { useState, useEffect } from "react";
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
-const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
-const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
-const SB_HEADERS = { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
+import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
+import { sha256, isHashed } from "./utils/hash";
 
 // ── Session storage key ───────────────────────────────────────────────────────
 const SESSION_KEY = "plm_user";
@@ -41,17 +40,27 @@ function getPermission(user: User, app: "design" | "tanda" | "techpack" | "ats")
 
 // ── Load users from Supabase app_data ─────────────────────────────────────────
 async function loadUsers(): Promise<User[]> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-    const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.users&select=value`, { headers: SB_HEADERS, signal: controller.signal });
+    const url = `${SB_URL}/rest/v1/app_data?key=eq.users&select=value`;
+
+    const res = await fetch(url, { headers: SB_HEADERS, signal: controller.signal });
     clearTimeout(timeout);
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+    }
     const rows = await res.json();
     if (Array.isArray(rows) && rows.length > 0 && rows[0].value) {
       return JSON.parse(rows[0].value);
     }
-  } catch {}
-  return [];
+    console.warn("[PLM] loadUsers: unexpected response", rows);
+    return [];
+  } catch (e) {
+    clearTimeout(timeout);
+    throw e;
+  }
 }
 
 // ── App definitions ───────────────────────────────────────────────────────────
@@ -123,14 +132,13 @@ export default function PLMApp() {
     setLoggingIn(true);
     try {
       const users = await loadUsers();
-      if (!users.length) {
-        setLoginErr("Could not load users — the database may be paused or unavailable. Please check Supabase dashboard or try again in a moment.");
-        return;
-      }
-      const match = users.find(u =>
-        u.username?.toLowerCase() === loginName.trim().toLowerCase() &&
-        (u.password === loginPass || (u as any).pin === loginPass)
-      );
+      const inputHash = await sha256(loginPass);
+      const match = users.find(u => {
+        if (u.username?.toLowerCase() !== loginName.trim().toLowerCase()) return false;
+        // Accept hashed passwords (new) or plaintext (legacy migration)
+        if (isHashed(u.password)) return u.password === inputHash;
+        return u.password === loginPass || (u as any).pin === loginPass;
+      });
       if (match) {
         sessionStorage.setItem(SESSION_KEY, JSON.stringify(match));
         localStorage.setItem("plm_last_user", loginName.trim());
@@ -138,8 +146,8 @@ export default function PLMApp() {
       } else {
         setLoginErr("Invalid username or password.");
       }
-    } catch {
-      setLoginErr("Could not connect. Please try again.");
+    } catch (e: any) {
+      setLoginErr(`Could not connect: ${e?.message ?? e}`);
     } finally {
       setLoggingIn(false);
     }
@@ -328,10 +336,17 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
     setEditing(newUser);
   }
 
-  function saveEdit() {
+  async function saveEdit() {
     if (!editing) return;
     const exists = users.find(u => u.id === editing.id);
-    const updated = exists ? users.map(u => u.id === editing.id ? editing : u) : [...users, editing];
+    let password = editing.password;
+    if (!password && exists) {
+      password = exists.password; // keep existing password unchanged
+    } else if (password && !isHashed(password)) {
+      password = await sha256(password); // hash new plaintext password
+    }
+    const saved = { ...editing, password };
+    const updated = exists ? users.map(u => u.id === editing.id ? saved : u) : [...users, saved];
     saveUsers(updated);
     setEditing(null);
   }
@@ -416,7 +431,7 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
                   )}
 
                   <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
-                    <button style={S.editBtn} onClick={() => setEditing({ ...u })}>Edit</button>
+                    <button style={S.editBtn} onClick={() => setEditing({ ...u, password: "" })}>Edit</button>
                     {u.id !== currentUser.id && (
                       <button style={S.deleteBtn} onClick={() => deleteUser(u.id)}>Remove</button>
                     )}
@@ -458,7 +473,7 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
                 </div>
                 <div>
                   <label style={S.label}>Password</label>
-                  <input style={S.input} type="password" value={editing.password} onChange={e => setEditing(p => p ? { ...p, password: e.target.value } : p)} placeholder="password" />
+                  <input style={S.input} type="password" value={editing.password} onChange={e => setEditing(p => p ? { ...p, password: e.target.value } : p)} placeholder={users.find(u => u.id === editing.id) ? "Leave blank to keep current" : "password"} />
                 </div>
                 <div>
                   <label style={S.label}>Initials</label>
@@ -475,7 +490,7 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
                   <label style={S.label}>Color</label>
                   <input type="color" value={editing.color ?? "#CC2200"} onChange={e => setEditing(p => p ? { ...p, color: e.target.value } : p)} style={{ width: 60, height: 36, border: "1px solid #E5E7EB", borderRadius: 6, cursor: "pointer" }} />
                 </div>
-                <button style={S.btnPrimary} onClick={saveEdit} disabled={!editing.username || !editing.password}>
+                <button style={S.btnPrimary} onClick={saveEdit} disabled={!editing.username || (!editing.password && !users.find(u => u.id === editing.id))}>
                   Save User
                 </button>
               </div>

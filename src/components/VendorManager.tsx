@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { TH } from "../utils/theme";
 import { appConfirm } from "../utils/theme";
 import { S } from "../utils/styles";
-import { uid } from "../utils/dates";
+import { uid, addDaysForPhase, diffDaysForPhase, diffDays, toDateStr, addDays } from "../utils/dates";
 import { CATEGORIES, DEFAULT_TASK_TEMPLATES } from "../utils/constants";
 import { LeadTimeCell } from "./DateInput";
 
@@ -28,7 +28,7 @@ const DEFAULT_WIP_TEMPLATES_DC = [
   { id: "wip_inhouse",   phase: "In House / DDP",            category: "Transit",        daysBeforeDDP: 0   },
 ];
 
-function VendorForm({ vendor, onSave, onCancel, taskTemplates }) {
+function VendorForm({ vendor, onSave, onCancel, taskTemplates, isEdit = false }) {
   const templates = (taskTemplates && taskTemplates.length > 0) ? taskTemplates : DEFAULT_TASK_TEMPLATES;
   const [f, setF] = useState(
     vendor || {
@@ -92,13 +92,19 @@ function VendorForm({ vendor, onSave, onCancel, taskTemplates }) {
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <div>
-          <label style={S.lbl}>Vendor Name *</label>
-          <input
-            style={{ ...S.inp, marginBottom: 0 }}
-            value={f.name}
-            onChange={(e) => set("name", e.target.value)}
-            placeholder="Factory name"
-          />
+          <label style={S.lbl}>Vendor Name</label>
+          {isEdit ? (
+            <div style={{ ...S.inp, marginBottom: 0, background: TH.surfaceHi, color: TH.textSub, cursor: "default", display: "flex", alignItems: "center" }}>
+              {f.name}
+            </div>
+          ) : (
+            <input
+              style={{ ...S.inp, marginBottom: 0 }}
+              value={f.name}
+              onChange={(e) => set("name", e.target.value)}
+              placeholder="Factory name"
+            />
+          )}
         </div>
         <div>
           <label style={S.lbl}>Country</label>
@@ -187,6 +193,7 @@ function VendorForm({ vendor, onSave, onCancel, taskTemplates }) {
       {leadTab === "design" && (<>
       <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 10, lineHeight: 1.5 }}>
         Sorted earliest→latest. Edit either column — they stay in sync. Tab out to re-sort. <span style={{ color: TH.primary }}>•custom</span> means this vendor differs from the template default.
+        <br /><span style={{ color: TH.textSub2 }}>All values are <strong>business days</strong> — Mon–Thu = 1 day, Fri = 0.5 day, weekends &amp; holidays = 0.</span>
       </div>
       {(() => {
         const overrides = f.leadOverrides || {};
@@ -202,52 +209,59 @@ function VendorForm({ vendor, onSave, onCancel, taskTemplates }) {
             {/* Header */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px 36px", background: TH.surfaceHi, padding: "7px 14px", fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `1px solid ${TH.border}` }}>
               <span>Phase</span>
-              <span style={{ textAlign: "center" }}>Days Before DDP</span>
-              <span style={{ textAlign: "center" }}>From Prev Task</span>
+              <span style={{ textAlign: "center" }}>Bus. Days Before DDP</span>
+              <span style={{ textAlign: "center" }}>From Prev</span>
               <span />
             </div>
-            {sortedTpls.map((tpl, idx) => {
-              const effectiveDays = overrides[tpl.phase] ?? tpl.daysBeforeDDP ?? 0;
-              const prevTpl = idx > 0 ? sortedTpls[idx - 1] : null;
-              const prevEffective = prevTpl ? (overrides[prevTpl.phase] ?? prevTpl.daysBeforeDDP ?? 0) : null;
-              const fromPrev = prevEffective !== null ? prevEffective - effectiveDays : null;
-              const hasOverride = overrides[tpl.phase] !== undefined;
-              return (
-                <div key={tpl.phase} style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px 36px", padding: "8px 14px", borderBottom: idx < sortedTpls.length - 1 ? `1px solid ${TH.border}` : "none", alignItems: "center", background: idx % 2 === 0 ? "#fff" : TH.surfaceHi }}>
-                  <div style={{ fontSize: 13, color: TH.text, display: "flex", alignItems: "center", gap: 6 }}>
-                    {tpl.phase}
-                    {hasOverride
-                      ? <span style={{ fontSize: 10, color: TH.primary, fontWeight: 700, background: TH.primary + "15", padding: "1px 6px", borderRadius: 8 }}>custom</span>
-                      : <span style={{ fontSize: 10, color: TH.border }}>tpl</span>
-                    }
-                  </div>
-                  <div style={{ textAlign: "center" }}>
-                    <LeadTimeCell
-                      value={effectiveDays}
-                      onCommit={n => setOverride(tpl.phase, n)}
-                    />
-                  </div>
-                  <div style={{ textAlign: "center" }}>
-                    {fromPrev !== null ? (
+            {(() => {
+              // Reference DDP 400 days from now — used to compute actual date gaps
+              const refDDP = addDays(new Date().toISOString().split("T")[0], 400);
+              return sortedTpls.map((tpl, idx) => {
+                const effectiveDays = overrides[tpl.phase] ?? tpl.daysBeforeDDP ?? 0;
+                const prevTpl = idx > 0 ? sortedTpls[idx - 1] : null;
+                const prevEffective = prevTpl ? (overrides[prevTpl.phase] ?? prevTpl.daysBeforeDDP ?? 0) : null;
+                const curDate = addDaysForPhase(refDDP, -effectiveDays, tpl.phase);
+                const prevDate = prevTpl ? addDaysForPhase(refDDP, -prevEffective!, prevTpl.phase) : null;
+                const fromPrev = prevDate ? diffDaysForPhase(curDate, prevDate, tpl.phase) : null;
+                const hasOverride = overrides[tpl.phase] !== undefined;
+                return (
+                  <div key={tpl.phase} style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px 36px", padding: "8px 14px", borderBottom: idx < sortedTpls.length - 1 ? `1px solid ${TH.border}` : "none", alignItems: "center", background: idx % 2 === 0 ? "#fff" : TH.surfaceHi }}>
+                    <div style={{ fontSize: 13, color: TH.text, display: "flex", alignItems: "center", gap: 6 }}>
+                      {tpl.phase}
+                      {hasOverride
+                        ? <span style={{ fontSize: 10, color: TH.primary, fontWeight: 700, background: TH.primary + "15", padding: "1px 6px", borderRadius: 8 }}>custom</span>
+                        : <span style={{ fontSize: 10, color: TH.border }}>tpl</span>
+                      }
+                    </div>
+                    <div style={{ textAlign: "center" }}>
                       <LeadTimeCell
-                        value={fromPrev}
-                        onCommit={n => {
-                          const newDDP = (prevEffective ?? 0) - n;
-                          if (newDDP >= 0) setOverride(tpl.phase, newDDP);
-                        }}
+                        value={effectiveDays}
+                        onCommit={n => setOverride(tpl.phase, n)}
                       />
-                    ) : (
-                      <span style={{ fontSize: 12, color: TH.textMuted }}>—</span>
-                    )}
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                      {fromPrev !== null && prevDate ? (
+                        <LeadTimeCell
+                          value={fromPrev}
+                          onCommit={n => {
+                            const newDate = addDaysForPhase(prevDate, n, tpl.phase);
+                            const newDays = Math.round(diffDaysForPhase(refDDP, newDate, tpl.phase));
+                            if (newDays >= 0) setOverride(tpl.phase, newDays);
+                          }}
+                        />
+                      ) : (
+                        <span style={{ fontSize: 12, color: TH.textMuted }}>—</span>
+                      )}
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                      {hasOverride && (
+                        <button onClick={() => clearOverride(tpl.phase)} title="Reset to template default" style={{ padding: "3px 6px", borderRadius: 5, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 11, lineHeight: 1 }}>✕</button>
+                      )}
+                    </div>
                   </div>
-                  <div style={{ textAlign: "center" }}>
-                    {hasOverride && (
-                      <button onClick={() => clearOverride(tpl.phase)} title="Reset to template default" style={{ padding: "3px 6px", borderRadius: 5, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 11, lineHeight: 1 }}>✕</button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+                );
+              });
+            })()}
           </div>
         );
       })()}
@@ -441,6 +455,7 @@ function VendorManager({ vendors, setVendors, isAdmin = false, taskTemplates }) 
         </div>
         <VendorForm
           vendor={v}
+          isEdit={true}
           taskTemplates={taskTemplates}
           onSave={(u) => {
             setVendors((vs) => vs.map((x) => (x.id === editing ? u : x)));

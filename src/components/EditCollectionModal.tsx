@@ -16,6 +16,8 @@ function EditCollectionModal({
   seasons,
   customerList,
   orderTypes,
+  currentUser,
+  onLogActivity,
   onClose,
 }) {
   const coll = collMap[collKey];
@@ -103,6 +105,21 @@ function EditCollectionModal({
         sampleDueDate: f.sampleDueDate,
       },
     }));
+    // Log any changes to the activity log
+    if (onLogActivity) {
+      const now = new Date().toISOString();
+      const by = currentUser?.name || "Unknown";
+      const logBrand = f.brand;
+      const logColl = f.collectionName;
+      const entries: any[] = [];
+      const t = Date.now();
+      if (f.collectionName !== (coll.collection || "")) entries.push({ id: `${t}-ren`, field: "collection renamed", from: coll.collection, to: f.collectionName, changedBy: by, at: now, taskCollection: logColl, taskBrand: logBrand });
+      if (newDDP && newDDP !== (meta.ddpDate || ddpTaskDate)) entries.push({ id: `${t}-ddp`, field: "DDP date", from: meta.ddpDate || ddpTaskDate, to: newDDP, changedBy: by, at: now, taskCollection: logColl, taskBrand: logBrand });
+      if (f.customer !== (meta.customer || "")) entries.push({ id: `${t}-cus`, field: "customer", from: meta.customer || "—", to: f.customer || "—", changedBy: by, at: now, taskCollection: logColl, taskBrand: logBrand });
+      if (f.orderType !== (meta.orderType || "")) entries.push({ id: `${t}-ot`, field: "order type", from: meta.orderType || "—", to: f.orderType || "—", changedBy: by, at: now, taskCollection: logColl, taskBrand: logBrand });
+      if (f.season !== (coll.season || "")) entries.push({ id: `${t}-sea`, field: "season", from: coll.season, to: f.season, changedBy: by, at: now, taskCollection: logColl, taskBrand: logBrand });
+      if (entries.length > 0) onLogActivity(entries);
+    }
     onClose();
   }
   return (

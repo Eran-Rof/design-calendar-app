@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { TH } from "../utils/theme";
 import { S } from "../utils/styles";
 
@@ -96,23 +96,23 @@ function FilterBar({
   const divider = <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "2px 0" }} />;
 
   return (
-    <div style={{ padding: "10px 22px", borderBottom: "1px solid rgba(255,255,255,0.1)", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", background: "#2D3748dd", backdropFilter: "blur(8px)", position: "sticky", top: 64, zIndex: 99 }}>
+    <div style={{ padding: "3px 22px", borderBottom: "1px solid rgba(255,255,255,0.08)", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", background: "rgba(15,23,42,0.85)", backdropFilter: "blur(8px)", position: "sticky", top: 64, zIndex: 99, minHeight: 32 }}>
       {/* Filters button */}
       <div ref={ref} style={{ position: "relative" }}>
         <button
           onClick={() => setOpen(v => !v)}
           style={{
-            padding: "5px 12px", borderRadius: 8,
-            border: `1px solid ${hasActive ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.15)"}`,
-            background: hasActive ? "rgba(255,255,255,0.12)" : "none",
-            color: hasActive ? "#fff" : "rgba(255,255,255,0.7)",
-            cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600,
-            display: "flex", alignItems: "center", gap: 6,
+            padding: "3px 10px", borderRadius: 6,
+            border: `1px solid ${hasActive ? "rgba(200,33,10,0.6)" : "rgba(255,255,255,0.12)"}`,
+            background: hasActive ? "rgba(200,33,10,0.15)" : "rgba(255,255,255,0.05)",
+            color: hasActive ? "#fff" : "rgba(255,255,255,0.55)",
+            cursor: "pointer", fontFamily: "inherit", fontSize: 11, fontWeight: 600,
+            display: "flex", alignItems: "center", gap: 5,
           }}
         >
-          🔽 Filters
+          ⚙ Filters
           {hasActive && (
-            <span style={{ background: "#C8210A", color: "#fff", borderRadius: 10, fontSize: 10, padding: "1px 6px", fontWeight: 700 }}>
+            <span style={{ background: "#C8210A", color: "#fff", borderRadius: 10, fontSize: 9, padding: "1px 5px", fontWeight: 700 }}>
               {totalActive}
             </span>
           )}
@@ -140,11 +140,11 @@ function FilterBar({
         )}
       </div>
 
-      {/* Active filter chips shown to the right */}
+      {/* Active filter chips */}
       {activeChips.map((chip, i) => (
-        <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, background: "rgba(200,33,10,0.2)", border: "1px solid rgba(200,33,10,0.4)", borderRadius: 20, padding: "3px 8px 3px 10px", fontSize: 11, color: "#fff", fontWeight: 500 }}>
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 3, background: "rgba(200,33,10,0.18)", border: "1px solid rgba(200,33,10,0.35)", borderRadius: 20, padding: "2px 6px 2px 8px", fontSize: 10, color: "rgba(255,255,255,0.85)", fontWeight: 500 }}>
           {chip.label}
-          <button onClick={chip.clear} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer", padding: 0, fontSize: 12, lineHeight: 1, marginLeft: 2 }}>✕</button>
+          <button onClick={chip.clear} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", padding: 0, fontSize: 11, lineHeight: 1, marginLeft: 1 }}>✕</button>
         </div>
       ))}
     </div>

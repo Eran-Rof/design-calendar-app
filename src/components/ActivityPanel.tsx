@@ -3,8 +3,9 @@ import { TH } from "../utils/theme";
 import { formatDate, formatDT, toDateStr } from "../utils/dates";
 import Avatar from "./Avatar";
 
-function ActivityPanel({ tasks, currentUser, isAdmin, team, onClose }: {
+function ActivityPanel({ tasks, globalLog = [], currentUser, isAdmin, team, onClose }: {
   tasks: any[];
+  globalLog?: any[];
   currentUser: any;
   isAdmin: boolean;
   team: any[];
@@ -17,14 +18,17 @@ function ActivityPanel({ tasks, currentUser, isAdmin, team, onClose }: {
   cutoff.setDate(cutoff.getDate() - (daysBack - 1));
   cutoff.setHours(0, 0, 0, 0);
 
-  const allEntries = tasks.flatMap(t =>
-    (t.history || []).map((h: any) => ({
-      ...h,
-      taskPhase: t.phase,
-      taskCollection: t.collection,
-      taskBrand: t.brand,
-    }))
-  );
+  const allEntries = [
+    ...tasks.flatMap(t =>
+      (t.history || []).map((h: any) => ({
+        ...h,
+        taskPhase: t.phase,
+        taskCollection: t.collection,
+        taskBrand: t.brand,
+      }))
+    ),
+    ...globalLog,
+  ];
 
   const filtered = allEntries
     .filter(h => {
@@ -35,7 +39,7 @@ function ActivityPanel({ tasks, currentUser, isAdmin, team, onClose }: {
     })
     .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 
-  const FIELD_ICONS: Record<string, string> = { "due date": "📅", "status": "🔄", "assignee": "👤", "vendor": "🏭", "note added": "📝", "order type": "📦", "category": "🗂️", "season": "🌿", "customer": "🏪" };
+  const FIELD_ICONS: Record<string, string> = { "due date": "📅", "status": "🔄", "assignee": "👤", "vendor": "🏭", "note added": "📝", "order type": "📦", "category": "🗂️", "season": "🌿", "customer": "🏪", "collection created": "✨", "collection deleted": "🗑️", "collection renamed": "✏️", "DDP date": "📅", "task created": "➕", "task deleted": "🗑️", "SKUs updated": "🏷️" };
 
   // Group by date label
   const grouped: Record<string, typeof filtered> = {};
@@ -89,7 +93,7 @@ function ActivityPanel({ tasks, currentUser, isAdmin, team, onClose }: {
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {entries.map(h => {
                 const icon = FIELD_ICONS[h.field] || "✏️";
-                const accentColor = h.field === "due date" ? "#1D4ED8" : h.field === "status" ? "#059669" : h.field === "note added" ? "#7C3AED" : TH.primary;
+                const accentColor = (h.field === "due date" || h.field === "DDP date") ? "#1D4ED8" : (h.field === "status" || h.field === "collection created" || h.field === "task created") ? "#059669" : (h.field === "collection deleted" || h.field === "task deleted") ? "#DC2626" : h.field === "note added" ? "#7C3AED" : TH.primary;
                 const member = team.find((m: any) => m.name === h.changedBy);
                 return (
                   <div key={h.id} style={{ background: TH.surfaceHi, borderRadius: 8, padding: "10px 12px", borderLeft: `3px solid ${accentColor}55` }}>

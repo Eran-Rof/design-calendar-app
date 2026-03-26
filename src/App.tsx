@@ -2,10 +2,12 @@ import { useState, useRef, useEffect, Fragment } from "react";
 import React from "react";
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
-import { TH, TEAMS_PURPLE, OUTLOOK_BLUE, setConfirmHandler, appConfirm } from "./utils/theme";
-import { STATUS_CONFIG, BRANDS, GENDERS, PHASE_KEYS } from "./utils/constants";
-import { getBrand, formatDate, addDays, diffDays, parseLocalDate, getDaysUntil, diffDaysForPhase, getDaysUntilForPhase, snapToBusinessDay, toDateStr } from "./utils/dates";
+import { TH, TEAMS_PURPLE, TEAMS_PURPLE_LT, OUTLOOK_BLUE, OUTLOOK_BLUE_LT, setConfirmHandler, appConfirm } from "./utils/theme";
+import { getMsAccessToken, loadMsTokens } from "./utils/msAuth";
+import { STATUS_CONFIG, BRANDS, GENDERS, PHASE_KEYS, MONTHS } from "./utils/constants";
+import { getBrand, formatDate, addDays, diffDays, parseLocalDate, getDaysUntil, diffDaysForPhase, getDaysUntilForPhase, snapToBusinessDay, toDateStr, isPostPO } from "./utils/dates";
 import { fmtDays, ROFLogoFull, S } from "./utils/styles";
+import { SB_URL, SB_KEY } from "./utils/supabase";
 
 // ─── Components ───────────────────────────────────────────────────────────────
 import Avatar from "./components/Avatar";
@@ -39,10 +41,11 @@ import GenderManager from "./components/GenderManager";
 // It references sbSave which is passed as a parameter
 function usePersistSb(initial, sbKey, sbSaveFn) {
   const [val, setVal] = useState(initial);
-  const setter = (updater) => {
+  // Pass skipSave=true when hydrating from DB to avoid writing data straight back
+  const setter = (updater, skipSave = false) => {
     setVal((prev) => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      if (sbSaveFn) sbSaveFn(sbKey, next);
+      if (sbSaveFn && !skipSave) sbSaveFn(sbKey, next);
       return next;
     });
   };
@@ -55,13 +58,18 @@ export default function App() {
   setConfirmHandler((opts) => setConfirmState(opts));
 
   // ── Supabase persistence ─────────────────────────────────────────────────
-  const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
-  const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
+  const [saveErr, setSaveErr] = useState<string>("");
+  const saveErrTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function showSaveErr(msg: string) {
+    setSaveErr(msg);
+    if (saveErrTimer.current) clearTimeout(saveErrTimer.current);
+    saveErrTimer.current = setTimeout(() => setSaveErr(""), 5000);
+  }
 
   // ── Key-value store for reference data (users, brands, vendors etc) ───────
   async function sbSave(key, value) {
     try {
-      await fetch(`${SB_URL}/rest/v1/app_data`, {
+      const res = await fetch(`${SB_URL}/rest/v1/app_data`, {
         method: "POST",
         headers: {
           "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`,
@@ -70,7 +78,11 @@ export default function App() {
         },
         body: JSON.stringify({ key, value: JSON.stringify(value) }),
       });
-    } catch(e) { console.error("[SB] save error:", key, e); }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch(e: any) {
+      console.error("[SB] save error:", key, e);
+      showSaveErr(`Failed to save "${key}": ${e?.message ?? e}`);
+    }
   }
 
   async function sbLoad(key) {
@@ -111,7 +123,7 @@ export default function App() {
         },
         body: JSON.stringify({ id: task.id, data: { ...task, updatedAt: new Date().toISOString(), updatedBy: currentUser?.name || "" } }),
       });
-    } catch(e) { console.error("[SB] save task error:", e); }
+    } catch(e: any) { console.error("[SB] save task error:", e); showSaveErr(`Failed to save task: ${e?.message ?? e}`); }
   }
 
   async function sbDeleteTask(id) {
@@ -120,7 +132,7 @@ export default function App() {
         method: "DELETE",
         headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` },
       });
-    } catch(e) { console.error("[SB] delete task error:", e); }
+    } catch(e: any) { console.error("[SB] delete task error:", e); showSaveErr(`Failed to delete task: ${e?.message ?? e}`); }
   }
 
   async function sbLoadTasks() {
@@ -223,6 +235,8 @@ export default function App() {
   const [filterVendor, setFilterVendor] = useState<Set<string>>(new Set());
   const [focusCollKey, setFocusCollKey] = useState(null);
   const [pendingDeleteColl, setPendingDeleteColl] = useState<string | null>(null);
+  const [timelineBackFilter, setTimelineBackFilter] = useState<string | null>(null);
+  const [globalLog, setGlobalLog] = useState<any[]>([]);
   const [showNav, setShowNav] = useState(true);
   const [showWizard, setShowWizard] = useState(false);
   const [showVendors, setShowVendors] = useState(false);
@@ -259,6 +273,7 @@ export default function App() {
   // ─── Calendar view persistent month/year (lifted out of CalendarView to survive re-renders) ─
   const [calViewYear, setCalViewYear] = useState(() => new Date().getFullYear());
   const [calViewMonth, setCalViewMonth] = useState(() => new Date().getMonth());
+  const [calDragOver, setCalDragOver] = useState<string | null>(null);
   const [teamsConfig, setTeamsConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem("teamsConfig") || "null") || { clientId: "", tenantId: "", channelMap: {} }; }
     catch { return { clientId: "", tenantId: "", channelMap: {} }; }
@@ -267,6 +282,17 @@ export default function App() {
   const [showTeamsConfig, setShowTeamsConfig] = useState(false);
   const [teamsTokenExpiry, setTeamsTokenExpiry] = useState(null);
   const [showEmailConfig, setShowEmailConfig] = useState(false);
+
+  // Auto-restore Microsoft token from localStorage on startup (like PO WIP / Tech Pack)
+  useEffect(() => {
+    getMsAccessToken().then(t => {
+      if (t) {
+        const stored = loadMsTokens();
+        setTeamsToken(t);
+        if (stored?.expiresAt) setTeamsTokenExpiry(stored.expiresAt);
+      }
+    }).catch(() => {});
+  }, []);
 
   // Override getBrand to use stateful brands
   const getBrandDyn = (id) =>
@@ -300,17 +326,17 @@ export default function App() {
           sbLoadCollections(),
         ]);
 
-        if (users) setUsers(users);
-        if (brands) setBrands(brands);
-        if (seasons) setSeasons(seasons);
-        if (customers) setCustomers(customers);
-        if (vendors) setVendors(vendors);
-        if (team) setTeam(team);
-        if (sizes) setSizeLibrary(sizes);
-        if (categories) setCategoryLib(categories);
-        if (orderTypes) setOrderTypes(orderTypes);
-        if (rolesData) setRoles(rolesData);
-        if (taskTemplatesData) setTaskTemplates(taskTemplatesData);
+        if (users) setUsers(users, true);
+        if (brands) setBrands(brands, true);
+        if (seasons) setSeasons(seasons, true);
+        if (customers) setCustomers(customers, true);
+        if (vendors) setVendors(vendors, true);
+        if (team) setTeam(team, true);
+        if (sizes) setSizeLibrary(sizes, true);
+        if (categories) setCategoryLib(categories, true);
+        if (orderTypes) setOrderTypes(orderTypes, true);
+        if (rolesData) setRoles(rolesData, true);
+        if (taskTemplatesData) setTaskTemplates(taskTemplatesData, true);
         if (tasks?.length) _setTasksRaw(tasks);
         if (collections && Object.keys(collections).length) _setCollRaw(collections);
 
@@ -325,9 +351,12 @@ export default function App() {
 
   // ── Realtime sync — poll every 10 seconds for changes from other users ──
   const dcHashRef = useRef("");
+  const dcPollBusy = useRef(false);
   useEffect(() => {
     if (!currentUser || !dbxLoaded) return;
     const poll = async () => {
+      if (dcPollBusy.current) return;
+      dcPollBusy.current = true;
       try {
         const [tasksRes, collRes, appRes] = await Promise.all([
           fetch(`${SB_URL}/rest/v1/tasks?select=id&order=id.desc&limit=1`, { headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` } }),
@@ -341,16 +370,16 @@ export default function App() {
           const [newTasks, newColls] = await Promise.all([sbLoadTasks(), sbLoadCollections()]);
           if (newTasks?.length) _setTasksRaw(newTasks);
           if (newColls && Object.keys(newColls).length) _setCollRaw(newColls);
-          // Reload reference data
+          // Reload reference data in parallel
           const refs = ["users","brands","seasons","customers","vendors","team","size_library","categories","order_types","roles","task_templates"];
           const setters = [setUsers, setBrands, setSeasons, setCustomers, setVendors, setTeam, setSizeLibrary, setCategoryLib, setOrderTypes, setRoles, setTaskTemplates];
-          for (let i = 0; i < refs.length; i++) {
-            const val = await sbLoad(refs[i]);
-            if (val) (setters[i] as any)(val);
-          }
+          const vals = await Promise.all(refs.map(r => sbLoad(r)));
+          vals.forEach((val, i) => { if (val) (setters[i] as any)(val, true); });
         }
         dcHashRef.current = hash;
-      } catch (e) { /* silent */ }
+      } catch (e) { /* silent */ } finally {
+        dcPollBusy.current = false;
+      }
     };
     poll();
     const interval = setInterval(poll, 10000);
@@ -483,6 +512,16 @@ export default function App() {
       },
     }));
     setTasks((ts) => [...ts, ...tasksWithImages]);
+    setGlobalLog(gl => [...gl, {
+      id: `${Date.now()}-coll-create`,
+      field: "collection created",
+      from: null,
+      to: newTasks[0].collection,
+      changedBy: currentUser?.name || "Unknown",
+      at: new Date().toISOString(),
+      taskCollection: newTasks[0].collection,
+      taskBrand: newTasks[0].brand,
+    }]);
     setShowWizard(false);
     setView("timeline");
   }
@@ -550,6 +589,20 @@ export default function App() {
     updatedTasks.forEach(t => sbSaveTask(t));
   }
   function deleteTask(id) {
+    const dying = tasks.find(t => t.id === id);
+    if (dying) {
+      setGlobalLog(gl => [...gl, {
+        id: `${Date.now()}-task-del`,
+        field: "task deleted",
+        from: dying.phase,
+        to: null,
+        changedBy: currentUser?.name || "Unknown",
+        at: new Date().toISOString(),
+        taskPhase: dying.phase,
+        taskCollection: dying.collection,
+        taskBrand: dying.brand,
+      }]);
+    }
     setTasks((ts) => ts.filter((t) => t.id !== id));
     sbDeleteTask(id); // Fast individual row delete
     setEditTask(null);
@@ -888,6 +941,29 @@ export default function App() {
               ? "Today"
               : `${days}d`}
           </span>
+        </div>
+        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setEditTask(task);
+            }}
+            style={{ flex: 1, padding: "5px 0", fontSize: 11, fontWeight: 600, color: TH.textSub, background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}
+          >
+            View Card
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setTimelineBackFilter(statFilter);
+              setFocusCollKey(`${task.brand}||${task.collection}`);
+              setView("timeline");
+              setStatFilter(null);
+            }}
+            style={{ flex: 1, padding: "5px 0", fontSize: 11, fontWeight: 600, color: TH.primary, background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}
+          >
+            View Timeline →
+          </button>
         </div>
       </div>
     );
@@ -1529,10 +1605,18 @@ export default function App() {
                         {months.map(({ year, month }) => {
                           const fd = new Date(year, month, 1).getDay();
                           const dim = new Date(year, month + 1, 0).getDate();
-                          const cells = [
+                          const allCells = [
                             ...Array(fd).fill(null),
                             ...Array.from({ length: dim }, (_, i) => i + 1),
                           ];
+                          // Skip leading weeks that have no in-range dates
+                          const firstInRangeIdx = allCells.findIndex(d => {
+                            if (!d) return false;
+                            const cd = new Date(year, month, d);
+                            return cd >= rangeStart && cd <= rangeEnd;
+                          });
+                          const startWeek = firstInRangeIdx >= 0 ? Math.floor(firstInRangeIdx / 7) : 0;
+                          const cells = allCells.slice(startWeek * 7);
                           return (
                             <div
                               key={`${year}-${month}`}
@@ -2394,6 +2478,21 @@ export default function App() {
           minHeight: 200,
         }}
       >
+        {timelineBackFilter && (
+          <div style={{ marginBottom: 14 }}>
+            <button
+              onClick={() => {
+                setView("dashboard");
+                setStatFilter(timelineBackFilter);
+                setTimelineBackFilter(null);
+                setFocusCollKey(null);
+              }}
+              style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 8, border: `1px solid ${TH.accentBdr}`, background: TH.accent, color: TH.primary, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 700 }}
+            >
+              ← Back to {timelineBackFilter === "overdue" ? "Overdue Tasks" : timelineBackFilter === "week" ? "Due This Week" : "Due in Next 30 Days"}
+            </button>
+          </div>
+        )}
         {focusCollKey && (
           <div
             style={{
@@ -2576,7 +2675,7 @@ export default function App() {
                               }
                               setDragId(null); setDragOverId(null);
                             }}
-                            style={{ width: isBefore ? 52 : 28, minHeight: "100%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "copy", transition: "width 0.12s", position: "relative", zIndex: 2 }}
+                            style={{ width: isBefore ? 52 : dragId ? 40 : 28, minHeight: "100%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "copy", transition: "width 0.12s", position: "relative", zIndex: 2 }}
                           >
                             {isBefore && (
                               <div style={{ width: 4, height: "100%", minHeight: 80, background: brand.color, borderRadius: 4, boxShadow: `0 0 0 3px ${brand.color}44`, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -2653,6 +2752,41 @@ export default function App() {
                               onDragEnd={() => {
                                 setDragId(null);
                                 setDragOverId(null);
+                              }}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (dragOverId !== t.id) setDragOverId(t.id);
+                              }}
+                              onDragLeave={(e) => {
+                                if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverId(null);
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const droppedId = e.dataTransfer.getData("text/plain") || dragId;
+                                if (!droppedId || droppedId === t.id) { setDragId(null); setDragOverId(null); return; }
+                                const droppedTask = tasks.find(x => x.id === droppedId);
+                                if (!droppedTask) { setDragId(null); setDragOverId(null); return; }
+                                // Drop on card = insert just before this card
+                                const prev = sorted[i - 1];
+                                let newDue: string;
+                                if (prev && prev.id !== droppedId) {
+                                  const prevMs = parseLocalDate(prev.due).getTime();
+                                  const curMs = parseLocalDate(t.due).getTime();
+                                  const mid = new Date(Math.round((prevMs + curMs) / 2));
+                                  newDue = isPostPO(droppedTask.phase) ? toDateStr(mid) : snapToBusinessDay(toDateStr(mid));
+                                  if (newDue <= prev.due) newDue = addDays(prev.due, 1);
+                                  if (newDue >= t.due) newDue = addDays(t.due, -1);
+                                  if (newDue <= prev.due) newDue = prev.due;
+                                } else {
+                                  newDue = isPostPO(droppedTask.phase) ? addDays(t.due, -1) : snapToBusinessDay(addDays(t.due, -1));
+                                }
+                                pushUndo(tasks, 'drag');
+                                const updated = { ...droppedTask, due: newDue };
+                                setTasks(ts => ts.map(x => x.id === droppedId ? updated : x));
+                                sbSaveTask(updated);
+                                setDragId(null); setDragOverId(null);
                               }}
                               onClick={() => {
                                 if (!dragId) setEditTask(t);
@@ -2908,7 +3042,7 @@ export default function App() {
                                   setDragOverId(null);
                                 }}
                                 style={{
-                                  width: isGapActive ? 52 : 28,
+                                  width: isGapActive ? 52 : dragId ? 40 : 28,
                                   minHeight: "100%",
                                   flexShrink: 0,
                                   display: "flex",
@@ -2997,7 +3131,7 @@ export default function App() {
     // Use parent-level state so month persists when task modal opens/closes
     const cy = calViewYear, setCy = setCalViewYear;
     const cm = calViewMonth, setCm = setCalViewMonth;
-    const [calDragOver, setCalDragOver] = useState(null); // dateString being hovered
+    // calDragOver is defined in App state so CalendarView() can be called as a plain function
     const fd = new Date(cy, cm, 1).getDay(),
       dim = new Date(cy, cm + 1, 0).getDate();
     const cells = [
@@ -3454,6 +3588,22 @@ export default function App() {
       {confirmState && <ConfirmModal title="Are you sure?" message={confirmState.message} confirmLabel={confirmState.action} danger onConfirm={() => { confirmState.onConfirm(); setConfirmState(null); }} onCancel={() => setConfirmState(null)} />}
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;}::-webkit-scrollbar{width:10px;height:10px;}::-webkit-scrollbar-track{background:#E2E8EE;border-radius:5px;}::-webkit-scrollbar-thumb{background:#CBD5E0;border-radius:5px;}::-webkit-scrollbar-thumb:hover{background:#A0AEC0;}select option{background:#FFFFFF;color:#1A202C;}`}</style>
 
+      {/* ── SAVE ERROR TOAST ── */}
+      {saveErr && (
+        <div style={{
+          position: "fixed", bottom: 24, right: 24, zIndex: 9999,
+          background: "#C53030", color: "#fff",
+          padding: "12px 18px", borderRadius: 10,
+          boxShadow: "0 4px 16px rgba(0,0,0,0.25)",
+          fontSize: 14, maxWidth: 360,
+          display: "flex", alignItems: "center", gap: 10,
+        }}>
+          <span>⚠</span>
+          <span>{saveErr}</span>
+          <button onClick={() => setSaveErr("")} style={{ marginLeft: "auto", background: "none", border: "none", color: "#fff", cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>
+        </div>
+      )}
+
       {/* ── IDLE WARNING BANNER ── */}
       {idleWarning && (
         <div style={{
@@ -3675,8 +3825,8 @@ export default function App() {
         </div>
       </div>
 
-      {/* Filter bar */}
-      <FilterBar
+      {/* Filter bar — only on views where it applies */}
+      {["dashboard", "timeline", "calendar"].includes(view) && <FilterBar
         brands={brands}
         seasons={seasons}
         customers={customers}
@@ -3690,26 +3840,23 @@ export default function App() {
         filterVendor={filterVendor}
         setFilterVendor={setFilterVendor}
         canViewAll={canViewAll}
-      />
+      />}
 
       <div
         style={{ padding: "26px 22px 100px", maxWidth: 1440, margin: "0 auto" }}
       >
-        {view === "dashboard" && <Dashboard />}
-        {view === "timeline" && <Timeline />}
-        {view === "calendar" && <CalendarView />}
+        {view === "dashboard" && Dashboard()}
+        {view === "timeline" && Timeline()}
+        {view === "calendar" && CalendarView()}
         {view === "teams" && (
           <TeamsView
             collList={collList}
             collMap={collMap}
             isAdmin={isAdmin}
-            teamsConfig={teamsConfig}
-            setTeamsConfig={setTeamsConfig}
             teamsToken={teamsToken}
             setTeamsToken={setTeamsToken}
-            showTeamsConfig={showTeamsConfig}
-            setShowTeamsConfig={setShowTeamsConfig}
             getBrand={getBrand}
+            currentUser={currentUser}
           />
         )}
         {view === "email" && (
@@ -3738,7 +3885,18 @@ export default function App() {
           team={team}
           collections={collections}
           onSave={(newTask) => {
-            setTasks((ts) => [...ts, newTask]);
+            const taskWithHistory = {
+              ...newTask,
+              history: [...(newTask.history || []), {
+                id: `${Date.now()}-task-create`,
+                field: "task created",
+                from: null,
+                to: newTask.phase,
+                changedBy: currentUser?.name || "Unknown",
+                at: new Date().toISOString(),
+              }],
+            };
+            setTasks((ts) => [...ts, taskWithHistory]);
             setShowAddTask(false);
           }}
           onClose={() => setShowAddTask(false)}
@@ -3814,6 +3972,7 @@ export default function App() {
       {showActivity && (
         <ActivityPanel
           tasks={tasks}
+          globalLog={globalLog}
           currentUser={currentUser}
           isAdmin={isAdmin}
           team={team}
@@ -3892,6 +4051,8 @@ export default function App() {
           seasons={seasons}
           customerList={customers}
           orderTypes={orderTypes}
+          currentUser={currentUser}
+          onLogActivity={(entries) => setGlobalLog(gl => [...gl, ...entries])}
           onClose={() => setEditCollKey(null)}
         />
       )}
@@ -3955,6 +4116,16 @@ export default function App() {
           danger
           onConfirm={() => {
             const [brand, coll] = pendingDeleteColl.split("||");
+            setGlobalLog(gl => [...gl, {
+              id: `${Date.now()}-coll-del`,
+              field: "collection deleted",
+              from: coll,
+              to: null,
+              changedBy: currentUser?.name || "Unknown",
+              at: new Date().toISOString(),
+              taskCollection: coll,
+              taskBrand: brand,
+            }]);
             setTasks(ts => ts.filter(t => !(t.brand === brand && t.collection === coll)));
             setCollections(c => { const n = { ...c }; delete n[pendingDeleteColl]; return n; });
             setPendingDeleteColl(null);
