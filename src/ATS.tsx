@@ -109,14 +109,25 @@ function generateMockData(dates: string[]): ATSRow[] {
 
 // ── Compute ATS rows from compact Excel data ─────────────────────────────────
 function computeRowsFromExcelData(data: ExcelData, dates: string[]): ATSRow[] {
+  // Pre-index events by SKU → date → qty to avoid O(n²) scanning
+  const poIdx: Record<string, Record<string, number>> = {};
+  const soIdx: Record<string, Record<string, number>> = {};
+  for (const p of data.pos) {
+    if (!poIdx[p.sku]) poIdx[p.sku] = {};
+    poIdx[p.sku][p.date] = (poIdx[p.sku][p.date] ?? 0) + p.qty;
+  }
+  for (const o of data.sos) {
+    if (!soIdx[o.sku]) soIdx[o.sku] = {};
+    soIdx[o.sku][o.date] = (soIdx[o.sku][o.date] ?? 0) + o.qty;
+  }
+
   return data.skus.map(s => {
-    const skuPos = data.pos.filter(p => p.sku === s.sku);
-    const skuSos = data.sos.filter(o => o.sku === s.sku);
+    const poDates = poIdx[s.sku] ?? {};
+    const soDates = soIdx[s.sku] ?? {};
     let ats = s.onHand;
     const dateMap: Record<string, number> = {};
     for (const date of dates) {
-      ats += skuPos.filter(p => p.date === date).reduce((sum, p) => sum + p.qty, 0);
-      ats -= skuSos.filter(o => o.date === date).reduce((sum, o) => sum + o.qty, 0);
+      ats += (poDates[date] ?? 0) - (soDates[date] ?? 0);
       if (ats < 0) ats = 0;
       dateMap[date] = ats;
     }
@@ -156,6 +167,8 @@ export default function ATSReport() {
   const [rows, setRows] = useState<ATSRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [mockMode, setMockMode] = useState(true);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 100;
   const [uploadingFile, setUploadingFile] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ step: string; pct: number } | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
@@ -453,6 +466,11 @@ export default function ATSReport() {
     return matchSearch && matchCat && matchStatus;
   });
 
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const pageRows   = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  // Reset to page 0 whenever filters/search change
+  useEffect(() => { setPage(0); }, [search, filterCategory, filterStatus, rows]);
+
   // ── Summary stats ──────────────────────────────────────────────────────
   const todayKey = fmtDate(today);
   const outOfStock   = rows.filter(r => (r.dates[todayKey] ?? r.onHand) <= 0).length;
@@ -549,7 +567,7 @@ export default function ATSReport() {
             </select>
           </div>
           <div style={{ color: "#6B7280", fontSize: 12, whiteSpace: "nowrap" }}>
-            {filtered.length} SKUs
+            {filtered.length.toLocaleString()} SKUs
             {lastSync && <span style={{ display: "block" }}>Synced {new Date(lastSync).toLocaleTimeString()}</span>}
           </div>
         </div>
@@ -607,7 +625,7 @@ export default function ATSReport() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((row, ri) => {
+                {pageRows.map((row, ri) => {
                   const isPinned = pinnedSku === row.sku;
                   return (
                     <tr
@@ -692,6 +710,25 @@ export default function ATSReport() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* PAGINATION */}
+        {totalPages > 1 && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
+            <button
+              style={{ ...S.navBtn, opacity: page === 0 ? 0.3 : 1, cursor: page === 0 ? "default" : "pointer" }}
+              disabled={page === 0}
+              onClick={() => setPage(p => Math.max(0, p - 1))}
+            >← Prev</button>
+            <span style={{ color: "#9CA3AF", fontSize: 13 }}>
+              Page {page + 1} of {totalPages} &nbsp;·&nbsp; {filtered.length.toLocaleString()} SKUs
+            </span>
+            <button
+              style={{ ...S.navBtn, opacity: page >= totalPages - 1 ? 0.3 : 1, cursor: page >= totalPages - 1 ? "default" : "pointer" }}
+              disabled={page >= totalPages - 1}
+              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+            >Next →</button>
           </div>
         )}
       </div>
