@@ -14,7 +14,7 @@ interface ATSRow {
   sku: string;
   description: string;
   category?: string;
-  dates: Record<string, number>; // date string → qty available
+  dates: Record<string, number>;
   onOrder: number;
   onHand: number;
 }
@@ -31,6 +31,11 @@ interface ATSSnapshot {
   source: "xoro" | "excel";
   synced_at: string;
 }
+
+// Compact format stored in app_data — compute timeline client-side
+interface ATSSkuData   { sku: string; description: string; category?: string; onHand: number; onOrder: number; }
+interface ATSEventData { sku: string; date: string; qty: number; }
+interface ExcelData    { syncedAt: string; skus: ATSSkuData[]; pos: ATSEventData[]; sos: ATSEventData[]; }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function addDays(date: Date, days: number): Date {
@@ -102,6 +107,23 @@ function generateMockData(dates: string[]): ATSRow[] {
   });
 }
 
+// ── Compute ATS rows from compact Excel data ─────────────────────────────────
+function computeRowsFromExcelData(data: ExcelData, dates: string[]): ATSRow[] {
+  return data.skus.map(s => {
+    const skuPos = data.pos.filter(p => p.sku === s.sku);
+    const skuSos = data.sos.filter(o => o.sku === s.sku);
+    let ats = s.onHand;
+    const dateMap: Record<string, number> = {};
+    for (const date of dates) {
+      ats += skuPos.filter(p => p.date === date).reduce((sum, p) => sum + p.qty, 0);
+      ats -= skuSos.filter(o => o.date === date).reduce((sum, o) => sum + o.qty, 0);
+      if (ats < 0) ats = 0;
+      dateMap[date] = ats;
+    }
+    return { sku: s.sku, description: s.description, category: s.category, onHand: s.onHand, onOrder: s.onOrder, dates: dateMap };
+  });
+}
+
 // ── Export helpers ─────────────────────────────────────────────────────────
 function exportToCSV(rows: ATSRow[], dates: string[]) {
   const header = ["SKU", "Description", "Category", "On Hand", "On Order", ...dates.map(fmtDateShort)];
@@ -135,11 +157,14 @@ export default function ATSReport() {
   const [loading, setLoading] = useState(false);
   const [mockMode, setMockMode] = useState(true);
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ step: string; pct: number } | null>(null);
+  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState("");
   const [lastSync, setLastSync] = useState("");
   const [syncError, setSyncError] = useState<{ title: string; detail: string } | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [excelData, setExcelData] = useState<ExcelData | null>(null);
   const [hoveredCell, setHoveredCell] = useState<{ sku: string; date: string } | null>(null);
   const [pinnedSku, setPinnedSku] = useState<string | null>(null);
   const [showUpload, setShowUpload] = useState(false);
@@ -149,6 +174,8 @@ export default function ATSReport() {
   const invRef = useRef<HTMLInputElement>(null);
   const purRef = useRef<HTMLInputElement>(null);
   const ordRef = useRef<HTMLInputElement>(null);
+  const cancelRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
 
   // ── Compute date range ──────────────────────────────────────────────────
@@ -160,9 +187,11 @@ export default function ATSReport() {
   useEffect(() => {
     if (mockMode) {
       setRows(generateMockData(dates));
+    } else if (excelData) {
+      setRows(computeRowsFromExcelData(excelData, dates));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mockMode, startDate, numDays]);
+  }, [mockMode, startDate, numDays, excelData]);
 
   async function syncFromXoro() {
     setSyncing(true);
@@ -307,28 +336,38 @@ export default function ATSReport() {
   async function loadFromSupabase() {
     setLoading(true);
     try {
+      // Check for Excel data stored in app_data first
+      const excelRes = await fetch(
+        `${SB_URL}/rest/v1/app_data?key=eq.ats_excel_data&select=value`,
+        { headers: SB_HEADERS }
+      );
+      const excelRows = await excelRes.json();
+      if (Array.isArray(excelRows) && excelRows[0]?.value) {
+        const data: ExcelData = JSON.parse(excelRows[0].value);
+        setExcelData(data);
+        setRows(computeRowsFromExcelData(data, dates));
+        setLastSync(data.syncedAt);
+        setMockMode(false);
+        return;
+      }
+      // Fall back to ats_snapshots (Xoro sync data)
       const dateFilter = `date=gte.${startDate}&date=lte.${dates[dates.length - 1]}`;
       const res = await fetch(
         `${SB_URL}/rest/v1/ats_snapshots?select=*&${dateFilter}&order=sku,date`,
         { headers: SB_HEADERS }
       );
       const data: ATSSnapshot[] = await res.json();
-      // Group by SKU
-      const map: Record<string, ATSRow> = {};
-      data.forEach(snap => {
-        if (!map[snap.sku]) {
-          map[snap.sku] = {
-            sku: snap.sku,
-            description: snap.description,
-            category: snap.category,
-            dates: {},
-            onHand: snap.qty_on_hand,
-            onOrder: snap.qty_on_order,
-          };
-        }
-        map[snap.sku].dates[snap.date] = snap.qty_available;
-      });
-      setRows(Object.values(map));
+      if (Array.isArray(data) && data.length > 0) {
+        const map: Record<string, ATSRow> = {};
+        data.forEach(snap => {
+          if (!map[snap.sku]) {
+            map[snap.sku] = { sku: snap.sku, description: snap.description, category: snap.category, dates: {}, onHand: snap.qty_on_hand, onOrder: snap.qty_on_order };
+          }
+          map[snap.sku].dates[snap.date] = snap.qty_available;
+        });
+        setRows(Object.values(map));
+        setMockMode(false);
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -339,34 +378,63 @@ export default function ATSReport() {
   async function handleFileUpload(inv: File, pur: File, ord: File) {
     setUploadingFile(true);
     setShowUpload(false);
+    cancelRef.current = false;
+    abortRef.current = new AbortController();
     try {
+      setUploadProgress({ step: "Parsing files…", pct: 15 });
       const formData = new FormData();
       formData.append("inventory", inv);
       formData.append("purchases", pur);
       formData.append("orders",    ord);
-      const res = await fetch("/api/parse-excel", { method: "POST", body: formData });
+      const res = await fetch("/api/parse-excel", {
+        method: "POST",
+        body: formData,
+        signal: abortRef.current.signal,
+      });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "Parse failed" }));
         throw new Error(err.error ?? "Parse failed");
       }
-      const parsed: ATSSnapshot[] = await res.json();
-      // Upsert in batches of 500
-      for (let i = 0; i < parsed.length; i += 500) {
-        await fetch(`${SB_URL}/rest/v1/ats_snapshots`, {
-          method: "POST",
-          headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=representation" },
-          body: JSON.stringify(parsed.slice(i, i + 500)),
-        });
-      }
-      setInvFile(null); setPurFile(null); setOrdFile(null);
+      if (cancelRef.current) return;
+      setUploadProgress({ step: "Processing data…", pct: 50 });
+      const data: ExcelData = await res.json();
+      if (cancelRef.current) return;
+      setUploadProgress({ step: `Saving ${data.skus.length.toLocaleString()} SKUs…`, pct: 70 });
+      // Store compact data as single app_data record — always overwrites previous Excel upload
+      const saveRes = await fetch(`${SB_URL}/rest/v1/app_data`, {
+        method: "POST",
+        headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ key: "ats_excel_data", value: JSON.stringify(data) }),
+        signal: abortRef.current.signal,
+      });
+      if (!saveRes.ok) throw new Error("Failed to save data to database");
+      if (cancelRef.current) return;
+      setUploadProgress({ step: "Computing ATS…", pct: 92 });
+      setExcelData(data);
+      setRows(computeRowsFromExcelData(data, dates));
+      setLastSync(data.syncedAt);
       setMockMode(false);
-      await loadFromSupabase();
+      setInvFile(null); setPurFile(null); setOrdFile(null);
+      setUploadProgress(null);
+      setUploadSuccess(`${data.skus.length.toLocaleString()} SKUs uploaded successfully`);
+      setTimeout(() => setUploadSuccess(null), 6000);
     } catch (e) {
+      if ((e as Error).name === "AbortError") return;
       console.error(e);
       setUploadError((e as Error).message);
     } finally {
       setUploadingFile(false);
+      setUploadProgress(null);
+      cancelRef.current = false;
+      abortRef.current = null;
     }
+  }
+
+  function cancelUpload() {
+    cancelRef.current = true;
+    abortRef.current?.abort();
+    setUploadingFile(false);
+    setUploadProgress(null);
   }
 
   // ── Filtering ──────────────────────────────────────────────────────────
@@ -627,6 +695,34 @@ export default function ATSReport() {
           </div>
         )}
       </div>
+
+      {/* UPLOAD PROGRESS OVERLAY */}
+      {uploadProgress && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#1E293B", borderRadius: 14, padding: "28px 32px", width: 380, border: "1px solid #334155" }}>
+            <div style={{ fontWeight: 700, fontSize: 16, color: "#F1F5F9", marginBottom: 8 }}>Uploading…</div>
+            <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 20 }}>{uploadProgress.step}</div>
+            <div style={{ background: "#0F172A", borderRadius: 8, height: 10, overflow: "hidden", marginBottom: 20 }}>
+              <div style={{ height: "100%", borderRadius: 8, background: "linear-gradient(90deg,#10B981,#3B82F6)", width: `${uploadProgress.pct}%`, transition: "width 0.4s ease" }} />
+            </div>
+            <button
+              style={{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 6, padding: "7px 18px", fontSize: 13, cursor: "pointer", width: "100%" }}
+              onClick={cancelUpload}
+            >
+              Cancel Upload
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* SUCCESS TOAST */}
+      {uploadSuccess && (
+        <div style={{ position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)", background: "#064e3b", border: "1px solid #10B981", borderRadius: 10, padding: "12px 24px", color: "#6ee7b7", fontSize: 14, fontWeight: 600, zIndex: 300, display: "flex", alignItems: "center", gap: 10, boxShadow: "0 4px 24px rgba(0,0,0,0.4)" }}>
+          <span style={{ fontSize: 18 }}>✓</span>
+          {uploadSuccess}
+          <button style={{ background: "none", border: "none", color: "#6ee7b7", cursor: "pointer", fontSize: 16, marginLeft: 8 }} onClick={() => setUploadSuccess(null)}>✕</button>
+        </div>
+      )}
 
       {/* SYNC ERROR MODAL */}
       {syncError && (
