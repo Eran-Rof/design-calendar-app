@@ -16,6 +16,9 @@ async function mount() {
   } else if (path.startsWith("/techpack")) {
     const { default: TechPack } = await import("./TechPack");
     root.render(<StrictMode><TechPack /></StrictMode>);
+  } else if (path.startsWith("/ats")) {
+    const { default: ATS } = await import("./ATS");
+    root.render(<StrictMode><ATS /></StrictMode>);
   } else {
     // Root "/" — PLM Launcher
     const { default: PLMApp } = await import("./PLM");
