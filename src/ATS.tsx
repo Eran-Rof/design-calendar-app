@@ -139,6 +139,7 @@ export default function ATSReport() {
   const [syncStatus, setSyncStatus] = useState("");
   const [lastSync, setLastSync] = useState("");
   const [syncError, setSyncError] = useState<{ title: string; detail: string } | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [hoveredCell, setHoveredCell] = useState<{ sku: string; date: string } | null>(null);
   const [pinnedSku, setPinnedSku] = useState<string | null>(null);
   const [showUpload, setShowUpload] = useState(false);
@@ -362,7 +363,7 @@ export default function ATSReport() {
       await loadFromSupabase();
     } catch (e) {
       console.error(e);
-      setSyncError({ title: "Upload Failed", detail: (e as Error).message });
+      setUploadError((e as Error).message);
     } finally {
       setUploadingFile(false);
     }
@@ -656,6 +657,25 @@ export default function ATSReport() {
               >
                 Dismiss
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* UPLOAD ERROR MODAL */}
+      {uploadError && (
+        <div style={S.modalOverlay} onClick={() => setUploadError(null)}>
+          <div style={{ ...S.modal, width: 440, border: "1px solid #EF4444" }} onClick={e => e.stopPropagation()}>
+            <div style={{ ...S.modalHeader, borderBottom: "1px solid #7f1d1d" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(239,68,68,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>⚠</div>
+                <h2 style={{ ...S.modalTitle, color: "#FCA5A5" }}>Upload Failed</h2>
+              </div>
+              <button style={S.closeBtn} onClick={() => setUploadError(null)}>✕</button>
+            </div>
+            <div style={{ ...S.modalBody, paddingTop: 20 }}>
+              <p style={{ color: "#F1F5F9", fontSize: 14, marginBottom: 20, lineHeight: 1.6 }}>{uploadError}</p>
+              <button style={{ ...S.navBtnPrimary, width: "100%", justifyContent: "center", padding: "10px 0" }} onClick={() => setUploadError(null)}>Dismiss</button>
             </div>
           </div>
         </div>
