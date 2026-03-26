@@ -136,6 +136,7 @@ export default function ATSReport() {
   const [mockMode, setMockMode] = useState(true);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState("");
   const [lastSync, setLastSync] = useState("");
   const [hoveredCell, setHoveredCell] = useState<{ sku: string; date: string } | null>(null);
   const [pinnedSku, setPinnedSku] = useState<string | null>(null);
@@ -159,34 +160,128 @@ export default function ATSReport() {
   async function syncFromXoro() {
     setSyncing(true);
     try {
-      const res = await fetch(`/api/xoro-proxy?path=inventory&page=1`);
-      if (!res.ok) throw new Error("Sync failed");
-      const json = await res.json();
-      // Transform Xoro inventory response into ATSRow format
-      // (shape depends on your Xoro API — adjust field names as needed)
-      const data = Array.isArray(json.Data) ? json.Data : json.Data?.Items ?? [];
-      const now = new Date().toISOString();
-      // Upsert into Supabase
-      await fetch(`${SB_URL}/rest/v1/ats_snapshots`, {
-        method: "POST",
-        headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=representation" },
-        body: JSON.stringify(
-          data.map((item: any) => ({
-            sku: item.ItemNumber,
-            description: item.Description,
-            date: fmtDate(new Date()),
-            qty_available: item.QtyAvailable ?? 0,
-            qty_on_hand: item.QtyOnHand ?? 0,
-            qty_on_order: item.QtyOnOrder ?? 0,
-            source: "xoro",
-            synced_at: now,
-          }))
-        ),
+      const today = fmtDate(new Date());
+      const now   = new Date().toISOString();
+
+      // ── Helper: fetch all pages from a Xoro endpoint ──────────────────────
+      async function fetchAllPages(path: string, extraParams: Record<string, string> = {}): Promise<any[]> {
+        const all: any[] = [];
+        let page = 1;
+        while (true) {
+          const params = new URLSearchParams({ path, page: String(page), ...extraParams });
+          const res  = await fetch(`/api/xoro-proxy?${params}`);
+          if (!res.ok) break;
+          const json = await res.json();
+          if (!json.Result) break;
+          const rows = Array.isArray(json.Data) ? json.Data : json.Data?.Items ?? [];
+          all.push(...rows);
+          if (page >= (json.TotalPages ?? 1)) break;
+          page++;
+        }
+        return all;
+      }
+
+      // ── 1. Inventory (on-hand + Xoro's own available/on-order) ────────────
+      setSyncStatus("Fetching inventory…");
+      const invItems = await fetchAllPages("inventory/getinventory");
+
+      // Base map: sku → snapshot from inventory
+      const skuMap: Record<string, {
+        sku: string; description: string; category?: string;
+        qty_on_hand: number; qty_on_order_po: number; qty_committed: number;
+      }> = {};
+
+      for (const item of invItems) {
+        const sku = String(item.ItemNumber ?? item.ItemCode ?? "").trim();
+        if (!sku) continue;
+        skuMap[sku] = {
+          sku,
+          description: String(item.Description ?? item.ItemName ?? "").trim(),
+          category:    item.CategoryName ?? item.Category ?? undefined,
+          qty_on_hand:     Number(item.QtyOnHand ?? item.QtyAvailable ?? 0),
+          qty_on_order_po: Number(item.QtyOnOrder ?? 0),
+          qty_committed:   0,
+        };
+      }
+
+      // ── 2. Open Purchase Orders → aggregate qty_on_order per SKU ──────────
+      setSyncStatus("Fetching purchase orders…");
+      const openPOs = await fetchAllPages("purchaseorder/getpurchaseorder", {
+        status: "Open,Released,Pending",
       });
+
+      for (const po of openPOs) {
+        const lines = po.poLines ?? po.PoLineArr ?? po.Items ?? [];
+        for (const line of lines) {
+          const sku = String(line.PoItemNumber ?? line.ItemNumber ?? "").trim();
+          if (!sku) continue;
+          if (!skuMap[sku]) {
+            skuMap[sku] = {
+              sku,
+              description: String(line.Description ?? "").trim(),
+              qty_on_hand: 0, qty_on_order_po: 0, qty_committed: 0,
+            };
+          }
+          skuMap[sku].qty_on_order_po += Number(line.QtyOrder ?? line.QtyOrdered ?? 0);
+        }
+      }
+
+      // ── 3. Open Sales Orders → aggregate qty_committed per SKU ────────────
+      setSyncStatus("Fetching sales orders…");
+      const openSOs = await fetchAllPages("salesorder/getsalesorder", {
+        status: "Open,Released,Pending",
+      });
+
+      for (const so of openSOs) {
+        const lines = so.soLines ?? so.SoLineArr ?? so.Items ?? [];
+        for (const line of lines) {
+          const sku = String(line.ItemNumber ?? line.SoItemNumber ?? "").trim();
+          if (!sku) continue;
+          if (!skuMap[sku]) {
+            skuMap[sku] = {
+              sku,
+              description: String(line.Description ?? "").trim(),
+              qty_on_hand: 0, qty_on_order_po: 0, qty_committed: 0,
+            };
+          }
+          skuMap[sku].qty_committed += Number(line.QtyOrder ?? line.QtyOrdered ?? line.QtyShipped ?? 0);
+        }
+      }
+
+      // ── 4. Build snapshots and upsert ──────────────────────────────────────
+      setSyncStatus(`Saving ${Object.keys(skuMap).length} SKUs…`);
+      const snapshots = Object.values(skuMap)
+        .filter(s => s.sku)
+        .map(s => ({
+          sku:           s.sku,
+          description:   s.description,
+          category:      s.category,
+          date:          today,
+          qty_on_hand:   s.qty_on_hand,
+          qty_on_order:  s.qty_on_order_po,
+          qty_available: Math.max(0, s.qty_on_hand - s.qty_committed),
+          source:        "xoro" as const,
+          synced_at:     now,
+        }));
+
+      // Batch upsert in chunks of 500
+      for (let i = 0; i < snapshots.length; i += 500) {
+        await fetch(`${SB_URL}/rest/v1/ats_snapshots`, {
+          method: "POST",
+          headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=representation" },
+          body: JSON.stringify(snapshots.slice(i, i + 500)),
+        });
+      }
+
+      setSyncStatus("Loading…");
       setLastSync(now);
+      setMockMode(false);
       await loadFromSupabase();
+      setSyncStatus("");
     } catch (e) {
       console.error(e);
+      setSyncStatus("");
+      alert("Sync failed: " + (e as Error).message);
     } finally {
       setSyncing(false);
     }
@@ -294,7 +389,7 @@ export default function ATSReport() {
             {uploadingFile ? "Uploading…" : "Upload Excel"}
           </button>
           <button style={S.navBtn} onClick={syncFromXoro} disabled={syncing}>
-            {syncing ? "Syncing…" : "Sync Xoro"}
+            {syncing ? (syncStatus || "Syncing…") : "Sync Xoro"}
           </button>
           <button
             style={S.navBtnPrimary}
