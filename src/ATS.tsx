@@ -192,23 +192,55 @@ export default function ATSReport() {
   const abortRef = useRef<AbortController | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
 
-  // ── Compute date range (stable reference via useMemo) ───────────────────
+  // ── Compute date range (all daily dates, used for ATS computation) ───────
   const dates = useMemo(() => {
     const start = new Date(startDate + "T00:00:00");
     let end: Date;
     if (rangeUnit === "days") {
       end = addDays(start, rangeValue);
     } else if (rangeUnit === "weeks") {
-      end = addDays(start, rangeValue * 7);
+      end = addDays(start, rangeValue * 7 + 1); // +1 so Fri of last week is included
     } else {
       end = new Date(start);
       end.setMonth(end.getMonth() + rangeValue);
+      end = addDays(end, 1); // include last day of last month
     }
     const result: string[] = [];
     let d = new Date(start);
     while (d < end) { result.push(fmtDate(d)); d = addDays(d, 1); }
     return result;
   }, [startDate, rangeUnit, rangeValue]);
+
+  // ── Display periods: what columns to render in the table ─────────────────
+  const displayPeriods = useMemo(() => {
+    if (rangeUnit === "days") {
+      return dates.map(d => ({ key: d, endDate: d, label: fmtDateHeader(d), isToday: isToday(d), isWeekend: isWeekend(d) }));
+    }
+    if (rangeUnit === "weeks") {
+      const start = new Date(startDate + "T00:00:00");
+      return Array.from({ length: rangeValue }, (_, i) => {
+        const wStart = addDays(start, i * 7);
+        const wEnd   = addDays(wStart, 4); // Friday
+        const s = wStart.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        const e = wEnd.toLocaleDateString("en-US",   { month: "short", day: "numeric" });
+        return { key: fmtDate(wEnd), endDate: fmtDate(wEnd), label: `${s} – ${e}`, isToday: false, isWeekend: false };
+      });
+    }
+    // months
+    const start = new Date(startDate + "T00:00:00");
+    return Array.from({ length: rangeValue }, (_, i) => {
+      const m = new Date(start);
+      m.setMonth(m.getMonth() + i);
+      const lastDay = new Date(m.getFullYear(), m.getMonth() + 1, 0);
+      return {
+        key:      fmtDate(lastDay),
+        endDate:  fmtDate(lastDay),
+        label:    m.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+        isToday:  false,
+        isWeekend: false,
+      };
+    });
+  }, [startDate, rangeUnit, rangeValue, dates]);
 
   // ── Recompute rows whenever date range or data changes ─────────────────
   useEffect(() => {
@@ -523,7 +555,7 @@ export default function ATSReport() {
           </button>
           <button
             style={S.navBtnPrimary}
-            onClick={() => exportToCSV(filtered, dates)}
+            onClick={() => exportToCSV(filtered, displayPeriods.map(p => p.endDate))}
           >
             Export CSV
           </button>
@@ -574,25 +606,23 @@ export default function ATSReport() {
               value={startDate}
               onChange={e => setStartDate(e.target.value)}
             />
-            <button
-              style={{ ...S.navBtn, padding: "5px 8px", fontSize: 11, marginLeft: 2 }}
-              onClick={() => setStartDate(fmtDate(new Date()))}
-              title="Reset to today"
-            >Today</button>
           </div>
           <div style={S.datePicker}>
             <label style={S.dateLabel}>Show</label>
-            <select style={{ ...S.select, width: 60 }} value={rangeValue} onChange={e => setRangeValue(Number(e.target.value))}>
+            <select style={{ ...S.select, width: 64 }} value={rangeValue} onChange={e => setRangeValue(Number(e.target.value))}>
               {rangeUnit === "days"   && [1,2,3,5,7,10,14,21,30,60].map(n => <option key={n} value={n}>{n}</option>)}
               {rangeUnit === "weeks"  && [1,2,4,8,12,26].map(n => <option key={n} value={n}>{n}</option>)}
               {rangeUnit === "months" && [1,2,3,6,9,12].map(n => <option key={n} value={n}>{n}</option>)}
             </select>
-            <select style={{ ...S.select, width: 80 }} value={rangeUnit} onChange={e => { setRangeUnit(e.target.value as "days"|"weeks"|"months"); setRangeValue(e.target.value === "days" ? 14 : e.target.value === "weeks" ? 2 : 1); }}>
+            <select style={{ ...S.select, minWidth: 96 }} value={rangeUnit} onChange={e => { setRangeUnit(e.target.value as "days"|"weeks"|"months"); setRangeValue(e.target.value === "days" ? 14 : e.target.value === "weeks" ? 2 : 1); }}>
               <option value="days">Days</option>
               <option value="weeks">Weeks</option>
               <option value="months">Months</option>
             </select>
           </div>
+          <button style={S.navBtn} onClick={() => loadFromSupabase()} disabled={loading}>
+            {loading ? "Loading…" : "↺ Refresh"}
+          </button>
           <div style={{ color: "#6B7280", fontSize: 12, whiteSpace: "nowrap" }}>
             {filtered.length.toLocaleString()} SKUs
             {lastSync && <span style={{ display: "block" }}>Synced {new Date(lastSync).toLocaleTimeString()}</span>}
@@ -632,21 +662,21 @@ export default function ATSReport() {
                   <th style={{ ...S.th, ...S.stickyCol, left: 130, minWidth: 200, zIndex: 3 }}>Description</th>
                   <th style={{ ...S.th, ...S.stickyCol, left: 330, minWidth: 80, zIndex: 3, textAlign: "center" }}>On Hand</th>
                   <th style={{ ...S.th, ...S.stickyCol, left: 410, minWidth: 80, zIndex: 3, textAlign: "center" }}>On Order</th>
-                  {/* Date columns */}
-                  {dates.map(d => (
-                    <th key={d} style={{
+                  {/* Period columns */}
+                  {displayPeriods.map(p => (
+                    <th key={p.key} style={{
                       ...S.th,
-                      minWidth: 68,
+                      minWidth: rangeUnit === "days" ? 68 : rangeUnit === "weeks" ? 120 : 100,
                       textAlign: "center",
-                      background: isToday(d) ? "#1a2a1e" : isWeekend(d) ? "#141e2e" : "#1E293B",
-                      color: isToday(d) ? "#10B981" : isWeekend(d) ? "#475569" : "#6B7280",
-                      borderBottom: isToday(d) ? "2px solid #10B981" : "1px solid #334155",
+                      background: p.isToday ? "#1a2a1e" : p.isWeekend ? "#141e2e" : "#1E293B",
+                      color: p.isToday ? "#10B981" : p.isWeekend ? "#475569" : "#6B7280",
+                      borderBottom: p.isToday ? "2px solid #10B981" : "1px solid #334155",
                       whiteSpace: "pre-line",
                       lineHeight: 1.3,
-                      fontSize: 10,
-                      padding: "8px 4px",
+                      fontSize: rangeUnit === "days" ? 10 : 11,
+                      padding: "8px 6px",
                     }}>
-                      {fmtDateHeader(d)}
+                      {p.label}
                     </th>
                   ))}
                 </tr>
@@ -691,22 +721,20 @@ export default function ATSReport() {
                           {row.onOrder > 0 ? `+${row.onOrder.toLocaleString()}` : "—"}
                         </span>
                       </td>
-                      {/* Date cells */}
-                      {dates.map(d => {
-                        const qty = row.dates[d];
-                        const isHov = hoveredCell?.sku === row.sku && hoveredCell?.date === d;
+                      {/* Period cells */}
+                      {displayPeriods.map(p => {
+                        const qty = row.dates[p.endDate];
+                        const isHov = hoveredCell?.sku === row.sku && hoveredCell?.date === p.key;
                         const isEmpty = qty === undefined || qty === null;
                         return (
                           <td
-                            key={d}
+                            key={p.key}
                             style={{
                               ...S.td,
                               textAlign: "center",
                               padding: "4px",
-                              background: isToday(d)
+                              background: p.isToday
                                 ? (isEmpty ? "#12201a" : getQtyBg(qty) + "cc")
-                                : isWeekend(d)
-                                ? (isEmpty ? "#111827" : "#111827")
                                 : (isEmpty ? "#0F172A" : getQtyBg(qty)),
                               cursor: "default",
                               transition: "all 0.1s",
@@ -714,7 +742,7 @@ export default function ATSReport() {
                               outlineOffset: -1,
                               position: "relative",
                             }}
-                            onMouseEnter={() => setHoveredCell({ sku: row.sku, date: d })}
+                            onMouseEnter={() => setHoveredCell({ sku: row.sku, date: p.key })}
                             onMouseLeave={() => setHoveredCell(null)}
                           >
                             {isEmpty ? (
