@@ -1126,23 +1126,18 @@ export default function ATSReport() {
       {ctxMenu && (
         <div
           ref={ctxRef}
-          style={{ position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 500, background: "#1E293B", border: "1px solid #334155", borderRadius: 10, minWidth: 260, maxWidth: 380, boxShadow: "0 8px 32px rgba(0,0,0,0.5)", overflow: "hidden" }}
+          style={{ position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 500, minWidth: 260, maxWidth: 380, filter: "drop-shadow(0 8px 24px rgba(0,0,0,0.55))" }}
           onClick={e => e.stopPropagation()}
         >
-          {/* Caret arrow connecting popup to anchor cell */}
+          {/* Caret arrow — sits outside the clipped inner box so it's visible */}
           {!ctxMenu.flipped ? (
-            // Popup is below cell → arrow points UP
-            <>
-              <div style={{ position: "absolute", top: -8, left: ctxMenu.arrowLeft, width: 0, height: 0, borderLeft: "8px solid transparent", borderRight: "8px solid transparent", borderBottom: "8px solid #334155", pointerEvents: "none" }} />
-              <div style={{ position: "absolute", top: -7, left: ctxMenu.arrowLeft + 1, width: 0, height: 0, borderLeft: "7px solid transparent", borderRight: "7px solid transparent", borderBottom: "7px solid #1E293B", pointerEvents: "none" }} />
-            </>
-          ) : (
-            // Popup is above cell → arrow points DOWN
-            <>
-              <div style={{ position: "absolute", bottom: -8, left: ctxMenu.arrowLeft, width: 0, height: 0, borderLeft: "8px solid transparent", borderRight: "8px solid transparent", borderTop: "8px solid #334155", pointerEvents: "none" }} />
-              <div style={{ position: "absolute", bottom: -7, left: ctxMenu.arrowLeft + 1, width: 0, height: 0, borderLeft: "7px solid transparent", borderRight: "7px solid transparent", borderTop: "7px solid #1E293B", pointerEvents: "none" }} />
-            </>
-          )}
+            <div style={{ position: "relative", height: 8, overflow: "visible" }}>
+              <div style={{ position: "absolute", top: 0, left: ctxMenu.arrowLeft, width: 0, height: 0, borderLeft: "9px solid transparent", borderRight: "9px solid transparent", borderBottom: "9px solid #334155", pointerEvents: "none" }} />
+              <div style={{ position: "absolute", top: 1, left: ctxMenu.arrowLeft + 1, width: 0, height: 0, borderLeft: "8px solid transparent", borderRight: "8px solid transparent", borderBottom: "8px solid #1E293B", pointerEvents: "none" }} />
+            </div>
+          ) : null}
+          {/* Inner box — overflow hidden for rounded corners, does not clip the caret */}
+          <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 10, overflow: "hidden" }}>
           {/* Close button */}
           <div style={{ display: "flex", justifyContent: "flex-end", padding: "4px 8px 0" }}>
             <button
@@ -1203,6 +1198,14 @@ export default function ATSReport() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+          </div>{/* end inner clipped box */}
+          {/* Down-arrow caret when popup is flipped above the cell */}
+          {ctxMenu.flipped && (
+            <div style={{ position: "relative", height: 8, overflow: "visible" }}>
+              <div style={{ position: "absolute", top: 0, left: ctxMenu.arrowLeft, width: 0, height: 0, borderLeft: "9px solid transparent", borderRight: "9px solid transparent", borderTop: "9px solid #334155", pointerEvents: "none" }} />
+              <div style={{ position: "absolute", top: 0, left: ctxMenu.arrowLeft + 1, width: 0, height: 0, borderLeft: "8px solid transparent", borderRight: "8px solid transparent", borderTop: "8px solid #1E293B", pointerEvents: "none" }} />
             </div>
           )}
         </div>
