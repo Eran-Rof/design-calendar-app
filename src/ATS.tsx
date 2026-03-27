@@ -40,7 +40,7 @@ interface ATSPoEvent     { sku: string; date: string; qty: number; poNumber: str
 interface ATSSoEvent     { sku: string; date: string; qty: number; orderNumber: string; customerName: string; unitPrice: number; totalPrice: number; store: string; }
 interface UploadWarning  { severity: "error" | "warn"; field: string; affected: number; total: number; message: string; }
 interface ExcelData      { syncedAt: string; skus: ATSSkuData[]; pos: ATSPoEvent[]; sos: ATSSoEvent[]; warnings?: UploadWarning[]; columnNames?: { inventory: string[]; purchases: string[]; orders: string[] }; }
-interface CtxMenu        { x: number; y: number; anchorY: number; pos: ATSPoEvent[]; sos: ATSSoEvent[]; cellKey: string; cellEl: HTMLElement | null; flipped: boolean; arrowLeft: number; }
+interface CtxMenu        { x: number; y: number; anchorY: number; pos: ATSPoEvent[]; sos: ATSSoEvent[]; onHand: number; skuStore: string; cellKey: string; cellEl: HTMLElement | null; flipped: boolean; arrowLeft: number; }
 interface SummaryCtxMenu { type: "onHand" | "onOrder" | "onPO"; row: ATSRow; pos: ATSPoEvent[]; sos: ATSSoEvent[]; cellEl: HTMLElement; }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1048,17 +1048,18 @@ export default function ATSReport() {
                       </td>
                       {/* Period cells */}
                       {displayPeriods.map(p => {
-                        const rawQty = row.dates[p.endDate];
-                        const qty = rawQty != null ? Math.max(0, rawQty) : rawQty; // clamp display only
-                        const isHov = hoveredCell?.sku === row.sku && hoveredCell?.date === p.key;
+                        const qty = row.dates[p.endDate]; // real balance, may be negative
+                        const isNeg   = qty != null && qty < 0;
+                        const isHov   = hoveredCell?.sku === row.sku && hoveredCell?.date === p.key;
                         const isEmpty = qty === undefined || qty === null;
-                        const ev = eventIndex ? getEventsInPeriod(row.sku, p.periodStart, p.endDate) : null;
-                        const hasPO = (ev?.pos.length ?? 0) > 0;
-                        const hasSO = (ev?.sos.length ?? 0) > 0;
-                        // Cell background: diagonal stripes when both PO and SO exist
+                        const ev      = eventIndex ? getEventsInPeriod(row.sku, p.periodStart, p.endDate) : null;
+                        const hasPO   = (ev?.pos.length ?? 0) > 0;
+                        const hasSO   = (ev?.sos.length ?? 0) > 0;
+                        const canClick = hasPO || hasSO || isNeg;
+                        // Cell background
                         const baseBg = p.isToday
-                          ? (isEmpty ? "#12201a" : getQtyBg(qty) + "cc")
-                          : (isEmpty ? "#0F172A" : getQtyBg(qty));
+                          ? (isEmpty ? "#12201a" : isNeg ? "rgba(239,68,68,0.18)cc" : getQtyBg(qty!) + "cc")
+                          : (isEmpty ? "#0F172A"  : isNeg ? "rgba(239,68,68,0.12)"  : getQtyBg(qty!));
                         const cellBg = hasPO && hasSO
                           ? `repeating-linear-gradient(45deg, rgba(245,158,11,0.22) 0px, rgba(245,158,11,0.22) 4px, rgba(59,130,246,0.22) 4px, rgba(59,130,246,0.22) 8px)`
                           : hasPO ? "rgba(245,158,11,0.18)"
@@ -1072,38 +1073,53 @@ export default function ATSReport() {
                               textAlign: "center",
                               padding: "4px",
                               background: cellBg,
-                              cursor: (hasPO || hasSO) ? "context-menu" : "default",
+                              cursor: canClick ? "context-menu" : "default",
                               transition: "all 0.1s",
-                              outline: isHov ? `1px solid ${isEmpty ? "#334155" : getQtyColor(qty)}` : "none",
+                              outline: isHov ? `1px solid ${isEmpty ? "#334155" : isNeg ? "#EF4444" : getQtyColor(qty!)}` : "none",
                               outlineOffset: -1,
                               position: "relative",
                               boxShadow: hasPO && hasSO ? "inset 0 0 0 1px rgba(245,158,11,0.5)"
                                 : hasPO ? "inset 0 0 0 1px rgba(245,158,11,0.4)"
                                 : hasSO ? "inset 0 0 0 1px rgba(59,130,246,0.4)"
+                                : isNeg ? "inset 0 0 0 1px rgba(239,68,68,0.5)"
                                 : undefined,
                             }}
                             onMouseEnter={() => setHoveredCell({ sku: row.sku, date: p.key })}
                             onMouseLeave={() => setHoveredCell(null)}
                             onContextMenu={e => {
-                              if (!ev || (!hasPO && !hasSO)) return;
+                              if (!canClick) return;
                               e.preventDefault();
                               const cellKey = `${row.sku}::${p.key}`;
                               if (ctxMenu?.cellKey === cellKey) { setCtxMenu(null); return; }
                               const cellEl   = e.currentTarget as HTMLElement;
                               const cellRect = cellEl.getBoundingClientRect();
-                              setCtxMenu({ x: cellRect.left, y: cellRect.bottom + 2, anchorY: cellRect.top, pos: ev.pos, sos: ev.sos, cellKey, cellEl, flipped: false, arrowLeft: 20 });
+                              setCtxMenu({ x: cellRect.left, y: cellRect.bottom + 2, anchorY: cellRect.top, pos: ev?.pos ?? [], sos: ev?.sos ?? [], onHand: row.onHand, skuStore: row.store ?? "ROF", cellKey, cellEl, flipped: false, arrowLeft: 20 });
                             }}
                           >
                             {isEmpty ? (
                               <span style={{ color: "#334155", fontSize: 11 }}>—</span>
+                            ) : isNeg ? (
+                              <span style={{
+                                display: "inline-block",
+                                background: "rgba(239,68,68,0.22)",
+                                color: "#F87171",
+                                fontSize: 11,
+                                fontFamily: "monospace",
+                                fontWeight: 700,
+                                padding: "1px 5px",
+                                borderRadius: 4,
+                                border: "1px solid rgba(239,68,68,0.4)",
+                              }}>
+                                {qty!.toLocaleString()}
+                              </span>
                             ) : (
                               <span style={{
-                                color: getQtyColor(qty),
+                                color: getQtyColor(qty!),
                                 fontSize: 12,
                                 fontFamily: "monospace",
-                                fontWeight: qty <= 10 ? 700 : 500,
+                                fontWeight: qty! <= 10 ? 700 : 500,
                               }}>
-                                {qty === 0 ? "0" : qty.toLocaleString()}
+                                {qty === 0 ? "0" : qty!.toLocaleString()}
                               </span>
                             )}
                           </td>
@@ -1281,8 +1297,17 @@ export default function ATSReport() {
           ) : null}
           {/* Inner box — overflow hidden for rounded corners, does not clip the caret */}
           <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 10, overflow: "hidden" }}>
-          {/* Close button */}
-          <div style={{ display: "flex", justifyContent: "flex-end", padding: "4px 8px 0" }}>
+          {/* Close button + On Hand */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 14px 6px 14px", borderBottom: "1px solid #1a2030" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8,
+                background: ctxMenu.skuStore === "PT" ? "rgba(139,92,246,0.2)" : "rgba(59,130,246,0.2)",
+                color:      ctxMenu.skuStore === "PT" ? "#c4b5fd"              : "#93c5fd" }}>
+                {ctxMenu.skuStore}
+              </span>
+              <span style={{ color: "#94A3B8", fontSize: 11 }}>On Hand:</span>
+              <span style={{ color: "#F1F5F9", fontFamily: "monospace", fontWeight: 700, fontSize: 12 }}>{ctxMenu.onHand.toLocaleString()}</span>
+            </div>
             <button
               style={{ background: "none", border: "none", color: "#475569", fontSize: 16, cursor: "pointer", lineHeight: 1, padding: "2px 4px", borderRadius: 4 }}
               onClick={() => setCtxMenu(null)}
