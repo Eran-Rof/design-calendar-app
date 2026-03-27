@@ -15,7 +15,8 @@ interface ATSRow {
   description: string;
   category?: string;
   dates: Record<string, number>;
-  onOrder: number;
+  onOrder:     number; // open PO qty (incoming from vendors)
+  onCommitted: number; // committed SO qty (outgoing to customers)
   onHand: number;
 }
 
@@ -33,7 +34,7 @@ interface ATSSnapshot {
 }
 
 // Compact format stored in app_data — compute timeline client-side
-interface ATSSkuData   { sku: string; description: string; category?: string; onHand: number; onOrder: number; }
+interface ATSSkuData   { sku: string; description: string; category?: string; onHand: number; onOrder: number; onCommitted?: number; }
 interface ATSEventData { sku: string; date: string; qty: number; }
 interface ExcelData    { syncedAt: string; skus: ATSSkuData[]; pos: ATSEventData[]; sos: ATSEventData[]; }
 
@@ -103,7 +104,7 @@ function generateMockData(dates: string[]): ATSRow[] {
       if (i % 7 === 3) qty += Math.floor(Math.random() * 40); // restock
       dateMap[d] = qty;
     });
-    return { ...s, dates: dateMap, onHand, onOrder };
+    return { ...s, dates: dateMap, onHand, onOrder, onCommitted: 0 };
   });
 }
 
@@ -131,7 +132,7 @@ function computeRowsFromExcelData(data: ExcelData, dates: string[]): ATSRow[] {
       if (ats < 0) ats = 0;
       dateMap[date] = ats;
     }
-    return { sku: s.sku, description: s.description, category: s.category, onHand: s.onHand, onOrder: s.onOrder, dates: dateMap };
+    return { sku: s.sku, description: s.description, category: s.category, onHand: s.onHand, onOrder: s.onOrder, onCommitted: s.onCommitted ?? 0, dates: dateMap };
   });
 }
 
@@ -420,7 +421,7 @@ export default function ATSReport() {
         const map: Record<string, ATSRow> = {};
         data.forEach(snap => {
           if (!map[snap.sku]) {
-            map[snap.sku] = { sku: snap.sku, description: snap.description, category: snap.category, dates: {}, onHand: snap.qty_on_hand, onOrder: snap.qty_on_order };
+            map[snap.sku] = { sku: snap.sku, description: snap.description, category: snap.category, dates: {}, onHand: snap.qty_on_hand, onOrder: snap.qty_on_order, onCommitted: 0 };
           }
           map[snap.sku].dates[snap.date] = snap.qty_available;
         });
@@ -678,6 +679,7 @@ export default function ATSReport() {
                   <th style={{ ...S.th, ...S.stickyCol, left: 130, minWidth: 200, zIndex: 3 }}>Description</th>
                   <th style={{ ...S.th, ...S.stickyCol, left: 330, minWidth: 80, zIndex: 3, textAlign: "center" }}>On Hand</th>
                   <th style={{ ...S.th, ...S.stickyCol, left: 410, minWidth: 80, zIndex: 3, textAlign: "center" }}>On Order</th>
+                  <th style={{ ...S.th, ...S.stickyCol, left: 490, minWidth: 80, zIndex: 3, textAlign: "center" }}>On PO</th>
                   {/* Period columns */}
                   {displayPeriods.map(p => (
                     <th key={p.key} style={{
@@ -731,8 +733,14 @@ export default function ATSReport() {
                           {row.onHand.toLocaleString()}
                         </span>
                       </td>
-                      {/* On Order */}
+                      {/* On Order (committed SOs) */}
                       <td style={{ ...S.td, ...S.stickyCol, left: 410, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center" }}>
+                        <span style={{ color: "#F59E0B", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
+                          {row.onCommitted > 0 ? row.onCommitted.toLocaleString() : "—"}
+                        </span>
+                      </td>
+                      {/* On PO (open purchase orders) */}
+                      <td style={{ ...S.td, ...S.stickyCol, left: 490, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center" }}>
                         <span style={{ color: "#10B981", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
                           {row.onOrder > 0 ? `+${row.onOrder.toLocaleString()}` : "—"}
                         </span>

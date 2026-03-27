@@ -92,17 +92,24 @@ export default async function handler(req, res) {
           skuMap[sku] = { sku, description: "", category: str(r["Brand"]) || undefined, onHand: 0, onOrder: 0 };
         }
         if (qty > 0) {
-          const date = parseDate(r["Order Date to be Shipped"]);
+          // Use cancel date as the date SO qty is applied to ATS
+          const date = parseDate(r["Date to be Cancelled"] || r["Order Date to be Shipped"]);
           sos.push({ sku, date, qty });
         }
+      }
+
+      // Build onCommitted (total open SO qty) per SKU
+      const committedBySku = {};
+      for (const s of sos) {
+        committedBySku[s.sku] = (committedBySku[s.sku] || 0) + s.qty;
       }
 
       // Drop SKUs with zero activity across all three files
       const poSkus = new Set(pos.map(p => p.sku));
       const soSkus = new Set(sos.map(s => s.sku));
-      const activeSkus = Object.values(skuMap).filter(s =>
-        s.onHand > 0 || poSkus.has(s.sku) || soSkus.has(s.sku)
-      );
+      const activeSkus = Object.values(skuMap)
+        .filter(s => s.onHand > 0 || poSkus.has(s.sku) || soSkus.has(s.sku))
+        .map(s => ({ ...s, onCommitted: committedBySku[s.sku] || 0 }));
 
       res.status(200).json({
         syncedAt: now,
