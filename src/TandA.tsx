@@ -304,6 +304,13 @@ interface DCVendor {
   wipLeadOverrides?: Record<string, number>;
 }
 
+interface DmConversation {
+  chatId: string;
+  recipient: string;      // email / UPN used to create the chat
+  recipientName: string;  // display name
+  messages: any[];
+}
+
 const WIP_CATEGORIES = ["Pre-Production", "Fabric T&A", "Samples", "Production", "Transit"];
 
 const MILESTONE_STATUSES = ["Not Started", "In Progress", "Complete", "Delayed", "N/A"];
@@ -503,14 +510,16 @@ export default function TandAApp() {
   const [teamsDirectSending, setTeamsDirectSending] = useState(false);
   const [teamsDirectErr, setTeamsDirectErr] = useState<string | null>(null);
   const [teamsTab, setTeamsTab] = useState<"channels"|"direct">("channels");
-  const [dmChatId, setDmChatId] = useState<string | null>(null);
-  const [dmRecipient, setDmRecipient] = useState("");
-  const [dmMessages, setDmMessages] = useState<any[]>([]);
+  const [dmConversations, setDmConversations] = useState<DmConversation[]>([]);
+  const [dmActiveChatId, setDmActiveChatId] = useState<string | null>(null);
+  const [dmComposing, setDmComposing] = useState(true);
+  const [dmSelectedName, setDmSelectedName] = useState("");
   const [dmLoading, setDmLoading] = useState(false);
   const [dmError, setDmError] = useState<string | null>(null);
   const [dmNewMsg, setDmNewMsg] = useState("");
   const [dmSending, setDmSending] = useState(false);
   const dmScrollRef = useRef<HTMLDivElement>(null);
+  const dmPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const TEAMS_PURPLE = "#5b5ea6";
   const TEAMS_PURPLE_LT = "#7b83eb";
   // ── Teams contacts (for DM recipient dropdown) ───────────────────────────
@@ -759,18 +768,24 @@ export default function TandAApp() {
       setTeamsNewMsg("");
     } catch(e: any) { alert("Failed to send: " + e.message); }
   }
-  async function loadDmMessages(chatId: string) {
-    setDmLoading(true);
-    setDmError(null);
+  async function loadDmMessages(chatId: string, silent = false) {
+    if (!silent) { setDmLoading(true); setDmError(null); }
     try {
       const d = await teamsGraph(`/chats/${chatId}/messages?$top=50`);
       const msgs = ((d.value || []) as any[]).filter((m: any) => m.messageType === "message").reverse();
-      setDmMessages(msgs);
-      setTimeout(() => { if (dmScrollRef.current) dmScrollRef.current.scrollTop = dmScrollRef.current.scrollHeight; }, 50);
+      setDmConversations(prev => {
+        const existing = prev.find(c => c.chatId === chatId);
+        if (silent && existing && existing.messages.length === msgs.length &&
+            existing.messages[existing.messages.length - 1]?.id === msgs[msgs.length - 1]?.id) return prev;
+        if (!silent || (existing && existing.messages.length !== msgs.length)) {
+          setTimeout(() => { if (dmScrollRef.current) dmScrollRef.current.scrollTop = dmScrollRef.current.scrollHeight; }, 50);
+        }
+        return prev.map(c => c.chatId === chatId ? { ...c, messages: msgs } : c);
+      });
     } catch(e: any) {
-      setDmError("Could not load messages: " + e.message);
+      if (!silent) setDmError("Could not load messages: " + e.message);
     }
-    setDmLoading(false);
+    if (!silent) setDmLoading(false);
   }
 
   async function teamsSendDirect() {
@@ -787,9 +802,17 @@ export default function TandAApp() {
         ],
       });
       await teamsGraphPost(`/chats/${chat.id}/messages`, { body: { content: teamsDirectMsg.trim(), contentType: "text" } });
-      setDmChatId(chat.id);
-      setDmRecipient(teamsDirectTo.trim());
+      const recipientName = dmSelectedName || teamsDirectTo.trim();
+      setDmConversations(prev => {
+        const existing = prev.find(c => c.chatId === chat.id);
+        if (existing) return prev.map(c => c.chatId === chat.id ? { ...c, recipientName } : c);
+        return [...prev, { chatId: chat.id, recipient: teamsDirectTo.trim(), recipientName, messages: [] }];
+      });
+      setDmActiveChatId(chat.id);
+      setDmComposing(false);
       setTeamsDirectMsg("");
+      setTeamsDirectTo("");
+      setDmSelectedName("");
       await loadDmMessages(chat.id);
     } catch(e: any) {
       setTeamsDirectErr("Failed to send: " + e.message);
@@ -798,12 +821,12 @@ export default function TandAApp() {
   }
 
   async function sendDmReply() {
-    if (!dmChatId || !dmNewMsg.trim()) return;
+    if (!dmActiveChatId || !dmNewMsg.trim()) return;
     setDmSending(true);
     setDmError(null);
     try {
-      const sent = await teamsGraphPost(`/chats/${dmChatId}/messages`, { body: { content: dmNewMsg.trim(), contentType: "text" } });
-      setDmMessages(prev => [...prev, sent]);
+      const sent = await teamsGraphPost(`/chats/${dmActiveChatId}/messages`, { body: { content: dmNewMsg.trim(), contentType: "text" } });
+      setDmConversations(prev => prev.map(c => c.chatId === dmActiveChatId ? { ...c, messages: [...c.messages, sent] } : c));
       setDmNewMsg("");
       setTimeout(() => { if (dmScrollRef.current) dmScrollRef.current.scrollTop = dmScrollRef.current.scrollHeight; }, 50);
     } catch(e: any) {
@@ -820,6 +843,13 @@ export default function TandAApp() {
   useEffect(() => { teamsLoadChannelMap(); }, []);
   useEffect(() => { if (teamsSelPO && teamsToken && teamsChannelMap[teamsSelPO]) teamsLoadPOMessages(teamsSelPO); }, [teamsSelPO, teamsToken]);
   useEffect(() => { if (teamsToken && teamsContacts.length === 0 && !teamsContactsLoading) loadTeamsContacts(); }, [teamsToken]);
+  // Auto-poll active DM every 15s to pick up incoming replies
+  useEffect(() => {
+    if (dmPollRef.current) clearInterval(dmPollRef.current);
+    if (!dmActiveChatId || !teamsToken) return;
+    dmPollRef.current = setInterval(() => { loadDmMessages(dmActiveChatId, true); }, 15000);
+    return () => { if (dmPollRef.current) clearInterval(dmPollRef.current); };
+  }, [dmActiveChatId, teamsToken]);
 
   // Auto-select first PO (by unread count) when entering email view with no PO selected
   useEffect(() => {
@@ -938,28 +968,27 @@ export default function TandAApp() {
                 <>
                   <div style={{ padding: "10px 12px 6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <span style={{ fontSize: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "#6B7280", fontWeight: 600 }}>Direct Messages</span>
-                    {dmChatId && (
-                      <button onClick={() => { setDmChatId(null); setDmMessages([]); setDmRecipient(""); setDmError(null); setTeamsDirectErr(null); setTeamsDirectTo(""); setTeamsDirectMsg(""); }}
-                        style={{ fontSize: 10, padding: "3px 8px", borderRadius: 5, border: `1px solid ${TEAMS_PURPLE}44`, background: `${TEAMS_PURPLE}15`, color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit" }}>
-                        ✎ New
-                      </button>
-                    )}
+                    <button onClick={() => { setDmActiveChatId(null); setDmComposing(true); setTeamsDirectTo(""); setTeamsDirectMsg(""); setDmSelectedName(""); setDmError(null); setTeamsDirectErr(null); }}
+                      style={{ fontSize: 10, padding: "3px 8px", borderRadius: 5, border: `1px solid ${TEAMS_PURPLE}44`, background: `${TEAMS_PURPLE}15`, color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit" }}>
+                      ✎ New
+                    </button>
                   </div>
-                  {dmChatId ? (
-                    <div style={{ padding: "10px 16px", borderBottom: "1px solid #1E293B", background: `${TEAMS_PURPLE}22`, borderLeft: `3px solid ${TEAMS_PURPLE}` }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div style={{ width: 30, height: 30, borderRadius: "50%", background: `${TEAMS_PURPLE}33`, border: `2px solid ${TEAMS_PURPLE}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: TEAMS_PURPLE_LT, flexShrink: 0 }}>
-                          {dmRecipient.slice(0, 2).toUpperCase()}
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: TEAMS_PURPLE_LT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{dmRecipient}</div>
-                          <div style={{ fontSize: 10, color: "#6B7280" }}>Active conversation</div>
-                        </div>
+                  {dmConversations.length === 0 && (
+                    <div style={{ padding: "12px 14px", fontSize: 12, color: "#6B7280" }}>No conversations yet. Use ✎ New to start one.</div>
+                  )}
+                  {dmConversations.map(conv => (
+                    <div key={conv.chatId}
+                      onClick={() => { setDmActiveChatId(conv.chatId); setDmComposing(false); }}
+                      style={{ padding: "8px 12px", cursor: "pointer", background: conv.chatId === dmActiveChatId && !dmComposing ? `${TEAMS_PURPLE}22` : "transparent", borderLeft: conv.chatId === dmActiveChatId && !dmComposing ? `3px solid ${TEAMS_PURPLE}` : "3px solid transparent", display: "flex", alignItems: "center", gap: 8, borderBottom: "1px solid #1E293B" }}>
+                      <div style={{ width: 28, height: 28, borderRadius: "50%", background: `${TEAMS_PURPLE}33`, border: `2px solid ${TEAMS_PURPLE}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: TEAMS_PURPLE_LT, flexShrink: 0 }}>
+                        {(conv.recipientName || conv.recipient).slice(0, 2).toUpperCase()}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: conv.chatId === dmActiveChatId && !dmComposing ? TEAMS_PURPLE_LT : "#F1F5F9", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{conv.recipientName || conv.recipient}</div>
+                        <div style={{ fontSize: 10, color: "#6B7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{conv.messages.length > 0 ? (conv.messages[conv.messages.length - 1]?.body?.content || "").replace(/<[^>]+>/g, "").trim() || "Message" : "No messages yet"}</div>
                       </div>
                     </div>
-                  ) : (
-                    <div style={{ padding: "12px 14px", fontSize: 12, color: "#6B7280" }}>No active conversations. Type a message on the right to start one.</div>
-                  )}
+                  ))}
                 </>
               )}
             </div>
@@ -974,7 +1003,7 @@ export default function TandAApp() {
                   <div style={{ fontSize: 14, color: "#94A3B8", marginBottom: 12 }}>Sign in to use Direct Message</div>
                   <button onClick={authenticateTeams} disabled={teamsAuthStatus === "loading"} style={{ ...S.btnPrimary, fontSize: 13, padding: "9px 20px", width: "auto" }}>{teamsAuthStatus === "loading" ? "Signing in…" : "Sign in with Microsoft"}</button>
                 </div>
-              ) : !dmChatId ? (
+              ) : dmComposing || !dmActiveChatId ? (
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                   <div style={{ padding: "16px 24px 12px", borderBottom: "1px solid #334155", background: "#1E293B", flexShrink: 0 }}>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#F1F5F9" }}>New Direct Message</div>
@@ -1016,7 +1045,18 @@ export default function TandAApp() {
                               const email = c.userPrincipalName || c.mail || c.scoredEmailAddresses?.[0]?.address || "";
                               return (
                                 <div key={email || c.displayName}
-                                  onMouseDown={() => { setTeamsDirectTo(email); setTeamsContactDropdown(false); setTeamsContactSearch(""); setTeamsContactSearchResults([]); setTeamsDirectErr(null); }}
+                                  onMouseDown={() => {
+                                    const existing = dmConversations.find(conv => conv.recipient.toLowerCase() === email.toLowerCase());
+                                    if (existing) {
+                                      setDmActiveChatId(existing.chatId);
+                                      setDmComposing(false);
+                                      setTeamsDirectTo("");
+                                    } else {
+                                      setTeamsDirectTo(email);
+                                      setDmSelectedName(c.displayName || email);
+                                    }
+                                    setTeamsContactDropdown(false); setTeamsContactSearch(""); setTeamsContactSearchResults([]); setTeamsDirectErr(null);
+                                  }}
                                   style={{ padding: "9px 14px", cursor: "pointer", borderBottom: "1px solid #334155" }}>
                                   <div style={{ fontSize: 13, fontWeight: 600, color: "#F1F5F9" }}>{c.displayName}</div>
                                   <div style={{ fontSize: 11, color: "#6B7280" }}>{email}</div>
@@ -1043,15 +1083,19 @@ export default function TandAApp() {
                     </button>
                   </div>
                 </div>
-              ) : (
+              ) : (() => {
+                const activeConv = dmConversations.find(c => c.chatId === dmActiveChatId) ?? null;
+                const dmRecipientDisplay = activeConv?.recipientName || activeConv?.recipient || "";
+                const dmMsgs = activeConv?.messages ?? [];
+                return (
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                   <div style={{ padding: "14px 50px 14px 20px", borderBottom: "1px solid #334155", background: "#1E293B", display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
-                    <div style={{ width: 34, height: 34, borderRadius: "50%", background: `${TEAMS_PURPLE}33`, border: `2px solid ${TEAMS_PURPLE}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: TEAMS_PURPLE_LT, flexShrink: 0 }}>{dmRecipient.slice(0, 2).toUpperCase()}</div>
+                    <div style={{ width: 34, height: 34, borderRadius: "50%", background: `${TEAMS_PURPLE}33`, border: `2px solid ${TEAMS_PURPLE}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: TEAMS_PURPLE_LT, flexShrink: 0 }}>{dmRecipientDisplay.slice(0, 2).toUpperCase()}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#F1F5F9", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dmRecipient}</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#F1F5F9", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dmRecipientDisplay}</div>
                       <div style={{ fontSize: 11, color: "#6B7280" }}>Direct Message · Teams</div>
                     </div>
-                    <button onClick={() => loadDmMessages(dmChatId)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #334155", background: "none", color: "#6B7280", cursor: "pointer", fontFamily: "inherit" }}>↻ Refresh</button>
+                    <button onClick={() => dmActiveChatId && loadDmMessages(dmActiveChatId)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #334155", background: "none", color: "#6B7280", cursor: "pointer", fontFamily: "inherit" }}>↻ Refresh</button>
                   </div>
                   {dmError && (
                     <div style={{ background: "#1E293B", borderBottom: "1px solid #EF444444", padding: "8px 20px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
@@ -1062,9 +1106,9 @@ export default function TandAApp() {
                   <div ref={dmScrollRef} style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
                     {dmLoading ? (
                       <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 40, fontSize: 13 }}>Loading messages…</div>
-                    ) : dmMessages.length === 0 ? (
+                    ) : dmMsgs.length === 0 ? (
                       <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 40, fontSize: 13 }}>No messages yet in this conversation</div>
-                    ) : dmMessages.map((msg: any) => {
+                    ) : dmMsgs.map((msg: any) => {
                       const author = msg.from?.user?.displayName || "Unknown";
                       const initials = author.split(" ").map((w: string) => w[0] || "").join("").toUpperCase().slice(0, 2);
                       const clean = (msg.body?.content || "").replace(/<[^>]+>/g, "").trim();
@@ -1088,7 +1132,7 @@ export default function TandAApp() {
                   <div style={{ padding: "12px 20px", borderTop: "1px solid #334155", background: "#1E293B", display: "flex", gap: 10, flexShrink: 0 }}>
                     <input value={dmNewMsg} onChange={e => setDmNewMsg(e.target.value)}
                       onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendDmReply(); }}}
-                      placeholder={`Reply to ${dmRecipient}…`}
+                      placeholder={`Reply to ${dmRecipientDisplay}…`}
                       style={{ flex: 1, background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: "10px 14px", color: "#F1F5F9", fontSize: 13, outline: "none", fontFamily: "inherit" }} />
                     <button onClick={sendDmReply} disabled={dmSending || !dmNewMsg.trim()}
                       style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 12, fontWeight: 700, cursor: (dmSending || !dmNewMsg.trim()) ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: (dmSending || !dmNewMsg.trim()) ? 0.5 : 1 }}>
@@ -1096,7 +1140,8 @@ export default function TandAApp() {
                     </button>
                   </div>
                 </div>
-              )
+                );
+              })()
             ) : !teamsSelPO ? (
               <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#6B7280" }}>
                 <div style={{ fontSize: 40, marginBottom: 12 }}>💬</div>
