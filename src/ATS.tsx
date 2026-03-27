@@ -40,7 +40,7 @@ interface ATSPoEvent     { sku: string; date: string; qty: number; poNumber: str
 interface ATSSoEvent     { sku: string; date: string; qty: number; orderNumber: string; customerName: string; unitPrice: number; totalPrice: number; store: string; }
 interface UploadWarning  { severity: "error" | "warn"; field: string; affected: number; total: number; message: string; }
 interface ExcelData      { syncedAt: string; skus: ATSSkuData[]; pos: ATSPoEvent[]; sos: ATSSoEvent[]; warnings?: UploadWarning[]; columnNames?: { inventory: string[]; purchases: string[]; orders: string[] }; }
-interface CtxMenu        { x: number; y: number; anchorY: number; pos: ATSPoEvent[]; sos: ATSSoEvent[]; cellKey: string; cellEl: HTMLElement | null; }
+interface CtxMenu        { x: number; y: number; anchorY: number; pos: ATSPoEvent[]; sos: ATSSoEvent[]; cellKey: string; cellEl: HTMLElement | null; flipped: boolean; arrowLeft: number; }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function addDays(date: Date, days: number): Date {
@@ -291,8 +291,8 @@ export default function ATSReport() {
     const vh   = window.innerHeight;
     const rect = el.getBoundingClientRect();
 
-    let left = parseFloat(el.style.left);
-    let top  = parseFloat(el.style.top);
+    let left    = parseFloat(el.style.left);
+    let flipped = false;
 
     // Don't overflow the right edge
     if (rect.right > vw - pad) {
@@ -303,6 +303,17 @@ export default function ATSReport() {
     if (rect.bottom > vh - pad) {
       const flippedTop = ctxMenu.anchorY - rect.height - 4;
       el.style.top = `${Math.max(pad, flippedTop)}px`;
+      flipped = true;
+    }
+
+    // Arrow horizontal position: centre it on the anchor cell
+    const cellCenter  = ctxMenu.cellEl ? ctxMenu.cellEl.getBoundingClientRect().left + ctxMenu.cellEl.offsetWidth / 2 : ctxMenu.x + 30;
+    const popupLeft   = parseFloat(el.style.left);
+    const arrowLeft   = Math.max(10, Math.min(cellCenter - popupLeft - 8, rect.width - 26));
+
+    // Only update state if values changed (avoids infinite loop)
+    if (flipped !== ctxMenu.flipped || Math.round(arrowLeft) !== Math.round(ctxMenu.arrowLeft)) {
+      setCtxMenu(prev => prev ? { ...prev, flipped, arrowLeft } : prev);
     }
   }, [ctxMenu]);
 
@@ -1065,7 +1076,7 @@ export default function ATSReport() {
                               if (ctxMenu?.cellKey === cellKey) { setCtxMenu(null); return; }
                               const cellEl   = e.currentTarget as HTMLElement;
                               const cellRect = cellEl.getBoundingClientRect();
-                              setCtxMenu({ x: cellRect.left, y: cellRect.bottom + 2, anchorY: cellRect.top, pos: ev.pos, sos: ev.sos, cellKey, cellEl });
+                              setCtxMenu({ x: cellRect.left, y: cellRect.bottom + 2, anchorY: cellRect.top, pos: ev.pos, sos: ev.sos, cellKey, cellEl, flipped: false, arrowLeft: 20 });
                             }}
                           >
                             {isEmpty ? (
@@ -1118,6 +1129,20 @@ export default function ATSReport() {
           style={{ position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 500, background: "#1E293B", border: "1px solid #334155", borderRadius: 10, minWidth: 260, maxWidth: 380, boxShadow: "0 8px 32px rgba(0,0,0,0.5)", overflow: "hidden" }}
           onClick={e => e.stopPropagation()}
         >
+          {/* Caret arrow connecting popup to anchor cell */}
+          {!ctxMenu.flipped ? (
+            // Popup is below cell → arrow points UP
+            <>
+              <div style={{ position: "absolute", top: -8, left: ctxMenu.arrowLeft, width: 0, height: 0, borderLeft: "8px solid transparent", borderRight: "8px solid transparent", borderBottom: "8px solid #334155", pointerEvents: "none" }} />
+              <div style={{ position: "absolute", top: -7, left: ctxMenu.arrowLeft + 1, width: 0, height: 0, borderLeft: "7px solid transparent", borderRight: "7px solid transparent", borderBottom: "7px solid #1E293B", pointerEvents: "none" }} />
+            </>
+          ) : (
+            // Popup is above cell → arrow points DOWN
+            <>
+              <div style={{ position: "absolute", bottom: -8, left: ctxMenu.arrowLeft, width: 0, height: 0, borderLeft: "8px solid transparent", borderRight: "8px solid transparent", borderTop: "8px solid #334155", pointerEvents: "none" }} />
+              <div style={{ position: "absolute", bottom: -7, left: ctxMenu.arrowLeft + 1, width: 0, height: 0, borderLeft: "7px solid transparent", borderRight: "7px solid transparent", borderTop: "7px solid #1E293B", pointerEvents: "none" }} />
+            </>
+          )}
           {/* Close button */}
           <div style={{ display: "flex", justifyContent: "flex-end", padding: "4px 8px 0" }}>
             <button
