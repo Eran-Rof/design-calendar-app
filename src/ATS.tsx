@@ -35,11 +35,11 @@ interface ATSSnapshot {
 
 // Compact format stored in app_data — compute timeline client-side
 interface ATSSkuData     { sku: string; description: string; category?: string; onHand: number; onOrder: number; onCommitted?: number; }
-interface ATSPoEvent     { sku: string; date: string; qty: number; poNumber: string; vendor: string; store: string; }
+interface ATSPoEvent     { sku: string; date: string; qty: number; poNumber: string; vendor: string; store: string; unitCost: number; }
 interface ATSSoEvent     { sku: string; date: string; qty: number; orderNumber: string; customerName: string; unitPrice: number; totalPrice: number; store: string; }
 interface UploadWarning  { severity: "error" | "warn"; field: string; affected: number; total: number; message: string; }
 interface ExcelData      { syncedAt: string; skus: ATSSkuData[]; pos: ATSPoEvent[]; sos: ATSSoEvent[]; warnings?: UploadWarning[]; columnNames?: { inventory: string[]; purchases: string[]; orders: string[] }; }
-interface CtxMenu        { x: number; y: number; pos: ATSPoEvent[]; sos: ATSSoEvent[]; }
+interface CtxMenu        { x: number; y: number; pos: ATSPoEvent[]; sos: ATSSoEvent[]; cellKey: string; }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function addDays(date: Date, days: number): Date {
@@ -886,10 +886,15 @@ export default function ATSReport() {
                         const ev = eventIndex ? getEventsInPeriod(row.sku, p.periodStart, p.endDate) : null;
                         const hasPO = (ev?.pos.length ?? 0) > 0;
                         const hasSO = (ev?.sos.length ?? 0) > 0;
-                        const eventBg = hasPO && hasSO ? "rgba(180,120,0,0.18)"
+                        // Cell background: diagonal stripes when both PO and SO exist
+                        const baseBg = p.isToday
+                          ? (isEmpty ? "#12201a" : getQtyBg(qty) + "cc")
+                          : (isEmpty ? "#0F172A" : getQtyBg(qty));
+                        const cellBg = hasPO && hasSO
+                          ? `repeating-linear-gradient(45deg, rgba(245,158,11,0.22) 0px, rgba(245,158,11,0.22) 4px, rgba(59,130,246,0.22) 4px, rgba(59,130,246,0.22) 8px)`
                           : hasPO ? "rgba(245,158,11,0.18)"
                           : hasSO ? "rgba(59,130,246,0.18)"
-                          : undefined;
+                          : baseBg;
                         return (
                           <td
                             key={p.key}
@@ -897,15 +902,14 @@ export default function ATSReport() {
                               ...S.td,
                               textAlign: "center",
                               padding: "4px",
-                              background: eventBg ?? (p.isToday
-                                ? (isEmpty ? "#12201a" : getQtyBg(qty) + "cc")
-                                : (isEmpty ? "#0F172A" : getQtyBg(qty))),
+                              background: cellBg,
                               cursor: (hasPO || hasSO) ? "context-menu" : "default",
                               transition: "all 0.1s",
                               outline: isHov ? `1px solid ${isEmpty ? "#334155" : getQtyColor(qty)}` : "none",
                               outlineOffset: -1,
                               position: "relative",
-                              boxShadow: hasPO ? "inset 0 0 0 1px rgba(245,158,11,0.4)"
+                              boxShadow: hasPO && hasSO ? "inset 0 0 0 1px rgba(245,158,11,0.5)"
+                                : hasPO ? "inset 0 0 0 1px rgba(245,158,11,0.4)"
                                 : hasSO ? "inset 0 0 0 1px rgba(59,130,246,0.4)"
                                 : undefined,
                             }}
@@ -914,7 +918,9 @@ export default function ATSReport() {
                             onContextMenu={e => {
                               if (!ev || (!hasPO && !hasSO)) return;
                               e.preventDefault();
-                              setCtxMenu({ x: e.clientX, y: e.clientY, pos: ev.pos, sos: ev.sos });
+                              const cellKey = `${row.sku}::${p.key}`;
+                              if (ctxMenu?.cellKey === cellKey) { setCtxMenu(null); return; }
+                              setCtxMenu({ x: e.clientX, y: e.clientY, pos: ev.pos, sos: ev.sos, cellKey });
                             }}
                           >
                             {isEmpty ? (
@@ -966,6 +972,14 @@ export default function ATSReport() {
           style={{ position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 500, background: "#1E293B", border: "1px solid #334155", borderRadius: 10, minWidth: 260, maxWidth: 380, boxShadow: "0 8px 32px rgba(0,0,0,0.5)", overflow: "hidden" }}
           onClick={e => e.stopPropagation()}
         >
+          {/* Close button */}
+          <div style={{ display: "flex", justifyContent: "flex-end", padding: "4px 8px 0" }}>
+            <button
+              style={{ background: "none", border: "none", color: "#475569", fontSize: 16, cursor: "pointer", lineHeight: 1, padding: "2px 4px", borderRadius: 4 }}
+              onClick={() => setCtxMenu(null)}
+              title="Close"
+            >✕</button>
+          </div>
           {ctxMenu.sos.length > 0 && (
             <div>
               <div style={{ background: "rgba(59,130,246,0.15)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#93C5FD", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #1E3A5F" }}>
@@ -996,16 +1010,26 @@ export default function ATSReport() {
                 Purchase Orders ({ctxMenu.pos.length})
               </div>
               {ctxMenu.pos.map((p, i) => (
-                <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12 }}>
+                <div
+                  key={i}
+                  style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12, cursor: p.poNumber ? "pointer" : "default" }}
+                  title={p.poNumber ? "Click to open PO in PO WIP" : undefined}
+                  onClick={() => { if (p.poNumber) { window.open(`/tanda?po=${encodeURIComponent(p.poNumber)}`, "_blank"); setCtxMenu(null); } }}
+                >
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                    <span style={{ color: "#FCD34D", fontFamily: "monospace", fontWeight: 700 }}>{p.poNumber || "—"}</span>
+                    <span style={{ color: "#FCD34D", fontFamily: "monospace", fontWeight: 700, textDecoration: p.poNumber ? "underline" : "none", textUnderlineOffset: 2 }}>
+                      {p.poNumber || "—"}
+                    </span>
                     <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       {p.store && <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8, background: p.store === "ROF ECOM" ? "rgba(14,165,233,0.2)" : p.store === "PT" ? "rgba(139,92,246,0.2)" : "rgba(245,158,11,0.2)", color: p.store === "ROF ECOM" ? "#7dd3fc" : p.store === "PT" ? "#c4b5fd" : "#fcd34d" }}>{p.store}</span>}
                       <span style={{ color: "#10B981", fontWeight: 700 }}>+{p.qty.toLocaleString()} units</span>
                     </span>
                   </div>
                   <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{p.vendor || "—"}</div>
-                  <div style={{ color: "#94A3B8", fontSize: 11 }}>Expected: {p.date}</div>
+                  <div style={{ display: "flex", gap: 16 }}>
+                    <span style={{ color: "#94A3B8", fontSize: 11 }}>Expected: {p.date}</span>
+                    {p.unitCost > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Unit Cost: ${p.unitCost.toFixed(2)}</span>}
+                  </div>
                 </div>
               ))}
             </div>

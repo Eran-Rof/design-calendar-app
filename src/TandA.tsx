@@ -1849,6 +1849,21 @@ export default function TandAApp() {
     if (user) { loadCachedPOs(); loadNotes(); loadVendors(); loadWipTemplates(); loadAllMilestones(); loadDCVendors(); loadDesignTemplates(); }
   }, [user, loadCachedPOs, loadNotes, loadVendors]);
 
+  // ── Deep-link from ATS: ?po=NUMBER opens that PO directly to milestones tab ──
+  const deepLinkHandled = useRef(false);
+  useEffect(() => {
+    if (deepLinkHandled.current || pos.length === 0) return;
+    const param = new URLSearchParams(window.location.search).get("po");
+    if (!param) return;
+    const target = pos.find(p => (p.PoNumber ?? "").toLowerCase() === param.toLowerCase());
+    if (target) {
+      deepLinkHandled.current = true;
+      setSelected(target);
+      setDetailMode("milestones");
+      setView("list");
+    }
+  }, [pos]);
+
   // ── Realtime sync — poll every 10 seconds for changes from other users ──
   useEffect(() => {
     if (!user) return;

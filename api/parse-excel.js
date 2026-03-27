@@ -84,10 +84,11 @@ export default async function handler(req, res) {
           if (!vendor)   poNoVendor++;
 
           const brandName = str(r["Brand Name"] || r["Brand"] || "");
-          const store = detectPoStore(poNumber, brandName);
+          const store    = detectPoStore(poNumber, brandName);
+          const unitCost = parseFloat(String(r["Unit Cost"] || r["Cost"] || r["Unit Price"] || r["Price"] || 0).replace(/[^0-9.-]/g, "")) || 0;
 
           if (date) {
-            pos.push({ sku, date, qty, poNumber, vendor, store });
+            pos.push({ sku, date, qty, poNumber, vendor, store, unitCost });
           }
         }
       }
