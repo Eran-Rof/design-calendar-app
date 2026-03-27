@@ -97,9 +97,16 @@ export default async function handler(req, res) {
         }
       }
 
+      // Drop SKUs with zero activity across all three files
+      const poSkus = new Set(pos.map(p => p.sku));
+      const soSkus = new Set(sos.map(s => s.sku));
+      const activeSkus = Object.values(skuMap).filter(s =>
+        s.onHand > 0 || poSkus.has(s.sku) || soSkus.has(s.sku)
+      );
+
       res.status(200).json({
         syncedAt: now,
-        skus: Object.values(skuMap),
+        skus: activeSkus,
         pos,
         sos,
       });
