@@ -241,32 +241,43 @@ export default function ATSReport() {
     return () => document.removeEventListener("click", close);
   }, [ctxMenu]);
 
-  // ── Keep context menu attached to its cell on scroll ──────────────────
-  useEffect(() => {
+  // ── Reposition popup + update arrow direction in DOM (no state re-render) ──
+  const repositionCtxMenu = useCallback(() => {
     if (!ctxMenu?.cellEl || !ctxRef.current) return;
-    const update = () => {
-      if (!ctxMenu.cellEl || !ctxRef.current) return;
-      const cell = ctxMenu.cellEl.getBoundingClientRect();
-      const popup = ctxRef.current;
-      const ph = popup.offsetHeight;
-      const pw = popup.offsetWidth;
-      const vh = window.innerHeight;
-      const vw = window.innerWidth;
-      const pad = 8;
-      // Default: below the cell
-      let top  = cell.bottom + 2;
-      let left = cell.left;
-      // Flip above if overflows bottom
-      if (top + ph > vh - pad) top = Math.max(pad, cell.top - ph - 2);
-      // Clamp right edge
-      if (left + pw > vw - pad) left = Math.max(pad, vw - pw - pad);
-      popup.style.top  = `${top}px`;
-      popup.style.left = `${left}px`;
-    };
-    const scrollEls = [window, tableRef.current].filter(Boolean);
-    scrollEls.forEach(el => el!.addEventListener("scroll", update, { passive: true }));
-    return () => scrollEls.forEach(el => el!.removeEventListener("scroll", update));
+    const el   = ctxRef.current;
+    const cell = ctxMenu.cellEl.getBoundingClientRect();
+    const ph   = el.offsetHeight;
+    const pw   = el.offsetWidth;
+    const vh   = window.innerHeight;
+    const vw   = window.innerWidth;
+    const pad  = 8;
+
+    let top     = cell.bottom + 2;
+    let left    = cell.left;
+    let flipped = false;
+
+    if (top + ph > vh - pad) { top = Math.max(pad, cell.top - ph - 2); flipped = true; }
+    if (left + pw > vw - pad) left = Math.max(pad, vw - pw - pad);
+
+    el.style.top  = `${top}px`;
+    el.style.left = `${left}px`;
+
+    // Centre arrow on the anchor cell and toggle direction in DOM directly
+    const arrowLeft = Math.max(10, Math.min(cell.left + cell.width / 2 - left - 9, pw - 28));
+    const upEl   = el.querySelector("[data-arrow='up']")   as HTMLElement | null;
+    const downEl = el.querySelector("[data-arrow='down']") as HTMLElement | null;
+    if (upEl)   { upEl.style.display   = flipped ? "none" : "block"; upEl.style.left   = `${arrowLeft}px`; }
+    if (downEl) { downEl.style.display = flipped ? "block" : "none"; downEl.style.left = `${arrowLeft}px`; }
   }, [ctxMenu]);
+
+  useLayoutEffect(() => { repositionCtxMenu(); }, [repositionCtxMenu]);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const scrollEls = [window, tableRef.current].filter(Boolean);
+    scrollEls.forEach(el => el!.addEventListener("scroll", repositionCtxMenu, { passive: true }));
+    return () => scrollEls.forEach(el => el!.removeEventListener("scroll", repositionCtxMenu));
+  }, [ctxMenu, repositionCtxMenu]);
 
   // ── Close store dropdowns on outside click ─────────────────────────────
   useEffect(() => {
@@ -278,44 +289,6 @@ export default function ATSReport() {
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [poDropOpen, soDropOpen]);
-
-  // ── Keep context menu fully on screen ──────────────────────────────────
-  // Runs after paint so we know the popup's actual rendered size, then
-  // adjusts its position so it never clips off the right or bottom edge.
-  // If it would overflow the bottom, flip it above the anchor cell instead.
-  useLayoutEffect(() => {
-    if (!ctxMenu || !ctxRef.current) return;
-    const el   = ctxRef.current;
-    const pad  = 8;
-    const vw   = window.innerWidth;
-    const vh   = window.innerHeight;
-    const rect = el.getBoundingClientRect();
-
-    let left    = parseFloat(el.style.left);
-    let flipped = false;
-
-    // Don't overflow the right edge
-    if (rect.right > vw - pad) {
-      left = Math.max(pad, vw - rect.width - pad);
-      el.style.left = `${left}px`;
-    }
-    // Don't overflow the bottom — flip above the anchor cell
-    if (rect.bottom > vh - pad) {
-      const flippedTop = ctxMenu.anchorY - rect.height - 4;
-      el.style.top = `${Math.max(pad, flippedTop)}px`;
-      flipped = true;
-    }
-
-    // Arrow horizontal position: centre it on the anchor cell
-    const cellCenter  = ctxMenu.cellEl ? ctxMenu.cellEl.getBoundingClientRect().left + ctxMenu.cellEl.offsetWidth / 2 : ctxMenu.x + 30;
-    const popupLeft   = parseFloat(el.style.left);
-    const arrowLeft   = Math.max(10, Math.min(cellCenter - popupLeft - 8, rect.width - 26));
-
-    // Only update state if values changed (avoids infinite loop)
-    if (flipped !== ctxMenu.flipped || Math.round(arrowLeft) !== Math.round(ctxMenu.arrowLeft)) {
-      setCtxMenu(prev => prev ? { ...prev, flipped, arrowLeft } : prev);
-    }
-  }, [ctxMenu]);
 
   // ── Event index: sku → date → {pos, sos} for fast period lookup ────────
   const eventIndex = useMemo(() => {
