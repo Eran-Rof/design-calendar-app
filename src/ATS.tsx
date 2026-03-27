@@ -806,23 +806,10 @@ export default function ATSReport() {
   }, [excelData, filteredSkuSet]);
 
   const { marginDollars, marginPct } = useMemo(() => {
-    if (!excelData || totalSoValue === 0) return { marginDollars: 0, marginPct: 0 };
-    const posBySku: Record<string, ATSPoEvent[]> = {};
-    for (const p of excelData.pos) {
-      if (!filteredSkuSet.has(p.sku)) continue;
-      if (!posBySku[p.sku]) posBySku[p.sku] = [];
-      posBySku[p.sku].push(p);
-    }
-    let costBasis = totalPoValue;
-    for (const row of filtered) {
-      const skuPos = posBySku[row.sku] ?? [];
-      const totalQty = skuPos.reduce((s, p) => s + p.qty, 0);
-      const avgCost  = totalQty > 0 ? skuPos.reduce((s, p) => s + p.qty * p.unitCost, 0) / totalQty : 0;
-      costBasis += row.onHand * avgCost;
-    }
-    const margin = totalSoValue - costBasis;
-    return { marginDollars: margin, marginPct: totalSoValue > 0 ? margin / totalSoValue : 0 };
-  }, [excelData, filteredSkuSet, filtered, totalSoValue, totalPoValue]);
+    if (totalSoValue === 0) return { marginDollars: 0, marginPct: 0 };
+    const margin = totalSoValue - totalPoValue;
+    return { marginDollars: margin, marginPct: margin / totalSoValue };
+  }, [totalSoValue, totalPoValue]);
 
   // ── Stat-card filter: show only rows matching the active stat in ANY column ─
   const statFiltered = useMemo(() => {
