@@ -113,15 +113,20 @@ function generateMockData(dates: string[]): ATSRow[] {
 }
 
 // ── Compute ATS rows from compact Excel data ─────────────────────────────────
-function computeRowsFromExcelData(data: ExcelData, dates: string[]): ATSRow[] {
-  // Pre-index events by SKU → date → qty to avoid O(n²) scanning
+function computeRowsFromExcelData(data: ExcelData, dates: string[], poStores: string[], soStores: string[]): ATSRow[] {
+  const allPo = poStores.includes("All");
+  const allSo = soStores.includes("All");
+
+  // Pre-index events by SKU → date → qty, respecting store filters
   const poIdx: Record<string, Record<string, number>> = {};
   const soIdx: Record<string, Record<string, number>> = {};
   for (const p of data.pos) {
+    if (!allPo && !poStores.includes(p.store ?? "ROF")) continue;
     if (!poIdx[p.sku]) poIdx[p.sku] = {};
     poIdx[p.sku][p.date] = (poIdx[p.sku][p.date] ?? 0) + p.qty;
   }
   for (const o of data.sos) {
+    if (!allSo && !soStores.includes(o.store ?? "ROF")) continue;
     if (!soIdx[o.sku]) soIdx[o.sku] = {};
     soIdx[o.sku][o.date] = (soIdx[o.sku][o.date] ?? 0) + o.qty;
   }
@@ -149,12 +154,13 @@ function computeRowsFromExcelData(data: ExcelData, dates: string[]): ATSRow[] {
     }
     if (ats < 0) ats = 0;
 
-    // Walk forward through the display range
+    // Walk forward through the display range — do NOT clamp to 0 mid-stream;
+    // clamping causes subsequent POs to appear as fresh inventory rather than
+    // restoring the true running balance (e.g. OH 205 - SO 2878 + PO 2878 = 205).
     const dateMap: Record<string, number> = {};
     for (const date of dates) {
       ats += (poDates[date] ?? 0) - (soDates[date] ?? 0);
-      if (ats < 0) ats = 0;
-      dateMap[date] = ats;
+      dateMap[date] = ats; // store the real balance; display layer shows 0 for negatives
     }
 
     // Prefer API-stored onCommitted (counts ALL SOs including undated ones);
@@ -188,9 +194,9 @@ function exportToCSV(rows: ATSRow[], dates: string[]) {
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function ATSReport() {
   const today = new Date();
-  const [startDate, setStartDate] = useState(fmtDate(today));
-  const [rangeUnit, setRangeUnit]   = useState<"days" | "weeks" | "months">("weeks");
-  const [rangeValue, setRangeValue] = useState(2);
+  const [startDate, setStartDate] = useState(() => fmtDate(addDays(today, -5)));
+  const [rangeUnit, setRangeUnit]   = useState<"days" | "weeks" | "months">("months");
+  const [rangeValue, setRangeValue] = useState(6);
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("All");
   const [filterStatus, setFilterStatus] = useState("All"); // All, Low, Out, InStock
@@ -383,14 +389,14 @@ export default function ATSReport() {
     });
   }, [startDate, rangeUnit, rangeValue, dates]);
 
-  // ── Recompute rows whenever date range or data changes ─────────────────
+  // ── Recompute rows whenever date range, data, or store filters change ───
   useEffect(() => {
     if (mockMode) {
       setRows(generateMockData(dates));
     } else if (excelData) {
-      setRows(computeRowsFromExcelData(excelData, dates));
+      setRows(computeRowsFromExcelData(excelData, dates, poStores, soStores));
     }
-  }, [mockMode, excelData, dates]);
+  }, [mockMode, excelData, dates, poStores, soStores]);
 
   async function syncFromXoro() {
     setSyncing(true);
@@ -1007,7 +1013,8 @@ export default function ATSReport() {
                       </td>
                       {/* Period cells */}
                       {displayPeriods.map(p => {
-                        const qty = row.dates[p.endDate];
+                        const rawQty = row.dates[p.endDate];
+                        const qty = rawQty != null ? Math.max(0, rawQty) : rawQty; // clamp display only
                         const isHov = hoveredCell?.sku === row.sku && hoveredCell?.date === p.key;
                         const isEmpty = qty === undefined || qty === null;
                         const ev = eventIndex ? getEventsInPeriod(row.sku, p.periodStart, p.endDate) : null;
