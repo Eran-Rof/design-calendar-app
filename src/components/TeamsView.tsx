@@ -58,6 +58,10 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
   const [dmError, setDmError] = useState<string | null>(null);
   const [dmNewMsg, setDmNewMsg] = useState("");
   const [dmSending, setDmSending] = useState(false);
+  const [contacts, setContacts] = useState<any[]>([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [contactSearch, setContactSearch] = useState("");
+  const [contactDropdown, setContactDropdown] = useState(false);
   const dmScrollRef = useRef<HTMLDivElement>(null);
   const refreshingRef = useRef(false);
 
@@ -102,6 +106,11 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
     }, refreshIn);
     return () => clearTimeout(t);
   }, [tokenExpiry, token]);
+
+  // ── Load contacts when token becomes available ───────────────────────────
+  useEffect(() => {
+    if (token && contacts.length === 0 && !contactsLoading) loadContacts();
+  }, [token]);
 
   // ── Load messages when selection changes ────────────────────────────────
   useEffect(() => {
@@ -298,6 +307,22 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
     setDmSending(false);
   }
 
+  async function loadContacts() {
+    if (contactsLoading || !token) return;
+    setContactsLoading(true);
+    try {
+      const d = await graph("/me/people?$top=50&$select=displayName,userPrincipalName,scoredEmailAddresses");
+      setContacts(d.value || []);
+    } catch(e: any) {
+      console.warn("[Teams contacts] /me/people failed:", e?.message);
+      try {
+        const d2 = await graph("/users?$top=50&$select=displayName,userPrincipalName,mail");
+        setContacts((d2.value || []).map((u: any) => ({ ...u, scoredEmailAddresses: u.mail ? [{ address: u.mail }] : [] })));
+      } catch(_) {}
+    }
+    setContactsLoading(false);
+  }
+
   const selectedColl = selectedCollKey ? collMap[selectedCollKey] : null;
   const brand = selectedColl ? getBrand(selectedColl.brand) : null;
   const mapping = selectedCollKey ? channelMap[selectedCollKey] : null;
@@ -456,11 +481,44 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
                   <div style={{ fontSize: 12, color: "#6B7280", marginTop: 2 }}>Send a Teams DM to any team member</div>
                 </div>
                 <div style={{ flex: 1, padding: "20px 24px", overflowY: "auto" }}>
-                  <div style={{ marginBottom: 14 }}>
-                    <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 5 }}>To (email address)</div>
-                    <input value={teamsDirectTo} onChange={e => { setTeamsDirectTo(e.target.value); setTeamsDirectErr(null); }}
-                      placeholder="colleague@ringoffire.com"
+                  <div style={{ marginBottom: 14, position: "relative" as const }}>
+                    <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 5, display: "flex", alignItems: "center", gap: 8 }}>
+                      <span>To{contactsLoading ? " (loading contacts…)" : contacts.length > 0 ? ` — ${contacts.length} contacts` : " — type email"}</span>
+                      {!contactsLoading && contacts.length === 0 && token && (
+                        <button onClick={loadContacts} style={{ fontSize: 10, padding: "1px 7px", borderRadius: 4, border: `1px solid ${TEAMS_PURPLE}44`, background: "none", color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit" }}>↻ Load</button>
+                      )}
+                    </div>
+                    <input value={teamsDirectTo}
+                      onChange={e => { setTeamsDirectTo(e.target.value); setContactSearch(e.target.value); setContactDropdown(true); setTeamsDirectErr(null); }}
+                      onFocus={() => { setContactSearch(teamsDirectTo); setContactDropdown(true); }}
+                      onBlur={() => setTimeout(() => setContactDropdown(false), 150)}
+                      placeholder={contactsLoading ? "Loading contacts…" : contacts.length > 0 ? "Search name or type email…" : "colleague@ringoffire.com"}
                       style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 7, padding: "9px 12px", color: "#F1F5F9", fontSize: 13, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const }} />
+                    {contactDropdown && contacts.length > 0 && (() => {
+                      const q = (contactSearch || "").toLowerCase();
+                      const filtered = contacts.filter((c: any) =>
+                        !q ||
+                        (c.displayName || "").toLowerCase().includes(q) ||
+                        (c.userPrincipalName || "").toLowerCase().includes(q) ||
+                        (c.scoredEmailAddresses?.[0]?.address || "").toLowerCase().includes(q)
+                      );
+                      if (filtered.length === 0) return null;
+                      return (
+                        <div style={{ position: "absolute" as const, top: "100%", left: 0, right: 0, zIndex: 200, background: "#1E293B", border: "1px solid #475569", borderRadius: 8, maxHeight: 200, overflowY: "auto" as const, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", marginTop: 2 }}>
+                          {filtered.slice(0, 10).map((c: any) => {
+                            const email = c.userPrincipalName || c.scoredEmailAddresses?.[0]?.address || "";
+                            return (
+                              <div key={email || c.displayName}
+                                onMouseDown={() => { setTeamsDirectTo(email); setContactDropdown(false); setContactSearch(""); setTeamsDirectErr(null); }}
+                                style={{ padding: "9px 14px", cursor: "pointer", borderBottom: "1px solid #334155" }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: "#F1F5F9" }}>{c.displayName}</div>
+                                <div style={{ fontSize: 11, color: "#6B7280" }}>{email}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </div>
                   <div style={{ marginBottom: 14 }}>
                     <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 5 }}>Message</div>

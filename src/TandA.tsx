@@ -902,8 +902,11 @@ export default function TandAApp() {
                   </div>
                   <div style={{ flex: 1, padding: "20px 24px", overflowY: "auto" }}>
                     <div style={{ marginBottom: 14, position: "relative" as const }}>
-                      <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 5 }}>
-                        To{teamsContactsLoading ? " (loading contacts…)" : teamsContacts.length > 0 ? ` — ${teamsContacts.length} contacts` : " — type email or re-sign in to load contacts"}
+                      <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 5, display: "flex", alignItems: "center", gap: 8 }}>
+                        <span>To{teamsContactsLoading ? " (loading contacts…)" : teamsContacts.length > 0 ? ` — ${teamsContacts.length} contacts` : " — type email"}</span>
+                        {!teamsContactsLoading && teamsContacts.length === 0 && teamsToken && (
+                          <button onClick={loadTeamsContacts} style={{ fontSize: 10, padding: "1px 7px", borderRadius: 4, border: `1px solid ${TEAMS_PURPLE}44`, background: "none", color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit" }}>↻ Load</button>
+                        )}
                       </div>
                       <input value={teamsDirectTo}
                         onChange={e => { setTeamsDirectTo(e.target.value); setTeamsContactSearch(e.target.value); setTeamsContactDropdown(true); setTeamsDirectErr(null); }}
@@ -1015,7 +1018,7 @@ export default function TandAApp() {
               </div>
             ) : (
               <>
-                <div style={{ padding: "14px 20px", borderBottom: "1px solid #334155", background: "#1E293B", display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
+                <div style={{ padding: "14px 50px 14px 20px", borderBottom: "1px solid #334155", background: "#1E293B", display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#F1F5F9" }}>PO# {teamsSelPO}</div>
                     <div style={{ fontSize: 12, color: "#6B7280" }}>{selPO?.VendorName ?? ""}{selPO?.StatusName ? " · " + selPO.StatusName : ""}</div>
@@ -3585,7 +3588,12 @@ export default function TandAApp() {
                                 </div>
                                 <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
                                   <div style={{ position: "relative" as const }}>
-                                    <div style={{ fontSize: 11, color: "#6B7280", marginBottom: 4 }}>To{teamsContactsLoading ? " (loading…)" : teamsContacts.length > 0 ? ` (${teamsContacts.length} contacts)` : ""}</div>
+                                    <div style={{ fontSize: 11, color: "#6B7280", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                                      <span>To{teamsContactsLoading ? " (loading…)" : teamsContacts.length > 0 ? ` (${teamsContacts.length} contacts)` : ""}</span>
+                                      {!teamsContactsLoading && teamsContacts.length === 0 && teamsToken && (
+                                        <button onClick={loadTeamsContacts} style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, border: `1px solid ${TEAMS_PURPLE}44`, background: "none", color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit" }}>↻</button>
+                                      )}
+                                    </div>
                                     <input value={dtlDMTo}
                                       onChange={e => { setDtlDMTo(e.target.value); setDtlDMContactSearch(e.target.value); setDtlDMContactDropdown(true); setDtlDMErr(null); }}
                                       onFocus={() => { setDtlDMContactSearch(dtlDMTo); setDtlDMContactDropdown(true); }}
