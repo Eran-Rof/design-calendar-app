@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
 const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
@@ -39,7 +39,7 @@ interface ATSPoEvent     { sku: string; date: string; qty: number; poNumber: str
 interface ATSSoEvent     { sku: string; date: string; qty: number; orderNumber: string; customerName: string; unitPrice: number; totalPrice: number; store: string; }
 interface UploadWarning  { severity: "error" | "warn"; field: string; affected: number; total: number; message: string; }
 interface ExcelData      { syncedAt: string; skus: ATSSkuData[]; pos: ATSPoEvent[]; sos: ATSSoEvent[]; warnings?: UploadWarning[]; columnNames?: { inventory: string[]; purchases: string[]; orders: string[] }; }
-interface CtxMenu        { x: number; y: number; pos: ATSPoEvent[]; sos: ATSSoEvent[]; cellKey: string; }
+interface CtxMenu        { x: number; y: number; anchorY: number; pos: ATSPoEvent[]; sos: ATSSoEvent[]; cellKey: string; }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function addDays(date: Date, days: number): Date {
@@ -223,6 +223,7 @@ export default function ATSReport() {
   const purRef = useRef<HTMLInputElement>(null);
   const ordRef = useRef<HTMLInputElement>(null);
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
+  const ctxRef   = useRef<HTMLDivElement>(null);
   const cancelRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -233,6 +234,33 @@ export default function ATSReport() {
     const close = () => setCtxMenu(null);
     document.addEventListener("click", close);
     return () => document.removeEventListener("click", close);
+  }, [ctxMenu]);
+
+  // ── Keep context menu fully on screen ──────────────────────────────────
+  // Runs after paint so we know the popup's actual rendered size, then
+  // adjusts its position so it never clips off the right or bottom edge.
+  // If it would overflow the bottom, flip it above the anchor cell instead.
+  useLayoutEffect(() => {
+    if (!ctxMenu || !ctxRef.current) return;
+    const el   = ctxRef.current;
+    const pad  = 8;
+    const vw   = window.innerWidth;
+    const vh   = window.innerHeight;
+    const rect = el.getBoundingClientRect();
+
+    let left = parseFloat(el.style.left);
+    let top  = parseFloat(el.style.top);
+
+    // Don't overflow the right edge
+    if (rect.right > vw - pad) {
+      left = Math.max(pad, vw - rect.width - pad);
+      el.style.left = `${left}px`;
+    }
+    // Don't overflow the bottom — flip above the anchor cell
+    if (rect.bottom > vh - pad) {
+      const flippedTop = ctxMenu.anchorY - rect.height - 4;
+      el.style.top = `${Math.max(pad, flippedTop)}px`;
+    }
   }, [ctxMenu]);
 
   // ── Event index: sku → date → {pos, sos} for fast period lookup ────────
@@ -920,7 +948,8 @@ export default function ATSReport() {
                               e.preventDefault();
                               const cellKey = `${row.sku}::${p.key}`;
                               if (ctxMenu?.cellKey === cellKey) { setCtxMenu(null); return; }
-                              setCtxMenu({ x: e.clientX, y: e.clientY, pos: ev.pos, sos: ev.sos, cellKey });
+                              const cellRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              setCtxMenu({ x: cellRect.left, y: cellRect.bottom + 2, anchorY: cellRect.top, pos: ev.pos, sos: ev.sos, cellKey });
                             }}
                           >
                             {isEmpty ? (
@@ -969,6 +998,7 @@ export default function ATSReport() {
       {/* RIGHT-CLICK CONTEXT MENU */}
       {ctxMenu && (
         <div
+          ref={ctxRef}
           style={{ position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 500, background: "#1E293B", border: "1px solid #334155", borderRadius: 10, minWidth: 260, maxWidth: 380, boxShadow: "0 8px 32px rgba(0,0,0,0.5)", overflow: "hidden" }}
           onClick={e => e.stopPropagation()}
         >
