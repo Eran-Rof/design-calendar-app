@@ -316,36 +316,42 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
     setContactsLoading(true);
     setContactsError(null);
     try {
-      const d = await graph("/me/people?$top=100&$select=displayName,userPrincipalName,scoredEmailAddresses,mail");
-      setContacts(d.value || []);
+      // Load Ring of Fire team members directly — most targeted and reliable
+      const tid = teamId || await sbLoad("teams_team_id");
+      if (!tid) throw new Error("No team ID — open a channel first");
+      const d = await graph(`/teams/${tid}/members?$top=999`);
+      const members = (d.value || [])
+        .filter((m: any) => m.displayName)
+        .map((m: any) => ({
+          displayName: m.displayName,
+          userPrincipalName: m.email || "",
+          scoredEmailAddresses: m.email ? [{ address: m.email }] : [],
+        }))
+        .sort((a: any, b: any) => a.displayName.localeCompare(b.displayName));
+      setContacts(members);
     } catch(e: any) {
-      console.warn("[Teams contacts] /me/people failed:", e?.message);
+      console.warn("[Teams contacts] team members failed:", e?.message);
       try {
-        const d2 = await graph("/users?$top=100&$select=displayName,userPrincipalName,mail&$orderby=displayName", { "ConsistencyLevel": "eventual" });
-        setContacts((d2.value || []).map((u: any) => ({ ...u, scoredEmailAddresses: u.mail ? [{ address: u.mail }] : [] })));
+        const d2 = await graph("/me/people?$top=100&$select=displayName,userPrincipalName,scoredEmailAddresses,mail");
+        setContacts(d2.value || []);
       } catch(e2: any) {
-        console.warn("[Teams contacts] /users fallback failed:", e2?.message);
         const m = (e2?.message || e?.message || "").toLowerCase();
-        const msg = m.includes("401") ? "Session expired" : m.includes("403") ? "Permission denied — sign in again to grant directory access" : "Could not load contacts";
+        const msg = m.includes("401") ? "Session expired" : m.includes("403") ? "Permission denied — sign in again" : "Could not load contacts";
         setContactsError(msg);
       }
     }
     setContactsLoading(false);
   }
 
-  async function searchContacts(q: string) {
-    if (!token || !q.trim()) { setContactSearchResults([]); return; }
-    setContactSearchLoading(true);
-    try {
-      const d = await graph(`/me/people?$search=${encodeURIComponent(q)}&$top=25&$select=displayName,userPrincipalName,scoredEmailAddresses,mail`);
-      setContactSearchResults(d.value || []);
-    } catch(_) {
-      try {
-        const d2 = await graph(`/users?$search="displayName:${encodeURIComponent(q)}"&$top=25&$select=displayName,userPrincipalName,mail`, { "ConsistencyLevel": "eventual" });
-        setContactSearchResults((d2.value || []).map((u: any) => ({ ...u, scoredEmailAddresses: u.mail ? [{ address: u.mail }] : [] })));
-      } catch(_2) { setContactSearchResults([]); }
-    }
-    setContactSearchLoading(false);
+  function searchContacts(q: string) {
+    if (!q.trim()) { setContactSearchResults([]); return; }
+    const lower = q.toLowerCase();
+    const results = contacts.filter(c =>
+      c.displayName?.toLowerCase().includes(lower) ||
+      c.userPrincipalName?.toLowerCase().includes(lower) ||
+      (c.scoredEmailAddresses?.[0]?.address || "").toLowerCase().includes(lower)
+    ).slice(0, 25);
+    setContactSearchResults(results);
   }
 
   function handleContactInput(val: string) {
@@ -355,7 +361,7 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
     setTeamsDirectErr(null);
     if (contactSearchTimer.current) clearTimeout(contactSearchTimer.current);
     if (val.trim().length >= 2) {
-      contactSearchTimer.current = setTimeout(() => searchContacts(val.trim()), 300);
+      searchContacts(val.trim());
     } else {
       setContactSearchResults([]);
     }

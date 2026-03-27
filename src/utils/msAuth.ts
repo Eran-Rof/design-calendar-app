@@ -16,6 +16,7 @@ export const MS_SCOPES = [
   "https://graph.microsoft.com/Mail.Send",
   "https://graph.microsoft.com/People.Read",
   "https://graph.microsoft.com/Team.ReadBasic.All",
+  "https://graph.microsoft.com/TeamMember.Read.All",
   "https://graph.microsoft.com/User.Read",
   "https://graph.microsoft.com/User.ReadBasic.All",
   "offline_access",

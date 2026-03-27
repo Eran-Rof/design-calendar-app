@@ -641,55 +641,55 @@ export default function TandAApp() {
     setTeamsContactsLoading(true);
     setTeamsContactsError(null);
     try {
-      const d = await teamsGraph("/me/people?$top=100&$select=displayName,userPrincipalName,scoredEmailAddresses,mail");
-      setTeamsContacts(d.value || []);
+      // Load Ring of Fire team members directly
+      let tid = teamsTeamId;
+      if (!tid) {
+        const stored = await (async () => { try { const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.teams_team_id&select=value`, { headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` } }); const rows = await res.json(); return rows?.length ? JSON.parse(rows[0].value) : null; } catch(_) { return null; } })();
+        if (stored) { tid = stored; setTeamsTeamId(stored); } else throw new Error("No team ID — open a PO channel first");
+      }
+      const d = await teamsGraph(`/teams/${tid}/members?$top=999`);
+      const members = (d.value || [])
+        .filter((m: any) => m.displayName)
+        .map((m: any) => ({
+          displayName: m.displayName,
+          userPrincipalName: m.email || "",
+          scoredEmailAddresses: m.email ? [{ address: m.email }] : [],
+        }))
+        .sort((a: any, b: any) => a.displayName.localeCompare(b.displayName));
+      setTeamsContacts(members);
     } catch(e: any) {
-      console.warn("[Teams contacts] /me/people failed:", e?.message);
+      console.warn("[Teams contacts] team members failed:", e?.message);
       try {
-        const d2 = await teamsGraph("/users?$top=100&$select=displayName,userPrincipalName,mail&$orderby=displayName", { "ConsistencyLevel": "eventual" });
-        setTeamsContacts((d2.value || []).map((u: any) => ({ ...u, scoredEmailAddresses: u.mail ? [{ address: u.mail }] : [] })));
+        const d2 = await teamsGraph("/me/people?$top=100&$select=displayName,userPrincipalName,scoredEmailAddresses,mail");
+        setTeamsContacts(d2.value || []);
       } catch(e2: any) {
-        console.warn("[Teams contacts] /users fallback failed:", e2?.message);
         setTeamsContactsError(friendlyContactError(e2 || e));
       }
     }
     setTeamsContactsLoading(false);
   }
 
-  async function searchTeamsContacts(q: string, target: "main" | "dtl") {
-    if (!teamsToken || !q.trim()) {
+  function searchTeamsContacts(q: string, target: "main" | "dtl") {
+    if (!q.trim()) {
       if (target === "main") setTeamsContactSearchResults([]);
       else setDtlDMContactSearchResults([]);
       return;
     }
-    if (target === "main") setTeamsContactSearchLoading(true);
-    else setDtlDMContactSearchLoading(true);
-    try {
-      const d = await teamsGraph(`/me/people?$search=${encodeURIComponent(q)}&$top=25&$select=displayName,userPrincipalName,scoredEmailAddresses,mail`);
-      if (target === "main") setTeamsContactSearchResults(d.value || []);
-      else setDtlDMContactSearchResults(d.value || []);
-    } catch(_) {
-      try {
-        const d2 = await teamsGraph(`/users?$search="displayName:${encodeURIComponent(q)}"&$top=25&$select=displayName,userPrincipalName,mail`, { "ConsistencyLevel": "eventual" });
-        const mapped = (d2.value || []).map((u: any) => ({ ...u, scoredEmailAddresses: u.mail ? [{ address: u.mail }] : [] }));
-        if (target === "main") setTeamsContactSearchResults(mapped);
-        else setDtlDMContactSearchResults(mapped);
-      } catch(_2) {
-        if (target === "main") setTeamsContactSearchResults([]);
-        else setDtlDMContactSearchResults([]);
-      }
-    }
-    if (target === "main") setTeamsContactSearchLoading(false);
-    else setDtlDMContactSearchLoading(false);
+    const lower = q.toLowerCase();
+    const results = teamsContacts.filter(c =>
+      c.displayName?.toLowerCase().includes(lower) ||
+      c.userPrincipalName?.toLowerCase().includes(lower) ||
+      (c.scoredEmailAddresses?.[0]?.address || "").toLowerCase().includes(lower)
+    ).slice(0, 25);
+    if (target === "main") setTeamsContactSearchResults(results);
+    else setDtlDMContactSearchResults(results);
   }
 
   function handleTeamsContactInput(val: string, target: "main" | "dtl") {
     if (target === "main") { setTeamsDirectTo(val); setTeamsContactSearch(val); setTeamsContactDropdown(true); setTeamsDirectErr(null); }
     else { setDtlDMTo(val); setDtlDMContactSearch(val); setDtlDMContactDropdown(true); }
-    const timer = target === "main" ? teamsContactSearchTimer : dtlDMContactSearchTimer;
-    if (timer.current) clearTimeout(timer.current);
     if (val.trim().length >= 2) {
-      timer.current = setTimeout(() => searchTeamsContacts(val.trim(), target), 300);
+      searchTeamsContacts(val.trim(), target);
     } else {
       if (target === "main") setTeamsContactSearchResults([]);
       else setDtlDMContactSearchResults([]);
