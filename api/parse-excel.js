@@ -83,8 +83,11 @@ export default async function handler(req, res) {
           if (!poNumber) poNoPoNum++;
           if (!vendor)   poNoVendor++;
 
+          const brandName = str(r["Brand Name"] || r["Brand"] || "");
+          const store = detectPoStore(poNumber, brandName);
+
           if (date) {
-            pos.push({ sku, date, qty, poNumber, vendor });
+            pos.push({ sku, date, qty, poNumber, vendor, store });
           }
         }
       }
@@ -118,8 +121,12 @@ export default async function handler(req, res) {
           if (!orderNumber) soNoOrderNum++;
           if (!customerName) soNoCustName++;
 
+          const saleStore = str(r["Sale Store"] || r["Store"] || r["Channel"] || "");
+          const brand     = str(r["Brand"] || r["Brand Name"] || "");
+          const store     = detectSoStore(orderNumber, saleStore, brand);
+
           if (date) {
-            sos.push({ sku, date, qty, orderNumber, customerName, unitPrice, totalPrice });
+            sos.push({ sku, date, qty, orderNumber, customerName, unitPrice, totalPrice, store });
           }
         }
       }
@@ -217,6 +224,29 @@ function str(v) {
 function toNum(v) {
   const n = parseFloat(String(v).replace(/[^0-9.-]/g, ""));
   return isNaN(n) ? 0 : Math.round(n);
+}
+
+// Derive store from PO number and brand name
+// ROF ECOM = PO number contains "ECOM"
+// PT       = brand contains "Psycho" / "PTUNA" / "P TUNA" or starts with "PT"
+// ROF      = everything else (Ring of Fire)
+function detectPoStore(poNumber, brandName) {
+  const pn = poNumber.toUpperCase();
+  const bn = brandName.toUpperCase();
+  if (pn.includes("ECOM")) return "ROF ECOM";
+  if (bn.includes("PSYCHO") || bn.includes("PTUNA") || bn.includes("P TUNA") || bn === "PT" || bn.startsWith("PT ")) return "PT";
+  return "ROF";
+}
+
+// Derive store from order number, sale store field, and brand
+function detectSoStore(orderNumber, saleStore, brand) {
+  const on = orderNumber.toUpperCase();
+  const ss = saleStore.toUpperCase();
+  const br = brand.toUpperCase();
+  if (on.includes("ECOM") || ss.includes("ECOM")) return "ROF ECOM";
+  if (br.includes("PSYCHO") || ss.includes("PSYCHO") || br.includes("PTUNA") || ss.includes("PTUNA") ||
+      br.includes("P TUNA") || ss.includes("P TUNA") || br === "PT" || ss === "PT" || br.startsWith("PT ") || ss.startsWith("PT ")) return "PT";
+  return "ROF";
 }
 
 // Returns YYYY-MM-DD string or null if date is missing/unparseable.

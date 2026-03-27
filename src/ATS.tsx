@@ -35,8 +35,8 @@ interface ATSSnapshot {
 
 // Compact format stored in app_data — compute timeline client-side
 interface ATSSkuData     { sku: string; description: string; category?: string; onHand: number; onOrder: number; onCommitted?: number; }
-interface ATSPoEvent     { sku: string; date: string; qty: number; poNumber: string; vendor: string; }
-interface ATSSoEvent     { sku: string; date: string; qty: number; orderNumber: string; customerName: string; unitPrice: number; totalPrice: number; }
+interface ATSPoEvent     { sku: string; date: string; qty: number; poNumber: string; vendor: string; store: string; }
+interface ATSSoEvent     { sku: string; date: string; qty: number; orderNumber: string; customerName: string; unitPrice: number; totalPrice: number; store: string; }
 interface UploadWarning  { severity: "error" | "warn"; field: string; affected: number; total: number; message: string; }
 interface ExcelData      { syncedAt: string; skus: ATSSkuData[]; pos: ATSPoEvent[]; sos: ATSSoEvent[]; warnings?: UploadWarning[]; columnNames?: { inventory: string[]; purchases: string[]; orders: string[] }; }
 interface CtxMenu        { x: number; y: number; pos: ATSPoEvent[]; sos: ATSSoEvent[]; }
@@ -194,6 +194,9 @@ export default function ATSReport() {
   const [filterCategory, setFilterCategory] = useState("All");
   const [filterStatus, setFilterStatus] = useState("All"); // All, Low, Out, InStock
   const [minATS, setMinATS] = useState<number | "">("");
+  const STORES = ["ROF", "ROF ECOM", "PT"] as const;
+  const [poStores, setPoStores]   = useState<string[]>(["All"]);
+  const [soStores, setSoStores]   = useState<string[]>(["All"]);
   const [rows, setRows] = useState<ATSRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [mockMode, setMockMode] = useState(true);
@@ -249,12 +252,27 @@ export default function ATSReport() {
     return idx;
   }, [excelData]);
 
+  function toggleStore(current: string[], set: (v: string[]) => void, store: string) {
+    if (store === "All") { set(["All"]); return; }
+    const without = current.filter(s => s !== "All");
+    const next = without.includes(store) ? without.filter(s => s !== store) : [...without, store];
+    set(next.length === 0 ? ["All"] : next);
+  }
+
+  const poStoreActive  = (s: string) => poStores.includes("All") ? s === "All" : poStores.includes(s);
+  const soStoreActive  = (s: string) => soStores.includes("All") ? s === "All" : soStores.includes(s);
+
   function getEventsInPeriod(sku: string, periodStart: string, endDate: string) {
     const skuIdx = eventIndex?.[sku];
     if (!skuIdx) return { pos: [] as ATSPoEvent[], sos: [] as ATSSoEvent[] };
     const pos: ATSPoEvent[] = [], sos: ATSSoEvent[] = [];
+    const allPo = poStores.includes("All");
+    const allSo = soStores.includes("All");
     for (const [date, ev] of Object.entries(skuIdx)) {
-      if (date >= periodStart && date <= endDate) { pos.push(...ev.pos); sos.push(...ev.sos); }
+      if (date >= periodStart && date <= endDate) {
+        pos.push(...(allPo ? ev.pos : ev.pos.filter(p => poStores.includes(p.store ?? "ROF"))));
+        sos.push(...(allSo ? ev.sos : ev.sos.filter(s => soStores.includes(s.store ?? "ROF"))));
+      }
     }
     return { pos, sos };
   }
@@ -690,6 +708,32 @@ export default function ATSReport() {
             <option value="Low">Low stock</option>
             <option value="Out">Out of stock</option>
           </select>
+          {/* PO Store filter */}
+          <div style={S.datePicker}>
+            <label style={S.dateLabel}>POs</label>
+            {(["All", ...STORES] as string[]).map(s => (
+              <button key={s} onClick={() => toggleStore(poStores, setPoStores, s)} style={{
+                padding: "3px 9px", borderRadius: 12, fontSize: 11, fontWeight: 600, cursor: "pointer", border: "1px solid",
+                background: poStoreActive(s) ? (s === "ROF ECOM" ? "#0ea5e9" : s === "PT" ? "#8b5cf6" : "#F59E0B") : "transparent",
+                borderColor: poStoreActive(s) ? "transparent" : "#334155",
+                color: poStoreActive(s) ? "#0F172A" : "#6B7280",
+                transition: "all 0.15s",
+              }}>{s}</button>
+            ))}
+          </div>
+          {/* SO Store filter */}
+          <div style={S.datePicker}>
+            <label style={S.dateLabel}>SOs</label>
+            {(["All", ...STORES] as string[]).map(s => (
+              <button key={s} onClick={() => toggleStore(soStores, setSoStores, s)} style={{
+                padding: "3px 9px", borderRadius: 12, fontSize: 11, fontWeight: 600, cursor: "pointer", border: "1px solid",
+                background: soStoreActive(s) ? (s === "ROF ECOM" ? "#0ea5e9" : s === "PT" ? "#8b5cf6" : "#3B82F6") : "transparent",
+                borderColor: soStoreActive(s) ? "transparent" : "#334155",
+                color: soStoreActive(s) ? (soStoreActive(s) && s !== "All" ? "#fff" : "#0F172A") : "#6B7280",
+                transition: "all 0.15s",
+              }}>{s}</button>
+            ))}
+          </div>
           <div style={S.datePicker}>
             <label style={S.dateLabel}>Min ATS</label>
             <input
@@ -931,7 +975,10 @@ export default function ATSReport() {
                 <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                     <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700 }}>{s.orderNumber || "—"}</span>
-                    <span style={{ color: "#10B981", fontWeight: 700 }}>{s.qty.toLocaleString()} units</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      {s.store && <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8, background: s.store === "ROF ECOM" ? "rgba(14,165,233,0.2)" : s.store === "PT" ? "rgba(139,92,246,0.2)" : "rgba(59,130,246,0.2)", color: s.store === "ROF ECOM" ? "#7dd3fc" : s.store === "PT" ? "#c4b5fd" : "#93c5fd" }}>{s.store}</span>}
+                      <span style={{ color: "#10B981", fontWeight: 700 }}>{s.qty.toLocaleString()} units</span>
+                    </span>
                   </div>
                   <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{s.customerName || "—"}</div>
                   <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
@@ -952,7 +999,10 @@ export default function ATSReport() {
                 <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                     <span style={{ color: "#FCD34D", fontFamily: "monospace", fontWeight: 700 }}>{p.poNumber || "—"}</span>
-                    <span style={{ color: "#10B981", fontWeight: 700 }}>+{p.qty.toLocaleString()} units</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      {p.store && <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8, background: p.store === "ROF ECOM" ? "rgba(14,165,233,0.2)" : p.store === "PT" ? "rgba(139,92,246,0.2)" : "rgba(245,158,11,0.2)", color: p.store === "ROF ECOM" ? "#7dd3fc" : p.store === "PT" ? "#c4b5fd" : "#fcd34d" }}>{p.store}</span>}
+                      <span style={{ color: "#10B981", fontWeight: 700 }}>+{p.qty.toLocaleString()} units</span>
+                    </span>
                   </div>
                   <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{p.vendor || "—"}</div>
                   <div style={{ color: "#94A3B8", fontSize: 11 }}>Expected: {p.date}</div>
