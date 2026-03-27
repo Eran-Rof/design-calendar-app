@@ -34,9 +34,11 @@ interface ATSSnapshot {
 }
 
 // Compact format stored in app_data — compute timeline client-side
-interface ATSSkuData   { sku: string; description: string; category?: string; onHand: number; onOrder: number; onCommitted?: number; }
-interface ATSEventData { sku: string; date: string; qty: number; }
-interface ExcelData    { syncedAt: string; skus: ATSSkuData[]; pos: ATSEventData[]; sos: ATSEventData[]; }
+interface ATSSkuData  { sku: string; description: string; category?: string; onHand: number; onOrder: number; onCommitted?: number; }
+interface ATSPoEvent  { sku: string; date: string; qty: number; poNumber: string; vendor: string; }
+interface ATSSoEvent  { sku: string; date: string; qty: number; orderNumber: string; customerName: string; unitPrice: number; totalPrice: number; }
+interface ExcelData   { syncedAt: string; skus: ATSSkuData[]; pos: ATSPoEvent[]; sos: ATSSoEvent[]; }
+interface CtxMenu     { x: number; y: number; pos: ATSPoEvent[]; sos: ATSSoEvent[]; }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function addDays(date: Date, days: number): Date {
@@ -190,9 +192,45 @@ export default function ATSReport() {
   const invRef = useRef<HTMLInputElement>(null);
   const purRef = useRef<HTMLInputElement>(null);
   const ordRef = useRef<HTMLInputElement>(null);
+  const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
   const cancelRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
+
+  // ── Close context menu on outside click ────────────────────────────────
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [ctxMenu]);
+
+  // ── Event index: sku → date → {pos, sos} for fast period lookup ────────
+  const eventIndex = useMemo(() => {
+    if (!excelData) return null;
+    const idx: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> = {};
+    for (const p of excelData.pos) {
+      if (!idx[p.sku]) idx[p.sku] = {};
+      if (!idx[p.sku][p.date]) idx[p.sku][p.date] = { pos: [], sos: [] };
+      idx[p.sku][p.date].pos.push(p);
+    }
+    for (const s of excelData.sos) {
+      if (!idx[s.sku]) idx[s.sku] = {};
+      if (!idx[s.sku][s.date]) idx[s.sku][s.date] = { pos: [], sos: [] };
+      idx[s.sku][s.date].sos.push(s);
+    }
+    return idx;
+  }, [excelData]);
+
+  function getEventsInPeriod(sku: string, periodStart: string, endDate: string) {
+    const skuIdx = eventIndex?.[sku];
+    if (!skuIdx) return { pos: [] as ATSPoEvent[], sos: [] as ATSSoEvent[] };
+    const pos: ATSPoEvent[] = [], sos: ATSSoEvent[] = [];
+    for (const [date, ev] of Object.entries(skuIdx)) {
+      if (date >= periodStart && date <= endDate) { pos.push(...ev.pos); sos.push(...ev.sos); }
+    }
+    return { pos, sos };
+  }
 
   // ── Compute date range (all daily dates, used for ATS computation) ───────
   const dates = useMemo(() => {
@@ -216,30 +254,31 @@ export default function ATSReport() {
   // ── Display periods: what columns to render in the table ─────────────────
   const displayPeriods = useMemo(() => {
     if (rangeUnit === "days") {
-      return dates.map(d => ({ key: d, endDate: d, label: fmtDateHeader(d), isToday: isToday(d), isWeekend: isWeekend(d) }));
+      return dates.map(d => ({ key: d, periodStart: d, endDate: d, label: fmtDateHeader(d), isToday: isToday(d), isWeekend: isWeekend(d) }));
     }
     if (rangeUnit === "weeks") {
       const start = new Date(startDate + "T00:00:00");
       return Array.from({ length: rangeValue }, (_, i) => {
         const wStart = addDays(start, i * 7);
-        const wEnd   = addDays(wStart, 4); // Friday
+        const wEnd   = addDays(wStart, 4);
         const s = wStart.toLocaleDateString("en-US", { month: "short", day: "numeric" });
         const e = wEnd.toLocaleDateString("en-US",   { month: "short", day: "numeric" });
-        return { key: fmtDate(wEnd), endDate: fmtDate(wEnd), label: `${s} – ${e}`, isToday: false, isWeekend: false };
+        return { key: fmtDate(wEnd), periodStart: fmtDate(wStart), endDate: fmtDate(wEnd), label: `${s} – ${e}`, isToday: false, isWeekend: false };
       });
     }
-    // months
     const start = new Date(startDate + "T00:00:00");
     return Array.from({ length: rangeValue }, (_, i) => {
       const m = new Date(start);
       m.setMonth(m.getMonth() + i);
-      const lastDay = new Date(m.getFullYear(), m.getMonth() + 1, 0);
+      const firstDay = new Date(m.getFullYear(), m.getMonth(), 1);
+      const lastDay  = new Date(m.getFullYear(), m.getMonth() + 1, 0);
       return {
-        key:      fmtDate(lastDay),
-        endDate:  fmtDate(lastDay),
-        label:    m.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
-        isToday:  false,
-        isWeekend: false,
+        key:         fmtDate(lastDay),
+        periodStart: fmtDate(firstDay),
+        endDate:     fmtDate(lastDay),
+        label:       m.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+        isToday:     false,
+        isWeekend:   false,
       };
     });
   }, [startDate, rangeUnit, rangeValue, dates]);
@@ -750,6 +789,13 @@ export default function ATSReport() {
                         const qty = row.dates[p.endDate];
                         const isHov = hoveredCell?.sku === row.sku && hoveredCell?.date === p.key;
                         const isEmpty = qty === undefined || qty === null;
+                        const ev = eventIndex ? getEventsInPeriod(row.sku, p.periodStart, p.endDate) : null;
+                        const hasPO = (ev?.pos.length ?? 0) > 0;
+                        const hasSO = (ev?.sos.length ?? 0) > 0;
+                        const eventBg = hasPO && hasSO ? "rgba(180,120,0,0.18)"
+                          : hasPO ? "rgba(245,158,11,0.18)"
+                          : hasSO ? "rgba(59,130,246,0.18)"
+                          : undefined;
                         return (
                           <td
                             key={p.key}
@@ -757,17 +803,25 @@ export default function ATSReport() {
                               ...S.td,
                               textAlign: "center",
                               padding: "4px",
-                              background: p.isToday
+                              background: eventBg ?? (p.isToday
                                 ? (isEmpty ? "#12201a" : getQtyBg(qty) + "cc")
-                                : (isEmpty ? "#0F172A" : getQtyBg(qty)),
-                              cursor: "default",
+                                : (isEmpty ? "#0F172A" : getQtyBg(qty))),
+                              cursor: (hasPO || hasSO) ? "context-menu" : "default",
                               transition: "all 0.1s",
                               outline: isHov ? `1px solid ${isEmpty ? "#334155" : getQtyColor(qty)}` : "none",
                               outlineOffset: -1,
                               position: "relative",
+                              boxShadow: hasPO ? "inset 0 0 0 1px rgba(245,158,11,0.4)"
+                                : hasSO ? "inset 0 0 0 1px rgba(59,130,246,0.4)"
+                                : undefined,
                             }}
                             onMouseEnter={() => setHoveredCell({ sku: row.sku, date: p.key })}
                             onMouseLeave={() => setHoveredCell(null)}
+                            onContextMenu={e => {
+                              if (!ev || (!hasPO && !hasSO)) return;
+                              e.preventDefault();
+                              setCtxMenu({ x: e.clientX, y: e.clientY, pos: ev.pos, sos: ev.sos });
+                            }}
                           >
                             {isEmpty ? (
                               <span style={{ color: "#334155", fontSize: 11 }}>—</span>
@@ -811,6 +865,51 @@ export default function ATSReport() {
           </div>
         )}
       </div>
+
+      {/* RIGHT-CLICK CONTEXT MENU */}
+      {ctxMenu && (
+        <div
+          style={{ position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 500, background: "#1E293B", border: "1px solid #334155", borderRadius: 10, minWidth: 260, maxWidth: 380, boxShadow: "0 8px 32px rgba(0,0,0,0.5)", overflow: "hidden" }}
+          onClick={e => e.stopPropagation()}
+        >
+          {ctxMenu.sos.length > 0 && (
+            <div>
+              <div style={{ background: "rgba(59,130,246,0.15)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#93C5FD", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #1E3A5F" }}>
+                Sales Orders ({ctxMenu.sos.length})
+              </div>
+              {ctxMenu.sos.map((s, i) => (
+                <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                    <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700 }}>{s.orderNumber || "—"}</span>
+                    <span style={{ color: "#10B981", fontWeight: 700 }}>{s.qty.toLocaleString()} units</span>
+                  </div>
+                  <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{s.customerName || "—"}</div>
+                  <div style={{ display: "flex", gap: 16 }}>
+                    <span style={{ color: "#94A3B8", fontSize: 11 }}>Unit: ${s.unitPrice?.toFixed(2) ?? "—"}</span>
+                    <span style={{ color: "#94A3B8", fontSize: 11 }}>Total: ${s.totalPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "—"}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {ctxMenu.pos.length > 0 && (
+            <div>
+              <div style={{ background: "rgba(245,158,11,0.15)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#FCD34D", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #3D2E00" }}>
+                Purchase Orders ({ctxMenu.pos.length})
+              </div>
+              {ctxMenu.pos.map((p, i) => (
+                <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                    <span style={{ color: "#FCD34D", fontFamily: "monospace", fontWeight: 700 }}>{p.poNumber || "—"}</span>
+                    <span style={{ color: "#10B981", fontWeight: 700 }}>+{p.qty.toLocaleString()} units</span>
+                  </div>
+                  <div style={{ color: "#CBD5E1" }}>{p.vendor || "—"}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* UPLOAD PROGRESS OVERLAY */}
       {uploadProgress && (

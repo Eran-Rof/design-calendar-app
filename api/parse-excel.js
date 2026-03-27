@@ -71,7 +71,7 @@ export default async function handler(req, res) {
         if (qty > 0) {
           const date = parseDate(r["Expected Delivery Date"]);
           skuMap[sku].onOrder += qty;
-          pos.push({ sku, date, qty });
+          pos.push({ sku, date, qty, poNumber: str(r["PO"]), vendor: str(r["Vendor"]) });
         }
       }
 
@@ -94,7 +94,13 @@ export default async function handler(req, res) {
         if (qty > 0) {
           // Use cancel date as the date SO qty is applied to ATS
           const date = parseDate(r["Date to be Cancelled"] || r["Order Date to be Shipped"]);
-          sos.push({ sku, date, qty });
+          sos.push({
+            sku, date, qty,
+            orderNumber:  str(r["Order Number"]),
+            customerName: str(r["Customer Name"]),
+            unitPrice:    parseFloat(String(r["Unit Price"]).replace(/[^0-9.-]/g, "")) || 0,
+            totalPrice:   parseFloat(String(r["Total Sum of Total Price"]).replace(/[^0-9.-]/g, "")) || 0,
+          });
         }
       }
 
