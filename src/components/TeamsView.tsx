@@ -60,6 +60,7 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
   const [dmSending, setDmSending] = useState(false);
   const [contacts, setContacts] = useState<any[]>([]);
   const [contactsLoading, setContactsLoading] = useState(false);
+  const [contactsError, setContactsError] = useState<string | null>(null);
   const [contactSearch, setContactSearch] = useState("");
   const [contactDropdown, setContactDropdown] = useState(false);
   const [contactSearchResults, setContactSearchResults] = useState<any[]>([]);
@@ -313,15 +314,19 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
   async function loadContacts() {
     if (contactsLoading || !token) return;
     setContactsLoading(true);
+    setContactsError(null);
     try {
       const d = await graph("/me/people?$top=100&$select=displayName,userPrincipalName,scoredEmailAddresses,mail");
       setContacts(d.value || []);
     } catch(e: any) {
       console.warn("[Teams contacts] /me/people failed:", e?.message);
+      // Fallback: org directory
       try {
         const d2 = await graph("/users?$top=100&$select=displayName,userPrincipalName,mail");
         setContacts((d2.value || []).map((u: any) => ({ ...u, scoredEmailAddresses: u.mail ? [{ address: u.mail }] : [] })));
-      } catch(_) {}
+      } catch(e2: any) {
+        setContactsError(e2?.message || e?.message || "Failed to load contacts");
+      }
     }
     setContactsLoading(false);
   }
@@ -330,7 +335,7 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
     if (!token || !q.trim()) { setContactSearchResults([]); return; }
     setContactSearchLoading(true);
     try {
-      const d = await graph(`/me/people?$search="${encodeURIComponent(q)}"&$top=25&$select=displayName,userPrincipalName,scoredEmailAddresses,mail`);
+      const d = await graph(`/me/people?$search=${encodeURIComponent(q)}&$top=25&$select=displayName,userPrincipalName,scoredEmailAddresses,mail`);
       setContactSearchResults(d.value || []);
     } catch(_) { setContactSearchResults([]); }
     setContactSearchLoading(false);
@@ -508,11 +513,14 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
                 </div>
                 <div style={{ flex: 1, padding: "20px 24px", overflowY: "auto" }}>
                   <div style={{ marginBottom: 14, position: "relative" as const }}>
-                    <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 5, display: "flex", alignItems: "center", gap: 8 }}>
-                      <span>To{contactsLoading ? " (loading…)" : contacts.length > 0 ? ` — ${contacts.length} recent · type to search all` : " — type name or email"}</span>
-                      {!contactsLoading && contacts.length === 0 && token && (
-                        <button onClick={loadContacts} style={{ fontSize: 10, padding: "1px 7px", borderRadius: 4, border: `1px solid ${TEAMS_PURPLE}44`, background: "none", color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit" }}>↻ Load</button>
-                      )}
+                    <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 5 }}>
+                      {contactsLoading
+                        ? "Loading contacts…"
+                        : contactsError
+                          ? <span style={{ color: "#F87171" }}>⚠ {contactsError} — <button onClick={loadContacts} style={{ background: "none", border: "none", color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit", fontSize: 12, padding: 0, textDecoration: "underline" }}>retry</button> or sign out &amp; back in</span>
+                          : contacts.length > 0
+                            ? `To — ${contacts.length} contacts loaded · type to search all`
+                            : "To — type name or email"}
                     </div>
                     <input value={teamsDirectTo}
                       onChange={e => handleContactInput(e.target.value)}

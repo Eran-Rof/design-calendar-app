@@ -520,6 +520,7 @@ export default function TandAApp() {
   const [teamsContactDropdown, setTeamsContactDropdown] = useState(false);
   const [teamsContactSearchResults, setTeamsContactSearchResults] = useState<any[]>([]);
   const [teamsContactSearchLoading, setTeamsContactSearchLoading] = useState(false);
+  const [teamsContactsError, setTeamsContactsError] = useState<string | null>(null);
   const teamsContactSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // ── Detail-panel Teams DM state ──────────────────────────────────────────
   const [dtlDMTo, setDtlDMTo] = useState("");
@@ -630,6 +631,7 @@ export default function TandAApp() {
   async function loadTeamsContacts() {
     if (teamsContactsLoading) return;
     setTeamsContactsLoading(true);
+    setTeamsContactsError(null);
     try {
       const d = await teamsGraph("/me/people?$top=100&$select=displayName,userPrincipalName,scoredEmailAddresses,mail");
       setTeamsContacts(d.value || []);
@@ -638,7 +640,9 @@ export default function TandAApp() {
       try {
         const d2 = await teamsGraph("/users?$top=100&$select=displayName,userPrincipalName,mail");
         setTeamsContacts((d2.value || []).map((u: any) => ({ ...u, scoredEmailAddresses: u.mail ? [{ address: u.mail }] : [] })));
-      } catch(_) {}
+      } catch(e2: any) {
+        setTeamsContactsError(e2?.message || e?.message || "Failed to load contacts");
+      }
     }
     setTeamsContactsLoading(false);
   }
@@ -652,7 +656,7 @@ export default function TandAApp() {
     if (target === "main") setTeamsContactSearchLoading(true);
     else setDtlDMContactSearchLoading(true);
     try {
-      const d = await teamsGraph(`/me/people?$search="${encodeURIComponent(q)}"&$top=25&$select=displayName,userPrincipalName,scoredEmailAddresses,mail`);
+      const d = await teamsGraph(`/me/people?$search=${encodeURIComponent(q)}&$top=25&$select=displayName,userPrincipalName,scoredEmailAddresses,mail`);
       if (target === "main") setTeamsContactSearchResults(d.value || []);
       else setDtlDMContactSearchResults(d.value || []);
     } catch(_) {
@@ -962,11 +966,14 @@ export default function TandAApp() {
                   </div>
                   <div style={{ flex: 1, padding: "20px 24px", overflowY: "auto" }}>
                     <div style={{ marginBottom: 14, position: "relative" as const }}>
-                      <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 5, display: "flex", alignItems: "center", gap: 8 }}>
-                        <span>To{teamsContactsLoading ? " (loading…)" : teamsContacts.length > 0 ? ` — ${teamsContacts.length} recent · type to search all` : " — type name or email"}</span>
-                        {!teamsContactsLoading && teamsContacts.length === 0 && teamsToken && (
-                          <button onClick={loadTeamsContacts} style={{ fontSize: 10, padding: "1px 7px", borderRadius: 4, border: `1px solid ${TEAMS_PURPLE}44`, background: "none", color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit" }}>↻ Load</button>
-                        )}
+                      <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 5 }}>
+                        {teamsContactsLoading
+                          ? "Loading contacts…"
+                          : teamsContactsError
+                            ? <span style={{ color: "#F87171" }}>⚠ {teamsContactsError} — <button onClick={loadTeamsContacts} style={{ background: "none", border: "none", color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit", fontSize: 12, padding: 0, textDecoration: "underline" }}>retry</button> or sign out &amp; back in</span>
+                            : teamsContacts.length > 0
+                              ? `To — ${teamsContacts.length} contacts loaded · type to search all`
+                              : "To — type name or email"}
                       </div>
                       <input value={teamsDirectTo}
                         onChange={e => handleTeamsContactInput(e.target.value, "main")}
@@ -3758,11 +3765,14 @@ export default function TandAApp() {
                                 </div>
                                 <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
                                   <div style={{ position: "relative" as const }}>
-                                    <div style={{ fontSize: 11, color: "#6B7280", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
-                                      <span>To{teamsContactsLoading ? " (loading…)" : teamsContacts.length > 0 ? ` — ${teamsContacts.length} recent · type to search all` : " — type name or email"}</span>
-                                      {!teamsContactsLoading && teamsContacts.length === 0 && teamsToken && (
-                                        <button onClick={loadTeamsContacts} style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, border: `1px solid ${TEAMS_PURPLE}44`, background: "none", color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit" }}>↻</button>
-                                      )}
+                                    <div style={{ fontSize: 11, color: "#6B7280", marginBottom: 4 }}>
+                                      {teamsContactsLoading
+                                        ? "Loading contacts…"
+                                        : teamsContactsError
+                                          ? <span style={{ color: "#F87171" }}>⚠ Failed — <button onClick={loadTeamsContacts} style={{ background: "none", border: "none", color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit", fontSize: 11, padding: 0, textDecoration: "underline" }}>retry</button></span>
+                                          : teamsContacts.length > 0
+                                            ? `To (${teamsContacts.length} contacts)`
+                                            : "To"}
                                     </div>
                                     <input value={dtlDMTo}
                                       onChange={e => handleTeamsContactInput(e.target.value, "dtl")}
