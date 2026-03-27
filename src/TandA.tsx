@@ -50,6 +50,23 @@ interface SyncFilters {
   statuses: string[];
 }
 
+interface SyncLogEntry {
+  ts: string;           // ISO timestamp
+  user: string;         // user name
+  success: boolean;
+  added: number;
+  changed: number;
+  deleted: number;
+  error?: string;       // error message if failed
+  filters?: {           // filters applied (if any)
+    vendors?: string[];
+    statuses?: string[];
+    poNumbers?: string[];
+    dateFrom?: string;
+    dateTo?: string;
+  };
+}
+
 function mapXoroRaw(raw: any[]): XoroPO[] {
   return raw.map((item: any) => {
     const h = item.poHeader ?? item;
@@ -415,6 +432,8 @@ export default function TandAApp() {
   const [syncProgress, setSyncProgress] = useState(0);
   const [syncProgressMsg, setSyncProgressMsg] = useState("");
   const [syncDone, setSyncDone] = useState<{ added: number; changed: number; deleted: number } | null>(null);
+  const [syncLog, setSyncLog] = useState<SyncLogEntry[]>([]);
+  const [showSyncLog, setShowSyncLog] = useState(false);
   const [poSearch, setPoSearch] = useState("");
   const [poDropdownOpen, setPoDropdownOpen] = useState(false);
   const [xoroVendors, setXoroVendors]         = useState<string[]>([]);
@@ -1700,12 +1719,46 @@ export default function TandAApp() {
     setSyncErr("Sync cancelled.");
   }
 
+  // ── Sync log helpers ─────────────────────────────────────────────────────
+  async function loadSyncLog() {
+    try {
+      const res = await sb.from("app_data").single("value", "key=eq.tanda_sync_log");
+      if (res.data?.value) setSyncLog(JSON.parse(res.data.value) || []);
+    } catch(_) {}
+  }
+
+  async function appendSyncLog(entry: SyncLogEntry) {
+    const next = [entry, ...syncLog].slice(0, 200); // keep last 200 entries
+    setSyncLog(next);
+    try {
+      await fetch(`${SB_URL}/rest/v1/app_data`, {
+        method: "POST",
+        headers: { ...SB_HEADERS, "Prefer": "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ key: "tanda_sync_log", value: JSON.stringify(next) }),
+      });
+    } catch(_) {}
+  }
+
   // ── Sync from Xoro with filters ───────────────────────────────────────────
   async function syncFromXoro(filters?: SyncFilters) {
     // Abort any previous sync
     syncAbortRef.current?.abort();
     const controller = new AbortController();
     syncAbortRef.current = controller;
+
+    // Capture applied filters before resetting state
+    const appliedFilters = filters && (
+      (filters.vendors?.length ?? 0) > 0 ||
+      (filters.statuses?.length ?? 0) > 0 ||
+      (filters.poNumbers?.length ?? 0) > 0 ||
+      filters.dateFrom || filters.dateTo
+    ) ? {
+      vendors: filters.vendors?.length ? filters.vendors : undefined,
+      statuses: filters.statuses?.length ? filters.statuses : undefined,
+      poNumbers: filters.poNumbers?.length ? filters.poNumbers : undefined,
+      dateFrom: filters.dateFrom || undefined,
+      dateTo: filters.dateTo || undefined,
+    } : undefined;
 
     setSyncing(true);
     setSyncErr("");
@@ -1837,9 +1890,12 @@ export default function TandAApp() {
       if (synced.length > 5) addHistory(synced[0]?.PoNumber ?? "", `... and ${synced.length - 5} more POs synced`);
 
       setSyncDone({ added: addedCount, changed: changedCount, deleted: deletedCount });
+      await appendSyncLog({ ts: new Date().toISOString(), user: user?.name || "Unknown", success: true, added: addedCount, changed: changedCount, deleted: deletedCount, filters: appliedFilters });
     } catch (e: any) {
+      const errMsg = e.name === "AbortError" ? "Sync timed out or was cancelled" : (e.message ?? "Sync failed");
       if (e.name === "AbortError") setSyncErr("Sync timed out or was cancelled. Check your Xoro API credentials and try again.");
       else setSyncErr(e.message ?? "Sync failed");
+      await appendSyncLog({ ts: new Date().toISOString(), user: user?.name || "Unknown", success: false, added: 0, changed: 0, deleted: 0, error: errMsg, filters: appliedFilters });
     } finally {
       syncAbortRef.current = null;
       setSyncing(false);
@@ -1849,7 +1905,7 @@ export default function TandAApp() {
   }
 
   useEffect(() => {
-    if (user) { loadCachedPOs(); loadNotes(); loadVendors(); loadWipTemplates(); loadAllMilestones(); loadDCVendors(); loadDesignTemplates(); }
+    if (user) { loadCachedPOs(); loadNotes(); loadVendors(); loadWipTemplates(); loadAllMilestones(); loadDCVendors(); loadDesignTemplates(); loadSyncLog(); }
   }, [user, loadCachedPOs, loadNotes, loadVendors]);
 
   // ── Deep-link from ATS: ?po=NUMBER opens that PO directly to milestones tab ──
@@ -2561,6 +2617,10 @@ export default function TandAApp() {
             <button style={{ ...S.btnSecondary, flex: 1 }} onClick={() => { setSyncFilters({ poNumbers: [], dateFrom: "", dateTo: "", vendors: [], statuses: [] }); setPoSearch(""); }}>
               Clear Filters
             </button>
+            <button style={{ ...S.btnSecondary }} onClick={() => { setShowSyncModal(false); setShowSyncLog(true); }}
+              title={`${syncLog.length} sync${syncLog.length !== 1 ? "s" : ""} logged`}>
+              📋 Log{syncLog.length > 0 ? ` (${syncLog.length})` : ""}
+            </button>
             <button style={{ ...S.btnPrimary, flex: 2 }} onClick={() => syncFromXoro(syncFilters)}>
               🔄 {syncFilters.vendors.length === 0 && syncFilters.statuses.length === 0 && syncFilters.poNumbers.length === 0 && !syncFilters.dateFrom ? "Sync All POs" : "Sync Filtered POs"}
             </button>
@@ -2619,6 +2679,74 @@ export default function TandAApp() {
           <button onClick={() => setSyncDone(null)} style={{ ...S.btnPrimary, width: "100%" }}>
             OK{countdown > 0 ? ` (${countdown})` : ""}
           </button>
+        </div>
+      </div>
+    );
+  };
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // SYNC LOG MODAL
+  // ════════════════════════════════════════════════════════════════════════════
+  const SyncLogModal = () => {
+    if (!showSyncLog) return null;
+    return (
+      <div style={S.modalOverlay} onClick={() => setShowSyncLog(false)}>
+        <div style={{ ...S.modal, width: 620, maxHeight: "80vh", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+          <div style={S.modalHeader}>
+            <h2 style={S.modalTitle}>📋 Sync Log</h2>
+            <button style={S.closeBtn} onClick={() => setShowSyncLog(false)}>✕</button>
+          </div>
+          <div style={{ ...S.modalBody, overflowY: "auto", flex: 1 }}>
+            {syncLog.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "40px 0", color: "#6B7280", fontSize: 14 }}>No sync history yet</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {syncLog.map((entry, i) => {
+                  const hasFilters = entry.filters && Object.values(entry.filters).some(v => v && (Array.isArray(v) ? v.length > 0 : true));
+                  const posUpdated = entry.added + entry.changed + entry.deleted;
+                  return (
+                    <div key={i} style={{ background: "#0F172A", border: `1px solid ${entry.success ? "#1E3A5F" : "#7F1D1D"}`, borderRadius: 10, padding: "12px 16px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                        <span style={{ fontSize: 15 }}>{entry.success ? "✅" : "❌"}</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: entry.success ? "#34D399" : "#F87171" }}>
+                          {entry.success ? "Sync successful" : "Sync failed"}
+                        </span>
+                        <span style={{ marginLeft: "auto", fontSize: 11, color: "#6B7280" }}>
+                          {new Date(entry.ts).toLocaleString()}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 16, fontSize: 12, color: "#9CA3AF" }}>
+                        <span>👤 <b style={{ color: "#CBD5E1" }}>{entry.user}</b></span>
+                        {entry.success ? (
+                          <>
+                            <span style={{ color: posUpdated > 0 ? "#F1F5F9" : "#6B7280" }}>
+                              POs updated: <b style={{ color: posUpdated > 0 ? "#60A5FA" : "#6B7280" }}>{posUpdated > 0 ? posUpdated : "none"}</b>
+                            </span>
+                            {entry.added > 0   && <span>➕ Added <b style={{ color: "#10B981" }}>{entry.added}</b></span>}
+                            {entry.changed > 0 && <span>✏️ Changed <b style={{ color: "#60A5FA" }}>{entry.changed}</b></span>}
+                            {entry.deleted > 0 && <span>🗑 Removed <b style={{ color: "#F87171" }}>{entry.deleted}</b></span>}
+                          </>
+                        ) : (
+                          <span style={{ color: "#FCA5A5" }}>Error: {entry.error}</span>
+                        )}
+                      </div>
+                      {hasFilters && (
+                        <div style={{ marginTop: 6, fontSize: 11, color: "#475569" }}>
+                          Filters: {[
+                            entry.filters?.vendors?.length ? `Vendors: ${entry.filters.vendors.join(", ")}` : null,
+                            entry.filters?.statuses?.length ? `Status: ${entry.filters.statuses.join(", ")}` : null,
+                            entry.filters?.poNumbers?.length ? `PO#: ${entry.filters.poNumbers.join(", ")}` : null,
+                            entry.filters?.dateFrom ? `From ${entry.filters.dateFrom}` : null,
+                            entry.filters?.dateTo   ? `To ${entry.filters.dateTo}` : null,
+                          ].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -5655,6 +5783,7 @@ export default function TandAApp() {
       {selected && view !== "timeline" && DetailPanel()}
       {showSettings  && <SettingsModal />}
       {showSyncModal && SyncModal()}
+      {showSyncLog   && <SyncLogModal />}
       <SyncProgressModal />
       <SyncDoneModal />
       {blockedModal && (
