@@ -537,6 +537,8 @@ export default function ATSReport() {
         {/* TOOLBAR */}
         <div style={S.toolbar}>
           <input
+            type="text"
+            inputMode="text"
             style={S.searchInput}
             placeholder="Search SKU or description…"
             value={search}
