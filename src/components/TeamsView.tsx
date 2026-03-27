@@ -155,9 +155,9 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
   }
 
   // ── Microsoft Graph helpers ──────────────────────────────────────────────
-  async function graph(path: string) {
+  async function graph(path: string, extraHeaders?: Record<string, string>) {
     const r = await fetch("https://graph.microsoft.com/v1.0" + path, {
-      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json", ...extraHeaders },
     });
     if (!r.ok) {
       const body = await r.text();
@@ -311,14 +311,6 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
     setDmSending(false);
   }
 
-  function friendlyGraphError(e: any): string {
-    const msg: string = e?.message || "";
-    if (msg.includes("403") || msg.toLowerCase().includes("insufficient")) return "Permission denied — sign out and sign back in to grant contacts access";
-    if (msg.includes("401") || msg.toLowerCase().includes("expired")) return "Session expired — sign out and sign back in";
-    if (msg.includes("404")) return "Contacts not available on this account";
-    return "Could not load contacts — sign out and sign back in";
-  }
-
   async function loadContacts() {
     if (contactsLoading || !token) return;
     setContactsLoading(true);
@@ -329,11 +321,13 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
     } catch(e: any) {
       console.warn("[Teams contacts] /me/people failed:", e?.message);
       try {
-        const d2 = await graph("/users?$top=100&$select=displayName,userPrincipalName,mail");
+        const d2 = await graph("/users?$top=100&$select=displayName,userPrincipalName,mail&$orderby=displayName", { "ConsistencyLevel": "eventual" });
         setContacts((d2.value || []).map((u: any) => ({ ...u, scoredEmailAddresses: u.mail ? [{ address: u.mail }] : [] })));
       } catch(e2: any) {
         console.warn("[Teams contacts] /users fallback failed:", e2?.message);
-        setContactsError(friendlyGraphError(e2 || e));
+        const m = (e2?.message || e?.message || "").toLowerCase();
+        const msg = m.includes("401") ? "Session expired" : m.includes("403") ? "Permission denied — sign in again to grant directory access" : "Could not load contacts";
+        setContactsError(msg);
       }
     }
     setContactsLoading(false);
@@ -345,7 +339,12 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
     try {
       const d = await graph(`/me/people?$search=${encodeURIComponent(q)}&$top=25&$select=displayName,userPrincipalName,scoredEmailAddresses,mail`);
       setContactSearchResults(d.value || []);
-    } catch(_) { setContactSearchResults([]); }
+    } catch(_) {
+      try {
+        const d2 = await graph(`/users?$search="displayName:${encodeURIComponent(q)}"&$top=25&$select=displayName,userPrincipalName,mail`, { "ConsistencyLevel": "eventual" });
+        setContactSearchResults((d2.value || []).map((u: any) => ({ ...u, scoredEmailAddresses: u.mail ? [{ address: u.mail }] : [] })));
+      } catch(_2) { setContactSearchResults([]); }
+    }
     setContactSearchLoading(false);
   }
 
@@ -521,14 +520,14 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
                 </div>
                 <div style={{ flex: 1, padding: "20px 24px", overflowY: "auto" }}>
                   <div style={{ marginBottom: 14, position: "relative" as const }}>
-                    <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 5 }}>
+                    <div style={{ fontSize: 12, marginBottom: 5 }}>
                       {contactsLoading
-                        ? "Loading contacts…"
+                        ? <span style={{ color: "#6B7280" }}>Loading contacts…</span>
                         : contactsError
-                          ? <span style={{ color: "#F87171" }}>⚠ {contactsError} — <button onClick={loadContacts} style={{ background: "none", border: "none", color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit", fontSize: 12, padding: 0, textDecoration: "underline" }}>retry</button> or sign out &amp; back in</span>
+                          ? <span style={{ color: "#F87171" }}>⚠ {contactsError} — sign out above and sign back in, then try again</span>
                           : contacts.length > 0
-                            ? `To — ${contacts.length} contacts loaded · type to search all`
-                            : "To — type name or email"}
+                            ? <span style={{ color: "#6B7280" }}>To — {contacts.length} contacts · type to search all</span>
+                            : <span style={{ color: "#6B7280" }}>To</span>}
                     </div>
                     <input value={teamsDirectTo}
                       onChange={e => handleContactInput(e.target.value)}

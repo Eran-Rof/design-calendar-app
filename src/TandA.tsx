@@ -614,9 +614,9 @@ export default function TandAApp() {
     if (msToken) return msToken;
     throw new Error("Not signed in to Microsoft");
   }
-  async function teamsGraph(path: string) {
+  async function teamsGraph(path: string, extraHeaders?: Record<string, string>) {
     const tok = await getGraphToken();
-    const r = await fetch("https://graph.microsoft.com/v1.0" + path, { headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" } });
+    const r = await fetch("https://graph.microsoft.com/v1.0" + path, { headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json", ...extraHeaders } });
     if (r.status === 401) { handleEmailTokenExpired(); throw new Error("Session expired — please sign in again"); }
     if (!r.ok) throw new Error("Graph " + r.status + ": " + await r.text());
     return r.json();
@@ -646,7 +646,7 @@ export default function TandAApp() {
     } catch(e: any) {
       console.warn("[Teams contacts] /me/people failed:", e?.message);
       try {
-        const d2 = await teamsGraph("/users?$top=100&$select=displayName,userPrincipalName,mail");
+        const d2 = await teamsGraph("/users?$top=100&$select=displayName,userPrincipalName,mail&$orderby=displayName", { "ConsistencyLevel": "eventual" });
         setTeamsContacts((d2.value || []).map((u: any) => ({ ...u, scoredEmailAddresses: u.mail ? [{ address: u.mail }] : [] })));
       } catch(e2: any) {
         console.warn("[Teams contacts] /users fallback failed:", e2?.message);
@@ -669,8 +669,15 @@ export default function TandAApp() {
       if (target === "main") setTeamsContactSearchResults(d.value || []);
       else setDtlDMContactSearchResults(d.value || []);
     } catch(_) {
-      if (target === "main") setTeamsContactSearchResults([]);
-      else setDtlDMContactSearchResults([]);
+      try {
+        const d2 = await teamsGraph(`/users?$search="displayName:${encodeURIComponent(q)}"&$top=25&$select=displayName,userPrincipalName,mail`, { "ConsistencyLevel": "eventual" });
+        const mapped = (d2.value || []).map((u: any) => ({ ...u, scoredEmailAddresses: u.mail ? [{ address: u.mail }] : [] }));
+        if (target === "main") setTeamsContactSearchResults(mapped);
+        else setDtlDMContactSearchResults(mapped);
+      } catch(_2) {
+        if (target === "main") setTeamsContactSearchResults([]);
+        else setDtlDMContactSearchResults([]);
+      }
     }
     if (target === "main") setTeamsContactSearchLoading(false);
     else setDtlDMContactSearchLoading(false);

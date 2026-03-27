@@ -17,6 +17,7 @@ export const MS_SCOPES = [
   "https://graph.microsoft.com/People.Read",
   "https://graph.microsoft.com/Team.ReadBasic.All",
   "https://graph.microsoft.com/User.Read",
+  "https://graph.microsoft.com/User.ReadBasic.All",
   "offline_access",
 ].join(" ");
 
@@ -95,7 +96,7 @@ export async function msSignIn(loginHint?: string): Promise<MsTokens> {
     code_challenge: challenge,
     code_challenge_method: "S256",
     response_mode: "query",
-    ...(loginHint ? { login_hint: loginHint } : { prompt: "select_account" }),
+    ...(loginHint ? { login_hint: loginHint, prompt: "consent" } : { prompt: "consent" }),
   });
 
   const authUrl = `https://login.microsoftonline.com/${MS_TENANT_ID}/oauth2/v2.0/authorize?${params}`;
