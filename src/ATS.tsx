@@ -41,6 +41,7 @@ interface ATSSoEvent     { sku: string; date: string; qty: number; orderNumber: 
 interface UploadWarning  { severity: "error" | "warn"; field: string; affected: number; total: number; message: string; }
 interface ExcelData      { syncedAt: string; skus: ATSSkuData[]; pos: ATSPoEvent[]; sos: ATSSoEvent[]; warnings?: UploadWarning[]; columnNames?: { inventory: string[]; purchases: string[]; orders: string[] }; }
 interface CtxMenu        { x: number; y: number; anchorY: number; pos: ATSPoEvent[]; sos: ATSSoEvent[]; cellKey: string; cellEl: HTMLElement | null; flipped: boolean; arrowLeft: number; }
+interface SummaryCtxMenu { type: "onHand" | "onOrder" | "onPO"; row: ATSRow; pos: ATSPoEvent[]; sos: ATSSoEvent[]; cellEl: HTMLElement; }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function addDays(date: Date, days: number): Date {
@@ -163,10 +164,10 @@ function computeRowsFromExcelData(data: ExcelData, dates: string[], poStores: st
       dateMap[date] = ats; // store the real balance; display layer shows 0 for negatives
     }
 
-    // Prefer API-stored onCommitted (counts ALL SOs including undated ones);
-    // fall back to soIdx total for old cached data that predates the field.
-    const onCommitted = s.onCommitted != null ? s.onCommitted : (committedBySku[s.sku] ?? 0);
-    return { sku: s.sku, description: s.description, category: s.category, store: s.store, onHand: s.onHand, onOrder: s.onOrder, onCommitted, dates: dateMap };
+    // Column totals use the filtered indices so On Order / On PO reflect the active store filter
+    const filteredOnOrder     = Object.values(poIdx[s.sku] ?? {}).reduce((a, b) => a + b, 0);
+    const filteredOnCommitted = Object.values(soIdx[s.sku] ?? {}).reduce((a, b) => a + b, 0);
+    return { sku: s.sku, description: s.description, category: s.category, store: s.store, onHand: s.onHand, onOrder: filteredOnOrder, onCommitted: filteredOnCommitted, dates: dateMap };
   });
 }
 
@@ -235,6 +236,8 @@ export default function ATSReport() {
   const ordRef = useRef<HTMLInputElement>(null);
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
   const ctxRef   = useRef<HTMLDivElement>(null);
+  const [summaryCtx, setSummaryCtx] = useState<SummaryCtxMenu | null>(null);
+  const summaryCtxRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -246,6 +249,13 @@ export default function ATSReport() {
     document.addEventListener("click", close);
     return () => document.removeEventListener("click", close);
   }, [ctxMenu]);
+
+  useEffect(() => {
+    if (!summaryCtx) return;
+    const close = () => setSummaryCtx(null);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [summaryCtx]);
 
   // ── Reposition popup + update arrow direction in DOM (no state re-render) ──
   const repositionCtxMenu = useCallback(() => {
@@ -336,6 +346,22 @@ export default function ATSReport() {
       }
     }
     return { pos, sos };
+  }
+
+  function getAllSkuEvents(sku: string): { pos: ATSPoEvent[]; sos: ATSSoEvent[] } {
+    if (!excelData) return { pos: [], sos: [] };
+    return {
+      pos: excelData.pos.filter(p => p.sku === sku),
+      sos: excelData.sos.filter(s => s.sku === sku),
+    };
+  }
+
+  function openSummaryCtx(e: React.MouseEvent, type: SummaryCtxMenu["type"], row: ATSRow) {
+    e.preventDefault();
+    const { pos, sos } = getAllSkuEvents(row.sku);
+    const cellEl = e.currentTarget as HTMLElement;
+    setSummaryCtx({ type, row, pos, sos, cellEl });
+    setCtxMenu(null);
   }
 
   // ── Compute date range (all daily dates, used for ATS computation) ───────
@@ -994,19 +1020,28 @@ export default function ATSReport() {
                         {row.description}
                       </td>
                       {/* On Hand */}
-                      <td style={{ ...S.td, ...S.stickyCol, left: 330, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center" }}>
+                      <td
+                        style={{ ...S.td, ...S.stickyCol, left: 330, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center", cursor: "context-menu" }}
+                        onContextMenu={e => openSummaryCtx(e, "onHand", row)}
+                      >
                         <span style={{ color: "#F1F5F9", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
                           {row.onHand.toLocaleString()}
                         </span>
                       </td>
                       {/* On Order (committed SOs) */}
-                      <td style={{ ...S.td, ...S.stickyCol, left: 410, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center" }}>
+                      <td
+                        style={{ ...S.td, ...S.stickyCol, left: 410, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center", cursor: row.onCommitted > 0 ? "context-menu" : "default" }}
+                        onContextMenu={e => { if (row.onCommitted > 0) openSummaryCtx(e, "onOrder", row); }}
+                      >
                         <span style={{ color: "#F59E0B", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
                           {row.onCommitted > 0 ? row.onCommitted.toLocaleString() : "—"}
                         </span>
                       </td>
                       {/* On PO (open purchase orders) */}
-                      <td style={{ ...S.td, ...S.stickyCol, left: 490, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center" }}>
+                      <td
+                        style={{ ...S.td, ...S.stickyCol, left: 490, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center", cursor: row.onOrder > 0 ? "context-menu" : "default" }}
+                        onContextMenu={e => { if (row.onOrder > 0) openSummaryCtx(e, "onPO", row); }}
+                      >
                         <span style={{ color: "#10B981", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
                           {row.onOrder > 0 ? `+${row.onOrder.toLocaleString()}` : "—"}
                         </span>
@@ -1101,6 +1136,134 @@ export default function ATSReport() {
           </div>
         )}
       </div>
+
+      {/* SUMMARY COLUMN RIGHT-CLICK CONTEXT MENU */}
+      {summaryCtx && (() => {
+        const { type, row, pos, sos, cellEl } = summaryCtx;
+        const rect = cellEl.getBoundingClientRect();
+        const menuLeft = Math.min(rect.left, window.innerWidth - 400);
+        const menuTop  = rect.bottom + 4;
+
+        // Store tag helper (reuse same style as main ctx menu)
+        const storeTag = (store: string) => (
+          <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8,
+            background: store === "ROF ECOM" ? "rgba(14,165,233,0.2)" : store === "PT" ? "rgba(139,92,246,0.2)" : "rgba(59,130,246,0.2)",
+            color:      store === "ROF ECOM" ? "#7dd3fc"              : store === "PT" ? "#c4b5fd"              : "#93c5fd" }}>
+            {store}
+          </span>
+        );
+
+        // Group by store for breakdown header
+        const poByStore: Record<string, number> = {};
+        for (const p of pos) poByStore[p.store ?? "ROF"] = (poByStore[p.store ?? "ROF"] ?? 0) + p.qty;
+        const soByStore: Record<string, number> = {};
+        for (const s of sos) soByStore[s.store ?? "ROF"] = (soByStore[s.store ?? "ROF"] ?? 0) + s.qty;
+
+        return (
+          <div
+            ref={summaryCtxRef}
+            style={{ position: "fixed", left: menuLeft, top: menuTop, zIndex: 500, minWidth: 280, maxWidth: 420, filter: "drop-shadow(0 8px 24px rgba(0,0,0,0.55))" }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 10, overflow: "hidden" }}>
+              {/* Header */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 14px 4px" }}>
+                <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, fontSize: 12 }}>{row.sku}</span>
+                <button style={{ background: "none", border: "none", color: "#475569", fontSize: 16, cursor: "pointer", lineHeight: 1, padding: "2px 4px", borderRadius: 4 }} onClick={() => setSummaryCtx(null)}>✕</button>
+              </div>
+
+              {/* ON HAND */}
+              {type === "onHand" && (
+                <div>
+                  <div style={{ background: "rgba(241,245,249,0.08)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#F1F5F9", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #334155" }}>
+                    On Hand
+                  </div>
+                  <div style={{ padding: "10px 14px", fontSize: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>{storeTag(row.store ?? "ROF")}<span style={{ color: "#94A3B8" }}>{row.description}</span></span>
+                      <span style={{ color: "#F1F5F9", fontWeight: 700, fontFamily: "monospace" }}>{row.onHand.toLocaleString()} units</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ON ORDER (committed SOs) */}
+              {type === "onOrder" && (
+                <div>
+                  <div style={{ background: "rgba(245,158,11,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#FCD34D", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #3D2E00" }}>
+                    Committed Sales Orders — {sos.length} line{sos.length !== 1 ? "s" : ""}
+                  </div>
+                  {/* Store breakdown */}
+                  {Object.keys(soByStore).length > 1 && (
+                    <div style={{ padding: "6px 14px", borderBottom: "1px solid #1a2030", display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      {Object.entries(soByStore).map(([st, qty]) => (
+                        <span key={st} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>
+                          {storeTag(st)}<span style={{ color: "#F59E0B", fontFamily: "monospace", fontWeight: 600 }}>{qty.toLocaleString()}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {sos.map((s, i) => (
+                    <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                        <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700 }}>{s.orderNumber || "—"}</span>
+                        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          {s.store && storeTag(s.store)}
+                          <span style={{ color: "#F59E0B", fontWeight: 700 }}>{s.qty.toLocaleString()} units</span>
+                        </span>
+                      </div>
+                      <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{s.customerName || "—"}</div>
+                      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                        <span style={{ color: "#94A3B8", fontSize: 11 }}>Cancel: {s.date}</span>
+                        {s.unitPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Unit: ${s.unitPrice.toFixed(2)}</span>}
+                        {s.totalPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Total: ${s.totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ON PO */}
+              {type === "onPO" && (
+                <div>
+                  <div style={{ background: "rgba(16,185,129,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#6EE7B7", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #064E3B" }}>
+                    Open Purchase Orders — {pos.length} line{pos.length !== 1 ? "s" : ""}
+                  </div>
+                  {/* Store breakdown */}
+                  {Object.keys(poByStore).length > 1 && (
+                    <div style={{ padding: "6px 14px", borderBottom: "1px solid #1a2030", display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      {Object.entries(poByStore).map(([st, qty]) => (
+                        <span key={st} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>
+                          {storeTag(st)}<span style={{ color: "#10B981", fontFamily: "monospace", fontWeight: 600 }}>+{qty.toLocaleString()}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {pos.map((p, i) => (
+                    <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12, cursor: p.poNumber ? "pointer" : "default" }}
+                      title={p.poNumber ? "Click to open PO in PO WIP" : undefined}
+                      onClick={() => { if (p.poNumber) { window.open(`/tanda?po=${encodeURIComponent(p.poNumber)}`, "_blank"); setSummaryCtx(null); } }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                        <span style={{ color: "#FCD34D", fontFamily: "monospace", fontWeight: 700, textDecoration: p.poNumber ? "underline" : "none", textUnderlineOffset: 2 }}>{p.poNumber || "—"}</span>
+                        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          {p.store && storeTag(p.store)}
+                          <span style={{ color: "#10B981", fontWeight: 700 }}>+{p.qty.toLocaleString()} units</span>
+                        </span>
+                      </div>
+                      <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{p.vendor || "—"}</div>
+                      <div style={{ display: "flex", gap: 16 }}>
+                        <span style={{ color: "#94A3B8", fontSize: 11 }}>Expected: {p.date}</span>
+                        {p.unitCost > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Unit Cost: ${p.unitCost.toFixed(2)}</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* RIGHT-CLICK CONTEXT MENU */}
       {ctxMenu && (
