@@ -62,6 +62,9 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
   const [contactsLoading, setContactsLoading] = useState(false);
   const [contactSearch, setContactSearch] = useState("");
   const [contactDropdown, setContactDropdown] = useState(false);
+  const [contactSearchResults, setContactSearchResults] = useState<any[]>([]);
+  const [contactSearchLoading, setContactSearchLoading] = useState(false);
+  const contactSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dmScrollRef = useRef<HTMLDivElement>(null);
   const refreshingRef = useRef(false);
 
@@ -311,16 +314,39 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
     if (contactsLoading || !token) return;
     setContactsLoading(true);
     try {
-      const d = await graph("/me/people?$top=50&$select=displayName,userPrincipalName,scoredEmailAddresses");
+      const d = await graph("/me/people?$top=100&$select=displayName,userPrincipalName,scoredEmailAddresses,mail");
       setContacts(d.value || []);
     } catch(e: any) {
       console.warn("[Teams contacts] /me/people failed:", e?.message);
       try {
-        const d2 = await graph("/users?$top=50&$select=displayName,userPrincipalName,mail");
+        const d2 = await graph("/users?$top=100&$select=displayName,userPrincipalName,mail");
         setContacts((d2.value || []).map((u: any) => ({ ...u, scoredEmailAddresses: u.mail ? [{ address: u.mail }] : [] })));
       } catch(_) {}
     }
     setContactsLoading(false);
+  }
+
+  async function searchContacts(q: string) {
+    if (!token || !q.trim()) { setContactSearchResults([]); return; }
+    setContactSearchLoading(true);
+    try {
+      const d = await graph(`/me/people?$search="${encodeURIComponent(q)}"&$top=25&$select=displayName,userPrincipalName,scoredEmailAddresses,mail`);
+      setContactSearchResults(d.value || []);
+    } catch(_) { setContactSearchResults([]); }
+    setContactSearchLoading(false);
+  }
+
+  function handleContactInput(val: string) {
+    setTeamsDirectTo(val);
+    setContactSearch(val);
+    setContactDropdown(true);
+    setTeamsDirectErr(null);
+    if (contactSearchTimer.current) clearTimeout(contactSearchTimer.current);
+    if (val.trim().length >= 2) {
+      contactSearchTimer.current = setTimeout(() => searchContacts(val.trim()), 300);
+    } else {
+      setContactSearchResults([]);
+    }
   }
 
   const selectedColl = selectedCollKey ? collMap[selectedCollKey] : null;
@@ -483,33 +509,38 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
                 <div style={{ flex: 1, padding: "20px 24px", overflowY: "auto" }}>
                   <div style={{ marginBottom: 14, position: "relative" as const }}>
                     <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 5, display: "flex", alignItems: "center", gap: 8 }}>
-                      <span>To{contactsLoading ? " (loading contacts…)" : contacts.length > 0 ? ` — ${contacts.length} contacts` : " — type email"}</span>
+                      <span>To{contactsLoading ? " (loading…)" : contacts.length > 0 ? ` — ${contacts.length} recent · type to search all` : " — type name or email"}</span>
                       {!contactsLoading && contacts.length === 0 && token && (
                         <button onClick={loadContacts} style={{ fontSize: 10, padding: "1px 7px", borderRadius: 4, border: `1px solid ${TEAMS_PURPLE}44`, background: "none", color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit" }}>↻ Load</button>
                       )}
                     </div>
                     <input value={teamsDirectTo}
-                      onChange={e => { setTeamsDirectTo(e.target.value); setContactSearch(e.target.value); setContactDropdown(true); setTeamsDirectErr(null); }}
+                      onChange={e => handleContactInput(e.target.value)}
                       onFocus={() => { setContactSearch(teamsDirectTo); setContactDropdown(true); }}
                       onBlur={() => setTimeout(() => setContactDropdown(false), 150)}
-                      placeholder={contactsLoading ? "Loading contacts…" : contacts.length > 0 ? "Search name or type email…" : "colleague@ringoffire.com"}
+                      placeholder={contactsLoading ? "Loading contacts…" : "Search name or type email…"}
                       style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 7, padding: "9px 12px", color: "#F1F5F9", fontSize: 13, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const }} />
-                    {contactDropdown && contacts.length > 0 && (() => {
+                    {contactDropdown && (() => {
                       const q = (contactSearch || "").toLowerCase();
-                      const filtered = contacts.filter((c: any) =>
-                        !q ||
-                        (c.displayName || "").toLowerCase().includes(q) ||
-                        (c.userPrincipalName || "").toLowerCase().includes(q) ||
-                        (c.scoredEmailAddresses?.[0]?.address || "").toLowerCase().includes(q)
-                      );
-                      if (filtered.length === 0) return null;
+                      // Use live search results when typing, else show initial contacts filtered locally
+                      const list = contactSearchResults.length > 0
+                        ? contactSearchResults
+                        : contacts.filter((c: any) =>
+                            !q ||
+                            (c.displayName || "").toLowerCase().includes(q) ||
+                            (c.userPrincipalName || "").toLowerCase().includes(q) ||
+                            (c.scoredEmailAddresses?.[0]?.address || "").toLowerCase().includes(q) ||
+                            (c.mail || "").toLowerCase().includes(q)
+                          );
+                      if (list.length === 0 && !contactSearchLoading) return null;
                       return (
-                        <div style={{ position: "absolute" as const, top: "100%", left: 0, right: 0, zIndex: 200, background: "#1E293B", border: "1px solid #475569", borderRadius: 8, maxHeight: 200, overflowY: "auto" as const, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", marginTop: 2 }}>
-                          {filtered.slice(0, 10).map((c: any) => {
-                            const email = c.userPrincipalName || c.scoredEmailAddresses?.[0]?.address || "";
+                        <div style={{ position: "absolute" as const, top: "100%", left: 0, right: 0, zIndex: 200, background: "#1E293B", border: "1px solid #475569", borderRadius: 8, maxHeight: 220, overflowY: "auto" as const, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", marginTop: 2 }}>
+                          {contactSearchLoading && <div style={{ padding: "8px 14px", fontSize: 12, color: "#6B7280" }}>Searching…</div>}
+                          {list.slice(0, 15).map((c: any) => {
+                            const email = c.userPrincipalName || c.mail || c.scoredEmailAddresses?.[0]?.address || "";
                             return (
                               <div key={email || c.displayName}
-                                onMouseDown={() => { setTeamsDirectTo(email); setContactDropdown(false); setContactSearch(""); setTeamsDirectErr(null); }}
+                                onMouseDown={() => { setTeamsDirectTo(email); setContactDropdown(false); setContactSearch(""); setContactSearchResults([]); setTeamsDirectErr(null); }}
                                 style={{ padding: "9px 14px", cursor: "pointer", borderBottom: "1px solid #334155" }}>
                                 <div style={{ fontSize: 13, fontWeight: 600, color: "#F1F5F9" }}>{c.displayName}</div>
                                 <div style={{ fontSize: 11, color: "#6B7280" }}>{email}</div>

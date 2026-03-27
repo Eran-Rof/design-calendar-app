@@ -518,6 +518,9 @@ export default function TandAApp() {
   const [teamsContactsLoading, setTeamsContactsLoading] = useState(false);
   const [teamsContactSearch, setTeamsContactSearch] = useState("");
   const [teamsContactDropdown, setTeamsContactDropdown] = useState(false);
+  const [teamsContactSearchResults, setTeamsContactSearchResults] = useState<any[]>([]);
+  const [teamsContactSearchLoading, setTeamsContactSearchLoading] = useState(false);
+  const teamsContactSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // ── Detail-panel Teams DM state ──────────────────────────────────────────
   const [dtlDMTo, setDtlDMTo] = useState("");
   const [dtlDMMsg, setDtlDMMsg] = useState("");
@@ -525,6 +528,9 @@ export default function TandAApp() {
   const [dtlDMErr, setDtlDMErr] = useState<string | null>(null);
   const [dtlDMContactSearch, setDtlDMContactSearch] = useState("");
   const [dtlDMContactDropdown, setDtlDMContactDropdown] = useState(false);
+  const [dtlDMContactSearchResults, setDtlDMContactSearchResults] = useState<any[]>([]);
+  const [dtlDMContactSearchLoading, setDtlDMContactSearchLoading] = useState(false);
+  const dtlDMContactSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Detail-panel email tab state (separate from main email view)
   const [dtlEmails, setDtlEmails] = useState<Record<string, any[]>>({});
   const [dtlEmailLoading, setDtlEmailLoading] = useState<Record<string, boolean>>({});
@@ -625,18 +631,49 @@ export default function TandAApp() {
     if (teamsContactsLoading) return;
     setTeamsContactsLoading(true);
     try {
-      const d = await teamsGraph("/me/people?$top=50&$select=displayName,userPrincipalName,scoredEmailAddresses");
+      const d = await teamsGraph("/me/people?$top=100&$select=displayName,userPrincipalName,scoredEmailAddresses,mail");
       setTeamsContacts(d.value || []);
     } catch(e: any) {
-      // People.Read scope may be missing on existing tokens — user needs to re-sign in
       console.warn("[Teams contacts] /me/people failed:", e?.message);
-      // Fallback: try /users (org directory) — works with User.Read.All or User.ReadBasic.All
       try {
-        const d2 = await teamsGraph("/users?$top=50&$select=displayName,userPrincipalName,mail");
+        const d2 = await teamsGraph("/users?$top=100&$select=displayName,userPrincipalName,mail");
         setTeamsContacts((d2.value || []).map((u: any) => ({ ...u, scoredEmailAddresses: u.mail ? [{ address: u.mail }] : [] })));
       } catch(_) {}
     }
     setTeamsContactsLoading(false);
+  }
+
+  async function searchTeamsContacts(q: string, target: "main" | "dtl") {
+    if (!teamsToken || !q.trim()) {
+      if (target === "main") setTeamsContactSearchResults([]);
+      else setDtlDMContactSearchResults([]);
+      return;
+    }
+    if (target === "main") setTeamsContactSearchLoading(true);
+    else setDtlDMContactSearchLoading(true);
+    try {
+      const d = await teamsGraph(`/me/people?$search="${encodeURIComponent(q)}"&$top=25&$select=displayName,userPrincipalName,scoredEmailAddresses,mail`);
+      if (target === "main") setTeamsContactSearchResults(d.value || []);
+      else setDtlDMContactSearchResults(d.value || []);
+    } catch(_) {
+      if (target === "main") setTeamsContactSearchResults([]);
+      else setDtlDMContactSearchResults([]);
+    }
+    if (target === "main") setTeamsContactSearchLoading(false);
+    else setDtlDMContactSearchLoading(false);
+  }
+
+  function handleTeamsContactInput(val: string, target: "main" | "dtl") {
+    if (target === "main") { setTeamsDirectTo(val); setTeamsContactSearch(val); setTeamsContactDropdown(true); setTeamsDirectErr(null); }
+    else { setDtlDMTo(val); setDtlDMContactSearch(val); setDtlDMContactDropdown(true); }
+    const timer = target === "main" ? teamsContactSearchTimer : dtlDMContactSearchTimer;
+    if (timer.current) clearTimeout(timer.current);
+    if (val.trim().length >= 2) {
+      timer.current = setTimeout(() => searchTeamsContacts(val.trim(), target), 300);
+    } else {
+      if (target === "main") setTeamsContactSearchResults([]);
+      else setDtlDMContactSearchResults([]);
+    }
   }
   async function teamsLoadChannelMap() {
     try {
@@ -922,33 +959,37 @@ export default function TandAApp() {
                   <div style={{ flex: 1, padding: "20px 24px", overflowY: "auto" }}>
                     <div style={{ marginBottom: 14, position: "relative" as const }}>
                       <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 5, display: "flex", alignItems: "center", gap: 8 }}>
-                        <span>To{teamsContactsLoading ? " (loading contacts…)" : teamsContacts.length > 0 ? ` — ${teamsContacts.length} contacts` : " — type email"}</span>
+                        <span>To{teamsContactsLoading ? " (loading…)" : teamsContacts.length > 0 ? ` — ${teamsContacts.length} recent · type to search all` : " — type name or email"}</span>
                         {!teamsContactsLoading && teamsContacts.length === 0 && teamsToken && (
                           <button onClick={loadTeamsContacts} style={{ fontSize: 10, padding: "1px 7px", borderRadius: 4, border: `1px solid ${TEAMS_PURPLE}44`, background: "none", color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit" }}>↻ Load</button>
                         )}
                       </div>
                       <input value={teamsDirectTo}
-                        onChange={e => { setTeamsDirectTo(e.target.value); setTeamsContactSearch(e.target.value); setTeamsContactDropdown(true); setTeamsDirectErr(null); }}
+                        onChange={e => handleTeamsContactInput(e.target.value, "main")}
                         onFocus={() => { setTeamsContactSearch(teamsDirectTo); setTeamsContactDropdown(true); }}
                         onBlur={() => setTimeout(() => setTeamsContactDropdown(false), 150)}
-                        placeholder={teamsContactsLoading ? "Loading contacts…" : teamsContacts.length > 0 ? "Search name or type email…" : "colleague@ringoffire.com"}
+                        placeholder={teamsContactsLoading ? "Loading contacts…" : "Search name or type email…"}
                         style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 7, padding: "9px 12px", color: "#F1F5F9", fontSize: 13, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const }} />
-                      {teamsContactDropdown && teamsContacts.length > 0 && (() => {
+                      {teamsContactDropdown && (() => {
                         const q = (teamsContactSearch || "").toLowerCase();
-                        const filtered = teamsContacts.filter((c: any) =>
-                          !q ||
-                          (c.displayName || "").toLowerCase().includes(q) ||
-                          (c.userPrincipalName || "").toLowerCase().includes(q) ||
-                          (c.scoredEmailAddresses?.[0]?.address || "").toLowerCase().includes(q)
-                        );
-                        if (filtered.length === 0) return null;
+                        const list = teamsContactSearchResults.length > 0
+                          ? teamsContactSearchResults
+                          : teamsContacts.filter((c: any) =>
+                              !q ||
+                              (c.displayName || "").toLowerCase().includes(q) ||
+                              (c.userPrincipalName || "").toLowerCase().includes(q) ||
+                              (c.scoredEmailAddresses?.[0]?.address || "").toLowerCase().includes(q) ||
+                              (c.mail || "").toLowerCase().includes(q)
+                            );
+                        if (list.length === 0 && !teamsContactSearchLoading) return null;
                         return (
-                          <div style={{ position: "absolute" as const, top: "100%", left: 0, right: 0, zIndex: 200, background: "#1E293B", border: "1px solid #475569", borderRadius: 8, maxHeight: 200, overflowY: "auto" as const, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", marginTop: 2 }}>
-                            {filtered.slice(0, 10).map((c: any) => {
-                              const email = c.userPrincipalName || c.scoredEmailAddresses?.[0]?.address || "";
+                          <div style={{ position: "absolute" as const, top: "100%", left: 0, right: 0, zIndex: 200, background: "#1E293B", border: "1px solid #475569", borderRadius: 8, maxHeight: 220, overflowY: "auto" as const, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", marginTop: 2 }}>
+                            {teamsContactSearchLoading && <div style={{ padding: "8px 14px", fontSize: 12, color: "#6B7280" }}>Searching…</div>}
+                            {list.slice(0, 15).map((c: any) => {
+                              const email = c.userPrincipalName || c.mail || c.scoredEmailAddresses?.[0]?.address || "";
                               return (
                                 <div key={email || c.displayName}
-                                  onMouseDown={() => { setTeamsDirectTo(email); setTeamsContactDropdown(false); setTeamsContactSearch(""); setTeamsDirectErr(null); }}
+                                  onMouseDown={() => { setTeamsDirectTo(email); setTeamsContactDropdown(false); setTeamsContactSearch(""); setTeamsContactSearchResults([]); setTeamsDirectErr(null); }}
                                   style={{ padding: "9px 14px", cursor: "pointer", borderBottom: "1px solid #334155" }}>
                                   <div style={{ fontSize: 13, fontWeight: 600, color: "#F1F5F9" }}>{c.displayName}</div>
                                   <div style={{ fontSize: 11, color: "#6B7280" }}>{email}</div>
@@ -3717,27 +3758,30 @@ export default function TandAApp() {
                                 <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
                                   <div style={{ position: "relative" as const }}>
                                     <div style={{ fontSize: 11, color: "#6B7280", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
-                                      <span>To{teamsContactsLoading ? " (loading…)" : teamsContacts.length > 0 ? ` (${teamsContacts.length} contacts)` : ""}</span>
+                                      <span>To{teamsContactsLoading ? " (loading…)" : teamsContacts.length > 0 ? ` — ${teamsContacts.length} recent · type to search all` : " — type name or email"}</span>
                                       {!teamsContactsLoading && teamsContacts.length === 0 && teamsToken && (
                                         <button onClick={loadTeamsContacts} style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, border: `1px solid ${TEAMS_PURPLE}44`, background: "none", color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit" }}>↻</button>
                                       )}
                                     </div>
                                     <input value={dtlDMTo}
-                                      onChange={e => { setDtlDMTo(e.target.value); setDtlDMContactSearch(e.target.value); setDtlDMContactDropdown(true); setDtlDMErr(null); }}
+                                      onChange={e => handleTeamsContactInput(e.target.value, "dtl")}
                                       onFocus={() => { setDtlDMContactSearch(dtlDMTo); setDtlDMContactDropdown(true); }}
                                       onBlur={() => setTimeout(() => setDtlDMContactDropdown(false), 150)}
-                                      placeholder={teamsContacts.length > 0 ? "Search name or type email…" : "colleague@ringoffire.com"}
+                                      placeholder="Search name or type email…"
                                       style={{ width: "100%", background: "#1E293B", border: `1px solid ${TEAMS_PURPLE}44`, borderRadius: 7, padding: "8px 12px", color: "#F1F5F9", fontSize: 12, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const }} />
-                                    {dtlDMContactDropdown && teamsContacts.length > 0 && (() => {
+                                    {dtlDMContactDropdown && (() => {
                                       const q = (dtlDMContactSearch || "").toLowerCase();
-                                      const filtered = teamsContacts.filter((c: any) => !q || (c.displayName || "").toLowerCase().includes(q) || (c.userPrincipalName || "").toLowerCase().includes(q) || (c.scoredEmailAddresses?.[0]?.address || "").toLowerCase().includes(q));
-                                      if (filtered.length === 0) return null;
+                                      const list = dtlDMContactSearchResults.length > 0
+                                        ? dtlDMContactSearchResults
+                                        : teamsContacts.filter((c: any) => !q || (c.displayName || "").toLowerCase().includes(q) || (c.userPrincipalName || "").toLowerCase().includes(q) || (c.scoredEmailAddresses?.[0]?.address || "").toLowerCase().includes(q) || (c.mail || "").toLowerCase().includes(q));
+                                      if (list.length === 0 && !dtlDMContactSearchLoading) return null;
                                       return (
                                         <div style={{ position: "absolute" as const, top: "100%", left: 0, right: 0, zIndex: 200, background: "#1E293B", border: `1px solid ${TEAMS_PURPLE}66`, borderRadius: 8, maxHeight: 160, overflowY: "auto" as const, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", marginTop: 2 }}>
-                                          {filtered.slice(0, 8).map((c: any) => {
-                                            const email = c.userPrincipalName || c.scoredEmailAddresses?.[0]?.address || "";
+                                          {dtlDMContactSearchLoading && <div style={{ padding: "6px 12px", fontSize: 11, color: "#6B7280" }}>Searching…</div>}
+                                          {list.slice(0, 10).map((c: any) => {
+                                            const email = c.userPrincipalName || c.mail || c.scoredEmailAddresses?.[0]?.address || "";
                                             return (
-                                              <div key={email || c.displayName} onMouseDown={() => { setDtlDMTo(email); setDtlDMContactDropdown(false); setDtlDMContactSearch(""); }}
+                                              <div key={email || c.displayName} onMouseDown={() => { setDtlDMTo(email); setDtlDMContactDropdown(false); setDtlDMContactSearch(""); setDtlDMContactSearchResults([]); }}
                                                 style={{ padding: "8px 12px", cursor: "pointer", borderBottom: `1px solid ${TEAMS_PURPLE}33` }}>
                                                 <div style={{ fontSize: 12, fontWeight: 600, color: "#F1F5F9" }}>{c.displayName}</div>
                                                 <div style={{ fontSize: 11, color: "#6B7280" }}>{email}</div>
