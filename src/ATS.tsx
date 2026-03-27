@@ -264,8 +264,8 @@ export default function ATSReport() {
     if (!summaryCtx?.cellEl || !summaryCtxRef.current) return;
     const el   = summaryCtxRef.current;
     const cell = summaryCtx.cellEl.getBoundingClientRect();
-    const theadBottom = tableRef.current?.querySelector("thead")?.getBoundingClientRect().bottom ?? 0;
-    if (cell.bottom <= theadBottom || cell.top >= window.innerHeight) { setSummaryCtx(null); return; }
+    const theadBottom = tableRef.current?.querySelector("th")?.getBoundingClientRect().bottom ?? 0;
+    if (cell.top < theadBottom || cell.top >= window.innerHeight) { setSummaryCtx(null); return; }
     const ph   = el.offsetHeight;
     const pw   = el.offsetWidth;
     const vh   = window.innerHeight;
@@ -299,8 +299,8 @@ export default function ATSReport() {
     const el   = ctxRef.current;
     const cell = ctxMenu.cellEl.getBoundingClientRect();
     // Auto-close if the anchor cell has scrolled under the sticky table header
-    const theadBottom = tableRef.current?.querySelector("thead")?.getBoundingClientRect().bottom ?? 0;
-    if (cell.bottom <= theadBottom || cell.top >= window.innerHeight) { setCtxMenu(null); return; }
+    const theadBottom = tableRef.current?.querySelector("th")?.getBoundingClientRect().bottom ?? 0;
+    if (cell.top < theadBottom || cell.top >= window.innerHeight) { setCtxMenu(null); return; }
     const ph   = el.offsetHeight;
     const pw   = el.offsetWidth;
     const vh   = window.innerHeight;
