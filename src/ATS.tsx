@@ -124,7 +124,7 @@ function computeRowsFromExcelData(data: ExcelData, dates: string[]): ATSRow[] {
     soIdx[o.sku][o.date] = (soIdx[o.sku][o.date] ?? 0) + o.qty;
   }
 
-  // Compute onCommitted from soIdx totals (works even with old cached data missing the field)
+  // Compute onCommitted from soIdx (fallback for old cached data missing the field on skus)
   const committedBySku: Record<string, number> = {};
   for (const [sku, datemap] of Object.entries(soIdx)) {
     committedBySku[sku] = Object.values(datemap).reduce((a, b) => a + b, 0);
@@ -140,7 +140,10 @@ function computeRowsFromExcelData(data: ExcelData, dates: string[]): ATSRow[] {
       if (ats < 0) ats = 0;
       dateMap[date] = ats;
     }
-    return { sku: s.sku, description: s.description, category: s.category, onHand: s.onHand, onOrder: s.onOrder, onCommitted: committedBySku[s.sku] ?? s.onCommitted ?? 0, dates: dateMap };
+    // Prefer API-stored onCommitted (counts ALL SOs including undated ones);
+    // fall back to soIdx total for old cached data that predates the field.
+    const onCommitted = s.onCommitted != null ? s.onCommitted : (committedBySku[s.sku] ?? 0);
+    return { sku: s.sku, description: s.description, category: s.category, onHand: s.onHand, onOrder: s.onOrder, onCommitted, dates: dateMap };
   });
 }
 
@@ -890,7 +893,8 @@ export default function ATSReport() {
                     <span style={{ color: "#10B981", fontWeight: 700 }}>{s.qty.toLocaleString()} units</span>
                   </div>
                   <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{s.customerName || "—"}</div>
-                  <div style={{ display: "flex", gap: 16 }}>
+                  <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                    <span style={{ color: "#94A3B8", fontSize: 11 }}>Cancel: {s.date}</span>
                     <span style={{ color: "#94A3B8", fontSize: 11 }}>Unit: ${s.unitPrice?.toFixed(2) ?? "—"}</span>
                     <span style={{ color: "#94A3B8", fontSize: 11 }}>Total: ${s.totalPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "—"}</span>
                   </div>
@@ -909,7 +913,8 @@ export default function ATSReport() {
                     <span style={{ color: "#FCD34D", fontFamily: "monospace", fontWeight: 700 }}>{p.poNumber || "—"}</span>
                     <span style={{ color: "#10B981", fontWeight: 700 }}>+{p.qty.toLocaleString()} units</span>
                   </div>
-                  <div style={{ color: "#CBD5E1" }}>{p.vendor || "—"}</div>
+                  <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{p.vendor || "—"}</div>
+                  <div style={{ color: "#94A3B8", fontSize: 11 }}>Expected: {p.date}</div>
                 </div>
               ))}
             </div>

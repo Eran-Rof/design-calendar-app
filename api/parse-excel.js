@@ -47,7 +47,7 @@ export default async function handler(req, res) {
         if (!base) continue;
         const sku = color ? `${base} - ${color}` : base;
         if (!skuMap[sku]) {
-          skuMap[sku] = { sku, description: str(r["Description"]), category: str(r["Brand"]) || undefined, onHand: 0, onOrder: 0 };
+          skuMap[sku] = { sku, description: str(r["Description"]), category: str(r["Brand"]) || undefined, onHand: 0, onOrder: 0, onCommitted: 0 };
         }
         skuMap[sku].onHand += toNum(r["Total Sum of Qty"]);
       }
@@ -64,14 +64,22 @@ export default async function handler(req, res) {
         const sku = color ? `${base} - ${color}` : base;
         const qty = toNum(r["Total Sum of Qty Ordered"]);
 
-        // Always register SKU (even if qty is 0) so it appears in the grid
+        // Always register SKU so it appears in the grid
         if (!skuMap[sku]) {
-          skuMap[sku] = { sku, description: str(r["Description"]), category: str(r["Brand Name"]) || undefined, onHand: 0, onOrder: 0 };
+          skuMap[sku] = { sku, description: str(r["Description"]), category: str(r["Brand Name"]) || undefined, onHand: 0, onOrder: 0, onCommitted: 0 };
         }
         if (qty > 0) {
-          const date = parseDate(r["Expected Delivery Date"]);
+          // Count ALL PO qty regardless of whether date is valid
           skuMap[sku].onOrder += qty;
-          pos.push({ sku, date, qty, poNumber: str(r["PO"]), vendor: str(r["Vendor"]) });
+
+          const date = parseDate(r["Expected Delivery Date"]);
+          const poNumber = str(r["PO"] || r["PO #"] || r["PO Number"] || r["Purchase Order"] || r["PO No"]);
+          const vendor   = str(r["Vendor"] || r["Vendor Name"] || r["Supplier"] || r["Vendor/Supplier"]);
+
+          // Only add to timeline if we have a valid delivery date
+          if (date) {
+            pos.push({ sku, date, qty, poNumber, vendor });
+          }
         }
       }
 
@@ -89,33 +97,34 @@ export default async function handler(req, res) {
         const qty = toNum(r["Total Sum of Qty Ordered"]);
 
         if (!skuMap[sku]) {
-          skuMap[sku] = { sku, description: "", category: str(r["Brand"]) || undefined, onHand: 0, onOrder: 0 };
+          skuMap[sku] = { sku, description: "", category: str(r["Brand"]) || undefined, onHand: 0, onOrder: 0, onCommitted: 0 };
         }
         if (qty > 0) {
-          // Use cancel date as the date SO qty is applied to ATS
-          const date = parseDate(r["Date to be Cancelled"] || r["Order Date to be Shipped"]);
-          sos.push({
-            sku, date, qty,
-            orderNumber:  str(r["Order Number"]),
-            customerName: str(r["Customer Name"]),
-            unitPrice:    parseFloat(String(r["Unit Price"]).replace(/[^0-9.-]/g, "")) || 0,
-            totalPrice:   parseFloat(String(r["Total Sum of Total Price"]).replace(/[^0-9.-]/g, "")) || 0,
-          });
-        }
-      }
+          // Count ALL committed qty regardless of whether cancel date is valid
+          skuMap[sku].onCommitted += qty;
 
-      // Build onCommitted (total open SO qty) per SKU
-      const committedBySku = {};
-      for (const s of sos) {
-        committedBySku[s.sku] = (committedBySku[s.sku] || 0) + s.qty;
+          // Use cancel date as the date SO qty is applied to ATS
+          const rawDate = r["Date to be Cancelled"] || r["Cancel Date"] || r["Order Date to be Shipped"] || r["Ship Date"] || r["Requested Ship Date"];
+          const date = parseDate(rawDate);
+
+          const orderNumber  = str(r["Order Number"] || r["Order #"] || r["SO Number"] || r["SO #"] || r["Sales Order"] || r["Order No"]);
+          const customerName = str(r["Customer Name"] || r["Customer"] || r["Bill To Name"] || r["Ship To Name"] || r["Client Name"]);
+          const unitPrice    = parseFloat(String(r["Unit Price"] || r["Unit Cost"] || r["Price"] || 0).replace(/[^0-9.-]/g, "")) || 0;
+          const totalPrice   = parseFloat(String(r["Total Sum of Total Price"] || r["Total Price"] || r["Extended Price"] || 0).replace(/[^0-9.-]/g, "")) || 0;
+
+          // Only add to timeline if we have a valid cancel/ship date
+          if (date) {
+            sos.push({ sku, date, qty, orderNumber, customerName, unitPrice, totalPrice });
+          }
+        }
       }
 
       // Drop SKUs with zero activity across all three files
       const poSkus = new Set(pos.map(p => p.sku));
       const soSkus = new Set(sos.map(s => s.sku));
+      // Also include SKUs that have committed/onOrder even without valid dates
       const activeSkus = Object.values(skuMap)
-        .filter(s => s.onHand > 0 || poSkus.has(s.sku) || soSkus.has(s.sku))
-        .map(s => ({ ...s, onCommitted: committedBySku[s.sku] || 0 }));
+        .filter(s => s.onHand > 0 || s.onOrder > 0 || s.onCommitted > 0 || poSkus.has(s.sku) || soSkus.has(s.sku));
 
       res.status(200).json({
         syncedAt: now,
@@ -146,14 +155,21 @@ function toNum(v) {
   return isNaN(n) ? 0 : Math.round(n);
 }
 
+// Returns YYYY-MM-DD string or null if date is missing/unparseable.
+// Never defaults to today — that would cause all undated events to cluster
+// on the upload date and cancel each other out in the ATS timeline.
 function parseDate(v) {
-  if (!v) return new Date().toISOString().split("T")[0];
-  if (v instanceof Date) return v.toISOString().split("T")[0];
+  if (!v || String(v).trim() === "") return null;
+  if (v instanceof Date) {
+    if (isNaN(v.getTime())) return null;
+    return v.toISOString().split("T")[0];
+  }
   if (typeof v === "number") {
     const d = XLSX.SSF.parse_date_code(v);
     if (d) return `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
+    return null;
   }
   const d = new Date(String(v));
   if (!isNaN(d.getTime())) return d.toISOString().split("T")[0];
-  return new Date().toISOString().split("T")[0];
+  return null;
 }
