@@ -165,6 +165,7 @@ export default function ATSReport() {
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("All");
   const [filterStatus, setFilterStatus] = useState("All"); // All, Low, Out, InStock
+  const [minATS, setMinATS] = useState<number | "">("");
   const [rows, setRows] = useState<ATSRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [mockMode, setMockMode] = useState(true);
@@ -508,13 +509,14 @@ export default function ATSReport() {
       filterStatus === "Out" ? todayQty <= 0 :
       filterStatus === "Low" ? todayQty > 0 && todayQty <= 10 :
       todayQty > 10;
-    return matchSearch && matchCat && matchStatus;
+    const matchMin = minATS === "" || todayQty >= minATS;
+    return matchSearch && matchCat && matchStatus && matchMin;
   });
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const pageRows   = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   // Reset to page 0 whenever filters/search change
-  useEffect(() => { setPage(0); }, [search, filterCategory, filterStatus, rows]);
+  useEffect(() => { setPage(0); }, [search, filterCategory, filterStatus, minATS, rows]);
 
   // ── Summary stats ──────────────────────────────────────────────────────
   const todayKey = fmtDate(today);
@@ -599,6 +601,17 @@ export default function ATSReport() {
             <option value="Out">Out of stock</option>
           </select>
           <div style={S.datePicker}>
+            <label style={S.dateLabel}>Min ATS</label>
+            <input
+              type="number"
+              min="0"
+              style={{ ...S.dateInput, width: 72 }}
+              placeholder="0"
+              value={minATS}
+              onChange={e => setMinATS(e.target.value === "" ? "" : Math.max(0, Number(e.target.value)))}
+            />
+          </div>
+          <div style={S.datePicker}>
             <label style={S.dateLabel}>From</label>
             <input
               type="date"
@@ -609,11 +622,14 @@ export default function ATSReport() {
           </div>
           <div style={S.datePicker}>
             <label style={S.dateLabel}>Show</label>
-            <select style={{ ...S.select, width: 64 }} value={rangeValue} onChange={e => setRangeValue(Number(e.target.value))}>
-              {rangeUnit === "days"   && [1,2,3,5,7,10,14,21,30,60].map(n => <option key={n} value={n}>{n}</option>)}
-              {rangeUnit === "weeks"  && [1,2,4,8,12,26].map(n => <option key={n} value={n}>{n}</option>)}
-              {rangeUnit === "months" && [1,2,3,6,9,12].map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
+            <input
+              type="number"
+              min="1"
+              max={rangeUnit === "days" ? 365 : rangeUnit === "weeks" ? 52 : 24}
+              style={{ ...S.dateInput, width: 60 }}
+              value={rangeValue}
+              onChange={e => { const v = Math.max(1, Number(e.target.value)); if (v) setRangeValue(v); }}
+            />
             <select style={{ ...S.select, minWidth: 96 }} value={rangeUnit} onChange={e => { setRangeUnit(e.target.value as "days"|"weeks"|"months"); setRangeValue(e.target.value === "days" ? 14 : e.target.value === "weeks" ? 2 : 1); }}>
               <option value="days">Days</option>
               <option value="weeks">Weeks</option>
