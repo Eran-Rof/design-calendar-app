@@ -14,6 +14,7 @@ interface ATSRow {
   sku: string;
   description: string;
   category?: string;
+  store?: string;      // "ROF" | "PT" — derived from brand
   dates: Record<string, number>;
   onOrder:     number; // open PO qty (incoming from vendors)
   onCommitted: number; // committed SO qty (outgoing to customers)
@@ -34,12 +35,12 @@ interface ATSSnapshot {
 }
 
 // Compact format stored in app_data — compute timeline client-side
-interface ATSSkuData     { sku: string; description: string; category?: string; onHand: number; onOrder: number; onCommitted?: number; }
+interface ATSSkuData     { sku: string; description: string; category?: string; store?: string; onHand: number; onOrder: number; onCommitted?: number; }
 interface ATSPoEvent     { sku: string; date: string; qty: number; poNumber: string; vendor: string; store: string; unitCost: number; }
 interface ATSSoEvent     { sku: string; date: string; qty: number; orderNumber: string; customerName: string; unitPrice: number; totalPrice: number; store: string; }
 interface UploadWarning  { severity: "error" | "warn"; field: string; affected: number; total: number; message: string; }
 interface ExcelData      { syncedAt: string; skus: ATSSkuData[]; pos: ATSPoEvent[]; sos: ATSSoEvent[]; warnings?: UploadWarning[]; columnNames?: { inventory: string[]; purchases: string[]; orders: string[] }; }
-interface CtxMenu        { x: number; y: number; anchorY: number; pos: ATSPoEvent[]; sos: ATSSoEvent[]; cellKey: string; }
+interface CtxMenu        { x: number; y: number; anchorY: number; pos: ATSPoEvent[]; sos: ATSSoEvent[]; cellKey: string; cellEl: HTMLElement | null; }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function addDays(date: Date, days: number): Date {
@@ -159,7 +160,7 @@ function computeRowsFromExcelData(data: ExcelData, dates: string[]): ATSRow[] {
     // Prefer API-stored onCommitted (counts ALL SOs including undated ones);
     // fall back to soIdx total for old cached data that predates the field.
     const onCommitted = s.onCommitted != null ? s.onCommitted : (committedBySku[s.sku] ?? 0);
-    return { sku: s.sku, description: s.description, category: s.category, onHand: s.onHand, onOrder: s.onOrder, onCommitted, dates: dateMap };
+    return { sku: s.sku, description: s.description, category: s.category, store: s.store, onHand: s.onHand, onOrder: s.onOrder, onCommitted, dates: dateMap };
   });
 }
 
@@ -238,6 +239,33 @@ export default function ATSReport() {
     const close = () => setCtxMenu(null);
     document.addEventListener("click", close);
     return () => document.removeEventListener("click", close);
+  }, [ctxMenu]);
+
+  // ── Keep context menu attached to its cell on scroll ──────────────────
+  useEffect(() => {
+    if (!ctxMenu?.cellEl || !ctxRef.current) return;
+    const update = () => {
+      if (!ctxMenu.cellEl || !ctxRef.current) return;
+      const cell = ctxMenu.cellEl.getBoundingClientRect();
+      const popup = ctxRef.current;
+      const ph = popup.offsetHeight;
+      const pw = popup.offsetWidth;
+      const vh = window.innerHeight;
+      const vw = window.innerWidth;
+      const pad = 8;
+      // Default: below the cell
+      let top  = cell.bottom + 2;
+      let left = cell.left;
+      // Flip above if overflows bottom
+      if (top + ph > vh - pad) top = Math.max(pad, cell.top - ph - 2);
+      // Clamp right edge
+      if (left + pw > vw - pad) left = Math.max(pad, vw - pw - pad);
+      popup.style.top  = `${top}px`;
+      popup.style.left = `${left}px`;
+    };
+    const scrollEls = [window, tableRef.current].filter(Boolean);
+    scrollEls.forEach(el => el!.addEventListener("scroll", update, { passive: true }));
+    return () => scrollEls.forEach(el => el!.removeEventListener("scroll", update));
   }, [ctxMenu]);
 
   // ── Close store dropdowns on outside click ─────────────────────────────
@@ -694,8 +722,13 @@ export default function ATSReport() {
       filterStatus === "Low" ? todayQty > 0 && todayQty <= 10 :
       todayQty > 10;
     const matchMin    = minATS === "" || todayQty >= minATS;
-    const matchPOStore = !poFilterSkus || poFilterSkus.has(r.sku);
-    const matchSOStore = !soFilterSkus || soFilterSkus.has(r.sku);
+    // A row matches the store filter if it has matching PO/SO events OR its brand belongs to the selected store.
+    // "ROF ECOM" maps to "ROF" at the brand level (ECOM is a channel, not a brand).
+    const skuBrand = r.store ?? "ROF";
+    const brandMatchesPo = !poStores.includes("All") && poStores.some(s => s === skuBrand || (s === "ROF ECOM" && skuBrand === "ROF"));
+    const brandMatchesSo = !soStores.includes("All") && soStores.some(s => s === skuBrand || (s === "ROF ECOM" && skuBrand === "ROF"));
+    const matchPOStore = !poFilterSkus || poFilterSkus.has(r.sku) || brandMatchesPo;
+    const matchSOStore = !soFilterSkus || soFilterSkus.has(r.sku) || brandMatchesSo;
     return matchSearch && matchCat && matchStatus && matchMin && matchPOStore && matchSOStore;
   });
 
@@ -1030,8 +1063,9 @@ export default function ATSReport() {
                               e.preventDefault();
                               const cellKey = `${row.sku}::${p.key}`;
                               if (ctxMenu?.cellKey === cellKey) { setCtxMenu(null); return; }
-                              const cellRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                              setCtxMenu({ x: cellRect.left, y: cellRect.bottom + 2, anchorY: cellRect.top, pos: ev.pos, sos: ev.sos, cellKey });
+                              const cellEl   = e.currentTarget as HTMLElement;
+                              const cellRect = cellEl.getBoundingClientRect();
+                              setCtxMenu({ x: cellRect.left, y: cellRect.bottom + 2, anchorY: cellRect.top, pos: ev.pos, sos: ev.sos, cellKey, cellEl });
                             }}
                           >
                             {isEmpty ? (

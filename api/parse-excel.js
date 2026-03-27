@@ -52,7 +52,8 @@ export default async function handler(req, res) {
         if (!base) continue;
         const sku = color ? `${base} - ${color}` : base;
         if (!skuMap[sku]) {
-          skuMap[sku] = { sku, description: str(r["Description"]), category: str(r["Brand"]) || undefined, onHand: 0, onOrder: 0, onCommitted: 0 };
+          const brand = str(r["Brand"]);
+          skuMap[sku] = { sku, description: str(r["Description"]), category: brand || undefined, store: detectSkuStore(brand), onHand: 0, onOrder: 0, onCommitted: 0 };
         }
         skuMap[sku].onHand += toNum(r["Total Sum of Qty"]);
       }
@@ -69,7 +70,8 @@ export default async function handler(req, res) {
         const qty = toNum(r["Total Sum of Qty Ordered"]);
 
         if (!skuMap[sku]) {
-          skuMap[sku] = { sku, description: str(r["Description"]), category: str(r["Brand Name"]) || undefined, onHand: 0, onOrder: 0, onCommitted: 0 };
+          const brand = str(r["Brand Name"] || r["Brand"] || "");
+          skuMap[sku] = { sku, description: str(r["Description"]), category: brand || undefined, store: detectSkuStore(brand), onHand: 0, onOrder: 0, onCommitted: 0 };
         }
         if (qty > 0) {
           poTotal++;
@@ -85,7 +87,7 @@ export default async function handler(req, res) {
 
           const brandName = str(r["Brand Name"] || r["Brand"] || "");
           const store    = detectPoStore(poNumber, brandName);
-          const unitCost = parseFloat(String(r["Unit Cost"] || r["Cost"] || r["Unit Price"] || r["Price"] || 0).replace(/[^0-9.-]/g, "")) || 0;
+          const unitCost = parseFloat(String(r["Total Average of PO Unit Cost"] || r["Unit Cost"] || r["Cost"] || r["Unit Price"] || r["Price"] || 0).replace(/[^0-9.-]/g, "")) || 0;
 
           if (date) {
             pos.push({ sku, date, qty, poNumber, vendor, store, unitCost });
@@ -105,7 +107,8 @@ export default async function handler(req, res) {
         const qty = toNum(r["Total Sum of Qty Ordered"]);
 
         if (!skuMap[sku]) {
-          skuMap[sku] = { sku, description: "", category: str(r["Brand"]) || undefined, onHand: 0, onOrder: 0, onCommitted: 0 };
+          const brand = str(r["Brand"] || r["Brand Name"] || "");
+          skuMap[sku] = { sku, description: "", category: brand || undefined, store: detectSkuStore(brand), onHand: 0, onOrder: 0, onCommitted: 0 };
         }
         if (qty > 0) {
           soTotal++;
@@ -225,6 +228,13 @@ function str(v) {
 function toNum(v) {
   const n = parseFloat(String(v).replace(/[^0-9.-]/g, ""));
   return isNaN(n) ? 0 : Math.round(n);
+}
+
+// Derive store for an inventory SKU from its brand name (no ECOM distinction at SKU level)
+function detectSkuStore(brandName) {
+  const bn = (brandName || "").toUpperCase();
+  if (bn.includes("PSYCHO") || bn.includes("PTUNA") || bn.includes("P TUNA") || bn === "PT" || bn.startsWith("PT ")) return "PT";
+  return "ROF";
 }
 
 // Derive store from PO number and brand name
