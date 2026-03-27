@@ -34,11 +34,12 @@ interface ATSSnapshot {
 }
 
 // Compact format stored in app_data — compute timeline client-side
-interface ATSSkuData  { sku: string; description: string; category?: string; onHand: number; onOrder: number; onCommitted?: number; }
-interface ATSPoEvent  { sku: string; date: string; qty: number; poNumber: string; vendor: string; }
-interface ATSSoEvent  { sku: string; date: string; qty: number; orderNumber: string; customerName: string; unitPrice: number; totalPrice: number; }
-interface ExcelData   { syncedAt: string; skus: ATSSkuData[]; pos: ATSPoEvent[]; sos: ATSSoEvent[]; }
-interface CtxMenu     { x: number; y: number; pos: ATSPoEvent[]; sos: ATSSoEvent[]; }
+interface ATSSkuData     { sku: string; description: string; category?: string; onHand: number; onOrder: number; onCommitted?: number; }
+interface ATSPoEvent     { sku: string; date: string; qty: number; poNumber: string; vendor: string; }
+interface ATSSoEvent     { sku: string; date: string; qty: number; orderNumber: string; customerName: string; unitPrice: number; totalPrice: number; }
+interface UploadWarning  { severity: "error" | "warn"; field: string; affected: number; total: number; message: string; }
+interface ExcelData      { syncedAt: string; skus: ATSSkuData[]; pos: ATSPoEvent[]; sos: ATSSoEvent[]; warnings?: UploadWarning[]; }
+interface CtxMenu        { x: number; y: number; pos: ATSPoEvent[]; sos: ATSSoEvent[]; }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function addDays(date: Date, days: number): Date {
@@ -191,6 +192,8 @@ export default function ATSReport() {
   const [lastSync, setLastSync] = useState("");
   const [syncError, setSyncError] = useState<{ title: string; detail: string } | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadWarnings, setUploadWarnings] = useState<UploadWarning[] | null>(null);
+  const [pendingUploadData, setPendingUploadData] = useState<ExcelData | null>(null);
   const [excelData, setExcelData] = useState<ExcelData | null>(null);
   const [hoveredCell, setHoveredCell] = useState<{ sku: string; date: string } | null>(null);
   const [pinnedSku, setPinnedSku] = useState<string | null>(null);
@@ -507,25 +510,18 @@ export default function ATSReport() {
       setUploadProgress({ step: "Processing data…", pct: 50 });
       const data: ExcelData = await res.json();
       if (cancelRef.current) return;
-      setUploadProgress({ step: `Saving ${data.skus.length.toLocaleString()} SKUs…`, pct: 70 });
-      // Store compact data as single app_data record — always overwrites previous Excel upload
-      const saveRes = await fetch(`${SB_URL}/rest/v1/app_data`, {
-        method: "POST",
-        headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify({ key: "ats_excel_data", value: JSON.stringify(data) }),
-        signal: abortRef.current.signal,
-      });
-      if (!saveRes.ok) throw new Error("Failed to save data to database");
-      if (cancelRef.current) return;
-      setUploadProgress({ step: "Computing ATS…", pct: 92 });
-      setExcelData(data);
-      setRows(computeRowsFromExcelData(data, dates));
-      setLastSync(data.syncedAt);
-      setMockMode(false);
-      setInvFile(null); setPurFile(null); setOrdFile(null);
-      setUploadProgress(null);
-      setUploadSuccess(`${data.skus.length.toLocaleString()} SKUs uploaded successfully`);
-      setTimeout(() => setUploadSuccess(null), 6000);
+      setUploadProgress({ step: "Checking data…", pct: 70 });
+
+      // If the API found any data quality issues, pause and ask user before saving
+      if (data.warnings && data.warnings.length > 0) {
+        setUploadProgress(null);
+        setUploadingFile(false);
+        setPendingUploadData(data);
+        setUploadWarnings(data.warnings);
+        return; // wait for user confirmation
+      }
+
+      await saveUploadData(data);
     } catch (e) {
       if ((e as Error).name === "AbortError") return;
       console.error(e);
@@ -535,6 +531,36 @@ export default function ATSReport() {
       setUploadProgress(null);
       cancelRef.current = false;
       abortRef.current = null;
+    }
+  }
+
+  async function saveUploadData(data: ExcelData) {
+    setUploadingFile(true);
+    setUploadWarnings(null);
+    setPendingUploadData(null);
+    try {
+      setUploadProgress({ step: `Saving ${data.skus.length.toLocaleString()} SKUs…`, pct: 80 });
+      const saveRes = await fetch(`${SB_URL}/rest/v1/app_data`, {
+        method: "POST",
+        headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ key: "ats_excel_data", value: JSON.stringify(data) }),
+      });
+      if (!saveRes.ok) throw new Error("Failed to save data to database");
+      setUploadProgress({ step: "Computing ATS…", pct: 95 });
+      setExcelData(data);
+      setRows(computeRowsFromExcelData(data, dates));
+      setLastSync(data.syncedAt);
+      setMockMode(false);
+      setInvFile(null); setPurFile(null); setOrdFile(null);
+      setUploadProgress(null);
+      setUploadSuccess(`${data.skus.length.toLocaleString()} SKUs uploaded successfully`);
+      setTimeout(() => setUploadSuccess(null), 6000);
+    } catch (e) {
+      console.error(e);
+      setUploadError((e as Error).message);
+    } finally {
+      setUploadingFile(false);
+      setUploadProgress(null);
     }
   }
 
@@ -919,6 +945,62 @@ export default function ATSReport() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* UPLOAD WARNINGS CONFIRMATION MODAL */}
+      {uploadWarnings && pendingUploadData && (
+        <div style={S.modalOverlay}>
+          <div style={{ ...S.modal, width: 560, border: "1px solid #F59E0B" }} onClick={e => e.stopPropagation()}>
+            <div style={{ ...S.modalHeader, borderBottom: "1px solid #78350f" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(245,158,11,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>⚠</div>
+                <div>
+                  <h2 style={{ ...S.modalTitle, color: "#FCD34D", margin: 0 }}>Review Data Issues</h2>
+                  <div style={{ color: "#94A3B8", fontSize: 12, marginTop: 2 }}>
+                    {pendingUploadData.skus.length.toLocaleString()} SKUs · {pendingUploadData.pos.length.toLocaleString()} PO lines · {pendingUploadData.sos.length.toLocaleString()} SO lines parsed
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div style={S.modalBody}>
+              <p style={{ color: "#CBD5E1", fontSize: 13, marginBottom: 16 }}>
+                The following issues were found in your files. Review them before deciding whether to proceed.
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
+                {uploadWarnings.map((w, i) => (
+                  <div key={i} style={{
+                    background: w.severity === "error" ? "rgba(239,68,68,0.08)" : "rgba(245,158,11,0.08)",
+                    border: `1px solid ${w.severity === "error" ? "rgba(239,68,68,0.3)" : "rgba(245,158,11,0.3)"}`,
+                    borderRadius: 8, padding: "10px 14px",
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                      <span style={{ fontSize: 14 }}>{w.severity === "error" ? "✗" : "△"}</span>
+                      <span style={{ color: w.severity === "error" ? "#FCA5A5" : "#FCD34D", fontWeight: 700, fontSize: 13 }}>{w.field}</span>
+                      <span style={{ marginLeft: "auto", color: w.severity === "error" ? "#FCA5A5" : "#FCD34D", fontFamily: "monospace", fontSize: 12, fontWeight: 700 }}>
+                        {w.affected.toLocaleString()} / {w.total.toLocaleString()}
+                      </span>
+                    </div>
+                    <div style={{ color: "#94A3B8", fontSize: 12, lineHeight: 1.5, paddingLeft: 22 }}>{w.message}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  style={{ flex: 1, background: "none", border: "1px solid #475569", color: "#94A3B8", borderRadius: 8, padding: "10px 0", fontSize: 13, cursor: "pointer", fontWeight: 600 }}
+                  onClick={() => { setUploadWarnings(null); setPendingUploadData(null); }}
+                >
+                  Cancel — Go Back
+                </button>
+                <button
+                  style={{ flex: 2, background: "#F59E0B", border: "none", color: "#0F172A", borderRadius: 8, padding: "10px 0", fontSize: 13, cursor: "pointer", fontWeight: 700 }}
+                  onClick={() => saveUploadData(pendingUploadData)}
+                >
+                  Upload Anyway
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

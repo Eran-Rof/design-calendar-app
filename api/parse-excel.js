@@ -1,6 +1,6 @@
 // api/parse-excel.js — Vercel Serverless Function
 // Accepts 3 files: inventory (on-hand), purchases (POs), orders (sales orders)
-// Returns compact { skus, pos, sos, syncedAt } — ATS timeline computed client-side.
+// Returns compact { skus, pos, sos, syncedAt, warnings } — ATS timeline computed client-side.
 
 import formidable from "formidable";
 import * as XLSX from "xlsx";
@@ -37,8 +37,6 @@ export default async function handler(req, res) {
       const now = new Date().toISOString();
 
       // ── 1. Inventory Snapshot → on-hand per SKU ────────────────────────────
-      // Columns: Store, Brand, Base Part No, Description, Option 1 Value,
-      //          Last Receipt Date, Total Sum of Qty, ...
       const skuMap = {};
 
       for (const r of invRows) {
@@ -53,9 +51,8 @@ export default async function handler(req, res) {
       }
 
       // ── 2. Purchased Items Report → PO events (incoming) ──────────────────
-      // Columns: Brand Name, Vendor, PO, BasePart, Option 1 Value,
-      //          Expected Delivery Date, Description, Total Sum of Qty Ordered, ...
       const pos = [];
+      let poTotal = 0, poNoDate = 0, poNoPoNum = 0, poNoVendor = 0;
 
       for (const r of purRows) {
         const base  = str(r["BasePart"]);
@@ -64,19 +61,21 @@ export default async function handler(req, res) {
         const sku = color ? `${base} - ${color}` : base;
         const qty = toNum(r["Total Sum of Qty Ordered"]);
 
-        // Always register SKU so it appears in the grid
         if (!skuMap[sku]) {
           skuMap[sku] = { sku, description: str(r["Description"]), category: str(r["Brand Name"]) || undefined, onHand: 0, onOrder: 0, onCommitted: 0 };
         }
         if (qty > 0) {
-          // Count ALL PO qty regardless of whether date is valid
+          poTotal++;
           skuMap[sku].onOrder += qty;
 
-          const date = parseDate(r["Expected Delivery Date"]);
+          const date     = parseDate(r["Expected Delivery Date"]);
           const poNumber = str(r["PO"] || r["PO #"] || r["PO Number"] || r["Purchase Order"] || r["PO No"]);
           const vendor   = str(r["Vendor"] || r["Vendor Name"] || r["Supplier"] || r["Vendor/Supplier"]);
 
-          // Only add to timeline if we have a valid delivery date
+          if (!date)     poNoDate++;
+          if (!poNumber) poNoPoNum++;
+          if (!vendor)   poNoVendor++;
+
           if (date) {
             pos.push({ sku, date, qty, poNumber, vendor });
           }
@@ -84,10 +83,8 @@ export default async function handler(req, res) {
       }
 
       // ── 3. All Orders Report → SO events (outgoing) ───────────────────────
-      // Columns: Sale Store, Brand, Order Number, Customer Name,
-      //          Order Date to be Shipped, ..., Base Part, Option 1 Value,
-      //          Total Sum of Qty Ordered, ...
       const sos = [];
+      let soTotal = 0, soNoDate = 0, soNoOrderNum = 0, soNoCustName = 0;
 
       for (const r of ordRows) {
         const base  = str(r["Base Part"]);
@@ -100,29 +97,87 @@ export default async function handler(req, res) {
           skuMap[sku] = { sku, description: "", category: str(r["Brand"]) || undefined, onHand: 0, onOrder: 0, onCommitted: 0 };
         }
         if (qty > 0) {
-          // Count ALL committed qty regardless of whether cancel date is valid
+          soTotal++;
           skuMap[sku].onCommitted += qty;
 
-          // Use cancel date as the date SO qty is applied to ATS
-          const rawDate = r["Date to be Cancelled"] || r["Cancel Date"] || r["Order Date to be Shipped"] || r["Ship Date"] || r["Requested Ship Date"];
-          const date = parseDate(rawDate);
-
+          const rawDate      = r["Date to be Cancelled"] || r["Cancel Date"] || r["Order Date to be Shipped"] || r["Ship Date"] || r["Requested Ship Date"];
+          const date         = parseDate(rawDate);
           const orderNumber  = str(r["Order Number"] || r["Order #"] || r["SO Number"] || r["SO #"] || r["Sales Order"] || r["Order No"]);
           const customerName = str(r["Customer Name"] || r["Customer"] || r["Bill To Name"] || r["Ship To Name"] || r["Client Name"]);
           const unitPrice    = parseFloat(String(r["Unit Price"] || r["Unit Cost"] || r["Price"] || 0).replace(/[^0-9.-]/g, "")) || 0;
           const totalPrice   = parseFloat(String(r["Total Sum of Total Price"] || r["Total Price"] || r["Extended Price"] || 0).replace(/[^0-9.-]/g, "")) || 0;
 
-          // Only add to timeline if we have a valid cancel/ship date
+          if (!date)        soNoDate++;
+          if (!orderNumber) soNoOrderNum++;
+          if (!customerName) soNoCustName++;
+
           if (date) {
             sos.push({ sku, date, qty, orderNumber, customerName, unitPrice, totalPrice });
           }
         }
       }
 
-      // Drop SKUs with zero activity across all three files
+      // ── Build warnings ────────────────────────────────────────────────────
+      const warnings = [];
+
+      if (soNoDate > 0) {
+        warnings.push({
+          severity: "error",
+          field: "Sales Order Cancel/Ship Date",
+          affected: soNoDate,
+          total: soTotal,
+          message: `${soNoDate} of ${soTotal} sales order lines have no valid cancel or ship date. These orders will NOT move the ATS timeline (they are still counted in the On Order total).`,
+        });
+      }
+      if (soNoOrderNum > 0) {
+        warnings.push({
+          severity: "warn",
+          field: "Sales Order Number",
+          affected: soNoOrderNum,
+          total: soTotal,
+          message: `${soNoOrderNum} of ${soTotal} sales order lines are missing an order number. Right-click details will show "—" for those orders.`,
+        });
+      }
+      if (soNoCustName > 0) {
+        warnings.push({
+          severity: "warn",
+          field: "Customer Name",
+          affected: soNoCustName,
+          total: soTotal,
+          message: `${soNoCustName} of ${soTotal} sales order lines are missing a customer name.`,
+        });
+      }
+      if (poNoDate > 0) {
+        warnings.push({
+          severity: "error",
+          field: "PO Expected Delivery Date",
+          affected: poNoDate,
+          total: poTotal,
+          message: `${poNoDate} of ${poTotal} purchase order lines have no valid expected delivery date. These POs will NOT move the ATS timeline (they are still counted in the On PO total).`,
+        });
+      }
+      if (poNoPoNum > 0) {
+        warnings.push({
+          severity: "warn",
+          field: "PO Number",
+          affected: poNoPoNum,
+          total: poTotal,
+          message: `${poNoPoNum} of ${poTotal} purchase order lines are missing a PO number.`,
+        });
+      }
+      if (poNoVendor > 0) {
+        warnings.push({
+          severity: "warn",
+          field: "Vendor Name",
+          affected: poNoVendor,
+          total: poTotal,
+          message: `${poNoVendor} of ${poTotal} purchase order lines are missing a vendor name.`,
+        });
+      }
+
+      // ── Active SKUs ───────────────────────────────────────────────────────
       const poSkus = new Set(pos.map(p => p.sku));
       const soSkus = new Set(sos.map(s => s.sku));
-      // Also include SKUs that have committed/onOrder even without valid dates
       const activeSkus = Object.values(skuMap)
         .filter(s => s.onHand > 0 || s.onOrder > 0 || s.onCommitted > 0 || poSkus.has(s.sku) || soSkus.has(s.sku));
 
@@ -131,6 +186,7 @@ export default async function handler(req, res) {
         skus: activeSkus,
         pos,
         sos,
+        warnings,
       });
     } catch (e) {
       res.status(500).json({ error: e.message });
