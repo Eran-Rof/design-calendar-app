@@ -311,6 +311,14 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
     setDmSending(false);
   }
 
+  function friendlyGraphError(e: any): string {
+    const msg: string = e?.message || "";
+    if (msg.includes("403") || msg.toLowerCase().includes("insufficient")) return "Permission denied — sign out and sign back in to grant contacts access";
+    if (msg.includes("401") || msg.toLowerCase().includes("expired")) return "Session expired — sign out and sign back in";
+    if (msg.includes("404")) return "Contacts not available on this account";
+    return "Could not load contacts — sign out and sign back in";
+  }
+
   async function loadContacts() {
     if (contactsLoading || !token) return;
     setContactsLoading(true);
@@ -320,12 +328,12 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
       setContacts(d.value || []);
     } catch(e: any) {
       console.warn("[Teams contacts] /me/people failed:", e?.message);
-      // Fallback: org directory
       try {
         const d2 = await graph("/users?$top=100&$select=displayName,userPrincipalName,mail");
         setContacts((d2.value || []).map((u: any) => ({ ...u, scoredEmailAddresses: u.mail ? [{ address: u.mail }] : [] })));
       } catch(e2: any) {
-        setContactsError(e2?.message || e?.message || "Failed to load contacts");
+        console.warn("[Teams contacts] /users fallback failed:", e2?.message);
+        setContactsError(friendlyGraphError(e2 || e));
       }
     }
     setContactsLoading(false);

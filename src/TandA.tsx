@@ -628,6 +628,14 @@ export default function TandAApp() {
     if (!r.ok) throw new Error("Graph " + r.status + ": " + await r.text());
     return r.json();
   }
+  function friendlyContactError(e: any): string {
+    const msg: string = e?.message || "";
+    if (msg.includes("403") || msg.toLowerCase().includes("insufficient")) return "Permission denied — sign out and sign back in";
+    if (msg.includes("401") || msg.toLowerCase().includes("expired")) return "Session expired — sign out and sign back in";
+    if (msg.includes("404")) return "Contacts not available on this account";
+    return "Could not load contacts — sign out and sign back in";
+  }
+
   async function loadTeamsContacts() {
     if (teamsContactsLoading) return;
     setTeamsContactsLoading(true);
@@ -641,7 +649,8 @@ export default function TandAApp() {
         const d2 = await teamsGraph("/users?$top=100&$select=displayName,userPrincipalName,mail");
         setTeamsContacts((d2.value || []).map((u: any) => ({ ...u, scoredEmailAddresses: u.mail ? [{ address: u.mail }] : [] })));
       } catch(e2: any) {
-        setTeamsContactsError(e2?.message || e?.message || "Failed to load contacts");
+        console.warn("[Teams contacts] /users fallback failed:", e2?.message);
+        setTeamsContactsError(friendlyContactError(e2 || e));
       }
     }
     setTeamsContactsLoading(false);
