@@ -238,6 +238,7 @@ export default function ATSReport() {
   const ctxRef   = useRef<HTMLDivElement>(null);
   const [summaryCtx, setSummaryCtx] = useState<SummaryCtxMenu | null>(null);
   const summaryCtxRef = useRef<HTMLDivElement>(null);
+  const [activeSort, setActiveSort] = useState<string | null>(null);
   const cancelRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -256,6 +257,37 @@ export default function ATSReport() {
     document.addEventListener("click", close);
     return () => document.removeEventListener("click", close);
   }, [summaryCtx]);
+
+  const repositionSummaryCtx = useCallback(() => {
+    if (!summaryCtx?.cellEl || !summaryCtxRef.current) return;
+    const el   = summaryCtxRef.current;
+    const cell = summaryCtx.cellEl.getBoundingClientRect();
+    const ph   = el.offsetHeight;
+    const pw   = el.offsetWidth;
+    const vh   = window.innerHeight;
+    const vw   = window.innerWidth;
+    const pad  = 8;
+    let top     = cell.bottom + 4;
+    let flipped = false;
+    if (top + ph > vh - pad) { top = Math.max(pad, cell.top - ph - 4); flipped = true; }
+    let left = Math.max(pad, Math.min(vw - pw - pad, cell.left));
+    el.style.top  = `${top}px`;
+    el.style.left = `${left}px`;
+    const arrowLeft = Math.max(10, Math.min(cell.left + cell.width / 2 - left - 9, pw - 28));
+    const upEl   = el.querySelector("[data-arrow='up']")   as HTMLElement | null;
+    const downEl = el.querySelector("[data-arrow='down']") as HTMLElement | null;
+    if (upEl)   { upEl.style.display   = flipped ? "none" : "block"; upEl.style.left   = `${arrowLeft}px`; }
+    if (downEl) { downEl.style.display = flipped ? "block" : "none"; downEl.style.left = `${arrowLeft}px`; }
+  }, [summaryCtx]);
+
+  useLayoutEffect(() => { repositionSummaryCtx(); }, [repositionSummaryCtx]);
+
+  useEffect(() => {
+    if (!summaryCtx) return;
+    const scrollEls = [window, tableRef.current].filter(Boolean);
+    scrollEls.forEach(el => el!.addEventListener("scroll", repositionSummaryCtx, { passive: true }));
+    return () => scrollEls.forEach(el => el!.removeEventListener("scroll", repositionSummaryCtx));
+  }, [summaryCtx, repositionSummaryCtx]);
 
   // ── Reposition popup + update arrow direction in DOM (no state re-render) ──
   const repositionCtxMenu = useCallback(() => {
@@ -748,23 +780,58 @@ export default function ATSReport() {
     return matchSearch && matchCat && matchStatus && matchMin && matchPOStore && matchSOStore;
   });
 
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const pageRows   = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-  // Reset to page 0 whenever filters/search change
-  useEffect(() => { setPage(0); }, [search, filterCategory, filterStatus, minATS, poStores, soStores, rows]);
-
   // ── Summary stats ──────────────────────────────────────────────────────
-  const todayKey = fmtDate(today);
+  const todayKey     = fmtDate(today);
   const outOfStock   = rows.filter(r => (r.dates[todayKey] ?? r.onHand) <= 0).length;
   const lowStock     = rows.filter(r => { const q = r.dates[todayKey] ?? r.onHand; return q > 0 && q <= 10; }).length;
   const totalOnOrder = rows.reduce((s, r) => s + r.onOrder, 0);
   const totalSKUs    = rows.length;
+  const negATSCount  = filtered.filter(r => { const q = r.dates[todayKey]; return q != null && q < 0; }).length;
+
+  // ── Sort filtered rows by active stat box ──────────────────────────────
+  const sortedFiltered = useMemo(() => {
+    if (!activeSort) return filtered;
+    return [...filtered].sort((a, b) => {
+      const aq = a.dates[todayKey] ?? a.onHand;
+      const bq = b.dates[todayKey] ?? b.onHand;
+      if (activeSort === "negATS") {
+        const aNeg = aq < 0, bNeg = bq < 0;
+        if (aNeg && !bNeg) return -1; if (!aNeg && bNeg) return 1;
+        if (aNeg && bNeg) return aq - bq; return 0;
+      }
+      if (activeSort === "outOfStock") {
+        const aO = aq <= 0, bO = bq <= 0;
+        if (aO && !bO) return -1; if (!aO && bO) return 1; return aq - bq;
+      }
+      if (activeSort === "lowStock") {
+        const aL = aq > 0 && aq <= 10, bL = bq > 0 && bq <= 10;
+        if (aL && !bL) return -1; if (!aL && bL) return 1; return aq - bq;
+      }
+      if (activeSort === "onOrder") return b.onOrder - a.onOrder;
+      return 0;
+    });
+  }, [activeSort, filtered, todayKey]);
+
+  const totalPages = Math.ceil(sortedFiltered.length / PAGE_SIZE);
+  const pageRows   = sortedFiltered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  // Reset to page 0 whenever filters/search/sort change
+  useEffect(() => { setPage(0); }, [search, filterCategory, filterStatus, minATS, poStores, soStores, rows, activeSort]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // RENDER
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div style={S.app}>
+      <style>{`
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+          background: transparent;
+          border-left: none;
+          opacity: 0.6;
+        }
+        input[type=number]::-webkit-inner-spin-button:hover,
+        input[type=number]::-webkit-outer-spin-button:hover { opacity: 1; }
+      `}</style>
       {/* NAV */}
       <nav style={S.nav}>
         <div style={S.navLeft}>
@@ -809,11 +876,12 @@ export default function ATSReport() {
 
       <div style={S.content}>
         {/* STAT CARDS */}
-        <div style={S.statsRow}>
-          <StatCard icon="▦" label="Total SKUs"    value={totalSKUs}    color="#3B82F6" />
-          <StatCard icon="▽" label="Out of Stock"  value={outOfStock}   color="#EF4444" />
-          <StatCard icon="△" label="Low Stock (≤10)" value={lowStock}   color="#F59E0B" />
-          <StatCard icon="↑" label="Units on Order" value={totalOnOrder} color="#10B981" />
+        <div style={{ ...S.statsRow, gridTemplateColumns: "repeat(5,1fr)" }}>
+          <StatCard icon="▦" label="Total SKUs"      value={totalSKUs}    color="#3B82F6" sortKey="total"      activeSort={activeSort} onSort={k => setActiveSort(k)} />
+          <StatCard icon="▽" label="Out of Stock"    value={outOfStock}   color="#EF4444" sortKey="outOfStock" activeSort={activeSort} onSort={k => setActiveSort(k)} />
+          <StatCard icon="△" label="Low Stock (≤10)" value={lowStock}     color="#F59E0B" sortKey="lowStock"   activeSort={activeSort} onSort={k => setActiveSort(k)} />
+          <StatCard icon="↑" label="Units on Order"  value={totalOnOrder} color="#10B981" sortKey="onOrder"   activeSort={activeSort} onSort={k => setActiveSort(k)} />
+          <StatCard icon="↓" label="Negative ATS"    value={negATSCount}  color="#EF4444" sortKey="negATS"    activeSort={activeSort} onSort={k => setActiveSort(k)} isNeg />
         </div>
 
         {/* TOOLBAR */}
@@ -897,11 +965,10 @@ export default function ATSReport() {
             <label style={S.dateLabel}>Min ATS</label>
             <input
               type="number"
-              min="0"
               style={{ ...S.dateInput, width: 72 }}
               placeholder="0"
               value={minATS}
-              onChange={e => setMinATS(e.target.value === "" ? "" : Math.max(0, Number(e.target.value)))}
+              onChange={e => setMinATS(e.target.value === "" ? "" : Number(e.target.value))}
             />
           </div>
           <div style={S.datePicker}>
@@ -1155,12 +1222,7 @@ export default function ATSReport() {
 
       {/* SUMMARY COLUMN RIGHT-CLICK CONTEXT MENU */}
       {summaryCtx && (() => {
-        const { type, row, pos, sos, cellEl } = summaryCtx;
-        const rect = cellEl.getBoundingClientRect();
-        const menuLeft = Math.min(rect.left, window.innerWidth - 400);
-        const menuTop  = rect.bottom + 4;
-
-        // Store tag helper (reuse same style as main ctx menu)
+        const { type, row, pos, sos } = summaryCtx;
         const storeTag = (store: string) => (
           <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8,
             background: store === "ROF ECOM" ? "rgba(14,165,233,0.2)" : store === "PT" ? "rgba(139,92,246,0.2)" : "rgba(59,130,246,0.2)",
@@ -1168,54 +1230,49 @@ export default function ATSReport() {
             {store}
           </span>
         );
-
-        // Group by store for breakdown header
         const poByStore: Record<string, number> = {};
         for (const p of pos) poByStore[p.store ?? "ROF"] = (poByStore[p.store ?? "ROF"] ?? 0) + p.qty;
         const soByStore: Record<string, number> = {};
         for (const s of sos) soByStore[s.store ?? "ROF"] = (soByStore[s.store ?? "ROF"] ?? 0) + s.qty;
-
+        // Average cost from PO history
+        const avgCost = (() => {
+          const skuPos = pos.filter(p => p.unitCost > 0);
+          const totalQty = skuPos.reduce((s, p) => s + p.qty, 0);
+          return totalQty > 0 ? skuPos.reduce((s, p) => s + p.qty * p.unitCost, 0) / totalQty : 0;
+        })();
         return (
-          <div
-            ref={summaryCtxRef}
-            style={{ position: "fixed", left: menuLeft, top: menuTop, zIndex: 500, minWidth: 280, maxWidth: 420, filter: "drop-shadow(0 8px 24px rgba(0,0,0,0.55))" }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 10, overflow: "hidden" }}>
-              {/* Header */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 14px 4px" }}>
+          <div ref={summaryCtxRef} style={{ position: "fixed", left: 0, top: 0, zIndex: 500, minWidth: 280, maxWidth: 420, filter: "drop-shadow(0 8px 24px rgba(0,0,0,0.55))" }} onClick={e => e.stopPropagation()}>
+            {/* Up arrow (normal, popup below cell) */}
+            <div data-arrow="up" style={{ position: "relative", height: 8, overflow: "visible" }}>
+              <div style={{ position: "absolute", top: 0, left: 20, width: 0, height: 0, borderLeft: "9px solid transparent", borderRight: "9px solid transparent", borderBottom: "9px solid #334155", pointerEvents: "none" }} />
+              <div style={{ position: "absolute", top: 1, left: 21, width: 0, height: 0, borderLeft: "8px solid transparent", borderRight: "8px solid transparent", borderBottom: "8px solid #1E293B", pointerEvents: "none" }} />
+            </div>
+            <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 10, overflow: "hidden", maxHeight: "70vh", overflowY: "auto" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 14px 6px", borderBottom: "1px solid #1a2030", position: "sticky", top: 0, background: "#1E293B", zIndex: 1 }}>
                 <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, fontSize: 12 }}>{row.sku}</span>
                 <button style={{ background: "none", border: "none", color: "#475569", fontSize: 16, cursor: "pointer", lineHeight: 1, padding: "2px 4px", borderRadius: 4 }} onClick={() => setSummaryCtx(null)}>✕</button>
               </div>
-
               {/* ON HAND */}
               {type === "onHand" && (
                 <div>
-                  <div style={{ background: "rgba(241,245,249,0.08)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#F1F5F9", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #334155" }}>
-                    On Hand
-                  </div>
-                  <div style={{ padding: "10px 14px", fontSize: 12 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ background: "rgba(241,245,249,0.08)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#F1F5F9", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #334155" }}>On Hand</div>
+                  <div style={{ padding: "10px 14px", fontSize: 12, borderBottom: "1px solid #1a2030" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                       <span style={{ display: "flex", alignItems: "center", gap: 6 }}>{storeTag(row.store ?? "ROF")}<span style={{ color: "#94A3B8" }}>{row.description}</span></span>
                       <span style={{ color: "#F1F5F9", fontWeight: 700, fontFamily: "monospace" }}>{row.onHand.toLocaleString()} units</span>
                     </div>
+                    {avgCost > 0 && <div style={{ color: "#94A3B8", fontSize: 11 }}>Avg Cost (from POs): <span style={{ color: "#FCD34D", fontFamily: "monospace", fontWeight: 600 }}>${avgCost.toFixed(2)}</span>{row.onHand > 0 && <span style={{ marginLeft: 10 }}>Total value: <span style={{ color: "#FCD34D", fontFamily: "monospace" }}>${(avgCost * row.onHand).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>}</div>}
                   </div>
                 </div>
               )}
-
               {/* ON ORDER (committed SOs) */}
               {type === "onOrder" && (
                 <div>
-                  <div style={{ background: "rgba(245,158,11,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#FCD34D", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #3D2E00" }}>
-                    Committed Sales Orders — {sos.length} line{sos.length !== 1 ? "s" : ""}
-                  </div>
-                  {/* Store breakdown */}
+                  <div style={{ background: "rgba(245,158,11,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#FCD34D", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #3D2E00" }}>Committed Sales Orders — {sos.length} line{sos.length !== 1 ? "s" : ""}</div>
                   {Object.keys(soByStore).length > 1 && (
                     <div style={{ padding: "6px 14px", borderBottom: "1px solid #1a2030", display: "flex", gap: 12, flexWrap: "wrap" }}>
                       {Object.entries(soByStore).map(([st, qty]) => (
-                        <span key={st} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>
-                          {storeTag(st)}<span style={{ color: "#F59E0B", fontFamily: "monospace", fontWeight: 600 }}>{qty.toLocaleString()}</span>
-                        </span>
+                        <span key={st} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>{storeTag(st)}<span style={{ color: "#F59E0B", fontFamily: "monospace", fontWeight: 600 }}>{qty.toLocaleString()}</span></span>
                       ))}
                     </div>
                   )}
@@ -1223,10 +1280,7 @@ export default function ATSReport() {
                     <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                         <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700 }}>{s.orderNumber || "—"}</span>
-                        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          {s.store && storeTag(s.store)}
-                          <span style={{ color: "#F59E0B", fontWeight: 700 }}>{s.qty.toLocaleString()} units</span>
-                        </span>
+                        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>{s.store && storeTag(s.store)}<span style={{ color: "#F59E0B", fontWeight: 700 }}>{s.qty.toLocaleString()} units</span></span>
                       </div>
                       <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{s.customerName || "—"}</div>
                       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
@@ -1238,20 +1292,14 @@ export default function ATSReport() {
                   ))}
                 </div>
               )}
-
               {/* ON PO */}
               {type === "onPO" && (
                 <div>
-                  <div style={{ background: "rgba(16,185,129,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#6EE7B7", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #064E3B" }}>
-                    Open Purchase Orders — {pos.length} line{pos.length !== 1 ? "s" : ""}
-                  </div>
-                  {/* Store breakdown */}
+                  <div style={{ background: "rgba(16,185,129,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#6EE7B7", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #064E3B" }}>Open Purchase Orders — {pos.length} line{pos.length !== 1 ? "s" : ""}</div>
                   {Object.keys(poByStore).length > 1 && (
                     <div style={{ padding: "6px 14px", borderBottom: "1px solid #1a2030", display: "flex", gap: 12, flexWrap: "wrap" }}>
                       {Object.entries(poByStore).map(([st, qty]) => (
-                        <span key={st} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>
-                          {storeTag(st)}<span style={{ color: "#10B981", fontFamily: "monospace", fontWeight: 600 }}>+{qty.toLocaleString()}</span>
-                        </span>
+                        <span key={st} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>{storeTag(st)}<span style={{ color: "#10B981", fontFamily: "monospace", fontWeight: 600 }}>+{qty.toLocaleString()}</span></span>
                       ))}
                     </div>
                   )}
@@ -1262,10 +1310,7 @@ export default function ATSReport() {
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                         <span style={{ color: "#FCD34D", fontFamily: "monospace", fontWeight: 700, textDecoration: p.poNumber ? "underline" : "none", textUnderlineOffset: 2 }}>{p.poNumber || "—"}</span>
-                        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          {p.store && storeTag(p.store)}
-                          <span style={{ color: "#10B981", fontWeight: 700 }}>+{p.qty.toLocaleString()} units</span>
-                        </span>
+                        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>{p.store && storeTag(p.store)}<span style={{ color: "#10B981", fontWeight: 700 }}>+{p.qty.toLocaleString()} units</span></span>
                       </div>
                       <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{p.vendor || "—"}</div>
                       <div style={{ display: "flex", gap: 16 }}>
@@ -1276,6 +1321,11 @@ export default function ATSReport() {
                   ))}
                 </div>
               )}
+            </div>
+            {/* Down arrow (flipped, popup above cell) — hidden by default */}
+            <div data-arrow="down" style={{ position: "relative", height: 8, overflow: "visible", display: "none" }}>
+              <div style={{ position: "absolute", top: 0, left: 20, width: 0, height: 0, borderLeft: "9px solid transparent", borderRight: "9px solid transparent", borderTop: "9px solid #334155", pointerEvents: "none" }} />
+              <div style={{ position: "absolute", top: 0, left: 21, width: 0, height: 0, borderLeft: "8px solid transparent", borderRight: "8px solid transparent", borderTop: "8px solid #1E293B", pointerEvents: "none" }} />
             </div>
           </div>
         );
@@ -1631,9 +1681,18 @@ export default function ATSReport() {
     </div>
   );
 
-  function StatCard({ icon, label, value, color }: { icon: string; label: string; value: number; color: string }) {
+  function StatCard({ icon, label, value, color, sortKey, activeSort, onSort }: {
+    icon: string; label: string; value: number; color: string;
+    sortKey?: string; activeSort?: string | null; onSort?: (k: string | null) => void;
+  }) {
+    const isActive = !!(sortKey && activeSort === sortKey);
     return (
-      <div style={{ ...S.statCard, borderTop: `2px solid ${color}` }}>
+      <div
+        style={{ ...S.statCard, borderTop: `2px solid ${color}`, cursor: sortKey ? "pointer" : "default",
+          outline: isActive ? `2px solid ${color}` : "none", outlineOffset: -2,
+          background: isActive ? `${color}18` : "#1E293B" }}
+        onClick={() => sortKey && onSort && onSort(isActive ? null : sortKey)}
+      >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <span style={{ fontSize: 13, color: "#9CA3AF" }}>{label}</span>
           <span style={{ fontSize: 16, color, opacity: 0.7 }}>{icon}</span>
@@ -1676,9 +1735,9 @@ const S: Record<string, React.CSSProperties> = {
   legend:      { display: "flex", gap: 16, marginBottom: 10, alignItems: "center", flexWrap: "wrap" as const },
   legendItem:  { display: "flex", alignItems: "center", gap: 5 },
 
-  tableWrap:   { overflowX: "auto", borderRadius: 10, border: "1px solid #334155", background: "#0F172A" },
+  tableWrap:   { overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 300px)", borderRadius: 10, border: "1px solid #334155", background: "#0F172A" },
   table:       { borderCollapse: "collapse" as const, width: "100%", fontSize: 13 },
-  th:          { background: "#1E293B", color: "#6B7280", fontWeight: 600, fontSize: 11, textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "10px 12px", borderBottom: "1px solid #334155", borderRight: "1px solid #1a2030", whiteSpace: "nowrap" as const, position: "sticky" as const, top: 0 },
+  th:          { background: "#1E293B", color: "#6B7280", fontWeight: 600, fontSize: 11, textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "10px 12px", borderBottom: "1px solid #334155", borderRight: "1px solid #1a2030", whiteSpace: "nowrap" as const, position: "sticky" as const, top: 0, zIndex: 2 },
   td:          { padding: "7px 10px", borderBottom: "1px solid #1a2030", borderRight: "1px solid #1a2030", whiteSpace: "nowrap" as const, verticalAlign: "middle" as const },
   stickyCol:   { position: "sticky" as const, zIndex: 2, borderRight: "1px solid #334155" },
 
