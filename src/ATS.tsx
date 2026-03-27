@@ -806,10 +806,27 @@ export default function ATSReport() {
   }, [excelData, filteredSkuSet]);
 
   const { marginDollars, marginPct } = useMemo(() => {
-    if (totalSoValue === 0) return { marginDollars: 0, marginPct: 0 };
-    const margin = totalSoValue - totalPoValue;
+    if (!excelData || totalSoValue === 0) return { marginDollars: 0, marginPct: 0 };
+    // Weighted avg cost per SKU from ALL PO lines (on-hand + open POs)
+    const avgCostBySku: Record<string, number> = {};
+    const poQtyBySku:   Record<string, number> = {};
+    for (const p of excelData.pos) {
+      if (p.unitCost <= 0) continue;
+      avgCostBySku[p.sku] = (avgCostBySku[p.sku] ?? 0) + p.qty * p.unitCost;
+      poQtyBySku[p.sku]   = (poQtyBySku[p.sku]   ?? 0) + p.qty;
+    }
+    for (const sku of Object.keys(avgCostBySku)) {
+      avgCostBySku[sku] = poQtyBySku[sku] > 0 ? avgCostBySku[sku] / poQtyBySku[sku] : 0;
+    }
+    // Sum cost of each SO line using that SKU's avg cost
+    let totalCost = 0;
+    for (const s of excelData.sos) {
+      if (!filteredSkuSet.has(s.sku)) continue;
+      totalCost += (avgCostBySku[s.sku] ?? 0) * s.qty;
+    }
+    const margin = totalSoValue - totalCost;
     return { marginDollars: margin, marginPct: margin / totalSoValue };
-  }, [totalSoValue, totalPoValue]);
+  }, [excelData, filteredSkuSet, totalSoValue]);
 
   // ── Stat-card filter: show only rows matching the active stat in ANY column ─
   const statFiltered = useMemo(() => {
