@@ -34,6 +34,13 @@ export default async function handler(req, res) {
       const purRows = readSheet(pur.filepath);
       const ordRows = readSheet(ord.filepath);
 
+      // Capture actual column headers from each file (first data row)
+      const columnNames = {
+        inventory: invRows[0] ? Object.keys(invRows[0]) : [],
+        purchases:  purRows[0] ? Object.keys(purRows[0]) : [],
+        orders:     ordRows[0] ? Object.keys(ordRows[0]) : [],
+      };
+
       const now = new Date().toISOString();
 
       // ── 1. Inventory Snapshot → on-hand per SKU ────────────────────────────
@@ -187,6 +194,7 @@ export default async function handler(req, res) {
         pos,
         sos,
         warnings,
+        columnNames,
       });
     } catch (e) {
       res.status(500).json({ error: e.message });

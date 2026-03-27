@@ -38,7 +38,7 @@ interface ATSSkuData     { sku: string; description: string; category?: string; 
 interface ATSPoEvent     { sku: string; date: string; qty: number; poNumber: string; vendor: string; }
 interface ATSSoEvent     { sku: string; date: string; qty: number; orderNumber: string; customerName: string; unitPrice: number; totalPrice: number; }
 interface UploadWarning  { severity: "error" | "warn"; field: string; affected: number; total: number; message: string; }
-interface ExcelData      { syncedAt: string; skus: ATSSkuData[]; pos: ATSPoEvent[]; sos: ATSSoEvent[]; warnings?: UploadWarning[]; }
+interface ExcelData      { syncedAt: string; skus: ATSSkuData[]; pos: ATSPoEvent[]; sos: ATSSoEvent[]; warnings?: UploadWarning[]; columnNames?: { inventory: string[]; purchases: string[]; orders: string[] }; }
 interface CtxMenu        { x: number; y: number; pos: ATSPoEvent[]; sos: ATSSoEvent[]; }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -985,6 +985,25 @@ export default function ATSReport() {
                   </div>
                 ))}
               </div>
+              {pendingUploadData.columnNames && (
+                <details style={{ marginBottom: 18 }}>
+                  <summary style={{ color: "#60A5FA", fontSize: 12, cursor: "pointer", userSelect: "none" }}>
+                    Show detected column names (click to expand)
+                  </summary>
+                  <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                    {(["purchases", "orders"] as const).map(file => (
+                      <div key={file} style={{ background: "#0F172A", borderRadius: 6, padding: "8px 12px", border: "1px solid #334155" }}>
+                        <div style={{ color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4, fontWeight: 600 }}>
+                          {file === "purchases" ? "Purchases (PO) file" : "Orders (SO) file"}
+                        </div>
+                        <div style={{ color: "#94A3B8", fontSize: 11, fontFamily: "monospace", lineHeight: 1.8 }}>
+                          {pendingUploadData.columnNames![file].join(" · ")}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
               <div style={{ display: "flex", gap: 10 }}>
                 <button
                   style={{ flex: 1, background: "none", border: "1px solid #475569", color: "#94A3B8", borderRadius: 8, padding: "10px 0", fontSize: 13, cursor: "pointer", fontWeight: 600 }}
