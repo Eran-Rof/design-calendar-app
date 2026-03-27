@@ -131,16 +131,31 @@ function computeRowsFromExcelData(data: ExcelData, dates: string[]): ATSRow[] {
     committedBySku[sku] = Object.values(datemap).reduce((a, b) => a + b, 0);
   }
 
+  const rangeStart = dates[0]; // earliest date in the display window
+
   return data.skus.map(s => {
     const poDates = poIdx[s.sku] ?? {};
     const soDates = soIdx[s.sku] ?? {};
+
+    // Apply events that fall BEFORE the display range to the opening balance.
+    // Without this, past SOs (cancel date < startDate) never reduce ATS.
     let ats = s.onHand;
+    for (const [date, qty] of Object.entries(poDates)) {
+      if (date < rangeStart) ats += qty;
+    }
+    for (const [date, qty] of Object.entries(soDates)) {
+      if (date < rangeStart) ats -= qty;
+    }
+    if (ats < 0) ats = 0;
+
+    // Walk forward through the display range
     const dateMap: Record<string, number> = {};
     for (const date of dates) {
       ats += (poDates[date] ?? 0) - (soDates[date] ?? 0);
       if (ats < 0) ats = 0;
       dateMap[date] = ats;
     }
+
     // Prefer API-stored onCommitted (counts ALL SOs including undated ones);
     // fall back to soIdx total for old cached data that predates the field.
     const onCommitted = s.onCommitted != null ? s.onCommitted : (committedBySku[s.sku] ?? 0);
