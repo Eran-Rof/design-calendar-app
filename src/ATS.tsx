@@ -124,6 +124,12 @@ function computeRowsFromExcelData(data: ExcelData, dates: string[]): ATSRow[] {
     soIdx[o.sku][o.date] = (soIdx[o.sku][o.date] ?? 0) + o.qty;
   }
 
+  // Compute onCommitted from soIdx totals (works even with old cached data missing the field)
+  const committedBySku: Record<string, number> = {};
+  for (const [sku, datemap] of Object.entries(soIdx)) {
+    committedBySku[sku] = Object.values(datemap).reduce((a, b) => a + b, 0);
+  }
+
   return data.skus.map(s => {
     const poDates = poIdx[s.sku] ?? {};
     const soDates = soIdx[s.sku] ?? {};
@@ -134,7 +140,7 @@ function computeRowsFromExcelData(data: ExcelData, dates: string[]): ATSRow[] {
       if (ats < 0) ats = 0;
       dateMap[date] = ats;
     }
-    return { sku: s.sku, description: s.description, category: s.category, onHand: s.onHand, onOrder: s.onOrder, onCommitted: s.onCommitted ?? 0, dates: dateMap };
+    return { sku: s.sku, description: s.description, category: s.category, onHand: s.onHand, onOrder: s.onOrder, onCommitted: committedBySku[s.sku] ?? s.onCommitted ?? 0, dates: dateMap };
   });
 }
 
