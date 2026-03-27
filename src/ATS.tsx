@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
+import XLSXStyle from "xlsx-js-style";
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
 const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
@@ -171,23 +172,108 @@ function computeRowsFromExcelData(data: ExcelData, dates: string[], poStores: st
   });
 }
 
-// ── Export helpers ─────────────────────────────────────────────────────────
-function exportToCSV(rows: ATSRow[], dates: string[]) {
-  const header = ["SKU", "Description", "Category", "On Hand", "On Order", ...dates.map(fmtDateShort)];
-  const lines = [header.join(",")];
-  rows.forEach(r => {
-    const cells = [
-      r.sku, `"${r.description}"`, r.category ?? "",
-      r.onHand, r.onOrder,
-      ...dates.map(d => r.dates[d] ?? ""),
+// ── Export to Excel ────────────────────────────────────────────────────────
+function exportToExcel(rows: ATSRow[], periods: Array<{ endDate: string; label: string }>) {
+  // ── Styles ──────────────────────────────────────────────────────────────
+  const HDR: any = {
+    font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
+    fill:      { fgColor: { rgb: "1F497D" }, patternType: "solid" },
+    alignment: { horizontal: "center", vertical: "center", wrapText: false },
+    border: {
+      top:    { style: "thin", color: { rgb: "4472C4" } },
+      bottom: { style: "medium", color: { rgb: "4472C4" } },
+      left:   { style: "thin", color: { rgb: "4472C4" } },
+      right:  { style: "thin", color: { rgb: "4472C4" } },
+    },
+  };
+  const HDR_LEFT: any = { ...HDR, alignment: { horizontal: "left", vertical: "center" } };
+  const HDR_NUM:  any = { ...HDR, alignment: { horizontal: "right", vertical: "center" } };
+
+  const cellEven: any = {
+    fill:      { fgColor: { rgb: "EEF3FA" }, patternType: "solid" },
+    alignment: { horizontal: "left", vertical: "center" },
+    border: { left: { style: "thin", color: { rgb: "D0D8E4" } }, right: { style: "thin", color: { rgb: "D0D8E4" } } },
+  };
+  const cellOdd: any = {
+    fill:      { fgColor: { rgb: "FFFFFF" }, patternType: "solid" },
+    alignment: { horizontal: "left", vertical: "center" },
+    border: { left: { style: "thin", color: { rgb: "D0D8E4" } }, right: { style: "thin", color: { rgb: "D0D8E4" } } },
+  };
+  const numEven: any = { ...cellEven, alignment: { horizontal: "right", vertical: "center" } };
+  const numOdd:  any = { ...cellOdd,  alignment: { horizontal: "right", vertical: "center" } };
+
+  const negStyle = (base: any): any => ({ ...base, font: { bold: true, color: { rgb: "C00000" }, sz: 11, name: "Calibri" } });
+  const lowStyle = (base: any): any => ({ ...base, font: { bold: true, color: { rgb: "7F6000" }, sz: 11, name: "Calibri" }, fill: { fgColor: { rgb: "FFEB9C" }, patternType: "solid" } });
+  const outStyle = (base: any): any => ({ ...base, font: { bold: true, color: { rgb: "9C0006" }, sz: 11, name: "Calibri" }, fill: { fgColor: { rgb: "FFC7CE" }, patternType: "solid" } });
+
+  // ── Columns ─────────────────────────────────────────────────────────────
+  const fixedHdrs = ["SKU", "Description", "Category", "Store", "On Hand", "On Order (SO)", "On PO"];
+  const dateLabels = periods.map(p => p.label.replace(/\n/g, " "));
+  const allHdrs = [...fixedHdrs, ...dateLabels];
+
+  // ── Header row ──────────────────────────────────────────────────────────
+  const headerRow = allHdrs.map((h, ci) => ({
+    v: h,
+    t: "s",
+    s: ci < 2 ? HDR_LEFT : ci >= 4 ? HDR_NUM : HDR,
+  }));
+
+  // ── Data rows ───────────────────────────────────────────────────────────
+  const dataRows = rows.map((r, ri) => {
+    const isEven = ri % 2 === 0;
+    const base   = isEven ? cellEven : cellOdd;
+    const numB   = isEven ? numEven  : numOdd;
+    const todayQ = r.dates[fmtDate(new Date())] ?? r.onHand;
+
+    return [
+      { v: r.sku,              t: "s", s: { ...base, font: { bold: true, color: { rgb: "1F497D" }, sz: 11, name: "Calibri" } } },
+      { v: r.description,      t: "s", s: base },
+      { v: r.category ?? "",   t: "s", s: base },
+      { v: r.store ?? "ROF",   t: "s", s: base },
+      { v: r.onHand,           t: "n", s: todayQ <= 0 ? outStyle(numB) : todayQ <= 10 ? lowStyle(numB) : numB },
+      { v: r.onCommitted || 0, t: "n", s: numB },
+      { v: r.onOrder    || 0,  t: "n", s: numB },
+      ...periods.map(p => {
+        const q = r.dates[p.endDate];
+        if (q == null) return { v: "", t: "s", s: base };
+        const nb = numB;
+        const style = q < 0 ? negStyle(nb) : q === 0 ? outStyle(nb) : q <= 10 ? lowStyle(nb) : nb;
+        return { v: q, t: "n", s: style };
+      }),
     ];
-    lines.push(cells.join(","));
   });
-  const blob = new Blob([lines.join("\n")], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `ATS_Report_${fmtDate(new Date())}.csv`;
+
+  // ── Build worksheet ─────────────────────────────────────────────────────
+  const aoa = [headerRow, ...dataRows];
+  const ws  = XLSXStyle.utils.aoa_to_sheet(aoa, { skipHeader: true });
+
+  // Column widths
+  ws["!cols"] = [
+    { wch: 20 }, // SKU
+    { wch: 34 }, // Description
+    { wch: 16 }, // Category
+    { wch: 10 }, // Store
+    { wch: 11 }, // On Hand
+    { wch: 14 }, // On Order
+    { wch: 10 }, // On PO
+    ...periods.map(() => ({ wch: 13 })),
+  ];
+
+  // Row height for header
+  ws["!rows"] = [{ hpt: 20 }];
+
+  // Freeze: row 1 (header) + first 3 columns (SKU, Description, Category)
+  ws["!freeze"] = { xSplit: 3, ySplit: 1 };
+
+  const wb = XLSXStyle.utils.book_new();
+  XLSXStyle.utils.book_append_sheet(wb, ws, "ATS Report");
+
+  const buf  = XLSXStyle.write(wb, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
+  a.download = `ATS_Report_${fmtDate(new Date())}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -908,10 +994,14 @@ export default function ATSReport() {
             {syncing ? (syncStatus || "Syncing…") : "Sync Xoro"}
           </button>
           <button
-            style={S.navBtnPrimary}
-            onClick={() => exportToCSV(filtered, displayPeriods.map(p => p.endDate))}
+            style={{ ...S.navBtn, background: "#1D6F42", border: "1px solid #155734", color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}
+            onClick={() => exportToExcel(filtered, displayPeriods.map(p => ({ endDate: p.endDate, label: p.label })))}
           >
-            Export CSV
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect width="20" height="20" rx="3" fill="#1D6F42"/>
+              <path d="M11 10l3-4.5h-2.1L10 8.3 8.1 5.5H6l3 4.5L6 14.5h2.1L10 11.7l1.9 2.8H14L11 10z" fill="white"/>
+            </svg>
+            Export Excel
           </button>
           <a href="/" style={{ ...S.navBtn, textDecoration: "none" }}>← PLM Home</a>
         </div>
