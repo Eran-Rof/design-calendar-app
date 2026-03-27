@@ -239,6 +239,8 @@ export default function ATSReport() {
   const [summaryCtx, setSummaryCtx] = useState<SummaryCtxMenu | null>(null);
   const summaryCtxRef = useRef<HTMLDivElement>(null);
   const [activeSort, setActiveSort] = useState<string | null>(null);
+  const [sortCol, setSortCol]   = useState<string | null>(null);
+  const [sortDir, setSortDir]   = useState<"asc" | "desc">("asc");
   const cancelRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -262,6 +264,8 @@ export default function ATSReport() {
     if (!summaryCtx?.cellEl || !summaryCtxRef.current) return;
     const el   = summaryCtxRef.current;
     const cell = summaryCtx.cellEl.getBoundingClientRect();
+    const theadBottom = tableRef.current?.querySelector("thead")?.getBoundingClientRect().bottom ?? 0;
+    if (cell.bottom <= theadBottom || cell.top >= window.innerHeight) { setSummaryCtx(null); return; }
     const ph   = el.offsetHeight;
     const pw   = el.offsetWidth;
     const vh   = window.innerHeight;
@@ -294,6 +298,9 @@ export default function ATSReport() {
     if (!ctxMenu?.cellEl || !ctxRef.current) return;
     const el   = ctxRef.current;
     const cell = ctxMenu.cellEl.getBoundingClientRect();
+    // Auto-close if the anchor cell has scrolled under the sticky table header
+    const theadBottom = tableRef.current?.querySelector("thead")?.getBoundingClientRect().bottom ?? 0;
+    if (cell.bottom <= theadBottom || cell.top >= window.innerHeight) { setCtxMenu(null); return; }
     const ph   = el.offsetHeight;
     const pw   = el.offsetWidth;
     const vh   = window.innerHeight;
@@ -780,42 +787,77 @@ export default function ATSReport() {
     return matchSearch && matchCat && matchStatus && matchMin && matchPOStore && matchSOStore;
   });
 
-  // ── Summary stats ──────────────────────────────────────────────────────
+  // ── Summary stats (all based on filtered rows) ─────────────────────────
   const todayKey     = fmtDate(today);
-  const outOfStock   = rows.filter(r => (r.dates[todayKey] ?? r.onHand) <= 0).length;
-  const lowStock     = rows.filter(r => { const q = r.dates[todayKey] ?? r.onHand; return q > 0 && q <= 10; }).length;
-  const totalOnOrder = rows.reduce((s, r) => s + r.onOrder, 0);
-  const totalSKUs    = rows.length;
-  const negATSCount  = filtered.filter(r => { const q = r.dates[todayKey]; return q != null && q < 0; }).length;
+  const totalSKUs    = filtered.length;
+  const zeroStock    = filtered.filter(r => (r.dates[todayKey] ?? r.onHand) <= 0).length;
+  const lowStock     = filtered.filter(r => { const q = r.dates[todayKey] ?? r.onHand; return q > 0 && q <= 10; }).length;
+  const negATSCount  = filtered.filter(r => Object.values(r.dates).some(q => q < 0)).length;
+  const totalSoQty   = filtered.reduce((s, r) => s + r.onCommitted, 0);
+  const totalPoQty   = filtered.reduce((s, r) => s + r.onOrder, 0);
 
-  // ── Sort filtered rows by active stat box ──────────────────────────────
-  const sortedFiltered = useMemo(() => {
+  const filteredSkuSet = useMemo(() => new Set(filtered.map(r => r.sku)), [filtered]);
+
+  const { totalSoValue, totalPoValue } = useMemo(() => {
+    if (!excelData) return { totalSoValue: 0, totalPoValue: 0 };
+    const soV = excelData.sos.filter(s => filteredSkuSet.has(s.sku)).reduce((a, s) => a + (s.totalPrice || 0), 0);
+    const poV = excelData.pos.filter(p => filteredSkuSet.has(p.sku)).reduce((a, p) => a + p.qty * (p.unitCost || 0), 0);
+    return { totalSoValue: soV, totalPoValue: poV };
+  }, [excelData, filteredSkuSet]);
+
+  const { marginDollars, marginPct } = useMemo(() => {
+    if (!excelData || totalSoValue === 0) return { marginDollars: 0, marginPct: 0 };
+    const posBySku: Record<string, ATSPoEvent[]> = {};
+    for (const p of excelData.pos) {
+      if (!filteredSkuSet.has(p.sku)) continue;
+      if (!posBySku[p.sku]) posBySku[p.sku] = [];
+      posBySku[p.sku].push(p);
+    }
+    let costBasis = totalPoValue;
+    for (const row of filtered) {
+      const skuPos = posBySku[row.sku] ?? [];
+      const totalQty = skuPos.reduce((s, p) => s + p.qty, 0);
+      const avgCost  = totalQty > 0 ? skuPos.reduce((s, p) => s + p.qty * p.unitCost, 0) / totalQty : 0;
+      costBasis += row.onHand * avgCost;
+    }
+    const margin = totalSoValue - costBasis;
+    return { marginDollars: margin, marginPct: totalSoValue > 0 ? margin / totalSoValue : 0 };
+  }, [excelData, filteredSkuSet, filtered, totalSoValue, totalPoValue]);
+
+  // ── Stat-card filter: show only rows matching the active stat in ANY column ─
+  const statFiltered = useMemo(() => {
     if (!activeSort) return filtered;
-    return [...filtered].sort((a, b) => {
-      const aq = a.dates[todayKey] ?? a.onHand;
-      const bq = b.dates[todayKey] ?? b.onHand;
-      if (activeSort === "negATS") {
-        const aNeg = aq < 0, bNeg = bq < 0;
-        if (aNeg && !bNeg) return -1; if (!aNeg && bNeg) return 1;
-        if (aNeg && bNeg) return aq - bq; return 0;
-      }
-      if (activeSort === "outOfStock") {
-        const aO = aq <= 0, bO = bq <= 0;
-        if (aO && !bO) return -1; if (!aO && bO) return 1; return aq - bq;
-      }
-      if (activeSort === "lowStock") {
-        const aL = aq > 0 && aq <= 10, bL = bq > 0 && bq <= 10;
-        if (aL && !bL) return -1; if (!aL && bL) return 1; return aq - bq;
-      }
-      if (activeSort === "onOrder") return b.onOrder - a.onOrder;
-      return 0;
+    if (activeSort === "negATS")    return filtered.filter(r => Object.values(r.dates).some(q => q < 0));
+    if (activeSort === "zeroStock") return filtered.filter(r => displayPeriods.some(p => { const q = r.dates[p.endDate]; return q != null && q <= 0; }));
+    if (activeSort === "lowStock")  return filtered.filter(r => displayPeriods.some(p => { const q = r.dates[p.endDate]; return q != null && q > 0 && q <= 10; }));
+    return filtered;
+  }, [activeSort, filtered, displayPeriods]);
+
+  // ── Sort by column header click ─────────────────────────────────────────
+  function handleThClick(col: string) {
+    if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortCol(col); setSortDir("asc"); }
+  }
+
+  const sortedFiltered = useMemo(() => {
+    if (!sortCol) return statFiltered;
+    return [...statFiltered].sort((a, b) => {
+      let av: string | number, bv: string | number;
+      if      (sortCol === "sku")         { av = a.sku;         bv = b.sku; }
+      else if (sortCol === "description") { av = a.description; bv = b.description; }
+      else if (sortCol === "onHand")      { av = a.onHand;      bv = b.onHand; }
+      else if (sortCol === "onOrder")     { av = a.onCommitted; bv = b.onCommitted; }
+      else if (sortCol === "onPO")        { av = a.onOrder;     bv = b.onOrder; }
+      else { av = a.dates[sortCol] ?? 0; bv = b.dates[sortCol] ?? 0; }
+      if (typeof av === "string") return sortDir === "asc" ? av.localeCompare(bv as string) : (bv as string).localeCompare(av);
+      return sortDir === "asc" ? (av as number) - (bv as number) : (bv as number) - (av as number);
     });
-  }, [activeSort, filtered, todayKey]);
+  }, [sortCol, sortDir, statFiltered]);
 
   const totalPages = Math.ceil(sortedFiltered.length / PAGE_SIZE);
   const pageRows   = sortedFiltered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   // Reset to page 0 whenever filters/search/sort change
-  useEffect(() => { setPage(0); }, [search, filterCategory, filterStatus, minATS, poStores, soStores, rows, activeSort]);
+  useEffect(() => { setPage(0); }, [search, filterCategory, filterStatus, minATS, poStores, soStores, rows, activeSort, sortCol, sortDir]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // RENDER
@@ -823,14 +865,18 @@ export default function ATSReport() {
   return (
     <div style={S.app}>
       <style>{`
-        input[type=number]::-webkit-inner-spin-button,
-        input[type=number]::-webkit-outer-spin-button {
-          background: transparent;
-          border-left: none;
-          opacity: 0.6;
+        input[type=number]::-webkit-outer-spin-button { display: none; }
+        input[type=number]::-webkit-inner-spin-button {
+          -webkit-appearance: none;
+          appearance: none;
+          cursor: pointer;
+          width: 14px;
+          background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='18' viewBox='0 0 14 18'%3E%3Cpath d='M7 3 L11 8 L3 8 Z' fill='%2394A3B8'/%3E%3Cpath d='M7 15 L3 10 L11 10 Z' fill='%2394A3B8'/%3E%3C/svg%3E") no-repeat center;
+          opacity: 0.7;
+          border: none;
+          border-left: 1px solid #334155;
         }
-        input[type=number]::-webkit-inner-spin-button:hover,
-        input[type=number]::-webkit-outer-spin-button:hover { opacity: 1; }
+        input[type=number]::-webkit-inner-spin-button:hover { opacity: 1; }
       `}</style>
       {/* NAV */}
       <nav style={S.nav}>
@@ -876,12 +922,16 @@ export default function ATSReport() {
 
       <div style={S.content}>
         {/* STAT CARDS */}
-        <div style={{ ...S.statsRow, gridTemplateColumns: "repeat(5,1fr)" }}>
-          <StatCard icon="▦" label="Total SKUs"      value={totalSKUs}    color="#3B82F6" sortKey="total"      activeSort={activeSort} onSort={k => setActiveSort(k)} />
-          <StatCard icon="▽" label="Out of Stock"    value={outOfStock}   color="#EF4444" sortKey="outOfStock" activeSort={activeSort} onSort={k => setActiveSort(k)} />
-          <StatCard icon="△" label="Low Stock (≤10)" value={lowStock}     color="#F59E0B" sortKey="lowStock"   activeSort={activeSort} onSort={k => setActiveSort(k)} />
-          <StatCard icon="↑" label="Units on Order"  value={totalOnOrder} color="#10B981" sortKey="onOrder"   activeSort={activeSort} onSort={k => setActiveSort(k)} />
-          <StatCard icon="↓" label="Negative ATS"    value={negATSCount}  color="#EF4444" sortKey="negATS"    activeSort={activeSort} onSort={k => setActiveSort(k)} isNeg />
+        <div style={{ ...S.statsRow, gridTemplateColumns: "repeat(9,1fr)" }}>
+          <StatCard icon="△" label="Low Stock (≤10)"  value={lowStock}        color="#F59E0B" sortKey="lowStock"   activeSort={activeSort} onSort={k => setActiveSort(k)} />
+          <StatCard icon="▽" label="Zero Stock"        value={zeroStock}       color="#EF4444" sortKey="zeroStock"  activeSort={activeSort} onSort={k => setActiveSort(k)} />
+          <StatCard icon="↓" label="Negative ATS"      value={negATSCount}     color="#F87171" sortKey="negATS"     activeSort={activeSort} onSort={k => setActiveSort(k)} />
+          <StatCard icon="▦" label="Total SKUs"         value={totalSKUs}       color="#3B82F6" sortKey="total"      activeSort={activeSort} onSort={k => setActiveSort(k)} />
+          <StatCard icon="↑" label="Units on Order"     value={totalSoQty}      color="#10B981" sortKey="onOrder"   activeSort={activeSort} onSort={k => setActiveSort(k)} />
+          <StatCard icon="$" label="$ on Order"         value={totalSoValue}    color="#10B981" fmt="dollar" />
+          <StatCard icon="⬆" label="Units on PO"        value={totalPoQty}      color="#60A5FA" />
+          <StatCard icon="$" label="$ on PO"            value={totalPoValue}    color="#60A5FA" fmt="dollar" />
+          <StatCard icon="%" label="Margin"             value={marginDollars}   color={marginDollars >= 0 ? "#A3E635" : "#F87171"} fmt="margin" marginPct={marginPct} />
         </div>
 
         {/* TOOLBAR */}
@@ -1034,28 +1084,43 @@ export default function ATSReport() {
               <thead>
                 <tr>
                   {/* Sticky left columns */}
-                  <th style={{ ...S.th, ...S.stickyCol, left: 0, minWidth: 130, zIndex: 3 }}>SKU</th>
-                  <th style={{ ...S.th, ...S.stickyCol, left: 130, minWidth: 200, zIndex: 3 }}>Description</th>
-                  <th style={{ ...S.th, ...S.stickyCol, left: 330, minWidth: 80, zIndex: 3, textAlign: "center" }}>On Hand</th>
-                  <th style={{ ...S.th, ...S.stickyCol, left: 410, minWidth: 80, zIndex: 3, textAlign: "center" }}>On Order</th>
-                  <th style={{ ...S.th, ...S.stickyCol, left: 490, minWidth: 80, zIndex: 3, textAlign: "center" }}>On PO</th>
+                  {(["sku","description","onHand","onOrder","onPO"] as const).map((col, ci) => {
+                    const labels: Record<string, string> = { sku: "SKU", description: "Description", onHand: "On Hand", onOrder: "On Order", onPO: "On PO" };
+                    const lefts = [0, 130, 330, 410, 490];
+                    const widths = [130, 200, 80, 80, 80];
+                    const isActive = sortCol === col;
+                    return (
+                      <th key={col} style={{ ...S.th, ...S.stickyCol, left: lefts[ci], minWidth: widths[ci], zIndex: 3, textAlign: ci >= 2 ? "center" : "left", cursor: "pointer",
+                        color: isActive ? "#F1F5F9" : "#6B7280", background: isActive ? "#243048" : "#1E293B" }}
+                        onClick={() => handleThClick(col)}
+                      >
+                        {labels[col]}{isActive ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+                      </th>
+                    );
+                  })}
                   {/* Period columns */}
-                  {displayPeriods.map(p => (
-                    <th key={p.key} style={{
-                      ...S.th,
-                      minWidth: rangeUnit === "days" ? 68 : rangeUnit === "weeks" ? 120 : 100,
-                      textAlign: "center",
-                      background: p.isToday ? "#1a2a1e" : p.isWeekend ? "#141e2e" : "#1E293B",
-                      color: p.isToday ? "#10B981" : p.isWeekend ? "#475569" : "#6B7280",
-                      borderBottom: p.isToday ? "2px solid #10B981" : "1px solid #334155",
-                      whiteSpace: "pre-line",
-                      lineHeight: 1.3,
-                      fontSize: rangeUnit === "days" ? 10 : 11,
-                      padding: "8px 6px",
-                    }}>
-                      {p.label}
-                    </th>
-                  ))}
+                  {displayPeriods.map(p => {
+                    const isActive = sortCol === p.endDate;
+                    return (
+                      <th key={p.key} style={{
+                        ...S.th,
+                        minWidth: rangeUnit === "days" ? 68 : rangeUnit === "weeks" ? 120 : 100,
+                        textAlign: "center",
+                        background: isActive ? "#243048" : p.isToday ? "#1a2a1e" : p.isWeekend ? "#141e2e" : "#1E293B",
+                        color: isActive ? "#F1F5F9" : p.isToday ? "#10B981" : p.isWeekend ? "#475569" : "#6B7280",
+                        borderBottom: p.isToday ? "2px solid #10B981" : "1px solid #334155",
+                        whiteSpace: "pre-line",
+                        lineHeight: 1.3,
+                        fontSize: rangeUnit === "days" ? 10 : 11,
+                        padding: "8px 6px",
+                        cursor: "pointer",
+                      }}
+                        onClick={() => handleThClick(p.endDate)}
+                      >
+                        {p.label}{isActive ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -1681,11 +1746,21 @@ export default function ATSReport() {
     </div>
   );
 
-  function StatCard({ icon, label, value, color, sortKey, activeSort, onSort }: {
+  function StatCard({ icon, label, value, color, sortKey, activeSort, onSort, fmt, marginPct }: {
     icon: string; label: string; value: number; color: string;
     sortKey?: string; activeSort?: string | null; onSort?: (k: string | null) => void;
+    fmt?: "dollar" | "margin"; marginPct?: number;
   }) {
     const isActive = !!(sortKey && activeSort === sortKey);
+    let display: string;
+    if (fmt === "dollar") {
+      display = value >= 1000 ? `$${(value / 1000).toFixed(1)}k` : `$${value.toFixed(0)}`;
+      if (value >= 1000000) display = `$${(value / 1000000).toFixed(2)}M`;
+    } else if (fmt === "margin") {
+      display = value >= 1000000 ? `$${(value / 1000000).toFixed(2)}M` : value >= 1000 ? `$${(value / 1000).toFixed(1)}k` : `$${value.toFixed(0)}`;
+    } else {
+      display = value.toLocaleString();
+    }
     return (
       <div
         style={{ ...S.statCard, borderTop: `2px solid ${color}`, cursor: sortKey ? "pointer" : "default",
@@ -1694,12 +1769,17 @@ export default function ATSReport() {
         onClick={() => sortKey && onSort && onSort(isActive ? null : sortKey)}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <span style={{ fontSize: 13, color: "#9CA3AF" }}>{label}</span>
-          <span style={{ fontSize: 16, color, opacity: 0.7 }}>{icon}</span>
+          <span style={{ fontSize: 11, color: "#9CA3AF", lineHeight: 1.3 }}>{label}</span>
+          <span style={{ fontSize: 14, color, opacity: 0.7 }}>{icon}</span>
         </div>
-        <div style={{ fontSize: 28, fontWeight: 700, color, fontFamily: "monospace", marginTop: 6 }}>
-          {value.toLocaleString()}
+        <div style={{ fontSize: 22, fontWeight: 700, color, fontFamily: "monospace", marginTop: 4, lineHeight: 1.2 }}>
+          {display}
         </div>
+        {fmt === "margin" && marginPct != null && (
+          <div style={{ fontSize: 11, color, opacity: 0.75, fontFamily: "monospace" }}>
+            {(marginPct * 100).toFixed(1)}%
+          </div>
+        )}
       </div>
     );
   }
