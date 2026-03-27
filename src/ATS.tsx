@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
 const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
@@ -160,14 +160,15 @@ function exportToCSV(rows: ATSRow[], dates: string[]) {
 export default function ATSReport() {
   const today = new Date();
   const [startDate, setStartDate] = useState(fmtDate(today));
-  const [numDays, setNumDays] = useState(14);
+  const [rangeUnit, setRangeUnit]   = useState<"days" | "weeks" | "months">("weeks");
+  const [rangeValue, setRangeValue] = useState(2);
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("All");
   const [filterStatus, setFilterStatus] = useState("All"); // All, Low, Out, InStock
   const [rows, setRows] = useState<ATSRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [mockMode, setMockMode] = useState(true);
-  const [page, setPage] = useState(0);
+  const [page, setPage]         = useState(0);
   const PAGE_SIZE = 100;
   const [uploadingFile, setUploadingFile] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ step: string; pct: number } | null>(null);
@@ -191,20 +192,32 @@ export default function ATSReport() {
   const abortRef = useRef<AbortController | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
 
-  // ── Compute date range ──────────────────────────────────────────────────
-  const dates = Array.from({ length: numDays }, (_, i) =>
-    fmtDate(addDays(new Date(startDate + "T00:00:00"), i))
-  );
+  // ── Compute date range (stable reference via useMemo) ───────────────────
+  const dates = useMemo(() => {
+    const start = new Date(startDate + "T00:00:00");
+    let end: Date;
+    if (rangeUnit === "days") {
+      end = addDays(start, rangeValue);
+    } else if (rangeUnit === "weeks") {
+      end = addDays(start, rangeValue * 7);
+    } else {
+      end = new Date(start);
+      end.setMonth(end.getMonth() + rangeValue);
+    }
+    const result: string[] = [];
+    let d = new Date(start);
+    while (d < end) { result.push(fmtDate(d)); d = addDays(d, 1); }
+    return result;
+  }, [startDate, rangeUnit, rangeValue]);
 
-  // ── Load data ──────────────────────────────────────────────────────────
+  // ── Recompute rows whenever date range or data changes ─────────────────
   useEffect(() => {
     if (mockMode) {
       setRows(generateMockData(dates));
     } else if (excelData) {
       setRows(computeRowsFromExcelData(excelData, dates));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mockMode, startDate, numDays, excelData]);
+  }, [mockMode, excelData, dates]);
 
   async function syncFromXoro() {
     setSyncing(true);
@@ -561,11 +574,23 @@ export default function ATSReport() {
               value={startDate}
               onChange={e => setStartDate(e.target.value)}
             />
+            <button
+              style={{ ...S.navBtn, padding: "5px 8px", fontSize: 11, marginLeft: 2 }}
+              onClick={() => setStartDate(fmtDate(new Date()))}
+              title="Reset to today"
+            >Today</button>
           </div>
           <div style={S.datePicker}>
-            <label style={S.dateLabel}>Days</label>
-            <select style={S.select} value={numDays} onChange={e => setNumDays(Number(e.target.value))}>
-              {[7, 14, 21, 30, 60].map(n => <option key={n} value={n}>{n}</option>)}
+            <label style={S.dateLabel}>Show</label>
+            <select style={{ ...S.select, width: 60 }} value={rangeValue} onChange={e => setRangeValue(Number(e.target.value))}>
+              {rangeUnit === "days"   && [1,2,3,5,7,10,14,21,30,60].map(n => <option key={n} value={n}>{n}</option>)}
+              {rangeUnit === "weeks"  && [1,2,4,8,12,26].map(n => <option key={n} value={n}>{n}</option>)}
+              {rangeUnit === "months" && [1,2,3,6,9,12].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <select style={{ ...S.select, width: 80 }} value={rangeUnit} onChange={e => { setRangeUnit(e.target.value as "days"|"weeks"|"months"); setRangeValue(e.target.value === "days" ? 14 : e.target.value === "weeks" ? 2 : 1); }}>
+              <option value="days">Days</option>
+              <option value="weeks">Weeks</option>
+              <option value="months">Months</option>
             </select>
           </div>
           <div style={{ color: "#6B7280", fontSize: 12, whiteSpace: "nowrap" }}>
