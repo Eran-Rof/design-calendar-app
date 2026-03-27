@@ -840,6 +840,10 @@ export default function TandAApp() {
       <div style={{ position: "relative" }}>
         <button onClick={() => setView("dashboard")} title="Close Teams"
           style={{ position: "absolute", top: 10, right: 10, zIndex: 10, width: 28, height: 28, borderRadius: "50%", border: `1px solid ${TEAMS_PURPLE}44`, background: `${TEAMS_PURPLE}15`, color: TEAMS_PURPLE, cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>✕</button>
+        {teamsTab !== "direct" && teamsSelPO && mp && teamsToken && (
+          <button onClick={() => teamsLoadPOMessages(teamsSelPO)} title="Refresh messages"
+            style={{ position: "absolute", top: 10, right: 46, zIndex: 10, height: 28, padding: "0 10px", borderRadius: 6, border: "1px solid #334155", background: "none", color: "#6B7280", cursor: "pointer", fontFamily: "inherit", fontSize: 11, display: "flex", alignItems: "center" }}>↻ Refresh</button>
+        )}
         <div style={{ display: "flex", height: "calc(100vh - 140px)", minHeight: 500, background: "#1E293B", borderRadius: 12, border: "1px solid #334155", overflow: "hidden" }}>
           {/* LEFT: PO list */}
           <div style={{ width: 280, flexShrink: 0, borderRight: "1px solid #334155", display: "flex", flexDirection: "column", background: "#0F172A" }}>
@@ -1078,12 +1082,9 @@ export default function TandAApp() {
               </div>
             ) : (
               <>
-                <div style={{ padding: "14px 50px 14px 20px", borderBottom: "1px solid #334155", background: "#1E293B", display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: "#F1F5F9" }}>PO# {teamsSelPO}</div>
-                    <div style={{ fontSize: 12, color: "#6B7280" }}>{selPO?.VendorName ?? ""}{selPO?.StatusName ? " · " + selPO.StatusName : ""}</div>
-                  </div>
-                  {mp && teamsToken && <button onClick={() => teamsLoadPOMessages(teamsSelPO)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #334155", background: "none", color: "#6B7280", cursor: "pointer", fontFamily: "inherit" }}>↻ Refresh</button>}
+                <div style={{ padding: "14px 90px 14px 20px", borderBottom: "1px solid #334155", background: "#1E293B", flexShrink: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#F1F5F9" }}>PO# {teamsSelPO}</div>
+                  <div style={{ fontSize: 12, color: "#6B7280" }}>{selPO?.VendorName ?? ""}{selPO?.StatusName ? " · " + selPO.StatusName : ""}</div>
                 </div>
                 <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
                   {!teamsToken ? (
