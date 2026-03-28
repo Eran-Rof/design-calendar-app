@@ -115,7 +115,7 @@ function generateMockData(dates: string[]): ATSRow[] {
 }
 
 // ── Compute ATS rows from compact Excel data ─────────────────────────────────
-function computeRowsFromExcelData(data: ExcelData, dates: string[], poStores: string[], soStores: string[]): ATSRow[] {
+function computeRowsFromExcelData(data: ExcelData, dates: string[], poStores: string[] = ["All"], soStores: string[] = ["All"]): ATSRow[] {
   const allPo = poStores.includes("All");
   const allSo = soStores.includes("All");
 
