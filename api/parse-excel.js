@@ -256,8 +256,8 @@ function detectSkuStore(brandName) {
 // PT       = brand contains "Psycho" / "PTUNA" / "P TUNA" or starts with "PT"
 // ROF      = everything else (Ring of Fire)
 function detectPoStore(poNumber, brandName) {
-  const pn = poNumber.toUpperCase();
-  const bn = brandName.toUpperCase();
+  const pn = (poNumber || "").toUpperCase();
+  const bn = (brandName || "").toUpperCase();
   if (pn.includes("ECOM")) return "ROF ECOM";
   if (bn.includes("PSYCHO") || bn.includes("PTUNA") || bn.includes("P TUNA") || bn === "PT" || bn.startsWith("PT ")) return "PT";
   return "ROF";
@@ -265,9 +265,9 @@ function detectPoStore(poNumber, brandName) {
 
 // Derive store from order number, sale store field, and brand
 function detectSoStore(orderNumber, saleStore, brand) {
-  const on = orderNumber.toUpperCase();
-  const ss = saleStore.toUpperCase();
-  const br = brand.toUpperCase();
+  const on = (orderNumber || "").toUpperCase();
+  const ss = (saleStore || "").toUpperCase();
+  const br = (brand || "").toUpperCase();
   if (on.includes("ECOM") || ss.includes("ECOM")) return "ROF ECOM";
   if (br.includes("PSYCHO") || ss.includes("PSYCHO") || br.includes("PTUNA") || ss.includes("PTUNA") ||
       br.includes("P TUNA") || ss.includes("P TUNA") || br === "PT" || ss === "PT" || br.startsWith("PT ") || ss.startsWith("PT ")) return "PT";
