@@ -20,6 +20,9 @@ interface ATSRow {
   onOrder:     number; // open PO qty (incoming from vendors)
   onCommitted: number; // committed SO qty (outgoing to customers)
   onHand: number;
+  avgCost?: number;
+  lastReceiptDate?: string;
+  totalAmount?: number;
 }
 
 interface ATSSnapshot {
@@ -168,7 +171,7 @@ function computeRowsFromExcelData(data: ExcelData, dates: string[], poStores: st
     // Column totals use the filtered indices so On Order / On PO reflect the active store filter
     const filteredOnOrder     = Object.values(poIdx[s.sku] ?? {}).reduce((a, b) => a + b, 0);
     const filteredOnCommitted = Object.values(soIdx[s.sku] ?? {}).reduce((a, b) => a + b, 0);
-    return { sku: s.sku, description: s.description, category: s.category, store: s.store, onHand: s.onHand, onOrder: filteredOnOrder, onCommitted: filteredOnCommitted, dates: dateMap };
+    return { sku: s.sku, description: s.description, category: s.category, store: s.store, onHand: s.onHand, onOrder: filteredOnOrder, onCommitted: filteredOnCommitted, dates: dateMap, avgCost: s.avgCost, lastReceiptDate: s.lastReceiptDate, totalAmount: s.totalAmount };
   });
 }
 
@@ -1420,7 +1423,21 @@ export default function ATSReport() {
                       <span style={{ display: "flex", alignItems: "center", gap: 6 }}>{storeTag(row.store ?? "ROF")}<span style={{ color: "#94A3B8" }}>{row.description}</span></span>
                       <span style={{ color: "#F1F5F9", fontWeight: 700, fontFamily: "monospace" }}>{row.onHand.toLocaleString()} units</span>
                     </div>
-                    {avgCost > 0 && <div style={{ color: "#94A3B8", fontSize: 11 }}>Avg Cost (from POs): <span style={{ color: "#FCD34D", fontFamily: "monospace", fontWeight: 600 }}>${avgCost.toFixed(2)}</span>{row.onHand > 0 && <span style={{ marginLeft: 10 }}>Total value: <span style={{ color: "#FCD34D", fontFamily: "monospace" }}>${(avgCost * row.onHand).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>}</div>}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px", marginTop: 8 }}>
+                      {(row.avgCost ?? 0) > 0 && <>
+                        <span style={{ color: "#6B7280", fontSize: 11 }}>Avg Cost</span>
+                        <span style={{ color: "#FCD34D", fontFamily: "monospace", fontWeight: 600, fontSize: 12, textAlign: "right" }}>${(row.avgCost ?? 0).toFixed(2)}</span>
+                      </>}
+                      {(row.totalAmount ?? 0) > 0 && <>
+                        <span style={{ color: "#6B7280", fontSize: 11 }}>Total Value</span>
+                        <span style={{ color: "#FCD34D", fontFamily: "monospace", fontWeight: 600, fontSize: 12, textAlign: "right" }}>${(row.totalAmount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      </>}
+                      {row.lastReceiptDate && <>
+                        <span style={{ color: "#6B7280", fontSize: 11 }}>Last Received</span>
+                        <span style={{ color: "#94A3B8", fontFamily: "monospace", fontSize: 12, textAlign: "right" }}>{row.lastReceiptDate}</span>
+                      </>}
+                    </div>
+                    {avgCost > 0 && (row.avgCost ?? 0) === 0 && <div style={{ color: "#94A3B8", fontSize: 11, marginTop: 6 }}>Avg Cost (from POs): <span style={{ color: "#FCD34D", fontFamily: "monospace", fontWeight: 600 }}>${avgCost.toFixed(2)}</span></div>}
                   </div>
                 </div>
               )}
