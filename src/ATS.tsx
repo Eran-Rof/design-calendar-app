@@ -534,11 +534,16 @@ export default function ATSReport() {
     }
   }, [mockMode, excelData, dates, poStores, soStores]);
 
+  const [syncProgress, setSyncProgress] = useState<{ step: string; pct: number; log: string[] } | null>(null);
+
   async function syncFromXoro() {
     setSyncing(true);
+    const log: string[] = [];
+    const addLog = (msg: string) => { log.push(`${new Date().toLocaleTimeString()} — ${msg}`); setSyncProgress(p => p ? { ...p, log: [...log] } : null); };
     try {
-      const today = fmtDate(new Date());
-      const now   = new Date().toISOString();
+      const now = new Date().toISOString();
+      setSyncProgress({ step: "Starting PO sync from Xoro…", pct: 5, log });
+      addLog("Sync started");
 
       // ── Helper: fetch all pages from a Xoro endpoint ──────────────────────
       async function fetchAllPages(path: string, extraParams: Record<string, string> = {}): Promise<any[]> {
@@ -546,129 +551,124 @@ export default function ATSReport() {
         let page = 1;
         while (true) {
           const params = new URLSearchParams({ path, page: String(page), ...extraParams });
-          const res  = await fetch(`/api/xoro-proxy?${params}`);
+          const res = await fetch(`/api/xoro-proxy?${params}`);
           if (!res.ok) throw new Error(`Xoro proxy returned HTTP ${res.status} for "${path}"`);
           const text = await res.text();
           let json: any;
           try { json = JSON.parse(text); } catch {
-            throw new Error(`Xoro returned an unexpected response for "${path}". The endpoint path may be incorrect.`);
+            throw new Error(`Xoro returned an unexpected response for "${path}".`);
           }
-          if (!json.Result) {
-            // Not a fatal error for optional endpoints — just return what we have
-            break;
-          }
+          if (!json.Result) break;
           const rows = Array.isArray(json.Data) ? json.Data : json.Data?.Items ?? [];
           all.push(...rows);
+          addLog(`  Page ${page}: ${rows.length} records (total: ${all.length})`);
           if (page >= (json.TotalPages ?? 1)) break;
           page++;
         }
         return all;
       }
 
-      // ── 1. Inventory (on-hand + Xoro's own available/on-order) ────────────
-      setSyncStatus("Fetching inventory…");
-      const invItems = await fetchAllPages("inventory");
+      // ── Fetch Purchase Orders only (inventory + SO come from Excel) ────────
+      const statuses = ["Open", "Released", "Pending", "Draft"];
+      let allPOs: any[] = [];
 
-      // Base map: sku → snapshot from inventory
-      const skuMap: Record<string, {
-        sku: string; description: string; category?: string;
-        qty_on_hand: number; qty_on_order_po: number; qty_committed: number;
-      }> = {};
-
-      for (const item of invItems) {
-        const sku = String(item.ItemNumber ?? item.ItemCode ?? "").trim();
-        if (!sku) continue;
-        skuMap[sku] = {
-          sku,
-          description: String(item.Description ?? item.ItemName ?? "").trim(),
-          category:    item.CategoryName ?? item.Category ?? undefined,
-          qty_on_hand:     Number(item.QtyOnHand ?? item.QtyAvailable ?? 0),
-          qty_on_order_po: Number(item.QtyOnOrder ?? 0),
-          qty_committed:   0,
-        };
+      for (let si = 0; si < statuses.length; si++) {
+        const status = statuses[si];
+        const pct = 10 + Math.round((si / statuses.length) * 60);
+        setSyncProgress({ step: `Fetching ${status} POs…`, pct, log });
+        addLog(`Fetching ${status} POs…`);
+        try {
+          const poData = await fetchAllPages("purchaseorder/getpurchaseorder", { status });
+          allPOs = [...allPOs, ...poData];
+          addLog(`  ${status}: ${poData.length} POs`);
+        } catch (e: any) {
+          addLog(`  ${status}: FAILED — ${e.message} (skipping)`);
+        }
       }
 
-      // ── 2. Open Purchase Orders → aggregate qty_on_order per SKU ──────────
-      setSyncStatus("Fetching purchase orders…");
-      const openPOs = await fetchAllPages("purchaseorder/getpurchaseorder", {
-        status: "Open,Released,Pending",
-      });
+      addLog(`Total POs fetched: ${allPOs.length}`);
+      setSyncProgress({ step: "Processing PO line items…", pct: 75, log });
 
-      for (const po of openPOs) {
+      // ── Build PO events for ATS ──────────────────────────────────────────
+      const poEvents: ATSPoEvent[] = [];
+      const skuOnOrder: Record<string, number> = {};
+      let totalLines = 0;
+
+      for (const po of allPOs) {
+        const header = po.poHeader ?? po;
+        const poNum = String(header.OrderNumber ?? header.PoNumber ?? "");
+        const vendor = String(header.VendorName ?? "");
+        const expDate = String(header.DateExpectedDelivery ?? "");
+        const brandName = String(header.BrandName ?? header.Brand ?? "");
         const lines = po.poLines ?? po.PoLineArr ?? po.Items ?? [];
+
         for (const line of lines) {
           const sku = String(line.PoItemNumber ?? line.ItemNumber ?? "").trim();
           if (!sku) continue;
-          if (!skuMap[sku]) {
-            skuMap[sku] = {
-              sku,
-              description: String(line.Description ?? "").trim(),
-              qty_on_hand: 0, qty_on_order_po: 0, qty_committed: 0,
-            };
+          const qty = Number(line.QtyOrder ?? line.QtyOrdered ?? 0);
+          const unitCost = Number(line.UnitPrice ?? line.EffectiveUnitPrice ?? 0);
+          if (qty <= 0) continue;
+          totalLines++;
+
+          skuOnOrder[sku] = (skuOnOrder[sku] ?? 0) + qty;
+
+          let date = "";
+          if (expDate) {
+            const d = new Date(expDate);
+            if (!isNaN(d.getTime())) date = d.toISOString().split("T")[0];
           }
-          skuMap[sku].qty_on_order_po += Number(line.QtyOrder ?? line.QtyOrdered ?? 0);
+
+          const pn = poNum.toUpperCase();
+          const bn = brandName.toUpperCase();
+          const store = pn.includes("ECOM") ? "ROF ECOM" : (bn.includes("PSYCHO") || bn.includes("PTUNA") || bn.includes("P TUNA") || bn === "PT" || bn.startsWith("PT ")) ? "PT" : "ROF";
+
+          if (date) {
+            poEvents.push({ sku, date, qty, poNumber: poNum, vendor, store, unitCost });
+          }
         }
       }
 
-      // ── 3. Open Sales Orders → aggregate qty_committed per SKU ────────────
-      setSyncStatus("Fetching sales orders…");
-      const openSOs = await fetchAllPages("salesorder/getsalesorder", {
-        status: "Open,Released,Pending",
+      addLog(`Processed ${totalLines} line items across ${allPOs.length} POs`);
+      addLog(`${poEvents.length} PO events with valid dates`);
+      addLog(`${Object.keys(skuOnOrder).length} unique SKUs on order`);
+
+      // ── Save PO data to app_data for ATS to use ──────────────────────────
+      setSyncProgress({ step: "Saving PO data…", pct: 85, log });
+      await fetch(`${SB_URL}/rest/v1/app_data`, {
+        method: "POST",
+        headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ key: "ats_xoro_pos", value: JSON.stringify({ syncedAt: now, pos: poEvents, skuOnOrder }) }),
       });
 
-      for (const so of openSOs) {
-        const lines = so.soLines ?? so.SoLineArr ?? so.Items ?? [];
-        for (const line of lines) {
-          const sku = String(line.ItemNumber ?? line.SoItemNumber ?? "").trim();
-          if (!sku) continue;
-          if (!skuMap[sku]) {
-            skuMap[sku] = {
-              sku,
-              description: String(line.Description ?? "").trim(),
-              qty_on_hand: 0, qty_on_order_po: 0, qty_committed: 0,
-            };
-          }
-          skuMap[sku].qty_committed += Number(line.QtyOrder ?? line.QtyOrdered ?? line.QtyShipped ?? 0);
-        }
+      addLog("PO data saved to database");
+
+      // ── Update existing Excel data with fresh PO events if available ─────
+      if (excelData) {
+        setSyncProgress({ step: "Merging with inventory data…", pct: 90, log });
+        const merged: ExcelData = {
+          ...excelData,
+          syncedAt: now,
+          pos: poEvents,
+          skus: excelData.skus.map(s => ({ ...s, onOrder: skuOnOrder[s.sku] ?? 0 })),
+        };
+        setExcelData(merged);
+        setRows(computeRowsFromExcelData(merged, dates));
+        addLog("Merged PO data with existing inventory/orders data");
       }
 
-      // ── 4. Build snapshots and upsert ──────────────────────────────────────
-      setSyncStatus(`Saving ${Object.keys(skuMap).length} SKUs…`);
-      const snapshots = Object.values(skuMap)
-        .filter(s => s.sku)
-        .map(s => ({
-          sku:           s.sku,
-          description:   s.description,
-          category:      s.category,
-          date:          today,
-          qty_on_hand:   s.qty_on_hand,
-          qty_on_order:  s.qty_on_order_po,
-          qty_available: Math.max(0, s.qty_on_hand - s.qty_committed),
-          source:        "xoro" as const,
-          synced_at:     now,
-        }));
-
-      // Batch upsert in chunks of 500
-      for (let i = 0; i < snapshots.length; i += 500) {
-        await fetch(`${SB_URL}/rest/v1/ats_snapshots`, {
-          method: "POST",
-          headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=representation" },
-          body: JSON.stringify(snapshots.slice(i, i + 500)),
-        });
-      }
-
-      setSyncStatus("Loading…");
       setLastSync(now);
       setMockMode(false);
-      await loadFromSupabase();
-      setSyncStatus("");
+      setSyncProgress({ step: "Sync complete!", pct: 100, log });
+      addLog(`✅ Sync complete — ${allPOs.length} POs, ${poEvents.length} events`);
+
+      // Keep the progress visible for 3 seconds then clear
+      setTimeout(() => setSyncProgress(null), 3000);
+
     } catch (e) {
       console.error(e);
-      setSyncStatus("");
-      setSyncError({
-        title: "Xoro Sync Failed",
-        detail: (e as Error).message,
-      });
+      addLog(`❌ ERROR: ${(e as Error).message}`);
+      setSyncProgress(p => p ? { ...p, step: "Sync failed", log: [...log] } : null);
+      setSyncError({ title: "Xoro PO Sync Failed", detail: (e as Error).message });
     } finally {
       setSyncing(false);
     }
@@ -1030,7 +1030,7 @@ export default function ATSReport() {
             )}
           </button>
           <button style={S.navBtn} onClick={syncFromXoro} disabled={syncing}>
-            {syncing ? (syncStatus || "Syncing…") : "Sync Xoro"}
+            {syncing ? "Syncing…" : "Sync POs"}
           </button>
           <button
             style={{ ...S.navBtn, background: "#1D6F42", border: "1px solid #155734", color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}
@@ -1050,6 +1050,28 @@ export default function ATSReport() {
       {false && (
         <div style={S.demoBanner}>
           {"" /* Demo banner removed */}
+        </div>
+      )}
+
+      {/* Sync Progress Bar + Log */}
+      {syncProgress && (
+        <div style={{ background: "#1E293B", borderBottom: "1px solid #334155", padding: "12px 24px" }}>
+          <div style={{ maxWidth: 1600, margin: "0 auto" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+              <span style={{ fontSize: 13, color: "#F1F5F9", fontWeight: 600 }}>{syncProgress.step}</span>
+              <span style={{ fontSize: 12, color: "#60A5FA", fontFamily: "monospace", fontWeight: 700 }}>{syncProgress.pct}%</span>
+            </div>
+            <div style={{ height: 8, borderRadius: 4, background: "#0F172A", overflow: "hidden", marginBottom: 8 }}>
+              <div style={{ width: `${syncProgress.pct}%`, height: "100%", background: syncProgress.pct === 100 ? "linear-gradient(90deg, #6EE7B7, #047857)" : "linear-gradient(90deg, #93C5FD, #1D4ED8)", borderRadius: 4, transition: "width 0.3s" }} />
+            </div>
+            {syncProgress.log.length > 0 && (
+              <div style={{ maxHeight: 120, overflowY: "auto", background: "#0F172A", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontFamily: "monospace", color: "#94A3B8", lineHeight: 1.6 }}>
+                {syncProgress.log.map((l, i) => (
+                  <div key={i} style={{ color: l.includes("ERROR") ? "#EF4444" : l.includes("✅") ? "#10B981" : l.includes("FAILED") ? "#F59E0B" : "#94A3B8" }}>{l}</div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
