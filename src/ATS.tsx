@@ -36,7 +36,7 @@ interface ATSSnapshot {
 }
 
 // Compact format stored in app_data — compute timeline client-side
-interface ATSSkuData     { sku: string; description: string; category?: string; store?: string; onHand: number; onOrder: number; onCommitted?: number; }
+interface ATSSkuData     { sku: string; description: string; category?: string; store?: string; onHand: number; onOrder: number; onCommitted?: number; lastReceiptDate?: string; totalAmount?: number; avgCost?: number; }
 interface ATSPoEvent     { sku: string; date: string; qty: number; poNumber: string; vendor: string; store: string; unitCost: number; }
 interface ATSSoEvent     { sku: string; date: string; qty: number; orderNumber: string; customerName: string; unitPrice: number; totalPrice: number; store: string; }
 interface UploadWarning  { severity: "error" | "warn"; field: string; affected: number; total: number; message: string; }

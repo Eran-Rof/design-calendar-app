@@ -53,9 +53,23 @@ export default async function handler(req, res) {
         const sku = color ? `${base} - ${color}` : base;
         if (!skuMap[sku]) {
           const brand = str(r["Brand"]);
-          skuMap[sku] = { sku, description: str(r["Description"]), category: brand || undefined, store: detectSkuStore(brand), onHand: 0, onOrder: 0, onCommitted: 0 };
+          const storeCol = str(r["Store"]);
+          skuMap[sku] = {
+            sku,
+            description: str(r["Description"]),
+            category: brand || undefined,
+            store: storeCol || detectSkuStore(brand),
+            onHand: 0,
+            onOrder: 0,
+            onCommitted: 0,
+            lastReceiptDate: str(r["Last Receipt Date"]) || undefined,
+            totalAmount: toNum(r["Total Sum of Amount Home Currency"]) || 0,
+            avgCost: parseFloat(String(r["Avrg Cost"] || 0).replace(/[^0-9.-]/g, "")) || 0,
+          };
         }
         skuMap[sku].onHand += toNum(r["Total Sum of Qty"]);
+        // Accumulate total amount
+        skuMap[sku].totalAmount = (skuMap[sku].totalAmount || 0) + toNum(r["Total Sum of Amount Home Currency"]);
       }
 
       // ── 2. Purchased Items Report → PO events (incoming) ──────────────────
