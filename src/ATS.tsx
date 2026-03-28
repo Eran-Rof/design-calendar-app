@@ -60,6 +60,14 @@ function fmtDateShort(iso: string): string {
   const d = new Date(iso + "T00:00:00");
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
+function fmtDateDisplay(dateStr: string): string {
+  if (!dateStr) return "—";
+  // Handle both ISO (YYYY-MM-DD) and US (MM/DD/YYYY) formats
+  const d = dateStr.includes("-") ? new Date(dateStr + "T00:00:00") : new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${months[d.getMonth()]}/${String(d.getDate()).padStart(2,"0")}/${d.getFullYear()}`;
+}
 function fmtDateHeader(iso: string): string {
   const d = new Date(iso + "T00:00:00");
   const day = d.toLocaleDateString("en-US", { weekday: "short" });
@@ -896,16 +904,22 @@ export default function ATSReport() {
 
   const { marginDollars, marginPct } = useMemo(() => {
     if (!excelData || totalSoValue === 0) return { marginDollars: 0, marginPct: 0 };
-    // Weighted avg cost per SKU from ALL PO lines (on-hand + open POs)
-    const avgCostBySku: Record<string, number> = {};
-    const poQtyBySku:   Record<string, number> = {};
+    // Build avg cost per SKU — prefer inventory snapshot avgCost, fall back to PO-derived
+    const snapshotCost: Record<string, number> = {};
+    for (const s of excelData.skus) {
+      if (s.avgCost && s.avgCost > 0) snapshotCost[s.sku] = s.avgCost;
+    }
+    // PO-derived weighted avg as fallback
+    const poCostBySku: Record<string, number> = {};
+    const poQtyBySku:  Record<string, number> = {};
     for (const p of excelData.pos) {
       if (p.unitCost <= 0) continue;
-      avgCostBySku[p.sku] = (avgCostBySku[p.sku] ?? 0) + p.qty * p.unitCost;
-      poQtyBySku[p.sku]   = (poQtyBySku[p.sku]   ?? 0) + p.qty;
+      poCostBySku[p.sku] = (poCostBySku[p.sku] ?? 0) + p.qty * p.unitCost;
+      poQtyBySku[p.sku]  = (poQtyBySku[p.sku]  ?? 0) + p.qty;
     }
-    for (const sku of Object.keys(avgCostBySku)) {
-      avgCostBySku[sku] = poQtyBySku[sku] > 0 ? avgCostBySku[sku] / poQtyBySku[sku] : 0;
+    const avgCostBySku: Record<string, number> = {};
+    for (const sku of new Set([...Object.keys(snapshotCost), ...Object.keys(poCostBySku)])) {
+      avgCostBySku[sku] = snapshotCost[sku] ?? (poQtyBySku[sku] > 0 ? poCostBySku[sku] / poQtyBySku[sku] : 0);
     }
     // Sum cost of each SO line using that SKU's avg cost
     let totalCost = 0;
@@ -1148,7 +1162,7 @@ export default function ATSReport() {
           </button>
           <div style={{ color: "#6B7280", fontSize: 12, whiteSpace: "nowrap" }}>
             {filtered.length.toLocaleString()} SKUs
-            {lastSync && <span style={{ display: "block" }}>Synced {new Date(lastSync).toLocaleTimeString()}</span>}
+            {lastSync && <span style={{ display: "block" }}>Synced {fmtDateDisplay(lastSync.split("T")[0])} {new Date(lastSync).toLocaleTimeString()}</span>}
           </div>
         </div>
 
@@ -1434,7 +1448,7 @@ export default function ATSReport() {
                       </>}
                       {row.lastReceiptDate && <>
                         <span style={{ color: "#6B7280", fontSize: 11 }}>Last Received</span>
-                        <span style={{ color: "#94A3B8", fontFamily: "monospace", fontSize: 12, textAlign: "right" }}>{row.lastReceiptDate}</span>
+                        <span style={{ color: "#94A3B8", fontFamily: "monospace", fontSize: 12, textAlign: "right" }}>{fmtDateDisplay(row.lastReceiptDate ?? "")}</span>
                       </>}
                     </div>
                     {avgCost > 0 && (row.avgCost ?? 0) === 0 && <div style={{ color: "#94A3B8", fontSize: 11, marginTop: 6 }}>Avg Cost (from POs): <span style={{ color: "#FCD34D", fontFamily: "monospace", fontWeight: 600 }}>${avgCost.toFixed(2)}</span></div>}
@@ -1460,7 +1474,7 @@ export default function ATSReport() {
                       </div>
                       <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{s.customerName || "—"}</div>
                       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-                        <span style={{ color: "#94A3B8", fontSize: 11 }}>Cancel: {s.date}</span>
+                        <span style={{ color: "#94A3B8", fontSize: 11 }}>Cancel: {fmtDateDisplay(s.date)}</span>
                         {s.unitPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Unit: ${s.unitPrice.toFixed(2)}</span>}
                         {s.totalPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Total: ${s.totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
                       </div>
@@ -1490,7 +1504,7 @@ export default function ATSReport() {
                       </div>
                       <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{p.vendor || "—"}</div>
                       <div style={{ display: "flex", gap: 16 }}>
-                        <span style={{ color: "#94A3B8", fontSize: 11 }}>Expected: {p.date}</span>
+                        <span style={{ color: "#94A3B8", fontSize: 11 }}>Expected: {fmtDateDisplay(p.date)}</span>
                         {p.unitCost > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Unit Cost: ${p.unitCost.toFixed(2)}</span>}
                       </div>
                     </div>
@@ -1556,7 +1570,7 @@ export default function ATSReport() {
                   </div>
                   <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{s.customerName || "—"}</div>
                   <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-                    <span style={{ color: "#94A3B8", fontSize: 11 }}>Cancel: {s.date}</span>
+                    <span style={{ color: "#94A3B8", fontSize: 11 }}>Cancel: {fmtDateDisplay(s.date)}</span>
                     <span style={{ color: "#94A3B8", fontSize: 11 }}>Unit: ${s.unitPrice?.toFixed(2) ?? "—"}</span>
                     <span style={{ color: "#94A3B8", fontSize: 11 }}>Total: ${s.totalPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "—"}</span>
                   </div>
@@ -1587,7 +1601,7 @@ export default function ATSReport() {
                   </div>
                   <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{p.vendor || "—"}</div>
                   <div style={{ display: "flex", gap: 16 }}>
-                    <span style={{ color: "#94A3B8", fontSize: 11 }}>Expected: {p.date}</span>
+                    <span style={{ color: "#94A3B8", fontSize: 11 }}>Expected: {fmtDateDisplay(p.date)}</span>
                     {p.unitCost > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Unit Cost: ${p.unitCost.toFixed(2)}</span>}
                   </div>
                 </div>
