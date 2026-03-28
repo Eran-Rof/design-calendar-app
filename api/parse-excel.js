@@ -25,13 +25,13 @@ export default async function handler(req, res) {
     const pur = Array.isArray(files.purchases)  ? files.purchases[0]  : files.purchases;
     const ord = Array.isArray(files.orders)     ? files.orders[0]     : files.orders;
 
-    if (!inv || !pur || !ord) {
-      return res.status(400).json({ error: "All three files are required: inventory, purchases, orders" });
+    if (!inv || !ord) {
+      return res.status(400).json({ error: "Inventory and Orders files are required" });
     }
 
     try {
       const invRows = readSheet(inv.filepath);
-      const purRows = readSheet(pur.filepath);
+      const purRows = pur ? readSheet(pur.filepath) : [];
       const ordRows = readSheet(ord.filepath);
 
       // Capture actual column headers from each file (first data row)

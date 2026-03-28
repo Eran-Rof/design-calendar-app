@@ -742,7 +742,7 @@ export default function ATSReport() {
     }
   }
 
-  async function handleFileUpload(inv: File, pur: File, ord: File) {
+  async function handleFileUpload(inv: File, pur: File | null, ord: File) {
     setUploadingFile(true);
     setShowUpload(false);
     cancelRef.current = false;
@@ -751,7 +751,7 @@ export default function ATSReport() {
       setUploadProgress({ step: "Parsing files…", pct: 15 });
       const formData = new FormData();
       formData.append("inventory", inv);
-      formData.append("purchases", pur);
+      if (pur) formData.append("purchases", pur);
       formData.append("orders",    ord);
       const res = await fetch("/api/parse-excel", {
         method: "POST",
@@ -766,6 +766,54 @@ export default function ATSReport() {
       setUploadProgress({ step: "Processing data…", pct: 50 });
       const data: ExcelData = await res.json();
       if (cancelRef.current) return;
+
+      // If no purchases file was uploaded, pull PO data from PO WIP (tanda_pos in Supabase)
+      if (!pur && data.pos.length === 0) {
+        setUploadProgress({ step: "Fetching PO data from PO WIP…", pct: 60 });
+        try {
+          const poRes = await fetch(`${SB_URL}/rest/v1/tanda_pos?select=data`, { headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` } });
+          if (poRes.ok) {
+            const poRows = await poRes.json();
+            for (const row of poRows) {
+              const po = row.data;
+              if (!po) continue;
+              const poNum = po.PoNumber ?? "";
+              const vendor = po.VendorName ?? "";
+              const expDate = po.DateExpectedDelivery ?? "";
+              const brandName = po.BrandName ?? "";
+              const items = po.Items ?? po.PoLineArr ?? [];
+              for (const item of items) {
+                const sku = item.ItemNumber ?? "";
+                if (!sku) continue;
+                const qty = item.QtyOrder ?? 0;
+                const unitCost = item.UnitPrice ?? 0;
+                if (qty <= 0) continue;
+                // Parse expected date
+                let date = "";
+                if (expDate) {
+                  const d = new Date(expDate);
+                  if (!isNaN(d.getTime())) date = d.toISOString().split("T")[0];
+                }
+                // Detect store from PO number and brand
+                const pn = (poNum).toUpperCase();
+                const bn = (brandName).toUpperCase();
+                const store = pn.includes("ECOM") ? "ROF ECOM" : (bn.includes("PSYCHO") || bn.includes("PTUNA") || bn.includes("P TUNA") || bn === "PT" || bn.startsWith("PT ")) ? "PT" : "ROF";
+                // Add to SKU map if not already there
+                if (!data.skus.find(s => s.sku === sku)) {
+                  data.skus.push({ sku, description: item.Description ?? "", category: brandName || undefined, store, onHand: 0, onOrder: qty, onCommitted: 0 });
+                } else {
+                  const existing = data.skus.find(s => s.sku === sku)!;
+                  existing.onOrder = (existing.onOrder || 0) + qty;
+                }
+                if (date) {
+                  data.pos.push({ sku, date, qty, poNumber: poNum, vendor, store, unitCost });
+                }
+              }
+            }
+          }
+        } catch (e) { console.warn("Failed to fetch PO WIP data:", e); }
+      }
+
       setUploadProgress({ step: "Checking data…", pct: 70 });
 
       // If the API found any data quality issues, pause and ask user before saving
@@ -1003,7 +1051,7 @@ export default function ATSReport() {
             {uploadingFile ? "Uploading…" : "Upload Excel"}
             {!uploadingFile && (invFile || purFile || ordFile) && (
               <span style={{ marginLeft: 6, background: "#10B981", color: "#fff", borderRadius: 10, padding: "1px 6px", fontSize: 11, fontWeight: 700 }}>
-                {[invFile, purFile, ordFile].filter(Boolean).length}/3
+                {[invFile, ordFile].filter(Boolean).length}/2{purFile ? "+PO" : ""}
               </span>
             )}
           </button>
@@ -1792,7 +1840,7 @@ export default function ATSReport() {
               {(
                 [
                   { label: "Inventory Snapshot", sub: "On-hand quantities by SKU", key: "inv", file: invFile, setFile: setInvFile, ref: invRef, color: "#10B981" },
-                  { label: "Purchased Items Report", sub: "Open purchase orders (incoming)", key: "pur", file: purFile, setFile: setPurFile, ref: purRef, color: "#3B82F6" },
+                  { label: "Purchased Items Report", sub: "Optional — PO data pulled from PO WIP if skipped", key: "pur", file: purFile, setFile: setPurFile, ref: purRef, color: "#3B82F6" },
                   { label: "All Orders Report", sub: "Sales orders by ship date (outgoing)", key: "ord", file: ordFile, setFile: setOrdFile, ref: ordRef, color: "#F59E0B" },
                 ] as Array<{ label: string; sub: string; key: string; file: File | null; setFile: (f: File | null) => void; ref: React.RefObject<HTMLInputElement>; color: string }>
               ).map(slot => (
@@ -1851,18 +1899,18 @@ export default function ATSReport() {
                 style={{
                   ...S.navBtnPrimary,
                   width: "100%", justifyContent: "center", padding: "11px 0", marginTop: 8, fontSize: 14,
-                  opacity: (invFile && purFile && ordFile) ? 1 : 0.4,
+                  opacity: (invFile && ordFile) ? 1 : 0.4,
                   cursor: (invFile && purFile && ordFile) ? "pointer" : "not-allowed",
                 }}
-                disabled={!(invFile && purFile && ordFile)}
+                disabled={!(invFile && ordFile)}
                 onClick={() => {
-                  if (invFile && purFile && ordFile) {
+                  if (invFile && ordFile) {
                     setShowUpload(false);
                     handleFileUpload(invFile, purFile, ordFile);
                   }
                 }}
               >
-                {invFile && purFile && ordFile ? "Process All Files →" : `Select all 3 files (${[invFile, purFile, ordFile].filter(Boolean).length}/3 ready)`}
+                {invFile && ordFile ? `Process Files →${!purFile ? " (PO data from PO WIP)" : ""}` : `Select required files (${[invFile, ordFile].filter(Boolean).length}/2 ready)`}
               </button>
             </div>
           </div>
