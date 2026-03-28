@@ -95,34 +95,8 @@ function getQtyBg(qty: number): string {
   return "rgba(16,185,129,0.1)";
 }
 
-// ── Mock data for initial load ─────────────────────────────────────────────
-function generateMockData(dates: string[]): ATSRow[] {
-  const skus = [
-    { sku: "DENIM-BLU-32", description: "Blue Denim Jeans 32W", category: "Denim" },
-    { sku: "DENIM-BLK-32", description: "Black Denim Jeans 32W", category: "Denim" },
-    { sku: "DENIM-GRY-34", description: "Grey Denim Jeans 34W", category: "Denim" },
-    { sku: "TEE-WHT-S",    description: "White Tee Small",       category: "Tops" },
-    { sku: "TEE-WHT-M",    description: "White Tee Medium",      category: "Tops" },
-    { sku: "TEE-BLK-M",    description: "Black Tee Medium",      category: "Tops" },
-    { sku: "JKT-BLU-M",    description: "Blue Jacket Medium",    category: "Outerwear" },
-    { sku: "JKT-BLK-L",    description: "Black Jacket Large",    category: "Outerwear" },
-    { sku: "COAT-BRN-M",   description: "Brown Wool Coat Medium",category: "Outerwear" },
-    { sku: "VEST-BLK-M",   description: "Black Vest Medium",     category: "Basics" },
-    { sku: "SOCK-WHT-OS",  description: "White Socks One Size",  category: "Basics" },
-    { sku: "BELT-BRN-M",   description: "Brown Belt Medium",     category: "Basics" },
-  ];
-  return skus.map(s => {
-    let qty = Math.floor(Math.random() * 200) + 10;
-    const onHand = qty;
-    const onOrder = Math.floor(Math.random() * 100);
-    const dateMap: Record<string, number> = {};
-    dates.forEach((d, i) => {
-      qty = Math.max(0, qty - Math.floor(Math.random() * 12));
-      if (i % 7 === 3) qty += Math.floor(Math.random() * 40); // restock
-      dateMap[d] = qty;
-    });
-    return { ...s, dates: dateMap, onHand, onOrder, onCommitted: 0 };
-  });
+function generateMockData(_dates: string[]): ATSRow[] {
+  return [];
 }
 
 // ── Compute ATS rows from compact Excel data ─────────────────────────────────
@@ -308,7 +282,7 @@ export default function ATSReport() {
   const soDropRef = useRef<HTMLDivElement>(null);
   const [rows, setRows] = useState<ATSRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [mockMode, setMockMode] = useState(true);
+  const [mockMode, setMockMode] = useState(false);
   const [page, setPage]         = useState(0);
   const PAGE_SIZE = 100;
   const [uploadingFile, setUploadingFile] = useState(false);
@@ -1042,10 +1016,10 @@ export default function ATSReport() {
         </div>
         <div style={S.navRight}>
           <button
-            style={{ ...S.navBtn, color: mockMode ? "#F59E0B" : "#94A3B8", borderColor: mockMode ? "#F59E0B" : "#334155" }}
-            onClick={() => { setMockMode(m => !m); if (mockMode) loadFromSupabase(); }}
+            style={{ display: "none" }}
+            onClick={() => {}}
           >
-            {mockMode ? "Demo ON" : "Demo"}
+            {"" /* Demo button removed */}
           </button>
           <button style={S.navBtn} onClick={() => setShowUpload(true)} disabled={uploadingFile}>
             {uploadingFile ? "Uploading…" : "Upload Excel"}
@@ -1073,9 +1047,9 @@ export default function ATSReport() {
       </nav>
 
       {/* BANNER */}
-      {mockMode && (
+      {false && (
         <div style={S.demoBanner}>
-          Demo mode — showing sample data. Upload an Excel file or sync from Xoro to load real inventory.
+          {"" /* Demo banner removed */}
         </div>
       )}
 
