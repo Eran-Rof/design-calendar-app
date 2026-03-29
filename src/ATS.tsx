@@ -1533,10 +1533,24 @@ export default function ATSReport() {
                   ))}
                 </div>
               )}
-              {/* ON PO */}
-              {type === "onPO" && (
+              {/* ON PO — grouped by PO number */}
+              {type === "onPO" && (() => {
+                // Group PO lines by PO number
+                const poGrouped: Record<string, { poNumber: string; vendor: string; store: string; date: string; totalQty: number; totalValue: number }> = {};
+                for (const p of pos) {
+                  const key = p.poNumber || "Unknown";
+                  if (!poGrouped[key]) poGrouped[key] = { poNumber: p.poNumber, vendor: p.vendor, store: p.store, date: p.date, totalQty: 0, totalValue: 0 };
+                  poGrouped[key].totalQty += p.qty;
+                  poGrouped[key].totalValue += p.qty * (p.unitCost || 0);
+                  // Use earliest date
+                  if (p.date && (!poGrouped[key].date || p.date < poGrouped[key].date)) poGrouped[key].date = p.date;
+                }
+                const poList = Object.values(poGrouped);
+                const grandQty = poList.reduce((s, p) => s + p.totalQty, 0);
+                const grandValue = poList.reduce((s, p) => s + p.totalValue, 0);
+                return (
                 <div>
-                  <div style={{ background: "rgba(16,185,129,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#6EE7B7", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #064E3B" }}>Open Purchase Orders — {pos.length} line{pos.length !== 1 ? "s" : ""}</div>
+                  <div style={{ background: "rgba(16,185,129,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#6EE7B7", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #064E3B" }}>Open Purchase Orders — {poList.length} PO{poList.length !== 1 ? "s" : ""} · {grandQty.toLocaleString()} units</div>
                   {Object.keys(poByStore).length > 1 && (
                     <div style={{ padding: "6px 14px", borderBottom: "1px solid #1a2030", display: "flex", gap: 12, flexWrap: "wrap" }}>
                       {Object.entries(poByStore).map(([st, qty]) => (
@@ -1544,24 +1558,31 @@ export default function ATSReport() {
                       ))}
                     </div>
                   )}
-                  {pos.map((p, i) => (
+                  {poList.map((p, i) => (
                     <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12, cursor: p.poNumber ? "pointer" : "default" }}
                       title={p.poNumber ? "Click to open PO in PO WIP" : undefined}
                       onClick={() => { if (p.poNumber) { window.open(`/tanda?po=${encodeURIComponent(p.poNumber)}`, "_blank"); setSummaryCtx(null); } }}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                         <span style={{ color: "#FCD34D", fontFamily: "monospace", fontWeight: 700, textDecoration: p.poNumber ? "underline" : "none", textUnderlineOffset: 2 }}>{p.poNumber || "—"}</span>
-                        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>{p.store && storeTag(p.store)}<span style={{ color: "#10B981", fontWeight: 700 }}>+{p.qty.toLocaleString()} units</span></span>
+                        <span style={{ color: "#10B981", fontWeight: 700 }}>+{p.totalQty.toLocaleString()} units</span>
                       </div>
-                      <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{p.vendor || "—"}</div>
-                      <div style={{ display: "flex", gap: 16 }}>
-                        <span style={{ color: "#94A3B8", fontSize: 11 }}>Expected: {fmtDateDisplay(p.date)}</span>
-                        {p.unitCost > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Unit Cost: ${p.unitCost.toFixed(2)}</span>}
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ color: "#CBD5E1" }}>{p.vendor || "—"}</span>
+                        <span style={{ color: "#94A3B8", fontSize: 11 }}>{fmtDateDisplay(p.date)}</span>
                       </div>
+                      {p.totalValue > 0 && <div style={{ color: "#94A3B8", fontSize: 11, marginTop: 2 }}>Value: <span style={{ color: "#FCD34D", fontFamily: "monospace" }}>${p.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
                     </div>
                   ))}
+                  {grandValue > 0 && (
+                    <div style={{ padding: "8px 14px", background: "rgba(16,185,129,0.08)", display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                      <span style={{ color: "#6EE7B7", fontWeight: 700 }}>Total</span>
+                      <span style={{ color: "#FCD34D", fontFamily: "monospace", fontWeight: 700 }}>${grandValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                  )}
                 </div>
-              )}
+                );
+              })()}
             </div>
             {/* Down arrow (flipped, popup above cell) — hidden by default */}
             <div data-arrow="down" style={{ position: "relative", height: 8, overflow: "visible", display: "none" }}>
