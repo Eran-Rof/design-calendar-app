@@ -135,7 +135,13 @@ function computeRowsFromExcelData(data: ExcelData, dates: string[], poStores: st
 
   const rangeStart = dates[0]; // earliest date in the display window
 
-  return data.skus.map(s => {
+  // Filter SKUs by PO store filter (controls which stores' inventory is visible)
+  const filteredSkus = allPo ? data.skus : data.skus.filter(s => {
+    const skuStore = s.store ?? "ROF";
+    return poStores.includes(skuStore) || (poStores.includes("ROF ECOM") && skuStore === "ROF");
+  });
+
+  return filteredSkus.map(s => {
     const poDates = poIdx[s.sku] ?? {};
     const soDates = soIdx[s.sku] ?? {};
 

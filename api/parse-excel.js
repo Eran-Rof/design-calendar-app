@@ -51,29 +51,31 @@ export default async function handler(req, res) {
         const color = str(r["Option 1 Value"]);
         if (!base) continue;
         const sku = color ? `${base} - ${color}` : base;
-        if (!skuMap[sku]) {
-          const brand = str(r["Brand"]);
-          const rawStore = str(r["Store"]).toUpperCase();
-          const storeCol = rawStore.includes("ECOM") ? "ROF ECOM"
-            : (rawStore.includes("PSYCHO") || rawStore.includes("PTUNA") || rawStore.includes("P TUNA") || rawStore === "PT" || rawStore.startsWith("PREBOOK")) ? "PT"
-            : rawStore.includes("ROF") || rawStore.includes("RING") ? "ROF"
-            : "";
-          skuMap[sku] = {
+        const brand = str(r["Brand"]);
+        const rawStore = str(r["Store"]).toUpperCase();
+        const storeCol = rawStore.includes("ECOM") ? "ROF ECOM"
+          : (rawStore.includes("PSYCHO") || rawStore.includes("PTUNA") || rawStore.includes("P TUNA") || rawStore === "PT" || rawStore.startsWith("PREBOOK")) ? "PT"
+          : rawStore.includes("ROF") || rawStore.includes("RING") ? "ROF"
+          : "";
+        const store = storeCol || detectSkuStore(brand);
+        // Key by sku + store so each store gets its own row
+        const key = `${sku}::${store}`;
+        if (!skuMap[key]) {
+          skuMap[key] = {
             sku,
             description: str(r["Description"]),
             category: brand || undefined,
-            store: storeCol || detectSkuStore(brand),
+            store,
             onHand: 0,
             onOrder: 0,
             onCommitted: 0,
             lastReceiptDate: str(r["Last Receipt Date"]) || undefined,
-            totalAmount: toNum(r["Total Sum of Amount Home Currency"]) || 0,
+            totalAmount: 0,
             avgCost: parseFloat(String(r["Avrg Cost"] || 0).replace(/[^0-9.-]/g, "")) || 0,
           };
         }
-        skuMap[sku].onHand += toNum(r["Total Sum of Qty"]);
-        // Accumulate total amount
-        skuMap[sku].totalAmount = (skuMap[sku].totalAmount || 0) + toNum(r["Total Sum of Amount Home Currency"]);
+        skuMap[key].onHand += toNum(r["Total Sum of Qty"]);
+        skuMap[key].totalAmount = (skuMap[key].totalAmount || 0) + toNum(r["Total Sum of Amount Home Currency"]);
       }
 
       // ── 2. Purchased Items Report → PO events (incoming) ──────────────────
@@ -87,13 +89,16 @@ export default async function handler(req, res) {
         const sku = color ? `${base} - ${color}` : base;
         const qty = toNum(r["Total Sum of Qty Ordered"]);
 
-        if (!skuMap[sku]) {
-          const brand = str(r["Brand Name"] || r["Brand"] || "");
-          skuMap[sku] = { sku, description: str(r["Description"]), category: brand || undefined, store: detectSkuStore(brand), onHand: 0, onOrder: 0, onCommitted: 0 };
+        const poBrand = str(r["Brand Name"] || r["Brand"] || "");
+        const poStore = detectSkuStore(poBrand);
+        // Find existing SKU entry for any store
+        const poKey = Object.keys(skuMap).find(k => k.startsWith(sku + "::")) || `${sku}::${poStore}`;
+        if (!skuMap[poKey]) {
+          skuMap[poKey] = { sku, description: str(r["Description"]), category: poBrand || undefined, store: poStore, onHand: 0, onOrder: 0, onCommitted: 0 };
         }
         if (qty > 0) {
           poTotal++;
-          skuMap[sku].onOrder += qty;
+          skuMap[poKey].onOrder += qty;
 
           const date     = parseDate(r["Expected Delivery Date"]);
           const poNumber = str(r["PO"] || r["PO #"] || r["PO Number"] || r["Purchase Order"] || r["PO No"]);
@@ -124,13 +129,15 @@ export default async function handler(req, res) {
         const sku = color ? `${base} - ${color}` : base;
         const qty = toNum(r["Total Sum of Qty Ordered"]);
 
-        if (!skuMap[sku]) {
-          const brand = str(r["Brand"] || r["Brand Name"] || "");
-          skuMap[sku] = { sku, description: "", category: brand || undefined, store: detectSkuStore(brand), onHand: 0, onOrder: 0, onCommitted: 0 };
+        const soBrand = str(r["Brand"] || r["Brand Name"] || "");
+        const soStore = detectSkuStore(soBrand);
+        const soKey = Object.keys(skuMap).find(k => k.startsWith(sku + "::")) || `${sku}::${soStore}`;
+        if (!skuMap[soKey]) {
+          skuMap[soKey] = { sku, description: "", category: soBrand || undefined, store: soStore, onHand: 0, onOrder: 0, onCommitted: 0 };
         }
         if (qty > 0) {
           soTotal++;
-          skuMap[sku].onCommitted += qty;
+          skuMap[soKey].onCommitted += qty;
 
           const rawDate      = r["Date to be Cancelled"] || r["Cancel Date"] || r["Order Date to be Shipped"] || r["Ship Date"] || r["Requested Ship Date"];
           const date         = parseDate(rawDate);
