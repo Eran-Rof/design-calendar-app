@@ -603,8 +603,15 @@ export default function ATSReport() {
         const lines = po.poLines ?? po.PoLineArr ?? po.Items ?? [];
 
         for (const line of lines) {
-          const sku = String(line.PoItemNumber ?? line.ItemNumber ?? "").trim();
-          if (!sku) continue;
+          const rawSku = String(line.PoItemNumber ?? line.ItemNumber ?? "").trim();
+          if (!rawSku) continue;
+          // Convert Xoro format (BASE-COLOR-SIZE) to Excel format (BASE - COLOR)
+          // e.g. "RYB0185-Black-30" → "RYB0185 - Black"
+          const skuParts = rawSku.split("-");
+          const sku = skuParts.length >= 3
+            ? skuParts[0] + " - " + skuParts.slice(1, -1).join(" - ")
+            : skuParts.length === 2 ? skuParts[0] + " - " + skuParts[1]
+            : rawSku;
           const qty = Number(line.QtyOrder ?? line.QtyOrdered ?? 0);
           const unitCost = Number(line.UnitPrice ?? line.EffectiveUnitPrice ?? 0);
           if (qty <= 0) continue;
