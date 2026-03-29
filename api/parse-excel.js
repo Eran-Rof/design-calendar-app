@@ -53,7 +53,11 @@ export default async function handler(req, res) {
         const sku = color ? `${base} - ${color}` : base;
         if (!skuMap[sku]) {
           const brand = str(r["Brand"]);
-          const storeCol = str(r["Store"]);
+          const rawStore = str(r["Store"]).toUpperCase();
+          const storeCol = rawStore.includes("ECOM") ? "ROF ECOM"
+            : (rawStore.includes("PSYCHO") || rawStore.includes("PTUNA") || rawStore.includes("P TUNA") || rawStore === "PT" || rawStore.startsWith("PREBOOK")) ? "PT"
+            : rawStore.includes("ROF") || rawStore.includes("RING") ? "ROF"
+            : "";
           skuMap[sku] = {
             sku,
             description: str(r["Description"]),

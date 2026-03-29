@@ -1562,7 +1562,7 @@ export default function ATSReport() {
                 const grandValue = poList.reduce((s, p) => s + p.totalValue, 0);
                 return (
                 <div>
-                  <div style={{ background: "rgba(16,185,129,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#6EE7B7", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #064E3B" }}>Open Purchase Orders — {poList.length} PO{poList.length !== 1 ? "s" : ""} · {grandQty.toLocaleString()} units</div>
+                  <div style={{ background: "rgba(16,185,129,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#6EE7B7", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #064E3B" }}>Open Purchase Orders — {poList.length} PO{poList.length !== 1 ? "s" : ""} · {grandQty.toLocaleString()} units{grandValue > 0 ? ` · $${grandValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(grandValue / grandQty).toFixed(2)}/unit` : ""}</div>
                   {Object.keys(poByStore).length > 1 && (
                     <div style={{ padding: "6px 14px", borderBottom: "1px solid #1a2030", display: "flex", gap: 12, flexWrap: "wrap" }}>
                       {Object.entries(poByStore).map(([st, qty]) => (
@@ -1667,7 +1667,7 @@ export default function ATSReport() {
             <div>
               {(() => { const tQty = ctxMenu.pos.reduce((s, p) => s + p.qty, 0); const tVal = ctxMenu.pos.reduce((s, p) => s + p.qty * (p.unitCost || 0), 0); return (
               <div style={{ background: "rgba(245,158,11,0.15)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#FCD34D", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #3D2E00" }}>
-                Purchase Orders ({ctxMenu.pos.length}) · +{tQty.toLocaleString()} units{tVal > 0 ? ` · $${tVal.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}` : ""}
+                Purchase Orders ({ctxMenu.pos.length}) · +{tQty.toLocaleString()} units{tVal > 0 ? ` · $${tVal.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})} · Avg $${(tVal / tQty).toFixed(2)}/unit` : ""}
               </div>); })()}
               {ctxMenu.pos.map((p, i) => (
                 <div
