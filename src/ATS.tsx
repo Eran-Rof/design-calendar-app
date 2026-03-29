@@ -1631,9 +1631,10 @@ export default function ATSReport() {
           </div>
           {ctxMenu.sos.length > 0 && (
             <div>
+              {(() => { const tQty = ctxMenu.sos.reduce((s, o) => s + o.qty, 0); const tVal = ctxMenu.sos.reduce((s, o) => s + (o.totalPrice || o.unitPrice * o.qty || 0), 0); return (
               <div style={{ background: "rgba(59,130,246,0.15)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#93C5FD", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #1E3A5F" }}>
-                Sales Orders ({ctxMenu.sos.length})
-              </div>
+                Sales Orders ({ctxMenu.sos.length}) · {tQty.toLocaleString()} units{tVal > 0 ? ` · $${tVal.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}` : ""}
+              </div>); })()}
               {ctxMenu.sos.map((s, i) => (
                 <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
@@ -1655,9 +1656,10 @@ export default function ATSReport() {
           )}
           {ctxMenu.pos.length > 0 && (
             <div>
+              {(() => { const tQty = ctxMenu.pos.reduce((s, p) => s + p.qty, 0); const tVal = ctxMenu.pos.reduce((s, p) => s + p.qty * (p.unitCost || 0), 0); return (
               <div style={{ background: "rgba(245,158,11,0.15)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#FCD34D", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #3D2E00" }}>
-                Purchase Orders ({ctxMenu.pos.length})
-              </div>
+                Purchase Orders ({ctxMenu.pos.length}) · +{tQty.toLocaleString()} units{tVal > 0 ? ` · $${tVal.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}` : ""}
+              </div>); })()}
               {ctxMenu.pos.map((p, i) => (
                 <div
                   key={i}
