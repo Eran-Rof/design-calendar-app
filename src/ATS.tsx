@@ -457,32 +457,30 @@ export default function ATSReport() {
   const poStoreActive  = (s: string) => poStores.includes("All") ? s === "All" : poStores.includes(s);
   const soStoreActive  = (s: string) => soStores.includes("All") ? s === "All" : soStores.includes(s);
 
-  function getEventsInPeriod(sku: string, periodStart: string, endDate: string) {
+  function getEventsInPeriod(sku: string, periodStart: string, endDate: string, rowStore?: string) {
     const skuIdx = eventIndex?.[sku];
     if (!skuIdx) return { pos: [] as ATSPoEvent[], sos: [] as ATSSoEvent[] };
     const pos: ATSPoEvent[] = [], sos: ATSSoEvent[] = [];
-    const allPo = poStores.includes("All");
-    const allSo = soStores.includes("All");
     for (const [date, ev] of Object.entries(skuIdx)) {
       if (date >= periodStart && date <= endDate) {
-        pos.push(...(allPo ? ev.pos : ev.pos.filter(p => poStores.includes(p.store ?? "ROF"))));
-        sos.push(...(allSo ? ev.sos : ev.sos.filter(s => soStores.includes(s.store ?? "ROF"))));
+        pos.push(...ev.pos.filter(p => !rowStore || (p.store ?? "ROF") === rowStore));
+        sos.push(...ev.sos.filter(s => !rowStore || (s.store ?? "ROF") === rowStore));
       }
     }
     return { pos, sos };
   }
 
-  function getAllSkuEvents(sku: string): { pos: ATSPoEvent[]; sos: ATSSoEvent[] } {
+  function getAllSkuEvents(sku: string, store?: string): { pos: ATSPoEvent[]; sos: ATSSoEvent[] } {
     if (!excelData) return { pos: [], sos: [] };
     return {
-      pos: excelData.pos.filter(p => p.sku === sku),
-      sos: excelData.sos.filter(s => s.sku === sku),
+      pos: excelData.pos.filter(p => p.sku === sku && (!store || p.store === store)),
+      sos: excelData.sos.filter(s => s.sku === sku && (!store || s.store === store)),
     };
   }
 
   function openSummaryCtx(e: React.MouseEvent, type: SummaryCtxMenu["type"], row: ATSRow) {
     e.preventDefault();
-    const { pos, sos } = getAllSkuEvents(row.sku);
+    const { pos, sos } = getAllSkuEvents(row.sku, row.store);
     const cellEl = e.currentTarget as HTMLElement;
     setSummaryCtx({ type, row, pos, sos, cellEl });
     setCtxMenu(null);
@@ -1327,7 +1325,7 @@ export default function ATSReport() {
                         const isNeg   = qty != null && qty < 0;
                         const isHov   = hoveredCell?.sku === row.sku && hoveredCell?.date === p.key;
                         const isEmpty = qty === undefined || qty === null;
-                        const ev      = eventIndex ? getEventsInPeriod(row.sku, p.periodStart, p.endDate) : null;
+                        const ev      = eventIndex ? getEventsInPeriod(row.sku, p.periodStart, p.endDate, row.store) : null;
                         const hasPO   = (ev?.pos.length ?? 0) > 0;
                         const hasSO   = (ev?.sos.length ?? 0) > 0;
                         const canClick = hasPO || hasSO || isNeg;
