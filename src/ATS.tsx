@@ -1520,7 +1520,7 @@ export default function ATSReport() {
                 <div>
                   {(() => { const totalSoQty = sos.reduce((s, o) => s + o.qty, 0); const totalSoVal = sos.reduce((s, o) => s + (o.totalPrice || 0), 0); return (
                   <div style={{ background: "rgba(245,158,11,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#FCD34D", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #3D2E00" }}>
-                    Committed Sales Orders — {sos.length} line{sos.length !== 1 ? "s" : ""} · {totalSoQty.toLocaleString()} units{totalSoVal > 0 ? ` · $${totalSoVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ""}
+                    Committed Sales Orders — {sos.length} line{sos.length !== 1 ? "s" : ""} · {totalSoQty.toLocaleString()} units{totalSoVal > 0 ? ` · $${totalSoVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(totalSoVal / totalSoQty).toFixed(2)}/unit` : ""}
                   </div>); })()}
                   {Object.keys(soByStore).length > 1 && (
                     <div style={{ padding: "6px 14px", borderBottom: "1px solid #1a2030", display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -1642,7 +1642,7 @@ export default function ATSReport() {
             <div>
               {(() => { const tQty = ctxMenu.sos.reduce((s, o) => s + o.qty, 0); const tVal = ctxMenu.sos.reduce((s, o) => s + (o.totalPrice || o.unitPrice * o.qty || 0), 0); return (
               <div style={{ background: "rgba(59,130,246,0.15)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#93C5FD", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #1E3A5F" }}>
-                Sales Orders ({ctxMenu.sos.length}) · {tQty.toLocaleString()} units{tVal > 0 ? ` · $${tVal.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}` : ""}
+                Sales Orders ({ctxMenu.sos.length}) · {tQty.toLocaleString()} units{tVal > 0 ? ` · $${tVal.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})} · Avg $${(tVal / tQty).toFixed(2)}/unit` : ""}
               </div>); })()}
               {ctxMenu.sos.map((s, i) => (
                 <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12 }}>
