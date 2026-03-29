@@ -1943,14 +1943,28 @@ export default function TandAApp() {
       const changedPOs = synced.filter(po => {
         const cached = existingMap.get(po.PoNumber ?? "");
         if (!cached) return false;
-        // Normalize to strings so null/undefined/"" mismatches don't count as changes
-        return (
+        // Check header fields
+        const headerChanged = (
           (po.StatusName           ?? "") !== (cached.StatusName           ?? "") ||
           (po.DateExpectedDelivery ?? "") !== (cached.DateExpectedDelivery ?? "") ||
           (po.VendorReqDate        ?? "") !== (cached.VendorReqDate        ?? "") ||
           String(po.TotalAmount    ?? 0)  !== String(cached.TotalAmount    ?? 0)  ||
           (po.VendorName           ?? "") !== (cached.VendorName           ?? "")
         );
+        if (headerChanged) return true;
+        // Check if line items have new fields (QtyReceived/QtyRemaining) that cached version doesn't
+        const newItems = po.Items ?? [];
+        const oldItems = cached.Items ?? [];
+        if (newItems.length !== oldItems.length) return true;
+        // If any line has QtyRemaining but cached doesn't, it's a change
+        const hasNewFields = newItems.some((item: any) => item.QtyRemaining != null) && !oldItems.some((item: any) => item.QtyRemaining != null);
+        if (hasNewFields) return true;
+        // Check if any line item qty changed
+        return newItems.some((item: any, i: number) => {
+          const old = oldItems[i];
+          if (!old) return true;
+          return (item.QtyOrder ?? 0) !== (old.QtyOrder ?? 0) || (item.QtyReceived ?? 0) !== (old.QtyReceived ?? 0);
+        });
       });
       const addedCount   = addedPOs.length;
       const changedCount = changedPOs.length;
