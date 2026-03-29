@@ -138,7 +138,7 @@ function computeRowsFromExcelData(data: ExcelData, dates: string[], poStores: st
   // Filter SKUs by store (single unified store filter)
   const filteredSkus = (allPo && allSo) ? data.skus : data.skus.filter(s => {
     const skuStore = s.store ?? "ROF";
-    return poStores.includes(skuStore) || (poStores.includes("ROF ECOM") && skuStore === "ROF");
+    return poStores.includes(skuStore);
   });
 
   return filteredSkus.map(s => {
@@ -939,8 +939,9 @@ export default function ATSReport() {
 
   const { totalSoValue, totalPoValue } = useMemo(() => {
     if (!excelData) return { totalSoValue: 0, totalPoValue: 0 };
-    const soV = excelData.sos.filter(s => filteredSkuSet.has(s.sku)).reduce((a, s) => a + (s.totalPrice || s.unitPrice * s.qty || 0), 0);
-    const poV = excelData.pos.filter(p => filteredSkuSet.has(p.sku)).reduce((a, p) => a + p.qty * (p.unitCost || 0), 0);
+    const isAll = storeFilter.includes("All");
+    const soV = excelData.sos.filter(s => isAll || storeFilter.includes(s.store ?? "ROF")).reduce((a, s) => a + (s.totalPrice || s.unitPrice * s.qty || 0), 0);
+    const poV = excelData.pos.filter(p => isAll || storeFilter.includes(p.store ?? "ROF")).reduce((a, p) => a + p.qty * (p.unitCost || 0), 0);
     return { totalSoValue: soV, totalPoValue: poV };
   }, [excelData, filteredSkuSet]);
 
