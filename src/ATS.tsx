@@ -922,14 +922,8 @@ export default function ATSReport() {
       filterStatus === "Low" ? todayQty > 0 && todayQty <= 10 :
       todayQty > 10;
     const matchMin    = minATS === "" || todayQty >= minATS;
-    // A row matches the store filter if it has matching PO/SO events OR its brand belongs to the selected store.
-    // "ROF ECOM" maps to "ROF" at the brand level (ECOM is a channel, not a brand).
-    const skuBrand = r.store ?? "ROF";
-    const brandMatchesPo = !poStores.includes("All") && poStores.some(s => s === skuBrand || (s === "ROF ECOM" && skuBrand === "ROF"));
-    const brandMatchesSo = !soStores.includes("All") && soStores.some(s => s === skuBrand || (s === "ROF ECOM" && skuBrand === "ROF"));
-    const matchPOStore = !poFilterSkus || poFilterSkus.has(r.sku) || brandMatchesPo;
-    const matchSOStore = !soFilterSkus || soFilterSkus.has(r.sku) || brandMatchesSo;
-    return matchSearch && matchCat && matchStatus && matchMin && matchPOStore && matchSOStore;
+    // Store filtering is already handled by computeRowsFromExcelData — no secondary filter needed
+    return matchSearch && matchCat && matchStatus && matchMin;
   });
 
   // ── Summary stats (all based on filtered rows) ─────────────────────────
