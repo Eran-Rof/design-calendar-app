@@ -1396,6 +1396,7 @@ export default function ATSReport() {
                               if (ctxMenu?.cellKey === cellKey) { setCtxMenu(null); return; }
                               const cellEl   = e.currentTarget as HTMLElement;
                               const cellRect = cellEl.getBoundingClientRect();
+                              setSummaryCtx(null);
                               setCtxMenu({ x: cellRect.left, y: cellRect.bottom + 2, anchorY: cellRect.top, pos: ev?.pos ?? [], sos: ev?.sos ?? [], onHand: row.onHand, skuStore: row.store ?? "ROF", cellKey, cellEl, flipped: false, arrowLeft: 20 });
                             }}
                           >
@@ -1493,9 +1494,12 @@ export default function ATSReport() {
                 <div>
                   <div style={{ background: "rgba(241,245,249,0.08)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#F1F5F9", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #334155" }}>On Hand</div>
                   <div style={{ padding: "10px 14px", fontSize: 12, borderBottom: "1px solid #1a2030" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>{storeTag(row.store ?? "ROF")}<span style={{ color: "#94A3B8" }}>{row.description}</span></span>
-                      <span style={{ color: "#F1F5F9", fontWeight: 700, fontFamily: "monospace" }}>{row.onHand.toLocaleString()} units</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                      {storeTag(row.store ?? "ROF")}
+                      <span style={{ color: "#94A3B8", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.description}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                      <span style={{ color: "#F1F5F9", fontWeight: 700, fontFamily: "monospace", fontSize: 14 }}>{row.onHand.toLocaleString()} units</span>
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px", marginTop: 8 }}>
                       {(row.avgCost ?? 0) > 0 && <>
@@ -1663,13 +1667,25 @@ export default function ATSReport() {
               ))}
             </div>
           )}
-          {ctxMenu.pos.length > 0 && (
+          {ctxMenu.pos.length > 0 && (() => {
+            // Group by PO number
+            const poGrp: Record<string, { poNumber: string; vendor: string; store: string; date: string; totalQty: number; totalValue: number }> = {};
+            for (const p of ctxMenu.pos) {
+              const k = p.poNumber || "Unknown";
+              if (!poGrp[k]) poGrp[k] = { poNumber: p.poNumber, vendor: p.vendor, store: p.store, date: p.date, totalQty: 0, totalValue: 0 };
+              poGrp[k].totalQty += p.qty;
+              poGrp[k].totalValue += p.qty * (p.unitCost || 0);
+              if (p.date && (!poGrp[k].date || p.date < poGrp[k].date)) poGrp[k].date = p.date;
+            }
+            const poList = Object.values(poGrp);
+            const tQty = poList.reduce((s, p) => s + p.totalQty, 0);
+            const tVal = poList.reduce((s, p) => s + p.totalValue, 0);
+            return (
             <div>
-              {(() => { const tQty = ctxMenu.pos.reduce((s, p) => s + p.qty, 0); const tVal = ctxMenu.pos.reduce((s, p) => s + p.qty * (p.unitCost || 0), 0); return (
               <div style={{ background: "rgba(245,158,11,0.15)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#FCD34D", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #3D2E00" }}>
-                Purchase Orders ({ctxMenu.pos.length}) · +{tQty.toLocaleString()} units{tVal > 0 ? ` · $${tVal.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})} · Avg $${(tVal / tQty).toFixed(2)}/unit` : ""}
-              </div>); })()}
-              {ctxMenu.pos.map((p, i) => (
+                Purchase Orders ({poList.length}) · +{tQty.toLocaleString()} units{tVal > 0 ? ` · $${tVal.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})} · Avg $${(tVal / tQty).toFixed(2)}/unit` : ""}
+              </div>
+              {poList.map((p, i) => (
                 <div
                   key={i}
                   style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12, cursor: p.poNumber ? "pointer" : "default" }}
@@ -1680,20 +1696,18 @@ export default function ATSReport() {
                     <span style={{ color: "#FCD34D", fontFamily: "monospace", fontWeight: 700, textDecoration: p.poNumber ? "underline" : "none", textUnderlineOffset: 2 }}>
                       {p.poNumber || "—"}
                     </span>
-                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      {p.store && <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8, background: p.store === "ROF ECOM" ? "rgba(14,165,233,0.2)" : p.store === "PT" ? "rgba(139,92,246,0.2)" : "rgba(245,158,11,0.2)", color: p.store === "ROF ECOM" ? "#7dd3fc" : p.store === "PT" ? "#c4b5fd" : "#fcd34d" }}>{p.store}</span>}
-                      <span style={{ color: "#10B981", fontWeight: 700 }}>+{p.qty.toLocaleString()} units</span>
-                    </span>
+                    <span style={{ color: "#10B981", fontWeight: 700 }}>+{p.totalQty.toLocaleString()} units</span>
                   </div>
-                  <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{p.vendor || "—"}</div>
-                  <div style={{ display: "flex", gap: 16 }}>
-                    <span style={{ color: "#94A3B8", fontSize: 11 }}>Expected: {fmtDateDisplay(p.date)}</span>
-                    {p.unitCost > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Unit Cost: ${p.unitCost.toFixed(2)}</span>}
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "#CBD5E1" }}>{p.vendor || "—"}</span>
+                    <span style={{ color: "#94A3B8", fontSize: 11 }}>{fmtDateDisplay(p.date)}</span>
                   </div>
+                  {p.totalValue > 0 && <div style={{ color: "#94A3B8", fontSize: 11, marginTop: 2 }}>Value: <span style={{ color: "#FCD34D", fontFamily: "monospace" }}>${p.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
                 </div>
               ))}
             </div>
-          )}
+            );
+          })()}
           </div>{/* end inner clipped box */}
           {/* Down-arrow caret when popup is flipped above the cell */}
           {ctxMenu.flipped && (
