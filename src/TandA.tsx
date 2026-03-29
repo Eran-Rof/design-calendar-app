@@ -376,7 +376,14 @@ function poTotal(po: XoroPO) {
     }, 0);
   }
   if (po.TotalAmount != null) return po.TotalAmount;
-  return items.reduce((s, i) => s + (i.QtyOrder ?? 0) * (i.UnitPrice ?? 0), 0);
+  return items.reduce((s, i) => s + itemQty(i) * (i.UnitPrice ?? 0), 0);
+}
+
+// Get effective qty: QtyRemaining for partially received, QtyOrder otherwise
+function itemQty(item: any): number {
+  if (item.QtyRemaining != null) return item.QtyRemaining;
+  if (item.QtyReceived != null && item.QtyReceived > 0) return (item.QtyOrder ?? 0) - item.QtyReceived;
+  return item.QtyOrder ?? 0;
 }
 
 // ── Main App ──────────────────────────────────────────────────────────────────
@@ -2965,7 +2972,7 @@ export default function TandAApp() {
   }
   function _exportPOExcelInner(XLSX: any, po: XoroPO, items: any[], mode: string) {
     const poNum = po.PoNumber ?? "PO";
-    const totalVal = items.reduce((s, i) => s + (i.QtyOrder ?? 0) * (i.UnitPrice ?? 0), 0);
+    const totalVal = items.reduce((s, i) => s + itemQty(i) * (i.UnitPrice ?? 0), 0);
     const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 
     // ── Style definitions (xlsx-js-style requires patternType:"solid" in fill) ──
@@ -3086,7 +3093,7 @@ export default function TandAApp() {
         const sku = item.ItemNumber ?? ""; const parts = sku.split("-");
         const color = parts.length === 4 ? `${parts[1]}-${parts[2]}` : (parts.length >= 2 ? parts[1] : "");
         const sz = normalizeSize(parts.length === 4 ? parts[3] : parts.length >= 3 ? parts.slice(2).join("-") : "");
-        return { base: parts[0] || sku, color, size: sz, qty: item.QtyOrder ?? 0, price: item.UnitPrice ?? 0, desc: item.Description ?? "" };
+        return { base: parts[0] || sku, color, size: sz, qty: itemQty(item), price: item.UnitPrice ?? 0, desc: item.Description ?? "" };
       });
       const sizeSet = new Set<string>();
       parsed.forEach(p => { if (p.size) sizeSet.add(p.size); });
@@ -3104,7 +3111,7 @@ export default function TandAApp() {
         const rt = Object.values(row.sizes).reduce((s, q) => s + q, 0);
         mxRows.push([base, row.desc, row.color, ...sizeOrder.map(sz => row.sizes[sz] || 0), rt, row.price, rt * row.price]);
       }); });
-      mxRows.push(["", "", "GRAND TOTAL", ...sizeOrder.map(sz => parsed.filter(p => p.size === sz).reduce((s, p) => s + p.qty, 0)), items.reduce((s, i) => s + (i.QtyOrder ?? 0), 0), "", totalVal]);
+      mxRows.push(["", "", "GRAND TOTAL", ...sizeOrder.map(sz => parsed.filter(p => p.size === sz).reduce((s, p) => s + p.qty, 0)), items.reduce((s, i) => s + itemQty(i), 0), "", totalVal]);
       const nSz = sizeOrder.length;
       const mxDollar = [3 + nSz + 1, 3 + nSz + 2];
       const mxQty = [...sizeOrder.map((_, i) => 3 + i), 3 + nSz];
@@ -3112,8 +3119,8 @@ export default function TandAApp() {
       XLSX.utils.book_append_sheet(wb, styleSheet(mxRows, mxW, { totalRow: true, dollarCols: mxDollar, qtyCols: mxQty }), "Matrix");
       // Line Items sheet
       const lineData: any[][] = [["SKU", "Description", "Qty", "Unit Price", "Total"]];
-      items.forEach(item => { lineData.push([item.ItemNumber ?? "", item.Description ?? "", item.QtyOrder ?? 0, item.UnitPrice ?? 0, (item.QtyOrder ?? 0) * (item.UnitPrice ?? 0)]); });
-      lineData.push(["TOTAL", "", items.reduce((s, i) => s + (i.QtyOrder ?? 0), 0), "", totalVal]);
+      items.forEach(item => { lineData.push([item.ItemNumber ?? "", item.Description ?? "", itemQty(item), item.UnitPrice ?? 0, itemQty(item) * (item.UnitPrice ?? 0)]); });
+      lineData.push(["TOTAL", "", items.reduce((s, i) => s + itemQty(i), 0), "", totalVal]);
       XLSX.utils.book_append_sheet(wb, styleSheet(lineData, [22, 32, 12, 14, 16], { totalRow: true, dollarCols: [3, 4], qtyCols: [2] }), "Line Items");
       XLSX.writeFile(wb, `${poNum}_PO_Details.xlsx`);
 
@@ -3133,8 +3140,8 @@ export default function TandAApp() {
 
     } else if (mode === "all") {
       const lineData: any[][] = [["SKU", "Description", "Qty", "Unit Price", "Total"]];
-      items.forEach(item => { lineData.push([item.ItemNumber ?? "", item.Description ?? "", item.QtyOrder ?? 0, item.UnitPrice ?? 0, (item.QtyOrder ?? 0) * (item.UnitPrice ?? 0)]); });
-      lineData.push(["TOTAL", "", items.reduce((s, i) => s + (i.QtyOrder ?? 0), 0), "", totalVal]);
+      items.forEach(item => { lineData.push([item.ItemNumber ?? "", item.Description ?? "", itemQty(item), item.UnitPrice ?? 0, itemQty(item) * (item.UnitPrice ?? 0)]); });
+      lineData.push(["TOTAL", "", items.reduce((s, i) => s + itemQty(i), 0), "", totalVal]);
       XLSX.utils.book_append_sheet(wb, styleSheet(lineData, [22, 32, 12, 14, 16], { totalRow: true, dollarCols: [3, 4], qtyCols: [2] }), "Line Items");
       const poMs = milestones[poNum] || [];
       if (poMs.length > 0) {
@@ -3226,7 +3233,7 @@ export default function TandAApp() {
     const showMilestones = detailMode === "milestones" || detailMode === "all";
     const showNotes = detailMode === "notes" || detailMode === "all";
     const showHistory = detailMode === "history" || detailMode === "all";
-    const totalQty = items.reduce((s, i) => s + (i.QtyOrder ?? 0), 0);
+    const totalQty = items.reduce((s, i) => s + itemQty(i), 0);
 
     // Matrix rows (base+color combos) — shared by Item Matrix table and variant panel
     const matrixRows = (() => {
@@ -3242,7 +3249,7 @@ export default function TandAApp() {
           byKey[key] = { base, color, desc: item.Description ?? "", qty: 0, price: item.UnitPrice ?? 0 };
           rows.push(byKey[key]);
         }
-        byKey[key].qty += (item.QtyOrder ?? 0);
+        byKey[key].qty += itemQty(item);
       });
       return rows;
     })();
@@ -3408,7 +3415,7 @@ export default function TandAApp() {
               const sku = item.ItemNumber ?? ""; const parts = sku.split("-");
               const color = parts.length === 4 ? `${parts[1]}-${parts[2]}` : (parts.length >= 2 ? parts[1] : "");
               const sz = normalizeSize(parts.length === 4 ? parts[3] : parts.length >= 3 ? parts.slice(2).join("-") : "");
-              return { base: parts[0] || sku, color, size: sz, qty: item.QtyOrder ?? 0, price: item.UnitPrice ?? 0, desc: item.Description ?? "" };
+              return { base: parts[0] || sku, color, size: sz, qty: itemQty(item), price: item.UnitPrice ?? 0, desc: item.Description ?? "" };
             });
             const sizeSet2 = new Set<string>();
             parsed.forEach((p: any) => { if (p.size) sizeSet2.add(p.size); });
@@ -3505,10 +3512,10 @@ export default function TandAApp() {
                         <div key={i} style={S.itemRow}>
                           <span style={{ color: "#60A5FA", fontFamily: "monospace" }}>{item.ItemNumber ?? "—"}</span>
                           <span style={{ color: "#D1D5DB" }}>{item.Description ?? "—"}</span>
-                          <span style={{ color: "#E5E7EB", textAlign: "right" }}>{item.QtyOrder ?? 0}</span>
+                          <span style={{ color: "#E5E7EB", textAlign: "right" }}>{itemQty(item)}{(item.QtyReceived ?? 0) > 0 ? <span style={{ color: "#6B7280", fontSize: 10 }}> / {item.QtyOrder}</span> : ""}</span>
                           <span style={{ color: "#E5E7EB", textAlign: "right" }}>{fmtCurrency(item.UnitPrice, selected.CurrencyCode)}</span>
                           <span style={{ color: "#10B981", textAlign: "right", fontWeight: 600 }}>
-                            {fmtCurrency((item.QtyOrder ?? 0) * (item.UnitPrice ?? 0), selected.CurrencyCode)}
+                            {fmtCurrency(itemQty(item) * (item.UnitPrice ?? 0), selected.CurrencyCode)}
                           </span>
                         </div>
                       ))}
