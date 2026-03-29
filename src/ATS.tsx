@@ -674,7 +674,13 @@ export default function ATSReport() {
         };
         setExcelData(merged);
         setRows(computeRowsFromExcelData(merged, dates));
-        addLog("Merged PO data with existing inventory/orders data");
+        // Save merged data to Supabase so it persists on refresh
+        await fetch(`${SB_URL}/rest/v1/app_data`, {
+          method: "POST",
+          headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify({ key: "ats_excel_data", value: JSON.stringify(merged) }),
+        });
+        addLog("Merged PO data saved to database");
       }
 
       setLastSync(now);
