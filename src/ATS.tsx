@@ -926,7 +926,7 @@ export default function ATSReport() {
 
   const { totalSoValue, totalPoValue } = useMemo(() => {
     if (!excelData) return { totalSoValue: 0, totalPoValue: 0 };
-    const soV = excelData.sos.filter(s => filteredSkuSet.has(s.sku)).reduce((a, s) => a + (s.totalPrice || 0), 0);
+    const soV = excelData.sos.filter(s => filteredSkuSet.has(s.sku)).reduce((a, s) => a + (s.totalPrice || s.unitPrice * s.qty || 0), 0);
     const poV = excelData.pos.filter(p => filteredSkuSet.has(p.sku)).reduce((a, p) => a + p.qty * (p.unitCost || 0), 0);
     return { totalSoValue: soV, totalPoValue: poV };
   }, [excelData, filteredSkuSet]);
@@ -1509,7 +1509,10 @@ export default function ATSReport() {
               {/* ON ORDER (committed SOs) */}
               {type === "onOrder" && (
                 <div>
-                  <div style={{ background: "rgba(245,158,11,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#FCD34D", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #3D2E00" }}>Committed Sales Orders — {sos.length} line{sos.length !== 1 ? "s" : ""}</div>
+                  {(() => { const totalSoQty = sos.reduce((s, o) => s + o.qty, 0); const totalSoVal = sos.reduce((s, o) => s + (o.totalPrice || 0), 0); return (
+                  <div style={{ background: "rgba(245,158,11,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#FCD34D", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #3D2E00" }}>
+                    Committed Sales Orders — {sos.length} line{sos.length !== 1 ? "s" : ""} · {totalSoQty.toLocaleString()} units{totalSoVal > 0 ? ` · $${totalSoVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ""}
+                  </div>); })()}
                   {Object.keys(soByStore).length > 1 && (
                     <div style={{ padding: "6px 14px", borderBottom: "1px solid #1a2030", display: "flex", gap: 12, flexWrap: "wrap" }}>
                       {Object.entries(soByStore).map(([st, qty]) => (
