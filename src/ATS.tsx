@@ -526,6 +526,11 @@ export default function ATSReport() {
   }, [startDate, rangeUnit, rangeValue, dates]);
 
   // ── Recompute rows whenever date range, data, or store filters change ───
+  // Load saved data from Supabase on mount
+  useEffect(() => {
+    loadFromSupabase();
+  }, []);
+
   useEffect(() => {
     if (mockMode) {
       setRows(generateMockData(dates));
