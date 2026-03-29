@@ -135,8 +135,8 @@ function computeRowsFromExcelData(data: ExcelData, dates: string[], poStores: st
 
   const rangeStart = dates[0]; // earliest date in the display window
 
-  // Filter SKUs by PO store filter (controls which stores' inventory is visible)
-  const filteredSkus = allPo ? data.skus : data.skus.filter(s => {
+  // Filter SKUs by store (single unified store filter)
+  const filteredSkus = (allPo && allSo) ? data.skus : data.skus.filter(s => {
     const skuStore = s.store ?? "ROF";
     return poStores.includes(skuStore) || (poStores.includes("ROF ECOM") && skuStore === "ROF");
   });
@@ -289,8 +289,12 @@ export default function ATSReport() {
   const [filterStatus, setFilterStatus] = useState("All"); // All, Low, Out, InStock
   const [minATS, setMinATS] = useState<number | "">("");
   const STORES = ["ROF", "ROF ECOM", "PT"] as const;
-  const [poStores, setPoStores]     = useState<string[]>(["All"]);
-  const [soStores, setSoStores]     = useState<string[]>(["All"]);
+  const [storeFilter, setStoreFilter] = useState<string[]>(["All"]);
+  // Keep backward compat — both PO and SO use the same filter
+  const poStores = storeFilter;
+  const soStores = storeFilter;
+  const setPoStores = setStoreFilter;
+  const setSoStores = setStoreFilter;
   const [poDropOpen, setPoDropOpen] = useState(false);
   const [soDropOpen, setSoDropOpen] = useState(false);
   const poDropRef = useRef<HTMLDivElement>(null);
@@ -1130,58 +1134,29 @@ export default function ATSReport() {
             <option value="Low">Low stock</option>
             <option value="Out">Out of stock</option>
           </select>
-          {/* PO Store filter dropdown */}
+          {/* Store filter dropdown — single filter for everything */}
           <div ref={poDropRef} style={{ position: "relative" }}>
             <button
-              style={{ ...S.select, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", minWidth: 120, justifyContent: "space-between" }}
+              style={{ ...S.select, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", minWidth: 140, justifyContent: "space-between" }}
               onClick={() => { setPoDropOpen(o => !o); setSoDropOpen(false); }}
             >
-              <span style={{ color: "#F59E0B", fontSize: 11, fontWeight: 600, marginRight: 2 }}>PO:</span>
+              <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, marginRight: 2 }}>Store:</span>
               <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {poStores.includes("All") ? "All stores" : poStores.join(", ")}
+                {storeFilter.includes("All") ? "All stores" : storeFilter.join(", ")}
               </span>
               <span style={{ fontSize: 9, color: "#6B7280" }}>▼</span>
             </button>
             {poDropOpen && (
               <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200, background: "#1E293B", border: "1px solid #334155", borderRadius: 8, minWidth: 160, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", padding: "6px 0" }}>
                 {(["All", ...STORES] as string[]).map(s => {
-                  const checked = s === "All" ? poStores.includes("All") : poStores.includes(s);
+                  const checked = s === "All" ? storeFilter.includes("All") : storeFilter.includes(s);
                   return (
-                    <label key={s} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", cursor: "pointer", background: checked ? "rgba(245,158,11,0.08)" : "transparent" }}
-                      onMouseEnter={e => (e.currentTarget.style.background = "rgba(245,158,11,0.12)")}
-                      onMouseLeave={e => (e.currentTarget.style.background = checked ? "rgba(245,158,11,0.08)" : "transparent")}
+                    <label key={s} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", cursor: "pointer", background: checked ? "rgba(16,185,129,0.08)" : "transparent" }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "rgba(16,185,129,0.12)")}
+                      onMouseLeave={e => (e.currentTarget.style.background = checked ? "rgba(16,185,129,0.08)" : "transparent")}
                     >
-                      <input type="checkbox" checked={checked} onChange={() => toggleStore(poStores, setPoStores, s)} style={{ accentColor: "#F59E0B", cursor: "pointer" }} />
-                      <span style={{ color: checked ? "#FCD34D" : "#9CA3AF", fontSize: 13 }}>{s}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-          {/* SO Store filter dropdown */}
-          <div ref={soDropRef} style={{ position: "relative" }}>
-            <button
-              style={{ ...S.select, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", minWidth: 120, justifyContent: "space-between" }}
-              onClick={() => { setSoDropOpen(o => !o); setPoDropOpen(false); }}
-            >
-              <span style={{ color: "#3B82F6", fontSize: 11, fontWeight: 600, marginRight: 2 }}>SO:</span>
-              <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {soStores.includes("All") ? "All stores" : soStores.join(", ")}
-              </span>
-              <span style={{ fontSize: 9, color: "#6B7280" }}>▼</span>
-            </button>
-            {soDropOpen && (
-              <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200, background: "#1E293B", border: "1px solid #334155", borderRadius: 8, minWidth: 160, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", padding: "6px 0" }}>
-                {(["All", ...STORES] as string[]).map(s => {
-                  const checked = s === "All" ? soStores.includes("All") : soStores.includes(s);
-                  return (
-                    <label key={s} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", cursor: "pointer", background: checked ? "rgba(59,130,246,0.08)" : "transparent" }}
-                      onMouseEnter={e => (e.currentTarget.style.background = "rgba(59,130,246,0.12)")}
-                      onMouseLeave={e => (e.currentTarget.style.background = checked ? "rgba(59,130,246,0.08)" : "transparent")}
-                    >
-                      <input type="checkbox" checked={checked} onChange={() => toggleStore(soStores, setSoStores, s)} style={{ accentColor: "#3B82F6", cursor: "pointer" }} />
-                      <span style={{ color: checked ? "#93C5FD" : "#9CA3AF", fontSize: 13 }}>{s}</span>
+                      <input type="checkbox" checked={checked} onChange={() => toggleStore(storeFilter, setStoreFilter, s)} style={{ accentColor: "#10B981", cursor: "pointer" }} />
+                      <span style={{ color: checked ? "#6EE7B7" : "#9CA3AF", fontSize: 13 }}>{s}</span>
                     </label>
                   );
                 })}
