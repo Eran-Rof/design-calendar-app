@@ -623,7 +623,10 @@ export default function ATSReport() {
           const rawSku = String(line.PoItemNumber ?? line.ItemNumber ?? "").trim();
           if (!rawSku) continue;
           const sku = xoroSkuToExcel(rawSku);
-          const qty = Number(line.QtyOrder ?? line.QtyOrdered ?? 0);
+          // Use QtyRemaining (open qty) for partially received POs, fall back to QtyOrder
+          const qtyOrdered = Number(line.QtyOrder ?? line.QtyOrdered ?? 0);
+          const qtyReceived = Number(line.QtyReceived ?? 0);
+          const qty = (line.QtyRemaining != null) ? Number(line.QtyRemaining) : qtyOrdered - qtyReceived;
           const unitCost = Number(line.UnitPrice ?? line.EffectiveUnitPrice ?? 0);
           if (qty <= 0) continue;
           totalLines++;
@@ -778,7 +781,8 @@ export default function ATSReport() {
                 const rawItemSku = item.ItemNumber ?? "";
                 if (!rawItemSku) continue;
                 const sku = xoroSkuToExcel(rawItemSku);
-                const qty = item.QtyOrder ?? 0;
+                // Use QtyRemaining for partially received, fall back to QtyOrder
+                const qty = item.QtyRemaining != null ? item.QtyRemaining : (item.QtyOrder ?? 0) - (item.QtyReceived ?? 0);
                 const unitCost = item.UnitPrice ?? 0;
                 if (qty <= 0) continue;
                 // Parse expected date

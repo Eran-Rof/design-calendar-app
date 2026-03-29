@@ -91,6 +91,8 @@ function mapXoroRaw(raw: any[]): XoroPO[] {
         ItemNumber:  l.PoItemNumber ?? l.ItemNumber ?? "",
         Description: l.Description ?? l.Title ?? "",
         QtyOrder:    l.QtyOrder ?? 0,
+        QtyReceived: l.QtyReceived ?? 0,
+        QtyRemaining: l.QtyRemaining ?? (l.QtyOrder ?? 0) - (l.QtyReceived ?? 0),
         UnitPrice:   l.UnitPrice ?? l.EffectiveUnitPrice ?? 0,
       })),
     } as XoroPO;
@@ -364,8 +366,16 @@ function daysUntil(d?: string) {
   return diff;
 }
 function poTotal(po: XoroPO) {
-  if (po.TotalAmount != null) return po.TotalAmount;
   const items = po.Items ?? po.PoLineArr ?? [];
+  // For partially received POs, calculate from remaining qty; otherwise use TotalAmount
+  const hasReceived = items.some((i: any) => (i.QtyReceived ?? 0) > 0);
+  if (hasReceived) {
+    return items.reduce((s, i: any) => {
+      const remaining = i.QtyRemaining != null ? i.QtyRemaining : (i.QtyOrder ?? 0) - (i.QtyReceived ?? 0);
+      return s + remaining * (i.UnitPrice ?? 0);
+    }, 0);
+  }
+  if (po.TotalAmount != null) return po.TotalAmount;
   return items.reduce((s, i) => s + (i.QtyOrder ?? 0) * (i.UnitPrice ?? 0), 0);
 }
 
