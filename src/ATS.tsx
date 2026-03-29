@@ -593,7 +593,7 @@ export default function ATSReport() {
       }
 
       // ── Fetch Purchase Orders only (inventory + SO come from Excel) ────────
-      const statuses = ["Open", "Released", "Pending", "Draft"];
+      const statuses = ["Open", "Released", "Partially Received", "Pending", "Draft"];
       let allPOs: any[] = [];
 
       for (let si = 0; si < statuses.length; si++) {

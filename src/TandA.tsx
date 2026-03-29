@@ -98,9 +98,9 @@ function mapXoroRaw(raw: any[]): XoroPO[] {
 }
 
 // All PO statuses — Xoro only returns "Open" by default, so we must request all explicitly
-const ALL_PO_STATUSES = ["Open", "Released", "Received", "Closed", "Cancelled", "Pending", "Draft"];
-// Active statuses — skip Closed/Received/Cancelled since we auto-delete them anyway
-const ACTIVE_PO_STATUSES = ["Open", "Released", "Pending", "Draft"];
+const ALL_PO_STATUSES = ["Open", "Released", "Received", "Partially Received", "Closed", "Cancelled", "Pending", "Draft"];
+// Active statuses — skip fully Closed/Received/Cancelled since we auto-delete them
+const ACTIVE_PO_STATUSES = ["Open", "Released", "Partially Received", "Pending", "Draft"];
 
 interface XoroFetchOpts {
   page?: number;
@@ -1923,8 +1923,11 @@ export default function TandAApp() {
         (existingRows ?? []).map((r: any) => [r.po_number as string, r.data as XoroPO])
       );
 
+      // Only fully Closed/Received/Cancelled — "Partially Received" stays active
       const autoDeleteStatuses = ["Closed", "Received", "Cancelled"];
-      const synced = all.filter(po => !autoDeleteStatuses.includes(po.StatusName ?? ""));
+      // Never delete partially received POs
+      const toKeep = (s: string) => (s || "").toLowerCase().includes("partial");
+      const synced = all.filter(po => !autoDeleteStatuses.includes(po.StatusName ?? "") || toKeep(po.StatusName ?? ""));
 
       const addedPOs = synced.filter(po => !existingMap.has(po.PoNumber ?? ""));
       const changedPOs = synced.filter(po => {
@@ -1969,8 +1972,8 @@ export default function TandAApp() {
       setSyncProgress(88);
       setSyncProgressMsg("Removing closed/received POs…");
 
-      const toDeleteFromSync = all.filter(po => autoDeleteStatuses.includes(po.StatusName ?? ""));
-      const toDeleteFromCache = (existingRows ?? []).filter((r: any) => autoDeleteStatuses.includes((r.data as XoroPO)?.StatusName ?? ""));
+      const toDeleteFromSync = all.filter(po => autoDeleteStatuses.includes(po.StatusName ?? "") && !toKeep(po.StatusName ?? ""));
+      const toDeleteFromCache = (existingRows ?? []).filter((r: any) => autoDeleteStatuses.includes((r.data as XoroPO)?.StatusName ?? "") && !toKeep((r.data as XoroPO)?.StatusName ?? ""));
       const toDeleteNums = new Set([
         ...toDeleteFromSync.map(po => po.PoNumber ?? ""),
         ...toDeleteFromCache.map((r: any) => r.po_number as string),
