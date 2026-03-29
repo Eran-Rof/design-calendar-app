@@ -135,13 +135,8 @@ function computeRowsFromExcelData(data: ExcelData, dates: string[], poStores: st
 
   const rangeStart = dates[0]; // earliest date in the display window
 
-  // Filter SKUs by store (single unified store filter)
-  const filteredSkus = (allPo && allSo) ? data.skus : data.skus.filter(s => {
-    const skuStore = s.store ?? "ROF";
-    return poStores.includes(skuStore);
-  });
-
-  return filteredSkus.map(s => {
+  // Always include all SKUs — store filtering happens at display time
+  return data.skus.map(s => {
     const poDates = poIdx[s.sku] ?? {};
     const soDates = soIdx[s.sku] ?? {};
 
@@ -922,8 +917,9 @@ export default function ATSReport() {
       filterStatus === "Low" ? todayQty > 0 && todayQty <= 10 :
       todayQty > 10;
     const matchMin    = minATS === "" || todayQty >= minATS;
-    // Store filtering is already handled by computeRowsFromExcelData — no secondary filter needed
-    return matchSearch && matchCat && matchStatus && matchMin;
+    // Store filter
+    const matchStore = storeFilter.includes("All") || storeFilter.includes(r.store ?? "ROF");
+    return matchSearch && matchCat && matchStatus && matchMin && matchStore;
   });
 
   // ── Summary stats (all based on filtered rows) ─────────────────────────
@@ -1275,7 +1271,7 @@ export default function ATSReport() {
                   const isPinned = pinnedSku === row.sku;
                   return (
                     <tr
-                      key={row.sku}
+                      key={`${row.sku}::${row.store ?? "ROF"}`}
                       style={{
                         background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827",
                         transition: "background 0.15s",
