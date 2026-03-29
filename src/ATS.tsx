@@ -95,6 +95,15 @@ function getQtyBg(qty: number): string {
   return "rgba(16,185,129,0.1)";
 }
 
+// Convert Xoro SKU format (BASE-COLOR-SIZE) to Excel format (BASE - COLOR)
+// e.g. "RYB0185-Black-30" → "RYB0185 - Black"
+function xoroSkuToExcel(rawSku: string): string {
+  const parts = rawSku.split("-");
+  if (parts.length >= 3) return parts[0] + " - " + parts.slice(1, -1).join(" - ");
+  if (parts.length === 2) return parts[0] + " - " + parts[1];
+  return rawSku;
+}
+
 function generateMockData(_dates: string[]): ATSRow[] {
   return [];
 }
@@ -610,13 +619,7 @@ export default function ATSReport() {
         for (const line of lines) {
           const rawSku = String(line.PoItemNumber ?? line.ItemNumber ?? "").trim();
           if (!rawSku) continue;
-          // Convert Xoro format (BASE-COLOR-SIZE) to Excel format (BASE - COLOR)
-          // e.g. "RYB0185-Black-30" → "RYB0185 - Black"
-          const skuParts = rawSku.split("-");
-          const sku = skuParts.length >= 3
-            ? skuParts[0] + " - " + skuParts.slice(1, -1).join(" - ")
-            : skuParts.length === 2 ? skuParts[0] + " - " + skuParts[1]
-            : rawSku;
+          const sku = xoroSkuToExcel(rawSku);
           const qty = Number(line.QtyOrder ?? line.QtyOrdered ?? 0);
           const unitCost = Number(line.UnitPrice ?? line.EffectiveUnitPrice ?? 0);
           if (qty <= 0) continue;
@@ -769,8 +772,9 @@ export default function ATSReport() {
               const brandName = po.BrandName ?? "";
               const items = po.Items ?? po.PoLineArr ?? [];
               for (const item of items) {
-                const sku = item.ItemNumber ?? "";
-                if (!sku) continue;
+                const rawItemSku = item.ItemNumber ?? "";
+                if (!rawItemSku) continue;
+                const sku = xoroSkuToExcel(rawItemSku);
                 const qty = item.QtyOrder ?? 0;
                 const unitCost = item.UnitPrice ?? 0;
                 if (qty <= 0) continue;
