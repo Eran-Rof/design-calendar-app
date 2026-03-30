@@ -162,7 +162,7 @@ export function timelinePanel(ctx: TimelineCtx): React.ReactElement | null {
     return (
       <div
         style={{
-          background: "#EEF1F6",
+          background: TH.bg,
           borderRadius: 14,
           padding: "22px",
           minHeight: 200,
