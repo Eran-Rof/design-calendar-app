@@ -269,7 +269,7 @@ export function timelinePanel(ctx: TimelineCtx): React.ReactElement | null {
                 const collData = collections[`${bid}||${cname}`] || {};
                 const ddpTask = sorted.find((t) => t.phase === "DDP");
                 return (
-                  <div key={cname} style={{ marginBottom: 48, marginLeft: 16, paddingBottom: 28, borderBottom: `1px solid ${TH.border}` }}>
+                  <div key={cname} style={{ marginBottom: 48, marginLeft: 16, paddingBottom: 28, borderBottom: `24px solid ${TH.border}`, borderRadius: 14 }}>
                     <div
                       style={{
                         fontSize: 12,
