@@ -188,8 +188,15 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
             </select>
           </div>
           <div style={{ position: "relative" }}>
-            <button style={{ ...S.navBtn, background: customerFilter ? "rgba(96,165,250,0.15)" : undefined, color: customerFilter ? "#60A5FA" : undefined }} onClick={() => setCustomerDropOpen(!customerDropOpen)}>
-              {customerFilter ? `👤 ${customerFilter}` : "👤 Customers"}
+            <button
+              style={{ ...S.select, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", minWidth: 160, justifyContent: "space-between" }}
+              onClick={() => setCustomerDropOpen(!customerDropOpen)}
+            >
+              <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, marginRight: 2 }}>Cust/Vend:</span>
+              <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {customerFilter || "All"}
+              </span>
+              <span style={{ fontSize: 9, color: "#6B7280" }}>▼</span>
             </button>
             {customerDropOpen && (
               <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, background: "#1E293B", border: "1px solid #334155", borderRadius: 8, zIndex: 100, width: 280, maxHeight: 340, display: "flex", flexDirection: "column", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
