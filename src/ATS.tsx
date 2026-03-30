@@ -95,9 +95,12 @@ function ATSReport() {
   const setActiveSort = (v: any) => stSet("activeSort", v);
   const setSortCol = (v: any) => stSet("sortCol", v);
   const setSortDir = (v: "asc" | "desc") => stSet("sortDir", v);
-  const [normChanges, setNormChanges] = useState<NormChange[] | null>(null);
-  const [normPendingData, setNormPendingData] = useState<ExcelData | null>(null);
-  const [normSource, setNormSource] = useState<"upload" | "load">("upload");
+  const normChanges = st.normChanges;
+  const normPendingData = st.normPendingData;
+  const normSource = st.normSource;
+  const setNormChanges = (v: NormChange[] | null) => stSet("normChanges", v);
+  const setNormPendingData = (v: ExcelData | null) => stSet("normPendingData", v);
+  const setNormSource = (v: "upload" | "load") => stSet("normSource", v);
   const STORES = ["ROF", "ROF ECOM", "PT"] as const;
   const poStores = storeFilter;
   const soStores = storeFilter;

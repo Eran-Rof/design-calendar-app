@@ -1,4 +1,5 @@
 import type { ATSRow, ExcelData, UploadWarning, CtxMenu, SummaryCtxMenu } from "../types";
+import type { NormChange } from "../normalize";
 
 export interface ATSState {
   // Date range
@@ -36,6 +37,10 @@ export interface ATSState {
   syncStatus: string;
   lastSync: string;
   syncError: { title: string; detail: string } | null;
+  // Normalization review
+  normChanges: NormChange[] | null;
+  normPendingData: ExcelData | null;
+  normSource: "upload" | "load";
   // UI
   hoveredCell: { sku: string; date: string } | null;
   pinnedSku: string | null;
@@ -88,6 +93,9 @@ export function createInitialState(startDate: string): ATSState {
     syncStatus: "",
     lastSync: "",
     syncError: null,
+    normChanges: null,
+    normPendingData: null,
+    normSource: "upload",
     hoveredCell: null,
     pinnedSku: null,
     ctxMenu: null,
