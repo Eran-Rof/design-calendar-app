@@ -291,6 +291,7 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
   const [saving, setSaving]   = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
   const [msg, setMsg]         = useState("");
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   useEffect(() => {
     loadUsers().then(u => { setUsers(u); setLoading(false); });
@@ -352,9 +353,13 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
   }
 
   function deleteUser(id: string) {
-    if (id === currentUser.id) { alert("You cannot delete yourself."); return; }
-    if (!confirm("Are you sure you want to delete this user?")) return;
-    saveUsers(users.filter(u => u.id !== id));
+    if (id === currentUser.id) { setMsg("You cannot delete yourself."); return; }
+    if (deleteConfirmId === id) {
+      saveUsers(users.filter(u => u.id !== id));
+      setDeleteConfirmId(null);
+    } else {
+      setDeleteConfirmId(id);
+    }
   }
 
   const APP_LABELS = [
@@ -433,7 +438,15 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
                   <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
                     <button style={S.editBtn} onClick={() => setEditing({ ...u, password: "" })}>Edit</button>
                     {u.id !== currentUser.id && (
-                      <button style={S.deleteBtn} onClick={() => deleteUser(u.id)}>Remove</button>
+                      deleteConfirmId === u.id ? (
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          <span style={{ fontSize: 11, color: "#EF4444" }}>Delete?</span>
+                          <button style={{ ...S.deleteBtn, background: "#EF4444", color: "#fff" }} onClick={() => deleteUser(u.id)}>Yes</button>
+                          <button style={{ ...S.editBtn, fontSize: 11 }} onClick={() => setDeleteConfirmId(null)}>No</button>
+                        </div>
+                      ) : (
+                        <button style={S.deleteBtn} onClick={() => deleteUser(u.id)}>Remove</button>
+                      )
                     )}
                   </div>
                 </div>

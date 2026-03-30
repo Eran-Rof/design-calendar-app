@@ -1,9 +1,22 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { msSignIn, loadMsTokens, saveMsTokens, clearMsTokens, getMsAccessToken, MS_CLIENT_ID, MS_TENANT_ID } from "./utils/msAuth";
-import { styledEmailHtml } from "./utils/emailHtml";
 
 import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
 import { type XoroPO, type Milestone, type WipTemplate, type LocalNote, type User, type DCVendor, type DmConversation, type SyncFilters, type View, ALL_PO_STATUSES, ACTIVE_PO_STATUSES, STATUS_COLORS, STATUS_OPTIONS, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, DEFAULT_WIP_TEMPLATES, milestoneUid, itemQty, poTotal, normalizeSize, sizeSort, mapXoroRaw, fmtDate, fmtCurrency } from "./utils/tandaTypes";
+import S from "./tanda/styles";
+import { exportPOExcel } from "./tanda/exportHelpers";
+import { emailViewPanel as emailViewPanelExtracted, type EmailPanelCtx } from "./tanda/emailPanel";
+import { teamsViewPanel as teamsViewPanelExtracted, type TeamsPanelCtx } from "./tanda/teamsPanel";
+import { timelinePanel as timelinePanelExtracted, type TimelinePanelCtx } from "./tanda/timelinePanel";
+import { detailPanel as detailPanelExtracted, WipTemplateEditor } from "./tanda/detailPanel";
+import { SyncProvider, useSyncState, useSyncDispatch } from "./tanda/state/sync/SyncContext";
+import type { SyncLogEntry } from "./tanda/state/sync/syncTypes";
+import { EmailProvider, useEmailState, useEmailDispatch } from "./tanda/state/email/EmailContext";
+import type { EmailState } from "./tanda/state/email/emailTypes";
+import { TeamsProvider, useTeamsState, useTeamsDispatch } from "./tanda/state/teams/TeamsContext";
+import type { TeamsState } from "./tanda/state/teams/teamsTypes";
+import { CoreProvider, useCoreState, useCoreDispatch } from "./tanda/state/core/CoreContext";
+import type { CoreState } from "./tanda/state/core/coreTypes";
 
 // ── Supabase helpers ──────────────────────────────────────────────────────────
 const sb = {
@@ -37,20 +50,114 @@ const sb = {
     },
   }),
 };
-// ── Main App ──────────────────────────────────────────────────────────────────
-export default function TandAApp() {
-  const [user, setUser]         = useState<User | null>(null);
-  const [view, setView]         = useState<View>(() => {
-    const saved = localStorage.getItem("tanda_view");
-    const valid: View[] = ["dashboard", "list", "detail", "templates", "email", "teams", "activity", "vendors", "timeline"];
-    return valid.includes(saved as View) ? (saved as View) : "dashboard";
+// ── Xoro fetch helpers ────────────────────────────────────────────────────────
+
+interface XoroFetchOpts {
+  page?: number;
+  fetchAll?: boolean;
+  signal?: AbortSignal;
+  statuses?: string[];
+  vendors?: string[];
+  poNumber?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+async function fetchXoroPOs(opts: XoroFetchOpts = {}): Promise<{ pos: XoroPO[]; totalPages: number }> {
+  const { page = 1, fetchAll = false, signal, statuses, vendors, poNumber, dateFrom, dateTo } = opts;
+  const params = new URLSearchParams({ path: "purchaseorder/getpurchaseorder", per_page: "200", page_size: "200", pagesize: "200", rows: "200", limit: "200", RecordsPerPage: "200", PageSize: "200", itemsPerPage: "200" });
+  if (fetchAll) { params.set("fetch_all", "true"); } else { params.set("page", String(page)); }
+  const statusList = statuses?.length ? statuses : ALL_PO_STATUSES;
+  params.set("status", statusList.join(","));
+  if (vendors?.length) params.set("vendor_name", vendors.join(","));
+  if (poNumber) params.set("order_number", poNumber);
+  if (dateFrom) {
+    const d = new Date(dateFrom);
+    if (!isNaN(d.getTime())) params.set("created_at_min", d.toISOString());
+  }
+  if (dateTo) {
+    const d = new Date(dateTo + "T23:59:59");
+    if (!isNaN(d.getTime())) params.set("created_at_max", d.toISOString());
+  }
+  const res = await fetch(`/api/xoro-proxy?${params}`, { signal });
+  if (!res.ok) throw new Error(`Xoro proxy error: ${res.status}`);
+  const json = await res.json();
+  if (!json.Result) {
+    if (Array.isArray(json.Data) && json.Data.length > 0) {
+      // Has data despite Result:false — use it
+    } else {
+      return { pos: [], totalPages: 0 };
+    }
+  }
+  const raw = Array.isArray(json.Data) ? json.Data : [];
+  if (json._pagesActuallyFetched) console.log(`[Xoro] pages fetched: ${json._pagesActuallyFetched}, records: ${raw.length}`);
+  return { pos: mapXoroRaw(raw), totalPages: json.TotalPages ?? 1 };
+}
+
+function applyFilters(pos: XoroPO[], filters?: SyncFilters): XoroPO[] {
+  if (!filters) return pos;
+  return pos.filter(po => {
+    if (filters.poNumbers?.length && !filters.poNumbers.some(pn => (po.PoNumber ?? "").toLowerCase().includes(pn.toLowerCase()))) return false;
+    if (filters.statuses?.length && !filters.statuses.includes(po.StatusName ?? "")) return false;
+    if (filters.vendors?.length && !filters.vendors.some(v => v.toLowerCase() === (po.VendorName ?? "").toLowerCase())) return false;
+    if (filters.dateFrom) {
+      const d = po.DateOrder ? new Date(po.DateOrder) : null;
+      if (!d || d < new Date(filters.dateFrom)) return false;
+    }
+    if (filters.dateTo) {
+      const d = po.DateOrder ? new Date(po.DateOrder) : null;
+      if (!d || d > new Date(filters.dateTo + "T23:59:59")) return false;
+    }
+    return true;
   });
-  const [pos, setPos]           = useState<XoroPO[]>([]);
-  const [notes, setNotes]       = useState<LocalNote[]>([]);
-  const [selected, setSelected] = useState<XoroPO | null>(null);
-  const [detailMode, setDetailMode] = useState<"header" | "po" | "milestones" | "notes" | "history" | "matrix" | "email" | "attachments" | "all">("po");
-  const [attachments, setAttachments] = useState<Record<string, { id: string; name: string; url: string; type: string; size: number; uploaded_by: string; uploaded_at: string }[]>>({});
-  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+}
+
+async function fetchXoroVendors(): Promise<string[]> {
+  try {
+    const { pos } = await fetchXoroPOs({ page: 1 });
+    return [...new Set(pos.map(p => p.VendorName ?? "").filter(Boolean))].sort();
+  } catch { return []; }
+}
+
+function daysUntil(d?: string) {
+  if (!d) return null;
+  return Math.ceil((new Date(d).getTime() - Date.now()) / 86400000);
+}
+
+// ── Main App ──────────────────────────────────────────────────────────────────
+export default function TandAAppWrapper() {
+  return <CoreProvider><SyncProvider><EmailProvider><TeamsProvider><TandAApp /></TeamsProvider></EmailProvider></SyncProvider></CoreProvider>;
+}
+
+function TandAApp() {
+  const sync = useSyncState();
+  const syncD = useSyncDispatch();
+  const em = useEmailState();
+  const emD = useEmailDispatch();
+  const emSet = <K extends keyof EmailState>(field: K, value: EmailState[K]) => emD({ type: "SET", field, value });
+  const tm = useTeamsState();
+  const tmD = useTeamsDispatch();
+  const tmSet = <K extends keyof TeamsState>(field: K, value: TeamsState[K]) => tmD({ type: "SET", field, value });
+  const core = useCoreState();
+  const coreD = useCoreDispatch();
+  const coreSet = <K extends keyof CoreState>(field: K, value: CoreState[K]) => coreD({ type: "SET", field, value });
+  // ── Core PO state → useCoreState() + useCoreDispatch() (see tanda/state/core/) ──
+  const user = core.user;
+  const view = core.view;
+  const pos = core.pos;
+  const notes = core.notes;
+  const selected = core.selected;
+  const detailMode = core.detailMode;
+  const attachments = core.attachments;
+  const uploadingAttachment = core.uploadingAttachment;
+  const setUser = (v: User | null) => coreSet("user", v);
+  const setView = (v: View) => coreSet("view", v);
+  const setPos = (v: any) => { if (typeof v === "function") coreSet("pos", v(core.pos)); else coreSet("pos", v); };
+  const setNotes = (v: any) => { if (typeof v === "function") coreSet("notes", v(core.notes)); else coreSet("notes", v); };
+  const setSelected = (v: XoroPO | null) => coreSet("selected", v);
+  const setDetailMode = (v: "header" | "po" | "milestones" | "notes" | "history" | "matrix" | "email" | "attachments" | "all") => coreSet("detailMode", v);
+  const setAttachments = (v: any) => { if (typeof v === "function") coreSet("attachments", v(core.attachments)); else coreSet("attachments", v); };
+  const setUploadingAttachment = (v: boolean) => coreSet("uploadingAttachment", v);
   const [, setCountdownTick] = useState(0);
   // Tick every second when there are soft-deleted attachments (for live countdown)
   useEffect(() => { localStorage.setItem("tanda_view", view); }, [view]);
@@ -62,11 +169,20 @@ export default function TandAApp() {
     return () => clearInterval(t);
   }, [attachments]);
   const attachInputRef = useRef<HTMLInputElement>(null);
+  // ── Archive state ───────────────────────────────────────────────────────
+  const [archivedPos, setArchivedPos] = useState<XoroPO[]>([]);
+  const [archiveSearch, setArchiveSearch] = useState("");
+  const [archiveFilterVendor, setArchiveFilterVendor] = useState("All");
+  const [archiveFilterStatus, setArchiveFilterStatus] = useState("All");
+  const [archiveSelected, setArchiveSelected] = useState<Set<string>>(new Set());
+  const [archiveLoading, setArchiveLoading] = useState(false);
   const [matrixCollapsed, setMatrixCollapsed] = useState(false);
   const [lineItemsCollapsed, setLineItemsCollapsed] = useState(true);
   const [poInfoCollapsed, setPoInfoCollapsed] = useState(false);
   const [progressCollapsed, setProgressCollapsed] = useState(false);
   const [editingNote, setEditingNote] = useState<string | null>(null);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState("");
   const [msNoteText, setMsNoteText] = useState("");
   const [expandedVariants, setExpandedVariants] = useState<Set<string>>(new Set());
   const [addingPhase, setAddingPhase] = useState(false);
@@ -87,159 +203,260 @@ export default function TandAApp() {
   const [bulkPOs, setBulkPOs] = useState<string[]>([]);
   const [bulkPOSearch, setBulkPOSearch] = useState("");
   const [bulkPhases, setBulkPhases] = useState<string[]>([]);
-  const [loading, setLoading]   = useState(false);
-  const [syncing, setSyncing]   = useState(false);
-  const [syncErr, setSyncErr]   = useState("");
-  const [lastSync, setLastSync] = useState<string>("");
+  // sync state → useSyncState() + useSyncDispatch() (see tanda/state/sync/)
+  const loading = sync.loading;
+  const syncing = sync.syncing;
+  const syncErr = sync.syncErr;
+  const lastSync = sync.lastSync;
+  const showSyncModal = sync.showSyncModal;
+  const setLoading = (v: boolean) => syncD({ type: "SET_LOADING", payload: v });
+  const setSyncing = (v: boolean) => syncD({ type: "SET_SYNCING", payload: v });
+  const setSyncErr = (v: string) => syncD({ type: "SET_SYNC_ERR", payload: v });
+  const setLastSync = (v: string) => syncD({ type: "SET_LAST_SYNC", payload: v });
+  const setShowSyncModal = (v: boolean) => syncD({ type: "SET_SHOW_SYNC_MODAL", payload: v });
   const [search, setSearch]     = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterVendor, setFilterVendor] = useState("All");
   const [showSettings, setShowSettings] = useState(false);
-  const [showSyncModal, setShowSyncModal] = useState(false);
   const [newNote, setNewNote]   = useState("");
   const syncAbortRef = useRef<AbortController | null>(null);
   const generatingRef = useRef<Set<string>>(new Set());
 
-  // Sync filter state
-  const [syncFilters, setSyncFilters] = useState<SyncFilters>({
-    poNumbers: [], dateFrom: "", dateTo: "", vendors: [], statuses: []
-  });
-  const [syncProgress, setSyncProgress] = useState(0);
-  const [syncProgressMsg, setSyncProgressMsg] = useState("");
-  const [syncDone, setSyncDone] = useState<{ added: number; changed: number; deleted: number } | null>(null);
-  const [syncLog, setSyncLog] = useState<SyncLogEntry[]>([]);
-  const [showSyncLog, setShowSyncLog] = useState(false);
-  const [poSearch, setPoSearch] = useState("");
-  const [poDropdownOpen, setPoDropdownOpen] = useState(false);
-  const [xoroVendors, setXoroVendors]         = useState<string[]>([]);
-  const [manualVendors, setManualVendors]       = useState<string[]>([]);
-  const [vendorSearch, setVendorSearch]         = useState("");
-  const [loadingVendors, setLoadingVendors]     = useState(false);
-  const [newManualVendor, setNewManualVendor]   = useState("");
+  // Sync filter/progress/log state → reducer
+  const syncFilters = sync.syncFilters;
+  const syncProgress = sync.syncProgress;
+  const syncProgressMsg = sync.syncProgressMsg;
+  const syncDone = sync.syncDone;
+  const syncLog = sync.syncLog;
+  const showSyncLog = sync.showSyncLog;
+  const poSearch = sync.poSearch;
+  const poDropdownOpen = sync.poDropdownOpen;
+  const xoroVendors = sync.xoroVendors;
+  const manualVendors = sync.manualVendors;
+  const vendorSearch = sync.vendorSearch;
+  const loadingVendors = sync.loadingVendors;
+  const newManualVendor = sync.newManualVendor;
+  const setSyncFilters = (v: SyncFilters) => syncD({ type: "SET_SYNC_FILTERS", payload: v });
+  const setSyncProgress = (v: number) => syncD({ type: "SET_SYNC_PROGRESS", payload: v });
+  const setSyncProgressMsg = (v: string) => syncD({ type: "SET_SYNC_PROGRESS_MSG", payload: v });
+  const setSyncDone = (v: { added: number; changed: number; deleted: number } | null) => syncD({ type: "SET_SYNC_DONE", payload: v });
+  const setSyncLog = (v: SyncLogEntry[]) => syncD({ type: "SET_SYNC_LOG", payload: v });
+  const setShowSyncLog = (v: boolean) => syncD({ type: "SET_SHOW_SYNC_LOG", payload: v });
+  const setPoSearch = (v: string) => syncD({ type: "SET_PO_SEARCH", payload: v });
+  const setPoDropdownOpen = (v: boolean) => syncD({ type: "SET_PO_DROPDOWN_OPEN", payload: v });
+  const setXoroVendors = (v: string[]) => syncD({ type: "SET_XORO_VENDORS", payload: v });
+  const setManualVendors = (v: string[]) => syncD({ type: "SET_MANUAL_VENDORS", payload: v });
+  const setVendorSearch = (v: string) => syncD({ type: "SET_VENDOR_SEARCH", payload: v });
+  const setLoadingVendors = (v: boolean) => syncD({ type: "SET_LOADING_VENDORS", payload: v });
+  const setNewManualVendor = (v: string) => syncD({ type: "SET_NEW_MANUAL_VENDOR", payload: v });
 
-  // ── WIP Milestone state ───────────────────────────────────────────────
-  // wipTemplates: { "__default__": [...], "VENDOR NAME": [...], ... }
-  const [wipTemplates, setWipTemplates] = useState<Record<string, WipTemplate[]>>({});
-  const [milestones, setMilestones] = useState<Record<string, Milestone[]>>({});
-  const [dcVendors, setDcVendors] = useState<DCVendor[]>([]);
-  const [designTemplates, setDesignTemplates] = useState<any[]>([]);
+  // ── WIP Milestone state → core reducer ──
+  const wipTemplates = core.wipTemplates;
+  const milestones = core.milestones;
+  const dcVendors = core.dcVendors;
+  const designTemplates = core.designTemplates;
+  const setWipTemplates = (v: any) => { if (typeof v === "function") coreSet("wipTemplates", v(core.wipTemplates)); else coreSet("wipTemplates", v); };
+  const setMilestones = (v: any) => { if (typeof v === "function") coreSet("milestones", v(core.milestones)); else coreSet("milestones", v); };
+  const setDcVendors = (v: any) => coreSet("dcVendors", v);
+  const setDesignTemplates = (v: any) => coreSet("designTemplates", v);
   const [collapsedCats, setCollapsedCats] = useState<Record<string, boolean>>({});
   const [tplVendor, setTplVendor] = useState("__default__"); // selected vendor in templates view
   const [showCreateTpl, setShowCreateTpl] = useState<string | null>(null); // vendor name to create template for
 
-  // ── Outlook Email state ───────────────────────────────────────────────
-  const [emailConfig, setEmailConfig] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("tandaEmailConfig") || "null") || { clientId: "", tenantId: "", emailMap: {} }; }
-    catch { return { clientId: "", tenantId: "", emailMap: {} }; }
-  });
-  const [msToken, setMsToken] = useState<string | null>(() => {
-    try { const s = JSON.parse(localStorage.getItem("ms_tokens_v1") || "null"); if (s?.accessToken && s.expiresAt > Date.now()) return s.accessToken; } catch (_) {}
-    return null;
-  });
-  const [msDisplayName, setMsDisplayName] = useState<string>("");
-  // emailToken / teamsToken are aliases to the shared msToken
+  // ── Outlook Email state → useEmailState() + useEmailDispatch() (see tanda/state/email/) ──
+  const emailConfig = em.emailConfig;
+  const msToken = em.msToken;
+  const msDisplayName = em.msDisplayName;
   const emailToken = msToken;
   const teamsToken = msToken;
-  const [emailTokenExpiry] = useState<number | null>(null); // kept for legacy checks, expiry handled by getMsAccessToken
-  const [showEmailConfig, setShowEmailConfig] = useState(false);
-  const [emailSelPO, setEmailSelPO] = useState<string | null>(null);
-  const [emailsMap, setEmailsMap] = useState<Record<string, any[]>>({});
-  const [emailLoadingMap, setEmailLoadingMap] = useState<Record<string, boolean>>({});
-  const [emailErrorsMap, setEmailErrorsMap] = useState<Record<string, string | null>>({});
-  const [emailSelMsg, setEmailSelMsg] = useState<any>(null);
-  const [emailThreadMsgs, setEmailThreadMsgs] = useState<any[]>([]);
-  const [emailThreadLoading, setEmailThreadLoading] = useState(false);
-  const [emailTabCur, setEmailTabCur] = useState<"inbox" | "sent" | "thread" | "compose">("inbox");
-  const [emailSentMap, setEmailSentMap] = useState<Record<string, any[]>>({});
-  const [emailSentLoading, setEmailSentLoading] = useState<Record<string, boolean>>({});
-  const [emailSentErr, setEmailSentErrMap] = useState<Record<string, string | null>>({});
-  const [emailComposeTo, setEmailComposeTo] = useState("");
-  const [emailComposeSubject, setEmailComposeSubject] = useState("");
-  const [emailComposeBody, setEmailComposeBody] = useState("");
-  const [emailSendErr, setEmailSendErr] = useState<string | null>(null);
-  const [emailNextLinks, setEmailNextLinks] = useState<Record<string, string | null>>({});
-  const [emailLoadingOlder, setEmailLoadingOlder] = useState(false);
-  const [emailLastRefresh, setEmailLastRefresh] = useState<Record<string, number>>({});
-  const [emailReply, setEmailReply] = useState("");
-  const [emailConfigForm, setEmailConfigForm] = useState({ clientId: "", tenantId: "", emailMap: {} });
-  const [emailPOSearch, setEmailPOSearch] = useState("");
-  // ── Teams state ────────────────────────────────────────────────────────────
-  const [teamsChannelMap, setTeamsChannelMap] = useState<Record<string, { channelId: string; teamId: string }>>({});
-  const [teamsTeamId, setTeamsTeamId] = useState("");
-  const [teamsSelPO, setTeamsSelPO] = useState<string | null>(null);
-  const [teamsMessages, setTeamsMessages] = useState<Record<string, any[]>>({});
-  const [teamsLoading, setTeamsLoading] = useState<Record<string, boolean>>({});
-  const [teamsCreating, setTeamsCreating] = useState<string | null>(null);
-  const [teamsNewMsg, setTeamsNewMsg] = useState("");
-  const [teamsAuthStatus, setTeamsAuthStatus] = useState<"idle"|"loading"|"error">("idle");
-  const [teamsSearchPO, setTeamsSearchPO] = useState("");
-  const [teamsDirectTo, setTeamsDirectTo] = useState("");
-  const [teamsDirectMsg, setTeamsDirectMsg] = useState("");
-  const [teamsDirectSending, setTeamsDirectSending] = useState(false);
-  const [teamsDirectErr, setTeamsDirectErr] = useState<string | null>(null);
-  const [teamsTab, setTeamsTab] = useState<"channels"|"direct">("channels");
-  const [dmConversations, setDmConversations] = useState<DmConversation[]>([]);
-  const [dmActiveChatId, setDmActiveChatId] = useState<string | null>(null);
-  const [dmComposing, setDmComposing] = useState(true);
-  const [dmSelectedName, setDmSelectedName] = useState("");
-  const [dmLoading, setDmLoading] = useState(false);
-  const [dmError, setDmError] = useState<string | null>(null);
-  const [dmNewMsg, setDmNewMsg] = useState("");
-  const [dmSending, setDmSending] = useState(false);
+  const emailTokenExpiry = null as number | null; // legacy compat
+  const showEmailConfig = em.showEmailConfig;
+  const emailSelPO = em.emailSelPO;
+  const emailsMap = em.emailsMap;
+  const emailLoadingMap = em.emailLoadingMap;
+  const emailErrorsMap = em.emailErrorsMap;
+  const emailSelMsg = em.emailSelMsg;
+  const emailThreadMsgs = em.emailThreadMsgs;
+  const emailThreadLoading = em.emailThreadLoading;
+  const emailTabCur = em.emailTabCur;
+  const emailSentMap = em.emailSentMap;
+  const emailSentLoading = em.emailSentLoading;
+  const emailSentErr = em.emailSentErr;
+  const emailComposeTo = em.emailComposeTo;
+  const emailComposeSubject = em.emailComposeSubject;
+  const emailComposeBody = em.emailComposeBody;
+  const emailSendErr = em.emailSendErr;
+  const emailNextLinks = em.emailNextLinks;
+  const emailLoadingOlder = em.emailLoadingOlder;
+  const emailLastRefresh = em.emailLastRefresh;
+  const emailReply = em.emailReply;
+  const emailConfigForm = em.emailConfigForm;
+  const emailPOSearch = em.emailPOSearch;
+  const setEmailConfig = (v: any) => emSet("emailConfig", v);
+  const setMsToken = (v: string | null) => emSet("msToken", v);
+  const setMsDisplayName = (v: string) => emSet("msDisplayName", v);
+  const setShowEmailConfig = (v: boolean) => emSet("showEmailConfig", v);
+  const setEmailSelPO = (v: string | null) => emSet("emailSelPO", v);
+  const setEmailsMap = (v: any) => { if (typeof v === "function") emSet("emailsMap", v(em.emailsMap)); else emSet("emailsMap", v); };
+  const setEmailLoadingMap = (v: any) => { if (typeof v === "function") emSet("emailLoadingMap", v(em.emailLoadingMap)); else emSet("emailLoadingMap", v); };
+  const setEmailErrorsMap = (v: any) => { if (typeof v === "function") emSet("emailErrorsMap", v(em.emailErrorsMap)); else emSet("emailErrorsMap", v); };
+  const setEmailSelMsg = (v: any) => emSet("emailSelMsg", v);
+  const setEmailThreadMsgs = (v: any) => emSet("emailThreadMsgs", v);
+  const setEmailThreadLoading = (v: boolean) => emSet("emailThreadLoading", v);
+  const setEmailTabCur = (v: "inbox" | "sent" | "thread" | "compose") => emSet("emailTabCur", v);
+  const setEmailSentMap = (v: any) => { if (typeof v === "function") emSet("emailSentMap", v(em.emailSentMap)); else emSet("emailSentMap", v); };
+  const setEmailSentLoading = (v: any) => { if (typeof v === "function") emSet("emailSentLoading", v(em.emailSentLoading)); else emSet("emailSentLoading", v); };
+  const setEmailSentErrMap = (v: any) => { if (typeof v === "function") emSet("emailSentErr", v(em.emailSentErr)); else emSet("emailSentErr", v); };
+  const setEmailComposeTo = (v: string) => emSet("emailComposeTo", v);
+  const setEmailComposeSubject = (v: string) => emSet("emailComposeSubject", v);
+  const setEmailComposeBody = (v: string) => emSet("emailComposeBody", v);
+  const setEmailSendErr = (v: string | null) => emSet("emailSendErr", v);
+  const setEmailNextLinks = (v: any) => { if (typeof v === "function") emSet("emailNextLinks", v(em.emailNextLinks)); else emSet("emailNextLinks", v); };
+  const setEmailLoadingOlder = (v: boolean) => emSet("emailLoadingOlder", v);
+  const setEmailLastRefresh = (v: any) => { if (typeof v === "function") emSet("emailLastRefresh", v(em.emailLastRefresh)); else emSet("emailLastRefresh", v); };
+  const setEmailReply = (v: string) => emSet("emailReply", v);
+  const setEmailConfigForm = (v: any) => emSet("emailConfigForm", v);
+  const setEmailPOSearch = (v: string) => emSet("emailPOSearch", v);
+  // ── Teams state → useTeamsState() + useTeamsDispatch() (see tanda/state/teams/) ──
+  const teamsChannelMap = tm.teamsChannelMap;
+  const teamsTeamId = tm.teamsTeamId;
+  const teamsSelPO = tm.teamsSelPO;
+  const teamsMessages = tm.teamsMessages;
+  const teamsLoading = tm.teamsLoading;
+  const teamsCreating = tm.teamsCreating;
+  const teamsNewMsg = tm.teamsNewMsg;
+  const teamsAuthStatus = tm.teamsAuthStatus;
+  const teamsSearchPO = tm.teamsSearchPO;
+  const teamsDirectTo = tm.teamsDirectTo;
+  const teamsDirectMsg = tm.teamsDirectMsg;
+  const teamsDirectSending = tm.teamsDirectSending;
+  const teamsDirectErr = tm.teamsDirectErr;
+  const teamsTab = tm.teamsTab;
+  const dmConversations = tm.dmConversations;
+  const dmActiveChatId = tm.dmActiveChatId;
+  const dmComposing = tm.dmComposing;
+  const dmSelectedName = tm.dmSelectedName;
+  const dmLoading = tm.dmLoading;
+  const dmError = tm.dmError;
+  const dmNewMsg = tm.dmNewMsg;
+  const dmSending = tm.dmSending;
   const dmScrollRef = useRef<HTMLDivElement>(null);
   const dmPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const TEAMS_PURPLE = "#5b5ea6";
   const TEAMS_PURPLE_LT = "#7b83eb";
-  // ── Teams contacts (for DM recipient dropdown) ───────────────────────────
-  const [teamsContacts, setTeamsContacts] = useState<any[]>([]);
-  const [teamsContactsLoading, setTeamsContactsLoading] = useState(false);
-  const [teamsContactSearch, setTeamsContactSearch] = useState("");
-  const [teamsContactDropdown, setTeamsContactDropdown] = useState(false);
-  const [teamsContactSearchResults, setTeamsContactSearchResults] = useState<any[]>([]);
-  const [teamsContactSearchLoading, setTeamsContactSearchLoading] = useState(false);
-  const [teamsContactsError, setTeamsContactsError] = useState<string | null>(null);
+  const teamsContacts = tm.teamsContacts;
+  const teamsContactsLoading = tm.teamsContactsLoading;
+  const teamsContactSearch = tm.teamsContactSearch;
+  const teamsContactDropdown = tm.teamsContactDropdown;
+  const teamsContactSearchResults = tm.teamsContactSearchResults;
+  const teamsContactSearchLoading = tm.teamsContactSearchLoading;
+  const teamsContactsError = tm.teamsContactsError;
   const teamsContactSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // ── Detail-panel Teams DM state ──────────────────────────────────────────
-  const [dtlDMTo, setDtlDMTo] = useState("");
-  const [dtlDMMsg, setDtlDMMsg] = useState("");
-  const [dtlDMSending, setDtlDMSending] = useState(false);
-  const [dtlDMErr, setDtlDMErr] = useState<string | null>(null);
-  const [dtlDMContactSearch, setDtlDMContactSearch] = useState("");
-  const [dtlDMContactDropdown, setDtlDMContactDropdown] = useState(false);
-  const [dtlDMContactSearchResults, setDtlDMContactSearchResults] = useState<any[]>([]);
-  const [dtlDMContactSearchLoading, setDtlDMContactSearchLoading] = useState(false);
+  const dtlDMTo = tm.dtlDMTo;
+  const dtlDMMsg = tm.dtlDMMsg;
+  const dtlDMSending = tm.dtlDMSending;
+  const dtlDMErr = tm.dtlDMErr;
+  const dtlDMContactSearch = tm.dtlDMContactSearch;
+  const dtlDMContactDropdown = tm.dtlDMContactDropdown;
+  const dtlDMContactSearchResults = tm.dtlDMContactSearchResults;
+  const dtlDMContactSearchLoading = tm.dtlDMContactSearchLoading;
   const dtlDMContactSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Detail-panel email tab state (separate from main email view)
-  const [dtlEmails, setDtlEmails] = useState<Record<string, any[]>>({});
-  const [dtlEmailLoading, setDtlEmailLoading] = useState<Record<string, boolean>>({});
-  const [dtlEmailErr, setDtlEmailErr] = useState<Record<string, string | null>>({});
-  const [dtlEmailSel, setDtlEmailSel] = useState<any>(null);
-  const [dtlEmailThread, setDtlEmailThread] = useState<any[]>([]);
-  const [dtlThreadLoading, setDtlThreadLoading] = useState(false);
-  const [dtlEmailTab, setDtlEmailTab] = useState<"inbox" | "sent" | "thread" | "compose" | "teams">("inbox");
-  const [dtlSentEmails, setDtlSentEmails] = useState<Record<string, any[]>>({});
-  const [dtlSentLoading, setDtlSentLoading] = useState<Record<string, boolean>>({});
-  const [dtlComposeTo, setDtlComposeTo] = useState("");
-  const [dtlComposeSubject, setDtlComposeSubject] = useState("");
-  const [dtlComposeBody, setDtlComposeBody] = useState("");
-  const [dtlSendErr, setDtlSendErr] = useState<string | null>(null);
-  const [dtlReply, setDtlReply] = useState("");
-  const [dtlNextLink, setDtlNextLink] = useState<Record<string, string | null>>({});
-  const [dtlLoadingOlder, setDtlLoadingOlder] = useState(false);
-  // ── New 3-panel email UI state (main email view) ──────────────────────────
-  const [emailActiveFolder, setEmailActiveFolder] = useState<"inbox" | "sent">("inbox");
-  const [emailSearchQuery, setEmailSearchQuery] = useState("");
-  const [emailFilterUnread, setEmailFilterUnread] = useState(false);
-  const [emailFilterFlagged, setEmailFilterFlagged] = useState(false);
-  const [emailFlaggedSet, setEmailFlaggedSet] = useState(new Set<string>());
-  const [emailCollapsedMsgs, setEmailCollapsedMsgs] = useState(new Set<string>());
-  const [emailComposeOpen, setEmailComposeOpen] = useState(false);
-  const [emailDeleteConfirm, setEmailDeleteConfirm] = useState<string | null>(null);
-  const [emailReplyText, setEmailReplyText] = useState("");
-  const [emailSelectedId, setEmailSelectedId] = useState<string | null>(null);
-  const [emailCtxMenu, setEmailCtxMenu] = useState<{ x: number; y: number; em: any } | null>(null);
-  const [emailAttachments, setEmailAttachments] = useState<Record<string, any[]>>({});
-  const [emailAttachmentsLoading, setEmailAttachmentsLoading] = useState<Record<string, boolean>>({});
+  const setTeamsChannelMap = (v: any) => tmSet("teamsChannelMap", v);
+  const setTeamsTeamId = (v: string) => tmSet("teamsTeamId", v);
+  const setTeamsSelPO = (v: string | null) => tmSet("teamsSelPO", v);
+  const setTeamsMessages = (v: any) => { if (typeof v === "function") tmSet("teamsMessages", v(tm.teamsMessages)); else tmSet("teamsMessages", v); };
+  const setTeamsLoading = (v: any) => { if (typeof v === "function") tmSet("teamsLoading", v(tm.teamsLoading)); else tmSet("teamsLoading", v); };
+  const setTeamsCreating = (v: string | null) => tmSet("teamsCreating", v);
+  const setTeamsNewMsg = (v: string) => tmSet("teamsNewMsg", v);
+  const setTeamsAuthStatus = (v: "idle" | "loading" | "error") => tmSet("teamsAuthStatus", v);
+  const setTeamsSearchPO = (v: string) => tmSet("teamsSearchPO", v);
+  const setTeamsDirectTo = (v: string) => tmSet("teamsDirectTo", v);
+  const setTeamsDirectMsg = (v: string) => tmSet("teamsDirectMsg", v);
+  const setTeamsDirectSending = (v: boolean) => tmSet("teamsDirectSending", v);
+  const setTeamsDirectErr = (v: string | null) => tmSet("teamsDirectErr", v);
+  const setTeamsTab = (v: "channels" | "direct") => tmSet("teamsTab", v);
+  const setDmConversations = (v: any) => { if (typeof v === "function") tmSet("dmConversations", v(tm.dmConversations)); else tmSet("dmConversations", v); };
+  const setDmActiveChatId = (v: string | null) => tmSet("dmActiveChatId", v);
+  const setDmComposing = (v: boolean) => tmSet("dmComposing", v);
+  const setDmSelectedName = (v: string) => tmSet("dmSelectedName", v);
+  const setDmLoading = (v: boolean) => tmSet("dmLoading", v);
+  const setDmError = (v: string | null) => tmSet("dmError", v);
+  const setDmNewMsg = (v: string) => tmSet("dmNewMsg", v);
+  const setDmSending = (v: boolean) => tmSet("dmSending", v);
+  const setTeamsContacts = (v: any) => tmSet("teamsContacts", v);
+  const setTeamsContactsLoading = (v: boolean) => tmSet("teamsContactsLoading", v);
+  const setTeamsContactSearch = (v: string) => tmSet("teamsContactSearch", v);
+  const setTeamsContactDropdown = (v: boolean) => tmSet("teamsContactDropdown", v);
+  const setTeamsContactSearchResults = (v: any) => tmSet("teamsContactSearchResults", v);
+  const setTeamsContactSearchLoading = (v: boolean) => tmSet("teamsContactSearchLoading", v);
+  const setTeamsContactsError = (v: string | null) => tmSet("teamsContactsError", v);
+  const setDtlDMTo = (v: string) => tmSet("dtlDMTo", v);
+  const setDtlDMMsg = (v: string) => tmSet("dtlDMMsg", v);
+  const setDtlDMSending = (v: boolean) => tmSet("dtlDMSending", v);
+  const setDtlDMErr = (v: string | null) => tmSet("dtlDMErr", v);
+  const setDtlDMContactSearch = (v: string) => tmSet("dtlDMContactSearch", v);
+  const setDtlDMContactDropdown = (v: boolean) => tmSet("dtlDMContactDropdown", v);
+  const setDtlDMContactSearchResults = (v: any) => tmSet("dtlDMContactSearchResults", v);
+  const setDtlDMContactSearchLoading = (v: boolean) => tmSet("dtlDMContactSearchLoading", v);
+  // Detail-panel email + 3-panel UI → email reducer
+  const dtlEmails = em.dtlEmails;
+  const dtlEmailLoading = em.dtlEmailLoading;
+  const dtlEmailErr = em.dtlEmailErr;
+  const dtlEmailSel = em.dtlEmailSel;
+  const dtlEmailThread = em.dtlEmailThread;
+  const dtlThreadLoading = em.dtlThreadLoading;
+  const dtlEmailTab = em.dtlEmailTab;
+  const dtlSentEmails = em.dtlSentEmails;
+  const dtlSentLoading = em.dtlSentLoading;
+  const dtlComposeTo = em.dtlComposeTo;
+  const dtlComposeSubject = em.dtlComposeSubject;
+  const dtlComposeBody = em.dtlComposeBody;
+  const dtlSendErr = em.dtlSendErr;
+  const dtlReply = em.dtlReply;
+  const dtlNextLink = em.dtlNextLink;
+  const dtlLoadingOlder = em.dtlLoadingOlder;
+  const emailActiveFolder = em.emailActiveFolder;
+  const emailSearchQuery = em.emailSearchQuery;
+  const emailFilterUnread = em.emailFilterUnread;
+  const emailFilterFlagged = em.emailFilterFlagged;
+  const emailFlaggedSet = em.emailFlaggedSet;
+  const emailCollapsedMsgs = em.emailCollapsedMsgs;
+  const emailComposeOpen = em.emailComposeOpen;
+  const emailDeleteConfirm = em.emailDeleteConfirm;
+  const emailReplyText = em.emailReplyText;
+  const emailSelectedId = em.emailSelectedId;
+  const emailCtxMenu = em.emailCtxMenu;
+  const emailAttachments = em.emailAttachments;
+  const emailAttachmentsLoading = em.emailAttachmentsLoading;
+  const setDtlEmails = (v: any) => { if (typeof v === "function") emSet("dtlEmails", v(em.dtlEmails)); else emSet("dtlEmails", v); };
+  const setDtlEmailLoading = (v: any) => { if (typeof v === "function") emSet("dtlEmailLoading", v(em.dtlEmailLoading)); else emSet("dtlEmailLoading", v); };
+  const setDtlEmailErr = (v: any) => { if (typeof v === "function") emSet("dtlEmailErr", v(em.dtlEmailErr)); else emSet("dtlEmailErr", v); };
+  const setDtlEmailSel = (v: any) => emSet("dtlEmailSel", v);
+  const setDtlEmailThread = (v: any) => emSet("dtlEmailThread", v);
+  const setDtlThreadLoading = (v: boolean) => emSet("dtlThreadLoading", v);
+  const setDtlEmailTab = (v: "inbox" | "sent" | "thread" | "compose" | "teams") => emSet("dtlEmailTab", v);
+  const setDtlSentEmails = (v: any) => { if (typeof v === "function") emSet("dtlSentEmails", v(em.dtlSentEmails)); else emSet("dtlSentEmails", v); };
+  const setDtlSentLoading = (v: any) => { if (typeof v === "function") emSet("dtlSentLoading", v(em.dtlSentLoading)); else emSet("dtlSentLoading", v); };
+  const setDtlComposeTo = (v: string) => emSet("dtlComposeTo", v);
+  const setDtlComposeSubject = (v: string) => emSet("dtlComposeSubject", v);
+  const setDtlComposeBody = (v: string) => emSet("dtlComposeBody", v);
+  const setDtlSendErr = (v: string | null) => emSet("dtlSendErr", v);
+  const setDtlReply = (v: string) => emSet("dtlReply", v);
+  const setDtlNextLink = (v: any) => { if (typeof v === "function") emSet("dtlNextLink", v(em.dtlNextLink)); else emSet("dtlNextLink", v); };
+  const setDtlLoadingOlder = (v: boolean) => emSet("dtlLoadingOlder", v);
+  const setEmailActiveFolder = (v: "inbox" | "sent") => emSet("emailActiveFolder", v);
+  const setEmailSearchQuery = (v: string) => emSet("emailSearchQuery", v);
+  const setEmailFilterUnread = (v: boolean) => emSet("emailFilterUnread", v);
+  const setEmailFilterFlagged = (v: boolean) => emSet("emailFilterFlagged", v);
+  const setEmailFlaggedSet = (v: any) => emSet("emailFlaggedSet", v);
+  const setEmailCollapsedMsgs = (v: any) => emSet("emailCollapsedMsgs", v);
+  const setEmailComposeOpen = (v: boolean) => emSet("emailComposeOpen", v);
+  const setEmailDeleteConfirm = (v: string | null) => emSet("emailDeleteConfirm", v);
+  const setEmailReplyText = (v: string) => emSet("emailReplyText", v);
+  const setEmailSelectedId = (v: string | null) => emSet("emailSelectedId", v);
+  const setEmailCtxMenu = (v: any) => emSet("emailCtxMenu", v);
+  const setEmailAttachments = (v: any) => { if (typeof v === "function") emSet("emailAttachments", v(em.emailAttachments)); else emSet("emailAttachments", v); };
+  const setEmailAttachmentsLoading = (v: any) => { if (typeof v === "function") emSet("emailAttachmentsLoading", v(em.emailAttachmentsLoading)); else emSet("emailAttachmentsLoading", v); };
 
   // ── Microsoft auth — shared token for Email + Teams ────────────────────
   function emailTokenIsValid() {
@@ -414,7 +631,7 @@ export default function TandAApp() {
       setTeamsChannelMap(newMap);
       await teamsSbSave("po_teams_channel_map", newMap);
       await teamsLoadPOMessages(poNum, { channelId, teamId: tid });
-    } catch(e: any) { alert("Could not start Teams chat: " + e.message); }
+    } catch(e: any) { setToast("Could not start Teams chat: " + e.message); }
     setTeamsCreating(null);
   }
   async function teamsLoadPOMessages(poNum: string, mp?: { channelId: string; teamId: string }) {
@@ -434,7 +651,7 @@ export default function TandAApp() {
       const sent = await teamsGraphPost(`/teams/${mp.teamId}/channels/${mp.channelId}/messages`, { body: { content: teamsNewMsg.trim(), contentType: "text" } });
       setTeamsMessages(m => ({ ...m, [poNum]: [sent, ...(m[poNum] || [])] }));
       setTeamsNewMsg("");
-    } catch(e: any) { alert("Failed to send: " + e.message); }
+    } catch(e: any) { setToast("Failed to send message: " + e.message); }
   }
   async function loadDmMessages(chatId: string, silent = false) {
     if (!silent) { setDmLoading(true); setDmError(null); }
@@ -448,7 +665,10 @@ export default function TandAApp() {
         if (!silent || (existing && existing.messages.length !== msgs.length)) {
           setTimeout(() => { if (dmScrollRef.current) dmScrollRef.current.scrollTop = dmScrollRef.current.scrollHeight; }, 50);
         }
-        return prev.map(c => c.chatId === chatId ? { ...c, messages: msgs } : c);
+        const found = prev.find(c => c.chatId === chatId);
+        if (found) return prev.map(c => c.chatId === chatId ? { ...c, messages: msgs } : c);
+        // Conversation was just created but not yet in state — add it
+        return [...prev, { chatId, recipient: "", recipientName: "", messages: msgs }];
       });
     } catch(e: any) {
       if (!silent) setDmError("Could not load messages: " + e.message);
@@ -545,345 +765,12 @@ export default function TandAApp() {
   }, [emailThreadMsgs]);
 
   function teamsViewPanel() {
-    const poList2 = pos.filter(p => {
-      const s = teamsSearchPO.toLowerCase();
-      return !s || (p.PoNumber ?? "").toLowerCase().includes(s) || (p.VendorName ?? "").toLowerCase().includes(s);
+    return teamsViewPanelExtracted({
+      tm, tmD, msToken, msDisplayName, pos, setView, dmScrollRef,
+      teamsLoadPOMessages, teamsStartChat, teamsSendMessage, teamsSendDirect,
+      sendDmReply, loadDmMessages, handleTeamsContactInput, loadTeamsContacts,
+      authenticateTeams, msSignOut,
     });
-    const mp = teamsSelPO ? teamsChannelMap[teamsSelPO] : null;
-    const msgs = (teamsSelPO ? teamsMessages[teamsSelPO] : null) || [];
-    const isLoadingMsgs = teamsSelPO ? !!teamsLoading[teamsSelPO] : false;
-    const isCreating = teamsSelPO ? teamsCreating === teamsSelPO : false;
-    const selPO = teamsSelPO ? pos.find(p => p.PoNumber === teamsSelPO) : null;
-    return (
-      <div style={{ position: "relative" }}>
-        <button onClick={() => setView("dashboard")} title="Close Teams"
-          style={{ position: "absolute", top: 10, right: 10, zIndex: 10, width: 28, height: 28, borderRadius: "50%", border: `1px solid ${TEAMS_PURPLE}44`, background: `${TEAMS_PURPLE}15`, color: TEAMS_PURPLE, cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>✕</button>
-        {teamsTab !== "direct" && teamsSelPO && mp && teamsToken && (
-          <button onClick={() => teamsLoadPOMessages(teamsSelPO)} title="Refresh messages"
-            style={{ position: "absolute", top: 10, right: 46, zIndex: 10, height: 28, padding: "0 10px", borderRadius: 6, border: "1px solid #334155", background: "none", color: "#6B7280", cursor: "pointer", fontFamily: "inherit", fontSize: 11, display: "flex", alignItems: "center" }}>↻ Refresh</button>
-        )}
-        <div style={{ display: "flex", height: "calc(100vh - 140px)", minHeight: 500, background: "#1E293B", borderRadius: 12, border: "1px solid #334155", overflow: "hidden" }}>
-          {/* LEFT: PO list */}
-          <div style={{ width: 280, flexShrink: 0, borderRight: "1px solid #334155", display: "flex", flexDirection: "column", background: "#0F172A" }}>
-            <div style={{ padding: "14px 16px 10px", borderBottom: "1px solid #334155", flexShrink: 0 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6B7280" }}>Purchase Orders</span>
-            </div>
-            <div style={{ padding: "8px 16px", borderBottom: "1px solid #334155", flexShrink: 0 }}>
-              <input value={teamsSearchPO} onChange={e => setTeamsSearchPO(e.target.value)} placeholder="🔍 Search PO#, vendor…" style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, padding: "7px 10px", color: "#F1F5F9", fontSize: 12, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
-            </div>
-            <div style={{ padding: "10px 16px", borderBottom: "1px solid #334155", background: teamsToken ? "#064E3B44" : "#78350F44", flexShrink: 0 }}>
-              {teamsToken ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 11, color: "#34D399", fontWeight: 600 }}>✓ {msDisplayName || "Connected to Microsoft"}</span>
-                  <button onClick={msSignOut} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 5, border: "1px solid #34D39944", background: "none", color: "#34D399", cursor: "pointer", fontFamily: "inherit" }}>Sign out</button>
-                </div>
-              ) : (
-                <div>
-                  <div style={{ fontSize: 11, color: "#FBBF24", fontWeight: 600, marginBottom: 6 }}>{teamsAuthStatus === "error" ? "Sign-in failed" : "Sign in to use Teams"}</div>
-                  {(!MS_CLIENT_ID || !MS_TENANT_ID) ? (
-                    <div style={{ fontSize: 11, color: "#D97706" }}>Azure credentials not configured</div>
-                  ) : (
-                    <button onClick={authenticateTeams} disabled={teamsAuthStatus === "loading"} style={{ ...S.btnPrimary, fontSize: 11, padding: "5px 12px", width: "auto" }}>{teamsAuthStatus === "loading" ? "Signing in…" : "Sign in with Microsoft"}</button>
-                  )}
-                </div>
-              )}
-            </div>
-            {/* Tabs: Channels | Direct Message */}
-            <div style={{ display: "flex", borderBottom: "1px solid #334155", flexShrink: 0 }}>
-              {(["channels","direct"] as const).map(t => (
-                <button key={t} onClick={() => setTeamsTab(t)} style={{ flex: 1, padding: "9px 0", fontSize: 11, fontWeight: 700, fontFamily: "inherit", border: "none", borderBottom: teamsTab === t ? `2px solid ${TEAMS_PURPLE}` : "2px solid transparent", background: "none", color: teamsTab === t ? TEAMS_PURPLE_LT : "#6B7280", cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                  {t === "channels" ? "PO Channels" : "Direct Message"}
-                </button>
-              ))}
-            </div>
-            {teamsTab === "channels" && (
-            <div style={{ flex: 1, overflowY: "auto" }}>
-              {poList2.map(po => {
-                const poNum = po.PoNumber ?? "";
-                const isSelected = teamsSelPO === poNum;
-                const hasCh = !!teamsChannelMap[poNum];
-                const msgCount = (teamsMessages[poNum] || []).length;
-                const color = STATUS_COLORS[po.StatusName ?? ""] ?? "#6B7280";
-                return (
-                  <div key={poNum} onClick={() => { setTeamsSelPO(poNum === teamsSelPO ? null : poNum); }}
-                    style={{ padding: "11px 16px", borderBottom: "1px solid #1E293B", cursor: "pointer", background: isSelected ? `${TEAMS_PURPLE}22` : "transparent", borderLeft: isSelected ? `3px solid ${TEAMS_PURPLE}` : "3px solid transparent", transition: "all 0.12s" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: isSelected ? TEAMS_PURPLE_LT : "#F1F5F9", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>PO# {poNum}</div>
-                        <div style={{ fontSize: 11, color: "#6B7280" }}>{po.VendorName ?? ""}</div>
-                      </div>
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}>
-                        <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 10, background: hasCh ? "#064E3B" : "#1E293B", color: hasCh ? "#34D399" : "#6B7280", border: hasCh ? "none" : "1px solid #334155", fontWeight: 700 }}>{hasCh ? "ACTIVE" : "NO CHAT"}</span>
-                        {msgCount > 0 && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 10, background: TEAMS_PURPLE, color: "#fff", fontWeight: 700 }}>{msgCount}</span>}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-              {poList2.length === 0 && <div style={{ padding: 24, fontSize: 13, color: "#6B7280", textAlign: "center" }}>No POs found</div>}
-            </div>
-            )}
-            {teamsTab === "direct" && (
-            <div style={{ flex: 1, overflowY: "auto" }}>
-              {!teamsToken ? (
-                <div style={{ textAlign: "center", padding: "40px 20px" }}>
-                  <div style={{ fontSize: 32, marginBottom: 10 }}>🔒</div>
-                  <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 12 }}>Sign in with Microsoft</div>
-                  <button onClick={authenticateTeams} disabled={teamsAuthStatus === "loading"} style={{ ...S.btnPrimary, fontSize: 12, padding: "8px 18px", width: "auto" }}>{teamsAuthStatus === "loading" ? "Signing in…" : "Sign in with Microsoft"}</button>
-                </div>
-              ) : (
-                <>
-                  <div style={{ padding: "10px 12px 6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "#6B7280", fontWeight: 600 }}>Direct Messages</span>
-                    <button onClick={() => { setDmActiveChatId(null); setDmComposing(true); setTeamsDirectTo(""); setTeamsDirectMsg(""); setDmSelectedName(""); setDmError(null); setTeamsDirectErr(null); }}
-                      style={{ fontSize: 10, padding: "3px 8px", borderRadius: 5, border: `1px solid ${TEAMS_PURPLE}44`, background: `${TEAMS_PURPLE}15`, color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit" }}>
-                      ✎ New
-                    </button>
-                  </div>
-                  {dmConversations.length === 0 && (
-                    <div style={{ padding: "12px 14px", fontSize: 12, color: "#6B7280" }}>No conversations yet. Use ✎ New to start one.</div>
-                  )}
-                  {dmConversations.map(conv => (
-                    <div key={conv.chatId}
-                      onClick={() => { setDmActiveChatId(conv.chatId); setDmComposing(false); }}
-                      style={{ padding: "8px 12px", cursor: "pointer", background: conv.chatId === dmActiveChatId && !dmComposing ? `${TEAMS_PURPLE}22` : "transparent", borderLeft: conv.chatId === dmActiveChatId && !dmComposing ? `3px solid ${TEAMS_PURPLE}` : "3px solid transparent", display: "flex", alignItems: "center", gap: 8, borderBottom: "1px solid #1E293B" }}>
-                      <div style={{ width: 28, height: 28, borderRadius: "50%", background: `${TEAMS_PURPLE}33`, border: `2px solid ${TEAMS_PURPLE}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: TEAMS_PURPLE_LT, flexShrink: 0 }}>
-                        {(conv.recipientName || conv.recipient).slice(0, 2).toUpperCase()}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: conv.chatId === dmActiveChatId && !dmComposing ? TEAMS_PURPLE_LT : "#F1F5F9", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{conv.recipientName || conv.recipient}</div>
-                        <div style={{ fontSize: 10, color: "#6B7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{conv.messages.length > 0 ? (conv.messages[conv.messages.length - 1]?.body?.content || "").replace(/<[^>]+>/g, "").trim() || "Message" : "No messages yet"}</div>
-                      </div>
-                    </div>
-                  ))}
-                </>
-              )}
-            </div>
-            )}
-          </div>
-          {/* RIGHT: chat panel */}
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            {teamsTab === "direct" ? (
-              !teamsToken ? (
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#6B7280" }}>
-                  <div style={{ fontSize: 40, marginBottom: 12 }}>🔒</div>
-                  <div style={{ fontSize: 14, color: "#94A3B8", marginBottom: 12 }}>Sign in to use Direct Message</div>
-                  <button onClick={authenticateTeams} disabled={teamsAuthStatus === "loading"} style={{ ...S.btnPrimary, fontSize: 13, padding: "9px 20px", width: "auto" }}>{teamsAuthStatus === "loading" ? "Signing in…" : "Sign in with Microsoft"}</button>
-                </div>
-              ) : dmComposing || !dmActiveChatId ? (
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                  <div style={{ padding: "16px 24px 12px", borderBottom: "1px solid #334155", background: "#1E293B", flexShrink: 0 }}>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: "#F1F5F9" }}>New Direct Message</div>
-                    <div style={{ fontSize: 12, color: "#6B7280", marginTop: 2 }}>Send a Teams DM to any team member</div>
-                  </div>
-                  <div style={{ flex: 1, padding: "20px 24px", overflowY: "auto" }}>
-                    <div style={{ marginBottom: 14, position: "relative" as const }}>
-                      <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 5 }}>
-                        {teamsContactsLoading
-                          ? "Loading contacts…"
-                          : teamsContactsError
-                            ? <span style={{ color: "#F87171" }}>⚠ {teamsContactsError} — <button onClick={loadTeamsContacts} style={{ background: "none", border: "none", color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit", fontSize: 12, padding: 0, textDecoration: "underline" }}>retry</button> or sign out &amp; back in</span>
-                            : teamsContacts.length > 0
-                              ? `To — ${teamsContacts.length} contacts loaded · type to search all`
-                              : "To — type name or email"}
-                      </div>
-                      <input value={teamsDirectTo}
-                        onChange={e => handleTeamsContactInput(e.target.value, "main")}
-                        onFocus={() => { setTeamsContactSearch(teamsDirectTo); setTeamsContactDropdown(true); }}
-                        onBlur={() => setTimeout(() => setTeamsContactDropdown(false), 150)}
-                        placeholder={teamsContactsLoading ? "Loading contacts…" : "Search name or type email…"}
-                        style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 7, padding: "9px 12px", color: "#F1F5F9", fontSize: 13, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const }} />
-                      {teamsContactDropdown && (() => {
-                        const q = (teamsContactSearch || "").toLowerCase();
-                        const list = teamsContactSearchResults.length > 0
-                          ? teamsContactSearchResults
-                          : teamsContacts.filter((c: any) =>
-                              !q ||
-                              (c.displayName || "").toLowerCase().includes(q) ||
-                              (c.userPrincipalName || "").toLowerCase().includes(q) ||
-                              (c.scoredEmailAddresses?.[0]?.address || "").toLowerCase().includes(q) ||
-                              (c.mail || "").toLowerCase().includes(q)
-                            );
-                        if (list.length === 0 && !teamsContactSearchLoading) return null;
-                        return (
-                          <div style={{ position: "absolute" as const, top: "100%", left: 0, right: 0, zIndex: 200, background: "#1E293B", border: "1px solid #475569", borderRadius: 8, maxHeight: 220, overflowY: "auto" as const, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", marginTop: 2 }}>
-                            {teamsContactSearchLoading && <div style={{ padding: "8px 14px", fontSize: 12, color: "#6B7280" }}>Searching…</div>}
-                            {list.slice(0, 15).map((c: any) => {
-                              const email = c.userPrincipalName || c.mail || c.scoredEmailAddresses?.[0]?.address || "";
-                              return (
-                                <div key={email || c.displayName}
-                                  onMouseDown={() => {
-                                    const existing = dmConversations.find(conv => conv.recipient.toLowerCase() === email.toLowerCase());
-                                    if (existing) {
-                                      setDmActiveChatId(existing.chatId);
-                                      setDmComposing(false);
-                                      setTeamsDirectTo("");
-                                    } else {
-                                      setTeamsDirectTo(email);
-                                      setDmSelectedName(c.displayName || email);
-                                    }
-                                    setTeamsContactDropdown(false); setTeamsContactSearch(""); setTeamsContactSearchResults([]); setTeamsDirectErr(null);
-                                  }}
-                                  style={{ padding: "9px 14px", cursor: "pointer", borderBottom: "1px solid #334155" }}>
-                                  <div style={{ fontSize: 13, fontWeight: 600, color: "#F1F5F9" }}>{c.displayName}</div>
-                                  <div style={{ fontSize: 11, color: "#6B7280" }}>{email}</div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                    <div style={{ marginBottom: 14 }}>
-                      <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 5 }}>Message</div>
-                      <textarea value={teamsDirectMsg} onChange={e => { setTeamsDirectMsg(e.target.value); setTeamsDirectErr(null); }}
-                        onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); teamsSendDirect(); } }}
-                        placeholder="Type your message… (Enter to send)" rows={6}
-                        style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 7, padding: "9px 12px", color: "#F1F5F9", fontSize: 13, outline: "none", fontFamily: "inherit", resize: "vertical" as const, boxSizing: "border-box" as const }} />
-                    </div>
-                    {teamsDirectErr && (
-                      <div style={{ background: "#1E293B", border: "1px solid #EF444444", borderRadius: 8, padding: "10px 14px", color: "#EF4444", fontSize: 12, marginBottom: 12 }}>⚠ {teamsDirectErr}</div>
-                    )}
-                    <button onClick={teamsSendDirect} disabled={teamsDirectSending || !teamsDirectTo.trim() || !teamsDirectMsg.trim()}
-                      style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 8, padding: "11px 24px", fontSize: 13, fontWeight: 700, cursor: teamsDirectSending ? "wait" : "pointer", fontFamily: "inherit", opacity: (teamsDirectSending || !teamsDirectTo.trim() || !teamsDirectMsg.trim()) ? 0.6 : 1 }}>
-                      {teamsDirectSending ? "Sending…" : "Send Direct Message ↗"}
-                    </button>
-                  </div>
-                </div>
-              ) : (() => {
-                const activeConv = dmConversations.find(c => c.chatId === dmActiveChatId) ?? null;
-                const dmRecipientDisplay = activeConv?.recipientName || activeConv?.recipient || "";
-                const dmMsgs = activeConv?.messages ?? [];
-                return (
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                  <div style={{ padding: "14px 50px 14px 20px", borderBottom: "1px solid #334155", background: "#1E293B", display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
-                    <div style={{ width: 34, height: 34, borderRadius: "50%", background: `${TEAMS_PURPLE}33`, border: `2px solid ${TEAMS_PURPLE}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: TEAMS_PURPLE_LT, flexShrink: 0 }}>{dmRecipientDisplay.slice(0, 2).toUpperCase()}</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#F1F5F9", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dmRecipientDisplay}</div>
-                      <div style={{ fontSize: 11, color: "#6B7280" }}>Direct Message · Teams</div>
-                    </div>
-                    <button onClick={() => dmActiveChatId && loadDmMessages(dmActiveChatId)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #334155", background: "none", color: "#6B7280", cursor: "pointer", fontFamily: "inherit" }}>↻ Refresh</button>
-                  </div>
-                  {dmError && (
-                    <div style={{ background: "#1E293B", borderBottom: "1px solid #EF444444", padding: "8px 20px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                      <span style={{ fontSize: 12, color: "#EF4444", flex: 1 }}>⚠ {dmError}</span>
-                      <button onClick={() => setDmError(null)} style={{ border: "none", background: "none", color: "#EF4444", cursor: "pointer", fontFamily: "inherit", fontSize: 14 }}>✕</button>
-                    </div>
-                  )}
-                  <div ref={dmScrollRef} style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
-                    {dmLoading ? (
-                      <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 40, fontSize: 13 }}>Loading messages…</div>
-                    ) : dmMsgs.length === 0 ? (
-                      <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 40, fontSize: 13 }}>No messages yet in this conversation</div>
-                    ) : dmMsgs.map((msg: any) => {
-                      const author = msg.from?.user?.displayName || "Unknown";
-                      const initials = author.split(" ").map((w: string) => w[0] || "").join("").toUpperCase().slice(0, 2);
-                      const clean = (msg.body?.content || "").replace(/<[^>]+>/g, "").trim();
-                      const time = msg.createdDateTime ? new Date(msg.createdDateTime).toLocaleString() : "";
-                      return (
-                        <div key={msg.id} style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 10, padding: "12px 16px" }}>
-                          <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                            <div style={{ width: 32, height: 32, borderRadius: "50%", background: `${TEAMS_PURPLE}33`, border: `2px solid ${TEAMS_PURPLE}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: TEAMS_PURPLE_LT, flexShrink: 0 }}>{initials}</div>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
-                                <span style={{ fontSize: 13, fontWeight: 700, color: "#F1F5F9" }}>{author}</span>
-                                <span style={{ fontSize: 11, color: "#6B7280" }}>{time}</span>
-                              </div>
-                              <div style={{ fontSize: 13, color: "#CBD5E1", lineHeight: 1.5, wordBreak: "break-word" }}>{clean || "[Attachment]"}</div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div style={{ padding: "12px 20px", borderTop: "1px solid #334155", background: "#1E293B", display: "flex", gap: 10, flexShrink: 0 }}>
-                    <input value={dmNewMsg} onChange={e => setDmNewMsg(e.target.value)}
-                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendDmReply(); }}}
-                      placeholder={`Reply to ${dmRecipientDisplay}…`}
-                      style={{ flex: 1, background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: "10px 14px", color: "#F1F5F9", fontSize: 13, outline: "none", fontFamily: "inherit" }} />
-                    <button onClick={sendDmReply} disabled={dmSending || !dmNewMsg.trim()}
-                      style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 12, fontWeight: 700, cursor: (dmSending || !dmNewMsg.trim()) ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: (dmSending || !dmNewMsg.trim()) ? 0.5 : 1 }}>
-                      {dmSending ? "…" : "Send"}
-                    </button>
-                  </div>
-                </div>
-                );
-              })()
-            ) : !teamsSelPO ? (
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#6B7280" }}>
-                <div style={{ fontSize: 40, marginBottom: 12 }}>💬</div>
-                <div style={{ fontSize: 15, fontWeight: 600, color: "#94A3B8", marginBottom: 6 }}>Select a PO to open its chat</div>
-                <div style={{ fontSize: 13 }}>Each PO gets its own Teams channel in RING OF FIRE</div>
-              </div>
-            ) : (
-              <>
-                <div style={{ padding: "14px 90px 14px 20px", borderBottom: "1px solid #334155", background: "#1E293B", flexShrink: 0 }}>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: "#F1F5F9" }}>PO# {teamsSelPO}</div>
-                  <div style={{ fontSize: 12, color: "#6B7280" }}>{selPO?.VendorName ?? ""}{selPO?.StatusName ? " · " + selPO.StatusName : ""}</div>
-                </div>
-                <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
-                  {!teamsToken ? (
-                    <div style={{ textAlign: "center", paddingTop: 60 }}>
-                      <div style={{ fontSize: 36, marginBottom: 12 }}>🔒</div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: "#94A3B8", marginBottom: 8 }}>Sign in to use Teams chat</div>
-                      <button onClick={authenticateTeams} disabled={teamsAuthStatus === "loading"} style={{ ...S.btnPrimary, fontSize: 12, padding: "8px 18px", width: "auto" }}>{teamsAuthStatus === "loading" ? "Signing in…" : "Sign in with Microsoft"}</button>
-                    </div>
-                  ) : !mp ? (
-                    <div style={{ textAlign: "center", paddingTop: 60 }}>
-                      <div style={{ fontSize: 36, marginBottom: 12 }}>💬</div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: "#94A3B8", marginBottom: 6 }}>No Teams channel yet for this PO</div>
-                      <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 20 }}>A channel will be created in RING OF FIRE</div>
-                      <button onClick={() => teamsStartChat(teamsSelPO!)} disabled={!!isCreating}
-                        style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 8, padding: "10px 22px", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: isCreating ? "wait" : "pointer", opacity: isCreating ? 0.7 : 1 }}>
-                        {isCreating ? "Creating channel…" : "💬 Start Teams Chat"}
-                      </button>
-                    </div>
-                  ) : isLoadingMsgs ? (
-                    <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 40, fontSize: 13 }}>Loading messages…</div>
-                  ) : msgs.length === 0 ? (
-                    <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 40 }}>
-                      <div style={{ fontSize: 28, marginBottom: 8 }}>💬</div>
-                      <div style={{ fontSize: 13 }}>No messages yet — start the conversation!</div>
-                    </div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                      {msgs.map((msg: any) => {
-                        const author = msg.from?.user?.displayName || "Unknown";
-                        const initials = author.split(" ").map((w: string) => w[0] || "").join("").toUpperCase().slice(0, 2);
-                        const clean = (msg.body?.content || "").replace(/<[^>]+>/g, "").trim();
-                        const time = msg.createdDateTime ? new Date(msg.createdDateTime).toLocaleString() : "";
-                        return (
-                          <div key={msg.id} style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 10, padding: "12px 16px" }}>
-                            <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                              <div style={{ width: 34, height: 34, borderRadius: "50%", background: `${TEAMS_PURPLE}33`, border: `2px solid ${TEAMS_PURPLE}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: TEAMS_PURPLE_LT, flexShrink: 0 }}>{initials}</div>
-                              <div style={{ flex: 1 }}>
-                                <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
-                                  <span style={{ fontSize: 13, fontWeight: 700, color: "#F1F5F9" }}>{author}</span>
-                                  <span style={{ fontSize: 11, color: "#6B7280" }}>{time}</span>
-                                </div>
-                                <div style={{ fontSize: 13, color: "#CBD5E1", lineHeight: 1.5, wordBreak: "break-word" }}>{clean || "[Attachment]"}</div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-                {mp && teamsToken && (
-                  <div style={{ padding: "12px 20px", borderTop: "1px solid #334155", background: "#1E293B", display: "flex", gap: 10, flexShrink: 0 }}>
-                    <input value={teamsNewMsg} onChange={e => setTeamsNewMsg(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); teamsSendMessage(teamsSelPO!); }}} placeholder={`Message PO# ${teamsSelPO}…`}
-                      style={{ flex: 1, background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: "10px 14px", color: "#F1F5F9", fontSize: 13, outline: "none", fontFamily: "inherit" }} />
-                    <button onClick={() => teamsSendMessage(teamsSelPO!)} disabled={!teamsNewMsg.trim()} style={{ ...S.btnPrimary, opacity: teamsNewMsg.trim() ? 1 : 0.5, width: "auto" }}>Send</button>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    );
   }
 
   async function emailGraph(path: string) {
@@ -1086,7 +973,9 @@ export default function TandAApp() {
     setLoading(true);
     const { data } = await sb.from("tanda_pos").select("*", "order=date_order.desc");
     if (data && data.length > 0) {
-      setPos(data.map((r: any) => r.data as XoroPO));
+      // Exclude archived POs from active list
+      const active = data.filter((r: any) => !(r.data as XoroPO)?._archived);
+      setPos(active.map((r: any) => r.data as XoroPO));
       setLastSync(data[0]?.synced_at ?? "");
     }
     setLoading(false);
@@ -1278,6 +1167,10 @@ export default function TandAApp() {
   }
 
   async function saveMilestone(m: Milestone, skipHistory = false) {
+    // Ensure updated_at is always set
+    if (!m.updated_at || m.updated_at === (milestones[m.po_number] || []).find(x => x.id === m.id)?.updated_at) {
+      m = { ...m, updated_at: new Date().toISOString(), updated_by: m.updated_by || user?.name || "" };
+    }
     const existing = (milestones[m.po_number] || []).find(x => x.id === m.id);
     // When status changes, store date per status in status_dates map
     if (existing && existing.status !== m.status) {
@@ -1304,8 +1197,8 @@ export default function TandAApp() {
     if (existing) {
       const { data: currentRow } = await sb.from("tanda_milestones").single("id,data", `id=eq.${encodeURIComponent(m.id)}`);
       const serverData = (currentRow as any)?.data as Milestone | undefined;
-      if (serverData && serverData.updated_at && serverData.updated_at !== existing.updated_at) {
-        // Conflict detected — let user decide
+      if (serverData && serverData.updated_at && serverData.updated_at !== existing.updated_at && serverData.updated_by !== (user?.name || "")) {
+        // Conflict detected — let user decide (skip if we're the one who made the change)
         setConfirmModal({
           title: "Conflict Detected",
           message: `"${m.phase}" was modified by ${serverData.updated_by || "another user"}.\n\nTheir status: ${serverData.status} · Your status: ${m.status}\n\nOverwrite with your changes?`,
@@ -1315,12 +1208,7 @@ export default function TandAApp() {
           confirmColor: "#3B82F6",
           onConfirm: async () => {
             await sb.from("tanda_milestones").upsert({ id: m.id, data: m }, { onConflict: "id" });
-            setMilestones(prev => {
-              const arr = [...(prev[m.po_number] || [])];
-              const idx2 = arr.findIndex(x => x.id === m.id);
-              if (idx2 >= 0) arr[idx2] = m; else arr.push(m);
-              return { ...prev, [m.po_number]: arr };
-            });
+            coreD({ type: "UPDATE_MILESTONE", poNumber: m.po_number, milestoneId: m.id, milestone: m });
           },
           onCancel: async () => { await loadAllMilestones(); },
         });
@@ -1328,12 +1216,7 @@ export default function TandAApp() {
       }
     }
     await sb.from("tanda_milestones").upsert({ id: m.id, data: m }, { onConflict: "id" });
-    setMilestones(prev => {
-      const arr = [...(prev[m.po_number] || [])];
-      const idx = arr.findIndex(x => x.id === m.id);
-      if (idx >= 0) arr[idx] = m; else arr.push(m);
-      return { ...prev, [m.po_number]: arr };
-    });
+    coreD({ type: "UPDATE_MILESTONE", poNumber: m.po_number, milestoneId: m.id, milestone: m });
     // Clear collapsed overrides for this PO so auto-collapse/expand recalculates
     if (!skipHistory) {
       // Check if this milestone completing finishes its entire category
@@ -1383,17 +1266,7 @@ export default function TandAApp() {
       ms.map(m => ({ id: m.id, data: m })),
       { onConflict: "id" }
     );
-    setMilestones(prev => {
-      const next = { ...prev };
-      ms.forEach(m => {
-        if (!next[m.po_number]) next[m.po_number] = [];
-        const arr = [...next[m.po_number]];
-        const idx = arr.findIndex(x => x.id === m.id);
-        if (idx >= 0) arr[idx] = m; else arr.push(m);
-        next[m.po_number] = arr;
-      });
-      return next;
-    });
+    ms.forEach(m => coreD({ type: "UPDATE_MILESTONE", poNumber: m.po_number, milestoneId: m.id, milestone: m }));
   }
 
   async function deleteMilestonesForPO(poNumber: string) {
@@ -1402,7 +1275,7 @@ export default function TandAApp() {
     for (const m of existing) {
       await sb.from("tanda_milestones").delete(`id=eq.${encodeURIComponent(m.id)}`);
     }
-    setMilestones(prev => { const next = { ...prev }; delete next[poNumber]; return next; });
+    coreD({ type: "DELETE_MILESTONES_FOR_PO", poNumber });
   }
 
   function generateMilestones(poNumber: string, ddpDate: string, vendorName?: string): Milestone[] {
@@ -1457,7 +1330,7 @@ export default function TandAApp() {
       // Double-check DB to prevent duplicates
       const dbExisting = await loadMilestones(poNum);
       if (dbExisting.length > 0) {
-        setMilestones(prev => ({ ...prev, [poNum]: dbExisting }));
+        coreD({ type: "SET_MILESTONES_FOR_PO", poNumber: poNum, milestones: dbExisting });
         return dbExisting;
       }
       const ddp = po.DateExpectedDelivery;
@@ -1506,7 +1379,7 @@ export default function TandAApp() {
   }
 
   async function appendSyncLog(entry: SyncLogEntry) {
-    const next = [entry, ...syncLog].slice(0, 200); // keep last 200 entries
+    const next = [entry, ...syncLog].slice(0, 10); // keep last 10 sync events
     setSyncLog(next);
     try {
       await fetch(`${SB_URL}/rest/v1/app_data`, {
@@ -1628,16 +1501,16 @@ export default function TandAApp() {
       }
 
       setSyncProgress(88);
-      setSyncProgressMsg("Removing closed/received POs…");
+      setSyncProgressMsg("Archiving closed/received POs…");
 
-      const toDeleteFromSync = all.filter(po => autoDeleteStatuses.includes(po.StatusName ?? "") && !toKeep(po.StatusName ?? ""));
-      const toDeleteFromCache = (existingRows ?? []).filter((r: any) => autoDeleteStatuses.includes((r.data as XoroPO)?.StatusName ?? "") && !toKeep((r.data as XoroPO)?.StatusName ?? ""));
-      const toDeleteNums = new Set([
-        ...toDeleteFromSync.map(po => po.PoNumber ?? ""),
-        ...toDeleteFromCache.map((r: any) => r.po_number as string),
+      const toArchiveFromSync = all.filter(po => autoDeleteStatuses.includes(po.StatusName ?? "") && !toKeep(po.StatusName ?? ""));
+      const toArchiveFromCache = (existingRows ?? []).filter((r: any) => autoDeleteStatuses.includes((r.data as XoroPO)?.StatusName ?? "") && !toKeep((r.data as XoroPO)?.StatusName ?? "") && !(r.data as XoroPO)?._archived);
+      const toArchiveNums = new Set([
+        ...toArchiveFromSync.map(po => po.PoNumber ?? ""),
+        ...toArchiveFromCache.map((r: any) => r.po_number as string),
       ].filter(Boolean));
-      for (const pn of toDeleteNums) {
-        await deletePO(pn);
+      for (const pn of toArchiveNums) {
+        await archivePO(pn);
       }
       const deletedCount = toDeleteNums.size;
 
@@ -1966,6 +1839,20 @@ export default function TandAApp() {
     addHistory(selected.PoNumber ?? "", `Note added: "${noteText.length > 80 ? noteText.slice(0, 80) + "…" : noteText}"`);
   }
 
+  async function editNote(noteId: string, newText: string) {
+    if (!newText.trim()) return;
+    await fetch(`${SB_URL}/rest/v1/tanda_notes?id=eq.${encodeURIComponent(noteId)}`, {
+      method: "PATCH", headers: { ...SB_HEADERS, "Prefer": "return=minimal" },
+      body: JSON.stringify({ note: newText.trim() }),
+    });
+    await loadNotes();
+  }
+
+  async function deleteNote(noteId: string) {
+    await sb.from("tanda_notes").delete(`id=eq.${encodeURIComponent(noteId)}`);
+    await loadNotes();
+  }
+
   async function addHistory(poNumber: string, description: string) {
     if (!poNumber) return;
     await sb.from("tanda_notes").insert({
@@ -1980,32 +1867,24 @@ export default function TandAApp() {
 
   // ── Attachments (Dropbox) ────────────────────────────────────────────────
   async function uploadAttachment(poNumber: string, file: File) {
-    setUploadingAttachment(true);
-    try {
-      const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-      const dbxPath = `/Eran Bitton/Apps/design-calendar-app/po-attachments/${poNumber}/${safeName}`;
-      const res = await fetch("/api/dropbox-proxy", {
-        method: "POST",
-        headers: { "Content-Type": "application/octet-stream", "X-Dropbox-Action": "upload", "X-Dropbox-Path": dbxPath },
-        body: file,
-      });
-      if (!res.ok) { console.warn("Upload failed:", res.status); setUploadingAttachment(false); return; }
-      const data = await res.json();
-      const url = data.shared_url || "";
-      const entry = { id: safeName, name: file.name, url, dbxPath: data.path_display || dbxPath, type: file.type, size: file.size, uploaded_by: user?.name || "", uploaded_at: new Date().toISOString() };
-      await sb.from("tanda_notes").insert({ po_number: poNumber, note: JSON.stringify(entry), status_override: "__attachment__", user_name: user?.name || "", created_at: new Date().toISOString() });
-      setAttachments(prev => ({ ...prev, [poNumber]: [...(prev[poNumber] || []), entry] }));
-      addHistory(poNumber, `Attachment uploaded: ${file.name}`);
-    } catch (e) { console.error("Upload error:", e); }
-    setUploadingAttachment(false);
+    const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+    const dbxPath = `/Eran Bitton/Apps/design-calendar-app/po-attachments/${poNumber}/${safeName}`;
+    const res = await fetch("/api/dropbox-proxy", {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream", "X-Dropbox-Action": "upload", "X-Dropbox-Path": dbxPath },
+      body: file,
+    });
+    if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+    const data = await res.json();
+    const url = data.shared_url || "";
+    const entry = { id: safeName, name: file.name, url, dbxPath: data.path_display || dbxPath, type: file.type, size: file.size, uploaded_by: user?.name || "", uploaded_at: new Date().toISOString() };
+    await sb.from("tanda_notes").insert({ po_number: poNumber, note: JSON.stringify(entry), status_override: "__attachment__", user_name: user?.name || "", created_at: new Date().toISOString() });
   }
   async function loadAttachments(poNumber: string) {
     const { data } = await sb.from("tanda_notes").select("*", `po_number=eq.${encodeURIComponent(poNumber)}&status_override=eq.__attachment__`);
     if (data) {
       const entries = data.map((r: any) => { try { return JSON.parse(r.note); } catch { return null; } }).filter(Boolean);
-      setAttachments(prev => ({ ...prev, [poNumber]: entries }));
-      // Purge any that have been soft-deleted for >24h
-      setTimeout(() => purgeExpiredAttachments(poNumber), 500);
+      coreD({ type: "SET_ATTACHMENTS_FOR_PO", poNumber, attachments: entries });
     }
   }
   async function deleteAttachment(poNumber: string, attachId: string) {
@@ -2019,7 +1898,7 @@ export default function TandAApp() {
     if (row) {
       await sb.from("tanda_notes").upsert({ id: row.id, po_number: poNumber, note: JSON.stringify(updatedEntry), status_override: "__attachment__", user_name: entry.uploaded_by, created_at: entry.uploaded_at }, { onConflict: "id" });
     }
-    setAttachments(prev => ({ ...prev, [poNumber]: (prev[poNumber] || []).map(a => a.id === attachId ? updatedEntry : a) }));
+    coreD({ type: "UPDATE_ATTACHMENT", poNumber, attachId, entry: updatedEntry });
     addHistory(poNumber, `Attachment soft-deleted: ${entry.name} (undo available for 24h)`);
   }
 
@@ -2032,7 +1911,7 @@ export default function TandAApp() {
     if (row) {
       await sb.from("tanda_notes").upsert({ id: row.id, po_number: poNumber, note: JSON.stringify(restoredEntry), status_override: "__attachment__", user_name: entry.uploaded_by, created_at: entry.uploaded_at }, { onConflict: "id" });
     }
-    setAttachments(prev => ({ ...prev, [poNumber]: (prev[poNumber] || []).map(a => a.id === attachId ? restoredEntry : a) }));
+    coreD({ type: "UPDATE_ATTACHMENT", poNumber, attachId, entry: restoredEntry });
     addHistory(poNumber, `Attachment restored: ${entry.name}`);
   }
 
@@ -2049,8 +1928,12 @@ export default function TandAApp() {
         if (row) await sb.from("tanda_notes").delete(`id=eq.${encodeURIComponent(row.id)}`);
       }
     }
-    // Remove purged from state
-    setAttachments(prev => ({ ...prev, [poNumber]: (prev[poNumber] || []).filter(a => !(a as any).deleted_at || now - new Date((a as any).deleted_at).getTime() <= 24 * 60 * 60 * 1000) }));
+    // Reload from Supabase to get clean state after purge
+    const { data: refreshed } = await sb.from("tanda_notes").select("*", `po_number=eq.${encodeURIComponent(poNumber)}&status_override=eq.__attachment__`);
+    if (refreshed) {
+      const entries = refreshed.map((r: any) => { try { return JSON.parse(r.note); } catch { return null; } }).filter(Boolean);
+      coreD({ type: "SET_ATTACHMENTS_FOR_PO", poNumber, attachments: entries });
+    }
   }
 
   async function deletePO(poNumber: string) {
@@ -2067,11 +1950,77 @@ export default function TandAApp() {
     for (const n of poNotes) {
       if (n.id) await sb.from("tanda_notes").delete(`id=eq.${encodeURIComponent(n.id)}`);
     }
-    // Remove from local state
-    setPos(prev => prev.filter(p => (p.PoNumber ?? "") !== poNumber));
-    setMilestones(prev => { const next = { ...prev }; delete next[poNumber]; return next; });
-    setNotes(prev => prev.filter(n => n.po_number !== poNumber));
+    // Remove from local state — atomic via reducer
+    coreD({ type: "REMOVE_PO", poNumber });
     if (selected?.PoNumber === poNumber) setSelected(null);
+  }
+
+  // ── Archive functions ──────────────────────────────────────────────────
+  async function archivePO(poNumber: string) {
+    if (!poNumber) return;
+    // Mark as archived in the data JSON — preserves all milestones, notes, attachments
+    const { data: rows } = await sb.from("tanda_pos").select("data", `po_number=eq.${encodeURIComponent(poNumber)}`);
+    if (rows?.[0]) {
+      const poData = rows[0].data as XoroPO;
+      const archived = { ...poData, _archived: true, _archivedAt: new Date().toISOString() };
+      await sb.from("tanda_pos").upsert({ po_number: poNumber, data: archived }, { onConflict: "po_number" });
+    }
+    // Remove from active local state only
+    coreD({ type: "REMOVE_PO", poNumber });
+    if (selected?.PoNumber === poNumber) setSelected(null);
+  }
+
+  async function loadArchivedPOs() {
+    setArchiveLoading(true);
+    try {
+      const { data } = await sb.from("tanda_pos").select("*");
+      if (data) {
+        const archived = data
+          .filter((r: any) => (r.data as XoroPO)?._archived === true)
+          .map((r: any) => r.data as XoroPO);
+        setArchivedPos(archived);
+      }
+    } catch (e) { console.error("Load archived error:", e); }
+    setArchiveLoading(false);
+  }
+
+  async function unarchivePO(poNumber: string) {
+    if (!poNumber) return;
+    const { data: rows } = await sb.from("tanda_pos").select("data", `po_number=eq.${encodeURIComponent(poNumber)}`);
+    if (rows?.[0]) {
+      const poData = rows[0].data as XoroPO;
+      const restored = { ...poData, _archived: false, _archivedAt: undefined };
+      delete (restored as any)._archived;
+      delete (restored as any)._archivedAt;
+      await sb.from("tanda_pos").upsert({ po_number: poNumber, data: restored }, { onConflict: "po_number" });
+    }
+    addHistory(poNumber, "PO restored from archive");
+    await loadCachedPOs();
+    await loadArchivedPOs();
+  }
+
+  async function permanentDeleteArchived(poNumbers: string[]) {
+    for (const poNumber of poNumbers) {
+      // Delete PO record
+      await sb.from("tanda_pos").delete(`po_number=eq.${encodeURIComponent(poNumber)}`);
+      // Delete milestones
+      const { data: msRows } = await sb.from("tanda_milestones").select("id,data");
+      if (msRows) {
+        for (const r of msRows) {
+          if ((r.data as any)?.po_number === poNumber) {
+            await sb.from("tanda_milestones").delete(`id=eq.${encodeURIComponent(r.id)}`);
+          }
+        }
+      }
+      // Delete notes/history/attachments
+      const { data: noteRows } = await sb.from("tanda_notes").select("id", `po_number=eq.${encodeURIComponent(poNumber)}`);
+      if (noteRows) {
+        for (const n of noteRows) {
+          await sb.from("tanda_notes").delete(`id=eq.${encodeURIComponent(n.id)}`);
+        }
+      }
+    }
+    await loadArchivedPOs();
   }
 
   async function bulkUpdateMilestones() {
@@ -2126,7 +2075,7 @@ export default function TandAApp() {
   }
 
   const allPONotes = notes.filter(n => n.po_number === selected?.PoNumber);
-  const selectedNotes = allPONotes.filter(n => n.status_override !== "__history__");
+  const selectedNotes = allPONotes.filter(n => n.status_override !== "__history__" && n.status_override !== "__attachment__");
   const selectedHistory = allPONotes.filter(n => n.status_override === "__history__");
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -2565,1547 +2514,48 @@ export default function TandAApp() {
   );
 
   // ════════════════════════════════════════════════════════════════════════════
-  // PRINT + EXCEL EXPORT HELPERS
-  // ════════════════════════════════════════════════════════════════════════════
-  function printPODetail() {
-    const content = document.getElementById("po-detail-content");
-    if (!content) return;
-    const win = window.open("", "_blank", "width=900,height=700");
-    if (!win) return;
-    win.document.write(`<!DOCTYPE html><html><head><title>PO Detail</title><style>
-      body { font-family: 'DM Sans','Segoe UI',sans-serif; color: #1a1a1a; padding: 24px; font-size: 13px; }
-      table { border-collapse: collapse; width: 100%; margin: 12px 0; }
-      th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; font-size: 12px; }
-      th { background: #f0f0f0; font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; }
-      h1 { font-size: 20px; margin: 0 0 4px; } h2 { font-size: 14px; color: #666; margin: 0 0 16px; }
-      .section { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #888; font-weight: 600; margin: 16px 0 8px; }
-      .info-grid { display: grid; grid-template-columns: repeat(5,1fr); gap: 8px; margin-bottom: 16px; }
-      .info-cell { border: 1px solid #ddd; border-radius: 6px; padding: 8px; }
-      .info-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: #888; margin-bottom: 2px; }
-      .info-value { font-size: 13px; font-weight: 600; }
-      iframe { display: none; } button { display: none; } input { display: none; } textarea { display: none; } select { display: none; }
-      @media print { body { padding: 0; } }
-    </style></head><body>`);
-    win.document.write(content.innerHTML);
-    win.document.write("</body></html>");
-    win.document.close();
-    setTimeout(() => { win.print(); win.close(); }, 400);
-  }
-
-  function exportPOExcel(po: XoroPO, items: any[], mode: string) {
-    const XLSX = (window as any).XLSX;
-    if (!XLSX) { alert("Excel library still loading — try again in a moment."); return; }
-    try { _exportPOExcelInner(XLSX, po, items, mode); } catch (e: any) { console.error("Excel export error:", e); alert("Excel export failed: " + e.message); }
-  }
-  function _exportPOExcelInner(XLSX: any, po: XoroPO, items: any[], mode: string) {
-    const poNum = po.PoNumber ?? "PO";
-    const totalVal = items.reduce((s, i) => s + itemQty(i) * (i.UnitPrice ?? 0), 0);
-    const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-
-    // ── Style definitions (xlsx-js-style requires patternType:"solid" in fill) ──
-    const BRAND = "1E293B"; const BRAND_LT = "334155"; const WHITE = "FFFFFF"; const LIGHT_GRAY = "F1F5F9";
-    const bdr = { style: "thin", color: { rgb: "CBD5E0" } };
-    const border = { top: bdr, bottom: bdr, left: bdr, right: bdr };
-    const fill = (rgb: string) => ({ patternType: "solid", fgColor: { rgb } });
-    const titleStyle = { font: { bold: true, sz: 14, color: { rgb: WHITE } }, fill: fill(BRAND), alignment: { horizontal: "left", vertical: "center" }, border };
-    const subtitleStyle = { font: { sz: 10, color: { rgb: "94A3B8" }, italic: true }, fill: fill(BRAND), alignment: { horizontal: "left" }, border };
-    const colHeaderStyle = { font: { bold: true, sz: 11, color: { rgb: WHITE } }, fill: fill(BRAND_LT), alignment: { horizontal: "center", vertical: "center" }, border };
-    const colHeaderLeftStyle = { font: { bold: true, sz: 11, color: { rgb: WHITE } }, fill: fill(BRAND_LT), alignment: { horizontal: "left", vertical: "center" }, border };
-    const cellStyle = (isEven: boolean) => ({ font: { sz: 11, color: { rgb: "1A202C" } }, fill: fill(isEven ? LIGHT_GRAY : WHITE), border, alignment: { vertical: "center" } });
-    const cellCenterStyle = (isEven: boolean) => ({ font: { sz: 11, color: { rgb: "1A202C" } }, fill: fill(isEven ? LIGHT_GRAY : WHITE), border, alignment: { horizontal: "center", vertical: "center" } });
-    const cellRightStyle = (isEven: boolean) => ({ font: { sz: 11, color: { rgb: "1A202C" } }, fill: fill(isEven ? LIGHT_GRAY : WHITE), border, alignment: { horizontal: "right", vertical: "center" } });
-    const totalRowStyle = { font: { bold: true, sz: 11, color: { rgb: WHITE } }, fill: fill(BRAND), border, alignment: { horizontal: "right", vertical: "center" } };
-    const totalCenterStyle = { font: { bold: true, sz: 11, color: { rgb: WHITE } }, fill: fill(BRAND), border, alignment: { horizontal: "center", vertical: "center" } };
-    const labelStyle = (isEven: boolean) => ({ font: { bold: true, sz: 11, color: { rgb: BRAND_LT } }, fill: fill(isEven ? LIGHT_GRAY : WHITE), border, alignment: { vertical: "center" } });
-    const valStyle = (isEven: boolean) => ({ font: { sz: 11, color: { rgb: "1A202C" } }, fill: fill(isEven ? LIGHT_GRAY : WHITE), border, alignment: { vertical: "center" } });
-
-    // Number formats: #,##0 for qty, $#,##0.00 for dollars
-    const FMT_QTY = "#,##0";
-    const FMT_USD = "$#,##0.00";
-
-    // PO Info block (always shown at top of every sheet)
-    const poInfoBlock: any[][] = [
-      ["PO Number", po.PoNumber ?? "", "Vendor", po.VendorName ?? "", "Status", po.StatusName ?? ""],
-      ["Order Date", po.DateOrder ?? "", "Expected Delivery", po.DateExpectedDelivery ?? "", "Currency", po.CurrencyCode ?? "USD"],
-      ["Payment Terms", po.PaymentTermsName ?? "", "Ship Method", po.ShipMethodName ?? "", "Buyer", po.BuyerName ?? ""],
-    ];
-    if (po.Memo) poInfoBlock.push(["Memo", po.Memo, "", "", "", ""]);
-
-    // Helper: build a styled sheet with PO info header + data table
-    function styleSheet(tableData: any[][], colWidths: number[], opts?: { totalRow?: boolean; dollarCols?: number[]; qtyCols?: number[] }) {
-      const cols = Math.max(tableData[0]?.length || 2, 6);
-      // Build full sheet data: title → subtitle → PO info → blank → column headers → data
-      const all: any[][] = [];
-      // Row 0: Title
-      const titleRow = [po.VendorName + " — " + poNum]; for (let i = 1; i < cols; i++) titleRow.push("");
-      all.push(titleRow);
-      // Row 1: Subtitle
-      const subRow = ["Generated: " + today]; for (let i = 1; i < cols; i++) subRow.push("");
-      all.push(subRow);
-      // Rows 2-4: PO info block
-      poInfoBlock.forEach(row => { const r = [...row]; while (r.length < cols) r.push(""); all.push(r); });
-      // Row 5: blank separator
-      const blankRow: string[] = []; for (let i = 0; i < cols; i++) blankRow.push(""); all.push(blankRow);
-      // Rows 6+: table data (header + rows)
-      const dataStart = all.length;
-      tableData.forEach(row => { const r = [...row]; while (r.length < cols) r.push(""); all.push(r); });
-
-      const sheet = XLSX.utils.aoa_to_sheet(all);
-      // Merges: title and subtitle span full width
-      sheet["!merges"] = [
-        { s: { r: 0, c: 0 }, e: { r: 0, c: cols - 1 } },
-        { s: { r: 1, c: 0 }, e: { r: 1, c: cols - 1 } },
-      ];
-      // If memo row exists and has 6+ cols, merge the value across
-      if (po.Memo) {
-        const memoRowIdx = 2 + poInfoBlock.length - 1;
-        sheet["!merges"].push({ s: { r: memoRowIdx, c: 1 }, e: { r: memoRowIdx, c: cols - 1 } });
-      }
-      // Column widths: use max of poInfo needs (6 cols) and table widths
-      const finalWidths: number[] = [];
-      for (let i = 0; i < cols; i++) finalWidths.push(colWidths[i] || 14);
-      sheet["!cols"] = finalWidths.map(w => ({ wch: w }));
-      sheet["!rows"] = [{ hpt: 28 }, { hpt: 18 }];
-
-      // Style every cell
-      const range = XLSX.utils.decode_range(sheet["!ref"]);
-      for (let r = range.s.r; r <= range.e.r; r++) {
-        for (let c = range.s.c; c <= range.e.c; c++) {
-          const addr = XLSX.utils.encode_cell({ r, c });
-          if (!sheet[addr]) sheet[addr] = { v: "", t: "s" };
-          const cell = sheet[addr];
-
-          if (r === 0) { cell.s = titleStyle; }
-          else if (r === 1) { cell.s = subtitleStyle; }
-          else if (r >= 2 && r < dataStart - 1) {
-            // PO info rows: label/value pairs in groups of 2 cols
-            const isEven = (r - 2) % 2 === 0;
-            cell.s = (c % 2 === 0) ? labelStyle(isEven) : valStyle(isEven);
-          }
-          else if (r === dataStart - 1) { cell.s = { fill: fill(WHITE), border }; } // blank separator
-          else if (r === dataStart) {
-            // Column header row
-            cell.s = c === 0 ? colHeaderLeftStyle : colHeaderStyle;
-          }
-          else if (opts?.totalRow && r === range.e.r) {
-            // Total/summary row
-            cell.s = totalCenterStyle;
-            // Apply dollar format to dollar cols in total row
-            if (opts?.dollarCols?.includes(c) && typeof cell.v === "number") { cell.z = FMT_USD; cell.t = "n"; }
-            else if (opts?.qtyCols?.includes(c) && typeof cell.v === "number") { cell.z = FMT_QTY; cell.t = "n"; }
-          }
-          else {
-            // Data rows with alternating colors
-            const isEven = (r - dataStart - 1) % 2 === 0;
-            if (typeof cell.v === "number") {
-              cell.s = cellRightStyle(isEven);
-              // Apply number format based on column
-              if (opts?.dollarCols?.includes(c)) { cell.z = FMT_USD; cell.t = "n"; }
-              else if (opts?.qtyCols?.includes(c)) { cell.z = FMT_QTY; cell.t = "n"; }
-              else { cell.z = FMT_QTY; cell.t = "n"; } // default: comma, no decimals
-            } else {
-              cell.s = c === 0 ? cellStyle(isEven) : cellCenterStyle(isEven);
-            }
-          }
-        }
-      }
-      return sheet;
-    }
-
-    const wb = XLSX.utils.book_new();
-
-    if (mode === "po" || mode === "header" || mode === "matrix") {
-      // Matrix sheet
-      const parsed = items.map(item => {
-        const sku = item.ItemNumber ?? ""; const parts = sku.split("-");
-        const color = parts.length === 4 ? `${parts[1]}-${parts[2]}` : (parts.length >= 2 ? parts[1] : "");
-        const sz = normalizeSize(parts.length === 4 ? parts[3] : parts.length >= 3 ? parts.slice(2).join("-") : "");
-        return { base: parts[0] || sku, color, size: sz, qty: itemQty(item), price: item.UnitPrice ?? 0, desc: item.Description ?? "" };
-      });
-      const sizeSet = new Set<string>();
-      parsed.forEach(p => { if (p.size) sizeSet.add(p.size); });
-      const sizeOrder = [...sizeSet].sort(sizeSort);
-      const mxRows: any[][] = [["Base Part", "Description", "Color", ...sizeOrder, "Total", "PO Cost", "Total Cost"]];
-      const bases: string[] = [];
-      const byBase: Record<string, { color: string; desc: string; sizes: Record<string, number>; price: number }[]> = {};
-      parsed.forEach(p => {
-        if (!byBase[p.base]) { byBase[p.base] = []; bases.push(p.base); }
-        let row = byBase[p.base].find(r => r.color === p.color);
-        if (!row) { row = { color: p.color, desc: p.desc, sizes: {}, price: p.price }; byBase[p.base].push(row); }
-        row.sizes[p.size] = (row.sizes[p.size] || 0) + p.qty;
-      });
-      bases.forEach(base => { byBase[base].forEach(row => {
-        const rt = Object.values(row.sizes).reduce((s, q) => s + q, 0);
-        mxRows.push([base, row.desc, row.color, ...sizeOrder.map(sz => row.sizes[sz] || 0), rt, row.price, rt * row.price]);
-      }); });
-      mxRows.push(["", "", "GRAND TOTAL", ...sizeOrder.map(sz => parsed.filter(p => p.size === sz).reduce((s, p) => s + p.qty, 0)), items.reduce((s, i) => s + itemQty(i), 0), "", totalVal]);
-      const nSz = sizeOrder.length;
-      const mxDollar = [3 + nSz + 1, 3 + nSz + 2];
-      const mxQty = [...sizeOrder.map((_, i) => 3 + i), 3 + nSz];
-      const mxW = [18, 26, 14, ...sizeOrder.map(() => 10), 10, 12, 14];
-      XLSX.utils.book_append_sheet(wb, styleSheet(mxRows, mxW, { totalRow: true, dollarCols: mxDollar, qtyCols: mxQty }), "Matrix");
-      // Line Items sheet
-      const lineData: any[][] = [["SKU", "Description", "Qty", "Unit Price", "Total"]];
-      items.forEach(item => { lineData.push([item.ItemNumber ?? "", item.Description ?? "", itemQty(item), item.UnitPrice ?? 0, itemQty(item) * (item.UnitPrice ?? 0)]); });
-      lineData.push(["TOTAL", "", items.reduce((s, i) => s + itemQty(i), 0), "", totalVal]);
-      XLSX.utils.book_append_sheet(wb, styleSheet(lineData, [22, 32, 12, 14, 16], { totalRow: true, dollarCols: [3, 4], qtyCols: [2] }), "Line Items");
-      XLSX.writeFile(wb, `${poNum}_PO_Details.xlsx`);
-
-    } else if (mode === "milestones") {
-      const poMs = milestones[poNum] || [];
-      const rows: any[][] = [["Category", "Milestone", "Expected Date", "Status", "Status Date", "Notes"]];
-      poMs.forEach(m => { rows.push([m.category, m.phase, m.expected_date ?? "", m.status, m.status_date ?? "", m.notes ?? ""]); });
-      XLSX.utils.book_append_sheet(wb, styleSheet(rows, [20, 26, 14, 14, 14, 30]), "Milestones");
-      XLSX.writeFile(wb, `${poNum}_Milestones.xlsx`);
-
-    } else if (mode === "notes") {
-      const poNotes = notes.filter(n => n.poNumber === poNum);
-      const rows: any[][] = [["Date", "User", "Note"]];
-      poNotes.forEach(n => { rows.push([n.date ?? "", n.user ?? "", n.text ?? ""]); });
-      XLSX.utils.book_append_sheet(wb, styleSheet(rows, [22, 18, 52]), "Notes");
-      XLSX.writeFile(wb, `${poNum}_Notes.xlsx`);
-
-    } else if (mode === "all") {
-      const lineData: any[][] = [["SKU", "Description", "Qty", "Unit Price", "Total"]];
-      items.forEach(item => { lineData.push([item.ItemNumber ?? "", item.Description ?? "", itemQty(item), item.UnitPrice ?? 0, itemQty(item) * (item.UnitPrice ?? 0)]); });
-      lineData.push(["TOTAL", "", items.reduce((s, i) => s + itemQty(i), 0), "", totalVal]);
-      XLSX.utils.book_append_sheet(wb, styleSheet(lineData, [22, 32, 12, 14, 16], { totalRow: true, dollarCols: [3, 4], qtyCols: [2] }), "Line Items");
-      const poMs = milestones[poNum] || [];
-      if (poMs.length > 0) {
-        const msRows: any[][] = [["Category", "Milestone", "Expected Date", "Status", "Status Date", "Notes"]];
-        poMs.forEach(m => { msRows.push([m.category, m.phase, m.expected_date ?? "", m.status, m.status_date ?? "", m.notes ?? ""]); });
-        XLSX.utils.book_append_sheet(wb, styleSheet(msRows, [20, 26, 14, 14, 14, 30]), "Milestones");
-      }
-      XLSX.writeFile(wb, `${poNum}_All.xlsx`);
-    } else {
-      alert("Excel export not available for this tab.");
+  // PRINT + EXCEL EXPORT — see tanda/exportHelpers.ts
+  // Wrapper to pass milestones/notes from component state
+  function handleExportPOExcel(po: XoroPO, items: any[], mode: string) {
+    try {
+      exportPOExcel(po, items, mode, milestones, notes);
+    } catch (e: any) {
+      setToast("Excel export failed: " + (e.message || "Unknown error"));
     }
   }
 
   // ════════════════════════════════════════════════════════════════════════════
   // PO DETAIL PANEL
   // ════════════════════════════════════════════════════════════════════════════
-  const DetailPanel = () => {
-    if (!selected) return null;
-    const items = selected.Items ?? selected.PoLineArr ?? [];
-    const days  = daysUntil(selected.DateExpectedDelivery);
-    const total = poTotal(selected);
-    const statusColor = STATUS_COLORS[selected.StatusName ?? ""] ?? "#6B7280";
-
-    // Lazy-generate milestones on first view
-    const poNum = selected.PoNumber ?? "";
-    if (poNum && selected.DateExpectedDelivery && !milestones[poNum]) {
-      const vendorN = selected.VendorName ?? "";
-      if (vendorN && !vendorHasTemplate(vendorN)) {
-        // Show create-template modal instead of detail panel
-        if (!showCreateTpl) setShowCreateTpl(vendorN);
-      } else {
-        ensureMilestones(selected);
-      }
-    }
-
-    // Block detail panel — show create-template modal first
-    if (showCreateTpl) {
-      const vendorN = showCreateTpl;
-      return (
-        <div style={S.modalOverlay} onClick={() => { setShowCreateTpl(null); setSelected(null); }}>
-          <div style={{ ...S.modal, width: 500 }} onClick={e => e.stopPropagation()}>
-            <div style={S.modalHeader}>
-              <h2 style={S.modalTitle}>Create Production Template</h2>
-              <button style={S.closeBtn} onClick={() => { setShowCreateTpl(null); setSelected(null); }}>✕</button>
-            </div>
-            <div style={S.modalBody}>
-              <p style={{ color: "#D1D5DB", fontSize: 14, marginTop: 0, marginBottom: 16 }}>
-                No production template exists for <strong style={{ color: "#60A5FA" }}>{vendorN}</strong>. Create one to generate milestones for this PO.
-              </p>
-              <div style={{ marginBottom: 16 }}>
-                <label style={S.label}>Copy from</label>
-                <select style={{ ...S.select, width: "100%" }} id="modalCopyFrom">
-                  <option value="__default__">Default Template</option>
-                  {templateVendorList().map(v => <option key={v} value={v}>{v}</option>)}
-                </select>
-              </div>
-              <div style={{ display: "flex", gap: 10 }}>
-                <button style={{ ...S.btnSecondary, flex: 1 }} onClick={() => { setShowCreateTpl(null); setSelected(null); }}>
-                  Cancel
-                </button>
-                <button style={{ ...S.btnPrimary, flex: 2 }} onClick={async () => {
-                  const copyEl = document.getElementById("modalCopyFrom") as HTMLSelectElement;
-                  const copyFrom = copyEl?.value || "__default__";
-                  const source = getVendorTemplates(copyFrom === "__default__" ? undefined : copyFrom);
-                  const newTpls = source.map(t => ({ ...t, id: milestoneUid() }));
-                  await saveVendorTemplates(vendorN, newTpls);
-                  setShowCreateTpl(null);
-                  const poNum = selected?.PoNumber ?? "";
-                  addHistory(poNum, `Template created for ${vendorN} (copied from ${copyFrom === "__default__" ? "Default" : copyFrom})`);
-                  // Generate milestones now that template exists
-                  if (selected && selected.DateExpectedDelivery) {
-                    const ms = generateMilestones(poNum, selected.DateExpectedDelivery, vendorN);
-                    if (ms.length > 0) {
-                      await saveMilestones(ms);
-                      addHistory(poNum, `Milestones generated (${ms.length} phases) using ${vendorN} template`);
-                    }
-                  }
-                }}>
-                  Create Template & Generate Milestones
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    const showPO = detailMode === "po" || detailMode === "all";
-    const showMilestones = detailMode === "milestones" || detailMode === "all";
-    const showNotes = detailMode === "notes" || detailMode === "all";
-    const showHistory = detailMode === "history" || detailMode === "all";
-    const totalQty = items.reduce((s, i) => s + itemQty(i), 0);
-
-    // Matrix rows (base+color combos) — shared by Item Matrix table and variant panel
-    const matrixRows = (() => {
-      const byKey: Record<string, { base: string; color: string; desc: string; qty: number; price: number }> = {};
-      const rows: { base: string; color: string; desc: string; qty: number; price: number }[] = [];
-      items.forEach((item: any) => {
-        const sku = item.ItemNumber ?? "";
-        const parts = sku.split("-");
-        const color = parts.length === 4 ? `${parts[1]}-${parts[2]}` : (parts.length >= 2 ? parts[1] : "");
-        const base = parts[0] || sku;
-        const key = `${base}-${color}`;
-        if (!byKey[key]) {
-          byKey[key] = { base, color, desc: item.Description ?? "", qty: 0, price: item.UnitPrice ?? 0 };
-          rows.push(byKey[key]);
-        }
-        byKey[key].qty += itemQty(item);
-      });
-      return rows;
-    })();
-
-    const tabStyle = (mode: string): React.CSSProperties => ({
-      flex: 1, padding: "12px 20px", fontSize: 16, cursor: "pointer", fontWeight: 700,
-      border: "1px solid #334155", borderBottom: detailMode === mode ? "none" : "1px solid #334155",
-      background: detailMode === mode ? "#1E293B" : "#0F172A",
-      color: detailMode === mode ? "#60A5FA" : "#6B7280",
-      borderRadius: "10px 10px 0 0",
-      marginBottom: detailMode === mode ? -1 : 0,
-      position: "relative" as const,
-      zIndex: detailMode === mode ? 1 : 0,
-    });
-
-    return (
-      <div style={{ position: "fixed", inset: 0, top: 56, background: "#0F172A", zIndex: 90, overflowY: "auto", display: "flex", flexDirection: "column", fontSize: "120%" }}>
-        <div id="po-detail-content" style={{ maxWidth: "90%", margin: "0 auto", width: "100%", padding: "24px 20px", flex: 1 }}>
-          {/* Header — sticky, includes all PO info */}
-          <div style={{ ...S.detailHeader, borderLeft: `4px solid ${statusColor}`, borderRadius: 12, marginBottom: 16, position: "sticky", top: 0, zIndex: 10, background: "#0F172A", flexDirection: "column", gap: 10 }}>
-            {/* Row 1: PO# / Vendor + buttons */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", width: "100%" }}>
-              <div>
-                <div style={{ ...S.detailPONum, fontSize: 24 }}>{selected.PoNumber ?? "—"}</div>
-                <div style={{ ...S.detailVendor, fontSize: 18 }}>{selected.VendorName ?? "Unknown Vendor"}</div>
-              </div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <span style={{ ...S.badge, background: statusColor + "33", color: statusColor, border: `1px solid ${statusColor}66`, fontSize: 14, padding: "4px 12px" }}>
-                  {selected.StatusName ?? "Unknown"}
-                </span>
-                <button onClick={() => exportPOExcel(selected, items, detailMode)}
-                  style={{ background: "#1D6F42", border: "none", borderRadius: 6, padding: "6px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: "#fff", fontSize: 12, fontWeight: 600, fontFamily: "inherit", transition: "background 0.15s" }}
-                  onMouseEnter={e => e.currentTarget.style.background = "#155734"}
-                  onMouseLeave={e => e.currentTarget.style.background = "#1D6F42"}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" fill="#fff" fillOpacity=".2" stroke="#fff" strokeWidth="1.5"/><path d="M14 2v6h6" stroke="#fff" strokeWidth="1.5"/><path d="M8 13l2.5 4M8 17l2.5-4M13 13v4M15.5 13v4M13 15h2.5" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  Excel
-                </button>
-                <button style={{ ...S.btnSecondary, fontSize: 12, padding: "6px 14px", display: "flex", alignItems: "center", gap: 4 }} onClick={() => printPODetail()}>🖨️ Print</button>
-                <button onClick={() => setConfirmModal({ title: "Delete PO", message: `Delete PO ${selected.PoNumber}? This will permanently remove the PO, all milestones, notes, and history.`, icon: "🗑", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => deletePO(selected.PoNumber ?? "") })}
-                  style={{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 6, padding: "4px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}
-                  onMouseEnter={e => { e.currentTarget.style.background = "#EF4444"; e.currentTarget.style.color = "#fff"; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "#EF4444"; }}>🗑 Delete PO</button>
-                <button style={{ ...S.closeBtn, fontSize: 16, padding: "4px 10px" }} onClick={() => { setSelected(null); setSearch(""); }}>✕ Close</button>
-              </div>
-            </div>
-            {/* Row 2: PO info pills */}
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {(() => {
-                const ddpColor = days !== null && days < 0 ? "#EF4444" : days !== null && days <= 7 ? "#F59E0B" : "#10B981";
-                const ddpSuffix = days === null ? "" : days < 0 ? ` (${Math.abs(days)}d late)` : days === 0 ? " (Today!)" : ` (${days}d)`;
-                const origin = (() => { const v = dcVendors.find(v => v.name === selected.VendorName); return (v as any)?.country || null; })();
-                const pills: [string, string, string?][] = [
-                  ["Order", fmtDate(selected.DateOrder) || "—"],
-                  ["DDP", (fmtDate(selected.DateExpectedDelivery) || "—") + ddpSuffix, ddpColor],
-                  ...(selected.VendorReqDate ? [["Vendor Req", fmtDate(selected.VendorReqDate)] as [string, string]] : []),
-                  ["Value", fmtCurrency(total, selected.CurrencyCode)],
-                  ["Qty", totalQty.toLocaleString()],
-                  ...(selected.PaymentTermsName ? [["Payment", selected.PaymentTermsName] as [string, string]] : []),
-                  ...(selected.ShipMethodName ? [["Ship", selected.ShipMethodName] as [string, string]] : []),
-                  ...(selected.CarrierName ? [["Carrier", selected.CarrierName] as [string, string]] : []),
-                  ...(selected.BuyerName ? [["Buyer", selected.BuyerName] as [string, string]] : []),
-                  ...(selected.BrandName ? [["Brand", selected.BrandName] as [string, string]] : []),
-                  ...(origin ? [["Origin", origin] as [string, string]] : []),
-                  ...(selected.Memo ? [["Memo", selected.Memo] as [string, string]] : []),
-                  ...(selected.Tags ? [["Tags", selected.Tags] as [string, string]] : []),
-                ];
-                return pills.map(([label, val, color]) => (
-                  <div key={label} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", background: "#1E293B", borderRadius: 6, border: "1px solid #334155" }}>
-                    <span style={{ fontSize: 11, color: "#6B7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3 }}>{label}:</span>
-                    <span style={{ fontSize: 13, color: color || "#D1D5DB", fontWeight: 600 }}>{val}</span>
-                  </div>
-                ));
-              })()}
-            </div>
-          </div>
-
-          {/* Milestone Progress Bar + Quick Status */}
-          {(() => {
-            const poMs = milestones[selected.PoNumber ?? ""] || [];
-            if (poMs.length === 0) return null;
-            const complete = poMs.filter(m => m.status === "Complete").length;
-            const inProg = poMs.filter(m => m.status === "In Progress").length;
-            const delayed = poMs.filter(m => m.status === "Delayed").length;
-            const na = poMs.filter(m => m.status === "N/A").length;
-            const active = poMs.length - na;
-            const pct = active > 0 ? Math.round((complete / active) * 100) : 0;
-            const delayedPct = active > 0 ? Math.round((delayed / active) * 100) : 0;
-            const inProgPct = active > 0 ? Math.round((inProg / active) * 100) : 0;
-            // Category summary
-            const cats = WIP_CATEGORIES.filter(cat => poMs.some(m => m.category === cat));
-            return (
-              <div style={{ marginBottom: 12 }}>
-                <div onClick={() => setProgressCollapsed(!progressCollapsed)}
-                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#0F172A", borderRadius: progressCollapsed ? 8 : "8px 8px 0 0", cursor: "pointer", userSelect: "none" }}>
-                  <span style={{ color: "#6B7280", fontSize: 12 }}>{progressCollapsed ? "▶" : "▼"}</span>
-                  <span style={{ color: "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Production Progress</span>
-                  <span style={{ color: "#10B981", fontSize: 14, fontWeight: 800, fontFamily: "monospace" }}>{pct}%</span>
-                  <span style={{ color: "#6B7280", fontSize: 11 }}>{complete}/{active} milestones</span>
-                  {delayed > 0 && <span style={{ color: "#EF4444", fontSize: 11, fontWeight: 600 }}>⚠ {delayed} delayed</span>}
-                </div>
-                {!progressCollapsed && <div style={{ background: "#0F172A", borderRadius: "0 0 8px 8px", padding: "12px 14px" }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
-                  {([
-                    ["Complete", complete, "#10B981", "#6EE7B7", "#047857"],
-                    ["In Progress", inProg, "#3B82F6", "#93C5FD", "#1D4ED8"],
-                    ["Delayed", delayed, "#EF4444", "#FCA5A5", "#7F1D1D"],
-                    ["Not Started", active - complete - inProg - delayed, "#6B7280", "#6B7280", "#1F2937"],
-                  ] as [string, number, string, string, string][]).filter(([, count]) => (count as number) > 0).map(([label, count, labelColor, gradLight, gradDark]) => {
-                    const statusPct = active > 0 ? Math.round(((count as number) / active) * 100) : 0;
-                    return (
-                      <div key={label as string} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ width: 90, fontSize: 11, color: labelColor as string, fontWeight: 600, textAlign: "right", flexShrink: 0 }}>{label as string}</span>
-                        <div style={{ flex: 1, height: 10, borderRadius: 5, background: "#0F172A", overflow: "hidden" }}>
-                          <div style={{ width: `${statusPct}%`, height: "100%", background: `linear-gradient(90deg, ${gradLight}, ${gradDark})`, borderRadius: 5, transition: "width 0.3s", minWidth: (count as number) > 0 ? 4 : 0 }} />
-                        </div>
-                        <span style={{ width: 55, fontSize: 11, color: "#94A3B8", fontFamily: "monospace", flexShrink: 0 }}>{count} ({statusPct}%)</span>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {cats.map(cat => {
-                    const catMs = poMs.filter(m => m.category === cat);
-                    const catDone = catMs.filter(m => m.status === "Complete").length;
-                    const catNA = catMs.filter(m => m.status === "N/A").length;
-                    const catActive = catMs.length - catNA;
-                    const allDone = catActive > 0 && catDone === catActive;
-                    const hasDelayed = catMs.some(m => m.status === "Delayed");
-                    const hasInProg = catMs.some(m => m.status === "In Progress");
-                    const dotColor = allDone ? "#10B981" : hasDelayed ? "#EF4444" : hasInProg ? "#3B82F6" : "#6B7280";
-                    return (
-                      <div key={cat} onClick={() => openCategoryWithCheck(selected.PoNumber ?? "", cat)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 6, background: "#0F172A", border: "1px solid #334155", cursor: "pointer", transition: "border-color 0.15s" }}
-                        onMouseEnter={e => e.currentTarget.style.borderColor = dotColor}
-                        onMouseLeave={e => e.currentTarget.style.borderColor = "#334155"}>
-                        <div style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor }} />
-                        <span style={{ fontSize: 11, color: "#D1D5DB" }}>{cat}</span>
-                        <span style={{ fontSize: 10, color: "#6B7280", fontFamily: "monospace" }}>{catDone}/{catActive}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-                </div>}
-              </div>
-            );
-          })()}
-
-          {/* Tabs */}
-          <div style={{ display: "flex", gap: 2, marginBottom: 0 }}>
-            <button style={tabStyle("po")} onClick={() => setDetailMode("po")}>PO / Matrix</button>
-            <button style={tabStyle("milestones")} onClick={() => setDetailMode("milestones")}>Milestones</button>
-            <button style={tabStyle("notes")} onClick={() => setDetailMode("notes")}>Notes</button>
-            <button style={tabStyle("attachments")} onClick={() => { setDetailMode("attachments"); const pn = selected.PoNumber ?? ""; if (pn && !attachments[pn]) loadAttachments(pn); }}>📎 Files</button>
-            <button style={tabStyle("email")} onClick={() => { setDetailMode("email"); setDtlEmailTab("inbox"); const pn = selected.PoNumber ?? ""; if (pn && emailToken && !dtlEmails[pn]?.length) loadDtlEmails(pn); }}>📧 Email/Teams</button>
-            <button style={tabStyle("history")} onClick={() => setDetailMode("history")}>History</button>
-            <button style={tabStyle("all")} onClick={() => setDetailMode("all")}>All</button>
-          </div>
-          <div style={{ border: "1px solid #334155", borderTop: "none", borderRadius: "0 0 10px 10px", background: "#1E293B", padding: 20, marginBottom: 20 }}>
-
-          {/* PO / Matrix combined section */}
-          {showPO && items.length > 0 && (() => {
-            // Matrix data
-            const parsed = items.map((item: any) => {
-              const sku = item.ItemNumber ?? ""; const parts = sku.split("-");
-              const color = parts.length === 4 ? `${parts[1]}-${parts[2]}` : (parts.length >= 2 ? parts[1] : "");
-              const sz = normalizeSize(parts.length === 4 ? parts[3] : parts.length >= 3 ? parts.slice(2).join("-") : "");
-              return { base: parts[0] || sku, color, size: sz, qty: itemQty(item), price: item.UnitPrice ?? 0, desc: item.Description ?? "" };
-            });
-            const sizeSet2 = new Set<string>();
-            parsed.forEach((p: any) => { if (p.size) sizeSet2.add(p.size); });
-            const sizeOrder = [...sizeSet2].sort(sizeSort);
-            const bases: string[] = [];
-            const byBase: Record<string, { color: string; desc: string; sizes: Record<string, number>; price: number }[]> = {};
-            parsed.forEach((p: any) => {
-              if (!byBase[p.base]) { byBase[p.base] = []; bases.push(p.base); }
-              let row = byBase[p.base].find((r: any) => r.color === p.color);
-              if (!row) { row = { color: p.color, desc: p.desc, sizes: {}, price: p.price }; byBase[p.base].push(row); }
-              row.sizes[p.size] = (row.sizes[p.size] || 0) + p.qty;
-            });
-
-            return (
-              <>
-                {/* Matrix — collapsible, milestone-tab style */}
-                <div style={{ marginBottom: 8 }}>
-                  <div onClick={() => setMatrixCollapsed(!matrixCollapsed)}
-                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#0F172A", borderRadius: matrixCollapsed ? 8 : "8px 8px 0 0", cursor: "pointer", userSelect: "none" }}>
-                    <span style={{ color: "#6B7280", fontSize: 12 }}>{matrixCollapsed ? "▶" : "▼"}</span>
-                    <span style={{ color: "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Item Matrix</span>
-                    <span style={{ color: "#6B7280", fontSize: 11, marginLeft: "auto" }}>{bases.length} base parts · {sizeOrder.length} sizes</span>
-                  </div>
-                  {!matrixCollapsed && (
-                    <div style={{ overflowX: "auto", background: "#0F172A", borderRadius: "0 0 8px 8px" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                        <thead>
-                          <tr style={{ background: "#0F172A" }}>
-                            <th style={{ padding: "10px 14px", textAlign: "left", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Base Part</th>
-                            <th style={{ padding: "10px 14px", textAlign: "left", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Description</th>
-                            <th style={{ padding: "10px 14px", textAlign: "left", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Color</th>
-                            {sizeOrder.map(sz => (
-                              <th key={sz} style={{ padding: "10px 14px", textAlign: "center", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155", minWidth: 60 }}>{sz}</th>
-                            ))}
-                            <th style={{ padding: "10px 14px", textAlign: "center", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Total</th>
-                            <th style={{ padding: "10px 14px", textAlign: "right", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>PO Cost</th>
-                            <th style={{ padding: "10px 14px", textAlign: "right", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Total Cost</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {bases.map((base, bi) => {
-                            const rows = byBase[base];
-                            return rows.map((row, ri) => {
-                              const rowTotal = Object.values(row.sizes).reduce((s: number, q: any) => s + q, 0);
-                              const rowCost = rowTotal * row.price;
-                              const isLast = ri === rows.length - 1;
-                              return (
-                                <tr key={base + "-" + row.color} style={{ borderBottom: isLast && bi < bases.length - 1 ? "2px solid #334155" : "1px solid #1E293B" }}>
-                                  <td style={{ padding: "8px 14px", color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, borderRight: "1px solid #334155" }}>{base}</td>
-                                  <td style={{ padding: "8px 14px", color: "#9CA3AF", fontSize: 12 }}>{row.desc || "—"}</td>
-                                  <td style={{ padding: "8px 14px", color: "#D1D5DB" }}>{row.color || "—"}</td>
-                                  {sizeOrder.map(sz => (
-                                    <td key={sz} style={{ padding: "8px 14px", textAlign: "center", color: row.sizes[sz] ? "#E5E7EB" : "#334155", fontFamily: "monospace" }}>{row.sizes[sz] || "—"}</td>
-                                  ))}
-                                  <td style={{ padding: "8px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 700, fontFamily: "monospace" }}>{rowTotal}</td>
-                                  <td style={{ padding: "8px 14px", textAlign: "right", color: "#9CA3AF", fontFamily: "monospace" }}>{fmtCurrency(row.price, selected.CurrencyCode)}</td>
-                                  <td style={{ padding: "8px 14px", textAlign: "right", color: "#10B981", fontWeight: 600, fontFamily: "monospace" }}>{fmtCurrency(rowCost, selected.CurrencyCode)}</td>
-                                </tr>
-                              );
-                            });
-                          })}
-                        </tbody>
-                        <tfoot>
-                          <tr style={{ borderTop: "2px solid #334155", background: "#0F172A" }}>
-                            <td colSpan={3} style={{ padding: "12px 14px", color: "#9CA3AF", fontWeight: 700, textAlign: "right" }}>Grand Total</td>
-                            {sizeOrder.map(sz => {
-                              const colTotal = parsed.filter((p: any) => p.size === sz).reduce((s: number, p: any) => s + p.qty, 0);
-                              return <td key={sz} style={{ padding: "12px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 700, fontFamily: "monospace" }}>{colTotal}</td>;
-                            })}
-                            <td style={{ padding: "12px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 800, fontFamily: "monospace" }}>{totalQty}</td>
-                            <td style={{ padding: "12px 14px" }} />
-                            <td style={{ padding: "12px 14px", textAlign: "right", color: "#10B981", fontWeight: 800, fontFamily: "monospace" }}>{fmtCurrency(total, selected.CurrencyCode)}</td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
-                  )}
-                </div>
-
-                {/* Line Items — collapsible, milestone-tab style */}
-                <div style={{ marginBottom: 20 }}>
-                  <div onClick={() => setLineItemsCollapsed(!lineItemsCollapsed)}
-                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#0F172A", borderRadius: lineItemsCollapsed ? 8 : "8px 8px 0 0", cursor: "pointer", userSelect: "none" }}>
-                    <span style={{ color: "#6B7280", fontSize: 12 }}>{lineItemsCollapsed ? "▶" : "▼"}</span>
-                    <span style={{ color: "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Line Items</span>
-                    <span style={{ color: "#6B7280", fontSize: 11, marginLeft: "auto" }}>{items.length} items</span>
-                  </div>
-                  {!lineItemsCollapsed && (
-                    <div style={{ ...S.itemsTable, borderRadius: "0 0 8px 8px" }}>
-                      <div style={S.itemsHeader}>
-                        <span>SKU</span><span>Description</span><span>Qty</span><span>Unit Price</span><span>Total</span>
-                      </div>
-                      {items.map((item, i) => (
-                        <div key={i} style={S.itemRow}>
-                          <span style={{ color: "#60A5FA", fontFamily: "monospace" }}>{item.ItemNumber ?? "—"}</span>
-                          <span style={{ color: "#D1D5DB" }}>{item.Description ?? "—"}</span>
-                          <span style={{ color: "#E5E7EB", textAlign: "right" }}>{itemQty(item)}{(item.QtyReceived ?? 0) > 0 ? <span style={{ color: "#6B7280", fontSize: 10 }}> / {item.QtyOrder}</span> : ""}</span>
-                          <span style={{ color: "#E5E7EB", textAlign: "right" }}>{fmtCurrency(item.UnitPrice, selected.CurrencyCode)}</span>
-                          <span style={{ color: "#10B981", textAlign: "right", fontWeight: 600 }}>
-                            {fmtCurrency(itemQty(item) * (item.UnitPrice ?? 0), selected.CurrencyCode)}
-                          </span>
-                        </div>
-                      ))}
-                      <div style={S.itemsTotal}>
-                        <span style={{ gridColumn: "1/5", textAlign: "right", color: "#9CA3AF" }}>Total</span>
-                        <span style={{ color: "#10B981", fontWeight: 700 }}>{fmtCurrency(total, selected.CurrencyCode)}</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </>
-            );
-          })()}
-
-            {/* Attachments Tab */}
-            {(detailMode === "attachments" || detailMode === "all") && (() => {
-              const pn = selected.PoNumber ?? "";
-              const files = attachments[pn] || [];
-              const fmtSize = (b: number) => b < 1024 ? b + " B" : b < 1048576 ? (b / 1024).toFixed(1) + " KB" : (b / 1048576).toFixed(1) + " MB";
-              const getIcon = (type: string) => type.startsWith("image/") ? "🖼️" : type.includes("pdf") ? "📄" : type.includes("sheet") || type.includes("excel") || type.includes("csv") ? "📊" : type.includes("word") || type.includes("doc") ? "📝" : "📎";
-              return (
-                <div style={{ marginBottom: 20 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                    <div style={S.sectionLabel}>Attachments ({files.filter(f => !(f as any).deleted_at).length})</div>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      {uploadingAttachment && <span style={{ fontSize: 12, color: "#F59E0B" }}>Uploading…</span>}
-                      <input ref={attachInputRef} type="file" multiple style={{ display: "none" }} onChange={async e => {
-                        const fileList = e.target.files; if (!fileList) return;
-                        for (let i = 0; i < fileList.length; i++) await uploadAttachment(pn, fileList[i]);
-                        e.target.value = "";
-                      }} />
-                      <button onClick={() => attachInputRef.current?.click()} disabled={uploadingAttachment} style={{ ...S.btnPrimary, fontSize: 11, padding: "6px 14px", width: "auto", opacity: uploadingAttachment ? 0.5 : 1 }}>+ Upload Files</button>
-                    </div>
-                  </div>
-                  {files.length === 0 ? (
-                    <div style={{ background: "#0F172A", borderRadius: 8, padding: 30, textAlign: "center" }}>
-                      <div style={{ fontSize: 32, marginBottom: 8 }}>📎</div>
-                      <div style={{ color: "#6B7280", fontSize: 13, marginBottom: 12 }}>No attachments yet</div>
-                      <button onClick={() => attachInputRef.current?.click()} style={{ ...S.btnSecondary, fontSize: 12 }}>Upload your first file</button>
-                    </div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                      {files.map(f => {
-                        const isDeleted = !!(f as any).deleted_at;
-                        const timeAgo = f.uploaded_at ? (() => { const ms = Date.now() - new Date(f.uploaded_at).getTime(); const m = Math.floor(ms / 60000); if (m < 60) return `${m}m ago`; const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`; return `${Math.floor(h / 24)}d ago`; })() : "";
-                        const deleteTimeLeft = isDeleted ? (() => { const ms = 24 * 60 * 60 * 1000 - (Date.now() - new Date((f as any).deleted_at).getTime()); if (ms <= 0) return ""; const h = Math.floor(ms / 3600000); return `${h}h left to undo`; })() : "";
-                        if (isDeleted) {
-                          const msLeft = 24 * 60 * 60 * 1000 - (Date.now() - new Date((f as any).deleted_at).getTime());
-                          if (msLeft <= 0) return null;
-                          const h = Math.floor(msLeft / 3600000); const m = Math.floor((msLeft % 3600000) / 60000); const s = Math.floor((msLeft % 60000) / 1000);
-                          const countdown = `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-                          return (
-                          <div key={f.id} style={{ position: "relative", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "#0F172A", borderRadius: 8, border: "1px dashed #EF444444", overflow: "hidden" }}>
-                            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1 }}>
-                              <span style={{ fontSize: 28, fontWeight: 800, fontFamily: "monospace", color: "#10B981", textShadow: "0 0 12px #10B98166, 0 0 24px #10B98133", letterSpacing: 2 }}>{countdown}</span>
-                            </div>
-                            <div style={{ position: "relative", zIndex: 2, flex: 1, display: "flex", alignItems: "center", gap: 12, opacity: 0.5 }}>
-                              <span style={{ fontSize: 24, flexShrink: 0 }}>🗑</span>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 13, color: "#EF4444", fontWeight: 600, textDecoration: "line-through" }}>{f.name}</div>
-                              </div>
-                            </div>
-                            <button onClick={() => undoDeleteAttachment(pn, f.id)}
-                              style={{ position: "relative", zIndex: 2, padding: "8px 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #F59E0B, #D97706)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, boxShadow: "0 2px 8px rgba(245,158,11,0.3)" }}>↩ Undo</button>
-                          </div>
-                          );
-                        }
-                        return (
-                          <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "#0F172A", borderRadius: 8, border: "1px solid #334155" }}>
-                            <span style={{ fontSize: 24, flexShrink: 0 }}>{getIcon(f.type)}</span>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <a href={f.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "#60A5FA", fontWeight: 600, textDecoration: "none", display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
-                                onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"} onMouseLeave={e => e.currentTarget.style.textDecoration = "none"}>{f.name}</a>
-                              <div style={{ fontSize: 11, color: "#6B7280" }}>{fmtSize(f.size)} · {f.uploaded_by} · {timeAgo}</div>
-                            </div>
-                            {f.type.startsWith("image/") && f.url && <img src={f.url} alt="" style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover", flexShrink: 0 }} />}
-                            <button onClick={e => { e.stopPropagation(); setConfirmModal({ title: "Delete Attachment", message: `Delete "${f.name}"? You'll have 24 hours to undo.`, icon: "🗑", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => deleteAttachment(pn, f.id) }); }}
-                              style={{ background: "none", border: "1px solid #EF444444", color: "#EF4444", borderRadius: 6, padding: "4px 8px", fontSize: 10, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>✕</button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
-            {/* Email Tab */}
-            {(detailMode === "email" || detailMode === "all") && (() => {
-              const OUTLOOK_BLUE = "#0078D4";
-              const pn = selected.PoNumber ?? "";
-              const prefix = "[PO-" + pn + "]";
-              const dtlList = dtlEmails[pn] || [];
-              const isLoading = !!dtlEmailLoading[pn];
-              const err = dtlEmailErr[pn];
-
-              return (
-                <div style={{ marginBottom: 20 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                    <div style={S.sectionLabel}>Emails for {prefix}</div>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      {emailToken && <button onClick={() => loadDtlEmails(pn)} style={{ ...S.btnSecondary, fontSize: 11, padding: "4px 10px" }}>↻ Refresh</button>}
-                    </div>
-                  </div>
-
-                  {!emailToken ? (
-                    <div style={{ textAlign: "center", padding: "30px 0" }}>
-                      <div style={{ fontSize: 28, marginBottom: 8 }}>🔒</div>
-                      <div style={{ color: "#6B7280", fontSize: 13, marginBottom: 12 }}>Sign in with Microsoft to view emails</div>
-                      {(!MS_CLIENT_ID || !MS_TENANT_ID) ? (
-                        <div style={{ color: "#D97706", fontSize: 12 }}>Azure credentials not configured — check Vercel env vars</div>
-                      ) : (
-                        <button onClick={authenticateEmail} style={{ ...S.btnPrimary, width: "auto", fontSize: 12, padding: "8px 18px" }}>Sign in with Microsoft</button>
-                      )}
-                    </div>
-                  ) : (
-                    <>
-                      <div style={{ display: "flex", gap: 2, marginBottom: 12, flexWrap: "wrap" as const }}>
-                        {(["inbox", "sent", "thread", "compose", "teams"] as const).map(tab => (
-                          <button key={tab} onClick={() => { setDtlEmailTab(tab); if (tab === "compose") setDtlComposeSubject(prefix + " "); if (tab === "sent") loadDtlSentEmails(poNum); if (tab === "teams" && teamsToken && teamsChannelMap[poNum] && !teamsMessages[poNum]?.length) teamsLoadPOMessages(poNum); }}
-                            style={{ padding: "8px 14px", border: "1px solid #334155", borderBottom: dtlEmailTab === tab ? "none" : "1px solid #334155", background: dtlEmailTab === tab ? "#1E293B" : "#0F172A", color: dtlEmailTab === tab ? (tab === "teams" ? TEAMS_PURPLE_LT : OUTLOOK_BLUE) : "#6B7280", fontWeight: dtlEmailTab === tab ? 700 : 500, cursor: "pointer", fontFamily: "inherit", fontSize: 12, borderRadius: "8px 8px 0 0" }}>
-                            {tab === "teams" ? "💬 Teams" : tab.charAt(0).toUpperCase() + tab.slice(1)}
-                          </button>
-                        ))}
-                      </div>
-
-                      {dtlEmailTab === "inbox" && (
-                        <>
-                          {isLoading ? (
-                            <div style={{ textAlign: "center", color: "#6B7280", padding: "24px 0", fontSize: 13 }}>Loading emails…</div>
-                          ) : err ? (
-                            <div style={{ background: "#7F1D1D", border: "1px solid #EF4444", borderRadius: 8, padding: "12px 16px", color: "#FCA5A5", fontSize: 13 }}>⚠ {err}</div>
-                          ) : dtlList.length === 0 ? (
-                            <div style={{ textAlign: "center", color: "#6B7280", padding: "24px 0" }}>
-                              <div style={{ fontSize: 24, marginBottom: 6 }}>📧</div>
-                              <div style={{ fontSize: 13 }}>No emails matching "{prefix}"</div>
-                            </div>
-                          ) : (
-                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                              {dtlList.map((em: any) => {
-                                const sender = em.from?.emailAddress ? em.from.emailAddress.name || em.from.emailAddress.address : "Unknown";
-                                const initials = sender.split(" ").map((w: string) => w[0] || "").join("").toUpperCase().slice(0, 2);
-                                const time = em.receivedDateTime ? new Date(em.receivedDateTime).toLocaleString() : "";
-                                return (
-                                  <div key={em.id} onClick={() => { loadDtlFullEmail(em.id); if (em.conversationId) loadDtlThread(em.conversationId); }}
-                                    style={{ background: em.isRead ? "#0F172A" : OUTLOOK_BLUE + "15", border: "1px solid " + (em.isRead ? "#334155" : OUTLOOK_BLUE + "44"), borderRadius: 8, padding: "10px 14px", cursor: "pointer", transition: "all 0.12s" }}>
-                                    <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                                      <div style={{ width: 30, height: 30, borderRadius: "50%", background: OUTLOOK_BLUE + "22", border: "2px solid " + OUTLOOK_BLUE, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: OUTLOOK_BLUE, flexShrink: 0 }}>{initials}</div>
-                                      <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
-                                          <span style={{ fontSize: 12, fontWeight: em.isRead ? 500 : 700, color: "#F1F5F9" }}>{sender}</span>
-                                          <span style={{ fontSize: 10, color: "#6B7280" }}>{time}</span>
-                                          {em.hasAttachments && <span style={{ fontSize: 10, color: "#6B7280" }}>📎</span>}
-                                          {!em.isRead && <span style={{ width: 7, height: 7, borderRadius: "50%", background: OUTLOOK_BLUE, flexShrink: 0 }} />}
-                                        </div>
-                                        <div style={{ fontSize: 12, fontWeight: em.isRead ? 400 : 600, color: "#E2E8F0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{em.subject}</div>
-                                        <div style={{ fontSize: 11, color: "#6B7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>{em.bodyPreview || ""}</div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                              {dtlNextLink[pn] && (
-                                <button onClick={() => loadDtlEmails(pn, dtlNextLink[pn]!)} disabled={dtlLoadingOlder} style={{ ...S.btnPrimary, opacity: dtlLoadingOlder ? 0.6 : 1, fontSize: 12 }}>{dtlLoadingOlder ? "Loading…" : "Load older emails"}</button>
-                              )}
-                            </div>
-                          )}
-                          <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
-                            <button onClick={() => { setDtlEmailTab("compose"); setDtlComposeSubject(prefix + " "); }} style={{ ...S.btnPrimary, width: "auto", fontSize: 11, padding: "7px 14px" }}>+ New Email</button>
-                            <span style={{ fontSize: 11, color: "#6B7280" }}>{dtlList.length} email{dtlList.length !== 1 ? "s" : ""}</span>
-                          </div>
-                        </>
-                      )}
-
-                      {dtlEmailTab === "sent" && (
-                        <div>
-                          {dtlSentLoading[pn] ? (
-                            <div style={{ textAlign: "center", color: "#6B7280", padding: "24px 0", fontSize: 13 }}>Loading sent emails…</div>
-                          ) : (dtlSentEmails[pn] || []).length === 0 ? (
-                            <div style={{ textAlign: "center", color: "#6B7280", padding: "24px 0" }}><div style={{ fontSize: 24, marginBottom: 6 }}>📤</div><div style={{ fontSize: 13 }}>No sent emails for "{prefix}"</div></div>
-                          ) : (
-                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                              {(dtlSentEmails[pn] || []).map((em: any) => {
-                                const toList = (em.toRecipients || []).map((r: any) => r.emailAddress?.name || r.emailAddress?.address || "").filter(Boolean).join(", ") || "—";
-                                const time = em.sentDateTime ? new Date(em.sentDateTime).toLocaleString() : "";
-                                return (
-                                  <div key={em.id} onClick={() => { loadDtlFullEmail(em.id); if (em.conversationId) loadDtlThread(em.conversationId); }}
-                                    style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: "10px 14px", cursor: "pointer" }}>
-                                    <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                                      <div style={{ width: 30, height: 30, borderRadius: "50%", background: OUTLOOK_BLUE + "22", border: "2px solid " + OUTLOOK_BLUE, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: OUTLOOK_BLUE, flexShrink: 0 }}>→</div>
-                                      <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
-                                          <span style={{ fontSize: 11, color: "#94A3B8" }}>To: {toList}</span>
-                                          <span style={{ fontSize: 10, color: "#6B7280" }}>{time}</span>
-                                          {em.hasAttachments && <span style={{ fontSize: 10, color: "#6B7280" }}>📎</span>}
-                                        </div>
-                                        <div style={{ fontSize: 12, fontWeight: 500, color: "#E2E8F0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{em.subject}</div>
-                                        <div style={{ fontSize: 11, color: "#6B7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>{em.bodyPreview || ""}</div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {dtlEmailTab === "thread" && (
-                        <div>
-                          {dtlThreadLoading ? (
-                            <div style={{ textAlign: "center", color: "#6B7280", padding: "24px 0", fontSize: 13 }}>Loading thread…</div>
-                          ) : dtlEmailThread.length === 0 ? (
-                            <div style={{ textAlign: "center", color: "#6B7280", padding: "24px 0", fontSize: 13 }}>Click an email to view its thread</div>
-                          ) : (
-                            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
-                              {dtlEmailThread.map((msg: any) => {
-                                const sender = msg.from?.emailAddress ? msg.from.emailAddress.name || msg.from.emailAddress.address : "Unknown";
-                                const initials = sender.split(" ").map((w: string) => w[0] || "").join("").toUpperCase().slice(0, 2);
-                                const time = msg.receivedDateTime ? new Date(msg.receivedDateTime).toLocaleString() : "";
-                                const htmlBody = msg.body?.content || "";
-                                return (
-                                  <div key={msg.id} style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: "12px 16px" }}>
-                                    <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 8 }}>
-                                      <div style={{ width: 28, height: 28, borderRadius: "50%", background: OUTLOOK_BLUE + "22", border: "2px solid " + OUTLOOK_BLUE, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: OUTLOOK_BLUE, flexShrink: 0 }}>{initials}</div>
-                                      <div style={{ flex: 1 }}>
-                                        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                                          <span style={{ fontSize: 12, fontWeight: 700, color: "#F1F5F9" }}>{sender}</span>
-                                          <span style={{ fontSize: 10, color: "#6B7280" }}>{time}</span>
-                                        </div>
-                                        <div style={{ fontSize: 11, color: "#6B7280" }}>{msg.subject}</div>
-                                      </div>
-                                    </div>
-                                    <iframe sandbox="allow-same-origin" srcDoc={styledEmailHtml(htmlBody)} style={{ width: "100%", border: "none", minHeight: 80, borderRadius: 6, background: "#F8FAFC" }}
-                                      onLoad={e => { try { const h = (e.target as HTMLIFrameElement).contentDocument!.body.scrollHeight; (e.target as HTMLIFrameElement).style.height = Math.min(h + 20, 400) + "px"; } catch (_) {} }} />
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                          {dtlEmailSel && (
-                            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                              <input value={dtlReply} onChange={e => setDtlReply(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); dtlReplyToEmail(dtlEmailSel.id); } }} placeholder="Write a reply…" style={{ ...S.input, flex: 1 }} />
-                              <button onClick={() => dtlReplyToEmail(dtlEmailSel.id)} style={{ ...S.btnPrimary, width: "auto", padding: "10px 20px" }}>Reply</button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {dtlEmailTab === "compose" && (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                          <div>
-                            <label style={S.label}>To (comma-separated)</label>
-                            <input value={dtlComposeTo} onChange={e => setDtlComposeTo(e.target.value)} placeholder="email@example.com" style={S.input} />
-                          </div>
-                          <div>
-                            <label style={S.label}>Subject</label>
-                            <input value={dtlComposeSubject} onChange={e => setDtlComposeSubject(e.target.value)} style={S.input} />
-                          </div>
-                          <div>
-                            <label style={S.label}>Body</label>
-                            <textarea value={dtlComposeBody} onChange={e => setDtlComposeBody(e.target.value)} rows={8} style={{ ...S.textarea, minHeight: 120 }} placeholder="Type your message…" />
-                          </div>
-                          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                            <button onClick={() => setDtlEmailTab("inbox")} style={S.btnSecondary}>Cancel</button>
-                            <button onClick={() => dtlSendEmail(pn)} disabled={!dtlComposeTo.trim() || !dtlComposeSubject.trim()} style={{ ...S.btnPrimary, width: "auto", opacity: (!dtlComposeTo.trim() || !dtlComposeSubject.trim()) ? 0.5 : 1 }}>Send Email</button>
-                          </div>
-                        </div>
-                      )}
-
-                      {dtlSendErr && (
-                        <div style={{ marginTop: 8, background: "#7F1D1D", border: "1px solid #EF4444", borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 12, color: "#FCA5A5", flex: 1 }}>⚠ {dtlSendErr}</span>
-                          <button onClick={() => setDtlSendErr(null)} style={{ border: "none", background: "none", color: "#FCA5A5", cursor: "pointer", fontFamily: "inherit", fontWeight: 700, fontSize: 11 }}>✕</button>
-                        </div>
-                      )}
-
-                      {dtlEmailTab === "teams" && (
-                        <div>
-                          {!teamsToken ? (
-                            <div style={{ textAlign: "center", padding: "30px 0" }}>
-                              <div style={{ fontSize: 28, marginBottom: 8 }}>🔒</div>
-                              <div style={{ color: "#6B7280", fontSize: 13, marginBottom: 12 }}>Sign in with Microsoft to use Teams</div>
-                              {(!MS_CLIENT_ID || !MS_TENANT_ID) ? (
-                                <div style={{ color: "#D97706", fontSize: 12 }}>Azure credentials not configured</div>
-                              ) : (
-                                <button onClick={authenticateTeams} style={{ ...S.btnPrimary, width: "auto", fontSize: 12, padding: "8px 18px" }}>Sign in with Microsoft</button>
-                              )}
-                            </div>
-                          ) : (
-                            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                              {/* Channel Messages */}
-                              <div style={{ background: "#0F172A", border: `1px solid ${TEAMS_PURPLE}44`, borderRadius: 10, overflow: "hidden" }}>
-                                <div style={{ padding: "10px 14px", background: `${TEAMS_PURPLE}22`, borderBottom: `1px solid ${TEAMS_PURPLE}44`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                                  <span style={{ fontSize: 12, fontWeight: 700, color: TEAMS_PURPLE_LT }}>💬 Channel: {pn}</span>
-                                  <div style={{ display: "flex", gap: 6 }}>
-                                    {teamsChannelMap[poNum] && <button onClick={() => teamsLoadPOMessages(poNum)} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 6, border: `1px solid ${TEAMS_PURPLE}44`, background: "none", color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit" }}>↻ Refresh</button>}
-                                    <button onClick={() => { setSelected(null); setView("teams"); setTeamsSelPO(poNum); setTeamsTab("channels"); }} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 6, border: `1px solid ${TEAMS_PURPLE}44`, background: `${TEAMS_PURPLE}22`, color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit" }}>Open Teams ↗</button>
-                                  </div>
-                                </div>
-                                {!teamsChannelMap[poNum] ? (
-                                  <div style={{ padding: "14px 16px", fontSize: 12, color: "#6B7280", textAlign: "center" }}>
-                                    No Teams channel for this PO.{" "}
-                                    <button onClick={() => { setSelected(null); setView("teams"); setTeamsSelPO(poNum); }} style={{ color: TEAMS_PURPLE_LT, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600, textDecoration: "underline" }}>Go to Teams to create one</button>
-                                  </div>
-                                ) : teamsLoading[poNum] ? (
-                                  <div style={{ padding: "14px 16px", fontSize: 12, color: "#6B7280", textAlign: "center" }}>Loading messages…</div>
-                                ) : (teamsMessages[poNum] || []).length === 0 ? (
-                                  <div style={{ padding: "14px 16px", fontSize: 12, color: "#6B7280", textAlign: "center" }}>No messages yet in this channel</div>
-                                ) : (
-                                  <div style={{ maxHeight: 200, overflowY: "auto" as const, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
-                                    {(teamsMessages[poNum] || []).slice(-5).map((msg: any) => {
-                                      const author = msg.from?.user?.displayName || "Unknown";
-                                      const clean = (msg.body?.content || "").replace(/<[^>]+>/g, "").trim();
-                                      const time = msg.createdDateTime ? new Date(msg.createdDateTime).toLocaleString() : "";
-                                      return (
-                                        <div key={msg.id} style={{ background: "#1E293B", borderRadius: 8, padding: "8px 12px" }}>
-                                          <div style={{ display: "flex", gap: 6, alignItems: "baseline", marginBottom: 3 }}>
-                                            <span style={{ fontSize: 12, fontWeight: 700, color: TEAMS_PURPLE_LT }}>{author}</span>
-                                            <span style={{ fontSize: 10, color: "#6B7280" }}>{time}</span>
-                                          </div>
-                                          <div style={{ fontSize: 12, color: "#CBD5E1", wordBreak: "break-word" as const }}>{clean || "[Attachment]"}</div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                                {teamsChannelMap[poNum] && (
-                                  <div style={{ padding: "10px 12px", borderTop: `1px solid ${TEAMS_PURPLE}33`, display: "flex", gap: 8 }}>
-                                    <input value={teamsNewMsg} onChange={e => setTeamsNewMsg(e.target.value)}
-                                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); (async () => { const mp = teamsChannelMap[poNum]; if (!mp || !teamsNewMsg.trim() || !teamsToken) return; try { const sent = await teamsGraphPost(`/teams/${mp.teamId}/channels/${mp.channelId}/messages`, { body: { content: teamsNewMsg.trim(), contentType: "text" } }); setTeamsMessages(m => ({ ...m, [poNum]: [...(m[poNum] || []), sent] })); setTeamsNewMsg(""); } catch(e: any) {} })(); } }}
-                                      placeholder="Message channel… (Enter to send)"
-                                      style={{ flex: 1, background: "#0F172A", border: `1px solid ${TEAMS_PURPLE}44`, borderRadius: 7, padding: "8px 12px", color: "#F1F5F9", fontSize: 12, outline: "none", fontFamily: "inherit" }} />
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Quick DM */}
-                              <div style={{ background: "#0F172A", border: `1px solid ${TEAMS_PURPLE}44`, borderRadius: 10, overflow: "visible" as const }}>
-                                <div style={{ padding: "10px 14px", background: `${TEAMS_PURPLE}22`, borderBottom: `1px solid ${TEAMS_PURPLE}44` }}>
-                                  <span style={{ fontSize: 12, fontWeight: 700, color: TEAMS_PURPLE_LT }}>↗ Quick Direct Message</span>
-                                </div>
-                                <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
-                                  <div style={{ position: "relative" as const }}>
-                                    <div style={{ fontSize: 11, color: "#6B7280", marginBottom: 4 }}>
-                                      {teamsContactsLoading
-                                        ? "Loading contacts…"
-                                        : teamsContactsError
-                                          ? <span style={{ color: "#F87171" }}>⚠ Failed — <button onClick={loadTeamsContacts} style={{ background: "none", border: "none", color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit", fontSize: 11, padding: 0, textDecoration: "underline" }}>retry</button></span>
-                                          : teamsContacts.length > 0
-                                            ? `To (${teamsContacts.length} contacts)`
-                                            : "To"}
-                                    </div>
-                                    <input value={dtlDMTo}
-                                      onChange={e => handleTeamsContactInput(e.target.value, "dtl")}
-                                      onFocus={() => { setDtlDMContactSearch(dtlDMTo); setDtlDMContactDropdown(true); }}
-                                      onBlur={() => setTimeout(() => setDtlDMContactDropdown(false), 150)}
-                                      placeholder="Search name or type email…"
-                                      style={{ width: "100%", background: "#1E293B", border: `1px solid ${TEAMS_PURPLE}44`, borderRadius: 7, padding: "8px 12px", color: "#F1F5F9", fontSize: 12, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const }} />
-                                    {dtlDMContactDropdown && (() => {
-                                      const q = (dtlDMContactSearch || "").toLowerCase();
-                                      const list = dtlDMContactSearchResults.length > 0
-                                        ? dtlDMContactSearchResults
-                                        : teamsContacts.filter((c: any) => !q || (c.displayName || "").toLowerCase().includes(q) || (c.userPrincipalName || "").toLowerCase().includes(q) || (c.scoredEmailAddresses?.[0]?.address || "").toLowerCase().includes(q) || (c.mail || "").toLowerCase().includes(q));
-                                      if (list.length === 0 && !dtlDMContactSearchLoading) return null;
-                                      return (
-                                        <div style={{ position: "absolute" as const, top: "100%", left: 0, right: 0, zIndex: 200, background: "#1E293B", border: `1px solid ${TEAMS_PURPLE}66`, borderRadius: 8, maxHeight: 160, overflowY: "auto" as const, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", marginTop: 2 }}>
-                                          {dtlDMContactSearchLoading && <div style={{ padding: "6px 12px", fontSize: 11, color: "#6B7280" }}>Searching…</div>}
-                                          {list.slice(0, 10).map((c: any) => {
-                                            const email = c.userPrincipalName || c.mail || c.scoredEmailAddresses?.[0]?.address || "";
-                                            return (
-                                              <div key={email || c.displayName} onMouseDown={() => { setDtlDMTo(email); setDtlDMContactDropdown(false); setDtlDMContactSearch(""); setDtlDMContactSearchResults([]); }}
-                                                style={{ padding: "8px 12px", cursor: "pointer", borderBottom: `1px solid ${TEAMS_PURPLE}33` }}>
-                                                <div style={{ fontSize: 12, fontWeight: 600, color: "#F1F5F9" }}>{c.displayName}</div>
-                                                <div style={{ fontSize: 11, color: "#6B7280" }}>{email}</div>
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                      );
-                                    })()}
-                                  </div>
-                                  <textarea value={dtlDMMsg} onChange={e => { setDtlDMMsg(e.target.value); setDtlDMErr(null); }} rows={3}
-                                    placeholder="Type your message…"
-                                    style={{ width: "100%", background: "#1E293B", border: `1px solid ${TEAMS_PURPLE}44`, borderRadius: 7, padding: "8px 12px", color: "#F1F5F9", fontSize: 12, outline: "none", fontFamily: "inherit", resize: "vertical" as const, boxSizing: "border-box" as const }} />
-                                  {dtlDMErr && <div style={{ fontSize: 11, color: "#EF4444" }}>⚠ {dtlDMErr}</div>}
-                                  <button disabled={dtlDMSending || !dtlDMTo.trim() || !dtlDMMsg.trim()}
-                                    onClick={async () => {
-                                      if (!dtlDMTo.trim() || !dtlDMMsg.trim()) return;
-                                      setDtlDMSending(true); setDtlDMErr(null);
-                                      try {
-                                        const me = await teamsGraph("/me");
-                                        const chat = await teamsGraphPost("/chats", { chatType: "oneOnOne", members: [
-                                          { "@odata.type": "#microsoft.graph.aadUserConversationMember", roles: ["owner"], "user@odata.bind": `https://graph.microsoft.com/v1.0/users('${me.id}')` },
-                                          { "@odata.type": "#microsoft.graph.aadUserConversationMember", roles: ["owner"], "user@odata.bind": `https://graph.microsoft.com/v1.0/users('${dtlDMTo.trim()}')` },
-                                        ]});
-                                        await teamsGraphPost(`/chats/${chat.id}/messages`, { body: { content: dtlDMMsg.trim(), contentType: "text" } });
-                                        setDtlDMMsg(""); setDtlDMTo("");
-                                      } catch(e: any) { setDtlDMErr("Failed: " + e.message); }
-                                      setDtlDMSending(false);
-                                    }}
-                                    style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 12, fontWeight: 700, cursor: (dtlDMSending || !dtlDMTo.trim() || !dtlDMMsg.trim()) ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: (dtlDMSending || !dtlDMTo.trim() || !dtlDMMsg.trim()) ? 0.5 : 1, alignSelf: "flex-end" as const }}>
-                                    {dtlDMSending ? "Sending…" : "Send DM ↗"}
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              );
-            })()}
-
-            {/* Production Milestones */}
-            {showMilestones && (() => {
-              const poNum = selected.PoNumber ?? "";
-              const poMs = milestones[poNum] || [];
-              const ddp = selected.DateExpectedDelivery;
-              const vendorN = selected.VendorName ?? "";
-              const hasVendorTpl = vendorHasTemplate(vendorN);
-              const isAdmin = user?.role === "admin";
-              const grouped: Record<string, Milestone[]> = {};
-              poMs.forEach(m => { if (!grouped[m.category]) grouped[m.category] = []; grouped[m.category].push(m); });
-
-              return (
-                <div style={{ marginBottom: 20 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                    <div style={S.sectionLabel}>Production Milestones</div>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      {poMs.length === 0 && ddp && hasVendorTpl && (
-                        <button style={{ ...S.btnSecondary, fontSize: 11, padding: "4px 10px" }} onClick={() => ensureMilestones(selected)}>
-                          Generate Milestones
-                        </button>
-                      )}
-                      {poMs.length > 0 && (
-                        <button style={{ ...S.btnSecondary, fontSize: 11, padding: "4px 10px" }} onClick={() => {
-                          setConfirmModal({ title: "Regenerate Milestones", message: "Regenerate milestones? Your statuses, dates, and notes will be preserved.", icon: "🔄", confirmText: "Regenerate", confirmColor: "#3B82F6", onConfirm: () => regenerateMilestones(selected) });
-                        }}>
-                          Regenerate
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  {poMs.length === 0 && !ddp && <p style={{ color: "#6B7280", fontSize: 13 }}>No expected delivery date — cannot generate milestones.</p>}
-                  {poMs.length === 0 && ddp && hasVendorTpl && <p style={{ color: "#6B7280", fontSize: 13 }}>No milestones yet. Click "Generate Milestones" to create them.</p>}
-                  {(() => {
-                    // Dependency & cascade logic
-                    const activeCats = WIP_CATEGORIES.filter(cat => grouped[cat]?.length);
-                    const firstIncompleteCat = activeCats.find(cat => grouped[cat].some(m => m.status !== "Complete" && m.status !== "N/A"));
-
-                    // Calculate cascade delays: for each category, check if any predecessor is late
-                    const cascadeInfo: Record<string, { blocked: boolean; upstreamDelay: number; delayedCat: string }> = {};
-                    activeCats.forEach((cat, idx) => {
-                      cascadeInfo[cat] = { blocked: false, upstreamDelay: 0, delayedCat: "" };
-                      // Check all preceding categories
-                      for (let p = 0; p < idx; p++) {
-                        const prevCat = activeCats[p];
-                        const prevMs = grouped[prevCat] || [];
-                        const prevDone = prevMs.every(m => m.status === "Complete" || m.status === "N/A");
-                        if (!prevDone) {
-                          cascadeInfo[cat].blocked = true;
-                          // Calculate max days late from predecessor's overdue milestones
-                          const maxLate = prevMs.reduce((max, m) => {
-                            if (m.status === "Complete" || m.status === "N/A" || !m.expected_date) return max;
-                            const daysLate = Math.ceil((Date.now() - new Date(m.expected_date).getTime()) / 86400000);
-                            return daysLate > 0 ? Math.max(max, daysLate) : max;
-                          }, 0);
-                          if (maxLate > cascadeInfo[cat].upstreamDelay) {
-                            cascadeInfo[cat].upstreamDelay = maxLate;
-                            cascadeInfo[cat].delayedCat = prevCat;
-                          }
-                        }
-                      }
-                    });
-
-                    return activeCats;
-                  })().map(cat => {
-                    const catMs = (grouped[cat] || []).sort((a, b) => {
-                      // Sort by expected_date first (chronological), then sort_order as tiebreaker
-                      if (a.expected_date && b.expected_date) { const d = a.expected_date.localeCompare(b.expected_date); if (d !== 0) return d; }
-                      if (a.expected_date && !b.expected_date) return -1;
-                      if (!a.expected_date && b.expected_date) return 1;
-                      return a.sort_order - b.sort_order;
-                    });
-                    const catComplete = catMs.filter(m => m.status === "Complete").length;
-                    const activeCats = WIP_CATEGORIES.filter(c => grouped[c]?.length);
-                    const firstIncompleteCat = activeCats.find(c => grouped[c].some(m => m.status !== "Complete" && m.status !== "N/A"));
-                    const defaultCollapsed = cat !== firstIncompleteCat;
-                    const key = cat + poNum;
-                    const collapsed = collapsedCats[key] !== undefined ? collapsedCats[key] : defaultCollapsed;
-
-                    // Cascade info for this category
-                    const cascade = (() => {
-                      const info = { blocked: false, upstreamDelay: 0, delayedCat: "" };
-                      const catIdx = activeCats.indexOf(cat);
-                      for (let p = 0; p < catIdx; p++) {
-                        const prevCat = activeCats[p];
-                        const prevMs = grouped[prevCat] || [];
-                        const prevDone = prevMs.every(m => m.status === "Complete" || m.status === "N/A");
-                        if (!prevDone) {
-                          info.blocked = true;
-                          const maxLate = prevMs.reduce((max, m) => {
-                            if (m.status === "Complete" || m.status === "N/A" || !m.expected_date) return max;
-                            const daysLate = Math.ceil((Date.now() - new Date(m.expected_date).getTime()) / 86400000);
-                            return daysLate > 0 ? Math.max(max, daysLate) : max;
-                          }, 0);
-                          if (maxLate > info.upstreamDelay) { info.upstreamDelay = maxLate; info.delayedCat = prevCat; }
-                        }
-                      }
-                      return info;
-                    })();
-
-                    return (
-                      <div key={cat} style={{ marginBottom: 8 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: cascade.blocked ? "#1A1520" : "#0F172A", borderRadius: collapsed ? 8 : "8px 8px 0 0", cursor: "pointer", userSelect: "none", borderLeft: cascade.blocked ? "3px solid #F59E0B" : "3px solid transparent" }}
-                          onClick={() => {
-                            const catKey = cat + poNum;
-                            if (collapsed && cascade.blocked && !acceptedBlocked.has(catKey)) {
-                              setBlockedModal({ cat, delayedCat: cascade.delayedCat, daysLate: cascade.upstreamDelay, onConfirm: () => {
-                                setAcceptedBlocked(prev => new Set(prev).add(catKey));
-                                setCollapsedCats(prev => ({ ...prev, [catKey]: false }));
-                              }});
-                              return;
-                            }
-                            setCollapsedCats(prev => ({ ...prev, [catKey]: !collapsed }));
-                          }}>
-                          <span style={{ color: "#6B7280", fontSize: 12 }}>{collapsed ? "▶" : "▼"}</span>
-                          <span style={{ color: catComplete === catMs.length ? "#10B981" : "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, transition: "color 0.5s" }}>{cat}{catComplete === catMs.length ? " ✓" : ""}</span>
-                          {cascade.blocked && (
-                            <span style={{ fontSize: 10, color: "#F59E0B", fontWeight: 600, padding: "1px 6px", borderRadius: 4, background: "#F59E0B18", border: "1px solid #F59E0B33" }}>
-                              ⚠ Blocked by {cascade.delayedCat}{cascade.upstreamDelay > 0 ? ` (${cascade.upstreamDelay}d late)` : ""}
-                            </span>
-                          )}
-                          <span style={{ color: "#6B7280", fontSize: 11, marginLeft: "auto" }}>{catComplete}/{catMs.length}</span>
-                        </div>
-                        {!collapsed && (
-                          <div style={{ background: "#0F172A", borderRadius: "0 0 8px 8px", overflow: "hidden" }}>
-                            <div style={{ display: "grid", gridTemplateColumns: "1.5fr 130px 26px 120px 120px 55px 32px", gap: 6, padding: "5px 14px", background: "#1E293B" }}>
-                              <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>Milestone</span>
-                              <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Due Date</span>
-                              <span />
-                              <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Status</span>
-                              <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Status Date</span>
-                              <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "right" }}>Days</span>
-                              <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>📝</span>
-                            </div>
-                            {catMs.map(m => {
-                              const daysRem = m.expected_date ? Math.ceil((new Date(m.expected_date).getTime() - Date.now()) / 86400000) : null;
-                              const daysColor = m.status === "Complete" ? "#10B981" : m.status === "N/A" ? "#6B7280" : daysRem === null ? "#6B7280" : daysRem < 0 ? "#EF4444" : daysRem <= 7 ? "#F59E0B" : "#10B981";
-                              // Cascade: if blocked, show projected date shifted by upstream delay
-                              const projectedDate = cascade.upstreamDelay > 0 && m.expected_date && m.status !== "Complete" && m.status !== "N/A"
-                                ? new Date(new Date(m.expected_date).getTime() + cascade.upstreamDelay * 86400000).toISOString().slice(0, 10) : null;
-                              // Delay warning: status date later than due date
-                              const statusDateVal = (m.status_dates || {})[m.status] || m.status_date || null;
-                              const delayDays = statusDateVal && m.expected_date
-                                ? Math.ceil((new Date(statusDateVal).getTime() - new Date(m.expected_date).getTime()) / 86400000)
-                                : 0;
-                              // Variant panel
-                              const variantOpen = expandedVariants.has(m.id);
-                              const variantStatuses = m.variant_statuses || {};
-                              const hasMismatch = Object.values(variantStatuses).some(v => v.status !== m.status);
-                              return (
-                                <div key={m.id} style={{ display: "contents" }}>
-                                <div style={{ display: "grid", gridTemplateColumns: "1.5fr 130px 26px 120px 120px 55px 32px", gap: 6, padding: "8px 14px", borderTop: "1px solid #1E293B", alignItems: "center", background: cascade.blocked && m.status !== "Complete" && m.status !== "N/A" ? "#F59E0B08" : "transparent" }}>
-                                  <span style={{ color: "#D1D5DB", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                                    {m.phase}
-                                    {delayDays > 0 && (
-                                      <span style={{ fontSize: 10, background: "#7F1D1D", color: "#FCA5A5", borderRadius: 4, padding: "1px 5px", fontWeight: 600, whiteSpace: "nowrap" }}>
-                                        ⚠ {delayDays}d delayed
-                                      </span>
-                                    )}
-                                    {hasMismatch && (
-                                      <span style={{ fontSize: 10, background: "#78350F", color: "#FDE68A", borderRadius: 4, padding: "1px 5px", fontWeight: 600, whiteSpace: "nowrap" }}>
-                                        ⚠ Color mismatch
-                                      </span>
-                                    )}
-                                  </span>
-                                  <div style={{ textAlign: "center" }}>
-                                    <input type="date" value={m.expected_date || ""} onChange={e => cascadeDueDateChange(m, e.target.value)}
-                                      style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: projectedDate ? "#F59E0B" : "#9CA3AF", fontSize: 12, padding: "4px 6px", width: "100%", boxSizing: "border-box", outline: "none" }} />
-                                    {projectedDate && <div style={{ fontSize: 9, color: "#F59E0B", marginTop: 1 }}>→ {fmtDate(projectedDate)}</div>}
-                                  </div>
-                                  {/* ⊕ Variant expand button */}
-                                  <button
-                                    title="Color/variant statuses"
-                                    onClick={() => setExpandedVariants(prev => { const next = new Set(prev); variantOpen ? next.delete(m.id) : next.add(m.id); return next; })}
-                                    style={{ width: 22, height: 22, borderRadius: "50%", border: `1px solid ${variantOpen ? "#60A5FA" : hasMismatch ? "#FDE68A" : "#334155"}`, background: variantOpen ? "#1D4ED8" : hasMismatch ? "#78350F" : "#0F172A", color: variantOpen ? "#fff" : hasMismatch ? "#FDE68A" : "#6B7280", fontSize: 14, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0, flexShrink: 0 }}
-                                  >{variantOpen ? "−" : "+"}</button>
-                                  <select style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: MILESTONE_STATUS_COLORS[m.status] || "#6B7280", fontSize: 12, padding: "5px 6px", width: "100%", boxSizing: "border-box" }}
-                                    value={m.status}
-                                    onChange={e => {
-                                      const newStatus = e.target.value;
-                                      const oldStatus = m.status;
-                                      const dates = { ...(m.status_dates || {}) };
-                                      const doSave = (d: Record<string, string>) => {
-                                        const today2 = new Date().toISOString().split("T")[0];
-                                        if (newStatus !== "Not Started" && !d[newStatus]) d[newStatus] = today2;
-                                        const statusDate = d[newStatus] || null;
-                                        // Sync all variants to the new main status (unless they have been individually overridden to something different)
-                                        const existingVariants = { ...(m.variant_statuses || {}) };
-                                        const syncedVariants: Record<string, { status: string; status_date: string | null }> = {};
-                                        Object.keys(existingVariants).forEach(key => {
-                                          syncedVariants[key] = { status: newStatus, status_date: statusDate };
-                                        });
-                                        saveMilestone({ ...m, status: newStatus, status_date: statusDate, status_dates: Object.keys(d).length > 0 ? d : null, variant_statuses: Object.keys(syncedVariants).length > 0 ? syncedVariants : m.variant_statuses, updated_at: new Date().toISOString(), updated_by: user?.name || "" });
-                                      };
-                                      if (oldStatus === "Complete" && dates[oldStatus]) {
-                                        setConfirmModal({ title: "Clear Complete Date", message: `Clear the "Complete" date (${dates[oldStatus]})?`, icon: "📅", confirmText: "Clear Date", confirmColor: "#F59E0B", cancelText: "Keep Date", onConfirm: () => { delete dates[oldStatus]; doSave(dates); }, onCancel: () => doSave(dates) });
-                                        return;
-                                      }
-                                      doSave(dates);
-                                    }}>
-                                    {MILESTONE_STATUSES.map(s => <option key={s} value={s} style={{ color: MILESTONE_STATUS_COLORS[s] }}>{s}</option>)}
-                                  </select>
-                                  <input type="date" style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: (m.status_dates || {})[m.status] ? "#60A5FA" : "#334155", fontSize: 12, padding: "5px 6px", width: "100%", boxSizing: "border-box" }}
-                                    title={`Date for "${m.status}" status`}
-                                    value={(m.status_dates || {})[m.status] || m.status_date || ""}
-                                    onChange={e => {
-                                      const val = e.target.value || null;
-                                      const dates = { ...(m.status_dates || {}) };
-                                      if (val) dates[m.status] = val; else delete dates[m.status];
-                                      // Sync variant status dates too
-                                      const existingVariants = { ...(m.variant_statuses || {}) };
-                                      const syncedVariants: Record<string, { status: string; status_date: string | null }> = {};
-                                      Object.keys(existingVariants).forEach(key => {
-                                        if (existingVariants[key].status === m.status) {
-                                          syncedVariants[key] = { status: m.status, status_date: val };
-                                        } else {
-                                          syncedVariants[key] = existingVariants[key];
-                                        }
-                                      });
-                                      saveMilestone({ ...m, status_date: val, status_dates: Object.keys(dates).length > 0 ? dates : null, variant_statuses: Object.keys(syncedVariants).length > 0 ? syncedVariants : m.variant_statuses, updated_at: new Date().toISOString(), updated_by: user?.name || "" });
-                                    }} />
-                                  <span style={{ color: daysColor, fontWeight: 600, textAlign: "right", fontSize: 12 }}>
-                                    {m.status === "Complete" ? "Done" : m.status === "N/A" ? "—" : daysRem === null ? "—" : daysRem < 0 ? `${Math.abs(daysRem)}d late` : daysRem === 0 ? "Today" : `${daysRem}d`}
-                                  </span>
-                                  <span style={{ textAlign: "center", cursor: "pointer", fontSize: 14, opacity: (m.note_entries?.length || m.notes) ? 1 : 0.4, position: "relative" }} title={m.notes || "Add note"} onClick={e => { e.stopPropagation(); setEditingNote(editingNote === m.id ? null : m.id); setMsNoteText(""); }}>📝{(m.note_entries?.length ?? 0) > 0 && <span style={{ position: "absolute", top: -4, right: -6, fontSize: 8, background: "#3B82F6", color: "#fff", borderRadius: "50%", width: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>{m.note_entries!.length}</span>}</span>
-                                </div>
-                                {/* Variant/color status panel */}
-                                {variantOpen && (
-                                  <div style={{ padding: "8px 14px 10px 14px", borderTop: "1px solid #1E293B", background: "#0A1220" }}>
-                                    <div style={{ fontSize: 10, color: "#60A5FA", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Color / Variant Statuses</div>
-                                    {matrixRows.length === 0 ? (
-                                      <div style={{ fontSize: 12, color: "#4B5563", fontStyle: "italic" }}>No line items on this PO</div>
-                                    ) : (
-                                      <div style={{ overflowX: "auto" }}>
-                                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                                          <thead>
-                                            <tr>
-                                              {["Base Part","Description","Color","Status","Status Date","Qty","PO Cost","Total Cost"].map(h => (
-                                                <th key={h} style={{ padding: "6px 10px", textAlign: h === "Qty" || h === "PO Cost" || h === "Total Cost" ? "right" : "left", color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, borderBottom: "1px solid #334155", whiteSpace: "nowrap" }}>{h}</th>
-                                              ))}
-                                            </tr>
-                                          </thead>
-                                          <tbody>
-                                            {matrixRows.map((row) => {
-                                              const key = `${row.base}-${row.color}`;
-                                              const vEntry = variantStatuses[key] || { status: m.status, status_date: statusDateVal };
-                                              const vMismatch = vEntry.status !== m.status;
-                                              return (
-                                                <tr key={key} style={{ borderBottom: "1px solid #1E293B", background: vMismatch ? "#78350F22" : "transparent" }}>
-                                                  <td style={{ padding: "5px 10px", color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, whiteSpace: "nowrap" }}>{row.base}</td>
-                                                  <td style={{ padding: "5px 10px", color: "#9CA3AF", fontSize: 11 }}>{row.desc || "—"}</td>
-                                                  <td style={{ padding: "5px 10px", color: vMismatch ? "#FDE68A" : "#D1D5DB", whiteSpace: "nowrap" }}>
-                                                    {row.color || "—"}
-                                                    {vMismatch && <span style={{ fontSize: 10, color: "#F59E0B", marginLeft: 6 }}>⚠</span>}
-                                                  </td>
-                                                  <td style={{ padding: "5px 10px" }}>
-                                                    <select
-                                                      value={vEntry.status}
-                                                      style={{ background: "#1E293B", border: `1px solid ${vMismatch ? "#F59E0B44" : "#334155"}`, borderRadius: 6, color: MILESTONE_STATUS_COLORS[vEntry.status] || "#6B7280", fontSize: 11, padding: "3px 5px", width: "100%", boxSizing: "border-box" as const }}
-                                                      onChange={e => {
-                                                        const today2 = new Date().toISOString().split("T")[0];
-                                                        const newV = { ...variantStatuses, [key]: { status: e.target.value, status_date: vEntry.status_date || today2 } };
-                                                        saveMilestone({ ...m, variant_statuses: newV, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
-                                                      }}
-                                                    >
-                                                      {MILESTONE_STATUSES.map(s => <option key={s} value={s} style={{ color: MILESTONE_STATUS_COLORS[s] }}>{s}</option>)}
-                                                    </select>
-                                                  </td>
-                                                  <td style={{ padding: "5px 10px" }}>
-                                                    <input
-                                                      type="date"
-                                                      value={vEntry.status_date || ""}
-                                                      style={{ background: "#1E293B", border: `1px solid ${vEntry.status_date ? "#60A5FA44" : "#334155"}`, borderRadius: 6, color: vEntry.status_date ? "#60A5FA" : "#334155", fontSize: 11, padding: "3px 5px", width: "100%", boxSizing: "border-box" as const }}
-                                                      onChange={e => {
-                                                        const newV = { ...variantStatuses, [key]: { status: vEntry.status, status_date: e.target.value || null } };
-                                                        saveMilestone({ ...m, variant_statuses: newV, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
-                                                      }}
-                                                    />
-                                                  </td>
-                                                  <td style={{ padding: "5px 10px", textAlign: "right", color: "#F59E0B", fontWeight: 700, fontFamily: "monospace" }}>{row.qty}</td>
-                                                  <td style={{ padding: "5px 10px", textAlign: "right", color: "#9CA3AF", fontFamily: "monospace" }}>{fmtCurrency(row.price, selected.CurrencyCode)}</td>
-                                                  <td style={{ padding: "5px 10px", textAlign: "right", color: "#10B981", fontWeight: 600, fontFamily: "monospace" }}>{fmtCurrency(row.qty * row.price, selected.CurrencyCode)}</td>
-                                                </tr>
-                                              );
-                                            })}
-                                          </tbody>
-                                          <tfoot>
-                                            <tr style={{ borderTop: "2px solid #334155" }}>
-                                              <td colSpan={5} style={{ padding: "8px 10px", color: "#9CA3AF", fontWeight: 700, textAlign: "right" }}>Grand Total</td>
-                                              <td style={{ padding: "8px 10px", textAlign: "right", color: "#F59E0B", fontWeight: 800, fontFamily: "monospace" }}>{matrixRows.reduce((s, r) => s + r.qty, 0)}</td>
-                                              <td style={{ padding: "8px 10px" }} />
-                                              <td style={{ padding: "8px 10px", textAlign: "right", color: "#10B981", fontWeight: 800, fontFamily: "monospace" }}>{fmtCurrency(matrixRows.reduce((s, r) => s + r.qty * r.price, 0), selected.CurrencyCode)}</td>
-                                            </tr>
-                                          </tfoot>
-                                        </table>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                                {editingNote === m.id && (() => {
-                                  const entries = m.note_entries || [];
-                                  // Show legacy note as first entry if exists and no entries yet
-                                  const legacy = m.notes && entries.length === 0 ? [{ text: m.notes, user: m.updated_by || "—", date: m.updated_at || "" }] : [];
-                                  const allNotes = [...legacy, ...entries];
-                                  return (
-                                    <div style={{ padding: "8px 14px 10px", borderTop: "1px solid #1E293B", background: "#1A2332" }}>
-                                      {allNotes.length > 0 && (
-                                        <div style={{ marginBottom: 8, maxHeight: 120, overflowY: "auto" }}>
-                                          {allNotes.map((n, i) => {
-                                            const timeAgo = n.date ? (() => { const ms = Date.now() - new Date(n.date).getTime(); const mins = Math.floor(ms / 60000); if (mins < 60) return `${mins}m ago`; const hrs = Math.floor(mins / 60); if (hrs < 24) return `${hrs}h ago`; return `${Math.floor(hrs / 24)}d ago`; })() : "";
-                                            return (
-                                              <div key={i} style={{ display: "flex", gap: 8, padding: "4px 0", borderBottom: i < allNotes.length - 1 ? "1px solid #0F172A" : "none" }}>
-                                                <div style={{ flex: 1, fontSize: 12, color: "#D1D5DB", lineHeight: 1.4 }}>{n.text}</div>
-                                                <div style={{ flexShrink: 0, textAlign: "right" }}>
-                                                  <div style={{ fontSize: 10, color: "#60A5FA", fontWeight: 600 }}>{n.user}</div>
-                                                  <div style={{ fontSize: 9, color: "#4B5563" }}>{timeAgo}</div>
-                                                </div>
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                      )}
-                                      <div style={{ display: "flex", gap: 6 }}>
-                                        <input value={msNoteText} onChange={e => setMsNoteText(e.target.value)} placeholder="Add a note..." onKeyDown={e => {
-                                          if (e.key === "Enter" && msNoteText.trim()) {
-                                            const newEntry = { text: msNoteText.trim(), user: user?.name || "—", date: new Date().toISOString() };
-                                            saveMilestone({ ...m, note_entries: [...entries, newEntry], notes: [...allNotes.map(n => n.text), msNoteText.trim()].join(" | "), updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
-                                            setMsNoteText("");
-                                          }
-                                        }} style={{ flex: 1, background: "#0F172A", border: "1px solid #334155", borderRadius: 6, color: "#D1D5DB", fontSize: 12, padding: "6px 10px", fontFamily: "inherit", outline: "none" }} />
-                                        <button onClick={() => {
-                                          if (!msNoteText.trim()) return;
-                                          const newEntry = { text: msNoteText.trim(), user: user?.name || "—", date: new Date().toISOString() };
-                                          saveMilestone({ ...m, note_entries: [...entries, newEntry], notes: [...allNotes.map(n => n.text), msNoteText.trim()].join(" | "), updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
-                                          setMsNoteText("");
-                                        }} style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: "#3B82F6", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Add</button>
-                                      </div>
-                                    </div>
-                                  );
-                                })()}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {poMs.length > 0 && (
-                    <div style={{ marginTop: 8 }}>
-                      {!addingPhase ? (
-                        <button onClick={() => setAddingPhase(true)} style={{ ...S.btnSecondary, fontSize: 11, padding: "5px 12px" }}>+ Add Custom Phase</button>
-                      ) : (() => {
-                        // Build list of phases in the selected category for "Insert After" dropdown
-                        const catPhases = poMs.filter(m => m.category === newPhaseForm.category).sort((a, b) => a.sort_order - b.sort_order);
-                        return (
-                        <div style={{ background: "#0F172A", borderRadius: 8, padding: 12 }}>
-                          <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-                            <div style={{ flex: 1, minWidth: 140 }}>
-                              <label style={{ color: "#6B7280", fontSize: 10, display: "block", marginBottom: 3, textTransform: "uppercase" }}>Phase Name</label>
-                              <input value={newPhaseForm.name} onChange={e => setNewPhaseForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Client Approval" style={{ ...S.input, marginBottom: 0, fontSize: 12, padding: "6px 10px" }} />
-                            </div>
-                            <div style={{ width: 150 }}>
-                              <label style={{ color: "#6B7280", fontSize: 10, display: "block", marginBottom: 3, textTransform: "uppercase" }}>Category</label>
-                              <select value={newPhaseForm.category} onChange={e => setNewPhaseForm(f => ({ ...f, category: e.target.value, afterPhase: "" }))} style={{ ...S.select, width: "100%", fontSize: 12, padding: "6px 8px" }}>
-                                {WIP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                              </select>
-                            </div>
-                            <div style={{ width: 140 }}>
-                              <label style={{ color: "#6B7280", fontSize: 10, display: "block", marginBottom: 3, textTransform: "uppercase" }}>Due Date</label>
-                              <input type="date" value={newPhaseForm.dueDate} onChange={e => setNewPhaseForm(f => ({ ...f, dueDate: e.target.value }))} style={{ ...S.input, marginBottom: 0, fontSize: 12, padding: "5px 8px" }} />
-                            </div>
-                            <div style={{ width: 180 }}>
-                              <label style={{ color: "#6B7280", fontSize: 10, display: "block", marginBottom: 3, textTransform: "uppercase" }}>Insert After</label>
-                              <select value={newPhaseForm.afterPhase} onChange={e => setNewPhaseForm(f => ({ ...f, afterPhase: e.target.value }))} style={{ ...S.select, width: "100%", fontSize: 12, padding: "6px 8px" }}>
-                                <option value="">— At beginning —</option>
-                                {catPhases.map(p => <option key={p.id} value={p.id}>{p.phase}</option>)}
-                              </select>
-                            </div>
-                          </div>
-                          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                            <button onClick={() => { setAddingPhase(false); setNewPhaseForm({ name: "", category: "Pre-Production", dueDate: "", afterPhase: "" }); }} style={{ ...S.btnSecondary, fontSize: 11, padding: "7px 12px" }}>Cancel</button>
-                            <button onClick={() => {
-                              if (!newPhaseForm.name.trim()) return;
-                              const allCatMs = poMs.filter(m => m.category === newPhaseForm.category).sort((a, b) => a.sort_order - b.sort_order);
-                              let sortOrder: number;
-                              let insertRef = "";
-                              let autoDueDate = newPhaseForm.dueDate || "";
-
-                              if (newPhaseForm.afterPhase) {
-                                // Explicit position: insert after selected phase
-                                const afterIdx = allCatMs.findIndex(m => m.id === newPhaseForm.afterPhase);
-                                if (afterIdx >= 0) {
-                                  const afterSort = allCatMs[afterIdx].sort_order;
-                                  const nextSort = afterIdx + 1 < allCatMs.length ? allCatMs[afterIdx + 1].sort_order : afterSort + 100;
-                                  sortOrder = afterSort + (nextSort - afterSort) / 2;
-                                  insertRef = " (after " + allCatMs[afterIdx].phase + ")";
-                                  // Auto-calculate midpoint due date if not provided
-                                  if (!autoDueDate) {
-                                    const afterDate = allCatMs[afterIdx].expected_date;
-                                    const nextM = afterIdx + 1 < allCatMs.length ? allCatMs[afterIdx + 1] : null;
-                                    const nextDate = nextM?.expected_date;
-                                    if (afterDate && nextDate) {
-                                      const mid = new Date((new Date(afterDate).getTime() + new Date(nextDate).getTime()) / 2);
-                                      autoDueDate = mid.toISOString().slice(0, 10);
-                                    } else if (afterDate) {
-                                      // No next phase — add 7 days after
-                                      const d = new Date(afterDate); d.setDate(d.getDate() + 7);
-                                      autoDueDate = d.toISOString().slice(0, 10);
-                                    }
-                                  }
-                                } else { sortOrder = (allCatMs.length + 1) * 100; }
-                              } else if (newPhaseForm.dueDate && allCatMs.length > 0) {
-                                // Auto-position by due date: find where it fits chronologically
-                                const dueMs = allCatMs.filter(m => m.expected_date);
-                                const insertAfterIdx = dueMs.reduce((best, m, i) => m.expected_date && m.expected_date <= newPhaseForm.dueDate ? i : best, -1);
-                                if (insertAfterIdx >= 0) {
-                                  const afterM = dueMs[insertAfterIdx];
-                                  const afterIdx = allCatMs.indexOf(afterM);
-                                  const afterSort = afterM.sort_order;
-                                  const nextSort = afterIdx + 1 < allCatMs.length ? allCatMs[afterIdx + 1].sort_order : afterSort + 100;
-                                  sortOrder = afterSort + (nextSort - afterSort) / 2;
-                                  insertRef = " (by date, after " + afterM.phase + ")";
-                                } else {
-                                  // Due date is before all existing — put first
-                                  sortOrder = allCatMs[0].sort_order - 100;
-                                  insertRef = " (by date, at beginning)";
-                                }
-                              } else {
-                                // No position info — add at end
-                                sortOrder = allCatMs.length > 0 ? allCatMs[allCatMs.length - 1].sort_order + 100 : 0;
-                              }
-
-                              const newM: Milestone = { id: milestoneUid(), po_number: poNum, phase: newPhaseForm.name.trim(), category: newPhaseForm.category, sort_order: sortOrder, days_before_ddp: 0, expected_date: autoDueDate || null, actual_date: null, status: "Not Started", status_date: null, status_dates: null, notes: "", note_entries: null, updated_at: new Date().toISOString(), updated_by: user?.name || "" };
-                              saveMilestone(newM, true);
-                              addHistory(poNum, `Custom phase added: "${newPhaseForm.name.trim()}" in ${newPhaseForm.category}${insertRef}`);
-                              setNewPhaseForm({ name: "", category: "Pre-Production", dueDate: "", afterPhase: "" });
-                              setAddingPhase(false);
-                            }} style={{ ...S.btnPrimary, fontSize: 11, padding: "7px 14px", width: "auto", whiteSpace: "nowrap" }}>Add Phase</button>
-                          </div>
-                        </div>
-                        );
-                      })()}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
-            {/* Notes Tab */}
-            {showNotes && <div>
-              <div style={S.sectionLabel}>Notes</div>
-              {selectedNotes.length === 0 && <p style={{ color: "#6B7280", fontSize: 13 }}>No notes yet.</p>}
-              {selectedNotes.map(n => (
-                <div key={n.id} style={S.noteCard}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                    <span style={{ color: "#60A5FA", fontWeight: 700, fontSize: 14 }}>{n.user_name}</span>
-                    <span style={{ color: "#9CA3AF", fontSize: 13 }}>{fmtDate(n.created_at)} {new Date(n.created_at).toLocaleTimeString()}</span>
-                  </div>
-                  <p style={{ color: "#D1D5DB", fontSize: 15, margin: 0 }}>{n.note}</p>
-                </div>
-              ))}
-              <div style={{ marginTop: 12, display: "flex", gap: 8, flexDirection: "column" }}>
-                <textarea style={S.textarea} rows={3} placeholder="Add a note..."
-                  value={newNote} onChange={e => setNewNote(e.target.value)} />
-                <button style={S.btnPrimary} onClick={addNote}>Add Note</button>
-              </div>
-            </div>}
-
-            {/* History Tab */}
-            {showHistory && <div>
-              <div style={S.sectionLabel}>Change History</div>
-              {selectedHistory.length === 0 && <p style={{ color: "#6B7280", fontSize: 13 }}>No history recorded yet.</p>}
-              {selectedHistory.map(h => (
-                <div key={h.id} style={{ display: "flex", gap: 12, padding: "10px 14px", borderBottom: "1px solid #334155", alignItems: "flex-start" }}>
-                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#3B82F6", marginTop: 6, flexShrink: 0 }} />
-                  <div style={{ flex: 1 }}>
-                    <p style={{ color: "#D1D5DB", fontSize: 14, margin: 0 }}>{h.note}</p>
-                    <div style={{ display: "flex", gap: 12, marginTop: 4, fontSize: 11, color: "#6B7280" }}>
-                      <span>{h.user_name}</span>
-                      <span>{fmtDate(h.created_at)} {new Date(h.created_at).toLocaleTimeString()}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  function InfoCell({ label, value }: { label: string; value: React.ReactNode }) {
-    return (
-      <div style={S.infoCell}>
-        <div style={S.infoCellLabel}>{label}</div>
-        <div style={S.infoCellValue}>{value}</div>
-      </div>
-    );
-  }
-
-  function WipTemplateEditor({ templates, onSave }: { templates: WipTemplate[]; onSave: (t: WipTemplate[]) => void }) {
-    const [adding, setAdding] = useState(false);
-    const [form, setForm] = useState<WipTemplate>({ id: "", phase: "", category: "Pre-Production", daysBeforeDDP: 0, status: "Not Started", notes: "" });
-
-    if (!adding) return (
-      <button style={{ ...S.btnSecondary, marginTop: 12 }} onClick={() => { setForm({ id: milestoneUid(), phase: "", category: "Pre-Production", daysBeforeDDP: 0, status: "Not Started", notes: "" }); setAdding(true); }}>
-        + Add Phase
-      </button>
-    );
-
-    return (
-      <div style={{ marginTop: 12, background: "#0F172A", borderRadius: 8, padding: 16 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-          <div>
-            <label style={{ color: "#94A3B8", fontSize: 11, display: "block", marginBottom: 3 }}>Phase Name</label>
-            <input style={{ ...S.input, fontSize: 13 }} value={form.phase} onChange={e => setForm(f => ({ ...f, phase: e.target.value }))} placeholder="e.g. Lab Dip" />
-          </div>
-          <div>
-            <label style={{ color: "#94A3B8", fontSize: 11, display: "block", marginBottom: 3 }}>Category</label>
-            <select style={{ ...S.select, width: "100%" }} value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
-              {WIP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-          <div>
-            <label style={{ color: "#94A3B8", fontSize: 11, display: "block", marginBottom: 3 }}>Days Before DDP</label>
-            <input type="number" style={{ ...S.input, fontSize: 13 }} value={form.daysBeforeDDP} onChange={e => setForm(f => ({ ...f, daysBeforeDDP: parseInt(e.target.value) || 0 }))} />
-          </div>
-          <div>
-            <label style={{ color: "#94A3B8", fontSize: 11, display: "block", marginBottom: 3 }}>Default Status</label>
-            <select style={{ ...S.select, width: "100%" }} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-              {MILESTONE_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button style={S.btnSecondary} onClick={() => setAdding(false)}>Cancel</button>
-          <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 16px" }} onClick={() => {
-            if (!form.phase.trim()) return;
-            onSave([...templates, form]);
-            setAdding(false);
-          }}>Add Phase</button>
-        </div>
-      </div>
-    );
-  }
+  const DetailPanel = () => detailPanelExtracted({
+    selected, detailMode, setDetailMode, setSelected, setView, setNewNote,
+    matrixCollapsed, setMatrixCollapsed, lineItemsCollapsed, setLineItemsCollapsed,
+    poInfoCollapsed, setPoInfoCollapsed, progressCollapsed, setProgressCollapsed,
+    editingNote, setEditingNote, editingNoteId, setEditingNoteId, editingNoteText, setEditingNoteText, msNoteText, setMsNoteText, expandedVariants, setExpandedVariants,
+    addingPhase, setAddingPhase, newPhaseForm, setNewPhaseForm, acceptedBlocked, setAcceptedBlocked,
+    blockedModal, setBlockedModal, confirmModal, setConfirmModal, collapsedCats, setCollapsedCats,
+    showCreateTpl, setShowCreateTpl, attachments, setAttachments, attachInputRef,
+    uploadingAttachment, setUploadingAttachment, milestones, setMilestones, wipTemplates, setWipTemplates,
+    dcVendors, designTemplates, notes, newNote, user, emailToken, teamsToken, msDisplayName, pos, toast, setToast,
+    handleExportPOExcel, ensureMilestones, saveMilestone, saveMilestones, generateMilestones,
+    regenerateMilestones, cascadeDueDateChange, vendorHasTemplate, templateVendorList,
+    getVendorTemplates, saveVendorTemplates, openCategoryWithCheck, isCatBlocked,
+    uploadAttachment, loadAttachments, deleteAttachment, undoDeleteAttachment, purgeExpiredAttachments,
+    addNote, editNote, deleteNote, addHistory, deletePO, setSearch, setTeamsSelPO, setTeamsTab, loadDtlEmails, loadDtlFullEmail, loadDtlThread, loadDtlSentEmails,
+    authenticateEmail, dtlReplyToEmail, dtlSendEmail, teamsLoadPOMessages, teamsStartChat,
+    teamsSendMessage, teamsGraphPost, teamsGraph, loadTeamsContacts, handleTeamsContactInput,
+    teamsSendDirect, sendDmReply, loadDmMessages, msSignOut, selectedNotes, selectedHistory,
+    dtlEmails, dtlEmailLoading, dtlEmailErr, dtlEmailSel, dtlEmailThread, dtlThreadLoading,
+    dtlEmailTab, setDtlEmailTab, dtlSentEmails, dtlSentLoading, dtlComposeTo, setDtlComposeTo,
+    dtlComposeSubject, setDtlComposeSubject, dtlComposeBody, setDtlComposeBody, dtlSendErr, setDtlSendErr,
+    dtlReply, setDtlReply, dtlNextLink, dtlLoadingOlder, setDtlLoadingOlder,
+    teamsChannelMap, teamsMessages, setTeamsMessages, teamsLoading, teamsNewMsg, setTeamsNewMsg,
+    teamsContacts, teamsContactsLoading, teamsContactsError,
+    dtlDMTo, setDtlDMTo, dtlDMMsg, setDtlDMMsg, dtlDMSending, setDtlDMSending, dtlDMErr, setDtlDMErr,
+    dtlDMContactSearch, setDtlDMContactSearch, dtlDMContactDropdown, setDtlDMContactDropdown,
+    dtlDMContactSearchResults, setDtlDMContactSearchResults, dtlDMContactSearchLoading, setDtlDMContactSearchLoading,
+    dmConversations, setDmConversations, dmActiveChatId, setDmActiveChatId, dmScrollRef,
+  });
 
   // ════════════════════════════════════════════════════════════════════════════
   // OUTLOOK EMAIL VIEW
@@ -4166,501 +2616,12 @@ export default function TandAApp() {
   }
 
   function emailViewPanel() {
-    const C = {
-      bg0: "#0F172A", bg1: "#1E293B", bg2: "#253347", bg3: "#2D3D52",
-      border: "#334155", border2: "#3E4F66",
-      text1: "#F1F5F9", text2: "#94A3B8", text3: "#6B7280",
-      outlook: "#0078D4", outlookLt: "#106EBE", outlookDim: "rgba(0,120,212,0.15)",
-      error: "#EF4444", errorDim: "rgba(239,68,68,0.15)",
-      success: "#34D399", info: "#60A5FA", warning: "#FBBF24",
-    };
-    const poList = pos;
-
-    function FolderIcon({ size = 14, color = "currentColor" }: { size?: number; color?: string }) {
-      return (
-        <svg width={size} height={size} viewBox="0 0 16 14" fill="none" style={{ flexShrink: 0 }}>
-          <path d="M1 2.5C1 1.67 1.67 1 2.5 1H5.5L7 2.5H13.5C14.33 2.5 15 3.17 15 4V11.5C15 12.33 14.33 13 13.5 13H2.5C1.67 13 1 12.33 1 11.5V2.5Z" stroke={color} strokeWidth="1.2" fill="none"/>
-        </svg>
-      );
-    }
-
-    const iconBtn: React.CSSProperties = { width: 28, height: 28, borderRadius: 6, border: "none", background: "transparent", color: C.text3, cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit" };
-
-    async function loadPOSentEmails(poNum: string) {
-      if (!emailToken) return;
-      const prefix = emailGetPrefix(poNum);
-      setEmailSentLoading(l => ({ ...l, [poNum]: true }));
-      try {
-        const searchTerm = prefix.replace(/[\[\]{}()*?]/g, "").trim();
-        const d = await emailGraph("/me/mailFolders/SentItems/messages?$search=" + encodeURIComponent('"' + searchTerm + '"') + "&$top=25&$select=id,subject,from,toRecipients,sentDateTime,bodyPreview,conversationId,hasAttachments");
-        setEmailSentMap(m => ({ ...m, [poNum]: d.value || [] }));
-        setDtlSentEmails(m => ({ ...m, [poNum]: d.value || [] }));
-      } catch (e: any) { setEmailSentErrMap(err => ({ ...err, [poNum]: e.message })); }
-      setEmailSentLoading(l => ({ ...l, [poNum]: false }));
-    }
-
-    async function doSendEmail() {
-      if (!emailComposeTo.trim() || !emailComposeSubject.trim()) return;
-      setEmailSendErr(null);
-      try {
-        await emailGraphPost("/me/sendMail", {
-          message: {
-            subject: emailComposeSubject,
-            body: { contentType: "HTML", content: emailComposeBody || " " },
-            toRecipients: emailComposeTo.split(",").map(e => ({ emailAddress: { address: e.trim() } })),
-          },
-        });
-        setEmailComposeTo(""); setEmailComposeSubject(""); setEmailComposeBody("");
-        setEmailComposeOpen(false);
-        if (emailSelPO) setTimeout(() => loadPOEmails(emailSelPO), 2000);
-      } catch (e: any) { setEmailSendErr("Failed to send: " + e.message); }
-    }
-
-    async function doReply(messageId: string, comment: string) {
-      if (!comment.trim()) return;
-      setEmailSendErr(null);
-      try {
-        await emailGraphPost("/me/messages/" + messageId + "/reply", { comment });
-        if (emailSelMsg?.conversationId) loadEmailThread(emailSelMsg.conversationId);
-        setEmailReplyText("");
-      } catch (e: any) { setEmailSendErr("Failed to reply: " + e.message); }
-    }
-
-    const inboxEmails = emailSelPO ? (emailsMap[emailSelPO] || []) : [];
-    const sentEmailList = emailSelPO ? (emailSentMap[emailSelPO] || []) : [];
-    const activeList = emailActiveFolder === "inbox" ? inboxEmails : sentEmailList;
-    const isLoadingE = emailSelPO ? !!emailLoadingMap[emailSelPO] : false;
-    const eError = emailSelPO ? emailErrorsMap[emailSelPO] : null;
-
-    const visibleEmails = [...activeList]
-      .filter((em: any) => {
-        if (emailFilterUnread && em.isRead) return false;
-        if (emailFilterFlagged && !emailFlaggedSet.has(em.id)) return false;
-        if (emailSearchQuery) {
-          const q = emailSearchQuery.toLowerCase();
-          const sender = em.from?.emailAddress?.name || em.from?.emailAddress?.address || "";
-          if (!(em.subject || "").toLowerCase().includes(q) && !sender.toLowerCase().includes(q) && !(em.bodyPreview || "").toLowerCase().includes(q)) return false;
-        }
-        return true;
-      })
-      .sort((a: any, b: any) => {
-        // Unread first, then newest
-        if (!a.isRead && b.isRead) return -1;
-        if (a.isRead && !b.isRead) return 1;
-        const ta = new Date(a.receivedDateTime || a.sentDateTime || 0).getTime();
-        const tb = new Date(b.receivedDateTime || b.sentDateTime || 0).getTime();
-        return tb - ta;
-      });
-
-    const selEmailObj = emailSelectedId ? (activeList.find((e: any) => e.id === emailSelectedId) || emailSelMsg) : emailSelMsg;
-
-    // Config view
-    if (showEmailConfig) return (
-      <div style={{ maxWidth: 560, margin: "0 auto", padding: "24px 0" }}>
-        <h2 style={{ color: C.text1, fontSize: 18, fontWeight: 700, marginBottom: 18 }}>Outlook Email</h2>
-        <div style={{ background: "#1E3A5F", border: "1px solid #2563EB44", borderRadius: 10, padding: "12px 16px", marginBottom: 18, fontSize: 12, color: "#93C5FD", lineHeight: 1.6 }}>
-          Azure AD credentials are configured automatically via Vercel environment variables.
-          Redirect URI: <b>{window.location.origin}/auth-callback</b>.{" "}
-          {MS_CLIENT_ID ? <span style={{ color: C.success, fontWeight: 700 }}>✓ Credentials configured</span> : <span style={{ color: C.error, fontWeight: 700 }}>✗ Credentials missing — check Vercel env vars</span>}
-        </div>
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
-          <button onClick={() => setShowEmailConfig(false)} style={S.btnSecondary}>Close</button>
-        </div>
-      </div>
-    );
-
-    return (
-      <div style={{ position: "relative" }} onClick={() => emailCtxMenu && setEmailCtxMenu(null)}>
-        <button onClick={() => setView("dashboard")} title="Close Email"
-          style={{ position: "absolute", top: 10, right: 14, zIndex: 10, width: 28, height: 28, borderRadius: "50%", border: `1px solid ${C.outlook}44`, background: `${C.outlook}15`, color: C.outlook, cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>✕</button>
-
-        <div style={{ display: "flex", height: "calc(100vh - 140px)", minHeight: 500, background: C.bg0, borderRadius: 12, border: `1px solid ${C.border}`, overflow: "hidden", position: "relative", fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: C.text1 }}>
-
-          {/* ── SIDEBAR (220px) ──────────────────────────────────────────────────── */}
-          <div style={{ width: 220, minWidth: 220, background: C.bg1, borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-
-            {/* Compose button */}
-            <div style={{ padding: "14px 12px 10px", borderBottom: `1px solid ${C.border}` }}>
-              <button
-                onClick={() => { setEmailComposeOpen(true); setEmailComposeSubject(emailSelPO ? emailGetPrefix(emailSelPO) + " " : ""); setEmailSendErr(null); }}
-                disabled={!emailToken}
-                style={{ width: "100%", padding: "8px 12px", background: emailToken ? `linear-gradient(135deg, ${C.outlook}, ${C.outlookLt})` : C.bg2, border: "none", borderRadius: 8, color: emailToken ? "#fff" : C.text3, fontSize: 13, fontWeight: 500, cursor: emailToken ? "pointer" : "default", display: "flex", alignItems: "center", gap: 8, justifyContent: "center", fontFamily: "inherit" }}>
-                ✎ New Message
-              </button>
-            </div>
-
-            {/* PO label + search */}
-            <div style={{ padding: "10px 12px 4px", fontSize: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: C.text3, fontWeight: 600 }}>
-              POs ({poList.length})
-            </div>
-            <div style={{ padding: "4px 8px 6px" }}>
-              <input value={emailPOSearch} onChange={e => setEmailPOSearch(e.target.value)} placeholder="🔍 Search…"
-                style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 10px", color: C.text1, fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const }} />
-            </div>
-
-            {/* PO list */}
-            <div style={{ flex: 1, overflowY: "auto" }}>
-              {(() => {
-                const s = emailPOSearch.toLowerCase();
-                return poList.filter((p: any) => !s || (p.PoNumber ?? "").toLowerCase().includes(s) || (p.VendorName ?? "").toLowerCase().includes(s) || (p.Memo ?? "").toLowerCase().includes(s) || (p.Tags ?? "").toLowerCase().includes(s) || (p.StatusName ?? "").toLowerCase().includes(s))
-                  .sort((a: any, b: any) => {
-                    const ua = (emailsMap[a.PoNumber ?? ""] || []).filter((e: any) => !e.isRead).length;
-                    const ub = (emailsMap[b.PoNumber ?? ""] || []).filter((e: any) => !e.isRead).length;
-                    return ub - ua;
-                  });
-              })().map((po: any) => {
-                const poNum = po.PoNumber ?? "";
-                const isSelected = emailSelPO === poNum;
-                const unread = (emailsMap[poNum] || []).filter((e: any) => !e.isRead).length;
-                const color = STATUS_COLORS[po.StatusName ?? ""] ?? "#6B7280";
-                return (
-                  <div key={poNum}
-                    onClick={() => { setEmailSelPO(poNum === emailSelPO ? null : poNum); setEmailSelectedId(null); setEmailSelMsg(null); setEmailThreadMsgs([]); setEmailDeleteConfirm(null); setEmailActiveFolder("inbox"); if (poNum !== emailSelPO && emailToken) loadPOEmails(poNum, undefined, true); }}
-                    style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 10px", borderRadius: 7, margin: "1px 6px", cursor: "pointer", fontSize: 12, background: isSelected ? C.outlookDim : "transparent", color: isSelected ? C.info : C.text2, border: isSelected ? "1px solid rgba(96,165,250,0.2)" : "1px solid transparent", transition: "all 0.1s" }}>
-                    <div style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />
-                    <span style={{ flex: 1, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontFamily: "monospace" }}>{poNum}</span>
-                    {unread > 0 && <span style={{ background: C.outlook, color: "#fff", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 10, minWidth: 16, textAlign: "center" as const }}>{unread}</span>}
-                  </div>
-                );
-              })}
-              {poList.length === 0 && <div style={{ padding: 16, fontSize: 12, color: C.text3, textAlign: "center" }}>No POs loaded — sync first</div>}
-            </div>
-
-            {/* Divider */}
-            <div style={{ height: 1, background: C.border, margin: "4px 10px" }} />
-
-            {/* Folders */}
-            <div style={{ padding: "6px 12px 2px", fontSize: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: C.text3, fontWeight: 600 }}>Folders</div>
-            {(["inbox", "sent"] as const).map(f => {
-              const label = f === "inbox" ? "Inbox" : "Sent";
-              const count = f === "inbox" ? inboxEmails.filter((e: any) => !e.isRead).length : 0;
-              return (
-                <div key={f} onClick={() => { setEmailActiveFolder(f); setEmailSelectedId(null); setEmailSelMsg(null); setEmailThreadMsgs([]); if (f === "sent" && emailSelPO && emailToken) loadPOSentEmails(emailSelPO); }}
-                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 7, margin: "1px 6px", cursor: "pointer", fontSize: 12, background: emailActiveFolder === f ? "rgba(200,33,10,0.15)" : "transparent", color: emailActiveFolder === f ? "#E87060" : C.text2, transition: "all 0.1s" }}>
-                  <FolderIcon size={14} color={emailActiveFolder === f ? "#E87060" : C.text3} />
-                  <span style={{ flex: 1 }}>{label}</span>
-                  {count > 0 && <span style={{ background: C.bg3, color: C.text2, fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 10, minWidth: 18, textAlign: "center" as const }}>{count}</span>}
-                </div>
-              );
-            })}
-
-            {/* Account footer */}
-            <div style={{ borderTop: `1px solid ${C.border}`, padding: "10px 12px", display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
-              {emailToken ? (
-                <>
-                  <div style={{ width: 26, height: 26, borderRadius: "50%", background: C.outlook + "33", border: "2px solid " + C.outlook, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: C.outlook, flexShrink: 0 }}>{(msDisplayName || "Me").slice(0, 2).toUpperCase()}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 500, color: C.text1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{msDisplayName || "Microsoft Account"}</div>
-                  </div>
-                  <div style={{ background: "#064E3B", border: "1px solid #34D39944", borderRadius: 5, padding: "2px 6px", fontSize: 9, color: C.success, whiteSpace: "nowrap", cursor: "pointer" }}
-                    onClick={msSignOut} title="Click to sign out">● Live</div>
-                </>
-              ) : (
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 11, color: C.warning, fontWeight: 600, marginBottom: 5 }}>Sign in to load emails</div>
-                  {(!MS_CLIENT_ID || !MS_TENANT_ID) ? (
-                    <div style={{ fontSize: 10, color: "#D97706" }}>Azure credentials not configured</div>
-                  ) : (
-                    <button onClick={authenticateEmail}
-                      style={{ background: `linear-gradient(135deg,${C.outlook},${C.outlookLt})`, color: "#fff", border: "none", borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", width: "100%" }}>
-                      Sign in with Microsoft
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* ── EMAIL LIST (295px) ───────────────────────────────────────────────── */}
-          <div style={{ width: 295, minWidth: 295, background: C.bg1, borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column" }}>
-
-            {/* List header */}
-            <div style={{ padding: "12px 12px 8px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: C.text1 }}>
-                {emailActiveFolder === "inbox" ? "Inbox" : "Sent"}
-                {emailSelPO && <span style={{ fontSize: 11, color: C.text3, marginLeft: 6, fontWeight: 400 }}>· PO {emailSelPO}</span>}
-              </span>
-              <button style={iconBtn} title="Refresh"
-                onClick={() => { if (emailSelPO) { if (emailActiveFolder === "inbox") loadPOEmails(emailSelPO); else loadPOSentEmails(emailSelPO); } }}>↻</button>
-            </div>
-
-            {/* Search */}
-            <div style={{ position: "relative" as const, margin: "8px 10px" }}>
-              <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: C.text3, fontSize: 13, pointerEvents: "none" }}>⌕</span>
-              <input style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 10px 6px 28px", color: C.text1, fontSize: 12, outline: "none", boxSizing: "border-box" as const, fontFamily: "inherit" }}
-                placeholder="Search…" value={emailSearchQuery} onChange={e => setEmailSearchQuery(e.target.value)} />
-            </div>
-
-            {/* Filter pills */}
-            <div style={{ display: "flex", gap: 4, padding: "6px 8px", borderBottom: `1px solid ${C.border}` }}>
-              {(["All", "Unread", "Flagged"] as const).map(label => {
-                const isActive = label === "All" ? (!emailFilterUnread && !emailFilterFlagged) : label === "Unread" ? emailFilterUnread : emailFilterFlagged;
-                return (
-                  <div key={label} onClick={() => { if (label === "All") { setEmailFilterUnread(false); setEmailFilterFlagged(false); } else if (label === "Unread") { setEmailFilterUnread(v => !v); setEmailFilterFlagged(false); } else { setEmailFilterFlagged(v => !v); setEmailFilterUnread(false); } }}
-                    style={{ padding: "3px 9px", borderRadius: 20, fontSize: 11, fontWeight: 500, cursor: "pointer", background: isActive ? C.outlookDim : "transparent", color: isActive ? C.info : C.text3, border: isActive ? "1px solid rgba(96,165,250,0.3)" : "1px solid transparent" }}>
-                    {label}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Email rows */}
-            <div style={{ flex: 1, overflowY: "auto" }}>
-              {!emailToken ? (
-                <div style={{ padding: 24, textAlign: "center", color: C.text3, fontSize: 12 }}>Sign in to load emails</div>
-              ) : !emailSelPO ? (
-                <div style={{ padding: 24, textAlign: "center", color: C.text3, fontSize: 12 }}>Select a PO from the left</div>
-              ) : (isLoadingE && emailActiveFolder === "inbox") ? (
-                <div style={{ padding: 24, textAlign: "center", color: C.text3, fontSize: 13 }}>Loading emails…</div>
-              ) : (emailSentLoading[emailSelPO] && emailActiveFolder === "sent") ? (
-                <div style={{ padding: 24, textAlign: "center", color: C.text3, fontSize: 13 }}>Loading sent emails…</div>
-              ) : (eError && emailActiveFolder === "inbox") ? (
-                <div style={{ margin: 10, background: C.bg0, border: `1px solid ${C.error}44`, borderRadius: 8, padding: "10px 14px", color: C.error, fontSize: 12 }}>⚠ {eError}</div>
-              ) : visibleEmails.length === 0 ? (
-                <div style={{ padding: 24, textAlign: "center", color: C.text3, fontSize: 13 }}>No messages</div>
-              ) : (
-                <>
-                  {visibleEmails.map((em: any) => {
-                    const sender = emailActiveFolder === "inbox"
-                      ? (em.from?.emailAddress?.name || em.from?.emailAddress?.address || "Unknown")
-                      : "To: " + ((em.toRecipients || []).map((r: any) => r.emailAddress?.name || r.emailAddress?.address || "").filter(Boolean).join(", ") || "—");
-                    const time = em.receivedDateTime
-                      ? new Date(em.receivedDateTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-                      : em.sentDateTime
-                      ? new Date(em.sentDateTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-                      : "";
-                    const isFlagged = emailFlaggedSet.has(em.id);
-                    const isUnread = !em.isRead && emailActiveFolder === "inbox";
-                    return (
-                      <div key={em.id}
-                        onClick={() => { setEmailSelectedId(em.id); setEmailDeleteConfirm(null); setEmailReplyText(""); if (emailActiveFolder === "inbox" && !em.isRead) { emailMarkAsRead(em.id); const markRead = (arr: any[]) => arr.map((e: any) => e.id === em.id ? { ...e, isRead: true } : e); setEmailsMap(m => ({ ...m, [emailSelPO!]: markRead(m[emailSelPO!] || []) })); setDtlEmails(m => ({ ...m, [emailSelPO!]: markRead(m[emailSelPO!] || []) })); } loadFullEmail(em.id); if (em.conversationId) loadEmailThread(em.conversationId); if (em.hasAttachments) loadEmailAttachments(em.id); }}
-                        onContextMenu={e => { e.preventDefault(); setEmailCtxMenu({ x: e.clientX, y: e.clientY, em }); }}
-                        style={{ padding: "11px 12px", borderBottom: `1px solid ${C.border}`, cursor: "pointer", position: "relative" as const, background: emailSelectedId === em.id ? C.bg3 : "transparent", transition: "background 0.1s" }}>
-                        {isUnread && <div style={{ position: "absolute", left: 4, top: "50%", transform: "translateY(-50%)", width: 5, height: 5, borderRadius: "50%", background: C.outlook }} />}
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
-                          <span style={{ fontSize: 12, fontWeight: isUnread ? 600 : 400, color: isUnread ? C.text1 : C.text2, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {sender}
-                            {isFlagged && <span style={{ color: C.warning, marginLeft: 4, fontSize: 11 }}>★</span>}
-                          </span>
-                          <span style={{ fontSize: 11, color: C.text3, flexShrink: 0, marginLeft: 6 }}>{time}</span>
-                        </div>
-                        <div style={{ fontSize: 12, fontWeight: 500, color: C.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 2 }}>{em.subject}</div>
-                        <div style={{ fontSize: 11, color: C.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {em.hasAttachments && <span style={{ marginRight: 4 }}>📎</span>}
-                          {em.bodyPreview || ""}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {emailActiveFolder === "inbox" && emailNextLinks[emailSelPO!] && (
-                    <button onClick={() => loadPOEmails(emailSelPO!, emailNextLinks[emailSelPO!]!)} disabled={emailLoadingOlder}
-                      style={{ background: `linear-gradient(135deg,${C.outlook},${C.outlookLt})`, color: "#fff", border: "none", borderRadius: 0, padding: "10px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", width: "100%", opacity: emailLoadingOlder ? 0.6 : 1 }}>
-                      {emailLoadingOlder ? "Loading…" : "Load older"}
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* ── EMAIL DETAIL (flex-1) ─────────────────────────────────────────────── */}
-          <div style={{ flex: 1, background: C.bg0, display: "flex", flexDirection: "column", minWidth: 0 }}>
-            {!emailSelectedId ? (
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 12, color: C.text3 }}>
-                <span style={{ fontSize: 48, opacity: 0.25 }}>✉</span>
-                <span style={{ fontSize: 14 }}>{emailSelPO ? "Select a message to read" : "Select a PO from the left"}</span>
-              </div>
-            ) : (
-              <>
-                {/* Detail header */}
-                <div style={{ padding: "12px 50px 10px 18px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, color: C.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {selEmailObj?.subject || "Loading…"}
-                  </div>
-                  <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                    <button style={iconBtn} title="Flag"
-                      onClick={() => setEmailFlaggedSet(prev => { const s = new Set(prev); if (s.has(emailSelectedId)) s.delete(emailSelectedId); else s.add(emailSelectedId); return s; })}>
-                      <span style={{ color: emailFlaggedSet.has(emailSelectedId) ? C.warning : C.text3 }}>{emailFlaggedSet.has(emailSelectedId) ? "★" : "☆"}</span>
-                    </button>
-                    <button style={{ ...iconBtn, color: C.error }} title="Delete" onClick={() => setEmailDeleteConfirm(emailSelectedId)}>🗑️</button>
-                  </div>
-                </div>
-
-                {/* Delete confirm bar */}
-                {emailDeleteConfirm === emailSelectedId && (
-                  <div style={{ background: C.errorDim, borderBottom: `1px solid rgba(239,68,68,0.3)`, padding: "8px 18px", display: "flex", alignItems: "center", gap: 12 }}>
-                    <span style={{ fontSize: 13, color: C.error, flex: 1 }}>Permanently delete this message? This cannot be undone.</span>
-                    <button onClick={() => deleteMainEmail(emailSelectedId)}
-                      style={{ padding: "7px 14px", background: C.errorDim, border: `1px solid rgba(239,68,68,0.3)`, borderRadius: 7, color: C.error, fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}>
-                      Delete
-                    </button>
-                    <button style={{ ...iconBtn, color: C.text2 }} onClick={() => setEmailDeleteConfirm(null)}>✕</button>
-                  </div>
-                )}
-
-                {/* Error bar */}
-                {emailSendErr && (
-                  <div style={{ background: C.bg1, borderBottom: `1px solid ${C.error}44`, padding: "8px 18px", display: "flex", alignItems: "center", gap: 12 }}>
-                    <span style={{ fontSize: 13, color: C.error, flex: 1 }}>⚠ {emailSendErr}</span>
-                    <button style={{ ...iconBtn, color: C.text2 }} onClick={() => setEmailSendErr(null)}>✕</button>
-                  </div>
-                )}
-
-                {/* Thread */}
-                <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px" }}>
-                  {emailThreadLoading ? (
-                    <div style={{ textAlign: "center", color: C.text3, paddingTop: 40, fontSize: 13 }}>Loading conversation…</div>
-                  ) : emailThreadMsgs.length > 0 ? (
-                    emailThreadMsgs.map((msg: any, i: number) => {
-                      const isLast = i === emailThreadMsgs.length - 1;
-                      const collapsed = !isLast && emailCollapsedMsgs.has(msg.id);
-                      const sender = msg.from?.emailAddress?.name || msg.from?.emailAddress?.address || "Unknown";
-                      const initials = sender.split(" ").map((w: string) => w[0] || "").join("").toUpperCase().slice(0, 2) || "??";
-                      const time = msg.receivedDateTime ? new Date(msg.receivedDateTime).toLocaleString() : "";
-                      const htmlBody = msg.body?.content || "";
-                      return (
-                        <div key={msg.id} style={{ background: C.bg1, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 10, overflow: "hidden" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: !isLast ? "pointer" : "default" }}
-                            onClick={() => { if (!isLast) setEmailCollapsedMsgs(prev => { const s = new Set(prev); if (s.has(msg.id)) s.delete(msg.id); else s.add(msg.id); return s; }); }}>
-                            <div style={{ width: 32, height: 32, borderRadius: "50%", background: C.outlook + "33", border: "2px solid " + C.outlook, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: C.outlook, flexShrink: 0 }}>{initials}</div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 13, fontWeight: 500, color: C.text1 }}>{sender}</div>
-                              <div style={{ fontSize: 11, color: C.text3 }}>{msg.from?.emailAddress?.address || ""}</div>
-                            </div>
-                            <div style={{ fontSize: 11, color: C.text3, flexShrink: 0 }}>{time}</div>
-                            {!isLast && <span style={{ color: C.text3, fontSize: 12, marginLeft: 8 }}>{collapsed ? "▼" : "▲"}</span>}
-                          </div>
-                          {!collapsed && (
-                            <div style={{ padding: "0 14px 14px" }}>
-                              <iframe sandbox="allow-same-origin" srcDoc={styledEmailHtml(htmlBody)}
-                                style={{ width: "100%", border: "none", minHeight: 80, borderRadius: 6, background: "#F8FAFC" }}
-                                onLoad={e => { try { const h = (e.target as HTMLIFrameElement).contentDocument?.body.scrollHeight || 0; (e.target as HTMLIFrameElement).style.height = Math.min(h + 20, 400) + "px"; } catch {} }} />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })
-                  ) : selEmailObj ? (
-                    <div style={{ background: C.bg1, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
-                      <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.text3 }}>
-                        From: {selEmailObj.from?.emailAddress?.name || selEmailObj.from?.emailAddress?.address || "Unknown"}
-                      </div>
-                      <div style={{ padding: "0 14px 14px" }}>
-                        <iframe sandbox="allow-same-origin" srcDoc={styledEmailHtml(selEmailObj.body?.content || selEmailObj.bodyPreview || "")}
-                          style={{ width: "100%", border: "none", minHeight: 100, borderRadius: 6, background: "#F8FAFC" }}
-                          onLoad={e => { try { const h = (e.target as HTMLIFrameElement).contentDocument?.body.scrollHeight || 0; (e.target as HTMLIFrameElement).style.height = Math.min(h + 20, 400) + "px"; } catch {} }} />
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-
-                {/* Attachments */}
-                {emailSelectedId && (emailAttachments[emailSelectedId] || []).length > 0 && (
-                  <div style={{ borderTop: `1px solid ${C.border}`, padding: "8px 18px", background: C.bg1, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-                    <span style={{ fontSize: 11, color: C.text3, marginRight: 4 }}>📎 Attachments:</span>
-                    {emailAttachments[emailSelectedId].map((att: any) => {
-                      const href = att.contentBytes ? `data:${att.contentType || "application/octet-stream"};base64,${att.contentBytes}` : "#";
-                      return (
-                        <a key={att.id} href={href} download={att.name}
-                          style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 9px", fontSize: 11, color: C.info, textDecoration: "none", cursor: "pointer", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          📄 {att.name}{att.size ? ` (${(att.size / 1024).toFixed(0)}KB)` : ""}
-                        </a>
-                      );
-                    })}
-                    {emailAttachmentsLoading[emailSelectedId] && <span style={{ fontSize: 11, color: C.text3 }}>Loading…</span>}
-                  </div>
-                )}
-
-                {/* Reply area */}
-                <div style={{ borderTop: `1px solid ${C.border}`, padding: "10px 18px", background: C.bg1 }}>
-                  <div style={{ fontSize: 12, color: C.text3, marginBottom: 6 }}>
-                    Reply to <span style={{ color: C.info }}>{emailThreadMsgs.length > 0 ? (emailThreadMsgs[emailThreadMsgs.length - 1].from?.emailAddress?.address || "") : (selEmailObj?.from?.emailAddress?.address || "")}</span>
-                  </div>
-                  <textarea
-                    style={{ width: "100%", minHeight: 72, background: "transparent", border: "none", color: C.text1, fontSize: 13, fontFamily: "inherit", resize: "none" as const, outline: "none", lineHeight: 1.6, boxSizing: "border-box" as const }}
-                    placeholder="Write a reply…"
-                    value={emailReplyText}
-                    onChange={e => setEmailReplyText(e.target.value)}
-                  />
-                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
-                    <button onClick={() => setEmailReplyText("")} style={{ padding: "7px 14px", borderRadius: 7, border: `1px solid ${C.border}`, background: "none", color: C.text3, cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}>Discard</button>
-                    <button onClick={() => { if (selEmailObj) doReply(selEmailObj.id, emailReplyText); }}
-                      disabled={!emailReplyText.trim() || !selEmailObj}
-                      style={{ padding: "7px 16px", background: `linear-gradient(135deg, ${C.outlook}, ${C.outlookLt})`, border: "none", borderRadius: 7, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", opacity: (!emailReplyText.trim() || !selEmailObj) ? 0.5 : 1 }}>
-                      Send ↗
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* ── COMPOSE MODAL (floating bottom-right) ────────────────────────────── */}
-          {emailComposeOpen && (
-            <div style={{ position: "absolute", inset: 0, zIndex: 100, pointerEvents: "none" }}>
-              <div style={{ position: "absolute", bottom: 0, right: 0, width: 520, background: C.bg1, border: `1px solid ${C.border2}`, borderRadius: "12px 12px 0 0", boxShadow: "0 -8px 32px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", pointerEvents: "all" }}>
-                <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: C.bg2, borderRadius: "12px 12px 0 0" }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: C.text1 }}>New Message</span>
-                  <button onClick={() => { setEmailComposeOpen(false); setEmailSendErr(null); }} style={{ ...iconBtn, color: C.text2 }}>✕</button>
-                </div>
-                <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
-                  {emailSendErr && (
-                    <div style={{ background: C.bg0, border: `1px solid ${C.error}44`, borderRadius: 7, padding: "8px 12px", color: C.error, fontSize: 12 }}>
-                      ⚠ {emailSendErr}
-                      <button onClick={() => setEmailSendErr(null)} style={{ marginLeft: 8, border: "none", background: "none", color: C.error, cursor: "pointer", fontFamily: "inherit", fontWeight: 700 }}>✕</button>
-                    </div>
-                  )}
-                  <div>
-                    <div style={{ fontSize: 11, color: C.text3, marginBottom: 3 }}>To (comma-separated)</div>
-                    <input value={emailComposeTo} onChange={e => setEmailComposeTo(e.target.value)} placeholder="name@domain.com"
-                      style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 10px", color: C.text1, fontSize: 13, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const }} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 11, color: C.text3, marginBottom: 3 }}>Subject</div>
-                    <input value={emailComposeSubject} onChange={e => setEmailComposeSubject(e.target.value)}
-                      style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 10px", color: C.text1, fontSize: 13, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const }} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 11, color: C.text3, marginBottom: 3 }}>Body</div>
-                    <textarea value={emailComposeBody} onChange={e => setEmailComposeBody(e.target.value)} rows={8}
-                      style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 10px", color: C.text1, fontSize: 13, outline: "none", fontFamily: "inherit", resize: "vertical" as const, minHeight: 140, boxSizing: "border-box" as const }}
-                      placeholder="Type your message…" />
-                  </div>
-                </div>
-                <div style={{ padding: "10px 16px", borderTop: `1px solid ${C.border}`, display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                  <button onClick={() => { setEmailComposeOpen(false); setEmailSendErr(null); setEmailComposeTo(""); setEmailComposeSubject(""); setEmailComposeBody(""); }}
-                    style={{ padding: "7px 16px", borderRadius: 7, border: `1px solid ${C.border}`, background: "none", color: C.text3, cursor: "pointer", fontFamily: "inherit" }}>Discard</button>
-                  <button onClick={doSendEmail} disabled={!emailComposeTo.trim() || !emailComposeSubject.trim()}
-                    style={{ padding: "7px 18px", background: `linear-gradient(135deg, ${C.outlook}, ${C.outlookLt})`, border: "none", borderRadius: 7, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", opacity: (!emailComposeTo.trim() || !emailComposeSubject.trim()) ? 0.5 : 1 }}>
-                    Send ↗
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ── CONTEXT MENU ─────────────────────────────────────────────── */}
-          {emailCtxMenu && (
-            <div style={{ position: "fixed", top: emailCtxMenu.y, left: emailCtxMenu.x, zIndex: 2000, background: C.bg2, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "4px 0", boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 170 }}
-              onClick={e => e.stopPropagation()}>
-              <div style={{ padding: "8px 16px", fontSize: 12, color: C.text1, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
-                onClick={() => { setEmailSelectedId(emailCtxMenu.em.id); loadFullEmail(emailCtxMenu.em.id); if (emailCtxMenu.em.conversationId) loadEmailThread(emailCtxMenu.em.conversationId); setEmailCtxMenu(null); }}>
-                ↩ Reply
-              </div>
-              <div style={{ padding: "8px 16px", fontSize: 12, color: C.text1, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
-                onClick={() => { setEmailSelectedId(emailCtxMenu.em.id); loadFullEmail(emailCtxMenu.em.id); if (emailCtxMenu.em.conversationId) loadEmailThread(emailCtxMenu.em.conversationId); setEmailCtxMenu(null); }}>
-                ↩↩ Reply All
-              </div>
-              <div style={{ height: 1, background: C.border, margin: "3px 0" }} />
-              <div style={{ padding: "8px 16px", fontSize: 12, color: C.error, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
-                onClick={() => { setEmailDeleteConfirm(emailCtxMenu.em.id); setEmailSelectedId(emailCtxMenu.em.id); setEmailCtxMenu(null); }}>
-                🗑️ Delete
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
+    return emailViewPanelExtracted({
+      em, emD, pos, setView,
+      emailGraph, emailGraphPost, loadEmailAttachments, authenticateEmail,
+      loadPOEmails, loadFullEmail, loadEmailThread, emailGetPrefix,
+      emailMarkAsRead, deleteMainEmail, msSignOut,
+    });
   }
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -4695,8 +2656,9 @@ export default function TandAApp() {
             }
           }}>📧 Email</button>
           <button style={view === "activity" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("activity"); }}>📋 Activity</button>
-          <button style={view === "vendors" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("vendors"); }}>🏆 Vendors</button>
+          <button style={view === "vendors" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("vendors"); loadArchivedPOs(); }}>🏆 Vendors</button>
           <button style={view === "timeline" ? S.navBtnActive : S.navBtn} onClick={() => { if (selected) setSearch(selected.PoNumber ?? ""); setView("timeline"); }}>📊 Timeline</button>
+          <button style={view === "archive" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("archive"); loadArchivedPOs(); }}>📦 Archive{archivedPos.length > 0 ? ` (${archivedPos.length})` : ""}</button>
           <button style={S.navBtn} onClick={() => { setShowBulkUpdate(true); setBulkVendor(""); setBulkPhase(""); setBulkPhases([]); setBulkCategory(""); setBulkStatus(""); setBulkPOs([]); setBulkPOSearch(""); }}>⚡ Bulk Update</button>
           <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing} title="Sync POs from Xoro">
             {syncing ? "⏳ Syncing…" : "🔄 Sync"}
@@ -5218,7 +3180,7 @@ export default function TandAApp() {
         {view === "activity" && (() => {
           const historyEntries = notes.filter(n => n.status_override === "__history__").sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? "")).slice(0, 100);
           return (
-            <>
+            <div style={{ maxWidth: "50%", margin: "0 auto" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                 <h2 style={{ margin: 0, color: "#F1F5F9", fontSize: 20, fontWeight: 700 }}>Activity Feed</h2>
                 <span style={{ color: "#6B7280", fontSize: 12 }}>{historyEntries.length} recent activities</span>
@@ -5235,31 +3197,33 @@ export default function TandAApp() {
                   const time = entry.created_at ? new Date(entry.created_at).toLocaleString() : "";
                   const timeAgo = entry.created_at ? (() => { const ms = Date.now() - new Date(entry.created_at).getTime(); const m = Math.floor(ms / 60000); if (m < 60) return `${m}m ago`; const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`; return `${Math.floor(h / 24)}d ago`; })() : "";
                   return (
-                    <div key={entry.id || i} style={{ display: "flex", gap: 12, padding: "12px 16px", borderBottom: "1px solid #0F172A", background: i % 2 === 0 ? "#1E293B" : "#1A2332", cursor: "pointer" }}
+                    <div key={entry.id || i} style={{ display: "flex", gap: 12, padding: "14px 18px", borderBottom: "1px solid #0F172A", background: i % 2 === 0 ? "#1E293B" : "#1A2332", cursor: "pointer" }}
                       onClick={() => { const p = pos.find(x => x.PoNumber === entry.po_number); if (p) { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(p); setView("list"); } }}>
                       <div style={{ fontSize: 18, flexShrink: 0, width: 32, textAlign: "center" }}>{icon}</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: "#60A5FA", fontFamily: "monospace" }}>{entry.po_number}</span>
-                          <span style={{ fontSize: 11, color: "#6B7280" }}>{entry.user_name}</span>
-                          <span style={{ fontSize: 10, color: "#4B5563", marginLeft: "auto", flexShrink: 0 }}>{timeAgo} · {time}</span>
+                        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
+                          <span style={{ fontSize: 14, fontWeight: 700, color: "#60A5FA", fontFamily: "monospace" }}>{entry.po_number}</span>
+                          <span style={{ fontSize: 12, color: "#94A3B8" }}>{entry.user_name}</span>
+                          <span style={{ fontSize: 13, color: "#6B7280", marginLeft: "auto", flexShrink: 0, fontFamily: "monospace" }}>{timeAgo} · {time}</span>
                         </div>
-                        <div style={{ fontSize: 13, color: "#D1D5DB", lineHeight: 1.4 }}>{entry.note}</div>
+                        <div style={{ fontSize: 14, color: "#D1D5DB", lineHeight: 1.5 }}>{entry.note}</div>
                       </div>
                     </div>
                   );
                 })}
               </div>
-            </>
+            </div>
           );
         })()}
 
         {/* ── VENDORS ── */}
         {view === "vendors" && (() => {
+          // Include both active + archived POs for complete vendor performance history
+          const allPOsForVendors = [...pos, ...archivedPos];
           const vendorStats: { vendor: string; totalMs: number; completed: number; onTime: number; late: number; avgDaysLate: number; poCount: number }[] = [];
-          const vendorNames = [...new Set(pos.map(p => p.VendorName ?? "").filter(Boolean))].sort();
+          const vendorNames = [...new Set(allPOsForVendors.map(p => p.VendorName ?? "").filter(Boolean))].sort();
           vendorNames.forEach(vendor => {
-            const vPOs = pos.filter(p => (p.VendorName ?? "") === vendor);
+            const vPOs = allPOsForVendors.filter(p => (p.VendorName ?? "") === vendor);
             const vMs = vPOs.flatMap(p => milestones[p.PoNumber ?? ""] || []).filter(m => m.status !== "N/A");
             const completed = vMs.filter(m => m.status === "Complete");
             let onTime = 0, late = 0, totalDaysLate = 0;
@@ -5321,241 +3285,114 @@ export default function TandAApp() {
         })()}
 
         {/* ── TIMELINE ── */}
-        {view === "timeline" && (() => {
-          const posWithMs = pos.filter(po => (milestones[po.PoNumber ?? ""] || []).length > 0);
-          const s = search.toLowerCase();
-          const filteredPOs = posWithMs.filter(p => !s
-            || (p.PoNumber ?? "").toLowerCase().includes(s)
-            || (p.VendorName ?? "").toLowerCase().includes(s)
-            || (p.Memo ?? "").toLowerCase().includes(s)
-            || (p.Tags ?? "").toLowerCase().includes(s)
-            || (p.StatusName ?? "").toLowerCase().includes(s)
-          ).sort((a, b) => {
-            const da = a.DateExpectedDelivery ? new Date(a.DateExpectedDelivery).getTime() : Infinity;
-            const db = b.DateExpectedDelivery ? new Date(b.DateExpectedDelivery).getTime() : Infinity;
-            return da - db;
+        {view === "timeline" && timelinePanelExtracted({
+          pos, milestones, search, setSearch, selected, setSelected,
+          setDetailMode: setDetailMode as any, setView, setNewNote, openCategoryWithCheck,
+        })}
+      </div>
+
+        {/* ── ARCHIVE VIEW ── */}
+        {view === "archive" && (() => {
+          const s = archiveSearch.toLowerCase();
+          const filtered = archivedPos.filter(po => {
+            if (s && !(po.PoNumber ?? "").toLowerCase().includes(s) && !(po.VendorName ?? "").toLowerCase().includes(s)) return false;
+            if (archiveFilterVendor !== "All" && (po.VendorName ?? "") !== archiveFilterVendor) return false;
+            if (archiveFilterStatus !== "All" && (po.StatusName ?? "") !== archiveFilterStatus) return false;
+            return true;
           });
-
-          // Date range
-          let minD = Infinity, maxD = -Infinity;
-          filteredPOs.forEach(po => {
-            (milestones[po.PoNumber ?? ""] || []).forEach(m => {
-              if (m.expected_date) { const d = new Date(m.expected_date).getTime(); if (d < minD) minD = d; if (d > maxD) maxD = d; }
-            });
-          });
-          if (!isFinite(minD)) { minD = Date.now(); maxD = Date.now() + 120 * 86400000; }
-          // Snap to week boundaries with padding
-          const DAY = 86400000;
-          const startDate = new Date(minD - 21 * DAY); startDate.setDate(startDate.getDate() - startDate.getDay()); // snap to Sunday
-          const endDate = new Date(maxD + 21 * DAY);
-          const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / DAY);
-          const dayWidth = Math.max(6, Math.min(20, 1200 / totalDays)); // 6-20px per day
-          const chartWidth = totalDays * dayWidth;
-          const today = new Date();
-          const todayOffset = Math.floor((today.getTime() - startDate.getTime()) / DAY) * dayWidth;
-          const LEFT_W = 380;
-          const ROW_H = 140;
-
-          // Build week columns
-          const weeks: { date: Date; offset: number }[] = [];
-          const cur = new Date(startDate);
-          while (cur.getTime() < endDate.getTime()) {
-            weeks.push({ date: new Date(cur), offset: Math.floor((cur.getTime() - startDate.getTime()) / DAY) * dayWidth });
-            cur.setDate(cur.getDate() + 7);
-          }
-          // Month spans for top header
-          const monthSpans: { label: string; left: number; width: number }[] = [];
-          let prevMonth = -1;
-          weeks.forEach((w, i) => {
-            const m = w.date.getMonth();
-            if (m !== prevMonth) {
-              const nextMonthIdx = weeks.findIndex((ww, j) => j > i && ww.date.getMonth() !== m);
-              const endOff = nextMonthIdx >= 0 ? weeks[nextMonthIdx].offset : chartWidth;
-              monthSpans.push({ label: w.date.toLocaleDateString("en-US", { month: "long", year: "numeric" }), left: w.offset, width: endOff - w.offset });
-              prevMonth = m;
-            }
-          });
-
-          const toX = (d: string) => Math.floor((new Date(d).getTime() - startDate.getTime()) / DAY) * dayWidth;
-
+          const vendors = ["All", ...new Set(archivedPos.map(p => p.VendorName ?? "").filter(Boolean))].sort();
+          const statuses = ["All", ...new Set(archivedPos.map(p => p.StatusName ?? "").filter(Boolean))];
+          const allSelected = filtered.length > 0 && filtered.every(p => archiveSelected.has(p.PoNumber ?? ""));
           return (
-            <>
-              {/* Header bar */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ maxWidth: "85%", margin: "0 auto" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                 <div>
-                  <h2 style={{ margin: "0 0 2px", color: "#F1F5F9", fontSize: 20, fontWeight: 700 }}>Production Timeline</h2>
-                  <div style={{ color: "#6B7280", fontSize: 12 }}>{filteredPOs.length} POs · {filteredPOs.reduce((s, p) => s + (milestones[p.PoNumber ?? ""] || []).filter(m => m.status !== "N/A").length, 0)} milestones</div>
+                  <h2 style={{ margin: "0 0 2px", color: "#F1F5F9", fontSize: 20, fontWeight: 700 }}>Archived Purchase Orders</h2>
+                  <div style={{ color: "#6B7280", fontSize: 12 }}>{archivedPos.length} archived POs · milestones and notes preserved</div>
                 </div>
-                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Search PO#, vendor, brand, style #…" style={{ ...S.input, width: 280, marginBottom: 0, fontSize: 14 }} />
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <div style={{ display: "flex", gap: 12, fontSize: 12, color: "#94A3B8", alignItems: "center" }}>
-                      <span style={{ fontSize: 10, color: "#6B7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, width: 80, flexShrink: 0 }}>Milestones:</span>
-                      {[["linear-gradient(90deg,#6EE7B7,#047857)","Complete"],["linear-gradient(90deg,#93C5FD,#1D4ED8)","In Progress"],["linear-gradient(90deg,#FCA5A5,#7F1D1D)","Delayed"],["linear-gradient(90deg,#6B7280,#1F2937)","Not Started"]].map(([c,l]) => (
-                        <span key={l} style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 24, height: 14, borderRadius: 7, background: c }} />{l}</span>
-                      ))}
-                    </div>
-                    <div style={{ display: "flex", gap: 12, fontSize: 12, color: "#94A3B8", alignItems: "center" }}>
-                      <span style={{ fontSize: 10, color: "#6B7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, width: 80, flexShrink: 0 }}>PO Status:</span>
-                      {[["#3B82F6","Open"],["#8B5CF6","Released"],["#F59E0B","Pending"],["#9CA3AF","Draft"]].map(([c,l]) => (
-                        <span key={l} style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: "50%", background: c }} />{l}</span>
-                      ))}
-                    </div>
+                {archiveSelected.size > 0 && (
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => { archiveSelected.forEach(pn => unarchivePO(pn)); setArchiveSelected(new Set()); }}
+                      style={{ ...S.navBtn, color: "#10B981", borderColor: "#10B98144" }}>↩ Restore {archiveSelected.size} Selected</button>
+                    <button onClick={() => {
+                      setConfirmModal({
+                        title: "Permanently Delete",
+                        message: `Permanently delete ${archiveSelected.size} PO${archiveSelected.size > 1 ? "s" : ""}?\n\nThis will remove all data including milestones, notes, and attachments. This cannot be undone.`,
+                        icon: "🗑️", confirmText: "Delete Forever", confirmColor: "#EF4444",
+                        onConfirm: async () => { await permanentDeleteArchived([...archiveSelected]); setArchiveSelected(new Set()); },
+                      });
+                    }} style={{ ...S.navBtnDanger }}>🗑 Delete {archiveSelected.size} Selected</button>
                   </div>
-                </div>
+                )}
               </div>
-
-              {/* Scrollbar styles */}
-              <style>{`
-                .tl-scroll::-webkit-scrollbar { height: 14px; width: 14px; }
-                .tl-scroll::-webkit-scrollbar-track { background: #0F172A; border-radius: 7px; margin: 0 4px; }
-                .tl-scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 7px; border: 2px solid #0F172A; }
-                .tl-scroll::-webkit-scrollbar-thumb:hover { background: #64748B; }
-                .tl-left::-webkit-scrollbar { width: 0; display: none; }
-              `}</style>
-              {/* Chart container */}
-              <div style={{ background: "#1E293B", borderRadius: 12, border: "1px solid #334155", overflow: "hidden", maxHeight: "calc(100vh - 180px)" }}>
-                <div style={{ display: "flex", maxHeight: "calc(100vh - 180px)" }}>
-                  {/* Frozen left column */}
-                  <div style={{ width: LEFT_W, flexShrink: 0, zIndex: 5, background: "#1E293B", paddingBottom: 18, overflowY: "auto", overflowX: "hidden" }} className="tl-left"
-                    onScroll={e => { const chart = e.currentTarget.nextElementSibling; if (chart) chart.scrollTop = e.currentTarget.scrollTop; }}>
-                    {/* Header cells */}
-                    <div style={{ height: 44, background: "#0F172A", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", padding: "0 16px", position: "sticky", top: 0, zIndex: 4 }}>
-                      <span style={{ fontSize: 16, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: 1 }}>PO / Vendor</span>
-                    </div>
-                    <div style={{ height: 40, background: "#0F172A", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", padding: "0 16px", position: "sticky", top: 44, zIndex: 4 }}>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: "#6B7280" }}>{filteredPOs.length} POs</span>
-                    </div>
-                    {/* PO labels */}
-                    {filteredPOs.map((po, idx) => {
-                      const poNum = po.PoNumber ?? "";
-                      const poMs = milestones[poNum] || [];
-                      const complete = poMs.filter(m => m.status === "Complete").length;
-                      const active = poMs.filter(m => m.status !== "N/A").length;
-                      const pct = active > 0 ? Math.round((complete / active) * 100) : 0;
-                      const inProg = poMs.filter(m => m.status === "In Progress").length;
-                      const delayed = poMs.filter(m => m.status === "Delayed").length;
-                      const notStarted = active - complete - inProg - delayed;
-                      const statusColor = STATUS_COLORS[po.StatusName ?? ""] ?? "#6B7280";
-                      const isSelected = selected?.PoNumber === poNum;
-                      const statusBars = [
-                        [complete, "#047857", "#6EE7B7"],
-                        [inProg, "#1D4ED8", "#93C5FD"],
-                        [delayed, "#7F1D1D", "#FCA5A5"],
-                        [notStarted, "#374151", "#9CA3AF"],
-                      ].filter(([c]) => (c as number) > 0) as [number, string, string][];
-                      return (
-                        <div key={poNum}
-                          onClick={() => { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(po); setView("list"); }}
-                          style={{ height: ROW_H, display: "flex", alignItems: "center", gap: 8, padding: "0 12px", borderBottom: "1px solid #0F172A", background: isSelected ? "#334155" : idx % 2 === 0 ? "#1E293B" : "#1A2332", cursor: "pointer", borderLeft: isSelected ? "3px solid #60A5FA" : "3px solid transparent" }}
-                          onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = "#334155"; }}
-                          onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = idx % 2 === 0 ? "#1E293B" : "#1A2332"; }}>
-                          <div style={{ width: 12, height: 12, borderRadius: "50%", background: statusColor, flexShrink: 0 }} />
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 18, fontWeight: 700, color: "#60A5FA", fontFamily: "monospace" }}>{poNum}</div>
-                            <div style={{ fontSize: 15, color: "#94A3B8", lineHeight: 1.3 }}>{po.VendorName ?? ""}</div>
-                          </div>
-                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0, width: 110 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <span style={{ fontSize: 11, color: "#9CA3AF", fontFamily: "monospace" }}>{complete}/{active}</span>
-                              <span style={{ fontSize: 12, color: "#10B981", fontWeight: 700, fontFamily: "monospace" }}>{pct}%</span>
-                            </div>
-                            {statusBars.map(([count, dark, light], i) => {
-                              const sPct = active > 0 ? Math.round(((count as number) / active) * 100) : 0;
-                              return (
-                                <div key={i} style={{ width: 110, height: 6, borderRadius: 3, background: "#0F172A", overflow: "hidden" }}>
-                                  <div style={{ width: `${sPct}%`, height: "100%", background: `linear-gradient(90deg, ${light}, ${dark})`, borderRadius: 3, minWidth: (count as number) > 0 ? 3 : 0 }} />
-                                </div>
-                              );
-                            })}
-                          </div>
+              <div style={S.filters}>
+                <input value={archiveSearch} onChange={e => setArchiveSearch(e.target.value)} placeholder="🔍 Search PO#, vendor…" style={{ ...S.input, width: 240, marginBottom: 0 }} />
+                <select value={archiveFilterVendor} onChange={e => setArchiveFilterVendor(e.target.value)} style={S.select}>
+                  {vendors.map(v => <option key={v} value={v}>{v}</option>)}
+                </select>
+                <select value={archiveFilterStatus} onChange={e => setArchiveFilterStatus(e.target.value)} style={S.select}>
+                  {statuses.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                {filtered.length > 0 && (
+                  <button onClick={() => {
+                    setConfirmModal({
+                      title: "Delete All Filtered",
+                      message: `Permanently delete all ${filtered.length} filtered PO${filtered.length > 1 ? "s" : ""}? This cannot be undone.`,
+                      icon: "🗑️", confirmText: "Delete All", confirmColor: "#EF4444",
+                      onConfirm: async () => { await permanentDeleteArchived(filtered.map(p => p.PoNumber ?? "").filter(Boolean)); setArchiveSelected(new Set()); },
+                    });
+                  }} style={S.navBtnDanger}>🗑 Delete All Filtered ({filtered.length})</button>
+                )}
+              </div>
+              {archiveLoading ? (
+                <div style={S.emptyState}>Loading archived POs…</div>
+              ) : filtered.length === 0 ? (
+                <div style={S.emptyState}>
+                  <div style={{ fontSize: 32, marginBottom: 12 }}>📦</div>
+                  <p style={{ color: "#6B7280", margin: 0 }}>{archivedPos.length === 0 ? "No archived POs yet" : "No POs match your filters"}</p>
+                </div>
+              ) : (
+                <div style={{ background: "#1E293B", borderRadius: 12, border: "1px solid #334155", overflow: "hidden" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "40px 1fr 1fr 120px 140px 100px", padding: "10px 16px", background: "#0F172A", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "1px solid #334155" }}>
+                    <div><input type="checkbox" checked={allSelected} onChange={() => {
+                      if (allSelected) setArchiveSelected(new Set());
+                      else setArchiveSelected(new Set(filtered.map(p => p.PoNumber ?? "")));
+                    }} style={{ accentColor: "#3B82F6" }} /></div>
+                    <div>PO#</div><div>Vendor</div><div>Status</div><div>Archived</div><div>Actions</div>
+                  </div>
+                  {filtered.map((po, i) => {
+                    const poNum = po.PoNumber ?? "";
+                    const isChecked = archiveSelected.has(poNum);
+                    const statusColor = STATUS_COLORS[po.StatusName ?? ""] ?? "#6B7280";
+                    return (
+                      <div key={poNum} style={{ display: "grid", gridTemplateColumns: "40px 1fr 1fr 120px 140px 100px", padding: "12px 16px", borderBottom: "1px solid #0F172A", background: i % 2 === 0 ? "#1E293B" : "#1A2332", alignItems: "center" }}>
+                        <div><input type="checkbox" checked={isChecked} onChange={() => {
+                          const next = new Set(archiveSelected);
+                          if (isChecked) next.delete(poNum); else next.add(poNum);
+                          setArchiveSelected(next);
+                        }} style={{ accentColor: "#3B82F6" }} /></div>
+                        <div style={{ fontFamily: "monospace", color: "#60A5FA", fontWeight: 700, fontSize: 14 }}>{poNum}</div>
+                        <div style={{ color: "#D1D5DB", fontSize: 13 }}>{po.VendorName ?? ""}</div>
+                        <div><span style={{ ...S.badge, background: statusColor + "22", color: statusColor, border: `1px solid ${statusColor}44` }}>{po.StatusName ?? ""}</span></div>
+                        <div style={{ color: "#6B7280", fontSize: 12, fontFamily: "monospace" }}>{po._archivedAt ? new Date(po._archivedAt).toLocaleDateString() : "—"}</div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button onClick={() => unarchivePO(poNum)} title="Restore" style={{ background: "none", border: "1px solid #10B98144", color: "#10B981", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>↩</button>
+                          <button onClick={() => {
+                            setConfirmModal({
+                              title: "Permanently Delete", message: `Delete PO ${poNum} permanently? All data will be lost.`,
+                              icon: "🗑️", confirmText: "Delete", confirmColor: "#EF4444",
+                              onConfirm: () => permanentDeleteArchived([poNum]),
+                            });
+                          }} title="Delete permanently" style={{ background: "none", border: "1px solid #EF444444", color: "#EF4444", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>🗑</button>
                         </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Scrollable chart area */}
-                  <div className="tl-scroll" style={{ flex: 1, overflowX: "auto", overflowY: "auto", borderLeft: "2px solid #334155", paddingBottom: 4 }}
-                    onScroll={e => { const left = e.currentTarget.previousElementSibling; if (left) left.scrollTop = e.currentTarget.scrollTop; }}>
-                    <div style={{ width: chartWidth, minWidth: "100%" }}>
-                      {/* Month header row — sticky */}
-                      <div style={{ height: 44, position: "sticky", top: 0, zIndex: 4, background: "#0F172A", borderBottom: "1px solid #334155" }}>
-                        {monthSpans.map((ms, i) => (
-                          <div key={i} style={{ position: "absolute", left: ms.left, width: ms.width, height: "100%", display: "flex", alignItems: "center", justifyContent: "center", borderRight: "1px solid #334155" }}>
-                            <span style={{ fontSize: 17, fontWeight: 700, color: "#D1D5DB", letterSpacing: 0.5 }}>{ms.label}</span>
-                          </div>
-                        ))}
                       </div>
-                      {/* Week header row — sticky */}
-                      <div style={{ height: 40, position: "sticky", top: 44, zIndex: 4, background: "#0F172A", borderBottom: "1px solid #334155" }}>
-                        {weeks.map((w, i) => {
-                          const wWidth = i < weeks.length - 1 ? weeks[i + 1].offset - w.offset : 7 * dayWidth;
-                          const isThisWeek = today.getTime() >= w.date.getTime() && today.getTime() < w.date.getTime() + 7 * DAY;
-                          return (
-                            <div key={i} style={{ position: "absolute", left: w.offset, width: wWidth, height: "100%", display: "flex", alignItems: "center", justifyContent: "center", borderRight: "1px solid #1E293B", background: isThisWeek ? "#F59E0B15" : "transparent" }}>
-                              <span style={{ fontSize: 15, color: isThisWeek ? "#F59E0B" : "#6B7280", fontWeight: isThisWeek ? 700 : 500 }}>
-                                {w.date.toLocaleDateString("en-US", { month: "numeric", day: "numeric" })}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {/* PO Gantt rows */}
-                      {filteredPOs.length === 0 ? (
-                        <div style={{ padding: 40, textAlign: "center", color: "#6B7280" }}>No POs with milestones</div>
-                      ) : filteredPOs.map((po, idx) => {
-                        const poNum = po.PoNumber ?? "";
-                        const poMs = milestones[poNum] || [];
-                        return (
-                          <div key={poNum} style={{ height: ROW_H, position: "relative", borderBottom: "1px solid #0F172A", background: selected?.PoNumber === poNum ? "#334155" : idx % 2 === 0 ? "#1E293B" : "#1A2332", cursor: "pointer" }}
-                            onClick={() => { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(po); setView("list"); }}>
-                            {/* Week grid lines */}
-                            {weeks.map((w, i) => (
-                              <div key={i} style={{ position: "absolute", left: w.offset, top: 0, bottom: 0, borderLeft: "1px solid #0F172A33" }} />
-                            ))}
-                            {/* Today line */}
-                            <div style={{ position: "absolute", left: todayOffset, top: 0, bottom: 0, width: 2, background: "#F59E0B", zIndex: 2, opacity: 0.7 }} />
-                            {/* Category bars */}
-                            {WIP_CATEGORIES.map((cat, catIdx) => {
-                              const catMs = poMs.filter(m => m.category === cat);
-                              if (catMs.length === 0) return null;
-                              const dates = catMs.map(m => m.expected_date).filter(Boolean) as string[];
-                              if (dates.length === 0) return null;
-                              const catStart = dates.reduce((min, d) => d < min ? d : min, dates[0]);
-                              const catEnd = dates.reduce((max, d) => d > max ? d : max, dates[0]);
-                              const x1 = toX(catStart);
-                              const x2 = toX(catEnd);
-                              const barW = Math.max(x2 - x1, dayWidth);
-                              const allDone = catMs.every(m => m.status === "Complete" || m.status === "N/A");
-                              const hasDelayed = catMs.some(m => m.status === "Delayed");
-                              const hasInProg = catMs.some(m => m.status === "In Progress");
-                              const barGradient = allDone ? "linear-gradient(90deg, #6EE7B7, #047857)" : hasDelayed ? "linear-gradient(90deg, #FCA5A5, #7F1D1D)" : hasInProg ? "linear-gradient(90deg, #93C5FD, #1D4ED8)" : "linear-gradient(90deg, #6B7280, #1F2937)";
-                              const barH = 24;
-                              const barY = 6 + catIdx * (barH + 3);
-                              const catDone = catMs.filter(m => m.status === "Complete").length;
-                              const catActive = catMs.filter(m => m.status !== "N/A").length;
-                              return (
-                                <div key={cat} title={`${cat}: ${catDone}/${catActive} complete\n${catStart} → ${catEnd}`}
-                                  onClick={e => { e.stopPropagation(); openCategoryWithCheck(poNum, cat, po, true); }}
-                                  style={{ position: "absolute", left: x1, width: barW, top: barY, height: barH, borderRadius: barH / 2, background: barGradient, minWidth: 6, zIndex: 3, display: "flex", alignItems: "center", overflow: "hidden", boxShadow: "0 2px 6px rgba(0,0,0,0.35)", cursor: "pointer", transition: "filter 0.15s" }}
-                                  onMouseEnter={e => e.currentTarget.style.filter = "brightness(1.2)"}
-                                  onMouseLeave={e => e.currentTarget.style.filter = "none"}>
-                                  <span style={{ fontSize: 13, color: "#fff", fontWeight: 700, paddingLeft: 6, whiteSpace: "nowrap", opacity: 0.95 }}>{cat}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+                    );
+                  })}
                 </div>
-              </div>
-            </>
+              )}
+            </div>
           );
         })()}
-      </div>
 
       {selected && view !== "timeline" && DetailPanel()}
       {showSettings  && <SettingsModal />}
@@ -5897,81 +3734,3 @@ export default function TandAApp() {
   }
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
-const S: Record<string, React.CSSProperties> = {
-  app:        { minHeight: "100vh", background: "#0F172A", color: "#F1F5F9", fontFamily: "'DM Sans', 'Segoe UI', sans-serif" },
-  loginBg:    { minHeight: "100vh", background: "#0F172A", display: "flex", alignItems: "center", justifyContent: "center" },
-  loginCard:  { background: "#1E293B", borderRadius: 16, padding: 40, width: 360, boxShadow: "0 24px 64px rgba(0,0,0,.5)", display: "flex", flexDirection: "column", gap: 14 },
-  loginLogo:  { width: 56, height: 56, borderRadius: 14, background: "linear-gradient(135deg,#3B82F6,#8B5CF6)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 22, alignSelf: "center" },
-  loginTitle: { margin: 0, textAlign: "center", fontSize: 22, fontWeight: 700, color: "#F1F5F9" },
-  loginSub:   { margin: 0, textAlign: "center", fontSize: 13, color: "#6B7280" },
-
-  nav:        { background: "#1E293B", borderBottom: "1px solid #334155", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56, position: "sticky", top: 0, zIndex: 100 },
-  navLeft:    { display: "flex", alignItems: "center", gap: 12 },
-  navLogo:    { width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg,#3B82F6,#8B5CF6)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 13 },
-  navTitle:   { fontWeight: 700, fontSize: 16, color: "#F1F5F9" },
-  navSub:     { fontSize: 12, color: "#6B7280" },
-  navRight:   { display: "flex", alignItems: "center", gap: 8 },
-  navBtn:     { background: "none", border: "1px solid #334155", color: "#94A3B8", borderRadius: 6, padding: "5px 12px", fontSize: 13, cursor: "pointer" },
-  navBtnActive:{ background: "#3B82F620", border: "1px solid #3B82F6", color: "#60A5FA", borderRadius: 6, padding: "5px 12px", fontSize: 13, cursor: "pointer", fontWeight: 600 },
-  navBtnDanger:{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 6, padding: "5px 12px", fontSize: 13, cursor: "pointer" },
-  userPill:   { background: "#334155", color: "#94A3B8", borderRadius: 20, padding: "4px 12px", fontSize: 12 },
-
-  content:    { maxWidth: "90%", margin: "0 auto", padding: "24px 20px" },
-  statsRow:   { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginBottom: 20 },
-  statCard:   { background: "#1E293B", borderRadius: 12, padding: 20, display: "flex", flexDirection: "column", gap: 6 },
-  card:       { background: "#1E293B", borderRadius: 12, padding: 20, marginBottom: 20 },
-  cardTitle:  { margin: "0 0 16px", fontSize: 16, fontWeight: 700, color: "#F1F5F9" },
-
-  filters:    { display: "flex", gap: 10, marginBottom: 16, alignItems: "center" },
-
-  poRow:      { display: "flex", alignItems: "center", gap: 16, padding: "14px 16px", borderRadius: 8, marginBottom: 8, background: "#0F172A", cursor: "pointer", transition: "background .15s" },
-  poNumber:   { fontFamily: "monospace", color: "#60A5FA", fontWeight: 700, fontSize: 15 },
-  badge:      { fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20 },
-  tagChip:    { background: "#334155", color: "#94A3B8", borderRadius: 20, padding: "3px 10px", fontSize: 12 },
-  statusChip: { display: "flex", alignItems: "center", gap: 6, borderRadius: 20, padding: "6px 14px", fontSize: 13 },
-
-  emptyState: { textAlign: "center", padding: 40, color: "#6B7280", display: "flex", flexDirection: "column", gap: 12, alignItems: "center" },
-
-  input:      { width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: "10px 14px", color: "#F1F5F9", fontSize: 14, outline: "none", boxSizing: "border-box" },
-  select:     { background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: "9px 12px", color: "#F1F5F9", fontSize: 13, outline: "none" },
-  textarea:   { width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: "10px 14px", color: "#F1F5F9", fontSize: 14, resize: "vertical", outline: "none", fontFamily: "inherit", boxSizing: "border-box" },
-  label:      { color: "#94A3B8", fontSize: 13, display: "block", marginBottom: 4 },
-  err:        { color: "#EF4444", fontSize: 13, margin: 0 },
-  errBanner:  { background: "#7F1D1D", color: "#FCA5A5", padding: "10px 24px", fontSize: 14, display: "flex", alignItems: "center" },
-
-  btnPrimary: { background: "linear-gradient(135deg,#3B82F6,#8B5CF6)", color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontWeight: 600, fontSize: 14, cursor: "pointer", width: "100%" },
-  btnSecondary:{ background: "none", border: "1px solid #334155", color: "#94A3B8", borderRadius: 8, padding: "8px 16px", fontSize: 13, cursor: "pointer" },
-
-  // Modal
-  modalOverlay:{ position: "fixed", inset: 0, background: "rgba(0,0,0,.7)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" },
-  modal:       { background: "#1E293B", borderRadius: 16, width: 480, maxHeight: "80vh", overflow: "hidden", display: "flex", flexDirection: "column" },
-  modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: "1px solid #334155" },
-  modalTitle:  { margin: 0, fontSize: 18, fontWeight: 700, color: "#F1F5F9" },
-  modalBody:   { padding: 20, overflowY: "auto" },
-  closeBtn:    { background: "none", border: "none", color: "#6B7280", fontSize: 18, cursor: "pointer", lineHeight: 1 },
-  settingSection:{ color: "#F1F5F9", fontSize: 15, fontWeight: 700, margin: "0 0 10px" },
-
-  // Detail panel
-  detailOverlay:{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 200, display: "flex", justifyContent: "flex-end" },
-  detailPanel:  { background: "#1E293B", width: 600, maxWidth: "90vw", height: "100%", overflowY: "auto", display: "flex", flexDirection: "column" },
-  detailHeader: { padding: "20px 24px", borderBottom: "1px solid #334155", display: "flex", justifyContent: "space-between", alignItems: "flex-start", background: "#0F172A" },
-  detailPONum:  { fontFamily: "monospace", color: "#60A5FA", fontWeight: 800, fontSize: 20 },
-  detailVendor: { color: "#D1D5DB", fontWeight: 600, fontSize: 15, marginTop: 4 },
-  detailBody:   { padding: 24, flex: 1 },
-
-  infoGrid:     { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 20 },
-  infoCell:     { background: "#0F172A", borderRadius: 8, padding: 12 },
-  infoCellLabel:{ color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 },
-  infoCellValue:{ color: "#F1F5F9", fontSize: 14, fontWeight: 600 },
-
-  memoBox:      { background: "#0F172A", borderRadius: 8, padding: 14, marginBottom: 16 },
-  sectionLabel: { color: "#6B7280", fontSize: 12, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10, fontWeight: 600 },
-
-  itemsTable:   { background: "#0F172A", borderRadius: 8, overflow: "hidden" },
-  itemsHeader:  { display: "grid", gridTemplateColumns: "1fr 2fr 80px 100px 100px", padding: "10px 14px", background: "#1E293B", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, gap: 8 },
-  itemRow:      { display: "grid", gridTemplateColumns: "1fr 2fr 80px 100px 100px", padding: "10px 14px", borderTop: "1px solid #1E293B", gap: 8, fontSize: 13 },
-  itemsTotal:   { display: "grid", gridTemplateColumns: "1fr 2fr 80px 100px 100px", padding: "12px 14px", borderTop: "2px solid #334155", gap: 8, background: "#1A2332" },
-
-  noteCard:     { background: "#0F172A", borderRadius: 8, padding: 14, marginBottom: 10 },
-};

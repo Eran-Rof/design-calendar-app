@@ -2,8 +2,9 @@ import React, { useState } from "react";
 import { TH } from "../utils/theme";
 import { S } from "../utils/styles";
 import { STATUS_CONFIG } from "../utils/constants";
-import { uid } from "../utils/dates";
+import { uid, getBrand, formatDate, addDays, diffDays } from "../utils/dates";
 import { Modal } from "./Modal";
+import DateInput from "./DateInput";
 
 function AddTaskModal({ tasks, vendors, team, collections, onSave, onClose }) {
   const collOptions = [...new Set(tasks.map((t) => `${t.brand}||${t.collection}`))];

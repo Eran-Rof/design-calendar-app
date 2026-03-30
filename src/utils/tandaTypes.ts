@@ -27,6 +27,8 @@ export interface XoroPO {
   TotalAmount?: number;
   Items?: XoroPOItem[];
   PoLineArr?: XoroPOItem[];
+  _archived?: boolean;
+  _archivedAt?: string;
 }
 
 export interface XoroPOItem {
@@ -100,7 +102,7 @@ export interface DmConversation {
   messages: any[];
 }
 
-export type View = "dashboard" | "list" | "detail" | "templates" | "email" | "teams" | "activity" | "vendors" | "timeline";
+export type View = "dashboard" | "list" | "detail" | "templates" | "email" | "teams" | "activity" | "vendors" | "timeline" | "archive";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
