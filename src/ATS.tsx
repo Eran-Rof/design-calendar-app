@@ -101,6 +101,12 @@ function ATSReport() {
   const setNormChanges = (v: NormChange[] | null) => stSet("normChanges", v);
   const setNormPendingData = (v: ExcelData | null) => stSet("normPendingData", v);
   const setNormSource = (v: "upload" | "load") => stSet("normSource", v);
+  const customerFilter = st.customerFilter;
+  const customerDropOpen = st.customerDropOpen;
+  const customerSearch = st.customerSearch;
+  const setCustomerFilter = (v: string) => stSet("customerFilter", v);
+  const setCustomerDropOpen = (v: boolean) => stSet("customerDropOpen", v);
+  const setCustomerSearch = (v: string) => stSet("customerSearch", v);
   const STORES = ["ROF", "ROF ECOM", "PT"] as const;
   const poStores = storeFilter;
   const soStores = storeFilter;
@@ -620,6 +626,15 @@ function ATSReport() {
     return new Set(soStores.flatMap(st => [...(soSkusByStore[st] ?? new Set<string>())]));
   }, [soStores, soSkusByStore]);
 
+  // Build customer SKU set for filtering
+  const customerSkuSet = useMemo(() => {
+    if (!customerFilter || !excelData) return null;
+    const skus = new Set<string>();
+    excelData.sos.forEach(s => { if (s.customerName === customerFilter) skus.add(s.sku); });
+    excelData.pos.forEach(p => { if (p.vendor === customerFilter) skus.add(p.sku); });
+    return skus;
+  }, [customerFilter, excelData]);
+
   const filtered = rows.filter(r => {
     const s = search.toLowerCase();
     const matchSearch = !s || r.sku.toLowerCase().includes(s) || r.description.toLowerCase().includes(s);
@@ -633,7 +648,9 @@ function ATSReport() {
     const matchMin    = minATS === "" || todayQty >= minATS;
     // Store filter
     const matchStore = storeFilter.includes("All") || storeFilter.includes(r.store ?? "ROF");
-    return matchSearch && matchCat && matchStatus && matchMin && matchStore;
+    // Customer filter
+    const matchCustomer = !customerSkuSet || customerSkuSet.has(r.sku);
+    return matchSearch && matchCat && matchStatus && matchMin && matchStore && matchCustomer;
   });
 
   // ── Summary stats (all based on filtered rows) ─────────────────────────
@@ -741,5 +758,6 @@ function ATSReport() {
     repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef,
     cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress,
     normChanges, setNormChanges, applyNormReview, dismissNormReview,
+    customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch,
   });
 }

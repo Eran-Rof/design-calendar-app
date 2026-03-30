@@ -6,7 +6,7 @@ import { fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeeken
 export type ATSRenderCtx = Record<string, any>;
 
 export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
-  const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterStatus, setFilterStatus, minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, syncing, syncStatus, lastSync, syncError, setSyncError, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, sortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress, normChanges, setNormChanges, applyNormReview, dismissNormReview } = ctx;
+  const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterStatus, setFilterStatus, minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, syncing, syncStatus, lastSync, syncError, setSyncError, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, sortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch } = ctx;
 
   return (
     <div style={S.app}>
@@ -187,9 +187,52 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
               <option value="months">Months</option>
             </select>
           </div>
-          <button style={S.navBtn} onClick={() => loadFromSupabase()} disabled={loading}>
-            {loading ? "Loading…" : "↺ Refresh"}
-          </button>
+          <div style={{ position: "relative" }}>
+            <button style={{ ...S.navBtn, background: customerFilter ? "rgba(96,165,250,0.15)" : undefined, color: customerFilter ? "#60A5FA" : undefined }} onClick={() => setCustomerDropOpen(!customerDropOpen)}>
+              {customerFilter ? `👤 ${customerFilter}` : "👤 Customers"}
+            </button>
+            {customerDropOpen && (
+              <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, background: "#1E293B", border: "1px solid #334155", borderRadius: 8, zIndex: 100, width: 280, maxHeight: 340, display: "flex", flexDirection: "column", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+                <div style={{ padding: "8px 10px", borderBottom: "1px solid #334155" }}>
+                  <input
+                    type="text"
+                    placeholder="Search customers…"
+                    value={customerSearch}
+                    onChange={e => setCustomerSearch(e.target.value)}
+                    autoFocus
+                    style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, padding: "6px 10px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit", outline: "none" }}
+                  />
+                </div>
+                <div style={{ overflowY: "auto", flex: 1 }}>
+                  <div
+                    style={{ padding: "7px 14px", cursor: "pointer", fontSize: 12, color: !customerFilter ? "#6EE7B7" : "#9CA3AF", background: !customerFilter ? "rgba(16,185,129,0.08)" : "transparent", fontWeight: !customerFilter ? 600 : 400 }}
+                    onClick={() => { setCustomerFilter(""); setCustomerDropOpen(false); setCustomerSearch(""); }}
+                    onMouseEnter={e => (e.currentTarget.style.background = "rgba(16,185,129,0.12)")}
+                    onMouseLeave={e => (e.currentTarget.style.background = !customerFilter ? "rgba(16,185,129,0.08)" : "transparent")}
+                  >All Customers</div>
+                  {(() => {
+                    const custSet = new Set<string>();
+                    if (excelData) {
+                      excelData.sos.forEach(s => { if (s.customerName) custSet.add(s.customerName); });
+                      excelData.pos.forEach(p => { if (p.vendor) custSet.add(p.vendor); });
+                    }
+                    const all = [...custSet].sort();
+                    const q = customerSearch.toLowerCase();
+                    const filtered2 = q ? all.filter(c => c.toLowerCase().includes(q)) : all;
+                    return filtered2.map(c => (
+                      <div
+                        key={c}
+                        style={{ padding: "7px 14px", cursor: "pointer", fontSize: 12, color: customerFilter === c ? "#6EE7B7" : "#CBD5E1", background: customerFilter === c ? "rgba(16,185,129,0.08)" : "transparent", fontWeight: customerFilter === c ? 600 : 400 }}
+                        onClick={() => { setCustomerFilter(c); setCustomerDropOpen(false); setCustomerSearch(""); }}
+                        onMouseEnter={e => (e.currentTarget.style.background = "rgba(16,185,129,0.12)")}
+                        onMouseLeave={e => (e.currentTarget.style.background = customerFilter === c ? "rgba(16,185,129,0.08)" : "transparent")}
+                      >{c}</div>
+                    ));
+                  })()}
+                </div>
+              </div>
+            )}
+          </div>
           <div style={{ color: "#6B7280", fontSize: 12, whiteSpace: "nowrap" }}>
             {filtered.length.toLocaleString()} SKUs
             {lastSync && <span style={{ display: "block" }}>Synced {fmtDateDisplay(lastSync.split("T")[0])} {new Date(lastSync).toLocaleTimeString()}</span>}

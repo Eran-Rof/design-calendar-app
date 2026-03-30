@@ -41,6 +41,10 @@ export interface ATSState {
   normChanges: NormChange[] | null;
   normPendingData: ExcelData | null;
   normSource: "upload" | "load";
+  // Customer filter
+  customerFilter: string;
+  customerDropOpen: boolean;
+  customerSearch: string;
   // UI
   hoveredCell: { sku: string; date: string } | null;
   pinnedSku: string | null;
@@ -96,6 +100,9 @@ export function createInitialState(startDate: string): ATSState {
     normChanges: null,
     normPendingData: null,
     normSource: "upload",
+    customerFilter: "",
+    customerDropOpen: false,
+    customerSearch: "",
     hoveredCell: null,
     pinnedSku: null,
     ctxMenu: null,
