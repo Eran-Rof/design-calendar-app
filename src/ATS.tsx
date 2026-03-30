@@ -5,6 +5,7 @@ import type { ATSRow, ATSSnapshot, ATSSkuData, ATSPoEvent, ATSSoEvent, UploadWar
 import { addDays, fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel } from "./ats/helpers";
 import { computeRowsFromExcelData } from "./ats/compute";
 import { exportToExcel } from "./ats/exportExcel";
+import { normalizeExcelData, detectNormChanges, applyNormChanges, type NormChange } from "./ats/normalize";
 import S from "./ats/styles";
 import { StatCard } from "./ats/StatCard";
 import { ATSProvider, useATSState, useATSDispatch } from "./ats/state/ATSContext";
@@ -94,6 +95,9 @@ function ATSReport() {
   const setActiveSort = (v: any) => stSet("activeSort", v);
   const setSortCol = (v: any) => stSet("sortCol", v);
   const setSortDir = (v: "asc" | "desc") => stSet("sortDir", v);
+  const [normChanges, setNormChanges] = useState<NormChange[] | null>(null);
+  const [normPendingData, setNormPendingData] = useState<ExcelData | null>(null);
+  const [normSource, setNormSource] = useState<"upload" | "load">("upload");
   const STORES = ["ROF", "ROF ECOM", "PT"] as const;
   const poStores = storeFilter;
   const soStores = storeFilter;
@@ -345,10 +349,23 @@ function ATSReport() {
       );
       const excelRows = await excelRes.json();
       if (Array.isArray(excelRows) && excelRows[0]?.value) {
-        const data: ExcelData = JSON.parse(excelRows[0].value);
-        setExcelData(data);
-        setRows(computeRowsFromExcelData(data, dates));
-        setLastSync(data.syncedAt);
+        const raw: ExcelData = JSON.parse(excelRows[0].value);
+        const changes = detectNormChanges(raw);
+        if (changes.length > 0) {
+          setNormPendingData(raw);
+          setNormChanges(changes);
+          setNormSource("load");
+          // Still load with full normalization so the table is usable immediately
+          const data = normalizeExcelData(raw);
+          setExcelData(data);
+          setRows(computeRowsFromExcelData(data, dates));
+          setLastSync(data.syncedAt);
+          setMockMode(false);
+          return;
+        }
+        setExcelData(raw);
+        setRows(computeRowsFromExcelData(raw, dates));
+        setLastSync(raw.syncedAt);
         setMockMode(false);
         return;
       }
@@ -488,6 +505,16 @@ function ATSReport() {
         body: JSON.stringify({ key: "ats_excel_data", value: JSON.stringify(data) }),
       });
       if (!saveRes.ok) throw new Error("Failed to save data to database");
+      setUploadProgress({ step: "Checking SKU normalization…", pct: 93 });
+      const changes = detectNormChanges(data);
+      if (changes.length > 0) {
+        setNormPendingData(data);
+        setNormChanges(changes);
+        setNormSource("upload");
+        setUploadProgress(null);
+        setUploadingFile(false);
+        return;
+      }
       setUploadProgress({ step: "Computing ATS…", pct: 95 });
       setExcelData(data);
       setRows(computeRowsFromExcelData(data, dates));
@@ -504,6 +531,40 @@ function ATSReport() {
       setUploadingFile(false);
       setUploadProgress(null);
     }
+  }
+
+  function applyNormReview() {
+    if (!normPendingData || !normChanges) return;
+    const result = applyNormChanges(normPendingData, normChanges);
+    setExcelData(result);
+    setRows(computeRowsFromExcelData(result, dates));
+    setLastSync(result.syncedAt);
+    setMockMode(false);
+    if (normSource === "upload") {
+      setInvFile(null); setPurFile(null); setOrdFile(null);
+      setUploadSuccess(`${result.skus.length.toLocaleString()} SKUs uploaded successfully`);
+      setTimeout(() => setUploadSuccess(null), 6000);
+    }
+    setNormChanges(null);
+    setNormPendingData(null);
+  }
+
+  function dismissNormReview() {
+    if (!normPendingData) return;
+    // Apply with no changes accepted
+    const noChanges = (normChanges || []).map(c => ({ ...c, accepted: false }));
+    const result = applyNormChanges(normPendingData, noChanges);
+    setExcelData(result);
+    setRows(computeRowsFromExcelData(result, dates));
+    setLastSync(result.syncedAt);
+    setMockMode(false);
+    if (normSource === "upload") {
+      setInvFile(null); setPurFile(null); setOrdFile(null);
+      setUploadSuccess(`${result.skus.length.toLocaleString()} SKUs uploaded successfully`);
+      setTimeout(() => setUploadSuccess(null), 6000);
+    }
+    setNormChanges(null);
+    setNormPendingData(null);
   }
 
   function cancelUpload() {
@@ -669,5 +730,6 @@ function ATSReport() {
     handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel,
     repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef,
     cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress,
+    normChanges, setNormChanges, applyNormReview, dismissNormReview,
   });
 }
