@@ -55,7 +55,10 @@
       "Bash(SB_URL=\"https://qcvqvxxoperiurauoxmp.supabase.co\" SB_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw\" curl -s \"$SB_URL/rest/v1/tanda_pos?select=data&limit=2\" -H \"apikey: $SB_KEY\" -H \"Authorization: Bearer $SB_KEY\")",
       "Bash(SB_URL=\"https://qcvqvxxoperiurauoxmp.supabase.co\" SB_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw\" curl -s \"$SB_URL/rest/v1/app_data?key=eq.ats_excel_data&select=value\" -H \"apikey: $SB_KEY\" -H \"Authorization: Bearer $SB_KEY\")",
       "Bash(SB_URL=\"https://qcvqvxxoperiurauoxmp.supabase.co\" SB_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw\" curl -s \"$SB_URL/rest/v1/tanda_pos?select=data&po_number=like.*612*\" -H \"apikey: $SB_KEY\" -H \"Authorization: Bearer $SB_KEY\")",
-      "Bash(SB_URL=\"https://qcvqvxxoperiurauoxmp.supabase.co\" SB_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw\" curl -s \"$SB_URL/rest/v1/tanda_pos?select=po_number\" -H \"apikey: $SB_KEY\" -H \"Authorization: Bearer $SB_KEY\")"
+      "Bash(SB_URL=\"https://qcvqvxxoperiurauoxmp.supabase.co\" SB_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw\" curl -s \"$SB_URL/rest/v1/tanda_pos?select=po_number\" -H \"apikey: $SB_KEY\" -H \"Authorization: Bearer $SB_KEY\")",
+      "Bash(grep -n \"^// ── Xoro API\\\\|^// ── Main App\\\\|^};$\" src/TandA.tsx)",
+      "Bash(sed -n '40,42p' src/TandA.tsx)",
+      "Bash(sed -n '389,391p' src/TandA.tsx)"
     ]
   }
 }
