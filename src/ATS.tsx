@@ -508,10 +508,14 @@ function ATSReport() {
         body: JSON.stringify({ key: "ats_excel_data", value: JSON.stringify(data) }),
       });
       if (!saveRes.ok) throw new Error("Failed to save data to database");
-      setUploadProgress({ step: "Checking SKU normalization…", pct: 93 });
+      setUploadProgress({ step: `Checking ${data.skus.length.toLocaleString()} SKUs for normalization…`, pct: 88 });
+      // Small delay so the user sees the normalization step
+      await new Promise(r => setTimeout(r, 400));
       const changes = detectNormChanges(data);
       console.log(`[SKU Normalization] ${changes.length} changes detected out of ${data.skus.length} SKUs`, changes);
       if (changes.length > 0) {
+        setUploadProgress({ step: `Found ${changes.length} SKU${changes.length !== 1 ? "s" : ""} to normalize — review required`, pct: 93 });
+        await new Promise(r => setTimeout(r, 800));
         setNormPendingData(data);
         setNormChanges(changes);
         setNormSource("upload");
@@ -519,6 +523,8 @@ function ATSReport() {
         setUploadingFile(false);
         return;
       }
+      setUploadProgress({ step: "SKU normalization: all clean — no changes needed", pct: 93 });
+      await new Promise(r => setTimeout(r, 600));
       setUploadProgress({ step: "Computing ATS…", pct: 95 });
       setExcelData(data);
       setRows(computeRowsFromExcelData(data, dates));
@@ -526,7 +532,7 @@ function ATSReport() {
       setMockMode(false);
       setInvFile(null); setPurFile(null); setOrdFile(null);
       setUploadProgress(null);
-      setUploadSuccess(`${data.skus.length.toLocaleString()} SKUs uploaded successfully`);
+      setUploadSuccess(`${data.skus.length.toLocaleString()} SKUs uploaded — no normalization needed`);
       setTimeout(() => setUploadSuccess(null), 6000);
     } catch (e) {
       console.error(e);
