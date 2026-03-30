@@ -543,155 +543,8 @@ export default function ATSReport() {
     }
   }, [mockMode, excelData, dates, poStores, soStores]);
 
-  const [syncProgress, setSyncProgress] = useState<{ step: string; pct: number; log: string[] } | null>(null);
-
-  async function syncFromXoro() {
-    setSyncing(true);
-    const log: string[] = [];
-    const addLog = (msg: string) => { log.push(`${new Date().toLocaleTimeString()} — ${msg}`); setSyncProgress(p => p ? { ...p, log: [...log] } : null); };
-    try {
-      const now = new Date().toISOString();
-      setSyncProgress({ step: "Starting PO sync from Xoro…", pct: 5, log });
-      addLog("Sync started");
-
-      // ── Helper: fetch all pages from a Xoro endpoint ──────────────────────
-      async function fetchAllPages(path: string, extraParams: Record<string, string> = {}): Promise<any[]> {
-        const all: any[] = [];
-        let page = 1;
-        while (true) {
-          const params = new URLSearchParams({ path, page: String(page), ...extraParams });
-          const res = await fetch(`/api/xoro-proxy?${params}`);
-          if (!res.ok) throw new Error(`Xoro proxy returned HTTP ${res.status} for "${path}"`);
-          const text = await res.text();
-          let json: any;
-          try { json = JSON.parse(text); } catch {
-            throw new Error(`Xoro returned an unexpected response for "${path}".`);
-          }
-          if (!json.Result) break;
-          const rows = Array.isArray(json.Data) ? json.Data : json.Data?.Items ?? [];
-          all.push(...rows);
-          addLog(`  Page ${page}: ${rows.length} records (total: ${all.length})`);
-          if (page >= (json.TotalPages ?? 1)) break;
-          page++;
-        }
-        return all;
-      }
-
-      // ── Fetch Purchase Orders only (inventory + SO come from Excel) ────────
-      const statuses = ["Open", "Released", "Partially Received", "Pending", "Draft"];
-      let allPOs: any[] = [];
-
-      for (let si = 0; si < statuses.length; si++) {
-        const status = statuses[si];
-        const pct = 10 + Math.round((si / statuses.length) * 60);
-        setSyncProgress({ step: `Fetching ${status} POs…`, pct, log });
-        addLog(`Fetching ${status} POs…`);
-        try {
-          const poData = await fetchAllPages("purchaseorder/getpurchaseorder", { status });
-          allPOs = [...allPOs, ...poData];
-          addLog(`  ${status}: ${poData.length} POs`);
-        } catch (e: any) {
-          addLog(`  ${status}: FAILED — ${e.message} (skipping)`);
-        }
-      }
-
-      addLog(`Total POs fetched: ${allPOs.length}`);
-      setSyncProgress({ step: "Processing PO line items…", pct: 75, log });
-
-      // ── Build PO events for ATS ──────────────────────────────────────────
-      const poEvents: ATSPoEvent[] = [];
-      const skuOnOrder: Record<string, number> = {};
-      let totalLines = 0;
-
-      for (const po of allPOs) {
-        const header = po.poHeader ?? po;
-        const poNum = String(header.OrderNumber ?? header.PoNumber ?? "");
-        const vendor = String(header.VendorName ?? "");
-        const expDate = String(header.DateExpectedDelivery ?? "");
-        const brandName = String(header.BrandName ?? header.Brand ?? "");
-        const lines = po.poLines ?? po.PoLineArr ?? po.Items ?? [];
-
-        for (const line of lines) {
-          const rawSku = String(line.PoItemNumber ?? line.ItemNumber ?? "").trim();
-          if (!rawSku) continue;
-          const sku = xoroSkuToExcel(rawSku);
-          // Use QtyRemaining (open qty) for partially received POs, fall back to QtyOrder
-          const qtyOrdered = Number(line.QtyOrder ?? line.QtyOrdered ?? 0);
-          const qtyReceived = Number(line.QtyReceived ?? 0);
-          const qty = (line.QtyRemaining != null) ? Number(line.QtyRemaining) : qtyOrdered - qtyReceived;
-          const unitCost = Number(line.UnitPrice ?? line.EffectiveUnitPrice ?? 0);
-          if (qty <= 0) continue;
-          totalLines++;
-
-          skuOnOrder[sku] = (skuOnOrder[sku] ?? 0) + qty;
-
-          let date = "";
-          if (expDate) {
-            const d = new Date(expDate);
-            if (!isNaN(d.getTime())) date = d.toISOString().split("T")[0];
-          }
-
-          const pn = poNum.toUpperCase();
-          const bn = brandName.toUpperCase();
-          const store = pn.includes("ECOM") ? "ROF ECOM" : (bn.includes("PSYCHO") || bn.includes("PTUNA") || bn.includes("P TUNA") || bn === "PT" || bn.startsWith("PT ")) ? "PT" : "ROF";
-
-          if (date) {
-            poEvents.push({ sku, date, qty, poNumber: poNum, vendor, store, unitCost });
-          }
-        }
-      }
-
-      addLog(`Processed ${totalLines} line items across ${allPOs.length} POs`);
-      addLog(`${poEvents.length} PO events with valid dates`);
-      addLog(`${Object.keys(skuOnOrder).length} unique SKUs on order`);
-
-      // ── Save PO data to app_data for ATS to use ──────────────────────────
-      setSyncProgress({ step: "Saving PO data…", pct: 85, log });
-      await fetch(`${SB_URL}/rest/v1/app_data`, {
-        method: "POST",
-        headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify({ key: "ats_xoro_pos", value: JSON.stringify({ syncedAt: now, pos: poEvents, skuOnOrder }) }),
-      });
-
-      addLog("PO data saved to database");
-
-      // ── Update existing Excel data with fresh PO events if available ─────
-      if (excelData) {
-        setSyncProgress({ step: "Merging with inventory data…", pct: 90, log });
-        const merged: ExcelData = {
-          ...excelData,
-          syncedAt: now,
-          pos: poEvents,
-          skus: excelData.skus.map(s => ({ ...s, onOrder: skuOnOrder[s.sku] ?? 0 })),
-        };
-        setExcelData(merged);
-        setRows(computeRowsFromExcelData(merged, dates));
-        // Save merged data to Supabase so it persists on refresh
-        await fetch(`${SB_URL}/rest/v1/app_data`, {
-          method: "POST",
-          headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
-          body: JSON.stringify({ key: "ats_excel_data", value: JSON.stringify(merged) }),
-        });
-        addLog("Merged PO data saved to database");
-      }
-
-      setLastSync(now);
-      setMockMode(false);
-      setSyncProgress({ step: "Sync complete!", pct: 100, log });
-      addLog(`✅ Sync complete — ${allPOs.length} POs, ${poEvents.length} events`);
-
-      // Keep the progress visible for 3 seconds then clear
-      setTimeout(() => setSyncProgress(null), 3000);
-
-    } catch (e) {
-      console.error(e);
-      addLog(`❌ ERROR: ${(e as Error).message}`);
-      setSyncProgress(p => p ? { ...p, step: "Sync failed", log: [...log] } : null);
-      setSyncError({ title: "Xoro PO Sync Failed", detail: (e as Error).message });
-    } finally {
-      setSyncing(false);
-    }
-  }
+  // PO data comes from PO WIP (tanda_pos) — no separate Xoro sync needed
+  const syncProgress = null;
 
   async function loadFromSupabase() {
     setLoading(true);
@@ -761,7 +614,8 @@ export default function ATSReport() {
       if (cancelRef.current) return;
 
       // If no purchases file was uploaded, pull PO data from PO WIP (tanda_pos in Supabase)
-      if (!pur && data.pos.length === 0) {
+      // Always pull PO data from PO WIP (tanda_pos) — single source of truth
+      {
         setUploadProgress({ step: "Fetching PO data from PO WIP…", pct: 60 });
         try {
           const poRes = await fetch(`${SB_URL}/rest/v1/tanda_pos?select=data`, { headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` } });
@@ -1046,9 +900,7 @@ export default function ATSReport() {
               </span>
             )}
           </button>
-          <button style={S.navBtn} onClick={syncFromXoro} disabled={syncing}>
-            {syncing ? "Syncing…" : "Sync POs"}
-          </button>
+          {/* PO data comes from PO WIP — sync there instead */}
           <button
             style={{ ...S.navBtn, background: "#1D6F42", border: "1px solid #155734", color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}
             onClick={() => exportToExcel(filtered, displayPeriods.map(p => ({ endDate: p.endDate, label: p.label })))}
@@ -1864,7 +1716,7 @@ export default function ATSReport() {
               {(
                 [
                   { label: "Inventory Snapshot", sub: "On-hand quantities by SKU", key: "inv", file: invFile, setFile: setInvFile, ref: invRef, color: "#10B981" },
-                  { label: "Purchased Items Report", sub: "Optional — PO data pulled from PO WIP if skipped", key: "pur", file: purFile, setFile: setPurFile, ref: purRef, color: "#3B82F6" },
+                  // Purchased Items Report removed — PO data always comes from PO WIP
                   { label: "All Orders Report", sub: "Sales orders by ship date (outgoing)", key: "ord", file: ordFile, setFile: setOrdFile, ref: ordRef, color: "#F59E0B" },
                 ] as Array<{ label: string; sub: string; key: string; file: File | null; setFile: (f: File | null) => void; ref: React.RefObject<HTMLInputElement>; color: string }>
               ).map(slot => (
