@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { addDays, fmtDate, fmtDateDisplay, fmtDateShort, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel } from "../helpers";
+import { addDays, fmtDate, fmtDateDisplay, fmtDateShort, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, normalizeSku } from "../helpers";
 
 describe("addDays", () => {
   it("adds positive days", () => {
@@ -99,5 +99,35 @@ describe("xoroSkuToExcel", () => {
   });
   it("returns as-is for single part", () => {
     expect(xoroSkuToExcel("RYB0185")).toBe("RYB0185");
+  });
+});
+
+describe("normalizeSku", () => {
+  it("collapses double spaces around dashes", () => {
+    expect(normalizeSku("RYB059430PPK - Bark  -  Grey w Tint")).toBe("RYB059430PPK - Bark - Grey w Tint");
+  });
+  it("standardizes dash spacing (no space before dash)", () => {
+    expect(normalizeSku("RYB059430 - Media Park- Drk Wash")).toBe("RYB059430 - Media Park - Drk Wash");
+  });
+  it("standardizes dash spacing (extra space after dash)", () => {
+    expect(normalizeSku("RYB059430 - MARINE -  MD WASH")).toBe("RYB059430 - Marine - md Wash");
+  });
+  it("title-cases ALL CAPS color names", () => {
+    expect(normalizeSku("RYB0412 - ESPRESSO")).toBe("RYB0412 - Espresso");
+  });
+  it("title-cases mixed case", () => {
+    expect(normalizeSku("RYB059430 - BUENOS AIRES  -  LT WASH")).toBe("RYB059430 - Buenos Aires - lt Wash");
+  });
+  it("preserves base part as-is", () => {
+    expect(normalizeSku("RYB059430PPK - Sandlot - Med Wash")).toBe("RYB059430PPK - Sandlot - Med Wash");
+  });
+  it("handles already-normalized SKU", () => {
+    expect(normalizeSku("RYB059430 - Bark - Grey w Tint")).toBe("RYB059430 - Bark - Grey w Tint");
+  });
+  it("handles single-part SKU", () => {
+    expect(normalizeSku("RYB0185")).toBe("RYB0185");
+  });
+  it("keeps small words lowercase", () => {
+    expect(normalizeSku("RYB059430 - Bark - Grey W Tint")).toBe("RYB059430 - Bark - Grey w Tint");
   });
 });

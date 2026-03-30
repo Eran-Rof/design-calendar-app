@@ -51,6 +51,31 @@ export function getQtyBg(qty: number): string {
   return "rgba(16,185,129,0.1)";
 }
 
+/** Normalize SKU string: collapse multiple spaces, standardize dash spacing, title case color names.
+ *  "RYB059430PPK - Bark  -  Grey w Tint" → "RYB059430PPK - Bark - Grey w Tint"
+ *  "RYB0412 - ESPRESSO" → "RYB0412 - Espresso"  */
+export function normalizeSku(sku: string): string {
+  // 1. Collapse all whitespace runs to single space
+  let s = sku.replace(/\s+/g, " ").trim();
+  // 2. Standardize dash spacing: any combo of spaces/dashes → " - "
+  s = s.replace(/\s*-\s*/g, " - ");
+  // 3. Title-case the color/wash portion (everything after first " - ")
+  const firstDash = s.indexOf(" - ");
+  if (firstDash >= 0) {
+    const base = s.slice(0, firstDash); // keep base part as-is (e.g. RYB059430PPK)
+    const rest = s.slice(firstDash + 3); // color portion
+    const titleCased = rest.replace(/\b\w+/g, (word) => {
+      // Keep small words lowercase: w, of, lt, dk, md — unless first word
+      const lower = word.toLowerCase();
+      const smallWords = new Set(["w", "of", "lt", "dk", "md"]);
+      if (smallWords.has(lower)) return lower;
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    });
+    s = base + " - " + titleCased;
+  }
+  return s;
+}
+
 export function xoroSkuToExcel(rawSku: string): string {
   const parts = rawSku.split("-");
   if (parts.length >= 3) return parts[0] + " - " + parts.slice(1, -1).join(" - ");
