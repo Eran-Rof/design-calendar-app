@@ -5,6 +5,7 @@ import { S } from "../utils/styles";
 import { uid, addDaysForPhase, diffDaysForPhase, diffDays, toDateStr, addDays } from "../utils/dates";
 import { CATEGORIES, DEFAULT_TASK_TEMPLATES } from "../utils/constants";
 import { LeadTimeCell } from "./DateInput";
+import { SB_URL, SB_KEY } from "../utils/supabase";
 
 const DEFAULT_WIP_TEMPLATES_DC = [
   { id: "wip_labdip",    phase: "Lab Dip / Strike Off",      category: "Pre-Production", daysBeforeDDP: 120 },
@@ -50,8 +51,7 @@ function VendorForm({ vendor, onSave, onCancel, taskTemplates, isEdit = false })
   useEffect(() => {
     (async () => {
       try {
-        const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
-        const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
+        // SB_URL and SB_KEY imported from utils/supabase
         const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.wip_templates&select=value`, {
           headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` },
         });

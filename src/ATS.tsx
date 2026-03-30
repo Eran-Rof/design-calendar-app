@@ -1,14 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
 import XLSXStyle from "xlsx-js-style";
-
-// ── Supabase ──────────────────────────────────────────────────────────────────
-const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
-const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
-const SB_HEADERS = {
-  apikey: SB_KEY,
-  Authorization: `Bearer ${SB_KEY}`,
-  "Content-Type": "application/json",
-};
+import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface ATSRow {

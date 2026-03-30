@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { TEAMS_PURPLE, TEAMS_PURPLE_LT } from "../utils/theme";
 import { msSignIn, msRefreshTokens, MS_CLIENT_ID, MS_TENANT_ID } from "../utils/msAuth";
-
-const SB_URL = "https://qcvqvxxoperiurauoxmp.supabase.co";
-const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjdnF2eHhvcGVyaXVyYXVveG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2ODU4MjksImV4cCI6MjA4OTI2MTgyOX0.YoBmIdlqqPYt9roTsDPGSBegNnoupCYSsnyCHMo24Zw";
+import { SB_URL, SB_KEY } from "../utils/supabase";
 
 async function sbSave(key: string, value: any) {
   await fetch(`${SB_URL}/rest/v1/app_data`, {
