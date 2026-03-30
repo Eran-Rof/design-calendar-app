@@ -358,23 +358,10 @@ function ATSReport() {
       );
       const excelRows = await excelRes.json();
       if (Array.isArray(excelRows) && excelRows[0]?.value) {
-        const raw: ExcelData = JSON.parse(excelRows[0].value);
-        const changes = detectNormChanges(raw);
-        if (changes.length > 0) {
-          setNormPendingData(raw);
-          setNormChanges(changes);
-          setNormSource("load");
-          // Still load with full normalization so the table is usable immediately
-          const data = normalizeExcelData(raw);
-          setExcelData(data);
-          setRows(computeRowsFromExcelData(data, dates));
-          setLastSync(data.syncedAt);
-          setMockMode(false);
-          return;
-        }
-        setExcelData(raw);
-        setRows(computeRowsFromExcelData(raw, dates));
-        setLastSync(raw.syncedAt);
+        const data: ExcelData = JSON.parse(excelRows[0].value);
+        setExcelData(data);
+        setRows(computeRowsFromExcelData(data, dates));
+        setLastSync(data.syncedAt);
         setMockMode(false);
         return;
       }
@@ -549,6 +536,16 @@ function ATSReport() {
     }
   }
 
+  async function saveNormResult(result: ExcelData) {
+    try {
+      await fetch(`${SB_URL}/rest/v1/app_data`, {
+        method: "POST",
+        headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ key: "ats_excel_data", value: JSON.stringify(result) }),
+      });
+    } catch (e) { console.error("Failed to save normalized data:", e); }
+  }
+
   function applyNormReview() {
     if (!normPendingData || !normChanges) return;
     const result = applyNormChanges(normPendingData, normChanges);
@@ -556,27 +553,28 @@ function ATSReport() {
     setRows(computeRowsFromExcelData(result, dates));
     setLastSync(result.syncedAt);
     setMockMode(false);
+    saveNormResult(result);
     if (normSource === "upload") {
       setInvFile(null); setPurFile(null); setOrdFile(null);
-      setUploadSuccess(`${result.skus.length.toLocaleString()} SKUs uploaded successfully`);
-      setTimeout(() => setUploadSuccess(null), 6000);
     }
+    const accepted = normChanges.filter(c => c.accepted).length;
+    setUploadSuccess(accepted > 0 ? `${accepted} SKU${accepted !== 1 ? "s" : ""} normalized` : `${result.skus.length.toLocaleString()} SKUs uploaded`);
+    setTimeout(() => setUploadSuccess(null), 6000);
     setNormChanges(null);
     setNormPendingData(null);
   }
 
   function dismissNormReview() {
     if (!normPendingData) return;
-    // Apply with no changes accepted
-    const noChanges = (normChanges || []).map(c => ({ ...c, accepted: false }));
-    const result = applyNormChanges(normPendingData, noChanges);
-    setExcelData(result);
-    setRows(computeRowsFromExcelData(result, dates));
-    setLastSync(result.syncedAt);
+    // Keep original SKUs — save raw data back
+    setExcelData(normPendingData);
+    setRows(computeRowsFromExcelData(normPendingData, dates));
+    setLastSync(normPendingData.syncedAt);
     setMockMode(false);
+    saveNormResult(normPendingData);
     if (normSource === "upload") {
       setInvFile(null); setPurFile(null); setOrdFile(null);
-      setUploadSuccess(`${result.skus.length.toLocaleString()} SKUs uploaded successfully`);
+      setUploadSuccess(`${normPendingData.skus.length.toLocaleString()} SKUs uploaded — normalization skipped`);
       setTimeout(() => setUploadSuccess(null), 6000);
     }
     setNormChanges(null);
