@@ -510,6 +510,7 @@ function ATSReport() {
       if (!saveRes.ok) throw new Error("Failed to save data to database");
       setUploadProgress({ step: "Checking SKU normalization…", pct: 93 });
       const changes = detectNormChanges(data);
+      console.log(`[SKU Normalization] ${changes.length} changes detected out of ${data.skus.length} SKUs`, changes);
       if (changes.length > 0) {
         setNormPendingData(data);
         setNormChanges(changes);
