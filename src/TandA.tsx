@@ -5,7 +5,7 @@ import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
 import { type XoroPO, type Milestone, type WipTemplate, type LocalNote, type User, type DCVendor, type DmConversation, type SyncFilters, type View, ALL_PO_STATUSES, ACTIVE_PO_STATUSES, STATUS_COLORS, STATUS_OPTIONS, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, DEFAULT_WIP_TEMPLATES, milestoneUid, itemQty, poTotal, normalizeSize, sizeSort, mapXoroRaw, fmtDate, fmtCurrency } from "./utils/tandaTypes";
 import S from "./tanda/styles";
 import { generateMilestones as _generateMilestones, mergeMilestones } from "./tanda/milestones";
-import { getPOsToArchive } from "./tanda/syncLogic";
+import { getArchiveDecisions } from "./tanda/syncLogic";
 import { exportPOExcel } from "./tanda/exportHelpers";
 import { emailViewPanel as emailViewPanelExtracted, type EmailPanelCtx } from "./tanda/emailPanel";
 import { teamsViewPanel as teamsViewPanelExtracted, type TeamsPanelCtx } from "./tanda/teamsPanel";
@@ -1404,10 +1404,14 @@ function TandAApp() {
         sb.from("tanda_pos").select("po_number,data"),
       ]);
 
+      // Track which statuses returned ≥1 result — used to guard against silent empty responses
+      const statusesWithResults = new Set<string>();
       let firstError: string | null = null;
-      for (const result of statusResults) {
+      for (let i = 0; i < statusResults.length; i++) {
+        const result = statusResults[i];
         if (result.status === "fulfilled") {
           all = [...all, ...result.value.pos];
+          if (result.value.pos.length > 0) statusesWithResults.add(statusList[i]);
         } else {
           const msg = (result as PromiseRejectedResult).reason?.message;
           console.warn("Sync warning:", msg);
@@ -1471,11 +1475,24 @@ function TandAApp() {
       setSyncProgressMsg("Archiving closed/received/deleted POs…");
 
       const cachedRows = (existingRows ?? []).map((r: any) => ({ po_number: r.po_number as string, data: r.data as XoroPO }));
-      const toArchiveNums = getPOsToArchive(all, cachedRows);
-      for (const pn of toArchiveNums) {
-        await archivePO(pn);
+
+      // Only check for missing POs on a full unfiltered sync where all fetches succeeded
+      const allStatusesSucceeded = statusResults.every(r => r.status === "fulfilled");
+      const isFullSync = allStatusesSucceeded && !filters?.poNumbers?.length && !filters?.vendors?.length && !filters?.dateFrom && !filters?.dateTo;
+
+      const archiveDecisions = getArchiveDecisions(all, cachedRows, isFullSync ? statusesWithResults : null);
+      for (const { poNumber, freshData } of archiveDecisions) {
+        if (freshData) {
+          // Archive with fresh Xoro data so the status label is correct in the archive
+          const archivedData = { ...freshData, _archived: true, _archivedAt: now };
+          await sb.from("tanda_pos").upsert({ po_number: poNumber, vendor: freshData.VendorName ?? "", status: freshData.StatusName ?? "", data: archivedData, synced_at: now }, { onConflict: "po_number" });
+          coreD({ type: "REMOVE_PO", poNumber });
+          if (selected?.PoNumber === poNumber) setSelected(null);
+        } else {
+          await archivePO(poNumber);
+        }
       }
-      const deletedCount = toArchiveNums.size;
+      const deletedCount = archiveDecisions.length;
 
       setSyncProgress(95);
       setSyncProgressMsg("Reloading PO cache…");
