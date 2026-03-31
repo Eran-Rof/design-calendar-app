@@ -425,7 +425,7 @@ function ATSReport() {
             const poRows = await poRes.json();
             for (const row of poRows) {
               const po = row.data;
-              if (!po) continue;
+              if (!po || po._archived) continue;
               const poNum = po.PoNumber ?? "";
               const vendor = po.VendorName ?? "";
               const expDate = po.DateExpectedDelivery ?? "";
