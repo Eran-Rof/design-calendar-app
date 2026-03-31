@@ -105,6 +105,13 @@ describe("getArchiveDecisions", () => {
       const statusesWithResults = new Set(["Open"]);
       expect(getArchiveDecisions([], cached, statusesWithResults)).toHaveLength(0);
     });
+
+    it("does NOT archive missing PO whose last status is Partially Received", () => {
+      // Xoro API may not reliably filter by "Partially Received" — 0 results could
+      // be a fetch artefact, not a real deletion. Skip source-3 for partial statuses.
+      const cached = [makeRow("PO-PARTIAL", "Partially Received", false)];
+      expect(getArchiveDecisions([], cached, new Set())).toHaveLength(0);
+    });
   });
 
   describe("combined scenarios", () => {

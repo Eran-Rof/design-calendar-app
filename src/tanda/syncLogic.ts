@@ -54,16 +54,22 @@ export function getArchiveDecisions(
   }
 
   // 3. POs missing from Xoro (deleted from Xoro entirely)
-  // We now fetch ALL statuses in the bulk sync, so any PO absent from xoroPoNums is
-  // genuinely gone from Xoro.  The only guard is statusesWithResults !== null, which
-  // requires allStatusesSucceeded — if any status fetch failed with a network error,
-  // we skip this check entirely to avoid false positives.
+  // We fetch ALL statuses in the bulk sync, so any PO absent from xoroPoNums is
+  // genuinely gone from Xoro.  Guards:
+  //   - statusesWithResults !== null  → allStatusesSucceeded (no network errors)
+  //   - !isPartial(lastStatus)        → skip "Partially Received" POs: Xoro's API
+  //     may not reliably filter by this multi-word status, so 0 results could be a
+  //     fetch artefact rather than a true deletion. Partially Received POs that are
+  //     genuinely closed will be caught by source 1 or 2 once their status changes.
   if (statusesWithResults !== null) {
     const xoroPoNums = new Set(xoroPos.map(po => po.PoNumber ?? "").filter(Boolean));
     for (const row of cachedRows) {
       if (decisions.has(row.po_number) || row.data?._archived) continue;
       if (!xoroPoNums.has(row.po_number)) {
-        decisions.set(row.po_number, { poNumber: row.po_number, lastKnownStatus: row.data?.StatusName ?? "" });
+        const lastStatus = row.data?.StatusName ?? "";
+        if (!isPartial(lastStatus)) {
+          decisions.set(row.po_number, { poNumber: row.po_number, lastKnownStatus: lastStatus });
+        }
       }
     }
   }
