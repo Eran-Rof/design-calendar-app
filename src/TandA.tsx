@@ -540,7 +540,7 @@ function TandAApp() {
       // Load Ring of Fire team members directly
       let tid = teamsTeamId;
       if (!tid) {
-        const stored = await (async () => { try { const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.teams_team_id&select=value`, { headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` } }); const rows = await res.json(); return rows?.length ? JSON.parse(rows[0].value) : null; } catch(_) { return null; } })();
+        const stored = await (async () => { try { const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.teams_team_id&select=value`, { headers: SB_HEADERS }); const rows = await res.json(); return rows?.length ? JSON.parse(rows[0].value) : null; } catch(_) { return null; } })();
         if (stored) { tid = stored; setTeamsTeamId(stored); } else throw new Error("No team ID — open a PO channel first");
       }
       const d = await teamsGraph(`/teams/${tid}/members?$top=999`);
@@ -593,16 +593,16 @@ function TandAApp() {
   }
   async function teamsLoadChannelMap() {
     try {
-      const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.po_teams_channel_map&select=value`, { headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` } });
+      const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.po_teams_channel_map&select=value`, { headers: SB_HEADERS });
       const rows = await res.json();
       if (rows?.length) setTeamsChannelMap(JSON.parse(rows[0].value) || {});
-      const res2 = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.teams_team_id&select=value`, { headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` } });
+      const res2 = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.teams_team_id&select=value`, { headers: SB_HEADERS });
       const rows2 = await res2.json();
       if (rows2?.length) setTeamsTeamId(JSON.parse(rows2[0].value) || "");
     } catch(e) { console.error("Teams: load channel map error", e); }
   }
   async function teamsSbSave(key: string, value: any) {
-    await fetch(`${SB_URL}/rest/v1/app_data`, { method: "POST", headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`, "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ key, value: JSON.stringify(value) }) });
+    await fetch(`${SB_URL}/rest/v1/app_data`, { method: "POST", headers: SB_HEADERS, body: JSON.stringify({ key, value: JSON.stringify(value) }) });
   }
   async function teamsFindRofTeam(): Promise<string> {
     if (teamsTeamId) return teamsTeamId;
