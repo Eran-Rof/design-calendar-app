@@ -53,22 +53,17 @@ export function getArchiveDecisions(
     }
   }
 
-  // 3. POs missing from Xoro (likely deleted or changed to terminal status)
-  // Only flag a PO as missing if Xoro returned ≥1 PO for its last known status in this
-  // sync — that proves the fetch worked and the PO is genuinely absent, not a silent
-  // empty response.  An individual Xoro fetch (ALL statuses) then determines the outcome:
-  //   - returns terminal status → archive with correct label
-  //   - returns active status  → skip (still active, don't archive)
-  //   - returns nothing        → PO deleted from Xoro → archivePO fallback
+  // 3. POs missing from Xoro (deleted from Xoro entirely)
+  // We now fetch ALL statuses in the bulk sync, so any PO absent from xoroPoNums is
+  // genuinely gone from Xoro.  The only guard is statusesWithResults !== null, which
+  // requires allStatusesSucceeded — if any status fetch failed with a network error,
+  // we skip this check entirely to avoid false positives.
   if (statusesWithResults !== null) {
     const xoroPoNums = new Set(xoroPos.map(po => po.PoNumber ?? "").filter(Boolean));
     for (const row of cachedRows) {
       if (decisions.has(row.po_number) || row.data?._archived) continue;
       if (!xoroPoNums.has(row.po_number)) {
-        const lastStatus = row.data?.StatusName ?? "";
-        if (statusesWithResults.has(lastStatus)) {
-          decisions.set(row.po_number, { poNumber: row.po_number, lastKnownStatus: lastStatus });
-        }
+        decisions.set(row.po_number, { poNumber: row.po_number, lastKnownStatus: row.data?.StatusName ?? "" });
       }
     }
   }

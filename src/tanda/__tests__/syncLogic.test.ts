@@ -84,12 +84,14 @@ describe("getArchiveDecisions", () => {
       expect(d?.lastKnownStatus).toBe("Open");
     });
 
-    it("does NOT archive missing PO when its status returned 0 Xoro results (silent failure guard)", () => {
+    it("archives missing PO even when its status returned 0 results — per-status guard removed", () => {
+      // With ALL_PO_STATUSES fetched, 0 results for a status means no POs have that status.
+      // The only guard is allStatusesSucceeded (statusesWithResults !== null).
       const xoro: XoroPO[] = [];
       const cached = [makeRow("PO-001", "Open", false), makeRow("PO-002", "Open", false)];
-      const statusesWithResults = new Set<string>(); // Open had 0 results
+      const statusesWithResults = new Set<string>(); // Open had 0 results — still archived
       const decisions = getArchiveDecisions(xoro, cached, statusesWithResults);
-      expect(decisions).toHaveLength(0);
+      expect(decisions).toHaveLength(2);
     });
 
     it("does NOT archive missing POs when statusesWithResults is null (filtered sync)", () => {
