@@ -12,6 +12,9 @@ export interface ArchiveDecision {
   /** Fresh Xoro data to archive with — gives correct status label in the archive.
    *  Absent for cache-only decisions (DB data already has correct status). */
   freshData?: XoroPO;
+  /** Last known status from DB — used to guard the "deleted from Xoro" archivePO fallback.
+   *  Only set for source-3 (missing-from-Xoro) decisions. */
+  lastKnownStatus?: string;
 }
 
 /**
@@ -50,18 +53,18 @@ export function getArchiveDecisions(
     }
   }
 
-  // 3. POs missing from Xoro (likely deleted from Xoro directly)
+  // 3. POs missing from Xoro (likely deleted or changed to terminal status)
+  // An individual Xoro fetch will determine the real outcome:
+  //   - returns terminal status → archive with correct label
+  //   - returns active status  → skip (still active, don't archive)
+  //   - returns nothing        → use lastKnownStatus guard (archivePO fallback)
   if (statusesWithResults !== null) {
     const xoroPoNums = new Set(xoroPos.map(po => po.PoNumber ?? "").filter(Boolean));
     for (const row of cachedRows) {
       if (decisions.has(row.po_number) || row.data?._archived) continue;
       if (!xoroPoNums.has(row.po_number)) {
         const lastStatus = row.data?.StatusName ?? "";
-        // Only archive if Xoro returned ≥1 PO for this status — proves the fetch
-        // worked and the PO is genuinely absent, not just a silent empty response
-        if (statusesWithResults.has(lastStatus)) {
-          decisions.set(row.po_number, { poNumber: row.po_number });
-        }
+        decisions.set(row.po_number, { poNumber: row.po_number, lastKnownStatus: lastStatus });
       }
     }
   }

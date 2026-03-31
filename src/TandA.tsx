@@ -5,7 +5,7 @@ import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
 import { type XoroPO, type Milestone, type WipTemplate, type LocalNote, type User, type DCVendor, type DmConversation, type SyncFilters, type View, ALL_PO_STATUSES, ACTIVE_PO_STATUSES, STATUS_COLORS, STATUS_OPTIONS, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, DEFAULT_WIP_TEMPLATES, milestoneUid, itemQty, poTotal, normalizeSize, sizeSort, mapXoroRaw, fmtDate, fmtCurrency } from "./utils/tandaTypes";
 import S from "./tanda/styles";
 import { generateMilestones as _generateMilestones, mergeMilestones } from "./tanda/milestones";
-import { getArchiveDecisions } from "./tanda/syncLogic";
+import { getArchiveDecisions, shouldArchive } from "./tanda/syncLogic";
 import { exportPOExcel } from "./tanda/exportHelpers";
 import { emailViewPanel as emailViewPanelExtracted, type EmailPanelCtx } from "./tanda/emailPanel";
 import { teamsViewPanel as teamsViewPanelExtracted, type TeamsPanelCtx } from "./tanda/teamsPanel";
@@ -1481,7 +1481,7 @@ function TandAApp() {
       const isFullSync = allStatusesSucceeded && !filters?.poNumbers?.length && !filters?.vendors?.length && !filters?.dateFrom && !filters?.dateTo;
 
       const archiveDecisions = getArchiveDecisions(all, cachedRows, isFullSync ? statusesWithResults : null);
-      for (const { poNumber, freshData } of archiveDecisions) {
+      for (const { poNumber, freshData, lastKnownStatus } of archiveDecisions) {
         let resolvedData: XoroPO | null = freshData ?? null;
         if (!resolvedData) {
           // No fresh data from bulk fetch — do individual Xoro lookup to get real current status.
@@ -1492,14 +1492,21 @@ function TandAApp() {
           } catch { /* network error — fall through to stale-data fallback */ }
         }
         if (resolvedData) {
-          // Archive with fresh Xoro data so the status label is correct in the archive
-          const archivedData = { ...resolvedData, _archived: true, _archivedAt: now };
-          await sb.from("tanda_pos").upsert({ po_number: poNumber, vendor: resolvedData.VendorName ?? "", status: resolvedData.StatusName ?? "", data: archivedData, synced_at: now }, { onConflict: "po_number" });
-          coreD({ type: "REMOVE_PO", poNumber });
-          if (selected?.PoNumber === poNumber) setSelected(null);
+          if (shouldArchive(resolvedData.StatusName ?? "")) {
+            // Archive with fresh Xoro data so the status label is correct in the archive
+            const archivedData = { ...resolvedData, _archived: true, _archivedAt: now };
+            await sb.from("tanda_pos").upsert({ po_number: poNumber, vendor: resolvedData.VendorName ?? "", status: resolvedData.StatusName ?? "", data: archivedData, synced_at: now }, { onConflict: "po_number" });
+            coreD({ type: "REMOVE_PO", poNumber });
+            if (selected?.PoNumber === poNumber) setSelected(null);
+          }
+          // else: active status (e.g. "Partially Received") — do not archive
         } else {
-          // PO is gone from Xoro entirely (deleted) — archive using stale DB data as fallback
-          await archivePO(poNumber);
+          // Individual fetch returned nothing — PO likely deleted from Xoro.
+          // Only archive if Xoro was responsive for this PO's last known status,
+          // or if we have no lastKnownStatus (source-2 cached-terminal decisions).
+          if (!lastKnownStatus || statusesWithResults.has(lastKnownStatus)) {
+            await archivePO(poNumber);
+          }
         }
       }
       const deletedCount = archiveDecisions.length;

@@ -68,29 +68,30 @@ describe("getArchiveDecisions", () => {
   });
 
   describe("source 3: PO missing from Xoro (deleted)", () => {
-    it("archives missing PO when its status had Xoro results", () => {
-      const xoro = [makePO({ PoNumber: "PO-OTHER", StatusName: "Open" })];
+    it("flags missing PO for individual fetch regardless of whether its status had results", () => {
+      // statusesWithResults does NOT have "Open" — PO is still flagged (individual fetch is the guard)
+      const xoro = [makePO({ PoNumber: "PO-OTHER", StatusName: "Released" })];
       const cached = [makeRow("PO-MISSING", "Open", false)];
-      const statusesWithResults = new Set(["Open"]);
+      const statusesWithResults = new Set(["Released"]); // Open had 0 results
       const decisions = getArchiveDecisions(xoro, cached, statusesWithResults);
       expect(decisions.some(d => d.poNumber === "PO-MISSING")).toBe(true);
     });
 
-    it("does NOT archive missing PO when its status returned 0 Xoro results (silent failure guard)", () => {
-      const xoro: XoroPO[] = []; // Open fetch returned nothing
-      const cached = [makeRow("PO-001", "Open", false), makeRow("PO-002", "Open", false)];
-      const statusesWithResults = new Set<string>(); // Open had 0 results
-      const decisions = getArchiveDecisions(xoro, cached, statusesWithResults);
-      expect(decisions).toHaveLength(0);
+    it("sets lastKnownStatus on source-3 decisions", () => {
+      const xoro = [makePO({ PoNumber: "PO-OTHER", StatusName: "Open" })];
+      const cached = [makeRow("PO-MISSING", "Released", false)];
+      const decisions = getArchiveDecisions(xoro, cached, new Set(["Open"]));
+      const d = decisions.find(d => d.poNumber === "PO-MISSING");
+      expect(d?.lastKnownStatus).toBe("Released");
     });
 
-    it("does NOT archive missing POs when statusesWithResults is null (filtered sync)", () => {
+    it("does NOT flag missing POs when statusesWithResults is null (filtered sync)", () => {
       const xoro: XoroPO[] = [];
       const cached = [makeRow("PO-001", "Open", false)];
       expect(getArchiveDecisions(xoro, cached, null)).toHaveLength(0);
     });
 
-    it("does not re-archive already-archived missing PO", () => {
+    it("does not re-flag already-archived missing PO", () => {
       const cached = [makeRow("PO-OLD", "Open", true)];
       const statusesWithResults = new Set(["Open"]);
       expect(getArchiveDecisions([], cached, statusesWithResults)).toHaveLength(0);
