@@ -1501,10 +1501,11 @@ function TandAApp() {
           }
           // else: active status (e.g. "Partially Received") — do not archive
         } else {
-          // Individual fetch returned nothing — PO likely deleted from Xoro.
-          // Only archive if Xoro was responsive for this PO's last known status,
-          // or if we have no lastKnownStatus (source-2 cached-terminal decisions).
-          if (!lastKnownStatus || statusesWithResults.has(lastKnownStatus)) {
+          // Individual fetch returned nothing — PO is deleted from Xoro.
+          // Archive if: no lastKnownStatus (source-2 cached-terminal), OR Xoro returned
+          // at least one PO in this sync (confirming the API is working and the PO is
+          // genuinely absent, not a silent-failure false positive).
+          if (!lastKnownStatus || statusesWithResults.size > 0) {
             await archivePO(poNumber);
           }
         }
