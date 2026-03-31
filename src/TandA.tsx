@@ -5,7 +5,7 @@ import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
 import { type XoroPO, type Milestone, type WipTemplate, type LocalNote, type User, type DCVendor, type DmConversation, type SyncFilters, type View, ALL_PO_STATUSES, ACTIVE_PO_STATUSES, STATUS_COLORS, STATUS_OPTIONS, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, DEFAULT_WIP_TEMPLATES, milestoneUid, itemQty, poTotal, normalizeSize, sizeSort, mapXoroRaw, fmtDate, fmtCurrency } from "./utils/tandaTypes";
 import S from "./tanda/styles";
 import { generateMilestones as _generateMilestones, mergeMilestones } from "./tanda/milestones";
-import { getArchiveDecisions, shouldArchive } from "./tanda/syncLogic";
+import { getArchiveDecisions } from "./tanda/syncLogic";
 import { exportPOExcel } from "./tanda/exportHelpers";
 import { emailViewPanel as emailViewPanelExtracted, type EmailPanelCtx } from "./tanda/emailPanel";
 import { teamsViewPanel as teamsViewPanelExtracted, type TeamsPanelCtx } from "./tanda/teamsPanel";
@@ -1387,7 +1387,10 @@ function TandAApp() {
     setSyncFilters({ poNumbers: [], dateFrom: "", dateTo: "", vendors: [], statuses: [] });
     try {
       let all: XoroPO[] = [];
-      const statusList = filters?.statuses?.length ? filters.statuses : ACTIVE_PO_STATUSES;
+      // Fetch ALL statuses so that:
+      // • Terminal-status POs (Received/Closed/Cancelled) are caught by source-1 archiving with correct labels
+      // • POs absent from every status bucket are truly deleted from Xoro → source-3 archiving
+      const statusList = filters?.statuses?.length ? filters.statuses : ALL_PO_STATUSES;
       // Pass first PO number to API if only one selected; multi is filtered client-side
       const apiPoNumber = filters?.poNumbers?.length === 1 ? filters.poNumbers[0] : undefined;
 
@@ -1481,33 +1484,18 @@ function TandAApp() {
       const isFullSync = allStatusesSucceeded && !filters?.poNumbers?.length && !filters?.vendors?.length && !filters?.dateFrom && !filters?.dateTo;
 
       const archiveDecisions = getArchiveDecisions(all, cachedRows, isFullSync ? statusesWithResults : null);
-      for (const { poNumber, freshData, lastKnownStatus } of archiveDecisions) {
-        let resolvedData: XoroPO | null = freshData ?? null;
-        if (!resolvedData) {
-          // No fresh data from bulk fetch — do individual Xoro lookup to get real current status.
-          // This handles: Released→Received transitions, and POs deleted from Xoro.
-          try {
-            const r = await fetchXoroPOs({ poNumber, signal: controller.signal });
-            resolvedData = r.pos[0] ?? null;
-          } catch { /* network error — fall through to stale-data fallback */ }
-        }
-        if (resolvedData) {
-          if (shouldArchive(resolvedData.StatusName ?? "")) {
-            // Archive with fresh Xoro data so the status label is correct in the archive
-            const archivedData = { ...resolvedData, _archived: true, _archivedAt: now };
-            await sb.from("tanda_pos").upsert({ po_number: poNumber, vendor: resolvedData.VendorName ?? "", status: resolvedData.StatusName ?? "", data: archivedData, synced_at: now }, { onConflict: "po_number" });
-            coreD({ type: "REMOVE_PO", poNumber });
-            if (selected?.PoNumber === poNumber) setSelected(null);
-          }
-          // else: active status (e.g. "Partially Received") — do not archive
+      for (const { poNumber, freshData } of archiveDecisions) {
+        if (freshData) {
+          // Source 1: Xoro returned the PO as terminal — archive with fresh data so
+          // the status label is correct (e.g. "Received" not the stale "Released").
+          const archivedData = { ...freshData, _archived: true, _archivedAt: now };
+          await sb.from("tanda_pos").upsert({ po_number: poNumber, vendor: freshData.VendorName ?? "", status: freshData.StatusName ?? "", data: archivedData, synced_at: now }, { onConflict: "po_number" });
+          coreD({ type: "REMOVE_PO", poNumber });
+          if (selected?.PoNumber === poNumber) setSelected(null);
         } else {
-          // Individual fetch returned nothing — PO is deleted from Xoro.
-          // Archive if: no lastKnownStatus (source-2 cached-terminal), OR Xoro returned
-          // at least one PO in this sync (confirming the API is working and the PO is
-          // genuinely absent, not a silent-failure false positive).
-          if (!lastKnownStatus || statusesWithResults.size > 0) {
-            await archivePO(poNumber);
-          }
+          // Source 2/3: PO has a terminal status in the DB, or is absent from ALL
+          // Xoro status buckets (deleted). Archive using existing DB data.
+          await archivePO(poNumber);
         }
       }
       const deletedCount = archiveDecisions.length;
