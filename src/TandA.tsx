@@ -1471,23 +1471,7 @@ function TandAApp() {
       setSyncProgressMsg("Archiving closed/received/deleted POs…");
 
       const cachedRows = (existingRows ?? []).map((r: any) => ({ po_number: r.po_number as string, data: r.data as XoroPO }));
-
-      // Restore any POs that Xoro confirms are active but are currently archived
-      // (recovery from incorrect archiving due to past partial sync failures)
-      const syncedNums = new Set(synced.map(po => po.PoNumber ?? "").filter(Boolean));
-      const toRestore = cachedRows.filter(r => r.data?._archived && syncedNums.has(r.po_number));
-      for (const row of toRestore) {
-        const restored = { ...row.data } as any;
-        delete restored._archived;
-        delete restored._archivedAt;
-        await sb.from("tanda_pos").upsert({ po_number: row.po_number, data: restored }, { onConflict: "po_number" });
-      }
-
-      // Only safe to archive missing POs if every status fetch succeeded — a partial
-      // failure means some POs simply weren't returned, not that they were deleted.
-      const allStatusesSucceeded = statusResults.every(r => r.status === "fulfilled");
-      const isFullSync = allStatusesSucceeded && !filters?.poNumbers?.length && !filters?.vendors?.length && !filters?.dateFrom && !filters?.dateTo;
-      const toArchiveNums = getPOsToArchive(all, cachedRows, isFullSync);
+      const toArchiveNums = getPOsToArchive(all, cachedRows);
       for (const pn of toArchiveNums) {
         await archivePO(pn);
       }

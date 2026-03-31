@@ -9,8 +9,7 @@ export function shouldArchive(statusName: string): boolean {
 
 export function getPOsToArchive(
   xoroPos: XoroPO[],
-  cachedRows: Array<{ po_number: string; data: XoroPO }>,
-  isFullSync: boolean
+  cachedRows: Array<{ po_number: string; data: XoroPO }>
 ): Set<string> {
   const toArchive = new Set<string>();
 
@@ -23,16 +22,6 @@ export function getPOsToArchive(
   for (const row of cachedRows) {
     if (shouldArchive(row.data?.StatusName ?? "") && !row.data?._archived) {
       toArchive.add(row.po_number);
-    }
-  }
-
-  // Archive POs that no longer exist in Xoro (deleted) — only safe on full unfiltered syncs
-  if (isFullSync) {
-    const xoroPoNums = new Set(xoroPos.map(po => po.PoNumber ?? "").filter(Boolean));
-    for (const row of cachedRows) {
-      if (!xoroPoNums.has(row.po_number) && !row.data?._archived) {
-        toArchive.add(row.po_number);
-      }
     }
   }
 
