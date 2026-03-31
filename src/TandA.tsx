@@ -1501,7 +1501,7 @@ function TandAApp() {
       }
 
       setSyncProgress(88);
-      setSyncProgressMsg("Archiving closed/received POs…");
+      setSyncProgressMsg("Archiving closed/received/deleted POs…");
 
       const toArchiveFromSync = all.filter(po => autoDeleteStatuses.includes(po.StatusName ?? "") && !toKeep(po.StatusName ?? ""));
       const toArchiveFromCache = (existingRows ?? []).filter((r: any) => autoDeleteStatuses.includes((r.data as XoroPO)?.StatusName ?? "") && !toKeep((r.data as XoroPO)?.StatusName ?? "") && !(r.data as XoroPO)?._archived);
@@ -1509,10 +1509,23 @@ function TandAApp() {
         ...toArchiveFromSync.map(po => po.PoNumber ?? ""),
         ...toArchiveFromCache.map((r: any) => r.po_number as string),
       ].filter(Boolean));
+
+      // Archive POs deleted from Xoro — only safe on full unfiltered syncs
+      const isFullSync = !filters?.poNumbers?.length && !filters?.vendors?.length && !filters?.dateFrom && !filters?.dateTo;
+      if (isFullSync) {
+        const xoroPoNums = new Set(all.map(po => po.PoNumber ?? "").filter(Boolean));
+        (existingRows ?? []).forEach((r: any) => {
+          const po = r.data as XoroPO;
+          if (!xoroPoNums.has(r.po_number) && !po?._archived) {
+            toArchiveNums.add(r.po_number);
+          }
+        });
+      }
+
       for (const pn of toArchiveNums) {
         await archivePO(pn);
       }
-      const deletedCount = toDeleteNums.size;
+      const deletedCount = toArchiveNums.size;
 
       setSyncProgress(95);
       setSyncProgressMsg("Reloading PO cache…");
