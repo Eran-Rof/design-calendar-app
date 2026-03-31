@@ -1482,13 +1482,23 @@ function TandAApp() {
 
       const archiveDecisions = getArchiveDecisions(all, cachedRows, isFullSync ? statusesWithResults : null);
       for (const { poNumber, freshData } of archiveDecisions) {
-        if (freshData) {
+        let resolvedData: XoroPO | null = freshData ?? null;
+        if (!resolvedData) {
+          // No fresh data from bulk fetch — do individual Xoro lookup to get real current status.
+          // This handles: Released→Received transitions, and POs deleted from Xoro.
+          try {
+            const r = await fetchXoroPOs({ poNumber, signal: controller.signal });
+            resolvedData = r.pos[0] ?? null;
+          } catch { /* network error — fall through to stale-data fallback */ }
+        }
+        if (resolvedData) {
           // Archive with fresh Xoro data so the status label is correct in the archive
-          const archivedData = { ...freshData, _archived: true, _archivedAt: now };
-          await sb.from("tanda_pos").upsert({ po_number: poNumber, vendor: freshData.VendorName ?? "", status: freshData.StatusName ?? "", data: archivedData, synced_at: now }, { onConflict: "po_number" });
+          const archivedData = { ...resolvedData, _archived: true, _archivedAt: now };
+          await sb.from("tanda_pos").upsert({ po_number: poNumber, vendor: resolvedData.VendorName ?? "", status: resolvedData.StatusName ?? "", data: archivedData, synced_at: now }, { onConflict: "po_number" });
           coreD({ type: "REMOVE_PO", poNumber });
           if (selected?.PoNumber === poNumber) setSelected(null);
         } else {
+          // PO is gone from Xoro entirely (deleted) — archive using stale DB data as fallback
           await archivePO(poNumber);
         }
       }
