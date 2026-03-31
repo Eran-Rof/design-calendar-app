@@ -4,6 +4,8 @@ import { msSignIn, loadMsTokens, saveMsTokens, clearMsTokens, getMsAccessToken, 
 import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
 import { type XoroPO, type Milestone, type WipTemplate, type LocalNote, type User, type DCVendor, type DmConversation, type SyncFilters, type View, ALL_PO_STATUSES, ACTIVE_PO_STATUSES, STATUS_COLORS, STATUS_OPTIONS, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, DEFAULT_WIP_TEMPLATES, milestoneUid, itemQty, poTotal, normalizeSize, sizeSort, mapXoroRaw, fmtDate, fmtCurrency } from "./utils/tandaTypes";
 import S from "./tanda/styles";
+import { generateMilestones as _generateMilestones, mergeMilestones } from "./tanda/milestones";
+import { getPOsToArchive } from "./tanda/syncLogic";
 import { exportPOExcel } from "./tanda/exportHelpers";
 import { emailViewPanel as emailViewPanelExtracted, type EmailPanelCtx } from "./tanda/emailPanel";
 import { teamsViewPanel as teamsViewPanelExtracted, type TeamsPanelCtx } from "./tanda/teamsPanel";
@@ -1279,42 +1281,7 @@ function TandAApp() {
   }
 
   function generateMilestones(poNumber: string, ddpDate: string, vendorName?: string): Milestone[] {
-    const templates = getVendorTemplates(vendorName);
-    const ddp = new Date(ddpDate);
-    if (isNaN(ddp.getTime())) return [];
-
-    return templates.map((tpl, i) => {
-      const daysB = tpl.daysBeforeDDP;
-      const expected = new Date(ddp);
-      expected.setDate(expected.getDate() - daysB);
-      return {
-        id: milestoneUid(),
-        po_number: poNumber,
-        phase: tpl.phase,
-        category: tpl.category,
-        sort_order: i,
-        days_before_ddp: daysB,
-        expected_date: expected.toISOString().slice(0, 10),
-        actual_date: null,
-        status: "Not Started",
-        status_date: null,
-        status_dates: null,
-        notes: "",
-        note_entries: null,
-        updated_at: new Date().toISOString(),
-        updated_by: user?.name || "",
-      };
-    });
-  }
-
-  function mergeMilestones(existing: Milestone[], fresh: Milestone[]): Milestone[] {
-    return fresh.map(f => {
-      const old = existing.find(e => e.phase === f.phase);
-      if (old && (old.actual_date || old.status !== "Not Started" || old.notes)) {
-        return { ...f, id: old.id, actual_date: old.actual_date, status: old.status, notes: old.notes };
-      }
-      return f;
-    });
+    return _generateMilestones(poNumber, ddpDate, getVendorTemplates(vendorName), user?.name || "");
   }
 
   async function ensureMilestones(po: XoroPO): Promise<Milestone[] | "needs_template"> {
@@ -1503,25 +1470,9 @@ function TandAApp() {
       setSyncProgress(88);
       setSyncProgressMsg("Archiving closed/received/deleted POs…");
 
-      const toArchiveFromSync = all.filter(po => autoDeleteStatuses.includes(po.StatusName ?? "") && !toKeep(po.StatusName ?? ""));
-      const toArchiveFromCache = (existingRows ?? []).filter((r: any) => autoDeleteStatuses.includes((r.data as XoroPO)?.StatusName ?? "") && !toKeep((r.data as XoroPO)?.StatusName ?? "") && !(r.data as XoroPO)?._archived);
-      const toArchiveNums = new Set([
-        ...toArchiveFromSync.map(po => po.PoNumber ?? ""),
-        ...toArchiveFromCache.map((r: any) => r.po_number as string),
-      ].filter(Boolean));
-
-      // Archive POs deleted from Xoro — only safe on full unfiltered syncs
       const isFullSync = !filters?.poNumbers?.length && !filters?.vendors?.length && !filters?.dateFrom && !filters?.dateTo;
-      if (isFullSync) {
-        const xoroPoNums = new Set(all.map(po => po.PoNumber ?? "").filter(Boolean));
-        (existingRows ?? []).forEach((r: any) => {
-          const po = r.data as XoroPO;
-          if (!xoroPoNums.has(r.po_number) && !po?._archived) {
-            toArchiveNums.add(r.po_number);
-          }
-        });
-      }
-
+      const cachedRows = (existingRows ?? []).map((r: any) => ({ po_number: r.po_number as string, data: r.data as XoroPO }));
+      const toArchiveNums = getPOsToArchive(all, cachedRows, isFullSync);
       for (const pn of toArchiveNums) {
         await archivePO(pn);
       }

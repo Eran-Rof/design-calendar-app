@@ -7,7 +7,7 @@ import { getMsAccessToken, loadMsTokens } from "./utils/msAuth";
 import { STATUS_CONFIG, BRANDS, GENDERS, PHASE_KEYS, MONTHS } from "./utils/constants";
 import { getBrand as getBrandStatic, formatDate, addDays, diffDays, parseLocalDate, getDaysUntil, diffDaysForPhase, getDaysUntilForPhase, snapToBusinessDay, toDateStr, isPostPO } from "./utils/dates";
 import { fmtDays, ROFLogoFull, S } from "./utils/styles";
-import { SB_URL, SB_KEY } from "./utils/supabase";
+import { SB_URL, SB_KEY, supabaseClient } from "./utils/supabase";
 
 // ─── Components ───────────────────────────────────────────────────────────────
 import Avatar from "./components/Avatar";
@@ -404,41 +404,39 @@ function App() {
     loadAll();
   }, []);
 
-  // ── Realtime sync — poll every 10 seconds for changes from other users ──
-  const dcHashRef = useRef("");
-  const dcPollBusy = useRef(false);
+  // ── Realtime sync — Supabase websocket subscriptions for multi-user updates ──
   useEffect(() => {
     if (!currentUser || !dbxLoaded) return;
-    const poll = async () => {
-      if (dcPollBusy.current) return;
-      dcPollBusy.current = true;
-      try {
-        const [tasksRes, collRes, appRes] = await Promise.all([
-          fetch(`${SB_URL}/rest/v1/tasks?select=id&order=id.desc&limit=1`, { headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` } }),
-          fetch(`${SB_URL}/rest/v1/collections?select=id&order=id.desc&limit=1`, { headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` } }),
-          fetch(`${SB_URL}/rest/v1/app_data?select=key,value&order=key.asc&limit=3`, { headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` } }),
-        ]);
-        const [t, c, a] = await Promise.all([tasksRes.json(), collRes.json(), appRes.json()]);
-        const hash = JSON.stringify({ t, c, a: a?.map?.((r: any) => r.key) });
-        if (dcHashRef.current && hash !== dcHashRef.current) {
-          console.log("[DC Realtime] Change detected, reloading...");
-          const [newTasks, newColls] = await Promise.all([sbLoadTasks(), sbLoadCollections()]);
-          if (newTasks?.length) _setTasksRaw(newTasks);
-          if (newColls && Object.keys(newColls).length) _setCollRaw(newColls);
-          // Reload reference data in parallel
-          const refs = ["users","brands","seasons","customers","vendors","team","size_library","categories","order_types","roles","task_templates"];
-          const setters = [setUsers, setBrands, setSeasons, setCustomers, setVendors, setTeam, setSizeLibrary, setCategoryLib, setOrderTypes, setRoles, setTaskTemplates];
-          const vals = await Promise.all(refs.map(r => sbLoad(r)));
-          vals.forEach((val, i) => { if (val) (setters[i] as any)(val, true); });
-        }
-        dcHashRef.current = hash;
-      } catch (e) { /* silent */ } finally {
-        dcPollBusy.current = false;
-      }
+
+    // Debounce app_data reloads — multiple rows may change in rapid succession
+    let appDataTimer: ReturnType<typeof setTimeout> | null = null;
+    const reloadAppData = () => {
+      if (appDataTimer) clearTimeout(appDataTimer);
+      appDataTimer = setTimeout(async () => {
+        const refs = ["users","brands","seasons","customers","vendors","team","size_library","categories","order_types","roles","task_templates"];
+        const setters = [setUsers, setBrands, setSeasons, setCustomers, setVendors, setTeam, setSizeLibrary, setCategoryLib, setOrderTypes, setRoles, setTaskTemplates];
+        const vals = await Promise.all(refs.map(r => sbLoad(r)));
+        vals.forEach((val, i) => { if (val) (setters[i] as any)(val, true); });
+      }, 300);
     };
-    poll();
-    const interval = setInterval(poll, 10000);
-    return () => clearInterval(interval);
+
+    const channel = supabaseClient
+      .channel("dc-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, async () => {
+        const newTasks = await sbLoadTasks();
+        if (newTasks?.length) _setTasksRaw(newTasks);
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "collections" }, async () => {
+        const newColls = await sbLoadCollections();
+        if (newColls && Object.keys(newColls).length) _setCollRaw(newColls);
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "app_data" }, reloadAppData)
+      .subscribe();
+
+    return () => {
+      if (appDataTimer) clearTimeout(appDataTimer);
+      supabaseClient.removeChannel(channel);
+    };
   }, [currentUser, dbxLoaded]);
 
   // Load XLSX library dynamically
