@@ -5,3 +5,6 @@ dist
 
 .vercel
 .env*.local
+
+# OS
+.DS_Store
