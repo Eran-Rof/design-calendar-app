@@ -1470,7 +1470,10 @@ function TandAApp() {
       setSyncProgress(88);
       setSyncProgressMsg("Archiving closed/received/deleted POs…");
 
-      const isFullSync = !filters?.poNumbers?.length && !filters?.vendors?.length && !filters?.dateFrom && !filters?.dateTo;
+      // Only safe to archive missing POs if every status fetch succeeded — a partial
+      // failure means some POs simply weren't returned, not that they were deleted.
+      const allStatusesSucceeded = statusResults.every(r => r.status === "fulfilled");
+      const isFullSync = allStatusesSucceeded && !filters?.poNumbers?.length && !filters?.vendors?.length && !filters?.dateFrom && !filters?.dateTo;
       const cachedRows = (existingRows ?? []).map((r: any) => ({ po_number: r.po_number as string, data: r.data as XoroPO }));
       const toArchiveNums = getPOsToArchive(all, cachedRows, isFullSync);
       for (const pn of toArchiveNums) {
