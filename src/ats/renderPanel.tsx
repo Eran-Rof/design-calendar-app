@@ -46,6 +46,11 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
               </span>
             )}
           </button>
+          {excelData && (
+            <button style={S.navBtn} onClick={() => ctx.refreshPOsFromWIP()} disabled={uploadingFile} title="Re-fetch PO data from PO WIP without re-uploading files">
+              {uploadingFile ? "Refreshing…" : "🔄 Refresh POs"}
+            </button>
+          )}
           {/* PO data comes from PO WIP — sync there instead */}
           <button
             style={{ ...S.navBtn, background: "#1D6F42", border: "1px solid #155734", color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}

@@ -3289,8 +3289,8 @@ function TandAApp() {
                   <h2 style={{ margin: "0 0 2px", color: "#F1F5F9", fontSize: 20, fontWeight: 700 }}>Archived Purchase Orders</h2>
                   <div style={{ color: "#6B7280", fontSize: 12 }}>{archivedPos.length} archived POs · milestones and notes preserved</div>
                 </div>
-                {archiveSelected.size > 0 && (
-                  <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {archiveSelected.size > 0 && (<>
                     <button onClick={() => { archiveSelected.forEach(pn => unarchivePO(pn)); setArchiveSelected(new Set()); }}
                       style={{ ...S.navBtn, color: "#10B981", borderColor: "#10B98144" }}>↩ Restore {archiveSelected.size} Selected</button>
                     <button onClick={() => {
@@ -3301,8 +3301,21 @@ function TandAApp() {
                         onConfirm: async () => { await permanentDeleteArchived([...archiveSelected]); setArchiveSelected(new Set()); },
                       });
                     }} style={{ ...S.navBtnDanger }}>🗑 Delete {archiveSelected.size} Selected</button>
-                  </div>
-                )}
+                  </>)}
+                  {archivedPos.length > 0 && (
+                    <button onClick={() => {
+                      setConfirmModal({
+                        title: "Restore All Archived",
+                        message: `Restore all ${archivedPos.length} archived PO${archivedPos.length > 1 ? "s" : ""} back to All POs?\n\nPOs that should stay archived (Closed, Received, Cancelled) will be re-archived on your next sync.`,
+                        icon: "↩", confirmText: "Restore All", confirmColor: "#10B981",
+                        onConfirm: async () => {
+                          for (const po of archivedPos) await unarchivePO(po.PoNumber ?? "");
+                          setArchiveSelected(new Set());
+                        },
+                      });
+                    }} style={{ ...S.navBtn, color: "#10B981", borderColor: "#10B98144" }}>↩ Restore All ({archivedPos.length})</button>
+                  )}
+                </div>
               </div>
               <div style={S.filters}>
                 <input value={archiveSearch} onChange={e => setArchiveSearch(e.target.value)} placeholder="🔍 Search PO#, vendor…" style={{ ...S.input, width: 240, marginBottom: 0 }} />

@@ -390,6 +390,62 @@ function ATSReport() {
     }
   }
 
+  async function applyPOWIPData(data: ExcelData): Promise<ExcelData> {
+    const poRes = await fetch(`${SB_URL}/rest/v1/tanda_pos?select=data`, { headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` } });
+    if (!poRes.ok) return data;
+    const poRows = await poRes.json();
+    for (const row of poRows) {
+      const po = row.data;
+      if (!po || po._archived) continue;
+      const poNum = po.PoNumber ?? "";
+      const vendor = po.VendorName ?? "";
+      const expDate = po.DateExpectedDelivery ?? "";
+      const brandName = po.BrandName ?? "";
+      const items = po.Items ?? po.PoLineArr ?? [];
+      for (const item of items) {
+        const rawItemSku = item.ItemNumber ?? "";
+        if (!rawItemSku) continue;
+        const sku = xoroSkuToExcel(rawItemSku);
+        const qty = item.QtyRemaining != null ? item.QtyRemaining : (item.QtyOrder ?? 0) - (item.QtyReceived ?? 0);
+        const unitCost = item.UnitPrice ?? 0;
+        if (qty <= 0) continue;
+        let date = "";
+        if (expDate) { const d = new Date(expDate); if (!isNaN(d.getTime())) date = d.toISOString().split("T")[0]; }
+        const pn = poNum.toUpperCase();
+        const bn = brandName.toUpperCase();
+        const store = pn.includes("ECOM") ? "ROF ECOM" : (bn.includes("PSYCHO") || bn.includes("PTUNA") || bn.includes("P TUNA") || bn === "PT" || bn.startsWith("PT ")) ? "PT" : "ROF";
+        if (!data.skus.find(s => s.sku === sku)) {
+          data.skus.push({ sku, description: item.Description ?? "", category: brandName || undefined, store, onHand: 0, onOrder: qty, onCommitted: 0 });
+        } else {
+          const existing = data.skus.find(s => s.sku === sku)!;
+          existing.onOrder = (existing.onOrder || 0) + qty;
+        }
+        if (date) data.pos.push({ sku, date, qty, poNumber: poNum, vendor, store, unitCost });
+      }
+    }
+    return data;
+  }
+
+  async function refreshPOsFromWIP() {
+    if (!excelData) return;
+    setUploadingFile(true);
+    try {
+      // Strip existing PO data then re-fetch from tanda_pos
+      const base: ExcelData = {
+        ...excelData,
+        pos: [],
+        skus: excelData.skus.map(s => ({ ...s, onOrder: 0 })),
+      };
+      const updated = await applyPOWIPData(base);
+      setExcelData(updated);
+      setUploadSuccess("PO data refreshed from PO WIP");
+    } catch (e) {
+      console.warn("Failed to refresh PO WIP data:", e);
+    } finally {
+      setUploadingFile(false);
+    }
+  }
+
   async function handleFileUpload(inv: File, pur: File | null, ord: File) {
     setUploadingFile(true);
     setShowUpload(false);
@@ -412,58 +468,12 @@ function ATSReport() {
       }
       if (cancelRef.current) return;
       setUploadProgress({ step: "Processing data…", pct: 50 });
-      const data: ExcelData = await res.json();
+      let data: ExcelData = await res.json();
       if (cancelRef.current) return;
 
-      // If no purchases file was uploaded, pull PO data from PO WIP (tanda_pos in Supabase)
       // Always pull PO data from PO WIP (tanda_pos) — single source of truth
-      {
-        setUploadProgress({ step: "Fetching PO data from PO WIP…", pct: 60 });
-        try {
-          const poRes = await fetch(`${SB_URL}/rest/v1/tanda_pos?select=data`, { headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` } });
-          if (poRes.ok) {
-            const poRows = await poRes.json();
-            for (const row of poRows) {
-              const po = row.data;
-              if (!po || po._archived) continue;
-              const poNum = po.PoNumber ?? "";
-              const vendor = po.VendorName ?? "";
-              const expDate = po.DateExpectedDelivery ?? "";
-              const brandName = po.BrandName ?? "";
-              const items = po.Items ?? po.PoLineArr ?? [];
-              for (const item of items) {
-                const rawItemSku = item.ItemNumber ?? "";
-                if (!rawItemSku) continue;
-                const sku = xoroSkuToExcel(rawItemSku);
-                // Use QtyRemaining for partially received, fall back to QtyOrder
-                const qty = item.QtyRemaining != null ? item.QtyRemaining : (item.QtyOrder ?? 0) - (item.QtyReceived ?? 0);
-                const unitCost = item.UnitPrice ?? 0;
-                if (qty <= 0) continue;
-                // Parse expected date
-                let date = "";
-                if (expDate) {
-                  const d = new Date(expDate);
-                  if (!isNaN(d.getTime())) date = d.toISOString().split("T")[0];
-                }
-                // Detect store from PO number and brand
-                const pn = (poNum).toUpperCase();
-                const bn = (brandName).toUpperCase();
-                const store = pn.includes("ECOM") ? "ROF ECOM" : (bn.includes("PSYCHO") || bn.includes("PTUNA") || bn.includes("P TUNA") || bn === "PT" || bn.startsWith("PT ")) ? "PT" : "ROF";
-                // Add to SKU map if not already there
-                if (!data.skus.find(s => s.sku === sku)) {
-                  data.skus.push({ sku, description: item.Description ?? "", category: brandName || undefined, store, onHand: 0, onOrder: qty, onCommitted: 0 });
-                } else {
-                  const existing = data.skus.find(s => s.sku === sku)!;
-                  existing.onOrder = (existing.onOrder || 0) + qty;
-                }
-                if (date) {
-                  data.pos.push({ sku, date, qty, poNumber: poNum, vendor, store, unitCost });
-                }
-              }
-            }
-          }
-        } catch (e) { console.warn("Failed to fetch PO WIP data:", e); }
-      }
+      setUploadProgress({ step: "Fetching PO data from PO WIP…", pct: 60 });
+      try { data = await applyPOWIPData(data); } catch (e) { console.warn("Failed to fetch PO WIP data:", e); }
 
       setUploadProgress({ step: "Checking data…", pct: 70 });
 
@@ -752,7 +762,7 @@ function ATSReport() {
     STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef,
     ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered,
     statFiltered, sortedFiltered, pageRows, totalPages, categories, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct,
-    handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel,
+    handleFileUpload, refreshPOsFromWIP, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel,
     repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef,
     cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress,
     normChanges, setNormChanges, applyNormReview, dismissNormReview,
