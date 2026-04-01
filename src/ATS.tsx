@@ -2,7 +2,7 @@ import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } fr
 import XLSXStyle from "xlsx-js-style";
 import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
 import type { ATSRow, ATSSnapshot, ATSSkuData, ATSPoEvent, ATSSoEvent, UploadWarning, ExcelData, CtxMenu, SummaryCtxMenu } from "./ats/types";
-import { addDays, fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel } from "./ats/helpers";
+import { addDays, fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, skuSimilarity } from "./ats/helpers";
 import { computeRowsFromExcelData } from "./ats/compute";
 import { exportToExcel } from "./ats/exportExcel";
 import { normalizeExcelData, detectNormChanges, applyNormChanges, type NormChange } from "./ats/normalize";
@@ -123,6 +123,66 @@ function ATSReport() {
   const cancelRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
+
+  // ── Drag-to-merge state ──────────────────────────────────────────────────
+  const [dragSku,     setDragSku]     = useState<string | null>(null);
+  const [dragOverSku, setDragOverSku] = useState<string | null>(null);
+  const [pendingMerge, setPendingMerge] = useState<{
+    fromSku: string; toSku: string; similarity: number;
+  } | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    fetch(`${SB_URL}/rest/v1/app_data?key=eq.users&select=value`, { headers: SB_HEADERS })
+      .then(r => r.json())
+      .then(rows => {
+        if (!rows?.length) return;
+        const users: Array<{ name: string; role?: string }> = JSON.parse(rows[0].value);
+        // Match by stored name; fallback: any admin exists
+        const stored = localStorage.getItem("ats_user");
+        const match = stored ? users.find(u => u.name === stored) : null;
+        setIsAdmin((match ?? users[0])?.role === "admin");
+      })
+      .catch(() => {});
+  }, []);
+
+  function commitMerge(fromSku: string, toSku: string) {
+    const source = rows.find(r => r.sku === fromSku);
+    const target = rows.find(r => r.sku === toSku);
+    if (!source || !target || fromSku === toSku) return;
+    const mergedDates: Record<string, number> = { ...target.dates };
+    for (const [d, q] of Object.entries(source.dates)) {
+      mergedDates[d] = (mergedDates[d] ?? 0) + q;
+    }
+    const totalOnHand = target.onHand + source.onHand;
+    const avgCost = totalOnHand > 0 && target.avgCost != null && source.avgCost != null
+      ? (target.avgCost * target.onHand + source.avgCost * source.onHand) / totalOnHand
+      : (target.avgCost ?? source.avgCost);
+    const lastReceiptDate = [target.lastReceiptDate, source.lastReceiptDate]
+      .filter(Boolean).sort().pop();
+    const merged: ATSRow = {
+      ...target,
+      onHand:          totalOnHand,
+      onOrder:         target.onOrder         + source.onOrder,
+      onCommitted:     (target.onCommitted  ?? 0) + (source.onCommitted  ?? 0),
+      totalAmount:     (target.totalAmount  ?? 0) + (source.totalAmount  ?? 0),
+      avgCost,
+      lastReceiptDate,
+      dates:           mergedDates,
+    };
+    setRows(rows.filter(r => r.sku !== fromSku && r.sku !== toSku).concat(merged));
+    setPendingMerge(null);
+  }
+
+  function handleSkuDrop(fromSku: string, toSku: string) {
+    if (!fromSku || !toSku || fromSku === toSku) return;
+    const similarity = skuSimilarity(fromSku, toSku);
+    if (similarity >= 0.8 || isAdmin) {
+      setPendingMerge({ fromSku, toSku, similarity });
+    } else {
+      setPendingMerge({ fromSku, toSku, similarity }); // modal will block non-admins
+    }
+  }
 
   // ── Close context menu on outside click ────────────────────────────────
   useEffect(() => {
@@ -767,5 +827,7 @@ function ATSReport() {
     cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress,
     normChanges, setNormChanges, applyNormReview, dismissNormReview,
     customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch,
+    dragSku, setDragSku, dragOverSku, setDragOverSku,
+    pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
   });
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { addDays, fmtDate, fmtDateDisplay, fmtDateShort, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, normalizeSku } from "../helpers";
+import { addDays, fmtDate, fmtDateDisplay, fmtDateShort, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, normalizeSku, skuSimilarity } from "../helpers";
 
 describe("addDays", () => {
   it("adds positive days", () => {
@@ -129,5 +129,24 @@ describe("normalizeSku", () => {
   });
   it("keeps small words lowercase", () => {
     expect(normalizeSku("RYB059430 - Bark - Grey W Tint")).toBe("RYB059430 - Bark - Grey w Tint");
+  });
+});
+
+describe("skuSimilarity", () => {
+  it("returns 1 for identical SKUs", () => {
+    expect(skuSimilarity("RYB059430PPK - Bark", "RYB059430PPK - Bark")).toBe(1);
+  });
+  it("returns high similarity for minor variation (case/spacing)", () => {
+    expect(skuSimilarity("RYB059430PPK - BARK", "RYB059430PPK - Bark")).toBeGreaterThan(0.8);
+  });
+  it("returns high similarity for same base with different color", () => {
+    const s = skuSimilarity("RYB059430PPK - Bark", "RYB059430PPK - Grey");
+    expect(s).toBeGreaterThan(0.5);
+  });
+  it("returns low similarity for completely different SKUs", () => {
+    expect(skuSimilarity("RYB059430PPK - Bark", "XYZABC001 - Red")).toBeLessThan(0.4);
+  });
+  it("returns 0 for very short strings", () => {
+    expect(skuSimilarity("A", "B")).toBe(0);
   });
 });

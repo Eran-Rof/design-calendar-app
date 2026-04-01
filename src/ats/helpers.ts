@@ -76,6 +76,27 @@ export function normalizeSku(sku: string): string {
   return s;
 }
 
+/** Dice-coefficient bigram similarity between two SKU strings (0–1).
+ *  Normalizes both strings first, strips spaces/dashes for the comparison. */
+export function skuSimilarity(a: string, b: string): number {
+  const clean = (s: string) => normalizeSku(s).toLowerCase().replace(/[\s\-]/g, "");
+  const s1 = clean(a);
+  const s2 = clean(b);
+  if (s1 === s2) return 1;
+  if (s1.length < 2 || s2.length < 2) return 0;
+  const bigrams = (s: string) => Array.from({ length: s.length - 1 }, (_, i) => s.slice(i, i + 2));
+  const bg1 = bigrams(s1);
+  const bg2 = bigrams(s2);
+  const freqMap = new Map<string, number>();
+  for (const bg of bg2) freqMap.set(bg, (freqMap.get(bg) ?? 0) + 1);
+  let matches = 0;
+  for (const bg of bg1) {
+    const n = freqMap.get(bg) ?? 0;
+    if (n > 0) { matches++; freqMap.set(bg, n - 1); }
+  }
+  return (2 * matches) / (bg1.length + bg2.length);
+}
+
 export function xoroSkuToExcel(rawSku: string): string {
   const parts = rawSku.split("-");
   if (parts.length >= 3) return parts[0] + " - " + parts.slice(1, -1).join(" - ");
