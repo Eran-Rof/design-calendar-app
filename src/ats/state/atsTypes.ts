@@ -53,7 +53,7 @@ export interface ATSState {
   activeSort: string | null;
   sortCol: string | null;
   sortDir: "asc" | "desc";
-  rowOrder: string[];
+  mergeHistory: Array<{ fromSku: string; toSku: string }>;
 }
 
 export type ATSAction =
@@ -111,6 +111,6 @@ export function createInitialState(startDate: string): ATSState {
     activeSort: null,
     sortCol: null,
     sortDir: "asc",
-    rowOrder: [],
+    mergeHistory: [],
   };
 }

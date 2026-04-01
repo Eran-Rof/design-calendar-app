@@ -2,7 +2,7 @@ import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } fr
 import XLSXStyle from "xlsx-js-style";
 import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
 import type { ATSRow, ATSSnapshot, ATSSkuData, ATSPoEvent, ATSSoEvent, UploadWarning, ExcelData, CtxMenu, SummaryCtxMenu } from "./ats/types";
-import { addDays, fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel } from "./ats/helpers";
+import { addDays, fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, skuSimilarity } from "./ats/helpers";
 import { computeRowsFromExcelData } from "./ats/compute";
 import { exportToExcel } from "./ats/exportExcel";
 import { normalizeExcelData, detectNormChanges, applyNormChanges, type NormChange } from "./ats/normalize";
@@ -95,8 +95,8 @@ function ATSReport() {
   const setActiveSort = (v: any) => stSet("activeSort", v);
   const setSortCol = (v: any) => stSet("sortCol", v);
   const setSortDir = (v: "asc" | "desc") => stSet("sortDir", v);
-  const rowOrder = st.rowOrder;
-  const setRowOrder = (v: string[]) => stSet("rowOrder", v);
+  const mergeHistory = st.mergeHistory;
+  const setMergeHistory = (v: Array<{ fromSku: string; toSku: string }>) => stSet("mergeHistory", v);
   const normChanges = st.normChanges;
   const normPendingData = st.normPendingData;
   const normSource = st.normSource;
@@ -149,44 +149,24 @@ function ATSReport() {
   }, []);
 
   function commitMerge(fromSku: string, toSku: string) {
-    const source = rows.find(r => r.sku === fromSku);
-    const target = rows.find(r => r.sku === toSku);
-    if (!source || !target || fromSku === toSku) return;
-    const mergedDates: Record<string, number> = { ...target.dates };
-    for (const [d, q] of Object.entries(source.dates)) {
-      mergedDates[d] = (mergedDates[d] ?? 0) + q;
-    }
-    const totalOnHand = target.onHand + source.onHand;
-    const avgCost = totalOnHand > 0 && target.avgCost != null && source.avgCost != null
-      ? (target.avgCost * target.onHand + source.avgCost * source.onHand) / totalOnHand
-      : (target.avgCost ?? source.avgCost);
-    const lastReceiptDate = [target.lastReceiptDate, source.lastReceiptDate]
-      .filter(Boolean).sort().pop();
-    const merged: ATSRow = {
-      ...target,
-      onHand:          totalOnHand,
-      onOrder:         target.onOrder         + source.onOrder,
-      onCommitted:     (target.onCommitted  ?? 0) + (source.onCommitted  ?? 0),
-      totalAmount:     (target.totalAmount  ?? 0) + (source.totalAmount  ?? 0),
-      avgCost,
-      lastReceiptDate,
-      dates:           mergedDates,
-    };
-    setRows(rows.filter(r => r.sku !== fromSku && r.sku !== toSku).concat(merged));
+    if (!fromSku || !toSku || fromSku === toSku) return;
+    const newRows = applyMerge(rows, fromSku, toSku);
+    if (newRows === rows) return;
+    setRows(newRows);
     setPendingMerge(null);
+    const newHistory = [...mergeHistory, { fromSku, toSku }];
+    setMergeHistory(newHistory);
+    saveMergeHistory(newHistory);
   }
 
   function handleSkuDrop(fromSku: string, toSku: string) {
     if (!fromSku || !toSku || fromSku === toSku) return;
-    // Reorder rows: move fromSku to just before toSku
-    const base = rowOrder.length > 0 ? rowOrder : sortedFiltered.map(r => r.sku);
-    const withoutFrom = base.filter(s => s !== fromSku);
-    const toIdx = withoutFrom.indexOf(toSku);
-    const newOrder = toIdx >= 0
-      ? [...withoutFrom.slice(0, toIdx), fromSku, ...withoutFrom.slice(toIdx)]
-      : [...withoutFrom, fromSku];
-    setRowOrder(newOrder);
-    saveRowOrder(newOrder);
+    const similarity = skuSimilarity(fromSku, toSku);
+    if (similarity >= 0.8 || isAdmin) {
+      setPendingMerge({ fromSku, toSku, similarity });
+    } else {
+      setPendingMerge({ fromSku, toSku, similarity }); // modal will block non-admins
+    }
   }
 
   // ── Close context menu on outside click ────────────────────────────────
@@ -413,27 +393,59 @@ function ATSReport() {
   // PO data comes from PO WIP (tanda_pos) — no separate Xoro sync needed
   const syncProgress = null;
 
-  async function saveRowOrder(order: string[]) {
+  // Pure helper — applies one merge op to a rows array without touching React state
+  function applyMerge(currentRows: ATSRow[], fromSku: string, toSku: string): ATSRow[] {
+    const source = currentRows.find(r => r.sku === fromSku);
+    const target = currentRows.find(r => r.sku === toSku);
+    if (!source || !target) return currentRows;
+    const mergedDates: Record<string, number> = { ...target.dates };
+    for (const [d, q] of Object.entries(source.dates)) {
+      mergedDates[d] = (mergedDates[d] ?? 0) + q;
+    }
+    const totalOnHand = target.onHand + source.onHand;
+    const avgCost = totalOnHand > 0 && target.avgCost != null && source.avgCost != null
+      ? (target.avgCost * target.onHand + source.avgCost * source.onHand) / totalOnHand
+      : (target.avgCost ?? source.avgCost);
+    const lastReceiptDate = [target.lastReceiptDate, source.lastReceiptDate].filter(Boolean).sort().pop();
+    const merged: ATSRow = {
+      ...target,
+      onHand:      totalOnHand,
+      onOrder:     target.onOrder     + source.onOrder,
+      onCommitted: (target.onCommitted ?? 0) + (source.onCommitted ?? 0),
+      totalAmount: (target.totalAmount ?? 0) + (source.totalAmount ?? 0),
+      avgCost,
+      lastReceiptDate,
+      dates: mergedDates,
+    };
+    return currentRows.filter(r => r.sku !== fromSku && r.sku !== toSku).concat(merged);
+  }
+
+  async function saveMergeHistory(history: Array<{ fromSku: string; toSku: string }>) {
     try {
       await fetch(`${SB_URL}/rest/v1/app_data`, {
         method: "POST",
         headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify({ key: "ats_row_order", value: JSON.stringify(order) }),
+        body: JSON.stringify({ key: "ats_merge_history", value: JSON.stringify(history) }),
       });
     } catch (e) {
-      console.error("Failed to save row order", e);
+      console.error("Failed to save merge history", e);
     }
   }
 
   async function loadFromSupabase() {
     setLoading(true);
     try {
-      // Load persisted row order
-      const orderRes = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.ats_row_order&select=value`, { headers: SB_HEADERS });
-      const orderRows = await orderRes.json();
-      if (Array.isArray(orderRows) && orderRows[0]?.value) {
-        setRowOrder(JSON.parse(orderRows[0].value));
-      }
+      // Load persisted merge history
+      let savedHistory: Array<{ fromSku: string; toSku: string }> = [];
+      try {
+        const histRes = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.ats_merge_history&select=value`, { headers: SB_HEADERS });
+        const histRows = await histRes.json();
+        if (Array.isArray(histRows) && histRows[0]?.value) {
+          savedHistory = JSON.parse(histRows[0].value);
+          setMergeHistory(savedHistory);
+        }
+      } catch {}
+
       // Check for Excel data stored in app_data first
       const excelRes = await fetch(
         `${SB_URL}/rest/v1/app_data?key=eq.ats_excel_data&select=value`,
@@ -443,7 +455,9 @@ function ATSReport() {
       if (Array.isArray(excelRows) && excelRows[0]?.value) {
         const data: ExcelData = JSON.parse(excelRows[0].value);
         setExcelData(data);
-        setRows(computeRowsFromExcelData(data, dates));
+        let computed = computeRowsFromExcelData(data, dates);
+        for (const op of savedHistory) computed = applyMerge(computed, op.fromSku, op.toSku);
+        setRows(computed);
         setLastSync(data.syncedAt);
         setMockMode(false);
         return;
@@ -463,7 +477,9 @@ function ATSReport() {
           }
           map[snap.sku].dates[snap.date] = snap.qty_available;
         });
-        setRows(Object.values(map));
+        let computed = Object.values(map);
+        for (const op of savedHistory) computed = applyMerge(computed, op.fromSku, op.toSku);
+        setRows(computed);
         setMockMode(false);
       }
     } catch (e) {
@@ -810,29 +826,19 @@ function ATSReport() {
   }
 
   const sortedFiltered = useMemo(() => {
-    if (sortCol) {
-      return [...statFiltered].sort((a, b) => {
-        let av: string | number, bv: string | number;
-        if      (sortCol === "sku")         { av = a.sku;         bv = b.sku; }
-        else if (sortCol === "description") { av = a.description; bv = b.description; }
-        else if (sortCol === "onHand")      { av = a.onHand;      bv = b.onHand; }
-        else if (sortCol === "onOrder")     { av = a.onCommitted; bv = b.onCommitted; }
-        else if (sortCol === "onPO")        { av = a.onOrder;     bv = b.onOrder; }
-        else { av = a.dates[sortCol] ?? 0; bv = b.dates[sortCol] ?? 0; }
-        if (typeof av === "string") return sortDir === "asc" ? av.localeCompare(bv as string) : (bv as string).localeCompare(av);
-        return sortDir === "asc" ? (av as number) - (bv as number) : (bv as number) - (av as number);
-      });
-    }
-    if (rowOrder.length > 0) {
-      const orderMap = new Map(rowOrder.map((sku, i) => [sku, i]));
-      return [...statFiltered].sort((a, b) => {
-        const ai = orderMap.has(a.sku) ? orderMap.get(a.sku)! : Infinity;
-        const bi = orderMap.has(b.sku) ? orderMap.get(b.sku)! : Infinity;
-        return ai - bi;
-      });
-    }
-    return statFiltered;
-  }, [sortCol, sortDir, statFiltered, rowOrder]);
+    if (!sortCol) return statFiltered;
+    return [...statFiltered].sort((a, b) => {
+      let av: string | number, bv: string | number;
+      if      (sortCol === "sku")         { av = a.sku;         bv = b.sku; }
+      else if (sortCol === "description") { av = a.description; bv = b.description; }
+      else if (sortCol === "onHand")      { av = a.onHand;      bv = b.onHand; }
+      else if (sortCol === "onOrder")     { av = a.onCommitted; bv = b.onCommitted; }
+      else if (sortCol === "onPO")        { av = a.onOrder;     bv = b.onOrder; }
+      else { av = a.dates[sortCol] ?? 0; bv = b.dates[sortCol] ?? 0; }
+      if (typeof av === "string") return sortDir === "asc" ? av.localeCompare(bv as string) : (bv as string).localeCompare(av);
+      return sortDir === "asc" ? (av as number) - (bv as number) : (bv as number) - (av as number);
+    });
+  }, [sortCol, sortDir, statFiltered]);
 
   const totalPages = Math.ceil(sortedFiltered.length / PAGE_SIZE);
   const pageRows   = sortedFiltered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -862,6 +868,6 @@ function ATSReport() {
     customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch,
     dragSku, setDragSku, dragOverSku, setDragOverSku,
     pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
-    rowOrder, setRowOrder, saveRowOrder,
+    mergeHistory, setMergeHistory, saveMergeHistory,
   });
 }
