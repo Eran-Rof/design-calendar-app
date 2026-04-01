@@ -1032,6 +1032,21 @@ function TandAApp() {
         if (parsed && typeof parsed === "object") {
           // Ensure __default__ exists
           if (!parsed.__default__) parsed.__default__ = DEFAULT_WIP_TEMPLATES;
+          // Migrate: move "Top Sample" from Transit → Samples (last in Samples) in every vendor template
+          let migrationNeeded = false;
+          for (const key of Object.keys(parsed)) {
+            const tpls: WipTemplate[] = parsed[key];
+            const idx = tpls.findIndex(t => (t.id === "wip_topsample" || t.phase === "Top Sample") && t.category === "Transit");
+            if (idx === -1) continue;
+            migrationNeeded = true;
+            const arr = [...tpls];
+            const [ts] = arr.splice(idx, 1);
+            const updated = { ...ts, category: "Samples" };
+            const lastSamples = arr.reduce((last, t, i) => t.category === "Samples" ? i : last, -1);
+            arr.splice(lastSamples + 1, 0, updated);
+            parsed[key] = arr;
+          }
+          if (migrationNeeded) await _saveWipTemplatesRaw(parsed);
           setWipTemplates(parsed);
           return parsed;
         }
