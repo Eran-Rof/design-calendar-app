@@ -2,7 +2,7 @@ import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } fr
 import XLSXStyle from "xlsx-js-style";
 import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
 import type { ATSRow, ATSSnapshot, ATSSkuData, ATSPoEvent, ATSSoEvent, UploadWarning, ExcelData, CtxMenu, SummaryCtxMenu } from "./ats/types";
-import { addDays, fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, skuSimilarity } from "./ats/helpers";
+import { addDays, fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel } from "./ats/helpers";
 import { computeRowsFromExcelData } from "./ats/compute";
 import { exportToExcel } from "./ats/exportExcel";
 import { normalizeExcelData, detectNormChanges, applyNormChanges, type NormChange } from "./ats/normalize";
@@ -95,6 +95,8 @@ function ATSReport() {
   const setActiveSort = (v: any) => stSet("activeSort", v);
   const setSortCol = (v: any) => stSet("sortCol", v);
   const setSortDir = (v: "asc" | "desc") => stSet("sortDir", v);
+  const rowOrder = st.rowOrder;
+  const setRowOrder = (v: string[]) => stSet("rowOrder", v);
   const normChanges = st.normChanges;
   const normPendingData = st.normPendingData;
   const normSource = st.normSource;
@@ -176,12 +178,15 @@ function ATSReport() {
 
   function handleSkuDrop(fromSku: string, toSku: string) {
     if (!fromSku || !toSku || fromSku === toSku) return;
-    const similarity = skuSimilarity(fromSku, toSku);
-    if (similarity >= 0.8 || isAdmin) {
-      setPendingMerge({ fromSku, toSku, similarity });
-    } else {
-      setPendingMerge({ fromSku, toSku, similarity }); // modal will block non-admins
-    }
+    // Reorder rows: move fromSku to just before toSku
+    const base = rowOrder.length > 0 ? rowOrder : sortedFiltered.map(r => r.sku);
+    const withoutFrom = base.filter(s => s !== fromSku);
+    const toIdx = withoutFrom.indexOf(toSku);
+    const newOrder = toIdx >= 0
+      ? [...withoutFrom.slice(0, toIdx), fromSku, ...withoutFrom.slice(toIdx)]
+      : [...withoutFrom, fromSku];
+    setRowOrder(newOrder);
+    saveRowOrder(newOrder);
   }
 
   // ── Close context menu on outside click ────────────────────────────────
@@ -408,9 +413,27 @@ function ATSReport() {
   // PO data comes from PO WIP (tanda_pos) — no separate Xoro sync needed
   const syncProgress = null;
 
+  async function saveRowOrder(order: string[]) {
+    try {
+      await fetch(`${SB_URL}/rest/v1/app_data`, {
+        method: "POST",
+        headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ key: "ats_row_order", value: JSON.stringify(order) }),
+      });
+    } catch (e) {
+      console.error("Failed to save row order", e);
+    }
+  }
+
   async function loadFromSupabase() {
     setLoading(true);
     try {
+      // Load persisted row order
+      const orderRes = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.ats_row_order&select=value`, { headers: SB_HEADERS });
+      const orderRows = await orderRes.json();
+      if (Array.isArray(orderRows) && orderRows[0]?.value) {
+        setRowOrder(JSON.parse(orderRows[0].value));
+      }
       // Check for Excel data stored in app_data first
       const excelRes = await fetch(
         `${SB_URL}/rest/v1/app_data?key=eq.ats_excel_data&select=value`,
@@ -787,19 +810,29 @@ function ATSReport() {
   }
 
   const sortedFiltered = useMemo(() => {
-    if (!sortCol) return statFiltered;
-    return [...statFiltered].sort((a, b) => {
-      let av: string | number, bv: string | number;
-      if      (sortCol === "sku")         { av = a.sku;         bv = b.sku; }
-      else if (sortCol === "description") { av = a.description; bv = b.description; }
-      else if (sortCol === "onHand")      { av = a.onHand;      bv = b.onHand; }
-      else if (sortCol === "onOrder")     { av = a.onCommitted; bv = b.onCommitted; }
-      else if (sortCol === "onPO")        { av = a.onOrder;     bv = b.onOrder; }
-      else { av = a.dates[sortCol] ?? 0; bv = b.dates[sortCol] ?? 0; }
-      if (typeof av === "string") return sortDir === "asc" ? av.localeCompare(bv as string) : (bv as string).localeCompare(av);
-      return sortDir === "asc" ? (av as number) - (bv as number) : (bv as number) - (av as number);
-    });
-  }, [sortCol, sortDir, statFiltered]);
+    if (sortCol) {
+      return [...statFiltered].sort((a, b) => {
+        let av: string | number, bv: string | number;
+        if      (sortCol === "sku")         { av = a.sku;         bv = b.sku; }
+        else if (sortCol === "description") { av = a.description; bv = b.description; }
+        else if (sortCol === "onHand")      { av = a.onHand;      bv = b.onHand; }
+        else if (sortCol === "onOrder")     { av = a.onCommitted; bv = b.onCommitted; }
+        else if (sortCol === "onPO")        { av = a.onOrder;     bv = b.onOrder; }
+        else { av = a.dates[sortCol] ?? 0; bv = b.dates[sortCol] ?? 0; }
+        if (typeof av === "string") return sortDir === "asc" ? av.localeCompare(bv as string) : (bv as string).localeCompare(av);
+        return sortDir === "asc" ? (av as number) - (bv as number) : (bv as number) - (av as number);
+      });
+    }
+    if (rowOrder.length > 0) {
+      const orderMap = new Map(rowOrder.map((sku, i) => [sku, i]));
+      return [...statFiltered].sort((a, b) => {
+        const ai = orderMap.has(a.sku) ? orderMap.get(a.sku)! : Infinity;
+        const bi = orderMap.has(b.sku) ? orderMap.get(b.sku)! : Infinity;
+        return ai - bi;
+      });
+    }
+    return statFiltered;
+  }, [sortCol, sortDir, statFiltered, rowOrder]);
 
   const totalPages = Math.ceil(sortedFiltered.length / PAGE_SIZE);
   const pageRows   = sortedFiltered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -829,5 +862,6 @@ function ATSReport() {
     customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch,
     dragSku, setDragSku, dragOverSku, setDragOverSku,
     pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
+    rowOrder, setRowOrder, saveRowOrder,
   });
 }
