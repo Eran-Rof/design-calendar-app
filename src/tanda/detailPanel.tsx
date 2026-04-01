@@ -54,7 +54,7 @@ export function WipTemplateEditor({ templates, onSave }: { templates: WipTemplat
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
         <div>
           <label style={{ color: "#94A3B8", fontSize: 11, display: "block", marginBottom: 3 }}>Days Before DDP</label>
-          <input type="number" style={{ ...S.input, fontSize: 13 }} value={form.daysBeforeDDP} onChange={e => setForm(f => ({ ...f, daysBeforeDDP: parseInt(e.target.value) || 0 }))} />
+          <input type="text" inputMode="numeric" pattern="[0-9]*" style={{ ...S.input, fontSize: 13 }} value={form.daysBeforeDDP} onClick={e => (e.target as HTMLInputElement).select()} onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ""); setForm(f => ({ ...f, daysBeforeDDP: v === "" ? 0 : parseInt(v) })); }} />
         </div>
         <div>
           <label style={{ color: "#94A3B8", fontSize: 11, display: "block", marginBottom: 3 }}>Default Status</label>
