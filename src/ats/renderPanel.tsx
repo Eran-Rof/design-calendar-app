@@ -6,7 +6,9 @@ import { fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeeken
 export type ATSRenderCtx = Record<string, any>;
 
 export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
-  const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterStatus, setFilterStatus, minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, syncing, syncStatus, lastSync, syncError, setSyncError, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, sortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop } = ctx;
+  const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterStatus, setFilterStatus, minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, syncing, syncStatus, lastSync, syncError, setSyncError, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, sortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
+  mergeHistory, undoLastMerge, clearAllAtsData,
+  atShip, setAtShip } = ctx;
 
   return (
     <div style={S.app}>
@@ -38,6 +40,27 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           >
             {"" /* Demo button removed */}
           </button>
+          {/* Undo last merge — only shown when there are merges */}
+          {mergeHistory?.length > 0 && (
+            <button
+              style={{ ...S.navBtn, background: "#7C3AED", border: "1px solid #5B21B6", color: "#fff", fontWeight: 600 }}
+              title={`Undo merge: ${mergeHistory[mergeHistory.length - 1]?.fromSku} → ${mergeHistory[mergeHistory.length - 1]?.toSku}`}
+              onClick={undoLastMerge}
+            >
+              ↩ Undo Merge ({mergeHistory.length})
+            </button>
+          )}
+          {/* Clear all ATS data */}
+          <button
+            style={{ ...S.navBtn, background: "#7F1D1D", border: "1px solid #991B1B", color: "#FCA5A5", fontWeight: 600 }}
+            onClick={async () => {
+              if (window.confirm("Delete ALL uploaded ATS data (Excel, PO, merges) and start fresh?\n\nThis cannot be undone.")) {
+                await clearAllAtsData();
+              }
+            }}
+          >
+            🗑 Clear Data
+          </button>
           <button style={S.navBtn} onClick={() => setShowUpload(true)} disabled={uploadingFile}>
             {uploadingFile ? "Uploading…" : "Upload Excel"}
             {!uploadingFile && (invFile || purFile || ordFile) && (
@@ -46,15 +69,10 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
               </span>
             )}
           </button>
-          {excelData && (
-            <button style={S.navBtn} onClick={() => ctx.refreshPOsFromWIP()} disabled={uploadingFile} title="Re-fetch PO data from PO WIP without re-uploading files">
-              {uploadingFile ? "Refreshing…" : "🔄 Refresh POs"}
-            </button>
-          )}
-          {/* PO data comes from PO WIP — sync there instead */}
+          {/* PO data auto-refreshes from PO WIP on every load */}
           <button
             style={{ ...S.navBtn, background: "#1D6F42", border: "1px solid #155734", color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}
-            onClick={() => exportToExcel(filtered, displayPeriods.map(p => ({ endDate: p.endDate, label: p.label })))}
+            onClick={() => exportToExcel(filtered, displayPeriods.map(p => ({ endDate: p.endDate, label: p.label })), atShip)}
           >
             <svg width="16" height="16" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
               <rect width="20" height="20" rx="3" fill="#1D6F42"/>
@@ -245,6 +263,11 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
               </div>
             )}
           </div>
+          {/* AT SHIP toggle */}
+          <label title="Show only qty free to ship — not reserved for future uncovered SOs" style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "4px 10px", borderRadius: 8, border: `1px solid ${atShip ? "#10B981" : "#334155"}`, background: atShip ? "rgba(16,185,129,0.12)" : "transparent", userSelect: "none", whiteSpace: "nowrap" }}>
+            <input type="checkbox" checked={atShip} onChange={e => setAtShip(e.target.checked)} style={{ accentColor: "#10B981", cursor: "pointer", width: 14, height: 14 }} />
+            <span style={{ color: atShip ? "#6EE7B7" : "#9CA3AF", fontSize: 12, fontWeight: atShip ? 700 : 400 }}>AT SHIP</span>
+          </label>
           <div style={{ color: "#6B7280", fontSize: 12, whiteSpace: "nowrap" }}>
             {filtered.length.toLocaleString()} SKUs
             {lastSync && <span style={{ display: "block" }}>Synced {fmtDateDisplay(lastSync.split("T")[0])} {new Date(lastSync).toLocaleTimeString()}</span>}
@@ -387,7 +410,8 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
                       </td>
                       {/* Period cells */}
                       {displayPeriods.map(p => {
-                        const qty = row.dates[p.endDate]; // real balance, may be negative
+                        const fullQty = row.dates[p.endDate]; // real balance, may be negative
+                        const qty     = atShip ? (row.freeMap?.[p.endDate] ?? fullQty) : fullQty;
                         const isNeg   = qty != null && qty < 0;
                         const isHov   = hoveredCell?.sku === row.sku && hoveredCell?.date === p.key;
                         const isEmpty = qty === undefined || qty === null;
@@ -395,6 +419,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
                         const hasPO   = (ev?.pos.length ?? 0) > 0;
                         const hasSO   = (ev?.sos.length ?? 0) > 0;
                         const canClick = hasPO || hasSO || isNeg;
+                        const freeQty  = row.freeMap?.[p.endDate];
                         // Cell background
                         const baseBg = p.isToday
                           ? (isEmpty ? "#12201a" : isNeg ? "rgba(239,68,68,0.18)cc" : getQtyBg(qty!) + "cc")

@@ -4,6 +4,7 @@ export interface ATSRow {
   category?: string;
   store?: string;
   dates: Record<string, number>;
+  freeMap?: Record<string, number>; // free-to-sell qty per date (not needed for uncovered future SOs)
   onOrder: number;
   onCommitted: number;
   onHand: number;

@@ -97,6 +97,8 @@ function ATSReport() {
   const setSortDir = (v: "asc" | "desc") => stSet("sortDir", v);
   const mergeHistory = st.mergeHistory;
   const setMergeHistory = (v: Array<{ fromSku: string; toSku: string }>) => stSet("mergeHistory", v);
+  const atShip = st.atShip;
+  const setAtShip = (v: boolean) => stSet("atShip", v);
   const normChanges = st.normChanges;
   const normPendingData = st.normPendingData;
   const normSource = st.normSource;
@@ -148,15 +150,49 @@ function ATSReport() {
       .catch(() => {});
   }, []);
 
+  function mergeExcelDataSkus(data: ExcelData, fromSku: string, toSku: string): ExcelData {
+    const pos = data.pos.map(p => p.sku === fromSku ? { ...p, sku: toSku } : p);
+    const sos = data.sos.map(s => s.sku === fromSku ? { ...s, sku: toSku } : s);
+    const fromEntry = data.skus.find(s => s.sku === fromSku);
+    const toEntry   = data.skus.find(s => s.sku === toSku);
+    let skus;
+    if (fromEntry && toEntry) {
+      const totalOnHand = toEntry.onHand + fromEntry.onHand;
+      const merged = {
+        ...toEntry,
+        onHand:      totalOnHand,
+        onOrder:     (toEntry.onOrder     || 0) + (fromEntry.onOrder     || 0),
+        onCommitted: (toEntry.onCommitted || 0) + (fromEntry.onCommitted || 0),
+        totalAmount: (toEntry.totalAmount || 0) + (fromEntry.totalAmount || 0),
+        avgCost: totalOnHand > 0 && toEntry.avgCost != null && fromEntry.avgCost != null
+          ? (toEntry.avgCost * toEntry.onHand + fromEntry.avgCost * fromEntry.onHand) / totalOnHand
+          : (toEntry.avgCost ?? fromEntry.avgCost),
+      };
+      skus = data.skus.filter(s => s.sku !== fromSku && s.sku !== toSku).concat(merged);
+    } else if (fromEntry) {
+      skus = data.skus.map(s => s.sku === fromSku ? { ...s, sku: toSku } : s);
+    } else {
+      skus = data.skus.filter(s => s.sku !== fromSku);
+    }
+    return { ...data, skus, pos, sos };
+  }
+
   function commitMerge(fromSku: string, toSku: string) {
     if (!fromSku || !toSku || fromSku === toSku) return;
-    const newRows = applyMerge(rows, fromSku, toSku);
-    if (newRows === rows) return;
-    setRows(newRows);
     setPendingMerge(null);
     const newHistory = [...mergeHistory, { fromSku, toSku }];
     setMergeHistory(newHistory);
     saveMergeHistory(newHistory);
+    if (excelData) {
+      // Bake the merge into excelData so popup events and column totals always match
+      const merged = mergeExcelDataSkus(excelData, fromSku, toSku);
+      setExcelData(merged);
+      saveNormResult(merged); // persist merged state to Supabase
+    } else {
+      // Legacy snapshot mode — update rows directly
+      const newRows = applyMerge(rows, fromSku, toSku);
+      if (newRows !== rows) setRows(newRows);
+    }
   }
 
   function handleSkuDrop(fromSku: string, toSku: string) {
@@ -189,7 +225,7 @@ function ATSReport() {
     const el   = summaryCtxRef.current;
     const cell = summaryCtx.cellEl.getBoundingClientRect();
     const theadBottom = tableRef.current?.querySelector("th")?.getBoundingClientRect().bottom ?? 0;
-    if (cell.top < theadBottom || cell.top >= window.innerHeight) { setSummaryCtx(null); return; }
+    if (cell.bottom <= theadBottom + 2 || cell.top >= window.innerHeight) { setSummaryCtx(null); return; }
     const ph   = el.offsetHeight;
     const pw   = el.offsetWidth;
     const vh   = window.innerHeight;
@@ -224,7 +260,7 @@ function ATSReport() {
     const cell = ctxMenu.cellEl.getBoundingClientRect();
     // Auto-close if the anchor cell has scrolled under the sticky table header
     const theadBottom = tableRef.current?.querySelector("th")?.getBoundingClientRect().bottom ?? 0;
-    if (cell.top < theadBottom || cell.top >= window.innerHeight) { setCtxMenu(null); return; }
+    if (cell.bottom <= theadBottom + 2 || cell.top >= window.innerHeight) { setCtxMenu(null); return; }
     const ph   = el.offsetHeight;
     const pw   = el.offsetWidth;
     const vh   = window.innerHeight;
@@ -386,9 +422,11 @@ function ATSReport() {
     if (mockMode) {
       setRows(generateMockData(dates));
     } else if (excelData) {
-      setRows(computeRowsFromExcelData(excelData, dates, poStores, soStores));
+      let computed = computeRowsFromExcelData(excelData, dates, poStores, soStores);
+      for (const op of mergeHistory) computed = applyMerge(computed, op.fromSku, op.toSku);
+      setRows(computed);
     }
-  }, [mockMode, excelData, dates, poStores, soStores]);
+  }, [mockMode, excelData, dates, poStores, soStores, mergeHistory]);
 
   // PO data comes from PO WIP (tanda_pos) — no separate Xoro sync needed
   const syncProgress = null;
@@ -454,11 +492,36 @@ function ATSReport() {
       const excelRows = await excelRes.json();
       if (Array.isArray(excelRows) && excelRows[0]?.value) {
         const data: ExcelData = JSON.parse(excelRows[0].value);
-        setExcelData(data);
-        let computed = computeRowsFromExcelData(data, dates);
-        for (const op of savedHistory) computed = applyMerge(computed, op.fromSku, op.toSku);
-        setRows(computed);
-        setLastSync(data.syncedAt);
+        // Auto-refresh PO data from PO WIP on every load
+        let freshData = data;
+        try {
+          const base = { ...data, pos: [], skus: data.skus.map((s: any) => ({ ...s, onOrder: 0 })) };
+          freshData = await applyPOWIPData(base);
+        } catch (e) {
+          console.warn("Auto PO refresh failed, using cached data:", e);
+        }
+        // Ensure we have a clean base snapshot (pre-merge) for undo functionality
+        try {
+          const baseCheck = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.ats_base_data&select=value`, { headers: SB_HEADERS });
+          const baseCheckRows = await baseCheck.json();
+          if (!Array.isArray(baseCheckRows) || !baseCheckRows[0]?.value) {
+            // No base saved yet — save freshData (pre-merge) as the base
+            saveBaseData(freshData);
+          }
+        } catch {}
+        // Bake any pending merges into excelData (covers merges done before the fix
+        // that updated rows only, without touching excelData)
+        let mergedData = freshData;
+        for (const op of savedHistory) {
+          mergedData = mergeExcelDataSkus(mergedData, op.fromSku, op.toSku);
+        }
+        if (mergedData !== freshData) {
+          // Persist the now-baked state so we don't need to re-apply on next load
+          saveNormResult(mergedData);
+        }
+        setExcelData(mergedData);
+        // rows will be recomputed by the excelData useEffect (which also re-applies mergeHistory)
+        setLastSync(mergedData.syncedAt);
         setMockMode(false);
         return;
       }
@@ -655,6 +718,61 @@ function ATSReport() {
     } catch (e) { console.error("Failed to save normalized data:", e); }
   }
 
+  async function saveBaseData(data: ExcelData) {
+    try {
+      await fetch(`${SB_URL}/rest/v1/app_data`, {
+        method: "POST",
+        headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ key: "ats_base_data", value: JSON.stringify(data) }),
+      });
+    } catch (e) { console.error("Failed to save base data:", e); }
+  }
+
+  async function undoLastMerge() {
+    if (mergeHistory.length === 0) return;
+    const newHistory = mergeHistory.slice(0, -1);
+    // Load the pre-merge base data
+    let baseData: ExcelData | null = null;
+    try {
+      const baseRes = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.ats_base_data&select=value`, { headers: SB_HEADERS });
+      const baseRows = await baseRes.json();
+      if (Array.isArray(baseRows) && baseRows[0]?.value) baseData = JSON.parse(baseRows[0].value);
+    } catch {}
+    if (!baseData) {
+      alert("Cannot undo: no base snapshot found. Please re-upload your Excel files to reset merge history.");
+      return;
+    }
+    // Re-apply POs from tanda_pos
+    let freshBase = baseData;
+    try {
+      const base = { ...baseData, pos: [], skus: baseData.skus.map((s: any) => ({ ...s, onOrder: 0 })) };
+      freshBase = await applyPOWIPData(base);
+    } catch {}
+    // Re-apply remaining merges
+    let rebuilt = freshBase;
+    for (const op of newHistory) rebuilt = mergeExcelDataSkus(rebuilt, op.fromSku, op.toSku);
+    setMergeHistory(newHistory);
+    saveMergeHistory(newHistory);
+    setExcelData(rebuilt);
+    saveNormResult(rebuilt);
+  }
+
+  async function clearAllAtsData() {
+    // Delete all ATS upload/merge data from Supabase so user can start fresh
+    const keys = ["ats_excel_data", "ats_base_data", "ats_merge_history"];
+    await Promise.all(keys.map(key =>
+      fetch(`${SB_URL}/rest/v1/app_data?key=eq.${key}`, {
+        method: "DELETE",
+        headers: SB_HEADERS,
+      }).catch(() => {})
+    ));
+    setExcelData(null);
+    setRows([]);
+    setMergeHistory([]);
+    setMockMode(false);
+    setLastSync(null as any);
+  }
+
   function applyNormReview() {
     if (!normPendingData || !normChanges) return;
     const result = applyNormChanges(normPendingData, normChanges);
@@ -662,6 +780,11 @@ function ATSReport() {
     setRows(computeRowsFromExcelData(result, dates));
     setLastSync(result.syncedAt);
     setMockMode(false);
+    // Save clean (pre-merge) base so undo can rebuild from scratch
+    saveBaseData(result);
+    // Also clear merge history since this is a fresh upload
+    setMergeHistory([]);
+    saveMergeHistory([]);
     saveNormResult(result);
     if (normSource === "upload") {
       setInvFile(null); setPurFile(null); setOrdFile(null);
@@ -680,6 +803,10 @@ function ATSReport() {
     setRows(computeRowsFromExcelData(normPendingData, dates));
     setLastSync(normPendingData.syncedAt);
     setMockMode(false);
+    // Save clean base + clear merge history on fresh upload
+    saveBaseData(normPendingData);
+    setMergeHistory([]);
+    saveMergeHistory([]);
     saveNormResult(normPendingData);
     if (normSource === "upload") {
       setInvFile(null); setPurFile(null); setOrdFile(null);
@@ -775,7 +902,10 @@ function ATSReport() {
     if (!excelData) return { totalSoValue: 0, totalPoValue: 0 };
     const isAll = storeFilter.includes("All");
     const soV = excelData.sos.filter(s => (isAll || storeFilter.includes(s.store ?? "ROF")) && filteredSkuSet.has(s.sku)).reduce((a, s) => a + (s.totalPrice || s.unitPrice * s.qty || 0), 0);
-    const poV = excelData.pos.filter(p => (isAll || storeFilter.includes(p.store ?? "ROF")) && filteredSkuSet.has(p.sku)).reduce((a, p) => a + p.qty * (p.unitCost || 0), 0);
+    // Build avgCost lookup from inventory skus as fallback when PO has no unitCost
+    const avgCostBySku: Record<string, number> = {};
+    for (const s of excelData.skus) { if (s.avgCost) avgCostBySku[s.sku] = s.avgCost; }
+    const poV = excelData.pos.filter(p => (isAll || storeFilter.includes(p.store ?? "ROF")) && filteredSkuSet.has(p.sku)).reduce((a, p) => a + p.qty * (p.unitCost || avgCostBySku[p.sku] || 0), 0);
     return { totalSoValue: soV, totalPoValue: poV };
   }, [excelData, filteredSkuSet, storeFilter]);
 
@@ -868,6 +998,7 @@ function ATSReport() {
     customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch,
     dragSku, setDragSku, dragOverSku, setDragOverSku,
     pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
-    mergeHistory, setMergeHistory, saveMergeHistory,
+    mergeHistory, setMergeHistory, saveMergeHistory, undoLastMerge, clearAllAtsData,
+    atShip, setAtShip,
   });
 }

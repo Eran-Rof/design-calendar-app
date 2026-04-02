@@ -2,7 +2,7 @@ import XLSXStyle from "xlsx-js-style";
 import type { ATSRow } from "./types";
 import { fmtDate } from "./helpers";
 
-export function exportToExcel(rows: ATSRow[], periods: Array<{ endDate: string; label: string }>) {
+export function exportToExcel(rows: ATSRow[], periods: Array<{ endDate: string; label: string }>, atShip = false) {
   // ── Styles ──────────────────────────────────────────────────────────────
   const HDR: any = {
     font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
@@ -63,7 +63,7 @@ export function exportToExcel(rows: ATSRow[], periods: Array<{ endDate: string; 
       { v: r.onCommitted || 0, t: "n", s: numB },
       { v: r.onOrder    || 0,  t: "n", s: numB },
       ...periods.map(p => {
-        const q = r.dates[p.endDate];
+        const q = atShip ? (r.freeMap?.[p.endDate] ?? r.dates[p.endDate]) : r.dates[p.endDate];
         if (q == null) return { v: "", t: "s", s: base };
         const nb = numB;
         const style = q < 0 ? negStyle(nb) : q === 0 ? outStyle(nb) : q <= 10 ? lowStyle(nb) : nb;
@@ -95,14 +95,14 @@ export function exportToExcel(rows: ATSRow[], periods: Array<{ endDate: string; 
   ws["!freeze"] = { xSplit: 3, ySplit: 1 };
 
   const wb = XLSXStyle.utils.book_new();
-  XLSXStyle.utils.book_append_sheet(wb, ws, "ATS Report");
+  XLSXStyle.utils.book_append_sheet(wb, ws, atShip ? "AT Ship Report" : "ATS Report");
 
   const buf  = XLSXStyle.write(wb, { bookType: "xlsx", type: "array" });
   const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement("a");
   a.href     = url;
-  a.download = `ATS_Report_${fmtDate(new Date())}.xlsx`;
+  a.download = `${atShip ? "ATShip" : "ATS"}_Report_${fmtDate(new Date())}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
 }

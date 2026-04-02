@@ -23,7 +23,7 @@ const S: Record<string, React.CSSProperties> = {
   legend:      { display: "flex", gap: 16, marginBottom: 10, alignItems: "center", flexWrap: "wrap" as const },
   legendItem:  { display: "flex", alignItems: "center", gap: 5 },
   tableWrap:   { overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 300px)", borderRadius: 10, border: "1px solid #334155", background: "#0F172A" },
-  table:       { borderCollapse: "collapse" as const, width: "100%", fontSize: 13 },
+  table:       { borderCollapse: "separate" as const, borderSpacing: 0, width: "100%", fontSize: 13 },
   th:          { background: "#1E293B", color: "#6B7280", fontWeight: 600, fontSize: 11, textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "10px 12px", borderBottom: "1px solid #334155", borderRight: "1px solid #1a2030", whiteSpace: "nowrap" as const, position: "sticky" as const, top: 0, zIndex: 2 },
   td:          { padding: "7px 10px", borderBottom: "1px solid #1a2030", borderRight: "1px solid #1a2030", whiteSpace: "nowrap" as const, verticalAlign: "middle" as const },
   stickyCol:   { position: "sticky" as const, zIndex: 2, borderRight: "1px solid #334155" },

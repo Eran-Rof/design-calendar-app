@@ -63,11 +63,15 @@ export function normalizeSku(sku: string): string {
   const firstDash = s.indexOf(" - ");
   if (firstDash >= 0) {
     const base = s.slice(0, firstDash); // keep base part as-is (e.g. RYB059430PPK)
-    const rest = s.slice(firstDash + 3); // color portion
+    let rest = s.slice(firstDash + 3); // color portion
+    // Standardize common wash/color abbreviations before title-casing
+    rest = rest.replace(/\bmd\b/gi, "Med")
+               .replace(/\blt\b/gi, "Lt")
+               .replace(/\bdk\b/gi, "Dk");
     const titleCased = rest.replace(/\b\w+/g, (word) => {
-      // Keep small words lowercase: w, of, lt, dk, md — unless first word
+      // Keep small connector words lowercase: w, of
       const lower = word.toLowerCase();
-      const smallWords = new Set(["w", "of", "lt", "dk", "md"]);
+      const smallWords = new Set(["w", "of"]);
       if (smallWords.has(lower)) return lower;
       return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
     });

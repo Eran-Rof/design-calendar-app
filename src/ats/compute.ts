@@ -42,8 +42,36 @@ export function computeRowsFromExcelData(data: ExcelData, dates: string[], poSto
       dateMap[date] = ats;
     }
 
+    // Free-to-sell (AT SHIP): qty that can be committed now without leaving any
+    // future SO uncovered. We walk future events in chronological order and track
+    // the minimum running balance — that tells us the peak reserve needed.
+    //
+    // Example: PO in July, SO in June → July PO cannot cover the June SO,
+    // so current stock must be reserved. Simple "totalPO - totalSO" would miss this.
+    const allFutureEvents: [string, number][] = [
+      ...Object.entries(poDates).map(([d, q]): [string, number] => [d, q]),
+      ...Object.entries(soDates).map(([d, q]): [string, number] => [d, -q]),
+    ].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+
+    const freeMap: Record<string, number> = {};
+    for (const date of dates) {
+      const atsAtDate = dateMap[date];
+      if (atsAtDate == null || atsAtDate <= 0) { freeMap[date] = 0; continue; }
+      // Walk future events in order, find maximum reserve needed
+      let running = 0;
+      let minRunning = 0;
+      for (const [d, delta] of allFutureEvents) {
+        if (d <= date) continue;
+        running += delta;
+        if (running < minRunning) minRunning = running;
+      }
+      // minRunning is 0 or negative; reserve = how much current stock is needed
+      const reserveNeeded = Math.max(0, -minRunning);
+      freeMap[date] = Math.max(0, atsAtDate - reserveNeeded);
+    }
+
     const filteredOnOrder = Object.values(poDates).reduce((a, b) => a + b, 0);
     const filteredOnCommitted = Object.values(soDates).reduce((a, b) => a + b, 0);
-    return { sku: s.sku, description: s.description, category: s.category, store: s.store, onHand: s.onHand, onOrder: filteredOnOrder, onCommitted: filteredOnCommitted, dates: dateMap, avgCost: s.avgCost, lastReceiptDate: s.lastReceiptDate, totalAmount: s.totalAmount };
+    return { sku: s.sku, description: s.description, category: s.category, store: s.store, onHand: s.onHand, onOrder: filteredOnOrder, onCommitted: filteredOnCommitted, dates: dateMap, freeMap, avgCost: s.avgCost, lastReceiptDate: s.lastReceiptDate, totalAmount: s.totalAmount };
   });
 }

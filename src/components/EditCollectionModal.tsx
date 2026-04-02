@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { TH } from "../utils/theme";
 import { S } from "../utils/styles";
 import { BRANDS, CATEGORIES } from "../utils/constants";
