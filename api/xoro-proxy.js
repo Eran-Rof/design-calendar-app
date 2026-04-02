@@ -87,21 +87,38 @@ export default async function handler(req, res) {
       }
     }
 
-    // ── fetch_all mode: page 1 then all remaining pages in parallel ────────
-    const first = await xoroFetchPage(1);
-    if (!first.Result) {
+    // ── fetch_all mode: fetch pages 1-3 in parallel, then any beyond 3 ────
+    // Speculatively fetch the first 3 pages simultaneously so we never wait
+    // for page 1 before starting page 2 (avoids 2× round-trip for 2-page results).
+    const speculative = await Promise.allSettled([
+      xoroFetchPage(1),
+      xoroFetchPage(2),
+      xoroFetchPage(3),
+    ]);
+
+    const page1 = speculative[0].status === "fulfilled" ? speculative[0].value : null;
+    if (!page1 || !page1.Result) {
       // If Xoro returns Result:false with an empty Data array it means "no records found" — treat as success
-      if (Array.isArray(first.Data)) {
-        return res.status(200).json({ Result: true, Data: first.Data, TotalPages: first.TotalPages ?? 0, _noResults: true });
+      if (page1 && Array.isArray(page1.Data)) {
+        return res.status(200).json({ Result: true, Data: page1.Data, TotalPages: page1.TotalPages ?? 0, _noResults: true });
       }
-      return res.status(200).json(first);
+      return res.status(200).json(page1 ?? { Result: false, Message: "Page 1 fetch failed" });
     }
 
-    const totalPages = first.TotalPages ?? 1;
-    let allData = Array.isArray(first.Data) ? [...first.Data] : [];
+    const totalPages = page1.TotalPages ?? 1;
+    let allData = Array.isArray(page1.Data) ? [...page1.Data] : [];
 
-    if (totalPages > 1) {
-      const pageNums = Array.from({ length: Math.min(totalPages, 10) - 1 }, (_, i) => i + 2);
+    // Collect results from speculative pages 2-3 (only up to totalPages)
+    for (let i = 1; i < Math.min(speculative.length, totalPages); i++) {
+      const r = speculative[i];
+      if (r.status === "fulfilled" && r.value.Result && Array.isArray(r.value.Data)) {
+        allData = [...allData, ...r.value.Data];
+      }
+    }
+
+    // Fetch any pages beyond 3 in parallel (rare — would require 300+ records)
+    if (totalPages > 3) {
+      const pageNums = Array.from({ length: Math.min(totalPages, 15) - 3 }, (_, i) => i + 4);
       const rest = await Promise.allSettled(pageNums.map(p => xoroFetchPage(p)));
       for (const r of rest) {
         if (r.status === "fulfilled" && r.value.Result && Array.isArray(r.value.Data)) {
@@ -110,7 +127,7 @@ export default async function handler(req, res) {
       }
     }
 
-    return res.status(200).json({ Result: true, Data: allData, TotalPages: totalPages, _pagesActuallyFetched: totalPages });
+    return res.status(200).json({ Result: true, Data: allData, TotalPages: totalPages, _pagesActuallyFetched: Math.min(totalPages, 15) });
 
   } catch (err) {
     const msg = err.name === "AbortError"
