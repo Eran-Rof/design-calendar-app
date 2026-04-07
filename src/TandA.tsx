@@ -1501,7 +1501,7 @@ function TandAApp() {
 
       // Only check for missing POs on a full unfiltered sync where all fetches succeeded
       const allStatusesSucceeded = statusResults.every(r => r.status === "fulfilled");
-      const isFullSync = allStatusesSucceeded && !filters?.poNumbers?.length && !filters?.vendors?.length && !filters?.dateFrom && !filters?.dateTo;
+      const isFullSync = allStatusesSucceeded && !filters?.poNumbers?.length && !filters?.vendors?.length && !filters?.dateFrom && !filters?.dateTo && !filters?.statuses?.length;
 
       const archiveDecisions = getArchiveDecisions(all, cachedRows, isFullSync ? statusesWithResults : null);
       for (const { poNumber, freshData } of archiveDecisions) {
@@ -3051,7 +3051,7 @@ function TandAApp() {
           const vendorsWithoutTemplate = poVendors.filter(v => !vendorHasTemplate(v));
           const currentTemplates = getVendorTemplates(tplVendor === "__default__" ? undefined : tplVendor);
           // Derive local editing state — keyed by vendor so switching resets automatically
-          const localTpl: WipTemplate[] = tplLocalEdits?.vendor === tplVendor ? tplLocalEdits.edits : currentTemplates;
+          const localTpl: WipTemplate[] = (tplLocalEdits?.vendor === tplVendor ? tplLocalEdits.edits : currentTemplates) ?? [];
           const tplDirty = tplLocalEdits?.vendor === tplVendor;
           const activeTplUndo = tplDirty ? tplUndoStack : [];
           function tplPushState(newEdits: WipTemplate[]) {
