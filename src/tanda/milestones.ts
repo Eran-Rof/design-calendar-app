@@ -37,7 +37,17 @@ export function mergeMilestones(existing: Milestone[], fresh: Milestone[]): Mile
   return fresh.map(f => {
     const old = existing.find(e => e.phase === f.phase);
     if (old && (old.actual_date || old.status !== "Not Started" || old.notes)) {
-      return { ...f, id: old.id, actual_date: old.actual_date, status: old.status, notes: old.notes };
+      return {
+        ...f,
+        id: old.id,
+        actual_date: old.actual_date,
+        status: old.status,
+        status_date: old.status_date,
+        status_dates: old.status_dates,
+        notes: old.notes,
+        note_entries: old.note_entries,
+        variant_statuses: old.variant_statuses,
+      };
     }
     return f;
   });

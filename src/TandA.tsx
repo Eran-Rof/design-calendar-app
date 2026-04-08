@@ -1341,12 +1341,33 @@ function TandAApp() {
     const poNum = po.PoNumber ?? "";
     const ddp = po.DateExpectedDelivery;
     if (!poNum || !ddp) return;
-    const existing = milestones[poNum] || [];
-    const fresh = generateMilestones(poNum, ddp, po.VendorName);
-    const merged = mergeMilestones(existing, fresh);
-    if (existing.length > 0) await deleteMilestonesForPO(poNum);
-    await saveMilestones(merged);
-    addHistory(poNum, `Milestones regenerated (${merged.length} phases)`);
+    // Guard against detailPanel's lazy-generate race: it triggers ensureMilestones
+    // whenever milestones[poNum] is empty during render. Holding generatingRef blocks it.
+    if (generatingRef.current.has(poNum)) return;
+    generatingRef.current.add(poNum);
+    try {
+      const existing = milestones[poNum] || [];
+      const fresh = generateMilestones(poNum, ddp, po.VendorName);
+      const merged = mergeMilestones(existing, fresh);
+      // Delete old DB rows first (some may have ids not present in merged)
+      if (existing.length > 0) {
+        for (const m of existing) {
+          await sb.from("tanda_milestones").delete(`id=eq.${encodeURIComponent(m.id)}`);
+        }
+      }
+      // Write merged to DB
+      if (merged.length > 0) {
+        await sb.from("tanda_milestones").upsert(
+          merged.map(m => ({ id: m.id, data: m })),
+          { onConflict: "id" }
+        );
+      }
+      // Atomically replace in state — never leave milestones[poNum] empty
+      coreD({ type: "SET_MILESTONES_FOR_PO", poNumber: poNum, milestones: merged });
+      addHistory(poNum, `Milestones regenerated (${merged.length} phases)`);
+    } finally {
+      generatingRef.current.delete(poNum);
+    }
   }
 
   // ── Cancel sync ─────────────────────────────────────────────────────────

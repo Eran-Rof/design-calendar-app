@@ -68,30 +68,29 @@ describe("getArchiveDecisions", () => {
   });
 
   describe("source 3: PO missing from Xoro (deleted)", () => {
-    it("archives missing PO when its status had Xoro results", () => {
+    it("does NOT archive missing PO with active status (Open/Released)", () => {
       const xoro = [makePO({ PoNumber: "PO-OTHER", StatusName: "Open" })];
       const cached = [makeRow("PO-MISSING", "Open", false)];
       const statusesWithResults = new Set(["Open"]);
       const decisions = getArchiveDecisions(xoro, cached, statusesWithResults);
-      expect(decisions.some(d => d.poNumber === "PO-MISSING")).toBe(true);
+      expect(decisions.some(d => d.poNumber === "PO-MISSING")).toBe(false);
     });
 
-    it("sets lastKnownStatus on source-3 decisions", () => {
-      const xoro = [makePO({ PoNumber: "PO-OTHER", StatusName: "Open" })];
-      const cached = [makeRow("PO-MISSING", "Open", false)];
-      const decisions = getArchiveDecisions(xoro, cached, new Set(["Open"]));
-      const d = decisions.find(d => d.poNumber === "PO-MISSING");
-      expect(d?.lastKnownStatus).toBe("Open");
-    });
-
-    it("archives missing PO even when its status returned 0 results — per-status guard removed", () => {
-      // With ALL_PO_STATUSES fetched, 0 results for a status means no POs have that status.
-      // The only guard is allStatusesSucceeded (statusesWithResults !== null).
+    it("archives missing PO with terminal status (Closed/Received/Cancelled)", () => {
       const xoro: XoroPO[] = [];
-      const cached = [makeRow("PO-001", "Open", false), makeRow("PO-002", "Open", false)];
-      const statusesWithResults = new Set<string>(); // Open had 0 results — still archived
+      const cached = [makeRow("PO-CLOSED", "Closed", false)];
+      const decisions = getArchiveDecisions(xoro, cached, new Set(["Closed"]));
+      const d = decisions.find(d => d.poNumber === "PO-CLOSED");
+      expect(d).toBeDefined();
+      // Source 2 catches this (cached terminal status) — no lastKnownStatus since it's not source 3
+    });
+
+    it("does NOT archive missing active POs even with empty Xoro results", () => {
+      const xoro: XoroPO[] = [];
+      const cached = [makeRow("PO-001", "Open", false), makeRow("PO-002", "Released", false)];
+      const statusesWithResults = new Set<string>();
       const decisions = getArchiveDecisions(xoro, cached, statusesWithResults);
-      expect(decisions).toHaveLength(2);
+      expect(decisions).toHaveLength(0);
     });
 
     it("does NOT archive missing POs when statusesWithResults is null (filtered sync)", () => {
@@ -121,17 +120,18 @@ describe("getArchiveDecisions", () => {
         makePO({ PoNumber: "PO-CLOSED",  StatusName: "Closed" }),
       ];
       const cached = [
-        makeRow("PO-ACTIVE",  "Open",   false),
-        makeRow("PO-CLOSED",  "Open",   false), // stale status in DB
-        makeRow("PO-DELETED", "Open",   false), // gone from Xoro
+        makeRow("PO-ACTIVE",  "Open",     false),
+        makeRow("PO-CLOSED",  "Open",     false), // stale status in DB — Xoro says Closed
+        makeRow("PO-DELETED", "Open",     false), // gone from Xoro but was Open — should NOT archive
+        makeRow("PO-GONE",    "Received", false), // gone from Xoro and was Received — SHOULD archive
       ];
       const statusesWithResults = new Set(["Open", "Closed"]);
       const decisions = getArchiveDecisions(xoro, cached, statusesWithResults);
       const nums = decisions.map(d => d.poNumber);
       expect(nums).not.toContain("PO-ACTIVE");
       expect(nums).toContain("PO-CLOSED");
-      expect(nums).toContain("PO-DELETED");
-      // PO-CLOSED archived with fresh Xoro data (correct label)
+      expect(nums).not.toContain("PO-DELETED"); // Open POs missing from Xoro are NOT archived
+      expect(nums).toContain("PO-GONE"); // Terminal POs missing from Xoro ARE archived
       const closedDecision = decisions.find(d => d.poNumber === "PO-CLOSED");
       expect(closedDecision?.freshData?.StatusName).toBe("Closed");
     });

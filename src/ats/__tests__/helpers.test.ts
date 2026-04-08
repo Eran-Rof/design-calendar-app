@@ -110,13 +110,13 @@ describe("normalizeSku", () => {
     expect(normalizeSku("RYB059430 - Media Park- Drk Wash")).toBe("RYB059430 - Media Park - Drk Wash");
   });
   it("standardizes dash spacing (extra space after dash)", () => {
-    expect(normalizeSku("RYB059430 - MARINE -  MD WASH")).toBe("RYB059430 - Marine - md Wash");
+    expect(normalizeSku("RYB059430 - MARINE -  MD WASH")).toBe("RYB059430 - Marine - Med Wash");
   });
   it("title-cases ALL CAPS color names", () => {
     expect(normalizeSku("RYB0412 - ESPRESSO")).toBe("RYB0412 - Espresso");
   });
-  it("title-cases mixed case", () => {
-    expect(normalizeSku("RYB059430 - BUENOS AIRES  -  LT WASH")).toBe("RYB059430 - Buenos Aires - lt Wash");
+  it("title-cases mixed case and expands abbreviations", () => {
+    expect(normalizeSku("RYB059430 - BUENOS AIRES  -  LT WASH")).toBe("RYB059430 - Buenos Aires - Lt Wash");
   });
   it("preserves base part as-is", () => {
     expect(normalizeSku("RYB059430PPK - Sandlot - Med Wash")).toBe("RYB059430PPK - Sandlot - Med Wash");

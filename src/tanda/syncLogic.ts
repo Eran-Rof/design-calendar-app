@@ -67,7 +67,10 @@ export function getArchiveDecisions(
       if (decisions.has(row.po_number) || row.data?._archived) continue;
       if (!xoroPoNums.has(row.po_number)) {
         const lastStatus = row.data?.StatusName ?? "";
-        if (!isPartial(lastStatus)) {
+        // Only archive missing POs if their last known status was already terminal
+        // Never archive POs that were Open/Released/Pending/Draft — they may just be
+        // missing from Xoro due to pagination or API inconsistency
+        if (shouldArchive(lastStatus)) {
           decisions.set(row.po_number, { poNumber: row.po_number, lastKnownStatus: lastStatus });
         }
       }
