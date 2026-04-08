@@ -238,7 +238,7 @@ function TandAApp() {
   const vendorSearch = sync.vendorSearch;
   const loadingVendors = sync.loadingVendors;
   const newManualVendor = sync.newManualVendor;
-  const setSyncFilters = (v: SyncFilters) => syncD({ type: "SET_SYNC_FILTERS", payload: v });
+  const setSyncFilters = (v: any) => { if (typeof v === "function") syncD({ type: "SET_SYNC_FILTERS", payload: v(sync.syncFilters) }); else syncD({ type: "SET_SYNC_FILTERS", payload: v }); };
   const setSyncProgress = (v: number) => syncD({ type: "SET_SYNC_PROGRESS", payload: v });
   const setSyncProgressMsg = (v: string) => syncD({ type: "SET_SYNC_PROGRESS_MSG", payload: v });
   const setSyncDone = (v: { added: number; changed: number; deleted: number } | null) => syncD({ type: "SET_SYNC_DONE", payload: v });
@@ -1433,8 +1433,9 @@ function TandAApp() {
       for (let i = 0; i < statusResults.length; i++) {
         const result = statusResults[i];
         if (result.status === "fulfilled") {
-          all = [...all, ...result.value.pos];
-          if (result.value.pos.length > 0) statusesWithResults.add(statusList[i]);
+          const pos = Array.isArray(result.value?.pos) ? result.value.pos : [];
+          all = [...all, ...pos];
+          if (pos.length > 0) statusesWithResults.add(statusList[i]);
         } else {
           const msg = (result as PromiseRejectedResult).reason?.message;
           console.warn("Sync warning:", msg);
