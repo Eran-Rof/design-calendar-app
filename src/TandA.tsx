@@ -206,6 +206,19 @@ function TandAApp() {
   const [editingNoteText, setEditingNoteText] = useState("");
   const [msNoteText, setMsNoteText] = useState("");
   const [expandedVariants, setExpandedVariants] = useState<Set<string>>(new Set());
+  // Close any open variant panels when the user clicks outside the panel or its toggle.
+  useEffect(() => {
+    if (expandedVariants.size === 0) return;
+    const onMouseDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (!t) return;
+      if (t.closest("[data-variant-panel]")) return;
+      if (t.closest("[data-variant-toggle]")) return;
+      setExpandedVariants(new Set());
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, [expandedVariants]);
   const [addingPhase, setAddingPhase] = useState(false);
   const [newPhaseForm, setNewPhaseForm] = useState({ name: "", category: "Pre-Production", dueDate: "", afterPhase: "" });
   const [acceptedBlocked, setAcceptedBlocked] = useState<Set<string>>(new Set());

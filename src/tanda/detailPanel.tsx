@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { type XoroPO, type Milestone, type WipTemplate, type LocalNote, type User, type DCVendor,
   STATUS_COLORS, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, DEFAULT_WIP_TEMPLATES,
   milestoneUid, itemQty, poTotal, normalizeSize, sizeSort, fmtDate, fmtCurrency } from "../utils/tandaTypes";
@@ -16,6 +16,45 @@ const OUTLOOK_BLUE = "#0078D4";
 function daysUntil(d?: string) {
   if (!d) return null;
   return Math.ceil((new Date(d).getTime() - Date.now()) / 86400000);
+}
+
+/**
+ * Date input that defers committing the value until blur or until a complete
+ * YYYY-MM-DD value is selected. Prevents Chrome's native date picker from
+ * closing mid-interaction (e.g. clicking month-nav arrows) when the parent
+ * re-renders on every keystroke.
+ */
+function MilestoneDateInput({ value, onCommit, style }: { value: string; onCommit: (v: string) => void; style?: React.CSSProperties }) {
+  const [local, setLocal] = useState(value || "");
+  const dirtyRef = useRef(false);
+  // Re-sync when the upstream value changes (e.g. from cascade) but only if
+  // the user isn't currently editing.
+  useEffect(() => {
+    if (!dirtyRef.current) setLocal(value || "");
+  }, [value]);
+  return (
+    <input
+      type="date"
+      value={local}
+      style={style}
+      onChange={e => {
+        dirtyRef.current = true;
+        const v = e.target.value;
+        setLocal(v);
+        // Commit immediately only when the value is a complete, valid date.
+        // The native picker fires onChange exactly once on day-selection.
+        if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+          dirtyRef.current = false;
+          if (v !== (value || "")) onCommit(v);
+        }
+      }}
+      onBlur={() => {
+        if (!dirtyRef.current) return;
+        dirtyRef.current = false;
+        if (local !== (value || "")) onCommit(local);
+      }}
+    />
+  );
 }
 
 function InfoCell({ label, value }: { label: string; value: React.ReactNode }) {
@@ -1088,13 +1127,17 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
                                     )}
                                   </span>
                                   <div style={{ textAlign: "center" }}>
-                                    <input type="date" value={m.expected_date || ""} onChange={e => cascadeDueDateChange(m, e.target.value)}
-                                      style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: projectedDate ? "#F59E0B" : "#9CA3AF", fontSize: 12, padding: "4px 6px", width: "100%", boxSizing: "border-box", outline: "none" }} />
+                                    <MilestoneDateInput
+                                      value={m.expected_date || ""}
+                                      onCommit={v => cascadeDueDateChange(m, v)}
+                                      style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: projectedDate ? "#F59E0B" : "#9CA3AF", fontSize: 12, padding: "4px 6px", width: "100%", boxSizing: "border-box", outline: "none" }}
+                                    />
                                     {projectedDate && <div style={{ fontSize: 9, color: "#F59E0B", marginTop: 1 }}>→ {fmtDate(projectedDate)}</div>}
                                   </div>
                                   {/* ⊕ Variant expand button */}
                                   <button
                                     title="Color/variant statuses"
+                                    data-variant-toggle
                                     onClick={() => setExpandedVariants(prev => { const next = new Set(prev); variantOpen ? next.delete(m.id) : next.add(m.id); return next; })}
                                     style={{ width: 22, height: 22, borderRadius: "50%", border: `1px solid ${variantOpen ? "#60A5FA" : hasMismatch ? "#FDE68A" : "#334155"}`, background: variantOpen ? "#1D4ED8" : hasMismatch ? "#78350F" : "#0F172A", color: variantOpen ? "#fff" : hasMismatch ? "#FDE68A" : "#6B7280", fontSize: 14, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0, flexShrink: 0 }}
                                   >{variantOpen ? "−" : "+"}</button>
@@ -1150,7 +1193,7 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
                                 </div>
                                 {/* Variant/color status panel */}
                                 {variantOpen && (
-                                  <div style={{ padding: "8px 14px 10px 14px", borderTop: "1px solid #1E293B", background: "#0A1220" }}>
+                                  <div data-variant-panel style={{ padding: "8px 14px 10px 14px", borderTop: "1px solid #1E293B", background: "#0A1220" }}>
                                     <div style={{ fontSize: 10, color: "#60A5FA", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Color / Variant Statuses</div>
                                     {matrixRows.length === 0 ? (
                                       <div style={{ fontSize: 12, color: "#4B5563", fontStyle: "italic" }}>No line items on this PO</div>
