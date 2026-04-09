@@ -1678,8 +1678,20 @@ function TandAApp() {
     const pollBusy = { current: false };
     let reloadDebounceId: ReturnType<typeof setTimeout> | null = null;
 
+    const isUserEditing = () => {
+      const ae = document.activeElement as HTMLElement | null;
+      if (!ae) return false;
+      const tag = ae.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+      if ((ae as HTMLElement).isContentEditable) return true;
+      return false;
+    };
     const doReload = async () => {
       reloadDebounceId = null;
+      // If the user is mid-edit (focused input/textarea/select), defer the
+      // reload — re-rendering the milestones list while a date picker is
+      // open will close it. Retry on the next poll tick.
+      if (isUserEditing()) return;
       try {
         await loadCachedPOs();
         await loadAllMilestones();
