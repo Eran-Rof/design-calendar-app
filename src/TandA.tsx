@@ -81,7 +81,26 @@ async function fetchXoroPOs(opts: XoroFetchOpts = {}): Promise<{ pos: XoroPO[]; 
     const d = new Date(dateTo + "T23:59:59");
     if (!isNaN(d.getTime())) params.set("created_at_max", d.toISOString());
   }
-  const res = await fetch(`/api/xoro-proxy?${params}`, { signal });
+  // 30s per-request timeout — chained with caller's signal so cancelSync still works.
+  const timeoutCtl = new AbortController();
+  const timeoutId = setTimeout(() => timeoutCtl.abort(), 30000);
+  const onAbort = () => timeoutCtl.abort();
+  if (signal) {
+    if (signal.aborted) timeoutCtl.abort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+  }
+  let res: Response;
+  try {
+    res = await fetch(`/api/xoro-proxy?${params}`, { signal: timeoutCtl.signal });
+  } catch (err: any) {
+    if (timeoutCtl.signal.aborted && !signal?.aborted) {
+      throw new Error("Xoro proxy timed out after 30s");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+    if (signal) signal.removeEventListener("abort", onAbort);
+  }
   if (!res.ok) throw new Error(`Xoro proxy error: ${res.status}`);
   const json = await res.json();
   if (!json.Result) {
@@ -978,14 +997,25 @@ function TandAApp() {
   // ── Load cached POs from Supabase ─────────────────────────────────────────
   const loadCachedPOs = useCallback(async () => {
     setLoading(true);
-    const { data } = await sb.from("tanda_pos").select("*", "order=date_order.desc");
-    if (data && data.length > 0) {
-      // Exclude archived POs from active list
-      const active = data.filter((r: any) => !(r.data as XoroPO)?._archived);
-      setPos(active.map((r: any) => r.data as XoroPO));
-      setLastSync(data[0]?.synced_at ?? "");
+    try {
+      const { data, error } = await sb.from("tanda_pos").select("*", "order=date_order.desc");
+      if (error) {
+        const msg = (error as any)?.message || JSON.stringify(error);
+        console.warn("loadCachedPOs failed:", msg);
+        setSyncErr(`Failed to load POs: ${msg}`);
+        return;
+      }
+      if (Array.isArray(data) && data.length > 0) {
+        // Exclude archived POs from active list
+        const active = data.filter((r: any) => !(r.data as XoroPO)?._archived);
+        setPos(active.map((r: any) => r.data as XoroPO));
+        setLastSync(data[0]?.synced_at ?? "");
+      } else {
+        setPos([]);
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   // ── Load vendors from Xoro + manual list ─────────────────────────────────
@@ -1349,20 +1379,28 @@ function TandAApp() {
       const existing = milestones[poNum] || [];
       const fresh = generateMilestones(poNum, ddp, po.VendorName);
       const merged = mergeMilestones(existing, fresh);
-      // Delete old DB rows first (some may have ids not present in merged)
-      if (existing.length > 0) {
-        for (const m of existing) {
-          await sb.from("tanda_milestones").delete(`id=eq.${encodeURIComponent(m.id)}`);
-        }
-      }
-      // Write merged to DB
+      // 1. Upsert merged FIRST so the PO is never in a zero-milestones state.
+      //    If we crash or disconnect after this, the PO still has a valid set
+      //    (the new merged set) — only orphaned old rows would remain, which
+      //    the next regenerate or load can clean up.
       if (merged.length > 0) {
-        await sb.from("tanda_milestones").upsert(
+        const { error: upErr } = await sb.from("tanda_milestones").upsert(
           merged.map(m => ({ id: m.id, data: m })),
           { onConflict: "id" }
         );
+        if (upErr) {
+          throw new Error(`Failed to write merged milestones: ${(upErr as any)?.message || JSON.stringify(upErr)}`);
+        }
       }
-      // Atomically replace in state — never leave milestones[poNum] empty
+      // 2. Delete only the old rows whose ids are not in the merged set.
+      //    Preserved-progress milestones keep their old ids (mergeMilestones
+      //    sets id: old.id), so they won't be deleted here.
+      const mergedIds = new Set(merged.map(m => m.id));
+      const stragglers = existing.filter(m => !mergedIds.has(m.id));
+      for (const m of stragglers) {
+        await sb.from("tanda_milestones").delete(`id=eq.${encodeURIComponent(m.id)}`);
+      }
+      // 3. Atomically replace in state — never leave milestones[poNum] empty
       coreD({ type: "SET_MILESTONES_FOR_PO", poNumber: poNum, milestones: merged });
       addHistory(poNum, `Milestones regenerated (${merged.length} phases)`);
     } finally {
@@ -1615,13 +1653,31 @@ function TandAApp() {
     }
   }, [pos]);
 
-  // ── Realtime sync — poll every 10 seconds for changes from other users ──
+  // ── Realtime sync — poll every 15 seconds for changes from other users ──
+  // Skips while: a sync is running, the tab is hidden, or a poll is already
+  // in flight. Reload-on-change is debounced 1.5s so that bursts of writes
+  // (e.g. someone running their own sync) coalesce into a single reload.
   useEffect(() => {
     if (!user) return;
 
     const pollBusy = { current: false };
+    let reloadDebounceId: ReturnType<typeof setTimeout> | null = null;
+
+    const doReload = async () => {
+      reloadDebounceId = null;
+      try {
+        await loadCachedPOs();
+        await loadAllMilestones();
+        await loadNotes();
+      } catch (e) {
+        console.warn("Realtime reload failed:", e);
+      }
+    };
+
     const poll = async () => {
       if (pollBusy.current) return;
+      if (document.visibilityState === "hidden") return;
+      if (syncAbortRef.current) return; // user's own sync in progress
       pollBusy.current = true;
       try {
         // Quick check: fetch latest record hint from each table
@@ -1630,13 +1686,14 @@ function TandAApp() {
           fetch(`${SB_URL}/rest/v1/tanda_milestones?select=id&order=id.desc&limit=1`, { headers: SB_HEADERS }),
           fetch(`${SB_URL}/rest/v1/tanda_notes?select=id,created_at&order=created_at.desc&limit=1`, { headers: SB_HEADERS }),
         ]);
+        if (!posRes.ok || !msRes.ok || !notesRes.ok) return;
         const [posData, msData, notesData] = await Promise.all([posRes.json(), msRes.json(), notesRes.json()]);
         const hash = JSON.stringify({ p: posData, m: msData, n: notesData });
 
         if (lastDataHashRef.current && hash !== lastDataHashRef.current) {
-          await loadCachedPOs();
-          await loadAllMilestones();
-          await loadNotes();
+          // Debounce: if another change arrives within 1.5s, restart the timer
+          if (reloadDebounceId) clearTimeout(reloadDebounceId);
+          reloadDebounceId = setTimeout(doReload, 1500);
         }
         lastDataHashRef.current = hash;
       } catch {
@@ -1648,11 +1705,12 @@ function TandAApp() {
 
     // Capture initial hash then start interval
     poll();
-    realtimeIntervalRef.current = setInterval(poll, 10000);
+    realtimeIntervalRef.current = setInterval(poll, 15000);
 
     return () => {
       if (realtimeIntervalRef.current) clearInterval(realtimeIntervalRef.current);
       realtimeIntervalRef.current = null;
+      if (reloadDebounceId) clearTimeout(reloadDebounceId);
     };
   }, [user, loadCachedPOs, loadNotes]);
 
@@ -1989,16 +2047,38 @@ function TandAApp() {
   async function purgeExpiredAttachments(poNumber: string) {
     const files = attachments[poNumber] || [];
     const now = Date.now();
-    for (const f of files) {
-      if ((f as any).deleted_at && now - new Date((f as any).deleted_at).getTime() > 24 * 60 * 60 * 1000) {
-        // 24h passed — permanently delete from Dropbox
-        const dbxPath = (f as any).dbxPath || `/Eran Bitton/Apps/design-calendar-app/po-attachments/${poNumber}/${f.id}`;
-        try { await fetch(`/api/dropbox-proxy?action=delete&path=${encodeURIComponent(dbxPath)}`); } catch (e) { console.warn("Purge failed:", e); }
-        const { data } = await sb.from("tanda_notes").select("id,note", `po_number=eq.${encodeURIComponent(poNumber)}&status_override=eq.__attachment__`);
-        const row = data?.find((r: any) => { try { return JSON.parse(r.note).id === f.id; } catch { return false; } });
-        if (row) await sb.from("tanda_notes").delete(`id=eq.${encodeURIComponent(row.id)}`);
+    const expired = files.filter((f: any) =>
+      f.deleted_at && now - new Date(f.deleted_at).getTime() > 24 * 60 * 60 * 1000
+    );
+    if (expired.length === 0) return;
+
+    // Fetch attachment rows ONCE up front, build an id→row.id map.
+    const { data: rows, error: selErr } = await sb.from("tanda_notes").select("id,note", `po_number=eq.${encodeURIComponent(poNumber)}&status_override=eq.__attachment__`);
+    if (selErr) {
+      console.warn("purgeExpiredAttachments: failed to load rows", selErr);
+      return;
+    }
+    const attachIdToRowId = new Map<string, string>();
+    (rows ?? []).forEach((r: any) => {
+      try { attachIdToRowId.set(JSON.parse(r.note).id, r.id); } catch {}
+    });
+
+    // Delete each expired attachment from Dropbox + DB.
+    for (const f of expired) {
+      const dbxPath = (f as any).dbxPath || `/Eran Bitton/Apps/design-calendar-app/po-attachments/${poNumber}/${f.id}`;
+      try {
+        await fetch(`/api/dropbox-proxy?action=delete&path=${encodeURIComponent(dbxPath)}`);
+      } catch (e) {
+        console.warn(`Dropbox purge failed for ${f.id}:`, e);
+        addHistory(poNumber, `Warning: failed to purge Dropbox file for ${f.name}`);
+      }
+      const rowId = attachIdToRowId.get(f.id);
+      if (rowId) {
+        const { error: delErr } = await sb.from("tanda_notes").delete(`id=eq.${encodeURIComponent(rowId)}`);
+        if (delErr) console.warn(`DB purge failed for ${f.id}:`, delErr);
       }
     }
+
     // Reload from Supabase to get clean state after purge
     const { data: refreshed } = await sb.from("tanda_notes").select("*", `po_number=eq.${encodeURIComponent(poNumber)}&status_override=eq.__attachment__`);
     if (refreshed) {
