@@ -461,8 +461,8 @@ function App() {
     return () => window.removeEventListener("closeEmailView", handler);
   }, []);
 
-  // ── AUTO LOGOUT after 60 minutes of inactivity ──────────────────────────
-  const IDLE_MS = 60 * 60 * 1000; // 60 minutes
+  // ── AUTO LOGOUT after 90 minutes of inactivity ──────────────────────────
+  const IDLE_MS = 90 * 60 * 1000; // 90 minutes
   const idleWarning = dc.idleWarning;
   const setIdleWarning = (v: boolean) => dcSet("idleWarning", v);
   useEffect(() => {
@@ -474,9 +474,9 @@ function App() {
       setIdleWarning(false);
       clearTimeout(warnTimer);
       clearTimeout(logoutTimer);
-      // Warn at 55 minutes
+      // Warn 5 minutes before logout (at 85 minutes)
       warnTimer = setTimeout(() => setIdleWarning(true), IDLE_MS - 5 * 60 * 1000);
-      // Log out at 60 minutes
+      // Log out at 90 minutes
       logoutTimer = setTimeout(() => {
         sessionStorage.removeItem("plm_user");
         setCurrentUser(null);
