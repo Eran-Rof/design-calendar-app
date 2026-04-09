@@ -1950,10 +1950,24 @@ function TandAApp() {
     // Soft delete: mark as deleted with timestamp, don't remove from Dropbox yet
     const updatedEntry = { ...entry, deleted_at: new Date().toISOString() };
     // Update metadata in Supabase
-    const { data } = await sb.from("tanda_notes").select("id,note", `po_number=eq.${encodeURIComponent(poNumber)}&status_override=eq.__attachment__`);
+    const { data, error: selErr } = await sb.from("tanda_notes").select("id,note", `po_number=eq.${encodeURIComponent(poNumber)}&status_override=eq.__attachment__`);
+    if (selErr) {
+      console.warn("deleteAttachment: failed to load attachment rows", selErr);
+      await loadAttachments(poNumber);
+      return;
+    }
     const row = data?.find((r: any) => { try { return JSON.parse(r.note).id === attachId; } catch { return false; } });
-    if (row) {
-      await sb.from("tanda_notes").upsert({ id: row.id, po_number: poNumber, note: JSON.stringify(updatedEntry), status_override: "__attachment__", user_name: entry.uploaded_by, created_at: entry.uploaded_at }, { onConflict: "id" });
+    if (!row) {
+      // Row was deleted by another user (or never persisted) — refresh and bail
+      console.warn(`deleteAttachment: attachment ${attachId} not found in DB for ${poNumber}; refreshing local state`);
+      await loadAttachments(poNumber);
+      return;
+    }
+    const { error: upErr } = await sb.from("tanda_notes").upsert({ id: row.id, po_number: poNumber, note: JSON.stringify(updatedEntry), status_override: "__attachment__", user_name: entry.uploaded_by, created_at: entry.uploaded_at }, { onConflict: "id" });
+    if (upErr) {
+      console.warn("deleteAttachment: upsert failed", upErr);
+      await loadAttachments(poNumber);
+      return;
     }
     coreD({ type: "UPDATE_ATTACHMENT", poNumber, attachId, entry: updatedEntry });
     addHistory(poNumber, `Attachment soft-deleted: ${entry.name} (undo available for 24h)`);
