@@ -19,22 +19,21 @@ function daysUntil(d?: string) {
 }
 
 /**
- * Date input that NEVER commits on intermediate onChange events. Commits
- * only when the input loses focus or the user presses Enter. This prevents
- * Chrome's native date picker from closing mid-interaction when the parent
- * re-renders (which is what happens if cascadeDueDateChange runs on every
- * keystroke / arrow press).
+ * Date input that debounces commits. Rapid changes (arrow-key spam, browser
+ * month-nav) coalesce into a single commit ~400ms after the last change, so
+ * the picker doesn't close mid-interaction. A blur or Enter commits
+ * immediately. Cascade follows with no extra click required.
  *
- * The input uses defaultValue + an internal ref so React never re-controls
- * it during the user's edit. Upstream value changes are propagated by
- * remounting the input via a `key` derived from the upstream value.
+ * The input is uncontrolled (defaultValue + ref) so React doesn't fight the
+ * native picker. Upstream value changes remount via key={value}.
  */
 function MilestoneDateInput({ value, onCommit, style }: { value: string; onCommit: (v: string) => void; style?: React.CSSProperties }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const commit = () => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
     const v = inputRef.current?.value || "";
     if (v === (value || "")) return;
-    // Only commit a fully valid date (or an empty string to clear)
     if (v === "" || /^\d{4}-\d{2}-\d{2}$/.test(v)) onCommit(v);
   };
   return (
@@ -44,6 +43,10 @@ function MilestoneDateInput({ value, onCommit, style }: { value: string; onCommi
       type="date"
       defaultValue={value || ""}
       style={style}
+      onChange={() => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(commit, 400);
+      }}
       onBlur={commit}
       onKeyDown={e => {
         if (e.key === "Enter") {
