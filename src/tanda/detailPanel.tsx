@@ -1290,19 +1290,42 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
                                         const today2 = new Date().toISOString().split("T")[0];
                                         if (newStatus !== "Not Started" && !d[newStatus]) d[newStatus] = today2;
                                         const statusDate = d[newStatus] || null;
-                                        // Sync all variants to the new main status (unless they have been individually overridden to something different)
+                                        // Only sync variants that were tracking the OLD parent status.
+                                        // Variants set individually (different from oldStatus) are preserved
+                                        // so manual overrides aren't lost when the phase status changes.
                                         const existingVariants = { ...(m.variant_statuses || {}) };
                                         const syncedVariants: Record<string, { status: string; status_date: string | null }> = {};
                                         Object.keys(existingVariants).forEach(key => {
-                                          syncedVariants[key] = { status: newStatus, status_date: statusDate };
+                                          if (existingVariants[key].status === oldStatus) {
+                                            syncedVariants[key] = { status: newStatus, status_date: statusDate };
+                                          } else {
+                                            syncedVariants[key] = existingVariants[key];
+                                          }
                                         });
                                         saveMilestone({ ...m, status: newStatus, status_date: statusDate, status_dates: Object.keys(d).length > 0 ? d : null, variant_statuses: Object.keys(syncedVariants).length > 0 ? syncedVariants : m.variant_statuses, updated_at: new Date().toISOString(), updated_by: user?.name || "" });
                                       };
-                                      if (oldStatus === "Complete" && dates[oldStatus]) {
-                                        setConfirmModal({ title: "Clear Complete Date", message: `Clear the "Complete" date (${dates[oldStatus]})?`, icon: "📅", confirmText: "Clear Date", confirmColor: "#F59E0B", cancelText: "Keep Date", onConfirm: () => { delete dates[oldStatus]; doSave(dates); }, onCancel: () => doSave(dates) });
+                                      const proceed = () => {
+                                        if (oldStatus === "Complete" && dates[oldStatus]) {
+                                          setConfirmModal({ title: "Clear Complete Date", message: `Clear the "Complete" date (${dates[oldStatus]})?`, icon: "📅", confirmText: "Clear Date", confirmColor: "#F59E0B", cancelText: "Keep Date", onConfirm: () => { delete dates[oldStatus]; doSave(dates); }, onCancel: () => doSave(dates) });
+                                          return;
+                                        }
+                                        doSave(dates);
+                                      };
+                                      // Warn if there are individually overridden variants — they will be left untouched
+                                      const overrideCount = Object.values(m.variant_statuses || {}).filter(v => v.status !== oldStatus).length;
+                                      if (overrideCount > 0) {
+                                        setConfirmModal({
+                                          title: "Color/Variant Overrides Will Be Kept",
+                                          message: `${overrideCount} color variant${overrideCount === 1 ? " has" : "s have"} a status different from the phase. Changing the phase status to "${newStatus}" will NOT change those variants — they will remain as set. Continue?`,
+                                          icon: "⚠️",
+                                          confirmText: "Continue",
+                                          confirmColor: "#F59E0B",
+                                          cancelText: "Cancel",
+                                          onConfirm: proceed,
+                                        });
                                         return;
                                       }
-                                      doSave(dates);
+                                      proceed();
                                     }}>
                                     {MILESTONE_STATUSES.map(s => <option key={s} value={s} style={{ color: MILESTONE_STATUS_COLORS[s] }}>{s}</option>)}
                                   </select>
