@@ -47,6 +47,14 @@ export interface EmailState {
   emailCtxMenu: { x: number; y: number; em: any } | null;
   emailAttachments: Record<string, any[]>;
   emailAttachmentsLoading: Record<string, boolean>;
+  // Per-PO aggregate stats fetched in one batch so badges + counts appear without clicking each PO
+  emailAllStats: Record<string, { total: number; unread: number; latestDate: string; latestSubject: string; latestSender: string }>;
+  emailAllStatsLoading: boolean;
+  emailAllStatsError: string | null;
+  // All inbox messages tagged with a [PO-...] prefix, used by "All POs" and "Unread" global views
+  emailAllMessages: any[];
+  // What the middle pane shows: a single PO's emails ("po"), all PO emails ("all"), or only unread ("unread")
+  emailGlobalView: "po" | "all" | "unread";
   // Detail-panel email tab
   dtlEmails: Record<string, any[]>;
   dtlEmailLoading: Record<string, boolean>;
@@ -126,6 +134,11 @@ export const initialEmailState: EmailState = {
   emailCtxMenu: null,
   emailAttachments: {},
   emailAttachmentsLoading: {},
+  emailAllStats: {},
+  emailAllStatsLoading: false,
+  emailAllStatsError: null,
+  emailAllMessages: [],
+  emailGlobalView: "po",
   dtlEmails: {},
   dtlEmailLoading: {},
   dtlEmailErr: {},

@@ -24,10 +24,11 @@ export interface EmailPanelCtx {
   emailMarkAsRead: (id: string) => void;
   deleteMainEmail: (id: string) => void;
   msSignOut: () => void;
+  loadAllPOEmailStats: () => void;
 }
 
 export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
-  const { em, emD, pos, setView, emailGraph, emailGraphPost, loadEmailAttachments, authenticateEmail, loadPOEmails, loadFullEmail, loadEmailThread, emailGetPrefix, emailMarkAsRead, deleteMainEmail, msSignOut } = ctx;
+  const { em, emD, pos, setView, emailGraph, emailGraphPost, loadEmailAttachments, authenticateEmail, loadPOEmails, loadFullEmail, loadEmailThread, emailGetPrefix, emailMarkAsRead, deleteMainEmail, msSignOut, loadAllPOEmailStats } = ctx;
 
   // Helper to set email state fields
   const emSet = (field: keyof EmailState, value: any) => emD({ type: "SET", field, value });
@@ -44,7 +45,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
 
   const poList = pos;
   const emailToken = em.msToken;
-  const { emailSelPO, emailsMap, emailLoadingMap, emailErrorsMap, emailSelMsg, emailThreadMsgs, emailThreadLoading, emailSentMap, emailSentLoading, emailComposeTo, emailComposeSubject, emailComposeBody, emailSendErr, emailNextLinks, emailLoadingOlder, emailReplyText, emailPOSearch, emailActiveFolder, emailSearchQuery, emailFilterUnread, emailFilterFlagged, emailFlaggedSet, emailCollapsedMsgs, emailComposeOpen, emailDeleteConfirm, emailSelectedId, emailCtxMenu, emailAttachments, emailAttachmentsLoading, showEmailConfig, msDisplayName } = em;
+  const { emailSelPO, emailsMap, emailLoadingMap, emailErrorsMap, emailSelMsg, emailThreadMsgs, emailThreadLoading, emailSentMap, emailSentLoading, emailComposeTo, emailComposeSubject, emailComposeBody, emailSendErr, emailNextLinks, emailLoadingOlder, emailReplyText, emailPOSearch, emailActiveFolder, emailSearchQuery, emailFilterUnread, emailFilterFlagged, emailFlaggedSet, emailCollapsedMsgs, emailComposeOpen, emailDeleteConfirm, emailSelectedId, emailCtxMenu, emailAttachments, emailAttachmentsLoading, showEmailConfig, msDisplayName, emailAllStats, emailAllStatsLoading, emailAllMessages, emailGlobalView } = em;
 
   const iconBtn: React.CSSProperties = { width: 28, height: 28, borderRadius: 6, border: "none", background: "transparent", color: C.text3, cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit" };
 
@@ -88,11 +89,17 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
     } catch (e: any) { emSet("emailSendErr", "Failed to reply: " + e.message); }
   }
 
-  const inboxEmails = emailSelPO ? (emailsMap[emailSelPO] || []) : [];
+  // When a specific PO is selected we use that PO's emailsMap entry; otherwise the
+  // middle pane is in a global mode (All POs / Unread) and we use the pre-fetched
+  // emailAllMessages list, optionally filtered to unread.
+  const isGlobal = !emailSelPO && (emailGlobalView === "all" || emailGlobalView === "unread");
+  const inboxEmails = isGlobal
+    ? (emailGlobalView === "unread" ? emailAllMessages.filter((m: any) => !m.isRead) : emailAllMessages)
+    : (emailSelPO ? (emailsMap[emailSelPO] || []) : []);
   const sentEmailList = emailSelPO ? (emailSentMap[emailSelPO] || []) : [];
   const activeList = emailActiveFolder === "inbox" ? inboxEmails : sentEmailList;
-  const isLoadingE = emailSelPO ? !!emailLoadingMap[emailSelPO] : false;
-  const eError = emailSelPO ? emailErrorsMap[emailSelPO] : null;
+  const isLoadingE = isGlobal ? emailAllStatsLoading : (emailSelPO ? !!emailLoadingMap[emailSelPO] : false);
+  const eError = isGlobal ? em.emailAllStatsError : (emailSelPO ? emailErrorsMap[emailSelPO] : null);
 
   const visibleEmails = [...activeList]
     .filter((e: any) => {
@@ -148,32 +155,86 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
             </button>
           </div>
 
-          <div style={{ padding: "10px 12px 4px", fontSize: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: C.text3, fontWeight: 600 }}>POs ({poList.length})</div>
+          <div style={{ padding: "10px 12px 4px", fontSize: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: C.text3, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span>POs ({poList.length})</span>
+            {emailToken && (
+              <button onClick={loadAllPOEmailStats} disabled={emailAllStatsLoading}
+                title="Refresh email counts"
+                style={{ background: "none", border: "none", color: C.text3, cursor: "pointer", fontSize: 11, padding: 0, opacity: emailAllStatsLoading ? 0.4 : 1 }}>↻</button>
+            )}
+          </div>
           <div style={{ padding: "4px 8px 6px" }}>
             <input value={emailPOSearch} onChange={e => emSet("emailPOSearch", e.target.value)} placeholder="🔍 Search…"
               style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 10px", color: C.text1, fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const }} />
           </div>
 
+          {/* Global views: All POs / Unread */}
+          {emailToken && (() => {
+            const totalAll = emailAllMessages.length;
+            const totalUnread = emailAllMessages.filter((m: any) => !m.isRead).length;
+            const items: Array<{ key: "all" | "unread"; label: string; count: number; icon: string }> = [
+              { key: "all", label: "All POs", count: totalAll, icon: "📥" },
+              { key: "unread", label: "Unread", count: totalUnread, icon: "●" },
+            ];
+            return (
+              <div style={{ padding: "0 6px 4px" }}>
+                {items.map(it => {
+                  const active = emailGlobalView === it.key;
+                  return (
+                    <div key={it.key}
+                      onClick={() => { emSet("emailGlobalView", it.key); emSet("emailSelPO", null); emSet("emailSelectedId", null); emSet("emailSelMsg", null); emSet("emailThreadMsgs", []); emSet("emailActiveFolder", "inbox"); }}
+                      style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 10px", borderRadius: 7, margin: "1px 0", cursor: "pointer", fontSize: 11, background: active ? C.outlookDim : "transparent", color: active ? C.info : C.text2, border: active ? "1px solid rgba(96,165,250,0.2)" : "1px solid transparent" }}>
+                      <span style={{ width: 12, textAlign: "center" as const, color: it.key === "unread" ? C.outlook : C.text3 }}>{it.icon}</span>
+                      <span style={{ flex: 1 }}>{it.label}</span>
+                      {it.count > 0 && (
+                        <span style={{ background: it.key === "unread" ? C.outlook : C.bg3, color: it.key === "unread" ? "#fff" : C.text2, fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 10, minWidth: 16, textAlign: "center" as const }}>
+                          {it.count}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+
           <div style={{ flex: 1, overflowY: "auto" }}>
             {(() => {
               const s = emailPOSearch.toLowerCase();
+              const statFor = (poNum: string) => {
+                if (emailAllStats[poNum]) return emailAllStats[poNum];
+                // Fallback to whatever's already in emailsMap
+                const arr = emailsMap[poNum] || [];
+                if (!arr.length) return null;
+                return { total: arr.length, unread: arr.filter((e: any) => !e.isRead).length, latestDate: arr[0]?.receivedDateTime || "", latestSubject: "", latestSender: "" };
+              };
               return poList.filter((p: any) => !s || (p.PoNumber ?? "").toLowerCase().includes(s) || (p.VendorName ?? "").toLowerCase().includes(s) || (p.Memo ?? "").toLowerCase().includes(s) || (p.Tags ?? "").toLowerCase().includes(s) || (p.StatusName ?? "").toLowerCase().includes(s))
                 .sort((a: any, b: any) => {
-                  const ua = (emailsMap[a.PoNumber ?? ""] || []).filter((e: any) => !e.isRead).length;
-                  const ub = (emailsMap[b.PoNumber ?? ""] || []).filter((e: any) => !e.isRead).length;
-                  return ub - ua;
+                  const ua = statFor(a.PoNumber ?? "")?.unread ?? 0;
+                  const ub = statFor(b.PoNumber ?? "")?.unread ?? 0;
+                  if (ub !== ua) return ub - ua;
+                  // Then by latest email date desc
+                  const da = statFor(a.PoNumber ?? "")?.latestDate ?? "";
+                  const db = statFor(b.PoNumber ?? "")?.latestDate ?? "";
+                  return db.localeCompare(da);
                 });
             })().map((po: any) => {
               const poNum = po.PoNumber ?? "";
-              const isSelected = emailSelPO === poNum;
-              const unread = (emailsMap[poNum] || []).filter((e: any) => !e.isRead).length;
+              const isSelected = emailSelPO === poNum && emailGlobalView === "po";
+              const stat = emailAllStats[poNum];
+              const fallbackUnread = (emailsMap[poNum] || []).filter((e: any) => !e.isRead).length;
+              const unread = stat?.unread ?? fallbackUnread;
+              const total = stat?.total ?? (emailsMap[poNum] || []).length;
               const color = STATUS_COLORS[po.StatusName ?? ""] ?? "#6B7280";
               return (
                 <div key={poNum}
-                  onClick={() => { emSet("emailSelPO", poNum === emailSelPO ? null : poNum); emSet("emailSelectedId", null); emSet("emailSelMsg", null); emSet("emailThreadMsgs", []); emSet("emailDeleteConfirm", null); emSet("emailActiveFolder", "inbox"); if (poNum !== emailSelPO && emailToken) loadPOEmails(poNum, undefined, true); }}
+                  onClick={() => { emSet("emailGlobalView", "po"); emSet("emailSelPO", poNum === emailSelPO ? null : poNum); emSet("emailSelectedId", null); emSet("emailSelMsg", null); emSet("emailThreadMsgs", []); emSet("emailDeleteConfirm", null); emSet("emailActiveFolder", "inbox"); if (poNum !== emailSelPO && emailToken) loadPOEmails(poNum, undefined, true); }}
                   style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 10px", borderRadius: 7, margin: "1px 6px", cursor: "pointer", fontSize: 12, background: isSelected ? C.outlookDim : "transparent", color: isSelected ? C.info : C.text2, border: isSelected ? "1px solid rgba(96,165,250,0.2)" : "1px solid transparent", transition: "all 0.1s" }}>
                   <div style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />
                   <span style={{ flex: 1, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontFamily: "monospace" }}>{poNum}</span>
+                  {total > 0 && (
+                    <span style={{ fontSize: 9, color: C.text3, fontFamily: "monospace" }}>{total}</span>
+                  )}
                   {unread > 0 && <span style={{ background: C.outlook, color: "#fff", fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 10, minWidth: 16, textAlign: "center" as const }}>{unread}</span>}
                 </div>
               );
@@ -226,11 +287,14 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
         <div style={{ width: 295, minWidth: 295, background: C.bg1, borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column" }}>
           <div style={{ padding: "12px 12px 8px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: C.text1 }}>
-              {emailActiveFolder === "inbox" ? "Inbox" : "Sent"}
-              {emailSelPO && <span style={{ fontSize: 11, color: C.text3, marginLeft: 6, fontWeight: 400 }}>· PO {emailSelPO}</span>}
+              {isGlobal
+                ? (emailGlobalView === "unread" ? "Unread" : "All POs")
+                : (emailActiveFolder === "inbox" ? "Inbox" : "Sent")}
+              {emailSelPO && !isGlobal && <span style={{ fontSize: 11, color: C.text3, marginLeft: 6, fontWeight: 400 }}>· PO {emailSelPO}</span>}
+              {isGlobal && <span style={{ fontSize: 11, color: C.text3, marginLeft: 6, fontWeight: 400 }}>· {inboxEmails.length}</span>}
             </span>
             <button style={iconBtn} title="Refresh"
-              onClick={() => { if (emailSelPO) { if (emailActiveFolder === "inbox") loadPOEmails(emailSelPO); else loadPOSentEmails(emailSelPO); } }}>↻</button>
+              onClick={() => { if (isGlobal) loadAllPOEmailStats(); else if (emailSelPO) { if (emailActiveFolder === "inbox") loadPOEmails(emailSelPO); else loadPOSentEmails(emailSelPO); } }}>↻</button>
           </div>
 
           <div style={{ position: "relative" as const, margin: "8px 10px" }}>
@@ -254,8 +318,8 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
           <div style={{ flex: 1, overflowY: "auto" }}>
             {!emailToken ? (
               <div style={{ padding: 24, textAlign: "center", color: C.text3, fontSize: 12 }}>Sign in to load emails</div>
-            ) : !emailSelPO ? (
-              <div style={{ padding: 24, textAlign: "center", color: C.text3, fontSize: 12 }}>Select a PO from the left</div>
+            ) : !emailSelPO && !isGlobal ? (
+              <div style={{ padding: 24, textAlign: "center", color: C.text3, fontSize: 12 }}>Select a PO from the left, or pick "All POs" / "Unread"</div>
             ) : (isLoadingE && emailActiveFolder === "inbox") ? (
               <div style={{ padding: 24, textAlign: "center", color: C.text3, fontSize: 13 }}>Loading emails…</div>
             ) : (emailSentLoading[emailSelPO] && emailActiveFolder === "sent") ? (
@@ -271,15 +335,40 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
                     ? (mail.from?.emailAddress?.name || mail.from?.emailAddress?.address || "Unknown")
                     : "To: " + ((mail.toRecipients || []).map((r: any) => r.emailAddress?.name || r.emailAddress?.address || "").filter(Boolean).join(", ") || "—");
                   const time = mail.receivedDateTime
-                    ? new Date(mail.receivedDateTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                    ? new Date(mail.receivedDateTime).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
                     : mail.sentDateTime
-                    ? new Date(mail.sentDateTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                    ? new Date(mail.sentDateTime).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
                     : "";
                   const isFlagged = emailFlaggedSet.has(mail.id);
                   const isUnread = !mail.isRead && emailActiveFolder === "inbox";
+                  const ownerPO = mail._poNumber as string | undefined;
                   return (
                     <div key={mail.id}
-                      onClick={() => { emSet("emailSelectedId", mail.id); emSet("emailDeleteConfirm", null); emSet("emailReplyText", ""); if (emailActiveFolder === "inbox" && !mail.isRead) { emailMarkAsRead(mail.id); const markRead = (arr: any[]) => arr.map((e: any) => e.id === mail.id ? { ...e, isRead: true } : e); emSetFn("emailsMap", (m: any) => ({ ...m, [emailSelPO!]: markRead(m[emailSelPO!] || []) })); emSetFn("dtlEmails", (m: any) => ({ ...m, [emailSelPO!]: markRead(m[emailSelPO!] || []) })); } loadFullEmail(mail.id); if (mail.conversationId) loadEmailThread(mail.conversationId); if (mail.hasAttachments) loadEmailAttachments(mail.id); }}
+                      onClick={() => {
+                        emSet("emailSelectedId", mail.id);
+                        emSet("emailDeleteConfirm", null);
+                        emSet("emailReplyText", "");
+                        if (emailActiveFolder === "inbox" && !mail.isRead) {
+                          emailMarkAsRead(mail.id);
+                          const markReadArr = (arr: any[]) => arr.map((e: any) => e.id === mail.id ? { ...e, isRead: true } : e);
+                          if (emailSelPO) {
+                            emSetFn("emailsMap", (m: any) => ({ ...m, [emailSelPO]: markReadArr(m[emailSelPO] || []) }));
+                            emSetFn("dtlEmails", (m: any) => ({ ...m, [emailSelPO]: markReadArr(m[emailSelPO] || []) }));
+                          }
+                          // Always update the global cache + per-PO stats so the count drops everywhere
+                          emSetFn("emailAllMessages", (arr: any[]) => markReadArr(arr || []));
+                          if (ownerPO) {
+                            emSetFn("emailAllStats", (s: any) => {
+                              const cur = s?.[ownerPO];
+                              if (!cur) return s;
+                              return { ...s, [ownerPO]: { ...cur, unread: Math.max(0, (cur.unread || 0) - 1) } };
+                            });
+                          }
+                        }
+                        loadFullEmail(mail.id);
+                        if (mail.conversationId) loadEmailThread(mail.conversationId);
+                        if (mail.hasAttachments) loadEmailAttachments(mail.id);
+                      }}
                       onContextMenu={e => { e.preventDefault(); emSet("emailCtxMenu", { x: e.clientX, y: e.clientY, em: mail }); }}
                       style={{ padding: "11px 12px", borderBottom: `1px solid ${C.border}`, cursor: "pointer", position: "relative" as const, background: emailSelectedId === mail.id ? C.bg3 : "transparent", transition: "background 0.1s" }}>
                       {isUnread && <div style={{ position: "absolute", left: 4, top: "50%", transform: "translateY(-50%)", width: 5, height: 5, borderRadius: "50%", background: C.outlook }} />}
@@ -290,7 +379,12 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
                         </span>
                         <span style={{ fontSize: 11, color: C.text3, flexShrink: 0, marginLeft: 6 }}>{time}</span>
                       </div>
-                      <div style={{ fontSize: 12, fontWeight: 500, color: C.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 2 }}>{mail.subject}</div>
+                      <div style={{ fontSize: 12, fontWeight: 500, color: C.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
+                        {isGlobal && ownerPO && (
+                          <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: C.outlookDim, color: C.info, fontFamily: "monospace", flexShrink: 0 }}>{ownerPO}</span>
+                        )}
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{mail.subject}</span>
+                      </div>
                       <div style={{ fontSize: 11, color: C.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {mail.hasAttachments && <span style={{ marginRight: 4 }}>📎</span>}
                         {mail.bodyPreview || ""}

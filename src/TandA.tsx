@@ -2856,12 +2856,63 @@ function TandAApp() {
     setEmailLoadingOlder(false);
   }
 
+  // Pre-fetches a single batch of inbox messages tagged with a [PO-...] prefix,
+  // groups them by PO number, and stores per-PO stats + a flat list for the
+  // "All POs" / "Unread" global views. Cheaper than per-PO fetches and means
+  // unread badges + counts appear without the user having to click each PO.
+  async function loadAllPOEmailStats() {
+    if (!msToken) return;
+    emD({ type: "SET", field: "emailAllStatsLoading", value: true });
+    emD({ type: "SET", field: "emailAllStatsError", value: null });
+    try {
+      const url = `/me/mailFolders/Inbox/messages?$search=${encodeURIComponent('"[PO-"')}&$top=500&$select=id,subject,from,receivedDateTime,bodyPreview,isRead,hasAttachments,conversationId`;
+      const d = await emailGraph(url);
+      const items: any[] = d.value || [];
+      // Group by extracted PO number — subject must contain "[PO-...]"
+      const stats: Record<string, { total: number; unread: number; latestDate: string; latestSubject: string; latestSender: string }> = {};
+      const re = /\[PO-([^\]]+)\]/;
+      const tagged: any[] = [];
+      for (const m of items) {
+        const subj = m.subject || "";
+        const match = subj.match(re);
+        if (!match) continue;
+        const poNum = match[1];
+        const dateStr = m.receivedDateTime || "";
+        if (!stats[poNum]) stats[poNum] = { total: 0, unread: 0, latestDate: dateStr, latestSubject: subj, latestSender: m.from?.emailAddress?.name || m.from?.emailAddress?.address || "" };
+        stats[poNum].total += 1;
+        if (!m.isRead) stats[poNum].unread += 1;
+        if (dateStr > stats[poNum].latestDate) {
+          stats[poNum].latestDate = dateStr;
+          stats[poNum].latestSubject = subj;
+          stats[poNum].latestSender = m.from?.emailAddress?.name || m.from?.emailAddress?.address || "";
+        }
+        // Tag the message so the global views know which PO it belongs to
+        tagged.push({ ...m, _poNumber: poNum });
+      }
+      emD({ type: "SET", field: "emailAllStats", value: stats });
+      emD({ type: "SET", field: "emailAllMessages", value: tagged });
+    } catch (e: any) {
+      emD({ type: "SET", field: "emailAllStatsError", value: e?.message || "Failed to load email stats" });
+    } finally {
+      emD({ type: "SET", field: "emailAllStatsLoading", value: false });
+    }
+  }
+
+  // Auto-load stats once after authentication, then refresh every 2 minutes.
+  useEffect(() => {
+    if (!msToken) return;
+    loadAllPOEmailStats();
+    const id = setInterval(loadAllPOEmailStats, 120000);
+    return () => clearInterval(id);
+  }, [msToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function emailViewPanel() {
     return emailViewPanelExtracted({
       em, emD, pos, setView,
       emailGraph, emailGraphPost, loadEmailAttachments, authenticateEmail,
       loadPOEmails, loadFullEmail, loadEmailThread, emailGetPrefix,
       emailMarkAsRead, deleteMainEmail, msSignOut,
+      loadAllPOEmailStats,
     });
   }
 
