@@ -45,7 +45,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
 
   const poList = pos;
   const emailToken = em.msToken;
-  const { emailSelPO, emailsMap, emailLoadingMap, emailErrorsMap, emailSelMsg, emailThreadMsgs, emailThreadLoading, emailSentMap, emailSentLoading, emailComposeTo, emailComposeSubject, emailComposeBody, emailSendErr, emailNextLinks, emailLoadingOlder, emailReplyText, emailPOSearch, emailActiveFolder, emailSearchQuery, emailFilterUnread, emailFilterFlagged, emailFlaggedSet, emailCollapsedMsgs, emailComposeOpen, emailDeleteConfirm, emailSelectedId, emailCtxMenu, emailAttachments, emailAttachmentsLoading, showEmailConfig, msDisplayName, emailAllStats, emailAllStatsLoading, emailAllMessages, emailGlobalView } = em;
+  const { emailSelPO, emailsMap, emailLoadingMap, emailErrorsMap, emailSelMsg, emailThreadMsgs, emailThreadLoading, emailSentMap, emailSentLoading, emailComposeTo, emailComposeSubject, emailComposeBody, emailSendErr, emailNextLinks, emailLoadingOlder, emailReplyText, emailPOSearch, emailActiveFolder, emailSearchQuery, emailFilterUnread, emailFilterFlagged, emailFlaggedSet, emailCollapsedMsgs, emailComposeOpen, emailDeleteConfirm, emailSelectedId, emailCtxMenu, emailAttachments, emailAttachmentsLoading, showEmailConfig, msDisplayName, emailAllStats, emailAllStatsLoading, emailAllMessages, emailGlobalView, emailComposeAttachments, emailComposeAttachLoading } = em;
 
   const iconBtn: React.CSSProperties = { width: 28, height: 28, borderRadius: 6, border: "none", background: "transparent", color: C.text3, cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit" };
 
@@ -66,17 +66,58 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
     if (!emailComposeTo.trim() || !emailComposeSubject.trim()) return;
     emSet("emailSendErr", null);
     try {
-      await emailGraphPost("/me/sendMail", {
-        message: {
-          subject: emailComposeSubject,
-          body: { contentType: "HTML", content: emailComposeBody || " " },
-          toRecipients: emailComposeTo.split(",").map(e => ({ emailAddress: { address: e.trim() } })),
-        },
-      });
+      const message: any = {
+        subject: emailComposeSubject,
+        body: { contentType: "HTML", content: emailComposeBody || " " },
+        toRecipients: emailComposeTo.split(",").map(e => ({ emailAddress: { address: e.trim() } })),
+      };
+      if (emailComposeAttachments.length > 0) {
+        message.attachments = emailComposeAttachments.map(a => ({
+          "@odata.type": "#microsoft.graph.fileAttachment",
+          name: a.name,
+          contentType: a.contentType || "application/octet-stream",
+          contentBytes: a.contentBytes,
+        }));
+      }
+      await emailGraphPost("/me/sendMail", { message });
       emSet("emailComposeTo", ""); emSet("emailComposeSubject", ""); emSet("emailComposeBody", "");
+      emSet("emailComposeAttachments", []);
       emSet("emailComposeOpen", false);
       if (emailSelPO) setTimeout(() => loadPOEmails(emailSelPO), 2000);
     } catch (e: any) { emSet("emailSendErr", "Failed to send: " + e.message); }
+  }
+
+  // Convert a File to {name, size, contentType, contentBytes(base64)}.
+  // Graph's fileAttachment limit per message is ~3MB total for sendMail.
+  async function pickComposeAttachments(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    emSet("emailComposeAttachLoading", true);
+    try {
+      const TOTAL_LIMIT = 3 * 1024 * 1024; // 3 MB safe limit for /me/sendMail
+      const existingSize = emailComposeAttachments.reduce((s, a) => s + a.size, 0);
+      const newOnes: Array<{ name: string; size: number; contentType: string; contentBytes: string }> = [];
+      let runningSize = existingSize;
+      for (const f of Array.from(files)) {
+        if (runningSize + f.size > TOTAL_LIMIT) {
+          emSet("emailSendErr", `"${f.name}" skipped — would exceed 3 MB attachment limit`);
+          continue;
+        }
+        const buf = await f.arrayBuffer();
+        // base64 encode
+        let binary = "";
+        const bytes = new Uint8Array(buf);
+        const chunk = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
+        const b64 = btoa(binary);
+        newOnes.push({ name: f.name, size: f.size, contentType: f.type || "application/octet-stream", contentBytes: b64 });
+        runningSize += f.size;
+      }
+      emSet("emailComposeAttachments", [...emailComposeAttachments, ...newOnes]);
+    } catch (e: any) {
+      emSet("emailSendErr", "Failed to read file: " + (e?.message || e));
+    } finally {
+      emSet("emailComposeAttachLoading", false);
+    }
   }
 
   async function doReply(messageId: string, comment: string) {
@@ -367,7 +408,9 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
                         }
                         loadFullEmail(mail.id);
                         if (mail.conversationId) loadEmailThread(mail.conversationId);
-                        if (mail.hasAttachments) loadEmailAttachments(mail.id);
+                        // Always try to load attachments — search-result hasAttachments
+                        // can be unreliable, so don't gate on it
+                        loadEmailAttachments(mail.id);
                       }}
                       onContextMenu={e => { e.preventDefault(); emSet("emailCtxMenu", { x: e.clientX, y: e.clientY, em: mail }); }}
                       style={{ padding: "11px 12px", borderBottom: `1px solid ${C.border}`, cursor: "pointer", position: "relative" as const, background: emailSelectedId === mail.id ? C.bg3 : "transparent", transition: "background 0.1s" }}>
@@ -555,9 +598,32 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
                     style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 10px", color: C.text1, fontSize: 13, outline: "none", fontFamily: "inherit", resize: "vertical" as const, minHeight: 140, boxSizing: "border-box" as const }}
                     placeholder="Type your message…" />
                 </div>
+                <div>
+                  <div style={{ fontSize: 11, color: C.text3, marginBottom: 3, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span>Attachments {emailComposeAttachments.length > 0 && <span style={{ color: C.text2 }}>({emailComposeAttachments.length}, {(emailComposeAttachments.reduce((s, a) => s + a.size, 0) / 1024).toFixed(0)} KB / 3 MB)</span>}</span>
+                    <label style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", color: C.info, fontSize: 11, cursor: "pointer" }}>
+                      📎 Add files
+                      <input type="file" multiple style={{ display: "none" }}
+                        onChange={e => { pickComposeAttachments(e.target.files); (e.target as HTMLInputElement).value = ""; }}
+                        disabled={emailComposeAttachLoading} />
+                    </label>
+                  </div>
+                  {emailComposeAttachLoading && <div style={{ fontSize: 11, color: C.text3 }}>Encoding…</div>}
+                  {emailComposeAttachments.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+                      {emailComposeAttachments.map((a, i) => (
+                        <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 8px", fontSize: 11, color: C.text1 }}>
+                          📄 {a.name} <span style={{ color: C.text3 }}>({(a.size / 1024).toFixed(0)} KB)</span>
+                          <button onClick={() => emSet("emailComposeAttachments", emailComposeAttachments.filter((_, j) => j !== i))}
+                            style={{ background: "none", border: "none", color: C.text3, cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1 }}>✕</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
               <div style={{ padding: "10px 16px", borderTop: `1px solid ${C.border}`, display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                <button onClick={() => { emD({ type: "EMAIL_RESET_COMPOSE" }); emSet("emailComposeOpen", false); }}
+                <button onClick={() => { emD({ type: "EMAIL_RESET_COMPOSE" }); emSet("emailComposeAttachments", []); emSet("emailComposeOpen", false); }}
                   style={{ padding: "7px 16px", borderRadius: 7, border: `1px solid ${C.border}`, background: "none", color: C.text3, cursor: "pointer", fontFamily: "inherit" }}>Discard</button>
                 <button onClick={doSendEmail} disabled={!emailComposeTo.trim() || !emailComposeSubject.trim()}
                   style={{ padding: "7px 18px", background: `linear-gradient(135deg, ${C.outlook}, ${C.outlookLt})`, border: "none", borderRadius: 7, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", opacity: (!emailComposeTo.trim() || !emailComposeSubject.trim()) ? 0.5 : 1 }}>

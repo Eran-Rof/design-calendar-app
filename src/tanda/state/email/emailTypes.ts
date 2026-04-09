@@ -55,6 +55,9 @@ export interface EmailState {
   emailAllMessages: any[];
   // What the middle pane shows: a single PO's emails ("po"), all PO emails ("all"), or only unread ("unread")
   emailGlobalView: "po" | "all" | "unread";
+  // Files staged in the compose window, encoded later by doSendEmail
+  emailComposeAttachments: Array<{ name: string; size: number; contentType: string; contentBytes: string }>;
+  emailComposeAttachLoading: boolean;
   // Detail-panel email tab
   dtlEmails: Record<string, any[]>;
   dtlEmailLoading: Record<string, boolean>;
@@ -139,6 +142,8 @@ export const initialEmailState: EmailState = {
   emailAllStatsError: null,
   emailAllMessages: [],
   emailGlobalView: "po",
+  emailComposeAttachments: [],
+  emailComposeAttachLoading: false,
   dtlEmails: {},
   dtlEmailLoading: {},
   dtlEmailErr: {},

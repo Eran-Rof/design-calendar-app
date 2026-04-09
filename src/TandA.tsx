@@ -830,15 +830,28 @@ function TandAApp() {
     if (!r.ok) throw new Error("Graph " + r.status + ": " + await r.text());
     return r.json();
   }
-  async function loadEmailAttachments(messageId: string) {
-    if (emailAttachments[messageId] !== undefined) return;
+  async function loadEmailAttachments(messageId: string, force = false) {
+    if (!force && emailAttachments[messageId] !== undefined && emailAttachments[messageId].length > 0) return;
     setEmailAttachmentsLoading(a => ({ ...a, [messageId]: true }));
     try {
       const tok = await getGraphToken();
-      const r = await fetch("https://graph.microsoft.com/v1.0/me/messages/" + messageId + "/attachments", { headers: { Authorization: "Bearer " + tok } });
-      const d = await r.json();
-      setEmailAttachments(a => ({ ...a, [messageId]: d.value || [] }));
-    } catch { setEmailAttachments(a => ({ ...a, [messageId]: [] })); }
+      // Expand fileAttachment so we get contentBytes inline; filter out inline images (cid:) since they're embedded in the body.
+      const r = await fetch("https://graph.microsoft.com/v1.0/me/messages/" + messageId + "/attachments?$top=20", { headers: { Authorization: "Bearer " + tok } });
+      if (!r.ok) {
+        const txt = await r.text();
+        console.warn(`loadEmailAttachments(${messageId}) failed:`, r.status, txt);
+        setEmailAttachments(a => ({ ...a, [messageId]: [] }));
+      } else {
+        const d = await r.json();
+        const all = (d.value || []) as any[];
+        // Keep regular file attachments (not inline images that are part of the body)
+        const files = all.filter(a => !a.isInline);
+        setEmailAttachments(a => ({ ...a, [messageId]: files }));
+      }
+    } catch (e) {
+      console.warn(`loadEmailAttachments(${messageId}) error:`, e);
+      setEmailAttachments(a => ({ ...a, [messageId]: [] }));
+    }
     setEmailAttachmentsLoading(a => ({ ...a, [messageId]: false }));
   }
 
