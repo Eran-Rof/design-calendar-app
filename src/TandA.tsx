@@ -3208,9 +3208,9 @@ function TandAApp() {
                 onChange={e => setSortBy(e.target.value as "ddp" | "po_date" | "status")}
                 title="Sort by"
               >
-                <option value="ddp">Sort: DDP date</option>
-                <option value="po_date">Sort: PO date</option>
-                <option value="status">Sort: Status</option>
+                <option value="ddp">Sort by DDP date</option>
+                <option value="po_date">Sort by PO date</option>
+                <option value="status">Sort by Status</option>
               </select>
               <button
                 style={{ ...S.btnSecondary, minWidth: 130 }}
