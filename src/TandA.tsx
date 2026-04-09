@@ -2324,6 +2324,15 @@ function TandAApp() {
   // ════════════════════════════════════════════════════════════════════════════
   const [showLoginPass, setShowLoginPass] = useState(false);
 
+  // Auto-load email stats once after MS auth, then refresh every 2 minutes.
+  // MUST be declared before any early returns below to keep hook order stable.
+  useEffect(() => {
+    if (!msToken) return;
+    loadAllPOEmailStats();
+    const id = setInterval(loadAllPOEmailStats, 120000);
+    return () => clearInterval(id);
+  }, [msToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // While checking PLM session, show blank (prevents login flash)
   if (!sessionChecked) return <div style={{ minHeight: "100vh", background: "#F9FAFB" }} />;
 
@@ -2897,14 +2906,6 @@ function TandAApp() {
       emD({ type: "SET", field: "emailAllStatsLoading", value: false });
     }
   }
-
-  // Auto-load stats once after authentication, then refresh every 2 minutes.
-  useEffect(() => {
-    if (!msToken) return;
-    loadAllPOEmailStats();
-    const id = setInterval(loadAllPOEmailStats, 120000);
-    return () => clearInterval(id);
-  }, [msToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function emailViewPanel() {
     return emailViewPanelExtracted({
