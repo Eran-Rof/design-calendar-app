@@ -257,6 +257,7 @@ function TandAApp() {
   const [newNote, setNewNote]   = useState("");
   const syncAbortRef = useRef<AbortController | null>(null);
   const generatingRef = useRef<Set<string>>(new Set());
+  const conflictPendingRef = useRef<Set<string>>(new Set());
 
   // Sync filter/progress/log state → reducer
   const syncFilters = sync.syncFilters;
@@ -1260,12 +1261,16 @@ function TandAApp() {
         addHistory(m.po_number, `${m.phase}: ${changes.join(", ")}`);
       }
     }
-    // Conflict detection: check if another user modified this milestone since we loaded it
+    // Conflict detection: check if another user modified this milestone since we loaded it.
+    // If a conflict modal is already pending for this milestone, skip — the previous
+    // save is waiting on user input and we don't want to stack multiple modals.
+    if (conflictPendingRef.current.has(m.id)) return;
     if (existing) {
       const { data: currentRow } = await sb.from("tanda_milestones").single("id,data", `id=eq.${encodeURIComponent(m.id)}`);
       const serverData = (currentRow as any)?.data as Milestone | undefined;
       if (serverData && serverData.updated_at && serverData.updated_at !== existing.updated_at && serverData.updated_by !== (user?.name || "")) {
         // Conflict detected — let user decide (skip if we're the one who made the change)
+        conflictPendingRef.current.add(m.id);
         setConfirmModal({
           title: "Conflict Detected",
           message: `"${m.phase}" was modified by ${serverData.updated_by || "another user"}.\n\nTheir status: ${serverData.status} · Your status: ${m.status}\n\nOverwrite with your changes?`,
@@ -1274,10 +1279,17 @@ function TandAApp() {
           cancelText: "Keep Theirs",
           confirmColor: "#3B82F6",
           onConfirm: async () => {
-            await sb.from("tanda_milestones").upsert({ id: m.id, data: m }, { onConflict: "id" });
-            coreD({ type: "UPDATE_MILESTONE", poNumber: m.po_number, milestoneId: m.id, milestone: m });
+            try {
+              await sb.from("tanda_milestones").upsert({ id: m.id, data: m }, { onConflict: "id" });
+              coreD({ type: "UPDATE_MILESTONE", poNumber: m.po_number, milestoneId: m.id, milestone: m });
+            } finally {
+              conflictPendingRef.current.delete(m.id);
+            }
           },
-          onCancel: async () => { await loadAllMilestones(); },
+          onCancel: async () => {
+            try { await loadAllMilestones(); }
+            finally { conflictPendingRef.current.delete(m.id); }
+          },
         });
         return; // Don't save yet — modal callbacks handle it
       }
@@ -1919,7 +1931,14 @@ function TandAApp() {
       return currentStatus;
     };
     const newStatus = resetStatus(newDate, milestone.status);
-    await saveMilestone({ ...milestone, expected_date: newDate, status: newStatus, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
+    const failures: string[] = [];
+    try {
+      await saveMilestone({ ...milestone, expected_date: newDate, status: newStatus, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
+    } catch (e: any) {
+      console.warn(`Cascade: failed to save trigger milestone "${milestone.phase}":`, e);
+      setToast(`Failed to save "${milestone.phase}" — ${e?.message || "unknown error"}. Cascade aborted.`);
+      return;
+    }
     // Shift all subsequent milestones by the same number of days
     let shifted = 0;
     for (let i = msIdx + 1; i < allMs.length; i++) {
@@ -1929,12 +1948,22 @@ function TandAApp() {
         d.setDate(d.getDate() + diffDays);
         const newDateStr = d.toISOString().slice(0, 10);
         const mStatus = resetStatus(newDateStr, m.status);
-        await saveMilestone({ ...m, expected_date: newDateStr, status: mStatus, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
-        shifted++;
+        try {
+          await saveMilestone({ ...m, expected_date: newDateStr, status: mStatus, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
+          shifted++;
+        } catch (e: any) {
+          console.warn(`Cascade: failed to shift "${m.phase}":`, e);
+          failures.push(m.phase);
+        }
       }
     }
     if (shifted > 0) {
       addHistory(poNum, `Due date changed for "${milestone.phase}": ${oldDate} → ${newDate} (${diffDays > 0 ? "+" : ""}${diffDays}d). ${shifted} subsequent milestone${shifted > 1 ? "s" : ""} shifted.`);
+    }
+    if (failures.length > 0) {
+      const sample = failures.slice(0, 3).join(", ");
+      const more = failures.length > 3 ? ` +${failures.length - 3} more` : "";
+      setToast(`Cascade partially failed — ${failures.length} milestone${failures.length === 1 ? "" : "s"} not updated: ${sample}${more}`);
     }
   }
 
