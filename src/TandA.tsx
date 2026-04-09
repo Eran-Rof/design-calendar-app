@@ -1771,7 +1771,7 @@ function TandAApp() {
       return;
     }
     // Get all milestones for this PO sorted by sort_order
-    const allMs = [...(milestones[poNum] || [])].sort((a, b) => a.sort_order - b.sort_order);
+    const allMs = [...(milestones[poNum] || [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
     const msIdx = allMs.findIndex(m => m.id === milestone.id);
     // Save the changed milestone — if new date is >= today and status is Delayed, reset to Not Started
     const today = new Date().toISOString().slice(0, 10);
