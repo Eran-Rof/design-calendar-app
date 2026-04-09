@@ -166,8 +166,20 @@ function MilestoneDateInput({ value, onCommit, style }: { value: string; onCommi
               );
             })}
           </div>
-          {value && (
-            <div style={{ textAlign: "center", marginTop: 6, paddingTop: 6, borderTop: "1px solid #1E293B" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6, paddingTop: 6, borderTop: "1px solid #1E293B" }}>
+            <button
+              type="button"
+              onClick={() => {
+                const t = new Date();
+                const iso = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+                setOpen(false);
+                if (iso !== value) onCommit(iso);
+              }}
+              style={{ background: "none", border: "1px solid #334155", color: "#60A5FA", fontSize: 10, cursor: "pointer", borderRadius: 4, padding: "3px 8px" }}
+            >
+              Today
+            </button>
+            {value && (
               <button
                 type="button"
                 onClick={() => { setOpen(false); onCommit(""); }}
@@ -175,8 +187,8 @@ function MilestoneDateInput({ value, onCommit, style }: { value: string; onCommi
               >
                 Clear
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>,
         document.body
       )}
