@@ -27,41 +27,140 @@ function daysUntil(d?: string) {
  * The input is uncontrolled (defaultValue + ref) so React doesn't fight the
  * native picker. Upstream value changes remount via key={value}.
  */
+/**
+ * Fully custom popover calendar — no native <input type="date">, so no
+ * browser-picker quirks. Click the field to open; click a day to commit;
+ * use the arrow buttons to navigate months freely without committing.
+ * Click outside to close without committing.
+ */
 function MilestoneDateInput({ value, onCommit, style }: { value: string; onCommit: (v: string) => void; style?: React.CSSProperties }) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Sync upstream value into the DOM imperatively, but ONLY when the user
-  // isn't actively editing this input. Re-mounting via key={value} would
-  // close any open native picker, so we update .value directly instead.
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const parsed = value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(value + "T00:00:00") : null;
+  const initialMonth = parsed ?? new Date();
+  const [view, setView] = useState<{ y: number; m: number }>({ y: initialMonth.getFullYear(), m: initialMonth.getMonth() });
+
+  // Reset view when opening so we always start at the selected date's month
   useEffect(() => {
-    const el = inputRef.current;
-    if (!el) return;
-    if (document.activeElement === el) return; // user is editing — leave alone
-    if ((el.value || "") !== (value || "")) el.value = value || "";
-  }, [value]);
-  const commit = () => {
-    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
-    const v = inputRef.current?.value || "";
-    if (v === (value || "")) return;
-    if (v === "" || /^\d{4}-\d{2}-\d{2}$/.test(v)) onCommit(v);
+    if (open) {
+      const base = parsed ?? new Date();
+      setView({ y: base.getFullYear(), m: base.getMonth() });
+    }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Click-outside to close
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node | null;
+      if (wrapRef.current && t && !wrapRef.current.contains(t)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const display = parsed
+    ? `${String(parsed.getMonth() + 1).padStart(2, "0")}/${String(parsed.getDate()).padStart(2, "0")}/${parsed.getFullYear()}`
+    : "—";
+
+  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const firstDay = new Date(view.y, view.m, 1);
+  const startWeekday = firstDay.getDay();
+  const daysInMonth = new Date(view.y, view.m + 1, 0).getDate();
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  const navMonth = (delta: number) => {
+    let y = view.y, m = view.m + delta;
+    while (m < 0) { m += 12; y -= 1; }
+    while (m > 11) { m -= 12; y += 1; }
+    setView({ y, m });
   };
+
+  const cells: Array<{ d: number | null; iso: string | null }> = [];
+  for (let i = 0; i < startWeekday; i++) cells.push({ d: null, iso: null });
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dt = new Date(view.y, view.m, d);
+    cells.push({ d, iso: fmt(dt) });
+  }
+  while (cells.length % 7 !== 0) cells.push({ d: null, iso: null });
+
+  const popStyle: React.CSSProperties = {
+    position: "absolute",
+    top: "calc(100% + 4px)",
+    left: 0,
+    zIndex: 1000,
+    background: "#0F172A",
+    border: "1px solid #334155",
+    borderRadius: 8,
+    padding: 8,
+    boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+    minWidth: 230,
+  };
+  const headerBtn: React.CSSProperties = { background: "#1E293B", border: "1px solid #334155", color: "#9CA3AF", borderRadius: 4, width: 24, height: 24, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 };
+  const dayCell = (selected: boolean, isToday: boolean): React.CSSProperties => ({
+    width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center",
+    cursor: "pointer", borderRadius: 4, fontSize: 11,
+    background: selected ? "#3B82F6" : isToday ? "#1E293B" : "transparent",
+    color: selected ? "#fff" : isToday ? "#60A5FA" : "#D1D5DB",
+    border: isToday && !selected ? "1px solid #334155" : "1px solid transparent",
+  });
+
   return (
-    <input
-      ref={inputRef}
-      type="date"
-      defaultValue={value || ""}
-      style={style}
-      onChange={() => {
-        if (timerRef.current) clearTimeout(timerRef.current);
-        timerRef.current = setTimeout(commit, 400);
-      }}
-      onBlur={commit}
-      onKeyDown={e => {
-        if (e.key === "Enter") {
-          (e.target as HTMLInputElement).blur();
-        }
-      }}
-    />
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{ ...style, textAlign: "left", cursor: "pointer" } as React.CSSProperties}
+      >
+        {display}
+      </button>
+      {open && (
+        <div style={popStyle} onMouseDown={e => e.stopPropagation()}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+            <button type="button" onClick={() => navMonth(-1)} style={headerBtn}>‹</button>
+            <div style={{ color: "#D1D5DB", fontSize: 12, fontWeight: 600 }}>{monthNames[view.m]} {view.y}</div>
+            <button type="button" onClick={() => navMonth(1)} style={headerBtn}>›</button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, marginBottom: 4 }}>
+            {["S","M","T","W","T","F","S"].map((d, i) => (
+              <div key={i} style={{ fontSize: 9, color: "#6B7280", textAlign: "center" }}>{d}</div>
+            ))}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+            {cells.map((c, i) => {
+              if (c.d === null) return <div key={i} />;
+              const isSelected = c.iso === value;
+              const dt = new Date(view.y, view.m, c.d!); dt.setHours(0,0,0,0);
+              const isToday = dt.getTime() === today.getTime();
+              return (
+                <div
+                  key={i}
+                  style={dayCell(isSelected, isToday)}
+                  onClick={() => {
+                    setOpen(false);
+                    if (c.iso && c.iso !== value) onCommit(c.iso);
+                  }}
+                >
+                  {c.d}
+                </div>
+              );
+            })}
+          </div>
+          {value && (
+            <div style={{ textAlign: "center", marginTop: 6, paddingTop: 6, borderTop: "1px solid #1E293B" }}>
+              <button
+                type="button"
+                onClick={() => { setOpen(false); onCommit(""); }}
+                style={{ background: "none", border: "none", color: "#6B7280", fontSize: 10, cursor: "pointer" }}
+              >
+                Clear
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
