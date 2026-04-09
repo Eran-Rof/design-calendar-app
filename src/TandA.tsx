@@ -238,6 +238,8 @@ function TandAApp() {
   const [search, setSearch]     = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterVendor, setFilterVendor] = useState("All");
+  const [sortBy, setSortBy] = useState<"ddp" | "po_date" | "status">("ddp");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [showSettings, setShowSettings] = useState(false);
   const [newNote, setNewNote]   = useState("");
   const syncAbortRef = useRef<AbortController | null>(null);
@@ -1747,9 +1749,43 @@ function TandAApp() {
     const matchVendor = filterVendor === "All" || (p.VendorName ?? "") === filterVendor;
     return matchSearch && matchStatus && matchVendor;
   }).sort((a, b) => {
-    const da = a.DateExpectedDelivery ? new Date(a.DateExpectedDelivery).getTime() : Infinity;
-    const db = b.DateExpectedDelivery ? new Date(b.DateExpectedDelivery).getTime() : Infinity;
-    return da - db;
+    // Status priority: lower = "more delayed" (shown first when asc).
+    //   0 overdue (DDP in past, not received/closed/cancelled)
+    //   1 active (Open/Released/Pending/Draft/Partially Received), DDP in future
+    //   2 active with no DDP
+    //   3 Received/Closed
+    //   4 Cancelled
+    const statusPriority = (p: XoroPO): number => {
+      const s = p.StatusName ?? "";
+      if (s === "Cancelled") return 4;
+      if (s === "Received" || s === "Closed") return 3;
+      if (!p.DateExpectedDelivery) return 2;
+      const today = new Date(); today.setHours(0,0,0,0);
+      const ddp = new Date(p.DateExpectedDelivery);
+      if (!isNaN(ddp.getTime()) && ddp.getTime() < today.getTime()) return 0;
+      return 1;
+    };
+    const tsOr = (s: string | null | undefined, fallback: number) => {
+      if (!s) return fallback;
+      const t = new Date(s).getTime();
+      return isNaN(t) ? fallback : t;
+    };
+    let cmp = 0;
+    if (sortBy === "ddp") {
+      // asc = earliest DDP first (most urgent)
+      cmp = tsOr(a.DateExpectedDelivery, Infinity) - tsOr(b.DateExpectedDelivery, Infinity);
+    } else if (sortBy === "po_date") {
+      // asc = oldest PO first
+      cmp = tsOr(a.DateOrder, Infinity) - tsOr(b.DateOrder, Infinity);
+    } else {
+      // status: asc = delayed/overdue first → completed last
+      cmp = statusPriority(a) - statusPriority(b);
+      // Within the same priority, fall back to DDP ascending so the list stays predictable
+      if (cmp === 0) {
+        cmp = tsOr(a.DateExpectedDelivery, Infinity) - tsOr(b.DateExpectedDelivery, Infinity);
+      }
+    }
+    return sortDir === "asc" ? cmp : -cmp;
   });
 
   const overdue = pos.filter(p => {
@@ -3153,7 +3189,26 @@ function TandAApp() {
               <select style={{ ...S.select, width: 180 }} value={filterVendor} onChange={e => setFilterVendor(e.target.value)}>
                 {vendors.map(v => <option key={v}>{v}</option>)}
               </select>
-              <button style={S.btnSecondary} onClick={() => { setSearch(""); setFilterStatus("All"); setFilterVendor("All"); }}>
+              <select
+                style={{ ...S.select, width: 150 }}
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value as "ddp" | "po_date" | "status")}
+                title="Sort by"
+              >
+                <option value="ddp">Sort: DDP date</option>
+                <option value="po_date">Sort: PO date</option>
+                <option value="status">Sort: Status</option>
+              </select>
+              <button
+                style={{ ...S.btnSecondary, minWidth: 130 }}
+                onClick={() => setSortDir(d => d === "asc" ? "desc" : "asc")}
+                title="Toggle sort direction"
+              >
+                {sortBy === "status"
+                  ? (sortDir === "asc" ? "↓ Delayed first" : "↑ Completed first")
+                  : (sortDir === "asc" ? "↓ Oldest first" : "↑ Newest first")}
+              </button>
+              <button style={S.btnSecondary} onClick={() => { setSearch(""); setFilterStatus("All"); setFilterVendor("All"); setSortBy("ddp"); setSortDir("asc"); }}>
                 Clear
               </button>
             </div>
