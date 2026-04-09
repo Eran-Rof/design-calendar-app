@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef } from "react";
 import { type XoroPO, type Milestone, type WipTemplate, type LocalNote, type User, type DCVendor,
   STATUS_COLORS, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, DEFAULT_WIP_TEMPLATES,
   milestoneUid, itemQty, poTotal, normalizeSize, sizeSort, fmtDate, fmtCurrency } from "../utils/tandaTypes";
@@ -19,39 +19,36 @@ function daysUntil(d?: string) {
 }
 
 /**
- * Date input that defers committing the value until blur or until a complete
- * YYYY-MM-DD value is selected. Prevents Chrome's native date picker from
- * closing mid-interaction (e.g. clicking month-nav arrows) when the parent
- * re-renders on every keystroke.
+ * Date input that NEVER commits on intermediate onChange events. Commits
+ * only when the input loses focus or the user presses Enter. This prevents
+ * Chrome's native date picker from closing mid-interaction when the parent
+ * re-renders (which is what happens if cascadeDueDateChange runs on every
+ * keystroke / arrow press).
+ *
+ * The input uses defaultValue + an internal ref so React never re-controls
+ * it during the user's edit. Upstream value changes are propagated by
+ * remounting the input via a `key` derived from the upstream value.
  */
 function MilestoneDateInput({ value, onCommit, style }: { value: string; onCommit: (v: string) => void; style?: React.CSSProperties }) {
-  const [local, setLocal] = useState(value || "");
-  const dirtyRef = useRef(false);
-  // Re-sync when the upstream value changes (e.g. from cascade) but only if
-  // the user isn't currently editing.
-  useEffect(() => {
-    if (!dirtyRef.current) setLocal(value || "");
-  }, [value]);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const commit = () => {
+    const v = inputRef.current?.value || "";
+    if (v === (value || "")) return;
+    // Only commit a fully valid date (or an empty string to clear)
+    if (v === "" || /^\d{4}-\d{2}-\d{2}$/.test(v)) onCommit(v);
+  };
   return (
     <input
+      key={value || "__empty__"}
+      ref={inputRef}
       type="date"
-      value={local}
+      defaultValue={value || ""}
       style={style}
-      onChange={e => {
-        dirtyRef.current = true;
-        const v = e.target.value;
-        setLocal(v);
-        // Commit immediately only when the value is a complete, valid date.
-        // The native picker fires onChange exactly once on day-selection.
-        if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
-          dirtyRef.current = false;
-          if (v !== (value || "")) onCommit(v);
+      onBlur={commit}
+      onKeyDown={e => {
+        if (e.key === "Enter") {
+          (e.target as HTMLInputElement).blur();
         }
-      }}
-      onBlur={() => {
-        if (!dirtyRef.current) return;
-        dirtyRef.current = false;
-        if (local !== (value || "")) onCommit(local);
       }}
     />
   );
