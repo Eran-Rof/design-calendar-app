@@ -1502,7 +1502,7 @@ function TandAApp() {
 
       const now = new Date().toISOString();
       if (toUpsert.length > 0) {
-        await sb.from("tanda_pos").upsert(
+        const { error: upsertError } = await sb.from("tanda_pos").upsert(
           toUpsert.map(po => ({
             po_number:     po.PoNumber ?? `unknown-${Math.random()}`,
             vendor:        po.VendorName ?? "",
@@ -1514,6 +1514,10 @@ function TandAApp() {
           })),
           { onConflict: "po_number" }
         );
+        if (upsertError) {
+          const msg = (upsertError as any)?.message || (upsertError as any)?.hint || JSON.stringify(upsertError);
+          throw new Error(`Failed to save POs to database: ${msg}`);
+        }
       }
 
       setSyncProgress(88);
