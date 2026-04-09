@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { type XoroPO, type Milestone, type WipTemplate, type LocalNote, type User, type DCVendor,
   STATUS_COLORS, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, DEFAULT_WIP_TEMPLATES,
   milestoneUid, itemQty, poTotal, normalizeSize, sizeSort, fmtDate, fmtCurrency } from "../utils/tandaTypes";
@@ -30,6 +30,15 @@ function daysUntil(d?: string) {
 function MilestoneDateInput({ value, onCommit, style }: { value: string; onCommit: (v: string) => void; style?: React.CSSProperties }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Sync upstream value into the DOM imperatively, but ONLY when the user
+  // isn't actively editing this input. Re-mounting via key={value} would
+  // close any open native picker, so we update .value directly instead.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    if (document.activeElement === el) return; // user is editing — leave alone
+    if ((el.value || "") !== (value || "")) el.value = value || "";
+  }, [value]);
   const commit = () => {
     if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
     const v = inputRef.current?.value || "";
@@ -38,7 +47,6 @@ function MilestoneDateInput({ value, onCommit, style }: { value: string; onCommi
   };
   return (
     <input
-      key={value || "__empty__"}
       ref={inputRef}
       type="date"
       defaultValue={value || ""}
