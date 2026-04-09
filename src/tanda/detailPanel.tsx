@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { type XoroPO, type Milestone, type WipTemplate, type LocalNote, type User, type DCVendor,
   STATUS_COLORS, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, DEFAULT_WIP_TEMPLATES,
   milestoneUid, itemQty, poTotal, normalizeSize, sizeSort, fmtDate, fmtCurrency } from "../utils/tandaTypes";
@@ -36,6 +37,8 @@ function daysUntil(d?: string) {
 function MilestoneDateInput({ value, onCommit, style }: { value: string; onCommit: (v: string) => void; style?: React.CSSProperties }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const popRef = useRef<HTMLDivElement | null>(null);
+  const [popPos, setPopPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const parsed = value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(value + "T00:00:00") : null;
   const initialMonth = parsed ?? new Date();
   const [view, setView] = useState<{ y: number; m: number }>({ y: initialMonth.getFullYear(), m: initialMonth.getMonth() });
@@ -45,15 +48,31 @@ function MilestoneDateInput({ value, onCommit, style }: { value: string; onCommi
     if (open) {
       const base = parsed ?? new Date();
       setView({ y: base.getFullYear(), m: base.getMonth() });
+      // Position the portal popover relative to the trigger button
+      const rect = wrapRef.current?.getBoundingClientRect();
+      if (rect) {
+        const popWidth = 240;
+        const popHeight = 260;
+        let left = rect.left;
+        let top = rect.bottom + 4;
+        // Flip up if it would overflow the bottom of the viewport
+        if (top + popHeight > window.innerHeight) top = Math.max(8, rect.top - popHeight - 4);
+        // Clamp to right edge
+        if (left + popWidth > window.innerWidth) left = Math.max(8, window.innerWidth - popWidth - 8);
+        setPopPos({ top, left });
+      }
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Click-outside to close
+  // Click-outside to close (works across portal because we check both wrapRef and popRef)
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node | null;
-      if (wrapRef.current && t && !wrapRef.current.contains(t)) setOpen(false);
+      if (!t) return;
+      if (wrapRef.current && wrapRef.current.contains(t)) return;
+      if (popRef.current && popRef.current.contains(t)) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
@@ -86,16 +105,16 @@ function MilestoneDateInput({ value, onCommit, style }: { value: string; onCommi
   while (cells.length % 7 !== 0) cells.push({ d: null, iso: null });
 
   const popStyle: React.CSSProperties = {
-    position: "absolute",
-    top: "calc(100% + 4px)",
-    left: 0,
-    zIndex: 1000,
+    position: "fixed",
+    top: popPos.top,
+    left: popPos.left,
+    zIndex: 9999,
     background: "#0F172A",
     border: "1px solid #334155",
     borderRadius: 8,
     padding: 8,
     boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
-    minWidth: 230,
+    width: 240,
   };
   const headerBtn: React.CSSProperties = { background: "#1E293B", border: "1px solid #334155", color: "#9CA3AF", borderRadius: 4, width: 24, height: 24, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 };
   const dayCell = (selected: boolean, isToday: boolean): React.CSSProperties => ({
@@ -115,8 +134,8 @@ function MilestoneDateInput({ value, onCommit, style }: { value: string; onCommi
       >
         {display}
       </button>
-      {open && (
-        <div style={popStyle} onMouseDown={e => e.stopPropagation()}>
+      {open && createPortal(
+        <div ref={popRef} style={popStyle}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
             <button type="button" onClick={() => navMonth(-1)} style={headerBtn}>‹</button>
             <div style={{ color: "#D1D5DB", fontSize: 12, fontWeight: 600 }}>{monthNames[view.m]} {view.y}</div>
@@ -158,7 +177,8 @@ function MilestoneDateInput({ value, onCommit, style }: { value: string; onCommi
               </button>
             </div>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
