@@ -1530,21 +1530,37 @@ function TandAApp() {
       const isFullSync = allStatusesSucceeded && !filters?.poNumbers?.length && !filters?.vendors?.length && !filters?.dateFrom && !filters?.dateTo && !filters?.statuses?.length;
 
       const archiveDecisions = getArchiveDecisions(all, cachedRows, isFullSync ? statusesWithResults : null);
+      const archiveFailures: Array<{ poNumber: string; error: string }> = [];
       for (const { poNumber, freshData } of archiveDecisions) {
-        if (freshData) {
-          // Source 1: Xoro returned the PO as terminal — archive with fresh data so
-          // the status label is correct (e.g. "Received" not the stale "Released").
-          const archivedData = { ...freshData, _archived: true, _archivedAt: now };
-          await sb.from("tanda_pos").upsert({ po_number: poNumber, vendor: freshData.VendorName ?? "", status: freshData.StatusName ?? "", data: archivedData, synced_at: now }, { onConflict: "po_number" });
-          coreD({ type: "REMOVE_PO", poNumber });
-          if (selected?.PoNumber === poNumber) setSelected(null);
-        } else {
-          // Source 2/3: PO has a terminal status in the DB, or is absent from ALL
-          // Xoro status buckets (deleted). Archive using existing DB data.
-          await archivePO(poNumber);
+        try {
+          if (freshData) {
+            // Source 1: Xoro returned the PO as terminal — archive with fresh data so
+            // the status label is correct (e.g. "Received" not the stale "Released").
+            const archivedData = { ...freshData, _archived: true, _archivedAt: now };
+            const { error: archErr } = await sb.from("tanda_pos").upsert({ po_number: poNumber, vendor: freshData.VendorName ?? "", status: freshData.StatusName ?? "", data: archivedData, synced_at: now }, { onConflict: "po_number" });
+            if (archErr) {
+              const msg = (archErr as any)?.message || JSON.stringify(archErr);
+              throw new Error(msg);
+            }
+            coreD({ type: "REMOVE_PO", poNumber });
+            if (selected?.PoNumber === poNumber) setSelected(null);
+          } else {
+            // Source 2/3: PO has a terminal status in the DB, or is absent from ALL
+            // Xoro status buckets (deleted). Archive using existing DB data.
+            await archivePO(poNumber);
+          }
+        } catch (err: any) {
+          const msg = err?.message || String(err);
+          console.warn(`Archive failed for ${poNumber}:`, msg);
+          archiveFailures.push({ poNumber, error: msg });
         }
       }
-      const deletedCount = archiveDecisions.length;
+      const deletedCount = archiveDecisions.length - archiveFailures.length;
+      if (archiveFailures.length > 0) {
+        const sample = archiveFailures.slice(0, 3).map(f => f.poNumber).join(", ");
+        const more = archiveFailures.length > 3 ? ` +${archiveFailures.length - 3} more` : "";
+        setSyncErr(`Sync completed but ${archiveFailures.length} PO${archiveFailures.length === 1 ? "" : "s"} failed to archive (${sample}${more}). Check console for details.`);
+      }
 
       setSyncProgress(95);
       setSyncProgressMsg("Reloading PO cache…");
