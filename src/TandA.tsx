@@ -3183,11 +3183,11 @@ function TandAApp() {
               <input style={{ ...S.input, flex: 1, marginBottom: 0 }} placeholder="🔍 Search PO#, vendor, brand, style #, memo…"
                 value={search} onChange={e => setSearch(e.target.value)} />
               <select style={{ ...S.select, width: 160 }} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-                <option value="All">All Statuses</option>
+                <option value="All">All PO Statuses</option>
                 {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
               </select>
               <select style={{ ...S.select, width: 180 }} value={filterVendor} onChange={e => setFilterVendor(e.target.value)}>
-                {vendors.map(v => <option key={v}>{v}</option>)}
+                {vendors.map(v => <option key={v} value={v}>{v === "All" ? "All Vendors" : v}</option>)}
               </select>
               <select
                 style={{ ...S.select, width: 150 }}
