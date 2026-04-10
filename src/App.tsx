@@ -1003,7 +1003,6 @@ function App() {
           <button
             onClick={(e) => {
               e.stopPropagation();
-              console.log("[View Card] clicked:", task.id, task.phase);
               setEditTask(task);
             }}
             style={{ flex: 1, padding: "5px 0", fontSize: 11, fontWeight: 600, color: TH.textSub, background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}
@@ -1013,7 +1012,6 @@ function App() {
           <button
             onClick={(e) => {
               e.stopPropagation();
-              console.log("[View Timeline] clicked:", task.id, task.phase);
               setTimelineBackFilter(statFilter);
               setFocusCollKey(`${task.brand}||${task.collection}`);
               setView("timeline");
@@ -1323,10 +1321,8 @@ function App() {
       />}
 
       <div
-        style={{ padding: "26px 22px 100px", maxWidth: 1440, margin: "0 auto", position: "relative", zIndex: 1 }}
-        onPointerDown={() => console.log("[CONTENT-WRAPPER] pointerdown")}
+        style={{ padding: "26px 22px 100px", maxWidth: 1440, margin: "0 auto" }}
       >
-        <button onClick={() => alert("Content wrapper click works!")} style={{ background: "red", color: "white", padding: "10px 20px", fontSize: 16, cursor: "pointer", marginBottom: 10, zIndex: 999, position: "relative" }}>DEBUG: Click me</button>
         {view === "dashboard" && Dashboard()}
         {view === "timeline" && Timeline()}
         {view === "calendar" && CalendarView()}

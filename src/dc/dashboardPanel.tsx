@@ -51,7 +51,6 @@ export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
 
     return (
       <div onClick={() => setCtxMenu(null)}>
-        <button onClick={(e) => { e.stopPropagation(); alert("Inside dashboard!"); }} style={{ background: "blue", color: "white", padding: 10, cursor: "pointer", marginBottom: 10 }}>DEBUG: Inside Dashboard</button>
         {overdue.length > 0 && !statFilter && (
           <div
             style={{
@@ -70,7 +69,7 @@ export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
             <span style={{ color: "#B91C1C", fontSize: 13 }}>
               <strong>{overdue.length} overdue</strong> —{" "}
               {overdue
-                .map((t) => `${getBrand(t.brand).short} ${t.phase}`)
+                .map((t) => `${(getBrand(t.brand) || {}).short || t.brand} ${t.phase}`)
                 .join(", ")}
             </span>
           </div>
@@ -150,23 +149,16 @@ export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
               </div>
             )}
 
-            <button onClick={(e) => { e.stopPropagation(); alert("Before stat cards!"); }} style={{ background: "green", color: "white", padding: 10, cursor: "pointer", marginBottom: 10 }}>DEBUG: Before Stat Cards</button>
             {/* Stat summary cards — only when no filter active */}
             {!statFilter && (
               <div
-                onClick={(e) => alert("Grid container clicked!")}
                 style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(3,1fr)",
                   gap: 16,
                   marginBottom: 28,
-                  position: "relative",
-                  zIndex: 50,
-                  pointerEvents: "all" as any,
-                  isolation: "isolate",
                 }}
               >
-                <button onClick={(e) => { e.stopPropagation(); alert("Inside grid!"); }} style={{ position: "absolute", top: -30, left: 0, background: "purple", color: "white", padding: 5, zIndex: 9999 }}>DEBUG: Inside Grid</button>
                 {[
                   {
                     id: "overdue",
@@ -195,7 +187,7 @@ export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
                 ].map((s) => (
                   <button
                     key={s.label}
-                    onClick={(e) => { e.stopPropagation(); alert("Stat card: " + s.id); setStatFilter(s.id); }}
+                    onClick={(e) => { e.stopPropagation(); setStatFilter(s.id); }}
                     style={{
                       background: s.bg,
                       border: `1px solid ${s.bdr}`,
@@ -257,7 +249,6 @@ export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
               </div>
             )}
 
-            <button onClick={(e) => { e.stopPropagation(); alert("After stat cards! showCollections=" + showCollections + " collListView=" + collListView); }} style={{ background: "orange", color: "white", padding: 10, cursor: "pointer", marginBottom: 10 }}>DEBUG: After Stat Cards</button>
             {/* Filtered task list view */}
             {showTaskList && (
               <>
@@ -528,7 +519,7 @@ export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
                                     </div>
                                   ) : (
                                     dayTasks.map((t) => {
-                                      const b = getBrand(t.brand);
+                                      const b = getBrand(t.brand) || { id: "unknown", name: "Unknown", color: "#6B7280", short: "?" };
                                       const sc =
                                         STATUS_CONFIG[t.status] ||
                                         STATUS_CONFIG["Not Started"];
@@ -867,7 +858,7 @@ export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
                                         {isDragTarget && " 📅"}
                                       </div>
                                       {dayTasks.slice(0, 2).map((t) => {
-                                        const b = getBrand(t.brand);
+                                        const b = getBrand(t.brand) || { id: "unknown", name: "Unknown", color: "#6B7280", short: "?" };
                                         const isBeingDragged = dragId === t.id;
                                         return (
                                           <div
@@ -964,7 +955,7 @@ export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
                       </thead>
                       <tbody>
                         {collList.map((c, ri) => {
-                          const brand = getBrand(c.brand);
+                          const brand = getBrand(c.brand) || { id: "unknown", name: "Unknown", color: "#6B7280", short: "?" };
                           const done = c.tasks.filter(t => ["Complete","Approved"].includes(t.status)).length;
                           const pct = Math.round((done / c.tasks.length) * 100);
                           const ddpTask = c.tasks.find(t => t.phase === "DDP");
@@ -1055,7 +1046,7 @@ export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
                   }}
                 >
                   {collList.map((c) => {
-                    const brand = getBrand(c.brand),
+                    const brand = getBrand(c.brand) || { id: "unknown", name: "Unknown", color: "#6B7280", short: "?" },
                       done = c.tasks.filter((t) =>
                         ["Complete", "Approved"].includes(t.status)
                       ).length,
