@@ -58,7 +58,7 @@ export interface EmailState {
   emailDeletedMessages: any[];
   emailDeletedLoading: boolean;
   emailDeletedError: string | null;
-  emailFolderCtxMenu: { x: number; y: number; folder: "deleted" } | null;
+  emailFolderCtxMenu: { x: number; y: number; folder: string } | null;
   // Files staged in the compose window, encoded later by doSendEmail
   emailComposeAttachments: Array<{ name: string; size: number; contentType: string; contentBytes: string }>;
   emailComposeAttachLoading: boolean;

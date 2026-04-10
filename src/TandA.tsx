@@ -874,18 +874,22 @@ function TandAApp() {
   }
   async function deleteMainEmail(messageId: string) {
     try {
-      await emailGraphDelete("/me/messages/" + messageId);
+      // Move to Deleted Items (trash) instead of permanently deleting.
+      // Graph's POST /move with destinationId:"deleteditems" mirrors Outlook's behavior.
+      await emailGraphPost("/me/messages/" + messageId + "/move", { destinationId: "deleteditems" });
       setEmailSelectedId(null);
       setEmailSelMsg(null);
       setEmailDeleteConfirm(null);
       setEmailThreadMsgs([]);
+      const filterOut = (arr: any[]) => arr.filter((e: any) => e.id !== messageId);
       if (emailSelPO) {
-        const filterOut = (arr: any[]) => arr.filter((e: any) => e.id !== messageId);
         setEmailsMap(m => ({ ...m, [emailSelPO]: filterOut(m[emailSelPO] || []) }));
         setEmailSentMap(m => ({ ...m, [emailSelPO]: filterOut(m[emailSelPO] || []) }));
         setDtlEmails(m => ({ ...m, [emailSelPO]: filterOut(m[emailSelPO] || []) }));
         setDtlSentEmails(m => ({ ...m, [emailSelPO]: filterOut(m[emailSelPO] || []) }));
       }
+      // Also remove from global caches
+      emD({ type: "SET", field: "emailAllMessages", value: ((em as any).emailAllMessages || []).filter((e: any) => e.id !== messageId) });
     } catch(e) { console.error("Delete email error", e); }
   }
 

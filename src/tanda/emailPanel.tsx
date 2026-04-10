@@ -647,7 +647,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
 
               {emailDeleteConfirm === emailSelectedId && (
                 <div style={{ background: C.errorDim, borderBottom: `1px solid rgba(239,68,68,0.3)`, padding: "8px 18px", display: "flex", alignItems: "center", gap: 12 }}>
-                  <span style={{ fontSize: 13, color: C.error, flex: 1 }}>Permanently delete this message? This cannot be undone.</span>
+                  <span style={{ fontSize: 13, color: C.error, flex: 1 }}>Move this message to Deleted Items?</span>
                   <button onClick={() => deleteMainEmail(emailSelectedId)}
                     style={{ padding: "7px 14px", background: C.errorDim, border: `1px solid rgba(239,68,68,0.3)`, borderRadius: 7, color: C.error, fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}>Delete</button>
                   <button style={{ ...iconBtn, color: C.text2 }} onClick={() => emSet("emailDeleteConfirm", null)}>✕</button>
@@ -823,18 +823,24 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
           </div>
         )}
 
-        {/* ── FOLDER CONTEXT MENU (right-click) */}
+        {/* ── FOLDER CONTEXT MENU (right-click on Deleted folder) */}
         {emailFolderCtxMenu && (
-          <div style={{ position: "fixed", top: emailFolderCtxMenu.y, left: emailFolderCtxMenu.x, zIndex: 2000, background: C.bg2, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "4px 0", boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 170 }}
-            onClick={e => e.stopPropagation()}>
+          <div
+            style={{ position: "fixed", top: emailFolderCtxMenu.y, left: emailFolderCtxMenu.x, zIndex: 2000, background: C.bg2, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "4px 0", boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 190 }}
+            onClick={e => e.stopPropagation()}
+            onMouseDown={e => e.stopPropagation()}>
             <div style={{ padding: "8px 16px", fontSize: 12, color: C.error, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
               onClick={() => {
-                if (window.confirm(`Permanently delete all ${emailDeletedMessages.length} message(s) in Deleted Items? This cannot be undone.`)) {
+                if (emailDeletedMessages.length === 0) {
+                  emSet("emailFolderCtxMenu", null);
+                  return;
+                }
+                if (window.confirm(`Permanently delete all ${emailDeletedMessages.length} message(s) in Deleted Items?\n\nThis cannot be undone.`)) {
                   emptyDeletedFolder();
                 }
                 emSet("emailFolderCtxMenu", null);
               }}>
-              🗑 Empty folder
+              🗑 Empty folder (permanently delete)
             </div>
           </div>
         )}
