@@ -1526,6 +1526,9 @@ function App() {
           seasons={seasons}
           customerList={customers}
           orderTypes={orderTypes}
+          brands={brands}
+          genders={genders}
+          categories={categoryLib}
           currentUser={currentUser}
           onLogActivity={(entries) => setGlobalLog(gl => [...gl, ...entries])}
           onClose={() => setEditCollKey(null)}

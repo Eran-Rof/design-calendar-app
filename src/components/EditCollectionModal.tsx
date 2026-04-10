@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { TH } from "../utils/theme";
 import { S } from "../utils/styles";
-import { BRANDS, CATEGORIES, GENDERS, CHANNEL_TYPES, DEFAULT_CUSTOMERS } from "../utils/constants";
+import { BRANDS as DEFAULT_BRANDS, CATEGORIES as DEFAULT_CATEGORIES, GENDERS as DEFAULT_GENDERS, CHANNEL_TYPES, DEFAULT_CUSTOMERS } from "../utils/constants";
 import { getBrand, addDays } from "../utils/dates";
 import { getChannelForCustomer } from "../utils/helpers";
 import { Modal } from "./Modal";
@@ -18,10 +18,18 @@ function EditCollectionModal({
   seasons,
   customerList,
   orderTypes,
+  brands: brandsProp,
+  genders: gendersProp,
+  categories: categoriesProp,
   currentUser,
   onLogActivity,
   onClose,
 }) {
+  const brandList = (brandsProp && brandsProp.length > 0) ? brandsProp : DEFAULT_BRANDS;
+  const genderList = (gendersProp && gendersProp.length > 0) ? gendersProp : DEFAULT_GENDERS;
+  const categoryList = (categoriesProp && categoriesProp.length > 0)
+    ? categoriesProp.map((c: any) => typeof c === "string" ? c : c.name || c.category || c)
+    : DEFAULT_CATEGORIES;
   const coll = collMap[collKey];
   if (!coll) return null;
   const meta = collections[collKey] || {};
@@ -153,7 +161,7 @@ function EditCollectionModal({
             value={f.brand}
             onChange={(e) => set("brand", e.target.value)}
           >
-            {BRANDS.map((b) => (
+            {brandList.map((b) => (
               <option key={b.id} value={b.id}>
                 {b.name}
                 {b.isPrivateLabel ? " (PL)" : ""}
@@ -201,7 +209,7 @@ function EditCollectionModal({
             value={f.gender}
             onChange={(e) => set("gender", e.target.value)}
           >
-            {GENDERS.map((g) => (
+            {genderList.map((g) => (
               <option key={g}>{g}</option>
             ))}
           </select>
@@ -213,7 +221,7 @@ function EditCollectionModal({
             value={f.category}
             onChange={(e) => set("category", e.target.value)}
           >
-            {CATEGORIES.map((c) => (
+            {categoryList.map((c) => (
               <option key={c}>{c}</option>
             ))}
           </select>
