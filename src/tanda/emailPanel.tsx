@@ -339,18 +339,20 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
 
         {/* ── SIDEBAR (220px) */}
         <div style={{ width: 220, minWidth: 220, background: C.bg1, borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <div style={{ padding: "10px 10px 6px", borderBottom: `1px solid ${C.border}` }}>
+          {/* Row 1: New Message — same height as middle-panel header (40px) */}
+          <div style={{ padding: "12px 10px 8px", borderBottom: `1px solid ${C.border}`, minHeight: 40, display: "flex", alignItems: "center" }}>
             <button
               onClick={() => { emSet("emailComposeOpen", true); emSet("emailComposeSubject", emailSelPO ? emailGetPrefix(emailSelPO) + " " : ""); emSet("emailSendErr", null); }}
               disabled={!emailToken}
-              style={{ width: "100%", padding: "8px 0", background: emailToken ? `linear-gradient(135deg, ${C.outlook}, ${C.outlookLt})` : C.bg2, border: "none", borderRadius: 8, color: emailToken ? "#fff" : C.text3, fontSize: 13, fontWeight: 500, cursor: emailToken ? "pointer" : "default", display: "flex", alignItems: "center", gap: 8, justifyContent: "center", fontFamily: "inherit" }}>
+              style={{ width: "100%", padding: "7px 0", background: emailToken ? `linear-gradient(135deg, ${C.outlook}, ${C.outlookLt})` : C.bg2, border: "none", borderRadius: 8, color: emailToken ? "#fff" : C.text3, fontSize: 13, fontWeight: 500, cursor: emailToken ? "pointer" : "default", display: "flex", alignItems: "center", gap: 8, justifyContent: "center", fontFamily: "inherit" }}>
               ✎ New Message
             </button>
-            <div style={{ position: "relative", marginTop: 8 }}>
-              <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: C.text3, fontSize: 12, pointerEvents: "none" }}>⌕</span>
-              <input value={emailPOSearch} onChange={e => emSet("emailPOSearch", e.target.value)} placeholder="Search POs…"
-                style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 10px 6px 28px", color: C.text1, fontSize: 12, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const }} />
-            </div>
+          </div>
+          {/* Row 2: Search POs — same height/position as middle-panel search */}
+          <div style={{ position: "relative", margin: "8px 10px" }}>
+            <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: C.text3, fontSize: 13, pointerEvents: "none" }}>⌕</span>
+            <input value={emailPOSearch} onChange={e => emSet("emailPOSearch", e.target.value)} placeholder="Search POs…"
+              style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 10px 6px 28px", color: C.text1, fontSize: 12, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const, height: 32 }} />
           </div>
 
           {/* ── Folders: Inbox / Unread / Sent / Deleted / All POs ── */}
@@ -507,7 +509,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
 
           <div style={{ position: "relative" as const, margin: "8px 10px" }}>
             <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: C.text3, fontSize: 13, pointerEvents: "none" }}>⌕</span>
-            <input style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 10px 6px 28px", color: C.text1, fontSize: 12, outline: "none", boxSizing: "border-box" as const, fontFamily: "inherit" }}
+            <input style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 10px 6px 28px", color: C.text1, fontSize: 12, outline: "none", boxSizing: "border-box" as const, fontFamily: "inherit", height: 32 }}
               placeholder="Search…" value={emailSearchQuery} onChange={e => emSet("emailSearchQuery", e.target.value)} />
           </div>
 
