@@ -161,6 +161,9 @@ export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
                   gap: 16,
                   marginBottom: 28,
                   position: "relative",
+                  zIndex: 50,
+                  pointerEvents: "all" as any,
+                  isolation: "isolate",
                 }}
               >
                 <button onClick={(e) => { e.stopPropagation(); alert("Inside grid!"); }} style={{ position: "absolute", top: -30, left: 0, background: "purple", color: "white", padding: 5, zIndex: 9999 }}>DEBUG: Inside Grid</button>
