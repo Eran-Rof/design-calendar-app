@@ -2879,6 +2879,52 @@ function TandAApp() {
     setEmailLoadingOlder(false);
   }
 
+  // Fetch all messages currently in the Outlook Deleted Items folder so the
+  // user can review/restore/empty them. Limited to 200 most recent.
+  async function loadDeletedFolder() {
+    if (!msToken) return;
+    emD({ type: "SET", field: "emailDeletedLoading", value: true });
+    emD({ type: "SET", field: "emailDeletedError", value: null });
+    try {
+      const url = "/me/mailFolders/DeletedItems/messages?$top=200&$orderby=receivedDateTime desc&$select=id,subject,from,receivedDateTime,bodyPreview,conversationId,isRead,hasAttachments";
+      const d = await emailGraph(url);
+      const items: any[] = (d.value || []).map((m: any) => {
+        const match = (m.subject || "").match(/\[PO-([^\]]+)\]/);
+        return match ? { ...m, _poNumber: match[1] } : m;
+      });
+      emD({ type: "SET", field: "emailDeletedMessages", value: items });
+    } catch (e: any) {
+      emD({ type: "SET", field: "emailDeletedError", value: e?.message || "Failed to load deleted folder" });
+    } finally {
+      emD({ type: "SET", field: "emailDeletedLoading", value: false });
+    }
+  }
+
+  // Permanently delete every message currently in Deleted Items.
+  async function emptyDeletedFolder() {
+    if (!msToken) return;
+    const messages = (em as any).emailDeletedMessages as any[] || [];
+    if (messages.length === 0) return;
+    emD({ type: "SET", field: "emailDeletedLoading", value: true });
+    try {
+      // Best-effort: serial deletes (Graph batch is more code than it's worth here)
+      for (const m of messages) {
+        try {
+          const tok = await getGraphToken();
+          await fetch(`https://graph.microsoft.com/v1.0/me/messages/${m.id}`, {
+            method: "DELETE",
+            headers: { Authorization: "Bearer " + tok },
+          });
+        } catch (e) {
+          console.warn("emptyDeletedFolder: failed for", m.id, e);
+        }
+      }
+      emD({ type: "SET", field: "emailDeletedMessages", value: [] });
+    } finally {
+      emD({ type: "SET", field: "emailDeletedLoading", value: false });
+    }
+  }
+
   // Pre-fetches a single batch of inbox messages tagged with a [PO-...] prefix,
   // groups them by PO number, and stores per-PO stats + a flat list for the
   // "All POs" / "Unread" global views. Cheaper than per-PO fetches and means
@@ -2928,6 +2974,7 @@ function TandAApp() {
       loadPOEmails, loadFullEmail, loadEmailThread, emailGetPrefix,
       emailMarkAsRead, deleteMainEmail, msSignOut,
       loadAllPOEmailStats,
+      loadDeletedFolder, emptyDeletedFolder,
     });
   }
 

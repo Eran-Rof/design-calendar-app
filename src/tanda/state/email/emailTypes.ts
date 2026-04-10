@@ -54,7 +54,11 @@ export interface EmailState {
   // All inbox messages tagged with a [PO-...] prefix, used by "All POs" and "Unread" global views
   emailAllMessages: any[];
   // What the middle pane shows: a single PO's emails ("po"), all PO emails ("all"), or only unread ("unread")
-  emailGlobalView: "po" | "all" | "unread";
+  emailGlobalView: "po" | "all" | "unread" | "deleted";
+  emailDeletedMessages: any[];
+  emailDeletedLoading: boolean;
+  emailDeletedError: string | null;
+  emailFolderCtxMenu: { x: number; y: number; folder: "deleted" } | null;
   // Files staged in the compose window, encoded later by doSendEmail
   emailComposeAttachments: Array<{ name: string; size: number; contentType: string; contentBytes: string }>;
   emailComposeAttachLoading: boolean;
@@ -144,6 +148,10 @@ export const initialEmailState: EmailState = {
   emailGlobalView: "po",
   emailComposeAttachments: [],
   emailComposeAttachLoading: false,
+  emailDeletedMessages: [],
+  emailDeletedLoading: false,
+  emailDeletedError: null,
+  emailFolderCtxMenu: null,
   dtlEmails: {},
   dtlEmailLoading: {},
   dtlEmailErr: {},

@@ -167,10 +167,12 @@ export interface EmailPanelCtx {
   deleteMainEmail: (id: string) => void;
   msSignOut: () => void;
   loadAllPOEmailStats: () => void;
+  loadDeletedFolder: () => void;
+  emptyDeletedFolder: () => void;
 }
 
 export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
-  const { em, emD, pos, setView, emailGraph, emailGraphPost, loadEmailAttachments, authenticateEmail, loadPOEmails, loadFullEmail, loadEmailThread, emailGetPrefix, emailMarkAsRead, deleteMainEmail, msSignOut, loadAllPOEmailStats } = ctx;
+  const { em, emD, pos, setView, emailGraph, emailGraphPost, loadEmailAttachments, authenticateEmail, loadPOEmails, loadFullEmail, loadEmailThread, emailGetPrefix, emailMarkAsRead, deleteMainEmail, msSignOut, loadAllPOEmailStats, loadDeletedFolder, emptyDeletedFolder } = ctx;
 
   // Helper to set email state fields
   const emSet = (field: keyof EmailState, value: any) => emD({ type: "SET", field, value });
@@ -187,7 +189,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
 
   const poList = pos;
   const emailToken = em.msToken;
-  const { emailSelPO, emailsMap, emailLoadingMap, emailErrorsMap, emailSelMsg, emailThreadMsgs, emailThreadLoading, emailSentMap, emailSentLoading, emailComposeTo, emailComposeSubject, emailComposeBody, emailSendErr, emailNextLinks, emailLoadingOlder, emailReplyText, emailPOSearch, emailActiveFolder, emailSearchQuery, emailFilterUnread, emailFilterFlagged, emailFlaggedSet, emailCollapsedMsgs, emailComposeOpen, emailDeleteConfirm, emailSelectedId, emailCtxMenu, emailAttachments, emailAttachmentsLoading, showEmailConfig, msDisplayName, emailAllStats, emailAllStatsLoading, emailAllMessages, emailGlobalView, emailComposeAttachments, emailComposeAttachLoading } = em;
+  const { emailSelPO, emailsMap, emailLoadingMap, emailErrorsMap, emailSelMsg, emailThreadMsgs, emailThreadLoading, emailSentMap, emailSentLoading, emailComposeTo, emailComposeSubject, emailComposeBody, emailSendErr, emailNextLinks, emailLoadingOlder, emailReplyText, emailPOSearch, emailActiveFolder, emailSearchQuery, emailFilterUnread, emailFilterFlagged, emailFlaggedSet, emailCollapsedMsgs, emailComposeOpen, emailDeleteConfirm, emailSelectedId, emailCtxMenu, emailAttachments, emailAttachmentsLoading, showEmailConfig, msDisplayName, emailAllStats, emailAllStatsLoading, emailAllMessages, emailGlobalView, emailComposeAttachments, emailComposeAttachLoading, emailDeletedMessages, emailDeletedLoading, emailFolderCtxMenu } = em;
 
   const iconBtn: React.CSSProperties = { width: 28, height: 28, borderRadius: 6, border: "none", background: "transparent", color: C.text3, cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit" };
 
@@ -275,14 +277,22 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
   // When a specific PO is selected we use that PO's emailsMap entry; otherwise the
   // middle pane is in a global mode (All POs / Unread) and we use the pre-fetched
   // emailAllMessages list, optionally filtered to unread.
-  const isGlobal = !emailSelPO && (emailGlobalView === "all" || emailGlobalView === "unread");
+  const isGlobal = !emailSelPO && (emailGlobalView === "all" || emailGlobalView === "unread" || emailGlobalView === "deleted");
   const inboxEmails = isGlobal
-    ? (emailGlobalView === "unread" ? emailAllMessages.filter((m: any) => !m.isRead) : emailAllMessages)
+    ? (emailGlobalView === "unread"
+        ? emailAllMessages.filter((m: any) => !m.isRead)
+        : emailGlobalView === "deleted"
+          ? emailDeletedMessages
+          : emailAllMessages)
     : (emailSelPO ? (emailsMap[emailSelPO] || []) : []);
   const sentEmailList = emailSelPO ? (emailSentMap[emailSelPO] || []) : [];
   const activeList = emailActiveFolder === "inbox" ? inboxEmails : sentEmailList;
-  const isLoadingE = isGlobal ? emailAllStatsLoading : (emailSelPO ? !!emailLoadingMap[emailSelPO] : false);
-  const eError = isGlobal ? em.emailAllStatsError : (emailSelPO ? emailErrorsMap[emailSelPO] : null);
+  const isLoadingE = isGlobal
+    ? (emailGlobalView === "deleted" ? emailDeletedLoading : emailAllStatsLoading)
+    : (emailSelPO ? !!emailLoadingMap[emailSelPO] : false);
+  const eError = isGlobal
+    ? (emailGlobalView === "deleted" ? em.emailDeletedError : em.emailAllStatsError)
+    : (emailSelPO ? emailErrorsMap[emailSelPO] : null);
 
   const visibleEmails = [...activeList]
     .filter((e: any) => {
@@ -321,7 +331,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
   );
 
   return (
-    <div style={{ position: "relative" }} onClick={() => emailCtxMenu && emSet("emailCtxMenu", null)}>
+    <div style={{ position: "relative" }} onClick={() => { if (emailCtxMenu) emSet("emailCtxMenu", null); if (emailFolderCtxMenu) emSet("emailFolderCtxMenu", null); }}>
       <button onClick={() => setView("dashboard")} title="Close Email"
         style={{ position: "absolute", top: 10, right: 14, zIndex: 10, width: 28, height: 28, borderRadius: "50%", border: `1px solid ${C.outlook}44`, background: `${C.outlook}15`, color: C.outlook, cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>✕</button>
 
@@ -338,22 +348,79 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
             </button>
           </div>
 
-          {/* ── Folders (Inbox / Sent) — at the top, like Outlook ── */}
-          <div style={{ padding: "8px 6px 4px" }}>
-            {(["inbox", "sent"] as const).map(f => {
-              const label = f === "inbox" ? "Inbox" : "Sent";
-              const count = f === "inbox" ? inboxEmails.filter((e: any) => !e.isRead).length : 0;
-              const isActive = emailActiveFolder === f;
-              return (
-                <div key={f} onClick={() => { emSet("emailActiveFolder", f); emSet("emailSelectedId", null); emSet("emailSelMsg", null); emSet("emailThreadMsgs", []); if (f === "sent" && emailSelPO && emailToken) loadPOSentEmails(emailSelPO); }}
-                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 7, margin: "1px 0", cursor: "pointer", fontSize: 12, background: isActive ? C.outlookDim : "transparent", color: isActive ? C.info : C.text2, border: isActive ? "1px solid rgba(96,165,250,0.2)" : "1px solid transparent", transition: "all 0.1s" }}>
-                  <span style={{ width: 14, textAlign: "center" as const }}>{f === "inbox" ? "📥" : "📤"}</span>
-                  <span style={{ flex: 1 }}>{label}</span>
-                  {count > 0 && <span style={{ background: C.bg3, color: C.text2, fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 10, minWidth: 18, textAlign: "center" as const }}>{count}</span>}
-                </div>
-              );
-            })}
+          {/* Sidebar search (above folders, like Outlook) */}
+          <div style={{ padding: "8px 8px 4px" }}>
+            <input value={emailPOSearch} onChange={e => emSet("emailPOSearch", e.target.value)} placeholder="🔍 Search POs…"
+              style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 10px", color: C.text1, fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const }} />
           </div>
+
+          {/* ── Folders: Inbox / Unread / Sent / Deleted ── */}
+          {emailToken && (() => {
+            const totalUnread = emailAllMessages.filter((m: any) => !m.isRead).length;
+            const inboxUnreadForPO = emailSelPO ? (emailsMap[emailSelPO] || []).filter((e: any) => !e.isRead).length : 0;
+            type FolderRow = { key: string; label: string; icon: string; count: number; active: boolean; onClick: () => void; canEmpty?: boolean };
+            const rows: FolderRow[] = [
+              {
+                key: "inbox",
+                label: "Inbox",
+                icon: "📥",
+                count: inboxUnreadForPO,
+                active: !isGlobal && emailActiveFolder === "inbox",
+                onClick: () => { emSet("emailGlobalView", "po"); emSet("emailActiveFolder", "inbox"); emSet("emailSelectedId", null); emSet("emailSelMsg", null); emSet("emailThreadMsgs", []); },
+              },
+              {
+                key: "unread",
+                label: "Unread",
+                icon: "✉",
+                count: totalUnread,
+                active: emailGlobalView === "unread",
+                onClick: () => { emSet("emailGlobalView", "unread"); emSet("emailSelPO", null); emSet("emailSelectedId", null); emSet("emailSelMsg", null); emSet("emailThreadMsgs", []); emSet("emailActiveFolder", "inbox"); },
+              },
+              {
+                key: "sent",
+                label: "Sent",
+                icon: "📤",
+                count: 0,
+                active: !isGlobal && emailActiveFolder === "sent",
+                onClick: () => { emSet("emailGlobalView", "po"); emSet("emailActiveFolder", "sent"); emSet("emailSelectedId", null); emSet("emailSelMsg", null); emSet("emailThreadMsgs", []); if (emailSelPO) loadPOSentEmails(emailSelPO); },
+              },
+              {
+                key: "deleted",
+                label: "Deleted",
+                icon: "🗑",
+                count: emailDeletedMessages.length,
+                active: emailGlobalView === "deleted",
+                canEmpty: true,
+                onClick: () => { emSet("emailGlobalView", "deleted"); emSet("emailSelPO", null); emSet("emailSelectedId", null); emSet("emailSelMsg", null); emSet("emailThreadMsgs", []); emSet("emailActiveFolder", "inbox"); loadDeletedFolder(); },
+              },
+              {
+                key: "all",
+                label: "All POs",
+                icon: "📁",
+                count: emailAllMessages.length,
+                active: emailGlobalView === "all",
+                onClick: () => { emSet("emailGlobalView", "all"); emSet("emailSelPO", null); emSet("emailSelectedId", null); emSet("emailSelMsg", null); emSet("emailThreadMsgs", []); emSet("emailActiveFolder", "inbox"); },
+              },
+            ];
+            return (
+              <div style={{ padding: "0 6px 4px" }}>
+                {rows.map(r => (
+                  <div key={r.key}
+                    onClick={r.onClick}
+                    onContextMenu={r.canEmpty ? (e => { e.preventDefault(); emSet("emailFolderCtxMenu", { x: e.clientX, y: e.clientY, folder: r.key }); }) : undefined}
+                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 7, margin: "1px 0", cursor: "pointer", fontSize: 12, background: r.active ? C.outlookDim : "transparent", color: r.active ? C.info : C.text2, border: r.active ? "1px solid rgba(96,165,250,0.2)" : "1px solid transparent", transition: "all 0.1s" }}>
+                    <span style={{ width: 14, textAlign: "center" as const, color: r.key === "unread" ? C.outlook : C.text3 }}>{r.icon}</span>
+                    <span style={{ flex: 1 }}>{r.label}</span>
+                    {r.count > 0 && (
+                      <span style={{ background: r.key === "unread" ? C.outlook : C.bg3, color: r.key === "unread" ? "#fff" : C.text2, fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 10, minWidth: 16, textAlign: "center" as const }}>
+                        {r.count}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
 
           <div style={{ padding: "8px 12px 4px", fontSize: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: C.text3, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span>POs ({poList.length})</span>
@@ -363,40 +430,6 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
                 style={{ background: "none", border: "none", color: C.text3, cursor: "pointer", fontSize: 11, padding: 0, opacity: emailAllStatsLoading ? 0.4 : 1 }}>↻</button>
             )}
           </div>
-          <div style={{ padding: "4px 8px 6px" }}>
-            <input value={emailPOSearch} onChange={e => emSet("emailPOSearch", e.target.value)} placeholder="🔍 Search…"
-              style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 10px", color: C.text1, fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const }} />
-          </div>
-
-          {/* Global views: All POs / Unread */}
-          {emailToken && (() => {
-            const totalAll = emailAllMessages.length;
-            const totalUnread = emailAllMessages.filter((m: any) => !m.isRead).length;
-            const items: Array<{ key: "all" | "unread"; label: string; count: number; icon: string }> = [
-              { key: "all", label: "All POs", count: totalAll, icon: "📁" },
-              { key: "unread", label: "Unread", count: totalUnread, icon: "✉" },
-            ];
-            return (
-              <div style={{ padding: "0 6px 4px" }}>
-                {items.map(it => {
-                  const active = emailGlobalView === it.key;
-                  return (
-                    <div key={it.key}
-                      onClick={() => { emSet("emailGlobalView", it.key); emSet("emailSelPO", null); emSet("emailSelectedId", null); emSet("emailSelMsg", null); emSet("emailThreadMsgs", []); emSet("emailActiveFolder", "inbox"); }}
-                      style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 10px", borderRadius: 7, margin: "1px 0", cursor: "pointer", fontSize: 11, background: active ? C.outlookDim : "transparent", color: active ? C.info : C.text2, border: active ? "1px solid rgba(96,165,250,0.2)" : "1px solid transparent" }}>
-                      <span style={{ width: 12, textAlign: "center" as const, color: it.key === "unread" ? C.outlook : C.text3 }}>{it.icon}</span>
-                      <span style={{ flex: 1 }}>{it.label}</span>
-                      {it.count > 0 && (
-                        <span style={{ background: it.key === "unread" ? C.outlook : C.bg3, color: it.key === "unread" ? "#fff" : C.text2, fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 10, minWidth: 16, textAlign: "center" as const }}>
-                          {it.count}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
 
           <div style={{ flex: 1, overflowY: "auto" }}>
             {(() => {
@@ -786,6 +819,22 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
                   Send ↗
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── FOLDER CONTEXT MENU (right-click) */}
+        {emailFolderCtxMenu && (
+          <div style={{ position: "fixed", top: emailFolderCtxMenu.y, left: emailFolderCtxMenu.x, zIndex: 2000, background: C.bg2, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "4px 0", boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 170 }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ padding: "8px 16px", fontSize: 12, color: C.error, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
+              onClick={() => {
+                if (window.confirm(`Permanently delete all ${emailDeletedMessages.length} message(s) in Deleted Items? This cannot be undone.`)) {
+                  emptyDeletedFolder();
+                }
+                emSet("emailFolderCtxMenu", null);
+              }}>
+              🗑 Empty folder
             </div>
           </div>
         )}
