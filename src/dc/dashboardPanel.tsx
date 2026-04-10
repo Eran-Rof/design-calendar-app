@@ -247,6 +247,7 @@ export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
               </div>
             )}
 
+            <button onClick={(e) => { e.stopPropagation(); alert("After stat cards!"); }} style={{ background: "orange", color: "white", padding: 10, cursor: "pointer", marginBottom: 10 }}>DEBUG: After Stat Cards</button>
             {/* Filtered task list view */}
             {showTaskList && (
               <>
