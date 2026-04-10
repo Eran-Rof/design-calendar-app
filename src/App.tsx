@@ -838,7 +838,7 @@ function App() {
           setDragId(null);
           setDragOverId(null);
         }}
-        onClick={() => setEditTask(task)}
+        onClick={() => { console.log("[TaskCard] clicked:", task.id, task.phase); setEditTask(task); }}
         style={{
           background: dragOverId === task.id ? TH.surfaceHi : TH.surface,
           border: `1px solid ${
@@ -1000,6 +1000,7 @@ function App() {
           <button
             onClick={(e) => {
               e.stopPropagation();
+              console.log("[View Card] clicked:", task.id, task.phase);
               setEditTask(task);
             }}
             style={{ flex: 1, padding: "5px 0", fontSize: 11, fontWeight: 600, color: TH.textSub, background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}
@@ -1009,6 +1010,7 @@ function App() {
           <button
             onClick={(e) => {
               e.stopPropagation();
+              console.log("[View Timeline] clicked:", task.id, task.phase);
               setTimelineBackFilter(statFilter);
               setFocusCollKey(`${task.brand}||${task.collection}`);
               setView("timeline");
