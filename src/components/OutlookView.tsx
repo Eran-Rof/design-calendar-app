@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { OUTLOOK_BLUE, OUTLOOK_BLUE_LT } from "../utils/theme";
 import { msSignIn, loadMsTokens, getMsAccessToken, MS_CLIENT_ID, MS_TENANT_ID } from "../utils/msAuth";
 import { styledEmailHtml } from "../utils/emailHtml";
+import { RichTextEditor, buildEmailHtml } from "../tanda/richTextEditor";
 
 // ─── Dark theme tokens ────────────────────────────────────────────────────────
 const C = {
@@ -21,13 +22,7 @@ function Avatar({ initials, color, size = 32 }: { initials: string; color: strin
   );
 }
 
-function FolderIcon({ size = 14, color = "currentColor" }: { size?: number; color?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 14" fill="none" style={{ flexShrink: 0 }}>
-      <path d="M1 2.5C1 1.67 1.67 1 2.5 1H5.5L7 2.5H13.5C14.33 2.5 15 3.17 15 4V11.5C15 12.33 14.33 13 13.5 13H2.5C1.67 13 1 12.33 1 11.5V2.5Z" stroke={color} strokeWidth="1.2" fill="none"/>
-    </svg>
-  );
-}
+// FolderIcon removed — now using inline SVGs matching PO WIP's Outlook 365 style
 
 // ─── MICROSOFT OUTLOOK EMAIL VIEW ─────────────────────────────────────────────
 function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, setTeamsConfig, teamsToken, setTeamsToken, teamsTokenExpiry, setTeamsTokenExpiry, showEmailConfig, setShowEmailConfig, getBrand }) {
@@ -69,6 +64,15 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; em: any } | null>(null);
   const [attachments, setAttachments] = useState<Record<string, any[]>>({});
   const [attachmentsLoading, setAttachmentsLoading] = useState<Record<string, boolean>>({});
+  const [composeAttachments, setComposeAttachments] = useState<Array<{ name: string; size: number; contentType: string; contentBytes: string }>>([]);
+  const [composeAttachLoading, setComposeAttachLoading] = useState(false);
+  const [deletedMessages, setDeletedMessages] = useState<any[]>([]);
+  const [deletedLoading, setDeletedLoading] = useState(false);
+  const [globalView, setGlobalView] = useState<"coll" | "all" | "unread" | "deleted">("coll");
+  const [allMessages, setAllMessages] = useState<any[]>([]);
+  const [allStatsLoading, setAllStatsLoading] = useState(false);
+  const [folderCtxMenu, setFolderCtxMenu] = useState<{ x: number; y: number; folder: string } | null>(null);
+  const [emptyDeletedConfirm, setEmptyDeletedConfirm] = useState(false);
   const replyRef = useRef<HTMLTextAreaElement>(null);
 
   const token = teamsToken;
@@ -185,14 +189,22 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
     if (invalidAddr.length > 0) { setSendError("Invalid email address: \"" + invalidAddr[0] + "\" — must be a full address like name@domain.com"); return; }
     setSendError(null);
     try {
-      await graphPost("/me/sendMail", {
-        message: {
-          subject: composeSubject,
-          body: { contentType: "HTML", content: composeBody || " " },
-          toRecipients: composeTo.split(",").map(e => ({ emailAddress: { address: e.trim() } })),
-        },
-      });
+      const message: any = {
+        subject: composeSubject,
+        body: { contentType: "HTML", content: buildEmailHtml(composeBody) },
+        toRecipients: composeTo.split(",").map(e => ({ emailAddress: { address: e.trim() } })),
+      };
+      if (composeAttachments.length > 0) {
+        message.attachments = composeAttachments.map(a => ({
+          "@odata.type": "#microsoft.graph.fileAttachment",
+          name: a.name,
+          contentType: a.contentType || "application/octet-stream",
+          contentBytes: a.contentBytes,
+        }));
+      }
+      await graphPost("/me/sendMail", { message });
       setComposeTo(""); setComposeSubject(""); setComposeBody("");
+      setComposeAttachments([]);
       setComposeOpen(false);
       if (selectedCollKey) setTimeout(() => loadEmails(selectedCollKey), 2000);
     } catch (e: any) { setSendError("Failed to send: " + e.message); }
@@ -219,23 +231,87 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
   }
 
   async function loadAttachments(messageId: string) {
-    if (attachments[messageId] !== undefined) return; // already loaded
+    if (attachments[messageId]?.length > 0) return;
     setAttachmentsLoading(a => ({ ...a, [messageId]: true }));
     try {
-      const d = await graph("/me/messages/" + messageId + "/attachments");
+      const d = await graph("/me/messages/" + messageId + "/attachments?$top=20");
       setAttachments(a => ({ ...a, [messageId]: d.value || [] }));
     } catch { setAttachments(a => ({ ...a, [messageId]: [] })); }
     setAttachmentsLoading(a => ({ ...a, [messageId]: false }));
   }
 
+  async function loadDeletedFolder() {
+    if (!token) return;
+    setDeletedLoading(true);
+    try {
+      const d = await graph("/me/mailFolders/DeletedItems/messages?$top=200&$orderby=receivedDateTime desc&$select=id,subject,from,receivedDateTime,bodyPreview,conversationId,isRead,hasAttachments");
+      setDeletedMessages(d.value || []);
+    } catch (e) { console.warn("loadDeletedFolder:", e); }
+    setDeletedLoading(false);
+  }
+
+  async function emptyDeletedFolder() {
+    if (!token || deletedMessages.length === 0) return;
+    setDeletedLoading(true);
+    for (const m of deletedMessages) {
+      try { await graphDelete("/me/messages/" + m.id); } catch {}
+    }
+    setDeletedMessages([]);
+    setDeletedLoading(false);
+  }
+
+  async function loadAllCollectionStats() {
+    if (!token) return;
+    setAllStatsLoading(true);
+    try {
+      // Fetch messages that match any configured prefix
+      const prefixes = Object.values(cfg.emailMap || {}).filter(Boolean);
+      if (prefixes.length === 0) { setAllStatsLoading(false); return; }
+      const searchTerms = prefixes.map((p: any) => (p as string).replace(/[\[\]{}()*?]/g, "").trim()).filter(Boolean);
+      // Use the first prefix's bracket style to do a broad search
+      const url = `/me/mailFolders/Inbox/messages?$top=500&$select=id,subject,from,receivedDateTime,bodyPreview,isRead,hasAttachments,conversationId`;
+      const d = await graph(url);
+      const items: any[] = d.value || [];
+      // Filter to only messages that match one of our prefixes
+      const matched = items.filter(m => searchTerms.some(t => (m.subject || "").toLowerCase().includes(t.toLowerCase())));
+      setAllMessages(matched);
+    } catch (e) { console.warn("loadAllCollectionStats:", e); }
+    setAllStatsLoading(false);
+  }
+
+  async function pickComposeAttachments(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setComposeAttachLoading(true);
+    try {
+      const LIMIT = 3 * 1024 * 1024;
+      const existing = composeAttachments.reduce((s, a) => s + a.size, 0);
+      const newOnes: typeof composeAttachments = [];
+      let running = existing;
+      for (const f of Array.from(files)) {
+        if (running + f.size > LIMIT) { setSendError(`"${f.name}" skipped — exceeds 3 MB limit`); continue; }
+        const buf = await f.arrayBuffer();
+        let binary = "";
+        const bytes = new Uint8Array(buf);
+        const chunk = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
+        newOnes.push({ name: f.name, size: f.size, contentType: f.type || "application/octet-stream", contentBytes: btoa(binary) });
+        running += f.size;
+      }
+      setComposeAttachments(prev => [...prev, ...newOnes]);
+    } catch (e: any) { setSendError("Failed to read file: " + (e?.message || e)); }
+    setComposeAttachLoading(false);
+  }
+
   async function deleteEmail(messageId: string) {
     try {
-      await graphDelete("/me/messages/" + messageId);
+      // Move to Deleted Items (trash) — not permanent delete
+      await graphPost("/me/messages/" + messageId + "/move", { destinationId: "deleteditems" });
       setSelectedEmailId(null); setSelectedEmail(null); setDeleteConfirm(null); setThread([]);
       if (selectedCollKey) {
         setEmails(m => ({ ...m, [selectedCollKey]: (m[selectedCollKey] || []).filter(e => e.id !== messageId) }));
         setSentEmails(m => ({ ...m, [selectedCollKey]: (m[selectedCollKey] || []).filter(e => e.id !== messageId) }));
       }
+      setAllMessages(arr => arr.filter(e => e.id !== messageId));
     } catch (e) { console.error(e); }
   }
 
@@ -248,7 +324,7 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
       markAsRead(em.id);
       setEmails(m => ({ ...m, [selectedCollKey!]: (m[selectedCollKey!] || []).map(e => e.id === em.id ? { ...e, isRead: true } : e) }));
     }
-    if (em.hasAttachments) loadAttachments(em.id);
+    loadAttachments(em.id);
     loadFullEmail(em.id);
     if (em.conversationId) loadThread(em.conversationId);
   }
@@ -266,6 +342,14 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
       }
     }).catch(() => {});
   }, []);
+
+  // Auto-load email stats + deleted folder on auth
+  useEffect(() => {
+    if (!token) return;
+    loadAllCollectionStats();
+    const id = setInterval(loadAllCollectionStats, 120000);
+    return () => clearInterval(id);
+  }, [token]);
 
   // Dismiss context menu on click-outside
   useEffect(() => {
@@ -309,9 +393,14 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
   const selectedColl = selectedCollKey ? collMap[selectedCollKey] : null;
   const brand = selectedColl ? getBrand(selectedColl.brand) : null;
   const prefix = selectedCollKey ? getPrefix(selectedCollKey) : null;
-  const emailList = (selectedCollKey ? emails[selectedCollKey] : null) || [];
+  const isGlobal = !selectedCollKey && (globalView === "all" || globalView === "unread" || globalView === "deleted");
+  const emailList = isGlobal
+    ? (globalView === "unread" ? allMessages.filter(m => !m.isRead) : globalView === "deleted" ? deletedMessages : allMessages)
+    : ((selectedCollKey ? emails[selectedCollKey] : null) || []);
   const sentList = (selectedCollKey ? sentEmails[selectedCollKey] : null) || [];
-  const isLoadingEmails = selectedCollKey ? !!loading[selectedCollKey] : false;
+  const isLoadingEmails = isGlobal
+    ? (globalView === "deleted" ? deletedLoading : allStatsLoading)
+    : (selectedCollKey ? !!loading[selectedCollKey] : false);
   const isSentLoading = selectedCollKey ? !!sentLoading[selectedCollKey] : false;
   const emailError = selectedCollKey ? errors[selectedCollKey] : null;
   const sentErr = selectedCollKey ? sentErrors[selectedCollKey] : null;
@@ -356,24 +445,60 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
         {/* ── SIDEBAR (220px) ──────────────────────────────────────────────────── */}
         <div style={{ width: 220, minWidth: 220, background: C.bg1, borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
-          {/* Compose button */}
-          <div style={{ padding: "14px 12px 10px", borderBottom: `1px solid ${C.border}` }}>
+          {/* Row 1: New Message */}
+          <div style={{ padding: "0 10px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", height: 46 }}>
             <button
               onClick={() => { setComposeOpen(true); setComposeSubject((prefix || "") + " "); setSendError(null); }}
               disabled={!token}
-              style={{ width: "100%", padding: "8px 12px", background: token ? `linear-gradient(135deg, ${C.outlook}, ${C.outlookLt})` : C.bg2, border: "none", borderRadius: 8, color: token ? "#fff" : C.text3, fontSize: 13, fontWeight: 500, cursor: token ? "pointer" : "default", display: "flex", alignItems: "center", gap: 8, justifyContent: "center", fontFamily: "inherit" }}>
+              style={{ width: "100%", padding: "7px 0", background: token ? `linear-gradient(135deg, ${C.outlook}, ${C.outlookLt})` : C.bg2, border: "none", borderRadius: 8, color: token ? "#fff" : C.text3, fontSize: 13, fontWeight: 500, cursor: token ? "pointer" : "default", display: "flex", alignItems: "center", gap: 8, justifyContent: "center", fontFamily: "inherit" }}>
               ✎ New Message
             </button>
           </div>
+          {/* Row 2: Search */}
+          <div style={{ padding: "0 10px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", height: 48 }}>
+            <div style={{ position: "relative", width: "100%" }}>
+              <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: C.text3, fontSize: 13, pointerEvents: "none" }}>⌕</span>
+              <input value={collSearch} onChange={e => setCollSearch(e.target.value)} placeholder="Search collections…"
+                style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 10px 6px 28px", color: C.text1, fontSize: 12, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const, height: 32 }} />
+            </div>
+          </div>
 
-          {/* Projects label + search */}
-          <div style={{ padding: "10px 12px 4px", fontSize: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: C.text3, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          {/* Folders: Inbox / Unread / Sent / Deleted / All */}
+          {token && (() => {
+            const SZ = 18;
+            const iconInbox = (c: string) => <svg width={SZ} height={SZ} viewBox="0 0 20 20" fill="none"><path d="M3 4.5A1.5 1.5 0 0 1 4.5 3h11A1.5 1.5 0 0 1 17 4.5V10h-3.5a1 1 0 0 0-.8.4L11.5 12h-3l-1.2-1.6a1 1 0 0 0-.8-.4H3V4.5Z" stroke={c} strokeWidth="1.3" fill="none"/><path d="M3 10v5.5A1.5 1.5 0 0 0 4.5 17h11a1.5 1.5 0 0 0 1.5-1.5V10" stroke={c} strokeWidth="1.3" fill="none"/></svg>;
+            const iconUnread = (c: string) => <svg width={SZ} height={SZ} viewBox="0 0 20 20" fill="none"><rect x="2" y="4" width="16" height="12" rx="1.5" stroke={c} strokeWidth="1.3" fill="none"/><path d="M2 5.5l8 5 8-5" stroke={c} strokeWidth="1.3" fill="none"/><circle cx="16" cy="5" r="3" fill={C.outlook} stroke={C.bg1} strokeWidth="1"/></svg>;
+            const iconSent = (c: string) => <svg width={SZ} height={SZ} viewBox="0 0 20 20" fill="none"><path d="M3 10l14-6-4 14-3-5.5L3 10Z" stroke={c} strokeWidth="1.3" fill="none" strokeLinejoin="round"/><path d="M10 12.5L17 4" stroke={c} strokeWidth="1" fill="none"/></svg>;
+            const iconDeleted = (c: string) => <svg width={SZ} height={SZ} viewBox="0 0 20 20" fill="none"><path d="M5 6h10l-1 11H6L5 6Z" stroke={c} strokeWidth="1.3" fill="none" strokeLinejoin="round"/><path d="M3 6h14" stroke={c} strokeWidth="1.3"/><path d="M8 3h4v2H8z" stroke={c} strokeWidth="1" fill="none"/></svg>;
+            const iconFolder = (c: string) => <svg width={SZ} height={SZ} viewBox="0 0 20 20" fill="none"><path d="M2 5a1.5 1.5 0 0 1 1.5-1.5H7L9 5.5h8.5A1.5 1.5 0 0 1 19 7v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 1 15V5Z" stroke={c} strokeWidth="1.3" fill="none"/></svg>;
+            const unreadCount = allMessages.filter(m => !m.isRead).length;
+            const inboxUnread = selectedCollKey ? (emails[selectedCollKey] || []).filter(e => !e.isRead).length : 0;
+            const rows = [
+              { key: "inbox", label: "Inbox", icon: iconInbox, count: inboxUnread, active: !isGlobal && activeFolder === "inbox", onClick: () => { setGlobalView("coll"); setActiveFolder("inbox"); setSelectedEmailId(null); setSelectedEmail(null); setThread([]); } },
+              { key: "unread", label: "Unread", icon: iconUnread, count: unreadCount, active: globalView === "unread", onClick: () => { setGlobalView("unread"); setSelectedCollKey(null); setSelectedEmailId(null); setSelectedEmail(null); setThread([]); setActiveFolder("inbox"); } },
+              { key: "sent", label: "Sent", icon: iconSent, count: 0, active: !isGlobal && activeFolder === "sent", onClick: () => { setGlobalView("coll"); setActiveFolder("sent"); setSelectedEmailId(null); setSelectedEmail(null); setThread([]); if (selectedCollKey) loadSentEmails(selectedCollKey); } },
+              { key: "deleted", label: "Deleted", icon: iconDeleted, count: deletedMessages.length, active: globalView === "deleted", canEmpty: true, onClick: () => { setGlobalView("deleted"); setSelectedCollKey(null); setSelectedEmailId(null); setSelectedEmail(null); setThread([]); setActiveFolder("inbox"); loadDeletedFolder(); } },
+              { key: "all", label: "All", icon: iconFolder, count: allMessages.length, active: globalView === "all", onClick: () => { setGlobalView("all"); setSelectedCollKey(null); setSelectedEmailId(null); setSelectedEmail(null); setThread([]); setActiveFolder("inbox"); } },
+            ];
+            return (
+              <div style={{ padding: "4px 6px" }}>
+                {rows.map(r => (
+                  <div key={r.key} onClick={r.onClick}
+                    onContextMenu={(r as any).canEmpty ? (e => { e.preventDefault(); setFolderCtxMenu({ x: e.clientX, y: e.clientY, folder: r.key }); }) : undefined}
+                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 7, margin: "1px 0", cursor: "pointer", fontSize: 12, background: r.active ? C.outlookDim : "transparent", color: r.active ? C.info : C.text2, border: r.active ? "1px solid rgba(96,165,250,0.2)" : "1px solid transparent", transition: "all 0.1s" }}>
+                    <span style={{ width: 18, height: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>{r.icon(r.active ? C.info : C.text3)}</span>
+                    <span style={{ flex: 1 }}>{r.label}</span>
+                    {r.count > 0 && <span style={{ background: r.key === "unread" ? C.outlook : C.bg3, color: r.key === "unread" ? "#fff" : C.text2, fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 10, minWidth: 16, textAlign: "center" as const }}>{r.count}</span>}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
+          {/* Projects label */}
+          <div style={{ padding: "8px 12px 4px", fontSize: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: C.text3, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span>Projects ({collList.length})</span>
             {isAdmin && <button onClick={() => { setConfigForm({ ...cfg }); setShowEmailConfig(true); }} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 5, border: `1px solid ${C.border}`, background: "none", color: C.text3, cursor: "pointer", fontFamily: "inherit" }}>⚙</button>}
-          </div>
-          <div style={{ padding: "4px 8px 6px" }}>
-            <input value={collSearch} onChange={e => setCollSearch(e.target.value)} placeholder="🔍 Search…"
-              style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 10px", color: C.text1, fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const }} />
           </div>
 
           {/* Collection list */}
@@ -411,24 +536,6 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
             {collList.length === 0 && <div style={{ padding: 16, fontSize: 12, color: C.text3, textAlign: "center" }}>No collections yet</div>}
           </div>
 
-          {/* Divider */}
-          <div style={{ height: 1, background: C.border, margin: "4px 10px" }} />
-
-          {/* Folders */}
-          <div style={{ padding: "6px 12px 2px", fontSize: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: C.text3, fontWeight: 600 }}>Folders</div>
-          {(["inbox", "sent"] as const).map(f => {
-            const label = f === "inbox" ? "Inbox" : "Sent";
-            const count = f === "inbox" ? emailList.filter(e => !e.isRead).length : 0;
-            return (
-              <div key={f} onClick={() => { setActiveFolder(f); setSelectedEmailId(null); setSelectedEmail(null); setThread([]); }}
-                style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 7, margin: "1px 6px", cursor: "pointer", fontSize: 12, background: activeFolder === f ? "rgba(200,33,10,0.15)" : "transparent", color: activeFolder === f ? "#E87060" : C.text2, transition: "all 0.1s" }}>
-                <FolderIcon size={13} color={activeFolder === f ? "#E87060" : C.text3} />
-                <span style={{ flex: 1 }}>{label}</span>
-                {count > 0 && <span style={{ background: C.bg3, color: C.text2, fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 10, minWidth: 18, textAlign: "center" as const }}>{count}</span>}
-              </div>
-            );
-          })}
-
           {/* Account footer */}
           <div style={{ borderTop: `1px solid ${C.border}`, padding: "10px 12px", display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
             {token ? (
@@ -461,20 +568,25 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
         <div style={{ width: 295, minWidth: 295, background: C.bg1, borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column" }}>
 
           {/* List header */}
-          <div style={{ padding: "12px 12px 8px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ padding: "0 12px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", height: 46 }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: C.text1 }}>
-              {activeFolder === "inbox" ? "Inbox" : "Sent"}
-              {selectedColl && <span style={{ fontSize: 11, color: C.text3, marginLeft: 6, fontWeight: 400 }}>· {selectedColl.collection}</span>}
+              {isGlobal
+                ? (globalView === "unread" ? "Unread" : globalView === "deleted" ? "Deleted Items" : "All")
+                : (activeFolder === "inbox" ? "Inbox" : "Sent")}
+              {selectedColl && !isGlobal && <span style={{ fontSize: 11, color: C.text3, marginLeft: 6, fontWeight: 400 }}>· {selectedColl.collection}</span>}
+              {isGlobal && <span style={{ fontSize: 11, color: C.text3, marginLeft: 6, fontWeight: 400 }}>· {emailList.length}</span>}
             </span>
             <button style={iconBtn} title="Refresh"
-              onClick={() => { if (selectedCollKey) { if (activeFolder === "inbox") loadEmails(selectedCollKey); else loadSentEmails(selectedCollKey); } }}>↻</button>
+              onClick={() => { if (isGlobal) { if (globalView === "deleted") loadDeletedFolder(); else loadAllCollectionStats(); } else if (selectedCollKey) { if (activeFolder === "inbox") loadEmails(selectedCollKey); else loadSentEmails(selectedCollKey); } }}>↻</button>
           </div>
 
           {/* Search */}
-          <div style={{ position: "relative" as const, margin: "8px 10px" }}>
-            <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: C.text3, fontSize: 13, pointerEvents: "none" }}>⌕</span>
-            <input style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 10px 6px 28px", color: C.text1, fontSize: 12, outline: "none", boxSizing: "border-box" as const, fontFamily: "inherit" }}
-              placeholder="Search…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+          <div style={{ padding: "0 10px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", height: 48 }}>
+            <div style={{ position: "relative", width: "100%" }}>
+              <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: C.text3, fontSize: 13, pointerEvents: "none" }}>⌕</span>
+              <input style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 10px 6px 28px", color: C.text1, fontSize: 12, outline: "none", boxSizing: "border-box" as const, fontFamily: "inherit", height: 32 }}
+                placeholder="Search…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+            </div>
           </div>
 
           {/* Filter pills */}
@@ -494,9 +606,9 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
           <div style={{ flex: 1, overflowY: "auto" }}>
             {!token ? (
               <div style={{ padding: 24, textAlign: "center", color: C.text3, fontSize: 12 }}>Sign in to load emails</div>
-            ) : !selectedCollKey ? (
-              <div style={{ padding: 24, textAlign: "center", color: C.text3, fontSize: 12 }}>Select a collection from the left</div>
-            ) : !prefix ? (
+            ) : !selectedCollKey && !isGlobal ? (
+              <div style={{ padding: 24, textAlign: "center", color: C.text3, fontSize: 12 }}>Select a collection, or pick a folder</div>
+            ) : !isGlobal && !prefix ? (
               <div style={{ padding: 24, textAlign: "center", color: C.text3, fontSize: 12 }}>Setting up email filter…</div>
             ) : (isLoadingEmails && activeFolder === "inbox") || (isSentLoading && activeFolder === "sent") ? (
               <div style={{ padding: 24, textAlign: "center", color: C.text3, fontSize: 13 }}>Loading emails…</div>
@@ -575,21 +687,12 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
                   </button>
                   <button style={iconBtn} title="Reply" onClick={() => { replyRef.current?.focus(); replyRef.current?.scrollIntoView({ behavior: "smooth" }); }}>↩</button>
                   <button style={iconBtn} title="Reply All" onClick={() => { replyRef.current?.focus(); replyRef.current?.scrollIntoView({ behavior: "smooth" }); }}>↩↩</button>
-                  <button style={{ ...iconBtn, color: C.error }} title="Delete" onClick={() => setDeleteConfirm(selectedEmailId)}>🗑️</button>
+                  <button style={{ ...iconBtn, color: C.error }} title="Move to Deleted Items" onClick={() => {
+                    if (selectedEmail) setDeletedMessages(prev => [selectedEmail, ...prev]);
+                    deleteEmail(selectedEmailId);
+                  }}>🗑️</button>
                 </div>
               </div>
-
-              {/* Delete confirm bar */}
-              {deleteConfirm === selectedEmailId && (
-                <div style={{ background: C.errorDim, borderBottom: `1px solid rgba(239,68,68,0.3)`, padding: "8px 18px", display: "flex", alignItems: "center", gap: 12 }}>
-                  <span style={{ fontSize: 13, color: C.error, flex: 1 }}>Permanently delete this message? This cannot be undone.</span>
-                  <button onClick={() => deleteEmail(selectedEmailId)}
-                    style={{ padding: "7px 14px", background: C.errorDim, border: `1px solid rgba(239,68,68,0.3)`, borderRadius: 7, color: C.error, fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}>
-                    Delete
-                  </button>
-                  <button style={{ ...iconBtn, color: C.text2 }} onClick={() => setDeleteConfirm(null)}>✕</button>
-                </div>
-              )}
 
               {/* Error bar */}
               {sendError && (
@@ -625,9 +728,9 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
                         </div>
                         {!collapsed && (
                           <div style={{ padding: "0 14px 14px" }}>
-                            <iframe sandbox="allow-same-origin" srcDoc={styledEmailHtml(htmlBody)}
-                              style={{ width: "100%", border: "none", minHeight: 80, borderRadius: 6, background: "#F8FAFC" }}
-                              onLoad={e => { try { const h = (e.target as HTMLIFrameElement).contentDocument?.body.scrollHeight || 0; (e.target as HTMLIFrameElement).style.height = Math.min(h + 20, 400) + "px"; } catch {} }} />
+                            <iframe sandbox="allow-same-origin" srcDoc={styledEmailHtml(htmlBody, (attachments[msg.id] || []).filter((a: any) => a.isInline))}
+                              style={{ width: "100%", border: "none", minHeight: 80, borderRadius: 6, background: "#ffffff" }}
+                              onLoad={e => { try { const f = e.target as HTMLIFrameElement; const h = f.contentDocument?.body.scrollHeight || 0; f.style.height = (h + 24) + "px"; } catch {} }} />
                           </div>
                         )}
                       </div>
@@ -639,19 +742,23 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
                       From: {selectedEmail.from?.emailAddress?.name || selectedEmail.from?.emailAddress?.address || "Unknown"}
                     </div>
                     <div style={{ padding: "0 14px 14px" }}>
-                      <iframe sandbox="allow-same-origin" srcDoc={styledEmailHtml(selectedEmail.body?.content || "")}
-                        style={{ width: "100%", border: "none", minHeight: 100, borderRadius: 6, background: "#F8FAFC" }}
-                        onLoad={e => { try { const h = (e.target as HTMLIFrameElement).contentDocument?.body.scrollHeight || 0; (e.target as HTMLIFrameElement).style.height = Math.min(h + 20, 400) + "px"; } catch {} }} />
+                      <iframe sandbox="allow-same-origin" srcDoc={styledEmailHtml(selectedEmail.body?.content || "", (attachments[selectedEmail.id] || []).filter((a: any) => a.isInline))}
+                        style={{ width: "100%", border: "none", minHeight: 100, borderRadius: 6, background: "#ffffff" }}
+                        onLoad={e => { try { const f = e.target as HTMLIFrameElement; const h = f.contentDocument?.body.scrollHeight || 0; f.style.height = (h + 24) + "px"; } catch {} }} />
                     </div>
                   </div>
                 ) : null}
               </div>
 
-              {/* Attachments */}
-              {selectedEmailId && (attachments[selectedEmailId] || []).length > 0 && (
+              {/* Attachments (file only, not inline) */}
+              {selectedEmailId && (() => {
+                const fileAtts = (attachments[selectedEmailId] || []).filter((a: any) => !a.isInline);
+                if (fileAtts.length === 0 && !attachmentsLoading[selectedEmailId]) return null;
+                return true;
+              })() && (
                 <div style={{ borderTop: `1px solid ${C.border}`, padding: "8px 18px", background: C.bg1, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
                   <span style={{ fontSize: 11, color: C.text3, marginRight: 4 }}>📎 Attachments:</span>
-                  {attachments[selectedEmailId].map((att: any) => {
+                  {(attachments[selectedEmailId] || []).filter((a: any) => !a.isInline).map((att: any) => {
                     const href = att.contentBytes
                       ? `data:${att.contentType || "application/octet-stream"};base64,${att.contentBytes}`
                       : "#";
@@ -699,28 +806,57 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
           )}
         </div>
 
-        {/* ── RIGHT-CLICK CONTEXT MENU ─────────────────────────────────────────── */}
-        {ctxMenu && (
-          <div style={{ position: "fixed", top: ctxMenu.y, left: ctxMenu.x, zIndex: 2000, background: C.bg2, border: `1px solid ${C.border2}`, borderRadius: 8, minWidth: 180, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", overflow: "hidden" }}
-            onClick={e => e.stopPropagation()}>
-            <div onClick={() => { selectEmail(ctxMenu.em); setCtxMenu(null); }} style={{ padding: "9px 14px", cursor: "pointer", fontSize: 12, color: C.text1, display: "flex", alignItems: "center", gap: 8 }}>
-              <span>↩</span> Reply
-            </div>
-            <div onClick={() => { selectEmail(ctxMenu.em); setCtxMenu(null); setTimeout(() => replyRef.current?.focus(), 100); }} style={{ padding: "9px 14px", cursor: "pointer", fontSize: 12, color: C.text1, display: "flex", alignItems: "center", gap: 8 }}>
-              <span>↩↩</span> Reply All
-            </div>
-            <div style={{ height: 1, background: C.border }} />
-            <div onClick={() => { setFlaggedSet(prev => { const s = new Set(prev); if (s.has(ctxMenu.em.id)) s.delete(ctxMenu.em.id); else s.add(ctxMenu.em.id); return s; }); setCtxMenu(null); }}
-              style={{ padding: "9px 14px", cursor: "pointer", fontSize: 12, color: C.warning, display: "flex", alignItems: "center", gap: 8 }}>
-              <span>{flaggedSet.has(ctxMenu.em.id) ? "★" : "☆"}</span> {flaggedSet.has(ctxMenu.em.id) ? "Unflag" : "Flag"}
-            </div>
-            <div style={{ height: 1, background: C.border }} />
-            <div onClick={() => { selectEmail(ctxMenu.em); setDeleteConfirm(ctxMenu.em.id); setCtxMenu(null); }}
-              style={{ padding: "9px 14px", cursor: "pointer", fontSize: 12, color: C.error, display: "flex", alignItems: "center", gap: 8 }}>
-              <span>🗑️</span> Delete
+        {/* ── FOLDER CONTEXT MENU (right-click on Deleted) */}
+        {folderCtxMenu && (
+          <div style={{ position: "fixed", top: folderCtxMenu.y, left: folderCtxMenu.x, zIndex: 2000, background: C.bg2, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "4px 0", boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 190 }}
+            onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}>
+            <div style={{ padding: "8px 16px", fontSize: 12, color: C.error, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
+              onClick={() => { setFolderCtxMenu(null); if (deletedMessages.length > 0) setEmptyDeletedConfirm(true); }}>
+              🗑 Empty folder
             </div>
           </div>
         )}
+
+        {/* ── EMPTY DELETED CONFIRM MODAL */}
+        {emptyDeletedConfirm && (
+          <div style={{ position: "absolute", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }}
+            onClick={() => setEmptyDeletedConfirm(false)}>
+            <div style={{ background: C.bg1, border: `1px solid ${C.border2}`, borderRadius: 12, padding: "24px 28px", boxShadow: "0 12px 40px rgba(0,0,0,0.6)", maxWidth: 360, textAlign: "center" }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 36, marginBottom: 12 }}>🗑</div>
+              <h3 style={{ color: C.text1, margin: "0 0 8px", fontSize: 16, fontWeight: 600 }}>Empty Deleted Items?</h3>
+              <p style={{ color: C.text2, fontSize: 13, margin: "0 0 18px", lineHeight: 1.5 }}>Permanently delete {deletedMessages.length > 1 ? `all ${deletedMessages.length} messages` : "this message"}. This cannot be undone.</p>
+              <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+                <button onClick={() => setEmptyDeletedConfirm(false)} style={{ padding: "8px 18px", borderRadius: 8, border: `1px solid ${C.border}`, background: "none", color: C.text2, cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}>Cancel</button>
+                <button onClick={() => { emptyDeletedFolder(); setEmptyDeletedConfirm(false); }} style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: C.error, color: "#fff", cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 600 }}>Delete All</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── RIGHT-CLICK CONTEXT MENU ─────────────────────────────────────────── */}
+        {ctxMenu && (() => {
+          const ctxMail = ctxMenu.em;
+          const ctxStyle: React.CSSProperties = { padding: "9px 14px", cursor: "pointer", fontSize: 12, color: C.text1, display: "flex", alignItems: "center", gap: 8 };
+          return (
+            <div style={{ position: "fixed", top: ctxMenu.y, left: ctxMenu.x, zIndex: 2000, background: C.bg2, border: `1px solid ${C.border2}`, borderRadius: 8, minWidth: 180, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", overflow: "hidden" }}
+              onClick={e => e.stopPropagation()}>
+              <div onClick={() => { selectEmail(ctxMail); setCtxMenu(null); setTimeout(() => replyRef.current?.focus(), 100); }} style={ctxStyle}>↩ Reply</div>
+              <div onClick={() => { selectEmail(ctxMail); setCtxMenu(null); setTimeout(() => replyRef.current?.focus(), 100); }} style={ctxStyle}>↩↩ Reply All</div>
+              <div onClick={() => {
+                const sender = ctxMail.from?.emailAddress?.name || ctxMail.from?.emailAddress?.address || "";
+                const date = ctxMail.receivedDateTime ? new Date(ctxMail.receivedDateTime).toLocaleString() : "";
+                const origSubject = ctxMail.subject || "";
+                const fwSubject = origSubject.startsWith("Fw:") || origSubject.startsWith("FW:") ? origSubject : `Fw: ${origSubject}`;
+                const fwBody = `<br/><hr/><p style="font-size:12px;color:#475569"><b>From:</b> ${sender}<br/><b>Date:</b> ${date}<br/><b>Subject:</b> ${origSubject}</p><p>${ctxMail.bodyPreview || ""}</p>`;
+                setComposeOpen(true); setComposeSubject(fwSubject); setComposeBody(fwBody); setComposeTo(""); setSendError(null); setCtxMenu(null);
+              }} style={ctxStyle}>↪ Forward</div>
+              <div style={{ height: 1, background: C.border }} />
+              <div onClick={() => { setDeletedMessages(prev => [ctxMail, ...prev]); deleteEmail(ctxMail.id); setCtxMenu(null); }}
+                style={{ ...ctxStyle, color: C.error }}>🗑 Delete</div>
+            </div>
+          );
+        })()}
 
         {/* ── COMPOSE MODAL (floating bottom-right) ────────────────────────────── */}
         {composeOpen && (
@@ -751,14 +887,32 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
                 </div>
                 <div>
                   <div style={{ fontSize: 11, color: C.text3, marginBottom: 3 }}>Body</div>
-                  <textarea value={composeBody} onChange={e => setComposeBody(e.target.value)} rows={8}
-                    style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 10px", color: C.text1, fontSize: 13, outline: "none", fontFamily: "inherit", resize: "vertical" as const, minHeight: 140, boxSizing: "border-box" as const }}
-                    placeholder="Type your message…" />
+                  <RichTextEditor value={composeBody} onChange={html => setComposeBody(html)} placeholder="Type your message…" />
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: C.text3, marginBottom: 3, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span>Attachments {composeAttachments.length > 0 && <span style={{ color: C.text2 }}>({composeAttachments.length}, {(composeAttachments.reduce((s, a) => s + a.size, 0) / 1024).toFixed(0)} KB / 3 MB)</span>}</span>
+                    <label style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", color: C.info, fontSize: 11, cursor: "pointer" }}>
+                      📎 Add files
+                      <input type="file" multiple style={{ display: "none" }} onChange={e => { pickComposeAttachments(e.target.files); (e.target as HTMLInputElement).value = ""; }} disabled={composeAttachLoading} />
+                    </label>
+                  </div>
+                  {composeAttachLoading && <div style={{ fontSize: 11, color: C.text3 }}>Encoding…</div>}
+                  {composeAttachments.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+                      {composeAttachments.map((a, i) => (
+                        <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 8px", fontSize: 11, color: C.text1 }}>
+                          📄 {a.name} <span style={{ color: C.text3 }}>({(a.size / 1024).toFixed(0)} KB)</span>
+                          <button onClick={() => setComposeAttachments(prev => prev.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: C.text3, cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1 }}>✕</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
               {/* Modal footer */}
               <div style={{ padding: "10px 16px", borderTop: `1px solid ${C.border}`, display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                <button onClick={() => { setComposeOpen(false); setSendError(null); setComposeTo(""); setComposeSubject(""); setComposeBody(""); }}
+                <button onClick={() => { setComposeOpen(false); setSendError(null); setComposeTo(""); setComposeSubject(""); setComposeBody(""); setComposeAttachments([]); }}
                   style={{ padding: "7px 16px", borderRadius: 7, border: `1px solid ${C.border}`, background: "none", color: C.text3, cursor: "pointer", fontFamily: "inherit" }}>Discard</button>
                 <button onClick={sendEmail} disabled={!composeTo.trim() || !composeSubject.trim()}
                   style={{ padding: "7px 18px", background: `linear-gradient(135deg, ${C.outlook}, ${C.outlookLt})`, border: "none", borderRadius: 7, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", opacity: (!composeTo.trim() || !composeSubject.trim()) ? 0.5 : 1 }}>
