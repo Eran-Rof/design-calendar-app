@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { TH } from "../utils/theme";
 import { S } from "../utils/styles";
-import { BRANDS, CATEGORIES } from "../utils/constants";
+import { BRANDS, CATEGORIES, GENDERS } from "../utils/constants";
 import { getBrand } from "../utils/dates";
 import { Modal } from "./Modal";
 
