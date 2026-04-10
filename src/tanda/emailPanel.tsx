@@ -340,7 +340,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
         {/* ── SIDEBAR (220px) */}
         <div style={{ width: 220, minWidth: 220, background: C.bg1, borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           {/* Row 1: New Message — matches middle-panel header row */}
-          <div style={{ padding: "12px 10px 8px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center" }}>
+          <div style={{ padding: "0 10px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", height: 46 }}>
             <button
               onClick={() => { emSet("emailComposeOpen", true); emSet("emailComposeSubject", emailSelPO ? emailGetPrefix(emailSelPO) + " " : ""); emSet("emailSendErr", null); }}
               disabled={!emailToken}
@@ -349,8 +349,8 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
             </button>
           </div>
           {/* Row 2: Search POs — matches middle-panel search row */}
-          <div style={{ padding: "8px 10px", borderBottom: `1px solid ${C.border}` }}>
-            <div style={{ position: "relative" }}>
+          <div style={{ padding: "0 10px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", height: 48 }}>
+            <div style={{ position: "relative", width: "100%" }}>
               <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: C.text3, fontSize: 13, pointerEvents: "none" }}>⌕</span>
               <input value={emailPOSearch} onChange={e => emSet("emailPOSearch", e.target.value)} placeholder="Search POs…"
                 style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 10px 6px 28px", color: C.text1, fontSize: 12, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const, height: 32 }} />
@@ -497,7 +497,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
 
         {/* ── EMAIL LIST (295px) */}
         <div style={{ width: 295, minWidth: 295, background: C.bg1, borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column" }}>
-          <div style={{ padding: "12px 12px 8px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ padding: "0 12px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", height: 46 }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: C.text1 }}>
               {isGlobal
                 ? (emailGlobalView === "unread" ? "Unread" : emailGlobalView === "deleted" ? "Deleted Items" : "All POs")
@@ -509,8 +509,8 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
               onClick={() => { if (isGlobal) loadAllPOEmailStats(); else if (emailSelPO) { if (emailActiveFolder === "inbox") loadPOEmails(emailSelPO); else loadPOSentEmails(emailSelPO); } }}>↻</button>
           </div>
 
-          <div style={{ padding: "8px 10px", borderBottom: `1px solid ${C.border}` }}>
-            <div style={{ position: "relative" }}>
+          <div style={{ padding: "0 10px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", height: 48 }}>
+            <div style={{ position: "relative", width: "100%" }}>
               <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: C.text3, fontSize: 13, pointerEvents: "none" }}>⌕</span>
               <input style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 10px 6px 28px", color: C.text1, fontSize: 12, outline: "none", boxSizing: "border-box" as const, fontFamily: "inherit", height: 32 }}
                 placeholder="Search…" value={emailSearchQuery} onChange={e => emSet("emailSearchQuery", e.target.value)} />
