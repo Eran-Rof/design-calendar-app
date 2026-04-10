@@ -398,7 +398,7 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
   }
 
   const selectedColl = selectedCollKey ? collMap[selectedCollKey] : null;
-  const brand = selectedColl ? getBrand(selectedColl.brand) : null;
+  const brand = selectedColl ? (getBrand(selectedColl.brand) || { id: "unknown", name: "Unknown", color: "#6B7280", short: "?" }) : null;
   const mapping = selectedCollKey ? channelMap[selectedCollKey] : null;
   const msgs = (selectedCollKey ? messages[selectedCollKey] : null) || [];
   const isLoadingMsgs = selectedCollKey ? !!loading[selectedCollKey] : false;
@@ -460,7 +460,7 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
           {teamsTab === "channels" && (
             <div style={{ flex: 1, overflowY: "auto" }}>
               {collList.map(c => {
-                const b = getBrand(c.brand);
+                const b = getBrand(c.brand) || { id: "unknown", name: "Unknown", color: "#6B7280", short: "?" };
                 const hasCh = !!channelMap[c.key];
                 const isSelected = selectedCollKey === c.key;
                 const msgCount = (messages[c.key] || []).length;

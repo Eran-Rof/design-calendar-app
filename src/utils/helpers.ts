@@ -122,7 +122,7 @@ export function generateTasks({
   // Vendor can override daysBeforeDDP per phase via vendor.leadOverrides
   const vendorOverrides = vendor?.leadOverrides || {};
 
-  const isPrivate = getBrand(brand).isPrivateLabel;
+  const isPrivate = getBrand(brand)?.isPrivateLabel || false;
 
   // Build phases from templates
   let phases = templates.map((tpl: any) => {

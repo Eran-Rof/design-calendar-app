@@ -362,7 +362,7 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
   useEffect(() => {
     if (!selectedCollKey || !token) return;
     let p = getPrefix(selectedCollKey);
-    if (!p && collMap[selectedCollKey]) {
+    if (!p && collMap && collMap[selectedCollKey]?.collection) {
       p = "[" + collMap[selectedCollKey].collection + "]";
       mapPrefix(selectedCollKey, p);
     }

@@ -45,7 +45,7 @@ function TaskEditModal({
   const collKey = `${task.brand}||${task.collection}`;
   const collData = collections[collKey] || {};
   const skus = collData.skus || [];
-  const brand = getBrand(task.brand);
+  const brand = getBrand(task.brand) || { id: "unknown", name: "Unknown", color: "#6B7280", short: "?" };
   const canEdit =
     currentUser.role === "admin" ||
     currentUser.permissions?.edit_all ||

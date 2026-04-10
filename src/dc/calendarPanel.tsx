@@ -372,7 +372,7 @@ export function calendarPanel(ctx: CalendarCtx): React.ReactElement | null {
                   </div>
                 )}
                 {dt.slice(0, 3).map((t) => {
-                  const b = getBrand(t.brand),
+                  const b = getBrand(t.brand) || { id: "unknown", name: "Unknown", color: "#6B7280", short: "?" },
                     assignee = team.find((m) => m.id === t.assigneeId),
                     isDDP = t.phase === "DDP";
                   const collKey = `${t.brand}||${t.collection}`;

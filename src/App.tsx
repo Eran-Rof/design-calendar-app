@@ -78,6 +78,8 @@ function App() {
     if (saveErrTimer.current) clearTimeout(saveErrTimer.current);
     saveErrTimer.current = setTimeout(() => setSaveErr(""), 5000);
   }
+  // Clear save-error timer on unmount to prevent setState on dead component
+  useEffect(() => () => { if (saveErrTimer.current) clearTimeout(saveErrTimer.current); }, []);
 
   // ── Key-value store for reference data (users, brands, vendors etc) ───────
   async function sbSave(key, value) {
