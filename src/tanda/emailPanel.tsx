@@ -730,7 +730,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
                 </div>
                 <textarea
                   style={{ width: "100%", minHeight: 72, background: "transparent", border: "none", color: C.text1, fontSize: 13, fontFamily: "inherit", resize: "none" as const, outline: "none", lineHeight: 1.6, boxSizing: "border-box" as const }}
-                  placeholder="Write a reply…" value={emailReplyText} onChange={e => emSet("emailReplyText", e.target.value)} />
+                  data-reply-box placeholder="Write a reply…" value={emailReplyText} onChange={e => emSet("emailReplyText", e.target.value)} />
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
                   <button onClick={() => emSet("emailReplyText", "")} style={{ padding: "7px 14px", borderRadius: 7, border: `1px solid ${C.border}`, background: "none", color: C.text3, cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}>Discard</button>
                   <button onClick={() => { if (selEmailObj) doReply(selEmailObj.id, emailReplyText); }}
@@ -851,24 +851,55 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
         )}
 
         {/* ── CONTEXT MENU */}
-        {emailCtxMenu && (
-          <div style={{ position: "fixed", top: emailCtxMenu.y, left: emailCtxMenu.x, zIndex: 2000, background: C.bg2, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "4px 0", boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 170 }}
-            onClick={e => e.stopPropagation()}>
-            <div style={{ padding: "8px 16px", fontSize: 12, color: C.text1, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
-              onClick={() => { emSet("emailSelectedId", emailCtxMenu.em.id); loadFullEmail(emailCtxMenu.em.id); if (emailCtxMenu.em.conversationId) loadEmailThread(emailCtxMenu.em.conversationId); emSet("emailCtxMenu", null); }}>
-              ↩ Reply
+        {emailCtxMenu && (() => {
+          const ctxMail = emailCtxMenu.em;
+          const selectAndLoad = () => {
+            emSet("emailSelectedId", ctxMail.id);
+            loadFullEmail(ctxMail.id);
+            if (ctxMail.conversationId) loadEmailThread(ctxMail.conversationId);
+            if (ctxMail.hasAttachments) loadEmailAttachments(ctxMail.id);
+          };
+          const ctxItemStyle: React.CSSProperties = { padding: "8px 16px", fontSize: 12, color: C.text1, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 };
+          return (
+            <div style={{ position: "fixed", top: emailCtxMenu.y, left: emailCtxMenu.x, zIndex: 2000, background: C.bg2, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "4px 0", boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 170 }}
+              onClick={e => e.stopPropagation()}>
+              <div style={ctxItemStyle}
+                onClick={() => { selectAndLoad(); emSet("emailReplyText", ""); emSet("emailCtxMenu", null); setTimeout(() => { document.querySelector<HTMLTextAreaElement>("[data-reply-box]")?.focus(); }, 100); }}>
+                ↩ Reply
+              </div>
+              <div style={ctxItemStyle}
+                onClick={() => { selectAndLoad(); emSet("emailReplyText", ""); emSet("emailCtxMenu", null); setTimeout(() => { document.querySelector<HTMLTextAreaElement>("[data-reply-box]")?.focus(); }, 100); }}>
+                ↩↩ Reply All
+              </div>
+              <div style={ctxItemStyle}
+                onClick={() => {
+                  const sender = ctxMail.from?.emailAddress?.name || ctxMail.from?.emailAddress?.address || "";
+                  const date = ctxMail.receivedDateTime ? new Date(ctxMail.receivedDateTime).toLocaleString() : "";
+                  const origSubject = ctxMail.subject || "";
+                  const fwSubject = origSubject.startsWith("Fw:") || origSubject.startsWith("FW:") ? origSubject : `Fw: ${origSubject}`;
+                  const fwBody = `<br/><hr/><p style="font-size:12px;color:#475569"><b>From:</b> ${sender}<br/><b>Date:</b> ${date}<br/><b>Subject:</b> ${origSubject}</p><p>${ctxMail.bodyPreview || ""}</p>`;
+                  emSet("emailComposeOpen", true);
+                  emSet("emailComposeSubject", fwSubject);
+                  emSet("emailComposeBody", fwBody);
+                  emSet("emailComposeTo", "");
+                  emSet("emailSendErr", null);
+                  emSet("emailCtxMenu", null);
+                }}>
+                ↪ Forward
+              </div>
+              <div style={{ height: 1, background: C.border, margin: "3px 0" }} />
+              <div style={{ ...ctxItemStyle, color: C.error }}
+                onClick={() => {
+                  // Move to Deleted Items immediately (no confirmation)
+                  emSetFn("emailDeletedMessages", (arr: any[]) => [ctxMail, ...(arr || [])]);
+                  deleteMainEmail(ctxMail.id);
+                  emSet("emailCtxMenu", null);
+                }}>
+                🗑 Delete
+              </div>
             </div>
-            <div style={{ padding: "8px 16px", fontSize: 12, color: C.text1, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
-              onClick={() => { emSet("emailSelectedId", emailCtxMenu.em.id); loadFullEmail(emailCtxMenu.em.id); if (emailCtxMenu.em.conversationId) loadEmailThread(emailCtxMenu.em.conversationId); emSet("emailCtxMenu", null); }}>
-              ↩↩ Reply All
-            </div>
-            <div style={{ height: 1, background: C.border, margin: "3px 0" }} />
-            <div style={{ padding: "8px 16px", fontSize: 12, color: C.error, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
-              onClick={() => { emSet("emailDeleteConfirm", emailCtxMenu.em.id); emSet("emailSelectedId", emailCtxMenu.em.id); emSet("emailCtxMenu", null); }}>
-              🗑️ Delete
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
     </div>
   );
