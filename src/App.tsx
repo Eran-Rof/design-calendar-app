@@ -115,6 +115,7 @@ function App() {
   async function sbSaveTask(task) {
     try {
       // Conflict check: fetch current server version
+      if (!currentUser) return;
       const checkRes = await fetch(`${SB_URL}/rest/v1/tasks?id=eq.${task.id}&select=data`, {
         headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` },
       });
@@ -163,6 +164,7 @@ function App() {
 
   // ── Individual row operations for collections ─────────────────────────────
   async function sbSaveCollection(key, data) {
+    if (!currentUser) return;
     try {
       await fetch(`${SB_URL}/rest/v1/collections`, {
         method: "POST",

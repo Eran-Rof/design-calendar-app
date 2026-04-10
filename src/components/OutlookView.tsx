@@ -253,10 +253,20 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
   async function emptyDeletedFolder() {
     if (!token || deletedMessages.length === 0) return;
     setDeletedLoading(true);
+    const failures: string[] = [];
     for (const m of deletedMessages) {
-      try { await graphDelete("/me/messages/" + m.id); } catch {}
+      try {
+        if (!tokenIsValid()) { failures.push(m.id); continue; }
+        await graphDelete("/me/messages/" + m.id);
+      } catch { failures.push(m.id); }
     }
-    setDeletedMessages([]);
+    if (failures.length > 0) {
+      // Keep failed messages in state so user can retry
+      setDeletedMessages(prev => prev.filter(m => failures.includes(m.id)));
+      console.warn(`emptyDeletedFolder: ${failures.length} message(s) failed to delete`);
+    } else {
+      setDeletedMessages([]);
+    }
     setDeletedLoading(false);
   }
 
@@ -343,11 +353,11 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
     }).catch(() => {});
   }, []);
 
-  // Auto-load email stats + deleted folder on auth
+  // Auto-load email stats on auth, refresh every 2 min (only if token still valid)
   useEffect(() => {
     if (!token) return;
     loadAllCollectionStats();
-    const id = setInterval(loadAllCollectionStats, 120000);
+    const id = setInterval(() => { if (tokenIsValid()) loadAllCollectionStats(); }, 120000);
     return () => clearInterval(id);
   }, [token]);
 
