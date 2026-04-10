@@ -41,11 +41,11 @@ function FilterBar({
     ...[...filterVendor].map(v => ({ label: v, clear: () => toggle(setFilterVendor, v) })),
   ];
 
-  const Section = ({ title, items, filterSet, setFilter, getKey, getLabel, getColor }) => {
+  function renderSection(title, items, filterSet, setFilter, getKey, getLabel, getColor) {
     const isOpen = openSection === title;
     const activeCount = items.filter(i => filterSet.has(getKey(i))).length;
     return (
-      <div>
+      <div key={title}>
         <button
           onClick={() => setOpenSection(isOpen ? null : title)}
           style={{
@@ -91,7 +91,7 @@ function FilterBar({
         )}
       </div>
     );
-  };
+  }
 
   const divider = <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "2px 0" }} />;
 
@@ -119,13 +119,13 @@ function FilterBar({
         </button>
         {open && (
           <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, background: "#1A202C", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, boxShadow: "0 8px 32px rgba(0,0,0,0.45)", minWidth: 200, zIndex: 999, paddingBottom: 8 }}>
-            <Section title="Brand" items={brands} filterSet={filterBrand} setFilter={setFilterBrand} getKey={b => b.id} getLabel={b => b.name} getColor={b => b.color} />
+            {renderSection("Brand", brands, filterBrand, setFilterBrand, b => b.id, b => b.name, b => b.color)}
             {divider}
-            <Section title="Season" items={seasons} filterSet={filterSeason} setFilter={setFilterSeason} getKey={s => s} getLabel={s => s} getColor={null} />
+            {renderSection("Season", seasons, filterSeason, setFilterSeason, s => s, s => s, null)}
             {divider}
-            <Section title="Customer" items={customers.map(c => typeof c === "string" ? c : c.name)} filterSet={filterCustomer} setFilter={setFilterCustomer} getKey={c => c} getLabel={c => c} getColor={null} />
+            {renderSection("Customer", customers.map(c => typeof c === "string" ? c : c.name), filterCustomer, setFilterCustomer, c => c, c => c, null)}
             {divider}
-            <Section title="Vendor" items={vendors.map(v => v.name)} filterSet={filterVendor} setFilter={setFilterVendor} getKey={v => v} getLabel={v => v} getColor={null} />
+            {renderSection("Vendor", vendors.map(v => v.name), filterVendor, setFilterVendor, v => v, v => v, null)}
             {hasActive && (
               <div style={{ padding: "8px 14px 0", borderTop: "1px solid rgba(255,255,255,0.08)", marginTop: 4 }}>
                 <button
