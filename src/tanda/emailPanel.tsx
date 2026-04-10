@@ -346,66 +346,60 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
               style={{ width: "100%", padding: "8px 0", background: emailToken ? `linear-gradient(135deg, ${C.outlook}, ${C.outlookLt})` : C.bg2, border: "none", borderRadius: 8, color: emailToken ? "#fff" : C.text3, fontSize: 13, fontWeight: 500, cursor: emailToken ? "pointer" : "default", display: "flex", alignItems: "center", gap: 8, justifyContent: "center", fontFamily: "inherit" }}>
               ✎ New Message
             </button>
-            <input value={emailPOSearch} onChange={e => emSet("emailPOSearch", e.target.value)} placeholder="🔍 Search POs…"
-              style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 10px", color: C.text1, fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const, marginTop: 8 }} />
+            <div style={{ position: "relative", marginTop: 8 }}>
+              <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: C.text3, fontSize: 12, pointerEvents: "none" }}>⌕</span>
+              <input value={emailPOSearch} onChange={e => emSet("emailPOSearch", e.target.value)} placeholder="Search POs…"
+                style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 10px 6px 28px", color: C.text1, fontSize: 12, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const }} />
+            </div>
           </div>
 
-          {/* ── Folders: Inbox / Unread / Sent / Deleted ── */}
+          {/* ── Folders: Inbox / Unread / Sent / Deleted / All POs ── */}
           {emailToken && (() => {
             const totalUnread = emailAllMessages.filter((m: any) => !m.isRead).length;
             const inboxUnreadForPO = emailSelPO ? (emailsMap[emailSelPO] || []).filter((e: any) => !e.isRead).length : 0;
-            type FolderRow = { key: string; label: string; icon: string; count: number; active: boolean; onClick: () => void; canEmpty?: boolean };
+            const SZ = 18;
+            // Outlook 365-style SVG icons, all 18×18
+            const iconInbox = (c: string) => <svg width={SZ} height={SZ} viewBox="0 0 20 20" fill="none"><path d="M3 4.5A1.5 1.5 0 0 1 4.5 3h11A1.5 1.5 0 0 1 17 4.5V10h-3.5a1 1 0 0 0-.8.4L11.5 12h-3l-1.2-1.6a1 1 0 0 0-.8-.4H3V4.5Z" stroke={c} strokeWidth="1.3" fill="none"/><path d="M3 10v5.5A1.5 1.5 0 0 0 4.5 17h11a1.5 1.5 0 0 0 1.5-1.5V10" stroke={c} strokeWidth="1.3" fill="none"/></svg>;
+            const iconUnread = (c: string) => <svg width={SZ} height={SZ} viewBox="0 0 20 20" fill="none"><rect x="2" y="4" width="16" height="12" rx="1.5" stroke={c} strokeWidth="1.3" fill="none"/><path d="M2 5.5l8 5 8-5" stroke={c} strokeWidth="1.3" fill="none"/><circle cx="16" cy="5" r="3" fill={C.outlook} stroke={C.bg1} strokeWidth="1"/></svg>;
+            const iconSent = (c: string) => <svg width={SZ} height={SZ} viewBox="0 0 20 20" fill="none"><path d="M3 10l14-6-4 14-3-5.5L3 10Z" stroke={c} strokeWidth="1.3" fill="none" strokeLinejoin="round"/><path d="M10 12.5L17 4" stroke={c} strokeWidth="1" fill="none"/></svg>;
+            const iconDeleted = (c: string) => <svg width={SZ} height={SZ} viewBox="0 0 20 20" fill="none"><path d="M5 6h10l-1 11H6L5 6Z" stroke={c} strokeWidth="1.3" fill="none" strokeLinejoin="round"/><path d="M3 6h14" stroke={c} strokeWidth="1.3"/><path d="M8 3h4v2H8z" stroke={c} strokeWidth="1" fill="none"/></svg>;
+            const iconFolder = (c: string) => <svg width={SZ} height={SZ} viewBox="0 0 20 20" fill="none"><path d="M2 5a1.5 1.5 0 0 1 1.5-1.5H7L9 5.5h8.5A1.5 1.5 0 0 1 19 7v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 1 15V5Z" stroke={c} strokeWidth="1.3" fill="none"/></svg>;
+            type FolderRow = { key: string; label: string; icon: (c: string) => React.ReactNode; count: number; active: boolean; onClick: () => void; canEmpty?: boolean };
             const rows: FolderRow[] = [
               {
-                key: "inbox",
-                label: "Inbox",
-                icon: "📥",
-                count: inboxUnreadForPO,
+                key: "inbox", label: "Inbox", icon: iconInbox, count: inboxUnreadForPO,
                 active: !isGlobal && emailActiveFolder === "inbox",
                 onClick: () => { emSet("emailGlobalView", "po"); emSet("emailActiveFolder", "inbox"); emSet("emailSelectedId", null); emSet("emailSelMsg", null); emSet("emailThreadMsgs", []); },
               },
               {
-                key: "unread",
-                label: "Unread",
-                icon: "✉",
-                count: totalUnread,
+                key: "unread", label: "Unread", icon: iconUnread, count: totalUnread,
                 active: emailGlobalView === "unread",
                 onClick: () => { emSet("emailGlobalView", "unread"); emSet("emailSelPO", null); emSet("emailSelectedId", null); emSet("emailSelMsg", null); emSet("emailThreadMsgs", []); emSet("emailActiveFolder", "inbox"); },
               },
               {
-                key: "sent",
-                label: "Sent",
-                icon: "📤",
-                count: 0,
+                key: "sent", label: "Sent", icon: iconSent, count: 0,
                 active: !isGlobal && emailActiveFolder === "sent",
                 onClick: () => { emSet("emailGlobalView", "po"); emSet("emailActiveFolder", "sent"); emSet("emailSelectedId", null); emSet("emailSelMsg", null); emSet("emailThreadMsgs", []); if (emailSelPO) loadPOSentEmails(emailSelPO); },
               },
               {
-                key: "deleted",
-                label: "Deleted",
-                icon: "🗑",
-                count: emailDeletedMessages.length,
-                active: emailGlobalView === "deleted",
-                canEmpty: true,
+                key: "deleted", label: "Deleted", icon: iconDeleted, count: emailDeletedMessages.length,
+                active: emailGlobalView === "deleted", canEmpty: true,
                 onClick: () => { emSet("emailGlobalView", "deleted"); emSet("emailSelPO", null); emSet("emailSelectedId", null); emSet("emailSelMsg", null); emSet("emailThreadMsgs", []); emSet("emailActiveFolder", "inbox"); loadDeletedFolder(); },
               },
               {
-                key: "all",
-                label: "All POs",
-                icon: "📁",
-                count: emailAllMessages.length,
+                key: "all", label: "All POs", icon: iconFolder, count: emailAllMessages.length,
                 active: emailGlobalView === "all",
                 onClick: () => { emSet("emailGlobalView", "all"); emSet("emailSelPO", null); emSet("emailSelectedId", null); emSet("emailSelMsg", null); emSet("emailThreadMsgs", []); emSet("emailActiveFolder", "inbox"); },
               },
             ];
             return (
-              <div style={{ padding: "0 6px 4px" }}>
+              <div style={{ padding: "4px 6px" }}>
                 {rows.map(r => (
                   <div key={r.key}
                     onClick={r.onClick}
                     onContextMenu={r.canEmpty ? (e => { e.preventDefault(); emSet("emailFolderCtxMenu", { x: e.clientX, y: e.clientY, folder: r.key }); }) : undefined}
                     style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 7, margin: "1px 0", cursor: "pointer", fontSize: 12, background: r.active ? C.outlookDim : "transparent", color: r.active ? C.info : C.text2, border: r.active ? "1px solid rgba(96,165,250,0.2)" : "1px solid transparent", transition: "all 0.1s" }}>
-                    <span style={{ width: 14, textAlign: "center" as const, color: r.key === "unread" ? C.outlook : C.text3 }}>{r.icon}</span>
+                    <span style={{ width: 18, height: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>{r.icon(r.active ? C.info : C.text3)}</span>
                     <span style={{ flex: 1 }}>{r.label}</span>
                     {r.count > 0 && (
                       <span style={{ background: r.key === "unread" ? C.outlook : C.bg3, color: r.key === "unread" ? "#fff" : C.text2, fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 10, minWidth: 16, textAlign: "center" as const }}>
@@ -502,7 +496,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
           <div style={{ padding: "12px 12px 8px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: C.text1 }}>
               {isGlobal
-                ? (emailGlobalView === "unread" ? "Unread" : "All POs")
+                ? (emailGlobalView === "unread" ? "Unread" : emailGlobalView === "deleted" ? "Deleted Items" : "All POs")
                 : (emailActiveFolder === "inbox" ? "Inbox" : "Sent")}
               {emailSelPO && !isGlobal && <span style={{ fontSize: 11, color: C.text3, marginLeft: 6, fontWeight: 400 }}>· PO {emailSelPO}</span>}
               {isGlobal && <span style={{ fontSize: 11, color: C.text3, marginLeft: 6, fontWeight: 400 }}>· {inboxEmails.length}</span>}
@@ -637,18 +631,16 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
                     onClick={() => emD({ type: "TOGGLE_FLAGGED", id: emailSelectedId })}>
                     <span style={{ color: emailFlaggedSet.has(emailSelectedId) ? C.warning : C.text3 }}>{emailFlaggedSet.has(emailSelectedId) ? "★" : "☆"}</span>
                   </button>
-                  <button style={{ ...iconBtn, color: C.error }} title="Delete" onClick={() => emSet("emailDeleteConfirm", emailSelectedId)}>🗑️</button>
+                  <button style={{ ...iconBtn, color: C.error }} title="Move to Deleted Items" onClick={() => {
+                    // Move immediately — no confirmation. Add to deleted folder state dynamically.
+                    const msg = selEmailObj;
+                    if (msg) {
+                      emSetFn("emailDeletedMessages", (arr: any[]) => [msg, ...(arr || [])]);
+                    }
+                    deleteMainEmail(emailSelectedId);
+                  }}>🗑️</button>
                 </div>
               </div>
-
-              {emailDeleteConfirm === emailSelectedId && (
-                <div style={{ background: C.errorDim, borderBottom: `1px solid rgba(239,68,68,0.3)`, padding: "8px 18px", display: "flex", alignItems: "center", gap: 12 }}>
-                  <span style={{ fontSize: 13, color: C.error, flex: 1 }}>Move this message to Deleted Items?</span>
-                  <button onClick={() => deleteMainEmail(emailSelectedId)}
-                    style={{ padding: "7px 14px", background: C.errorDim, border: `1px solid rgba(239,68,68,0.3)`, borderRadius: 7, color: C.error, fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}>Delete</button>
-                  <button style={{ ...iconBtn, color: C.text2 }} onClick={() => emSet("emailDeleteConfirm", null)}>✕</button>
-                </div>
-              )}
 
               {emailSendErr && (
                 <div style={{ background: C.bg1, borderBottom: `1px solid ${C.error}44`, padding: "8px 18px", display: "flex", alignItems: "center", gap: 12 }}>
@@ -827,16 +819,31 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
             onMouseDown={e => e.stopPropagation()}>
             <div style={{ padding: "8px 16px", fontSize: 12, color: C.error, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
               onClick={() => {
-                if (emailDeletedMessages.length === 0) {
-                  emSet("emailFolderCtxMenu", null);
-                  return;
-                }
-                if (window.confirm(`Permanently delete all ${emailDeletedMessages.length} message(s) in Deleted Items?\n\nThis cannot be undone.`)) {
-                  emptyDeletedFolder();
-                }
                 emSet("emailFolderCtxMenu", null);
+                if (emailDeletedMessages.length > 0) emSet("emailDeleteConfirm", "__empty_deleted__");
               }}>
-              🗑 Empty folder (permanently delete)
+              🗑 Empty folder
+            </div>
+          </div>
+        )}
+
+        {/* ── EMPTY DELETED CONFIRM MODAL ── */}
+        {emailDeleteConfirm === "__empty_deleted__" && (
+          <div style={{ position: "absolute", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }}
+            onClick={() => emSet("emailDeleteConfirm", null)}>
+            <div style={{ background: C.bg1, border: `1px solid ${C.border2}`, borderRadius: 12, padding: "24px 28px", boxShadow: "0 12px 40px rgba(0,0,0,0.6)", maxWidth: 360, textAlign: "center" }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 36, marginBottom: 12 }}>🗑</div>
+              <h3 style={{ color: C.text1, margin: "0 0 8px", fontSize: 16, fontWeight: 600 }}>Empty Deleted Items?</h3>
+              <p style={{ color: C.text2, fontSize: 13, margin: "0 0 18px", lineHeight: 1.5 }}>
+                Permanently delete {emailDeletedMessages.length > 1 ? `all ${emailDeletedMessages.length} messages` : "this message"} in Deleted Items. This cannot be undone.
+              </p>
+              <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+                <button onClick={() => emSet("emailDeleteConfirm", null)}
+                  style={{ padding: "8px 18px", borderRadius: 8, border: `1px solid ${C.border}`, background: "none", color: C.text2, cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}>Cancel</button>
+                <button onClick={() => { emptyDeletedFolder(); emSet("emailDeleteConfirm", null); }}
+                  style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: C.error, color: "#fff", cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 600 }}>Delete All</button>
+              </div>
             </div>
           </div>
         )}
