@@ -189,7 +189,7 @@ export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
                 ].map((s) => (
                   <button
                     key={s.label}
-                    onClick={(e) => { e.stopPropagation(); setStatFilter(s.id); }}
+                    onClick={(e) => { e.stopPropagation(); alert("Stat card: " + s.id); setStatFilter(s.id); }}
                     style={{
                       background: s.bg,
                       border: `1px solid ${s.bdr}`,
