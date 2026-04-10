@@ -50,7 +50,7 @@ export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
     const showCollections = !statFilter || statFilter === "collections";
 
     return (
-      <div onClick={() => setCtxMenu(null)}>
+      <div onClick={() => { if (ctxMenu) setCtxMenu(null); }}>
         {overdue.length > 0 && !statFilter && (
           <div
             style={{
