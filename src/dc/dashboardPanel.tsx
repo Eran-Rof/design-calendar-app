@@ -154,13 +154,16 @@ export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
             {/* Stat summary cards — only when no filter active */}
             {!statFilter && (
               <div
+                onClick={(e) => alert("Grid container clicked!")}
                 style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(3,1fr)",
                   gap: 16,
                   marginBottom: 28,
+                  position: "relative",
                 }}
               >
+                <button onClick={(e) => { e.stopPropagation(); alert("Inside grid!"); }} style={{ position: "absolute", top: -30, left: 0, background: "purple", color: "white", padding: 5, zIndex: 9999 }}>DEBUG: Inside Grid</button>
                 {[
                   {
                     id: "overdue",
