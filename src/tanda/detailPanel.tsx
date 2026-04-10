@@ -94,6 +94,7 @@ function MilestoneDateInput({ value, onCommit, style }: { value: string; onCommi
     let y = view.y, m = view.m + delta;
     while (m < 0) { m += 12; y -= 1; }
     while (m > 11) { m -= 12; y += 1; }
+    y = Math.max(2020, Math.min(2035, y));
     setView({ y, m });
   };
 
@@ -303,7 +304,7 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
                 <button style={{ ...S.btnPrimary, flex: 2 }} onClick={async () => {
                   const copyEl = document.getElementById("modalCopyFrom") as HTMLSelectElement;
                   const copyFrom = copyEl?.value || "__default__";
-                  const source = getVendorTemplates(copyFrom === "__default__" ? undefined : copyFrom);
+                  const source = getVendorTemplates(copyFrom === "__default__" ? undefined : copyFrom) || [];
                   const newTpls = source.map(t => ({ ...t, id: milestoneUid() }));
                   await saveVendorTemplates(vendorN, newTpls);
                   setShowCreateTpl(null);
