@@ -42,6 +42,7 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = 140 }
   }, [value]);
 
   const updateActive = () => {
+    if (!ref.current) return;
     try {
       setActive({
         bold: document.queryCommandState("bold"),

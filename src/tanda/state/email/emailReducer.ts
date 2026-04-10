@@ -19,7 +19,7 @@ export function emailReducer(state: EmailState, action: EmailAction): EmailState
       return { ...state, emailComposeTo: "", emailComposeSubject: "", emailComposeBody: "", emailSendErr: null };
 
     case "EMAIL_RESET_DETAIL":
-      return { ...state, dtlComposeTo: "", dtlComposeSubject: "", dtlComposeBody: "", dtlSendErr: null, dtlReply: "" };
+      return { ...state, dtlComposeTo: "", dtlComposeSubject: "", dtlComposeBody: "", dtlSendErr: null, dtlReply: "", dtlEmailSel: null, dtlEmailThread: [], dtlThreadLoading: false };
 
     case "TOGGLE_FLAGGED": {
       const next = new Set(state.emailFlaggedSet);

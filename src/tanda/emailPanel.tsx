@@ -175,7 +175,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
       return tb - ta;
     });
 
-  const selEmailObj = emailSelectedId ? (activeList.find((e: any) => e.id === emailSelectedId) || emailSelMsg) : emailSelMsg;
+  const selEmailObj = emailSelectedId ? ((activeList || []).find((e: any) => e.id === emailSelectedId) || emailSelMsg) : (emailSelMsg || null);
 
   // Config view
   if (showEmailConfig) return (

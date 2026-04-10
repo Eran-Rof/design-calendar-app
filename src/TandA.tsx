@@ -471,6 +471,8 @@ function TandAApp() {
   const emailCtxMenu = em.emailCtxMenu;
   const emailAttachments = em.emailAttachments;
   const emailAttachmentsLoading = em.emailAttachmentsLoading;
+  const setEmailAllMessages = (v: any) => { if (typeof v === "function") emSet("emailAllMessages" as any, v((em as any).emailAllMessages)); else emSet("emailAllMessages" as any, v); };
+  const setEmailDeletedMessages = (v: any) => { if (typeof v === "function") emSet("emailDeletedMessages" as any, v((em as any).emailDeletedMessages)); else emSet("emailDeletedMessages" as any, v); };
   const setDtlEmails = (v: any) => { if (typeof v === "function") emSet("dtlEmails", v(em.dtlEmails)); else emSet("dtlEmails", v); };
   const setDtlEmailLoading = (v: any) => { if (typeof v === "function") emSet("dtlEmailLoading", v(em.dtlEmailLoading)); else emSet("dtlEmailLoading", v); };
   const setDtlEmailErr = (v: any) => { if (typeof v === "function") emSet("dtlEmailErr", v(em.dtlEmailErr)); else emSet("dtlEmailErr", v); };
@@ -889,8 +891,9 @@ function TandAApp() {
         setDtlEmails(m => ({ ...m, [emailSelPO]: filterOut(m[emailSelPO] || []) }));
         setDtlSentEmails(m => ({ ...m, [emailSelPO]: filterOut(m[emailSelPO] || []) }));
       }
-      // Also remove from global caches
-      emD({ type: "SET", field: "emailAllMessages", value: ((em as any).emailAllMessages || []).filter((e: any) => e.id !== messageId) });
+      // Also remove from global caches — use functional updater pattern via
+      // the SET action reading current state, not the stale em closure.
+      setEmailAllMessages((arr: any[]) => (arr || []).filter((e: any) => e.id !== messageId));
     } catch(e) { console.error("Delete email error", e); }
   }
 
@@ -2894,7 +2897,8 @@ function TandAApp() {
     try {
       const url = "/me/mailFolders/DeletedItems/messages?$top=200&$orderby=receivedDateTime desc&$select=id,subject,from,receivedDateTime,bodyPreview,conversationId,isRead,hasAttachments";
       const d = await emailGraph(url);
-      const items: any[] = (d.value || []).map((m: any) => {
+      const raw = Array.isArray(d?.value) ? d.value : [];
+      const items: any[] = raw.map((m: any) => {
         const match = (m.subject || "").match(/\[PO-([^\]]+)\]/);
         return match ? { ...m, _poNumber: match[1] } : m;
       });
@@ -2909,7 +2913,9 @@ function TandAApp() {
   // Permanently delete every message currently in Deleted Items.
   async function emptyDeletedFolder() {
     if (!msToken) return;
-    const messages = (em as any).emailDeletedMessages as any[] || [];
+    // Read current deleted messages from state via the setter pattern to avoid stale closure
+    let messages: any[] = [];
+    setEmailDeletedMessages((cur: any[]) => { messages = cur || []; return cur; });
     if (messages.length === 0) return;
     emD({ type: "SET", field: "emailDeletedLoading", value: true });
     try {
@@ -2942,7 +2948,7 @@ function TandAApp() {
     try {
       const url = `/me/mailFolders/Inbox/messages?$search=${encodeURIComponent('"[PO-"')}&$top=500&$select=id,subject,from,receivedDateTime,bodyPreview,isRead,hasAttachments,conversationId`;
       const d = await emailGraph(url);
-      const items: any[] = d.value || [];
+      const items: any[] = Array.isArray(d?.value) ? d.value : [];
       // Group by extracted PO number — subject must contain "[PO-...]"
       const stats: Record<string, { total: number; unread: number; latestDate: string; latestSubject: string; latestSender: string }> = {};
       const re = /\[PO-([^\]]+)\]/;
