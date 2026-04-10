@@ -82,6 +82,20 @@ function RichTextEditor({ value, onChange, placeholder, minHeight = 140 }: { val
           <option value="">Font…</option>
           {FONT_CHOICES.map(f => <option key={f.label} value={f.value}>{f.label}</option>)}
         </select>
+        <select
+          title="Font size"
+          onChange={e => { if (e.target.value) exec("fontSize", e.target.value); e.target.value = ""; }}
+          style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#94A3B8", fontSize: 11, padding: "3px 4px", height: 26, cursor: "pointer", width: 50 }}
+        >
+          <option value="">Size</option>
+          <option value="1">8</option>
+          <option value="2">10</option>
+          <option value="3">12</option>
+          <option value="4">14</option>
+          <option value="5">18</option>
+          <option value="6">24</option>
+          <option value="7">36</option>
+        </select>
         <div style={{ width: 1, background: "#334155", margin: "0 2px" }} />
         <button type="button" title="Bold (Ctrl+B)" style={sty(active.bold, { fontWeight: 700 })} onMouseDown={e => { e.preventDefault(); exec("bold"); }}>B</button>
         <button type="button" title="Italic (Ctrl+I)" style={sty(active.italic, { fontStyle: "italic" })} onMouseDown={e => { e.preventDefault(); exec("italic"); }}>I</button>
