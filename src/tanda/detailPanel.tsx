@@ -4,6 +4,7 @@ import { type XoroPO, type Milestone, type WipTemplate, type LocalNote, type Use
   STATUS_COLORS, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, DEFAULT_WIP_TEMPLATES,
   milestoneUid, itemQty, poTotal, normalizeSize, sizeSort, fmtDate, fmtCurrency } from "../utils/tandaTypes";
 import { styledEmailHtml } from "../utils/emailHtml";
+import { RichTextEditor, buildEmailHtml } from "./richTextEditor";
 import { MS_CLIENT_ID, MS_TENANT_ID } from "../utils/msAuth";
 import { printPODetail } from "./exportHelpers";
 import S from "./styles";
@@ -254,7 +255,7 @@ export function WipTemplateEditor({ templates, onSave }: { templates: WipTemplat
 }
 
 export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
-  const { selected, detailMode, setDetailMode, setSelected, setView, setNewNote, matrixCollapsed, setMatrixCollapsed, lineItemsCollapsed, setLineItemsCollapsed, poInfoCollapsed, setPoInfoCollapsed, progressCollapsed, setProgressCollapsed, editingNote, setEditingNote, editingNoteId, setEditingNoteId, editingNoteText, setEditingNoteText, msNoteText, setMsNoteText, expandedVariants, setExpandedVariants, addingPhase, setAddingPhase, newPhaseForm, setNewPhaseForm, acceptedBlocked, setAcceptedBlocked, blockedModal, setBlockedModal, confirmModal, setConfirmModal, collapsedCats, setCollapsedCats, showCreateTpl, setShowCreateTpl, attachments, setAttachments, attachInputRef, uploadingAttachment, setUploadingAttachment, milestones, setMilestones, wipTemplates, setWipTemplates, dcVendors, designTemplates, notes, newNote, user, emailToken, teamsToken, msDisplayName, pos, toast, setToast, handleExportPOExcel, ensureMilestones, saveMilestone, saveMilestones, generateMilestones, regenerateMilestones, cascadeDueDateChange, vendorHasTemplate, templateVendorList, getVendorTemplates, saveVendorTemplates, openCategoryWithCheck, isCatBlocked, uploadAttachment, loadAttachments, deleteAttachment, undoDeleteAttachment, purgeExpiredAttachments, addNote, editNote, deleteNote, addHistory, deletePO, setSearch, setTeamsSelPO, setTeamsTab, loadDtlEmails, loadDtlFullEmail, loadDtlThread, loadDtlSentEmails, authenticateEmail, dtlReplyToEmail, dtlSendEmail, teamsLoadPOMessages, teamsStartChat, teamsSendMessage, teamsGraphPost, teamsGraph, loadTeamsContacts, handleTeamsContactInput, teamsSendDirect, sendDmReply, loadDmMessages, msSignOut, selectedNotes, selectedHistory, dtlEmails, dtlEmailLoading, dtlEmailErr, dtlEmailSel, dtlEmailThread, dtlThreadLoading, dtlEmailTab, setDtlEmailTab, dtlSentEmails, dtlSentLoading, dtlComposeTo, setDtlComposeTo, dtlComposeSubject, setDtlComposeSubject, dtlComposeBody, setDtlComposeBody, dtlSendErr, setDtlSendErr, dtlReply, setDtlReply, dtlNextLink, dtlLoadingOlder, setDtlLoadingOlder, teamsChannelMap, teamsMessages, setTeamsMessages, teamsLoading, teamsNewMsg, setTeamsNewMsg, teamsContacts, teamsContactsLoading, teamsContactsError, dtlDMTo, setDtlDMTo, dtlDMMsg, setDtlDMMsg, dtlDMSending, setDtlDMSending, dtlDMErr, setDtlDMErr, dtlDMContactSearch, setDtlDMContactSearch, dtlDMContactDropdown, setDtlDMContactDropdown, dtlDMContactSearchResults, setDtlDMContactSearchResults, dtlDMContactSearchLoading, setDtlDMContactSearchLoading, dmConversations, setDmConversations, dmActiveChatId, setDmActiveChatId, dmScrollRef } = ctx;
+  const { selected, detailMode, setDetailMode, setSelected, setView, setNewNote, matrixCollapsed, setMatrixCollapsed, lineItemsCollapsed, setLineItemsCollapsed, poInfoCollapsed, setPoInfoCollapsed, progressCollapsed, setProgressCollapsed, editingNote, setEditingNote, editingNoteId, setEditingNoteId, editingNoteText, setEditingNoteText, msNoteText, setMsNoteText, expandedVariants, setExpandedVariants, addingPhase, setAddingPhase, newPhaseForm, setNewPhaseForm, acceptedBlocked, setAcceptedBlocked, blockedModal, setBlockedModal, confirmModal, setConfirmModal, collapsedCats, setCollapsedCats, showCreateTpl, setShowCreateTpl, attachments, setAttachments, attachInputRef, uploadingAttachment, setUploadingAttachment, milestones, setMilestones, wipTemplates, setWipTemplates, dcVendors, designTemplates, notes, newNote, user, emailToken, teamsToken, msDisplayName, pos, toast, setToast, handleExportPOExcel, ensureMilestones, saveMilestone, saveMilestones, generateMilestones, regenerateMilestones, cascadeDueDateChange, vendorHasTemplate, templateVendorList, getVendorTemplates, saveVendorTemplates, openCategoryWithCheck, isCatBlocked, uploadAttachment, loadAttachments, deleteAttachment, undoDeleteAttachment, purgeExpiredAttachments, addNote, editNote, deleteNote, addHistory, deletePO, setSearch, setTeamsSelPO, setTeamsTab, loadDtlEmails, loadDtlFullEmail, loadDtlThread, loadDtlSentEmails, authenticateEmail, dtlReplyToEmail, dtlSendEmail, emailMarkAsRead, deleteMainEmail, loadEmailAttachments, emailAttachments, emailAttachmentsLoading, teamsLoadPOMessages, teamsStartChat, teamsSendMessage, teamsGraphPost, teamsGraph, loadTeamsContacts, handleTeamsContactInput, teamsSendDirect, sendDmReply, loadDmMessages, msSignOut, selectedNotes, selectedHistory, dtlEmails, dtlEmailLoading, dtlEmailErr, dtlEmailSel, dtlEmailThread, dtlThreadLoading, dtlEmailTab, setDtlEmailTab, dtlSentEmails, dtlSentLoading, dtlComposeTo, setDtlComposeTo, dtlComposeSubject, setDtlComposeSubject, dtlComposeBody, setDtlComposeBody, dtlSendErr, setDtlSendErr, dtlReply, setDtlReply, dtlNextLink, dtlLoadingOlder, setDtlLoadingOlder, teamsChannelMap, teamsMessages, setTeamsMessages, teamsLoading, teamsNewMsg, setTeamsNewMsg, teamsContacts, teamsContactsLoading, teamsContactsError, dtlDMTo, setDtlDMTo, dtlDMMsg, setDtlDMMsg, dtlDMSending, setDtlDMSending, dtlDMErr, setDtlDMErr, dtlDMContactSearch, setDtlDMContactSearch, dtlDMContactDropdown, setDtlDMContactDropdown, dtlDMContactSearchResults, setDtlDMContactSearchResults, dtlDMContactSearchLoading, setDtlDMContactSearchLoading, dmConversations, setDmConversations, dmActiveChatId, setDmActiveChatId, dmScrollRef } = ctx;
 
     if (!selected) return null;
     const items = selected.Items ?? selected.PoLineArr ?? [];
@@ -816,8 +817,13 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
                                 const initials = sender.split(" ").map((w: string) => w[0] || "").join("").toUpperCase().slice(0, 2);
                                 const time = em.receivedDateTime ? new Date(em.receivedDateTime).toLocaleString() : "";
                                 return (
-                                  <div key={em.id} onClick={() => { loadDtlFullEmail(em.id); if (em.conversationId) loadDtlThread(em.conversationId); }}
-                                    style={{ background: em.isRead ? "#0F172A" : OUTLOOK_BLUE + "15", border: "1px solid " + (em.isRead ? "#334155" : OUTLOOK_BLUE + "44"), borderRadius: 8, padding: "10px 14px", cursor: "pointer", transition: "all 0.12s" }}>
+                                  <div key={em.id} onClick={() => {
+                                    loadDtlFullEmail(em.id);
+                                    if (em.conversationId) loadDtlThread(em.conversationId);
+                                    loadEmailAttachments(em.id);
+                                    if (!em.isRead) emailMarkAsRead(em.id);
+                                  }}
+                                    style={{ background: em.isRead ? "#0F172A" : OUTLOOK_BLUE + "15", border: "1px solid " + (em.isRead ? "#334155" : OUTLOOK_BLUE + "44"), borderRadius: 8, padding: "10px 14px", cursor: "pointer", transition: "all 0.12s", position: "relative" as const }}>
                                     <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                                       <div style={{ width: 30, height: 30, borderRadius: "50%", background: OUTLOOK_BLUE + "22", border: "2px solid " + OUTLOOK_BLUE, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: OUTLOOK_BLUE, flexShrink: 0 }}>{initials}</div>
                                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -830,6 +836,7 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
                                         <div style={{ fontSize: 12, fontWeight: em.isRead ? 400 : 600, color: "#E2E8F0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{em.subject}</div>
                                         <div style={{ fontSize: 11, color: "#6B7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>{em.bodyPreview || ""}</div>
                                       </div>
+                                      <button onClick={(ev) => { ev.stopPropagation(); deleteMainEmail(em.id); }} title="Delete" style={{ background: "none", border: "none", cursor: "pointer", color: "#6B7280", fontSize: 14, padding: 2, flexShrink: 0, opacity: 0.6 }}>🗑</button>
                                     </div>
                                   </div>
                                 );
@@ -905,13 +912,33 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
                                         <div style={{ fontSize: 11, color: "#6B7280" }}>{msg.subject}</div>
                                       </div>
                                     </div>
-                                    <iframe sandbox="allow-same-origin" srcDoc={styledEmailHtml(htmlBody)} style={{ width: "100%", border: "none", minHeight: 80, borderRadius: 6, background: "#F8FAFC" }}
-                                      onLoad={e => { try { const h = (e.target as HTMLIFrameElement).contentDocument!.body.scrollHeight; (e.target as HTMLIFrameElement).style.height = Math.min(h + 20, 400) + "px"; } catch (_) {} }} />
+                                    <iframe sandbox="allow-same-origin" srcDoc={styledEmailHtml(htmlBody, (emailAttachments[msg.id] || []).filter((a: any) => a.isInline))} style={{ width: "100%", border: "none", minHeight: 80, borderRadius: 6, background: "#ffffff" }}
+                                      onLoad={e => { try { const f = e.target as HTMLIFrameElement; const h = f.contentDocument!.body.scrollHeight; f.style.height = (h + 24) + "px"; } catch (_) {} }} />
                                   </div>
                                 );
                               })}
                             </div>
                           )}
+                          {/* Attachments for selected email */}
+                          {dtlEmailSel && (() => {
+                            const fileAtts = (emailAttachments[dtlEmailSel.id] || []).filter((a: any) => !a.isInline);
+                            if (fileAtts.length === 0 && !emailAttachmentsLoading[dtlEmailSel.id]) return null;
+                            return (
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", padding: "8px 0", borderTop: "1px solid #334155", marginTop: 8 }}>
+                                <span style={{ fontSize: 11, color: "#6B7280", marginRight: 4 }}>📎</span>
+                                {fileAtts.map((att: any) => {
+                                  const href = att.contentBytes ? `data:${att.contentType || "application/octet-stream"};base64,${att.contentBytes}` : "#";
+                                  return (
+                                    <a key={att.id} href={href} download={att.name}
+                                      style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#1E293B", border: "1px solid #334155", borderRadius: 6, padding: "3px 9px", fontSize: 11, color: "#60A5FA", textDecoration: "none", cursor: "pointer" }}>
+                                      📄 {att.name}{att.size ? ` (${(att.size / 1024).toFixed(0)}KB)` : ""}
+                                    </a>
+                                  );
+                                })}
+                                {emailAttachmentsLoading[dtlEmailSel.id] && <span style={{ fontSize: 11, color: "#6B7280" }}>Loading…</span>}
+                              </div>
+                            );
+                          })()}
                           {dtlEmailSel && (
                             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                               <input value={dtlReply} onChange={e => setDtlReply(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); dtlReplyToEmail(dtlEmailSel.id); } }} placeholder="Write a reply…" style={{ ...S.input, flex: 1 }} />
@@ -933,7 +960,12 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
                           </div>
                           <div>
                             <label style={S.label}>Body</label>
-                            <textarea value={dtlComposeBody} onChange={e => setDtlComposeBody(e.target.value)} rows={8} style={{ ...S.textarea, minHeight: 120 }} placeholder="Type your message…" />
+                            <RichTextEditor
+                              value={dtlComposeBody}
+                              onChange={html => setDtlComposeBody(html)}
+                              placeholder="Type your message…"
+                              minHeight={120}
+                            />
                           </div>
                           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
                             <button onClick={() => setDtlEmailTab("inbox")} style={S.btnSecondary}>Cancel</button>

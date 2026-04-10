@@ -8,6 +8,7 @@ import { generateMilestones as _generateMilestones, mergeMilestones } from "./ta
 import { getArchiveDecisions } from "./tanda/syncLogic";
 import { exportPOExcel } from "./tanda/exportHelpers";
 import { emailViewPanel as emailViewPanelExtracted, type EmailPanelCtx } from "./tanda/emailPanel";
+import { buildEmailHtml } from "./tanda/richTextEditor";
 import { teamsViewPanel as teamsViewPanelExtracted, type TeamsPanelCtx } from "./tanda/teamsPanel";
 import { timelinePanel as timelinePanelExtracted, type TimelinePanelCtx } from "./tanda/timelinePanel";
 import { detailPanel as detailPanelExtracted, WipTemplateEditor } from "./tanda/detailPanel";
@@ -949,7 +950,7 @@ function TandAApp() {
     setDtlSendErr(null);
     try {
       await emailGraphPost("/me/sendMail", {
-        message: { subject: dtlComposeSubject, body: { contentType: "HTML", content: dtlComposeBody || " " }, toRecipients: dtlComposeTo.split(",").map(e => ({ emailAddress: { address: e.trim() } })) },
+        message: { subject: dtlComposeSubject, body: { contentType: "HTML", content: buildEmailHtml(dtlComposeBody) }, toRecipients: dtlComposeTo.split(",").map(e => ({ emailAddress: { address: e.trim() } })) },
       });
       setDtlComposeTo(""); setDtlComposeSubject(""); setDtlComposeBody("");
       setDtlEmailTab("inbox");
@@ -2810,7 +2811,8 @@ function TandAApp() {
     getVendorTemplates, saveVendorTemplates, openCategoryWithCheck, isCatBlocked,
     uploadAttachment, loadAttachments, deleteAttachment, undoDeleteAttachment, purgeExpiredAttachments,
     addNote, editNote, deleteNote, addHistory, deletePO, setSearch, setTeamsSelPO, setTeamsTab, loadDtlEmails, loadDtlFullEmail, loadDtlThread, loadDtlSentEmails,
-    authenticateEmail, dtlReplyToEmail, dtlSendEmail, teamsLoadPOMessages, teamsStartChat,
+    authenticateEmail, dtlReplyToEmail, dtlSendEmail, emailMarkAsRead, deleteMainEmail, loadEmailAttachments, emailAttachments, emailAttachmentsLoading,
+    teamsLoadPOMessages, teamsStartChat,
     teamsSendMessage, teamsGraphPost, teamsGraph, loadTeamsContacts, handleTeamsContactInput,
     teamsSendDirect, sendDmReply, loadDmMessages, msSignOut, selectedNotes, selectedHistory,
     dtlEmails, dtlEmailLoading, dtlEmailErr, dtlEmailSel, dtlEmailThread, dtlThreadLoading,
