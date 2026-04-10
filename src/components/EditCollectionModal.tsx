@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { TH } from "../utils/theme";
 import { S } from "../utils/styles";
-import { BRANDS, CATEGORIES, GENDERS } from "../utils/constants";
-import { getBrand } from "../utils/dates";
+import { BRANDS, CATEGORIES, GENDERS, CHANNEL_TYPES, DEFAULT_CUSTOMERS } from "../utils/constants";
+import { getBrand, addDays } from "../utils/dates";
+import { getChannelForCustomer } from "../utils/helpers";
 import { Modal } from "./Modal";
+import DateInput from "./DateInput";
 
 // ─── EDIT COLLECTION MODAL ───────────────────────────────────────────────────
 function EditCollectionModal({
