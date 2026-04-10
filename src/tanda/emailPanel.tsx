@@ -39,26 +39,31 @@ function RichTextEditor({ value, onChange, placeholder, minHeight = 140 }: { val
       if (!sel || sel.rangeCount === 0) return;
       const node = sel.anchorNode;
       if (!node || !el.contains(node)) return;
-      try {
-        setActive({
-          bold: document.queryCommandState("bold"),
-          italic: document.queryCommandState("italic"),
-          underline: document.queryCommandState("underline"),
-          ul: document.queryCommandState("insertUnorderedList"),
-          ol: document.queryCommandState("insertOrderedList"),
-        });
-        const f = document.queryCommandValue("fontName") || "";
-        setCurrentFont(f.replace(/['"]/g, ""));
-      } catch {}
+      updateActive();
     };
     document.addEventListener("selectionchange", update);
     return () => document.removeEventListener("selectionchange", update);
   }, []);
 
+  const updateActive = () => {
+    try {
+      setActive({
+        bold: document.queryCommandState("bold"),
+        italic: document.queryCommandState("italic"),
+        underline: document.queryCommandState("underline"),
+        ul: document.queryCommandState("insertUnorderedList"),
+        ol: document.queryCommandState("insertOrderedList"),
+      });
+      const f = document.queryCommandValue("fontName") || "";
+      setCurrentFont(f.replace(/['"]/g, ""));
+    } catch {}
+  };
   const exec = (cmd: string, arg?: string) => {
     ref.current?.focus();
     document.execCommand(cmd, false, arg);
     if (ref.current) onChange(ref.current.innerHTML);
+    // Immediately reflect the new state on the toolbar buttons
+    updateActive();
   };
 
   const btnBase: React.CSSProperties = { width: 26, height: 26, background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#94A3B8", cursor: "pointer", fontSize: 12, fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 };
