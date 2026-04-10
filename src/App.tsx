@@ -817,7 +817,7 @@ function App() {
   ];
 
   const TaskCard = ({ task, showDayDate }) => {
-    const brand = getBrand(task.brand),
+    const brand = getBrand(task.brand) || { id: "unknown", name: "Unknown", color: "#6B7280" },
       days = getDaysUntil(task.due),
       sc = STATUS_CONFIG[task.status] || STATUS_CONFIG["Not Started"],
       isOver = days < 0 && task.status !== "Complete",
