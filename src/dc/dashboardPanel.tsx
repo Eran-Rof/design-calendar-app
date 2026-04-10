@@ -150,6 +150,7 @@ export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
               </div>
             )}
 
+            <button onClick={(e) => { e.stopPropagation(); alert("Before stat cards!"); }} style={{ background: "green", color: "white", padding: 10, cursor: "pointer", marginBottom: 10 }}>DEBUG: Before Stat Cards</button>
             {/* Stat summary cards — only when no filter active */}
             {!statFilter && (
               <div
