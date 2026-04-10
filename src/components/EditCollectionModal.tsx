@@ -199,7 +199,7 @@ function EditCollectionModal({
             value={f.gender}
             onChange={(e) => set("gender", e.target.value)}
           >
-            {(genderList || GENDERS).map((g) => (
+            {GENDERS.map((g) => (
               <option key={g}>{g}</option>
             ))}
           </select>
