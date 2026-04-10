@@ -841,7 +841,7 @@ function App() {
         role="button"
         tabIndex={0}
         onKeyDown={(e) => { if (e.key === "Enter") setEditTask(task); }}
-        onClick={(e) => { e.stopPropagation(); setEditTask(task); }}
+        onClick={(e) => { e.stopPropagation(); alert("CARD CLICK: " + task.phase); setEditTask(task); }}
         style={{
           background: dragOverId === task.id ? TH.surfaceHi : TH.surface,
           border: `1px solid ${
