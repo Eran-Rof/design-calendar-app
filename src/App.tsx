@@ -1322,8 +1322,10 @@ function App() {
       />}
 
       <div
-        style={{ padding: "26px 22px 100px", maxWidth: 1440, margin: "0 auto" }}
+        style={{ padding: "26px 22px 100px", maxWidth: 1440, margin: "0 auto", position: "relative", zIndex: 1 }}
+        onPointerDown={() => console.log("[CONTENT-WRAPPER] pointerdown")}
       >
+        <button onClick={() => alert("Content wrapper click works!")} style={{ background: "red", color: "white", padding: "10px 20px", fontSize: 16, cursor: "pointer", marginBottom: 10, zIndex: 999, position: "relative" }}>DEBUG: Click me</button>
         {view === "dashboard" && Dashboard()}
         {view === "timeline" && Timeline()}
         {view === "calendar" && CalendarView()}
