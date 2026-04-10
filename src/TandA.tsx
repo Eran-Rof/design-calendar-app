@@ -844,9 +844,10 @@ function TandAApp() {
       } else {
         const d = await r.json();
         const all = (d.value || []) as any[];
-        // Keep regular file attachments (not inline images that are part of the body)
-        const files = all.filter(a => !a.isInline);
-        setEmailAttachments(a => ({ ...a, [messageId]: files }));
+        // Store ALL attachments (inline + file). Inline ones are used by the
+        // renderer to swap cid: refs to data URLs; file ones show in the chip
+        // list. UI filters at display time.
+        setEmailAttachments(a => ({ ...a, [messageId]: all }));
       }
     } catch (e) {
       console.warn(`loadEmailAttachments(${messageId}) error:`, e);

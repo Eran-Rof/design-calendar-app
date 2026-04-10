@@ -1,5 +1,66 @@
-import React from "react";
+import React, { useRef, useEffect } from "react";
 import { styledEmailHtml } from "../utils/emailHtml";
+
+/** Small contenteditable rich-text editor — bold, italic, underline, lists, link.
+ *  Outputs HTML via onChange. Avoids re-controlling the contenteditable while
+ *  the user is typing (would break caret position) by syncing imperatively. */
+function RichTextEditor({ value, onChange, placeholder, minHeight = 140 }: { value: string; onChange: (html: string) => void; placeholder?: string; minHeight?: number }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  // Sync upstream changes only when not focused (e.g. after a Send clears the body)
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (document.activeElement === el) return;
+    if (el.innerHTML !== (value || "")) el.innerHTML = value || "";
+  }, [value]);
+  const exec = (cmd: string, arg?: string) => {
+    document.execCommand(cmd, false, arg);
+    if (ref.current) onChange(ref.current.innerHTML);
+  };
+  const btnStyle: React.CSSProperties = { width: 26, height: 26, background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#94A3B8", cursor: "pointer", fontSize: 12, fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 };
+  return (
+    <div style={{ border: "1px solid #334155", borderRadius: 6, background: "#0F172A", overflow: "hidden" }}>
+      <div style={{ display: "flex", gap: 4, padding: 6, borderBottom: "1px solid #334155", background: "#1E293B" }}>
+        <button type="button" title="Bold (Ctrl+B)" style={{ ...btnStyle, fontWeight: 700 }} onMouseDown={e => { e.preventDefault(); exec("bold"); }}>B</button>
+        <button type="button" title="Italic (Ctrl+I)" style={{ ...btnStyle, fontStyle: "italic" }} onMouseDown={e => { e.preventDefault(); exec("italic"); }}>I</button>
+        <button type="button" title="Underline (Ctrl+U)" style={{ ...btnStyle, textDecoration: "underline" }} onMouseDown={e => { e.preventDefault(); exec("underline"); }}>U</button>
+        <div style={{ width: 1, background: "#334155", margin: "0 2px" }} />
+        <button type="button" title="Bulleted list" style={btnStyle} onMouseDown={e => { e.preventDefault(); exec("insertUnorderedList"); }}>•</button>
+        <button type="button" title="Numbered list" style={btnStyle} onMouseDown={e => { e.preventDefault(); exec("insertOrderedList"); }}>1.</button>
+        <div style={{ width: 1, background: "#334155", margin: "0 2px" }} />
+        <button type="button" title="Insert link" style={btnStyle} onMouseDown={e => { e.preventDefault(); const url = window.prompt("URL:"); if (url) exec("createLink", url); }}>🔗</button>
+        <button type="button" title="Clear formatting" style={btnStyle} onMouseDown={e => { e.preventDefault(); exec("removeFormat"); }}>✕</button>
+      </div>
+      <div
+        ref={ref}
+        contentEditable
+        suppressContentEditableWarning
+        data-placeholder={placeholder || ""}
+        onInput={e => onChange((e.target as HTMLDivElement).innerHTML)}
+        onPaste={e => {
+          // Strip styles on paste so pasted Word/Outlook content matches our theme
+          e.preventDefault();
+          const text = e.clipboardData.getData("text/html") || e.clipboardData.getData("text/plain");
+          // Very light sanitize: drop script/style tags
+          const cleaned = text.replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, "");
+          document.execCommand("insertHTML", false, cleaned);
+        }}
+        style={{
+          minHeight,
+          padding: "10px 12px",
+          color: "#F1F5F9",
+          fontSize: 13,
+          fontFamily: "'Segoe UI', system-ui, sans-serif",
+          lineHeight: 1.55,
+          outline: "none",
+          overflowY: "auto" as const,
+          maxHeight: 300,
+        }}
+      />
+      <style>{`[contenteditable][data-placeholder]:empty::before{content:attr(data-placeholder);color:#475569;pointer-events:none}`}</style>
+    </div>
+  );
+}
 import { STATUS_COLORS } from "../utils/tandaTypes";
 import { MS_CLIENT_ID, MS_TENANT_ID } from "../utils/msAuth";
 import type { XoroPO } from "../utils/tandaTypes";
@@ -495,6 +556,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
                     const initials = sender.split(" ").map((w: string) => w[0] || "").join("").toUpperCase().slice(0, 2) || "??";
                     const time = msg.receivedDateTime ? new Date(msg.receivedDateTime).toLocaleString() : "";
                     const htmlBody = msg.body?.content || "";
+                    const inline = (emailAttachments[msg.id] || []).filter((a: any) => a.isInline);
                     return (
                       <div key={msg.id} style={{ background: C.bg1, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 10, overflow: "hidden" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: !isLast ? "pointer" : "default" }}
@@ -509,43 +571,52 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
                         </div>
                         {!collapsed && (
                           <div style={{ padding: "0 14px 14px" }}>
-                            <iframe sandbox="allow-same-origin" srcDoc={styledEmailHtml(htmlBody)}
-                              style={{ width: "100%", border: "none", minHeight: 80, borderRadius: 6, background: "#F8FAFC" }}
-                              onLoad={e => { try { const h = (e.target as HTMLIFrameElement).contentDocument?.body.scrollHeight || 0; (e.target as HTMLIFrameElement).style.height = Math.min(h + 20, 400) + "px"; } catch {} }} />
+                            <iframe sandbox="allow-same-origin" srcDoc={styledEmailHtml(htmlBody, inline)}
+                              style={{ width: "100%", border: "none", minHeight: 80, borderRadius: 6, background: "#ffffff" }}
+                              onLoad={e => { try { const f = e.target as HTMLIFrameElement; const h = f.contentDocument?.body.scrollHeight || 0; f.style.height = (h + 24) + "px"; } catch {} }} />
                           </div>
                         )}
                       </div>
                     );
                   })
                 ) : selEmailObj ? (
-                  <div style={{ background: C.bg1, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
-                    <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.text3 }}>
-                      From: {selEmailObj.from?.emailAddress?.name || selEmailObj.from?.emailAddress?.address || "Unknown"}
-                    </div>
-                    <div style={{ padding: "0 14px 14px" }}>
-                      <iframe sandbox="allow-same-origin" srcDoc={styledEmailHtml(selEmailObj.body?.content || selEmailObj.bodyPreview || "")}
-                        style={{ width: "100%", border: "none", minHeight: 100, borderRadius: 6, background: "#F8FAFC" }}
-                        onLoad={e => { try { const h = (e.target as HTMLIFrameElement).contentDocument?.body.scrollHeight || 0; (e.target as HTMLIFrameElement).style.height = Math.min(h + 20, 400) + "px"; } catch {} }} />
-                    </div>
-                  </div>
+                  (() => {
+                    const inline = (emailAttachments[selEmailObj.id] || []).filter((a: any) => a.isInline);
+                    return (
+                      <div style={{ background: C.bg1, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
+                        <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.text3 }}>
+                          From: {selEmailObj.from?.emailAddress?.name || selEmailObj.from?.emailAddress?.address || "Unknown"}
+                        </div>
+                        <div style={{ padding: "0 14px 14px" }}>
+                          <iframe sandbox="allow-same-origin" srcDoc={styledEmailHtml(selEmailObj.body?.content || selEmailObj.bodyPreview || "", inline)}
+                            style={{ width: "100%", border: "none", minHeight: 100, borderRadius: 6, background: "#ffffff" }}
+                            onLoad={e => { try { const f = e.target as HTMLIFrameElement; const h = f.contentDocument?.body.scrollHeight || 0; f.style.height = (h + 24) + "px"; } catch {} }} />
+                        </div>
+                      </div>
+                    );
+                  })()
                 ) : null}
               </div>
 
-              {emailSelectedId && (emailAttachments[emailSelectedId] || []).length > 0 && (
-                <div style={{ borderTop: `1px solid ${C.border}`, padding: "8px 18px", background: C.bg1, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-                  <span style={{ fontSize: 11, color: C.text3, marginRight: 4 }}>📎 Attachments:</span>
-                  {emailAttachments[emailSelectedId].map((att: any) => {
-                    const href = att.contentBytes ? `data:${att.contentType || "application/octet-stream"};base64,${att.contentBytes}` : "#";
-                    return (
-                      <a key={att.id} href={href} download={att.name}
-                        style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 9px", fontSize: 11, color: C.info, textDecoration: "none", cursor: "pointer", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        📄 {att.name}{att.size ? ` (${(att.size / 1024).toFixed(0)}KB)` : ""}
-                      </a>
-                    );
-                  })}
-                  {emailAttachmentsLoading[emailSelectedId] && <span style={{ fontSize: 11, color: C.text3 }}>Loading…</span>}
-                </div>
-              )}
+              {emailSelectedId && (() => {
+                const fileAtts = (emailAttachments[emailSelectedId] || []).filter((a: any) => !a.isInline);
+                if (fileAtts.length === 0 && !emailAttachmentsLoading[emailSelectedId]) return null;
+                return (
+                  <div style={{ borderTop: `1px solid ${C.border}`, padding: "8px 18px", background: C.bg1, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                    <span style={{ fontSize: 11, color: C.text3, marginRight: 4 }}>📎 Attachments:</span>
+                    {fileAtts.map((att: any) => {
+                      const href = att.contentBytes ? `data:${att.contentType || "application/octet-stream"};base64,${att.contentBytes}` : "#";
+                      return (
+                        <a key={att.id} href={href} download={att.name}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 9px", fontSize: 11, color: C.info, textDecoration: "none", cursor: "pointer", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          📄 {att.name}{att.size ? ` (${(att.size / 1024).toFixed(0)}KB)` : ""}
+                        </a>
+                      );
+                    })}
+                    {emailAttachmentsLoading[emailSelectedId] && <span style={{ fontSize: 11, color: C.text3 }}>Loading…</span>}
+                  </div>
+                );
+              })()}
 
               <div style={{ borderTop: `1px solid ${C.border}`, padding: "10px 18px", background: C.bg1 }}>
                 <div style={{ fontSize: 12, color: C.text3, marginBottom: 6 }}>
@@ -594,9 +665,11 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
                 </div>
                 <div>
                   <div style={{ fontSize: 11, color: C.text3, marginBottom: 3 }}>Body</div>
-                  <textarea value={emailComposeBody} onChange={e => emSet("emailComposeBody", e.target.value)} rows={8}
-                    style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 10px", color: C.text1, fontSize: 13, outline: "none", fontFamily: "inherit", resize: "vertical" as const, minHeight: 140, boxSizing: "border-box" as const }}
-                    placeholder="Type your message…" />
+                  <RichTextEditor
+                    value={emailComposeBody}
+                    onChange={html => emSet("emailComposeBody", html)}
+                    placeholder="Type your message…"
+                  />
                 </div>
                 <div>
                   <div style={{ fontSize: 11, color: C.text3, marginBottom: 3, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
