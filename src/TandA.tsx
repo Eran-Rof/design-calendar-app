@@ -3534,10 +3534,14 @@ function TandAApp() {
                     <span>#</span><span>Phase</span><span>Category</span><span style={{ textAlign: "center" }}>Days Before DDP</span><span style={{ textAlign: "center" }}>Status</span>
                     {isAdmin && <span />}
                   </div>
-                  {localTpl.map((tpl, i) => (
+                  {localTpl.map((tpl, i) => {
+                    const isDragging = tplDragIdx === i;
+                    const isDropTarget = tplDragOverIdx === i && tplDragIdx !== null && tplDragIdx !== i;
+                    const isAbove = tplDragIdx !== null && tplDragIdx < i;
+                    return (
                     <div
                       key={tpl.id}
-                      onDragOver={e => { e.preventDefault(); if (tplDragIdx !== null && tplDragIdx !== i) setTplDragOverIdx(i); }}
+                      onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (tplDragIdx !== null && tplDragIdx !== i) setTplDragOverIdx(i); }}
                       onDragLeave={() => { if (tplDragOverIdx === i) setTplDragOverIdx(null); }}
                       onDrop={e => {
                         e.preventDefault();
@@ -3550,14 +3554,30 @@ function TandAApp() {
                         }
                         setTplDragIdx(null); setTplDragOverIdx(null);
                       }}
-                      style={{ display: "grid", gridTemplateColumns: (isAdmin ? "22px " : "") + "32px 1fr 140px 110px 90px" + (isAdmin ? " 40px" : ""), padding: "8px 14px", borderTop: tplDragOverIdx === i ? "2px solid #3B82F6" : "1px solid #1E293B", fontSize: 13, alignItems: "center", opacity: tplDragIdx === i ? 0.4 : 1, transition: "opacity 0.1s" }}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: (isAdmin ? "22px " : "") + "32px 1fr 140px 110px 90px" + (isAdmin ? " 40px" : ""),
+                        padding: "8px 14px",
+                        fontSize: 13,
+                        alignItems: "center",
+                        opacity: isDragging ? 0.3 : 1,
+                        transform: isDragging ? "scale(0.97)" : isDropTarget ? `translateY(${isAbove ? "4px" : "-4px"})` : "none",
+                        transition: "all 0.2s cubic-bezier(0.2, 0, 0, 1)",
+                        background: isDropTarget ? "rgba(59, 130, 246, 0.08)" : isDragging ? "rgba(59, 130, 246, 0.04)" : "transparent",
+                        borderTop: isDropTarget && isAbove ? "3px solid #3B82F6" : "1px solid #1E293B",
+                        borderBottom: isDropTarget && !isAbove ? "3px solid #3B82F6" : "none",
+                        borderRadius: isDropTarget ? 4 : 0,
+                        boxShadow: isDragging ? "0 4px 16px rgba(59, 130, 246, 0.15)" : "none",
+                        position: "relative" as const,
+                        zIndex: isDragging ? 10 : isDropTarget ? 5 : 1,
+                      }}
                     >
                       {isAdmin && (
                         <span
                           draggable
-                          onDragStart={e => { setTplDragIdx(i); e.dataTransfer.setData("text/plain", String(i)); e.dataTransfer.effectAllowed = "move"; }}
+                          onDragStart={e => { setTplDragIdx(i); e.dataTransfer.setData("text/plain", String(i)); e.dataTransfer.effectAllowed = "move"; (e.target as HTMLElement).style.cursor = "grabbing"; }}
                           onDragEnd={() => { setTplDragIdx(null); setTplDragOverIdx(null); }}
-                          style={{ cursor: "grab", color: "#475569", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, userSelect: "none" }}
+                          style={{ cursor: isDragging ? "grabbing" : "grab", color: isDragging ? "#3B82F6" : "#475569", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, userSelect: "none", transition: "color 0.15s, transform 0.15s", transform: isDragging ? "scale(1.2)" : "none" }}
                         >⠿</span>
                       )}
                       <span style={{ color: "#6B7280", fontSize: 11 }}>{i + 1}</span>
@@ -3593,7 +3613,8 @@ function TandAApp() {
                         </div>
                       )}
                     </div>
-                  ))}
+                  );
+                  })}
                   {localTpl.length === 0 && <div style={{ padding: 20, textAlign: "center", color: "#6B7280", fontSize: 13 }}>No phases defined.</div>}
                 </div>
                 {isAdmin && (
