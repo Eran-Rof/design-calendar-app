@@ -51,6 +51,7 @@ export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
 
     return (
       <div onClick={() => setCtxMenu(null)}>
+        <button onClick={(e) => { e.stopPropagation(); alert("Inside dashboard!"); }} style={{ background: "blue", color: "white", padding: 10, cursor: "pointer", marginBottom: 10 }}>DEBUG: Inside Dashboard</button>
         {overdue.length > 0 && !statFilter && (
           <div
             style={{
