@@ -838,9 +838,10 @@ function App() {
           setDragId(null);
           setDragOverId(null);
         }}
-        onMouseDown={() => console.log("[TaskCard] mousedown:", task.id)}
-        onPointerDown={() => console.log("[TaskCard] pointerdown:", task.id)}
-        onClick={() => { console.log("[TaskCard] clicked:", task.id, task.phase); setEditTask(task); }}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === "Enter") setEditTask(task); }}
+        onClick={(e) => { e.stopPropagation(); setEditTask(task); }}
         style={{
           background: dragOverId === task.id ? TH.surfaceHi : TH.surface,
           border: `1px solid ${

@@ -187,9 +187,9 @@ export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
                     bdr: "#BFDBFE",
                   },
                 ].map((s) => (
-                  <div
+                  <button
                     key={s.label}
-                    onClick={() => setStatFilter(s.id)}
+                    onClick={(e) => { e.stopPropagation(); setStatFilter(s.id); }}
                     style={{
                       background: s.bg,
                       border: `1px solid ${s.bdr}`,
@@ -199,6 +199,10 @@ export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
                       boxShadow: `0 2px 8px ${TH.shadow}`,
                       cursor: "pointer",
                       transition: "transform 0.15s,box-shadow 0.15s",
+                      fontFamily: "inherit",
+                      textAlign: "left" as const,
+                      display: "block",
+                      width: "100%",
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.transform = "translateY(-2px)";
@@ -242,12 +246,12 @@ export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
                         Click to view →
                       </div>
                     )}
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
 
-            <button onClick={(e) => { e.stopPropagation(); alert("After stat cards!"); }} style={{ background: "orange", color: "white", padding: 10, cursor: "pointer", marginBottom: 10 }}>DEBUG: After Stat Cards</button>
+            <button onClick={(e) => { e.stopPropagation(); alert("After stat cards! showCollections=" + showCollections + " collListView=" + collListView); }} style={{ background: "orange", color: "white", padding: 10, cursor: "pointer", marginBottom: 10 }}>DEBUG: After Stat Cards</button>
             {/* Filtered task list view */}
             {showTaskList && (
               <>
