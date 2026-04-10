@@ -44,6 +44,21 @@ export function teamsViewPanel(ctx: TeamsPanelCtx): React.ReactElement {
   const poList2 = pos.filter(p => {
     const s = teamsSearchPO.toLowerCase();
     return !s || (p.PoNumber ?? "").toLowerCase().includes(s) || (p.VendorName ?? "").toLowerCase().includes(s);
+  }).sort((a, b) => {
+    const aNum = a.PoNumber ?? "";
+    const bNum = b.PoNumber ?? "";
+    const aMsg = (teamsMessages[aNum] || []).length;
+    const bMsg = (teamsMessages[bNum] || []).length;
+    const aActive = !!teamsChannelMap[aNum];
+    const bActive = !!teamsChannelMap[bNum];
+    // Unread (has messages) first
+    if (aMsg > 0 && bMsg === 0) return -1;
+    if (aMsg === 0 && bMsg > 0) return 1;
+    // Then active channels
+    if (aActive && !bActive) return -1;
+    if (!aActive && bActive) return 1;
+    // Within same tier, sort by message count desc
+    return bMsg - aMsg;
   });
   const mp = teamsSelPO ? teamsChannelMap[teamsSelPO] : null;
   const msgs = (teamsSelPO ? teamsMessages[teamsSelPO] : null) || [];
@@ -140,7 +155,15 @@ export function teamsViewPanel(ctx: TeamsPanelCtx): React.ReactElement {
                 {dmConversations.length === 0 && (
                   <div style={{ padding: "12px 14px", fontSize: 12, color: "#6B7280" }}>No conversations yet. Use ✎ New to start one.</div>
                 )}
-                {dmConversations.map(conv => (
+                {[...dmConversations].sort((a, b) => {
+                  // Sort by last message time descending (most recent first)
+                  const aLast = a.messages.length > 0 ? new Date(a.messages[a.messages.length - 1]?.createdDateTime || 0).getTime() : 0;
+                  const bLast = b.messages.length > 0 ? new Date(b.messages[b.messages.length - 1]?.createdDateTime || 0).getTime() : 0;
+                  // Conversations with messages first
+                  if (a.messages.length > 0 && b.messages.length === 0) return -1;
+                  if (a.messages.length === 0 && b.messages.length > 0) return 1;
+                  return bLast - aLast;
+                }).map(conv => (
                   <div key={conv.chatId}
                     onClick={() => { tmSet("dmActiveChatId", conv.chatId); tmSet("dmComposing", false); }}
                     style={{ padding: "8px 12px", cursor: "pointer", background: conv.chatId === dmActiveChatId && !dmComposing ? `${TEAMS_PURPLE}22` : "transparent", borderLeft: conv.chatId === dmActiveChatId && !dmComposing ? `3px solid ${TEAMS_PURPLE}` : "3px solid transparent", display: "flex", alignItems: "center", gap: 8, borderBottom: "1px solid #1E293B" }}>
