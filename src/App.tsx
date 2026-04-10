@@ -816,43 +816,44 @@ function App() {
     "Saturday",
   ];
 
-  const TaskCard = ({ task, showDayDate }) => {
-    const brand = getBrand(task.brand) || { id: "unknown", name: "Unknown", color: "#6B7280" },
+  const taskCardCtxRef = useRef<any>({});
+  taskCardCtxRef.current = { getBrand, team, setDragId, setDragOverId, dragOverId, dragId, handleDrop, setEditTask, statFilter, setFocusCollKey, setView, setStatFilter, setTimelineBackFilter };
+
+  const TaskCard = useCallback(function TaskCardStable({ task, showDayDate }: { task: any; showDayDate?: boolean }) {
+    const ctx = taskCardCtxRef.current;
+    const brand = ctx.getBrand(task.brand) || { id: "unknown", name: "Unknown", color: "#6B7280" },
       days = getDaysUntil(task.due),
       sc = STATUS_CONFIG[task.status] || STATUS_CONFIG["Not Started"],
       isOver = days < 0 && task.status !== "Complete",
-      assignee = team.find((m) => m.id === task.assigneeId) || null;
+      assignee = ctx.team.find((m: any) => m.id === task.assigneeId) || null;
     const dueDate = parseLocalDate(task.due);
     const dayOfWeek = DAYS_OF_WEEK[dueDate.getDay()];
     const formattedDue = formatDate(task.due);
     return (
       <div
         draggable
-        onDragStart={() => setDragId(task.id)}
+        onDragStart={() => ctx.setDragId(task.id)}
         onDragOver={(e) => {
           e.preventDefault();
-          setDragOverId(task.id);
+          ctx.setDragOverId(task.id);
         }}
-        onDrop={() => handleDrop(task.id)}
+        onDrop={() => ctx.handleDrop(task.id)}
         onDragEnd={() => {
-          setDragId(null);
-          setDragOverId(null);
+          ctx.setDragId(null);
+          ctx.setDragOverId(null);
         }}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => { if (e.key === "Enter") setEditTask(task); }}
-        onClick={(e) => { e.stopPropagation(); alert("CARD CLICK: " + task.phase); setEditTask(task); }}
+        onClick={(e) => { e.stopPropagation(); ctx.setEditTask(task); }}
         style={{
-          background: dragOverId === task.id ? TH.surfaceHi : TH.surface,
+          background: ctx.dragOverId === task.id ? TH.surfaceHi : TH.surface,
           border: `1px solid ${
-            dragOverId === task.id ? brand.color + "88" : TH.border
+            ctx.dragOverId === task.id ? brand.color + "88" : TH.border
           }`,
           borderLeft: `3px solid ${brand.color}`,
           borderRadius: 9,
           padding: "12px 14px",
           cursor: "pointer",
           transition: "all 0.15s",
-          opacity: dragId === task.id ? 0.4 : 1,
+          opacity: ctx.dragId === task.id ? 0.4 : 1,
           boxShadow: `0 1px 4px ${TH.shadow}`,
         }}
       >
@@ -1003,7 +1004,7 @@ function App() {
           <button
             onClick={(e) => {
               e.stopPropagation();
-              setEditTask(task);
+              ctx.setEditTask(task);
             }}
             style={{ flex: 1, padding: "5px 0", fontSize: 11, fontWeight: 600, color: TH.textSub, background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}
           >
@@ -1012,10 +1013,10 @@ function App() {
           <button
             onClick={(e) => {
               e.stopPropagation();
-              setTimelineBackFilter(statFilter);
-              setFocusCollKey(`${task.brand}||${task.collection}`);
-              setView("timeline");
-              setStatFilter(null);
+              ctx.setTimelineBackFilter(ctx.statFilter);
+              ctx.setFocusCollKey(`${task.brand}||${task.collection}`);
+              ctx.setView("timeline");
+              ctx.setStatFilter(null);
             }}
             style={{ flex: 1, padding: "5px 0", fontSize: 11, fontWeight: 600, color: TH.primary, background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}
           >
@@ -1024,7 +1025,7 @@ function App() {
         </div>
       </div>
     );
-  };
+  }, []);
 
   const Dashboard = () => dashboardPanelExtracted({
     tasks, collections, view, setView, listView, expandedColl, setExpandedColl,
