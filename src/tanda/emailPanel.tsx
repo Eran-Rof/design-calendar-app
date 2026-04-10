@@ -338,7 +338,24 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
             </button>
           </div>
 
-          <div style={{ padding: "10px 12px 4px", fontSize: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: C.text3, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          {/* ── Folders (Inbox / Sent) — at the top, like Outlook ── */}
+          <div style={{ padding: "8px 6px 4px" }}>
+            {(["inbox", "sent"] as const).map(f => {
+              const label = f === "inbox" ? "Inbox" : "Sent";
+              const count = f === "inbox" ? inboxEmails.filter((e: any) => !e.isRead).length : 0;
+              const isActive = emailActiveFolder === f;
+              return (
+                <div key={f} onClick={() => { emSet("emailActiveFolder", f); emSet("emailSelectedId", null); emSet("emailSelMsg", null); emSet("emailThreadMsgs", []); if (f === "sent" && emailSelPO && emailToken) loadPOSentEmails(emailSelPO); }}
+                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 7, margin: "1px 0", cursor: "pointer", fontSize: 12, background: isActive ? C.outlookDim : "transparent", color: isActive ? C.info : C.text2, border: isActive ? "1px solid rgba(96,165,250,0.2)" : "1px solid transparent", transition: "all 0.1s" }}>
+                  <span style={{ width: 14, textAlign: "center" as const }}>{f === "inbox" ? "📥" : "📤"}</span>
+                  <span style={{ flex: 1 }}>{label}</span>
+                  {count > 0 && <span style={{ background: C.bg3, color: C.text2, fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 10, minWidth: 18, textAlign: "center" as const }}>{count}</span>}
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ padding: "8px 12px 4px", fontSize: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: C.text3, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span>POs ({poList.length})</span>
             {emailToken && (
               <button onClick={loadAllPOEmailStats} disabled={emailAllStatsLoading}
@@ -356,8 +373,8 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
             const totalAll = emailAllMessages.length;
             const totalUnread = emailAllMessages.filter((m: any) => !m.isRead).length;
             const items: Array<{ key: "all" | "unread"; label: string; count: number; icon: string }> = [
-              { key: "all", label: "All POs", count: totalAll, icon: "📥" },
-              { key: "unread", label: "Unread", count: totalUnread, icon: "●" },
+              { key: "all", label: "All POs", count: totalAll, icon: "📁" },
+              { key: "unread", label: "Unread", count: totalUnread, icon: "✉" },
             ];
             return (
               <div style={{ padding: "0 6px 4px" }}>
@@ -424,21 +441,6 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
             })}
             {poList.length === 0 && <div style={{ padding: 16, fontSize: 12, color: C.text3, textAlign: "center" }}>No POs loaded — sync first</div>}
           </div>
-
-          <div style={{ height: 1, background: C.border, margin: "4px 10px" }} />
-          <div style={{ padding: "6px 12px 2px", fontSize: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: C.text3, fontWeight: 600 }}>Folders</div>
-          {(["inbox", "sent"] as const).map(f => {
-            const label = f === "inbox" ? "Inbox" : "Sent";
-            const count = f === "inbox" ? inboxEmails.filter((e: any) => !e.isRead).length : 0;
-            return (
-              <div key={f} onClick={() => { emSet("emailActiveFolder", f); emSet("emailSelectedId", null); emSet("emailSelMsg", null); emSet("emailThreadMsgs", []); if (f === "sent" && emailSelPO && emailToken) loadPOSentEmails(emailSelPO); }}
-                style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 7, margin: "1px 6px", cursor: "pointer", fontSize: 12, background: emailActiveFolder === f ? "rgba(200,33,10,0.15)" : "transparent", color: emailActiveFolder === f ? "#E87060" : C.text2, transition: "all 0.1s" }}>
-                <svg width={14} height={14} viewBox="0 0 16 14" fill="none" style={{ flexShrink: 0 }}><path d="M1 2.5C1 1.67 1.67 1 2.5 1H5.5L7 2.5H13.5C14.33 2.5 15 3.17 15 4V11.5C15 12.33 14.33 13 13.5 13H2.5C1.67 13 1 12.33 1 11.5V2.5Z" stroke={emailActiveFolder === f ? "#E87060" : C.text3} strokeWidth="1.2" fill="none"/></svg>
-                <span style={{ flex: 1 }}>{label}</span>
-                {count > 0 && <span style={{ background: C.bg3, color: C.text2, fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 10, minWidth: 18, textAlign: "center" as const }}>{count}</span>}
-              </div>
-            );
-          })}
 
           <div style={{ borderTop: `1px solid ${C.border}`, padding: "10px 12px", display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
             {emailToken ? (
