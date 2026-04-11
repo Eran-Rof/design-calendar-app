@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, Fragment } from "react";
 import { useIdleLogout } from "./hooks/useIdleLogout";
 import { useAppStore } from "./store";
+import { sbLoad as sbLoadSvc, sbSaveTask as sbSaveTaskSvc, sbLoadTasks as sbLoadTasksSvc, sbLoadCollections as sbLoadCollectionsSvc } from "./store/supabaseService";
 import React from "react";
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
@@ -36,7 +37,7 @@ import CustomerManager from "./components/CustomerManager";
 import OrderTypeManager from "./components/OrderTypeManager";
 import RoleManager from "./components/RoleManager";
 import GenderManager from "./components/GenderManager";
-import { DCProvider, useDCState, useDCDispatch } from "./dc/state/DCContext";
+import { type DCState } from "./dc/state/dcTypes";
 import type { DCState } from "./dc/state/dcTypes";
 import { DashboardPanel } from "./dc/dashboardPanel";
 import { TimelinePanel } from "./dc/timelinePanel";
@@ -44,29 +45,14 @@ import { CalendarPanel } from "./dc/calendarPanel";
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 
-// usePersistSb must be defined outside App so React hooks rules are satisfied
-// It references sbSave which is passed as a parameter
-function usePersistSb(initial, sbKey, sbSaveFn) {
-  const [val, setVal] = useState(initial);
-  // Pass skipSave=true when hydrating from DB to avoid writing data straight back
-  const setter = (updater, skipSave = false) => {
-    setVal((prev) => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      if (sbSaveFn && !skipSave) sbSaveFn(sbKey, next);
-      return next;
-    });
-  };
-  return [val, setter];
-}
 
 export default function AppWrapper() {
-  return <DCProvider><App /></DCProvider>;
+  return <App />;
 }
 
 function App() {
-  const dc = useDCState();
-  const dcD = useDCDispatch();
-  const dcSet = <K extends keyof DCState>(field: K, value: DCState[K]) => dcD({ type: "SET", field, value });
+  const dc = useAppStore();
+  const dcSet = <K extends keyof DCState>(field: K, value: DCState[K]) => useAppStore.getState().setField(field as any, value);
   // ── Confirm modal state ────────────────────────────────────────────────
   const [confirmState, setConfirmState] = useState<{ message: string; action: string; onConfirm: () => void } | null>(null);
   setConfirmHandler((opts) => setConfirmState(opts));
@@ -75,123 +61,9 @@ function App() {
   const saveErr = dc.saveErr;
   const setSaveErr = (v: string) => dcSet("saveErr", v);
   const saveErrTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  function showSaveErr(msg: string) {
-    setSaveErr(msg);
-    if (saveErrTimer.current) clearTimeout(saveErrTimer.current);
-    saveErrTimer.current = setTimeout(() => setSaveErr(""), 5000);
-  }
-  // Clear save-error timer on unmount to prevent setState on dead component
+  // Clear save-error timer on unmount
   useEffect(() => () => { if (saveErrTimer.current) clearTimeout(saveErrTimer.current); }, []);
 
-  // ── Key-value store for reference data (users, brands, vendors etc) ───────
-  async function sbSave(key, value) {
-    try {
-      const res = await fetch(`${SB_URL}/rest/v1/app_data`, {
-        method: "POST",
-        headers: {
-          "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`,
-          "Content-Type": "application/json",
-          "Prefer": "resolution=merge-duplicates,return=minimal",
-        },
-        body: JSON.stringify({ key, value: JSON.stringify(value) }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    } catch(e: any) {
-      console.error("[SB] save error:", key, e);
-      showSaveErr(`Failed to save "${key}": ${e?.message ?? e}`);
-    }
-  }
-
-  async function sbLoad(key) {
-    try {
-      const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.${key}&select=value`, {
-        headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` },
-      });
-      if (!res.ok) return null;
-      const rows = await res.json();
-      return rows.length ? JSON.parse(rows[0].value) : null;
-    } catch(e) { return null; }
-  }
-
-  // ── Individual row operations for tasks (fast upsert/delete) ─────────────
-  async function sbSaveTask(task) {
-    try {
-      // Conflict check: fetch current server version
-      if (!currentUser) return;
-      const checkRes = await fetch(`${SB_URL}/rest/v1/tasks?id=eq.${task.id}&select=data`, {
-        headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` },
-      });
-      if (checkRes.ok) {
-        const rows = await checkRes.json();
-        if (rows.length > 0) {
-          const serverTask = rows[0].data;
-          if (serverTask && serverTask.updatedAt && task.updatedAt && serverTask.updatedAt !== task.updatedAt && serverTask.updatedBy !== currentUser?.name) {
-            console.warn(`[SB] Conflict on task ${task.id}: server=${serverTask.updatedAt} local=${task.updatedAt}`);
-            // Last write wins but log it — the 10s poll will sync the latest version
-          }
-        }
-      }
-      // Save
-      await fetch(`${SB_URL}/rest/v1/tasks`, {
-        method: "POST",
-        headers: {
-          "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`,
-          "Content-Type": "application/json",
-          "Prefer": "resolution=merge-duplicates,return=minimal",
-        },
-        body: JSON.stringify({ id: task.id, data: { ...task, updatedAt: new Date().toISOString(), updatedBy: currentUser?.name || "" } }),
-      });
-    } catch(e: any) { console.error("[SB] save task error:", e); showSaveErr(`Failed to save task: ${e?.message ?? e}`); }
-  }
-
-  async function sbDeleteTask(id) {
-    try {
-      await fetch(`${SB_URL}/rest/v1/tasks?id=eq.${id}`, {
-        method: "DELETE",
-        headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` },
-      });
-    } catch(e: any) { console.error("[SB] delete task error:", e); showSaveErr(`Failed to delete task: ${e?.message ?? e}`); }
-  }
-
-  async function sbLoadTasks() {
-    try {
-      const res = await fetch(`${SB_URL}/rest/v1/tasks?select=data`, {
-        headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` },
-      });
-      if (!res.ok) return null;
-      const rows = await res.json();
-      return rows.map(r => r.data);
-    } catch(e) { return null; }
-  }
-
-  // ── Individual row operations for collections ─────────────────────────────
-  async function sbSaveCollection(key, data) {
-    if (!currentUser) return;
-    try {
-      await fetch(`${SB_URL}/rest/v1/collections`, {
-        method: "POST",
-        headers: {
-          "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`,
-          "Content-Type": "application/json",
-          "Prefer": "resolution=merge-duplicates,return=minimal",
-        },
-        body: JSON.stringify({ id: key, data: { ...data, _updatedAt: new Date().toISOString(), _updatedBy: currentUser?.name || "" } }),
-      });
-    } catch(e) { console.error("[SB] save collection error:", e); }
-  }
-
-  async function sbLoadCollections() {
-    try {
-      const res = await fetch(`${SB_URL}/rest/v1/collections?select=id,data`, {
-        headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` },
-      });
-      if (!res.ok) return null;
-      const rows = await res.json();
-      const obj = {};
-      rows.forEach(r => { obj[r.id] = r.data; });
-      return obj;
-    } catch(e) { return null; }
-  }
 
   const dbxLoaded = dc.dbxLoaded;
   const setDbxLoaded = (v: boolean) => dcSet("dbxLoaded", v);
@@ -353,7 +225,7 @@ function App() {
       appDataTimer = setTimeout(async () => {
         const refs = ["users","brands","seasons","customers","vendors","team","size_library","categories","order_types","roles","task_templates"];
         const setters = [setUsers, setBrands, setSeasons, setCustomers, setVendors, setTeam, setSizeLibrary, setCategoryLib, setOrderTypes, setRoles, setTaskTemplates];
-        const vals = await Promise.all(refs.map(r => sbLoad(r)));
+        const vals = await Promise.all(refs.map(r => sbLoadSvc(r)));
         vals.forEach((val, i) => { if (val) (setters[i] as any)(val, true); });
       }, 300);
     };
@@ -361,11 +233,11 @@ function App() {
     const channel = supabaseClient
       .channel("dc-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, async () => {
-        const newTasks = await sbLoadTasks();
+        const newTasks = await sbLoadTasksSvc();
         if (newTasks?.length) _setTasksRaw(newTasks);
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "collections" }, async () => {
-        const newColls = await sbLoadCollections();
+        const newColls = await sbLoadCollectionsSvc();
         if (newColls && Object.keys(newColls).length) _setCollRaw(newColls);
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "app_data" }, reloadAppData)
@@ -525,177 +397,6 @@ function App() {
     return d > 7 && d <= 30 && t.status !== "Complete";
   });
 
-  function addCollection(newTasks, meta) {
-    const key = `${newTasks[0].brand}||${newTasks[0].collection}`;
-    // Each task keeps its own images — no spreading
-    const conceptTask = newTasks.find((t) => t.phase === "Concept");
-    const conceptImages = conceptTask?.images || [];
-    const tasksWithImages = newTasks;
-    setCollections((c) => ({
-      ...c,
-      [key]: {
-        skus: [],
-        conceptImages,
-        customerShipDate: meta?.customerShipDate,
-        cancelDate: meta?.cancelDate,
-        customer: meta?.customer,
-        orderType: meta?.orderType,
-        channelType: meta?.channelType,
-        gender: meta?.gender,
-        year: meta?.year,
-        sampleDueDate: meta?.sampleDueDate,
-        availableSizes: meta?.availableSizes || sizeLibrary,
-      },
-    }));
-    setTasks((ts) => [...ts, ...tasksWithImages]);
-    setGlobalLog(gl => [...gl, {
-      id: `${Date.now()}-coll-create`,
-      field: "collection created",
-      from: null,
-      to: newTasks[0].collection,
-      changedBy: currentUser?.name || "Unknown",
-      at: new Date().toISOString(),
-      taskCollection: newTasks[0].collection,
-      taskBrand: newTasks[0].brand,
-    }]);
-    setShowWizard(false);
-    setView("timeline");
-  }
-
-  // ─── Undo helpers ────────────────────────────────────────────────────────────
-  function buildUndoDescription(oldTask: any, newTask: any): string {
-    if (!oldTask || !newTask) return "";
-    const parts: string[] = [];
-    if (oldTask.status !== newTask.status) parts.push(`status: "${oldTask.status}" → "${newTask.status}"`);
-    if (oldTask.assigneeId !== newTask.assigneeId) {
-      const oldName = oldTask.assigneeName || oldTask.assigneeId || "unassigned";
-      const newName = newTask.assigneeName || newTask.assigneeId || "unassigned";
-      parts.push(`assignee: "${oldName}" → "${newName}"`);
-    }
-    if (oldTask.due !== newTask.due) parts.push(`due date: ${formatDate(oldTask.due)} → ${formatDate(newTask.due)}`);
-    if (oldTask.vendorName !== newTask.vendorName) parts.push(`vendor: "${oldTask.vendorName}" → "${newTask.vendorName}"`);
-    if (oldTask.category !== newTask.category) parts.push(`category: "${oldTask.category}" → "${newTask.category}"`);
-    return parts.length > 0 ? parts.join(", ") : "card edited";
-  }
-
-  function pushUndo(prevTasksSnapshot: any[], type: 'card' | 'drag', taskId?: string, newTask?: any) {
-    let description = "";
-    if (type === 'card' && taskId && newTask) {
-      const oldTask = prevTasksSnapshot.find((t: any) => t.id === taskId);
-      description = buildUndoDescription(oldTask, newTask);
-    } else if (type === 'drag') {
-      description = "card position moved";
-    }
-    setUndoStack(prev => [{ prevTasks: prevTasksSnapshot, type, taskId, description }, ...prev].slice(0, 4));
-  }
-
-  function handleUndo() {
-    if (undoStack.length === 0) return;
-    const [entry, ...rest] = undoStack;
-    setUndoStack(rest);
-    if (entry.type === 'drag') {
-      setTasks(entry.prevTasks);
-      entry.prevTasks.forEach((t: any) => sbSaveTask(t));
-    } else {
-      // Card change: open the card and show confirm dialog
-      setUndoConfirm({ prevTasks: entry.prevTasks, taskId: entry.taskId!, description: entry.description });
-      const task = tasks.find((t: any) => t.id === entry.taskId);
-      if (task) setEditTask(task);
-    }
-  }
-
-  function saveTask(f) {
-    pushUndo(tasks, 'card', f.id, f);
-    const clean = { ...f };
-    setTasks((ts) => ts.map((t) => (t.id === clean.id ? clean : t)));
-    sbSaveTask(clean); // Fast individual row upsert
-    setEditTask(null);
-    setUndoConfirm(null);
-  }
-  function quietSaveTask(f) {
-    // Save without closing modal (used by SKU and note auto-saves)
-    const clean = { ...f };
-    setTasks((ts) => ts.map((t) => (t.id === clean.id ? clean : t)));
-    sbSaveTask(clean);
-  }
-
-  function saveCascade(updatedTasks) {
-    pushUndo(tasks, 'drag');
-    setTasks(updatedTasks);
-    updatedTasks.forEach(t => sbSaveTask(t));
-  }
-  function deleteTask(id) {
-    const dying = tasks.find(t => t.id === id);
-    if (dying) {
-      setGlobalLog(gl => [...gl, {
-        id: `${Date.now()}-task-del`,
-        field: "task deleted",
-        from: dying.phase,
-        to: null,
-        changedBy: currentUser?.name || "Unknown",
-        at: new Date().toISOString(),
-        taskPhase: dying.phase,
-        taskCollection: dying.collection,
-        taskBrand: dying.brand,
-      }]);
-    }
-    setTasks((ts) => ts.filter((t) => t.id !== id));
-    sbDeleteTask(id); // Fast individual row delete
-    setEditTask(null);
-  }
-
-  // Timeline drag: place dragged card at midpoint between its two neighbors
-  function handleTimelineDrop(targetId, sortedCollTasks) {
-    if (!dragId || dragId === targetId) return;
-    pushUndo(tasks, 'drag');
-    setTasks((ts) => {
-      const dragged = ts.find((t) => t.id === dragId);
-      if (!dragged) return ts;
-      const targetIdx = sortedCollTasks.findIndex((t) => t.id === targetId);
-      if (targetIdx < 0) return ts;
-      const prev = sortedCollTasks[targetIdx - 1];
-      const next = sortedCollTasks[targetIdx];
-      let newDue;
-      if (prev && next) {
-        const prevMs = parseLocalDate(prev.due).getTime();
-        const nextMs = parseLocalDate(next.due).getTime();
-        const midMs = Math.round((prevMs + nextMs) / 2);
-        const mid = new Date(midMs);
-        const mm = String(mid.getMonth() + 1).padStart(2, "0");
-        const dd = String(mid.getDate()).padStart(2, "0");
-        newDue = `${mid.getFullYear()}-${mm}-${dd}`;
-      } else if (!prev && next) {
-        newDue = addDays(next.due, -1);
-      } else if (prev && !next) {
-        newDue = addDays(prev.due, 1);
-      } else {
-        newDue = dragged.due;
-      }
-      return ts.map((t) => (t.id === dragId ? { ...t, due: newDue } : t));
-    });
-    setDragId(null);
-    setDragOverId(null);
-  }
-
-  // Dashboard card drag: swap dates
-  function handleDrop(targetId) {
-    if (!dragId || dragId === targetId) return;
-    pushUndo(tasks, 'drag');
-    setTasks((ts) => {
-      const a = ts.find((t) => t.id === dragId),
-        b = ts.find((t) => t.id === targetId);
-      if (!a || !b) return ts;
-      return ts.map((t) =>
-        t.id === dragId
-          ? { ...t, due: b.due }
-          : t.id === targetId
-          ? { ...t, due: a.due }
-          : t
-      );
-    });
-    setDragId(null);
-    setDragOverId(null);
-  }
 
   const collMap = {};
   tasks.forEach((t) => {
@@ -789,7 +490,7 @@ function App() {
   );
 
 
-  taskCardCtxRef.current = { getBrand, team, setDragId, setDragOverId, dragOverId, dragId, handleDrop, setEditTask, statFilter, setFocusCollKey, setView, setStatFilter, setTimelineBackFilter };
+  taskCardCtxRef.current = { getBrand, team, setDragId, setDragOverId, dragOverId, dragId, handleDrop: useAppStore.getState().handleDrop, setEditTask, statFilter, setFocusCollKey, setView, setStatFilter, setTimelineBackFilter };
 
 
   const dashboardCtx = { TaskCard };
@@ -940,7 +641,7 @@ function App() {
         >
           {/* Undo button — always visible, disabled when nothing to undo */}
           <button
-            onClick={handleUndo}
+            onClick={useAppStore.getState().handleUndo}
             disabled={undoStack.length === 0}
             title={undoStack.length > 0 ? `Undo last change (${undoStack.length} available)` : "Nothing to undo"}
             style={{ padding: "7px 13px", borderRadius: 8, border: `1px solid ${undoStack.length > 0 ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.12)"}`, background: undoStack.length > 0 ? "rgba(255,255,255,0.12)" : "transparent", color: undoStack.length > 0 ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.3)", fontWeight: 600, cursor: undoStack.length > 0 ? "pointer" : "default", fontFamily: "inherit", fontSize: 12, display: "flex", alignItems: "center", gap: 5, transition: "all 0.15s" }}
@@ -1135,7 +836,7 @@ function App() {
             genderSizes={genderSizes}
             brands={brands}
             categories={categoryLib}
-            onSave={addCollection}
+            onSave={useAppStore.getState().addCollection}
             onClose={() => setShowWizard(false)}
           />
         </Modal>
@@ -1235,10 +936,10 @@ function App() {
           collections={collections}
           allTasks={tasks}
           vendors={vendors}
-          onSave={saveTask}
-          onQuietSave={quietSaveTask}
-          onSaveCascade={saveCascade}
-          onDelete={deleteTask}
+          onSave={useAppStore.getState().saveTask}
+          onQuietSave={useAppStore.getState().quietSaveTask}
+          onSaveCascade={useAppStore.getState().saveCascade}
+          onDelete={useAppStore.getState().deleteTask}
           onClose={() => setEditTask(null)}
           currentUser={currentUser}
           customerList={customers}
@@ -1248,7 +949,7 @@ function App() {
           onUndoConfirm={(confirmed) => {
             if (confirmed && undoConfirm) {
               setTasks(undoConfirm.prevTasks);
-              undoConfirm.prevTasks.forEach((t: any) => sbSaveTask(t));
+              undoConfirm.prevTasks.forEach((t: any) => sbSaveTaskSvc(t, currentUser?.name || ""));
             }
             setUndoConfirm(null);
             setEditTask(null);
