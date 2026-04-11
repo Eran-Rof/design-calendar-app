@@ -3443,8 +3443,14 @@ function TandAApp() {
           function tplUndo() {
             if (!activeTplUndo.length) return;
             const prev = activeTplUndo[activeTplUndo.length - 1];
+            const remaining = activeTplUndo.length - 1;
             setTplUndoStack(s => s.slice(0, -1));
-            setTplLocalEdits({ vendor: tplVendor, edits: prev });
+            // If this was the last undo (back to original), clear edits entirely
+            if (remaining === 0) {
+              setTplLocalEdits(null);
+            } else {
+              setTplLocalEdits({ vendor: tplVendor, edits: prev });
+            }
             setTplMovedIds(new Set());
           }
           function tplSave() {
