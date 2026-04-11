@@ -11,6 +11,7 @@
  */
 import { create } from "zustand";
 import { sbSave, sbLoad, sbSaveTask, sbDeleteTask, sbLoadTasks, sbSaveCollection, sbLoadCollections } from "./supabaseService";
+import { addDays, parseLocalDate, formatDate } from "../utils/dates";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -115,7 +116,7 @@ export interface DataActions {
   setRefData: (key: string, field: keyof DataState, value: any) => void;
   // Tasks with diff-and-persist
   setTasks: (updater: any[] | ((prev: any[]) => any[])) => void;
-  setTasksRaw: (tasks: any[]) => void; // skip persistence (for hydration/realtime)
+  setTasksRaw: (tasks: any[]) => void;
   // Collections with diff-and-persist
   setCollections: (updater: Record<string, any> | ((prev: Record<string, any>) => Record<string, any>)) => void;
   setCollectionsRaw: (collections: Record<string, any>) => void;
@@ -123,7 +124,22 @@ export interface DataActions {
   loadAll: () => Promise<void>;
 }
 
-export type AppStore = UIState & DataState & UIActions & DataActions;
+export interface BusinessActions {
+  // Task CRUD
+  saveTask: (task: any) => void;
+  quietSaveTask: (task: any) => void;
+  deleteTask: (id: string) => void;
+  saveCascade: (updatedTasks: any[]) => void;
+  addCollection: (newTasks: any[], meta: Record<string, any>) => void;
+  // Undo
+  pushUndoEntry: (prevTasks: any[], type: "card" | "drag", taskId?: string, newTask?: any) => void;
+  handleUndo: () => void;
+  // Drag
+  handleDrop: (targetId: string) => void;
+  handleTimelineDrop: (targetId: string, sortedCollTasks: any[]) => void;
+}
+
+export type AppStore = UIState & DataState & UIActions & DataActions & BusinessActions;
 
 // ── Store ──────────────────────────────────────────────────────────────────
 
@@ -300,5 +316,124 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       console.error("[SB] loadAll error:", e);
     }
     set({ _hydrating: false, dbxLoaded: true });
+  },
+
+  // ── Business Actions ──
+
+  pushUndoEntry: (prevTasks, type, taskId, newTask) => {
+    let description = "";
+    if (type === "card" && taskId && newTask) {
+      const oldTask = prevTasks.find((t: any) => t.id === taskId);
+      if (oldTask && newTask) {
+        const parts: string[] = [];
+        if (oldTask.status !== newTask.status) parts.push(`status: "${oldTask.status}" → "${newTask.status}"`);
+        if (oldTask.due !== newTask.due) parts.push(`due date: ${formatDate(oldTask.due)} → ${formatDate(newTask.due)}`);
+        if (oldTask.vendorName !== newTask.vendorName) parts.push(`vendor: "${oldTask.vendorName}" → "${newTask.vendorName}"`);
+        description = parts.length > 0 ? parts.join(", ") : "card edited";
+      }
+    } else if (type === "drag") {
+      description = "card position moved";
+    }
+    set((s) => ({ undoStack: [{ prevTasks, type, taskId, description }, ...s.undoStack].slice(0, 4) }));
+  },
+
+  handleUndo: () => {
+    const { undoStack, tasks } = get();
+    if (undoStack.length === 0) return;
+    const [entry, ...rest] = undoStack;
+    set({ undoStack: rest });
+    const userName = get().currentUser?.name || "";
+    if (entry.type === "drag") {
+      get().setTasks(entry.prevTasks);
+      entry.prevTasks.forEach((t: any) => sbSaveTask(t, userName).catch(() => {}));
+    } else {
+      set({ undoConfirm: { prevTasks: entry.prevTasks, taskId: entry.taskId!, description: entry.description } });
+      const task = tasks.find((t: any) => t.id === entry.taskId);
+      if (task) set({ editTask: task });
+    }
+  },
+
+  saveTask: (task) => {
+    const s = get();
+    s.pushUndoEntry(s.tasks, "card", task.id, task);
+    const clean = { ...task };
+    s.setTasks((ts: any[]) => ts.map((t: any) => t.id === clean.id ? clean : t));
+    set({ editTask: null, undoConfirm: null });
+  },
+
+  quietSaveTask: (task) => {
+    const clean = { ...task };
+    get().setTasks((ts: any[]) => ts.map((t: any) => t.id === clean.id ? clean : t));
+  },
+
+  deleteTask: (id) => {
+    const s = get();
+    const dying = s.tasks.find((t: any) => t.id === id);
+    if (dying) {
+      set({ globalLog: [...s.globalLog, {
+        id: `${Date.now()}-task-del`, field: "task deleted", from: dying.phase, to: null,
+        changedBy: s.currentUser?.name || "Unknown", at: new Date().toISOString(),
+        taskPhase: dying.phase, taskCollection: dying.collection, taskBrand: dying.brand,
+      }] });
+    }
+    s.setTasks((ts: any[]) => ts.filter((t: any) => t.id !== id));
+    set({ editTask: null });
+  },
+
+  saveCascade: (updatedTasks) => {
+    const s = get();
+    s.pushUndoEntry(s.tasks, "drag");
+    s.setTasks(updatedTasks);
+  },
+
+  addCollection: (newTasks, meta) => {
+    const s = get();
+    const key = `${newTasks[0].brand}||${newTasks[0].collection}`;
+    const tasksWithImages = newTasks.map((t: any) => ({ ...t, images: t.images || [] }));
+    s.setCollections((prev: any) => ({ ...prev, [key]: { ...(prev[key] || {}), ...meta } }));
+    s.setTasks((ts: any[]) => [...ts, ...tasksWithImages]);
+    set({ globalLog: [...s.globalLog, {
+      id: `${Date.now()}-coll-create`, field: "collection created", from: null,
+      to: newTasks[0].collection, changedBy: s.currentUser?.name || "Unknown",
+      at: new Date().toISOString(), taskCollection: newTasks[0].collection, taskBrand: newTasks[0].brand,
+    }], showWizard: false, view: "timeline" });
+  },
+
+  handleDrop: (targetId) => {
+    const s = get();
+    if (!s.dragId || s.dragId === targetId) return;
+    s.pushUndoEntry(s.tasks, "drag");
+    s.setTasks((ts: any[]) => {
+      const a = ts.find((t: any) => t.id === s.dragId);
+      const b = ts.find((t: any) => t.id === targetId);
+      if (!a || !b) return ts;
+      return ts.map((t: any) => t.id === s.dragId ? { ...t, due: b.due } : t.id === targetId ? { ...t, due: a.due } : t);
+    });
+    set({ dragId: null, dragOverId: null });
+  },
+
+  handleTimelineDrop: (targetId, sortedCollTasks) => {
+    const s = get();
+    if (!s.dragId || s.dragId === targetId) return;
+    s.pushUndoEntry(s.tasks, "drag");
+    s.setTasks((ts: any[]) => {
+      const dragged = ts.find((t: any) => t.id === s.dragId);
+      if (!dragged) return ts;
+      const targetIdx = sortedCollTasks.findIndex((t: any) => t.id === targetId);
+      if (targetIdx < 0) return ts;
+      const prev = sortedCollTasks[targetIdx - 1];
+      const next = sortedCollTasks[targetIdx];
+      let newDue: string;
+      if (prev && next) {
+        const prevMs = parseLocalDate(prev.due).getTime();
+        const nextMs = parseLocalDate(next.due).getTime();
+        const mid = new Date(Math.round((prevMs + nextMs) / 2));
+        newDue = `${mid.getFullYear()}-${String(mid.getMonth() + 1).padStart(2, "0")}-${String(mid.getDate()).padStart(2, "0")}`;
+      } else if (!prev && next) { newDue = addDays(next.due, -1); }
+      else if (prev && !next) { newDue = addDays(prev.due, 1); }
+      else { newDue = dragged.due; }
+      return ts.map((t: any) => t.id === s.dragId ? { ...t, due: newDue } : t);
+    });
+    set({ dragId: null, dragOverId: null });
   },
 }));
