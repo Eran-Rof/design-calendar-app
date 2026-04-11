@@ -2751,14 +2751,14 @@ function TandAApp() {
   const tplDirtyGlobal = tplLocalEdits !== null;
   function guardedNav(action: () => void) {
     if (tplDirtyGlobal) {
-      setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes to the production template. Discard them?", icon: "⚠️", confirmText: "Discard", confirmColor: "#EF4444", cancelText: "Go Back", onConfirm: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); action(); } });
+      setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes to the production template.", icon: "⚠️", confirmText: "Save", confirmColor: "#2563EB", cancelText: "Discard", onConfirm: () => { saveVendorTemplates(tplLocalEdits!.vendor, tplLocalEdits!.edits); setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); action(); }, onCancel: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); action(); } });
     } else {
       action();
     }
   }
   function closeSettingsGuarded() {
     if (tplDirtyGlobal) {
-      setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes to the production template. Discard them?", icon: "⚠️", confirmText: "Discard", confirmColor: "#EF4444", cancelText: "Go Back", onConfirm: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setShowSettings(false); } });
+      setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes to the production template.", icon: "⚠️", confirmText: "Save", confirmColor: "#2563EB", cancelText: "Discard", onConfirm: () => { saveVendorTemplates(tplLocalEdits!.vendor, tplLocalEdits!.edits); setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setShowSettings(false); }, onCancel: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setShowSettings(false); } });
     } else {
       setShowSettings(false);
     }
@@ -3482,7 +3482,7 @@ function TandAApp() {
                   <select style={{ ...S.select, flex: 1, maxWidth: 300 }} value={tplVendor} onChange={e => {
                     const newVendor = e.target.value;
                     if (tplDirty) {
-                      setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes. Discard them and switch vendor?", icon: "⚠️", confirmText: "Discard & Switch", confirmColor: "#EF4444", cancelText: "Go Back", onConfirm: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setTplVendor(newVendor); } });
+                      setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes to the production template.", icon: "⚠️", confirmText: "Save & Switch", confirmColor: "#2563EB", cancelText: "Discard & Switch", onConfirm: () => { saveVendorTemplates(tplLocalEdits!.vendor, tplLocalEdits!.edits); setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setTplVendor(newVendor); }, onCancel: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setTplVendor(newVendor); } });
                     } else {
                       setTplVendor(newVendor);
                     }
@@ -3578,6 +3578,9 @@ function TandAApp() {
                     return (
                     <div
                       key={tpl.id}
+                      draggable={!!isAdmin}
+                      onDragStart={isAdmin ? (e => { setTplDragIdx(i); e.dataTransfer.setData("text/plain", String(i)); e.dataTransfer.effectAllowed = "move"; }) : undefined}
+                      onDragEnd={isAdmin ? (() => { setTplDragIdx(null); setTplDragOverIdx(null); }) : undefined}
                       onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (tplDragIdx !== null && tplDragIdx !== i) setTplDragOverIdx(i); }}
                       onDragLeave={() => { if (tplDragOverIdx === i) setTplDragOverIdx(null); }}
                       onDrop={e => {
@@ -3598,7 +3601,8 @@ function TandAApp() {
                         padding: "8px 14px",
                         fontSize: 13,
                         alignItems: "center",
-                        opacity: isDragging ? 0.4 : 1,
+                        opacity: isDragging ? 0.3 : 1,
+                        cursor: isAdmin ? (isDragging ? "grabbing" : "grab") : "default",
                         transform: isDragging ? "scale(0.97)" : isDropTarget ? `translateY(${isAbove ? "4px" : "-4px"})` : "none",
                         transition: "all 0.25s cubic-bezier(0.2, 0, 0, 1)",
                         background: isDragging ? "rgba(251, 146, 60, 0.12)"
