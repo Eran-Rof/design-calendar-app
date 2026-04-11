@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
@@ -65,6 +65,8 @@ const FONT_SIZES = [
 export function RichTextEditor({ value, onChange, placeholder, minHeight = 140 }: { value: string; onChange: (html: string) => void; placeholder?: string; minHeight?: number }) {
   const colorRef = useRef<HTMLInputElement | null>(null);
   const currentColorRef = useRef<string>("#3B82F6");
+  // Force re-render on every editor transaction so toolbar buttons reflect active state
+  const [, forceUpdate] = useState(0);
 
   const editor = useEditor({
     extensions: [
@@ -94,24 +96,26 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = 140 }
     },
   });
 
-  // Sync upstream value changes (e.g. after Send clears the body)
-  const lastValueRef = useRef(value);
+  // Sync upstream value changes (e.g. after Send clears the body, or new compose opens)
   useEffect(() => {
     if (!editor) return;
-    if (value !== lastValueRef.current) {
-      lastValueRef.current = value;
-      if (editor.getHTML() !== (value || "")) {
-        editor.commands.setContent(value || "", { emitUpdate: false });
-      }
+    const editorHtml = editor.getHTML();
+    const normalizedValue = value || "";
+    // Always sync when value is empty (compose was reset) or when it differs
+    if (normalizedValue === "" && editorHtml !== "<p></p>" && editorHtml !== "") {
+      editor.commands.clearContent();
+    } else if (normalizedValue && editorHtml !== normalizedValue) {
+      editor.commands.setContent(normalizedValue, { emitUpdate: false });
     }
   }, [value, editor]);
 
-  // Track current color from editor state
+  // Re-render toolbar on every selection/transaction so B/I/U/font reflect current state
   useEffect(() => {
     if (!editor) return;
     const update = () => {
       const c = editor.getAttributes("textStyle").color;
       if (c) currentColorRef.current = c;
+      forceUpdate(n => n + 1);
     };
     editor.on("selectionUpdate", update);
     editor.on("transaction", update);
@@ -127,8 +131,11 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = 140 }
   const btnActive: React.CSSProperties = { background: "#1D4ED8", border: "1px solid #3B82F6", color: "#ffffff" };
   const sty = (isActive: boolean, extra: React.CSSProperties = {}) => ({ ...btnBase, ...(isActive ? btnActive : {}), ...extra });
 
-  const currentFont = editor.getAttributes("textStyle").fontFamily || "";
+  const textStyleAttrs = editor.getAttributes("textStyle");
+  const currentFont = textStyleAttrs.fontFamily || "";
+  const currentFontSize = textStyleAttrs.fontSize || "";
   const matchedFont = FONT_CHOICES.find(f => currentFont && f.value.toLowerCase().includes(currentFont.toLowerCase().replace(/['"]/g, "")));
+  const matchedSize = FONT_SIZES.find(s => s.value === currentFontSize);
 
   return (
     <div style={{ border: "1px solid #334155", borderRadius: 6, background: "#0F172A", overflow: "hidden" }}>
@@ -144,7 +151,8 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = 140 }
         </select>
         <select
           title="Font size"
-          onChange={e => { if (e.target.value) editor.chain().focus().setMark("textStyle", { fontSize: e.target.value }).run(); e.target.value = ""; }}
+          value={matchedSize?.value || ""}
+          onChange={e => { if (e.target.value) editor.chain().focus().setMark("textStyle", { fontSize: e.target.value }).run(); }}
           style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#94A3B8", fontSize: 11, padding: "3px 4px", height: 26, cursor: "pointer", width: 50 }}
         >
           <option value="">Size</option>
