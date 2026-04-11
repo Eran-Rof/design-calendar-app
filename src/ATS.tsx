@@ -6,6 +6,7 @@ import { addDays, fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday,
 import { computeRowsFromExcelData } from "./ats/compute";
 import { mergeExcelDataSkus, mergeRows, dedupeExcelData } from "./ats/merge";
 import { useMergeHistory } from "./ats/hooks/useMergeHistory";
+import { usePOWIPSync } from "./ats/hooks/usePOWIPSync";
 import { exportToExcel } from "./ats/exportExcel";
 import { normalizeExcelData, detectNormChanges, applyNormChanges, type NormChange } from "./ats/normalize";
 import S from "./ats/styles";
@@ -110,6 +111,14 @@ function ATSReport() {
   const [dragOverSku, setDragOverSku] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
 
+  // PO WIP sync — order matters: useMergeHistory needs applyPOWIPData.
+  const { applyPOWIPData, refreshPOsFromWIP } = usePOWIPSync({
+    excelData,
+    setExcelData,
+    setUploadingFile,
+    setUploadSuccess,
+  });
+
   // Merge history + pending-merge UI state + commit/undo/drop flows live in
   // their own hook (see useMergeHistory). The hook is stateless about
   // mergeHistory itself (owned by the ATS reducer) but owns pendingMerge.
@@ -120,7 +129,7 @@ function ATSReport() {
     setExcelData,
     rows,
     setRows,
-    applyPOWIPData: (d: ExcelData) => applyPOWIPData(d),
+    applyPOWIPData,
     saveNormResult: (d: ExcelData) => saveNormResult(d),
     isAdmin,
   });
@@ -458,61 +467,7 @@ function ATSReport() {
     }
   }
 
-  async function applyPOWIPData(data: ExcelData): Promise<ExcelData> {
-    const poRes = await fetch(`${SB_URL}/rest/v1/tanda_pos?select=data`, { headers: SB_HEADERS });
-    if (!poRes.ok) return data;
-    const poRows = await poRes.json();
-    for (const row of poRows) {
-      const po = row.data;
-      if (!po || po._archived) continue;
-      const poNum = po.PoNumber ?? "";
-      const vendor = po.VendorName ?? "";
-      const expDate = po.DateExpectedDelivery ?? "";
-      const brandName = po.BrandName ?? "";
-      const items = po.Items ?? po.PoLineArr ?? [];
-      for (const item of items) {
-        const rawItemSku = item.ItemNumber ?? "";
-        if (!rawItemSku) continue;
-        const sku = xoroSkuToExcel(rawItemSku);
-        const qty = item.QtyRemaining != null ? item.QtyRemaining : (item.QtyOrder ?? 0) - (item.QtyReceived ?? 0);
-        const unitCost = item.UnitPrice ?? 0;
-        if (qty <= 0) continue;
-        let date = "";
-        if (expDate) { const d = new Date(expDate); if (!isNaN(d.getTime())) date = d.toISOString().split("T")[0]; }
-        const pn = poNum.toUpperCase();
-        const bn = brandName.toUpperCase();
-        const store = pn.includes("ECOM") ? "ROF ECOM" : (bn.includes("PSYCHO") || bn.includes("PTUNA") || bn.includes("P TUNA") || bn === "PT" || bn.startsWith("PT ")) ? "PT" : "ROF";
-        if (!data.skus.find(s => s.sku === sku)) {
-          data.skus.push({ sku, description: item.Description ?? "", category: brandName || undefined, store, onHand: 0, onOrder: qty, onCommitted: 0 });
-        } else {
-          const existing = data.skus.find(s => s.sku === sku)!;
-          existing.onOrder = (existing.onOrder || 0) + qty;
-        }
-        if (date) data.pos.push({ sku, date, qty, poNumber: poNum, vendor, store, unitCost });
-      }
-    }
-    return data;
-  }
-
-  async function refreshPOsFromWIP() {
-    if (!excelData) return;
-    setUploadingFile(true);
-    try {
-      // Strip existing PO data then re-fetch from tanda_pos
-      const base: ExcelData = {
-        ...excelData,
-        pos: [],
-        skus: excelData.skus.map(s => ({ ...s, onOrder: 0 })),
-      };
-      const updated = await applyPOWIPData(base);
-      setExcelData(updated);
-      setUploadSuccess("PO data refreshed from PO WIP");
-    } catch (e) {
-      console.warn("Failed to refresh PO WIP data:", e);
-    } finally {
-      setUploadingFile(false);
-    }
-  }
+  // applyPOWIPData + refreshPOsFromWIP now live in usePOWIPSync hook.
 
   async function handleFileUpload(inv: File, pur: File | null, ord: File) {
     // Abort any in-progress upload before starting a new one
