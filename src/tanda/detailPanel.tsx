@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, type Dispatch, type SetStateAction, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { type XoroPO, type Milestone, type WipTemplate, type LocalNote, type User, type DCVendor,
+import { type XoroPO, type Milestone, type WipTemplate, type LocalNote, type User, type DCVendor, type View, type DmConversation,
   STATUS_COLORS, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, DEFAULT_WIP_TEMPLATES,
   milestoneUid, itemQty, poTotal, normalizeSize, sizeSort, fmtDate, fmtCurrency } from "../utils/tandaTypes";
 import { styledEmailHtml } from "../utils/emailHtml";
@@ -8,8 +8,233 @@ import { RichTextEditor, buildEmailHtml } from "./richTextEditor";
 import { MS_CLIENT_ID, MS_TENANT_ID } from "../utils/msAuth";
 import { printPODetail } from "./exportHelpers";
 import S from "./styles";
+import type { DetailMode, AttachmentEntry } from "./state/core/coreTypes";
 
-export type DetailPanelCtx = Record<string, any>;
+// ── DetailPanelCtx ──────────────────────────────────────────────────────────
+// Strict prop bag passed by TandA.tsx into the detail panel. Replaces the
+// previous `Record<string, any>` escape hatch so the panel's reads are
+// type-checked against the call site.
+//
+// Setter convention:
+//  - `Dispatch<SetStateAction<T>>` for plain useState setters AND for the
+//    reducer-wrapped setters in TandA that internally branch on
+//    `typeof v === "function"` to support functional updates.
+//  - `(v: T) => void` for wrapper setters that only accept a direct value.
+export interface BlockedModalState {
+  cat: string;
+  delayedCat: string;
+  daysLate: number;
+  onConfirm: () => void;
+}
+
+export interface ConfirmModalState {
+  title: string;
+  message: string;
+  icon: string;
+  confirmText: string;
+  confirmColor: string;
+  cancelText?: string;
+  listItems?: string[];
+  onConfirm: () => void;
+  onCancel?: () => void;
+}
+
+export interface NewPhaseFormState {
+  name: string;
+  category: string;
+  dueDate: string;
+  afterPhase: string;
+}
+
+export interface DetailPanelCtx {
+  // ── Core selection / view ──
+  selected: XoroPO | null;
+  detailMode: DetailMode;
+  setDetailMode: (v: DetailMode) => void;
+  setSelected: (v: XoroPO | null) => void;
+  setView: (v: View) => void;
+  setNewNote: Dispatch<SetStateAction<string>>;
+
+  // ── Section collapse toggles ──
+  matrixCollapsed: boolean;
+  setMatrixCollapsed: Dispatch<SetStateAction<boolean>>;
+  lineItemsCollapsed: boolean;
+  setLineItemsCollapsed: Dispatch<SetStateAction<boolean>>;
+  poInfoCollapsed: boolean;
+  setPoInfoCollapsed: Dispatch<SetStateAction<boolean>>;
+  progressCollapsed: boolean;
+  setProgressCollapsed: Dispatch<SetStateAction<boolean>>;
+
+  // ── Note editing ──
+  editingNote: string | null;
+  setEditingNote: Dispatch<SetStateAction<string | null>>;
+  editingNoteId: string | null;
+  setEditingNoteId: Dispatch<SetStateAction<string | null>>;
+  editingNoteText: string;
+  setEditingNoteText: Dispatch<SetStateAction<string>>;
+  msNoteText: string;
+  setMsNoteText: Dispatch<SetStateAction<string>>;
+  expandedVariants: Set<string>;
+  setExpandedVariants: Dispatch<SetStateAction<Set<string>>>;
+
+  // ── Phase / template editing ──
+  addingPhase: boolean;
+  setAddingPhase: Dispatch<SetStateAction<boolean>>;
+  newPhaseForm: NewPhaseFormState;
+  setNewPhaseForm: Dispatch<SetStateAction<NewPhaseFormState>>;
+  acceptedBlocked: Set<string>;
+  setAcceptedBlocked: Dispatch<SetStateAction<Set<string>>>;
+  blockedModal: BlockedModalState | null;
+  setBlockedModal: Dispatch<SetStateAction<BlockedModalState | null>>;
+  confirmModal: ConfirmModalState | null;
+  setConfirmModal: Dispatch<SetStateAction<ConfirmModalState | null>>;
+  collapsedCats: Record<string, boolean>;
+  setCollapsedCats: Dispatch<SetStateAction<Record<string, boolean>>>;
+  showCreateTpl: string | null;
+  setShowCreateTpl: Dispatch<SetStateAction<string | null>>;
+
+  // ── Attachments ──
+  attachments: Record<string, AttachmentEntry[]>;
+  setAttachments: Dispatch<SetStateAction<Record<string, AttachmentEntry[]>>>;
+  attachInputRef: RefObject<HTMLInputElement>;
+  uploadingAttachment: boolean;
+  setUploadingAttachment: (v: boolean) => void;
+
+  // ── Core data ──
+  milestones: Record<string, Milestone[]>;
+  setMilestones: Dispatch<SetStateAction<Record<string, Milestone[]>>>;
+  wipTemplates: Record<string, WipTemplate[]>;
+  setWipTemplates: Dispatch<SetStateAction<Record<string, WipTemplate[]>>>;
+  dcVendors: DCVendor[];
+  designTemplates: any[];
+  notes: LocalNote[];
+  newNote: string;
+  user: User | null;
+  emailToken: string | null;
+  teamsToken: string | null;
+  msDisplayName: string;
+  pos: XoroPO[];
+  toast: string | null;
+  setToast: Dispatch<SetStateAction<string | null>>;
+
+  // ── PO actions / business logic ──
+  handleExportPOExcel: (po: XoroPO, items: any[], mode: string) => void;
+  ensureMilestones: (po: XoroPO) => Promise<Milestone[] | "needs_template">;
+  saveMilestone: (m: Milestone, skipHistory?: boolean) => Promise<void>;
+  saveMilestones: (ms: Milestone[]) => Promise<void>;
+  generateMilestones: (poNumber: string, ddpDate: string, vendorName?: string) => Milestone[];
+  regenerateMilestones: (po: XoroPO) => Promise<void>;
+  cascadeDueDateChange: (milestone: Milestone, newDate: string) => Promise<void>;
+  vendorHasTemplate: (vendorName: string) => boolean;
+  templateVendorList: () => string[];
+  getVendorTemplates: (vendorName?: string) => WipTemplate[];
+  saveVendorTemplates: (vendorKey: string, templates: WipTemplate[]) => Promise<void>;
+  openCategoryWithCheck: (poNum: string, cat: string, po?: XoroPO | null, switchView?: boolean) => void;
+  isCatBlocked: (poNum: string, cat: string) => { blocked: boolean; delayedCat: string; daysLate: number };
+  uploadAttachment: (poNumber: string, file: File) => Promise<void>;
+  loadAttachments: (poNumber: string) => Promise<void>;
+  deleteAttachment: (poNumber: string, attachId: string) => Promise<void>;
+  undoDeleteAttachment: (poNumber: string, attachId: string) => Promise<void>;
+  purgeExpiredAttachments: (poNumber: string) => Promise<void>;
+  addNote: () => Promise<void>;
+  editNote: (noteId: string, newText: string) => Promise<void>;
+  deleteNote: (noteId: string) => Promise<void>;
+  addHistory: (poNumber: string, description: string) => Promise<void>;
+  deletePO: (poNumber: string) => Promise<void>;
+  setSearch: Dispatch<SetStateAction<string>>;
+  setTeamsSelPO: (v: string | null) => void;
+  setTeamsTab: (v: "channels" | "direct") => void;
+
+  // ── Email (detail panel) ──
+  loadDtlEmails: (poNum: string, olderUrl?: string) => Promise<void>;
+  loadDtlFullEmail: (id: string) => Promise<void>;
+  loadDtlThread: (conversationId: string) => Promise<void>;
+  loadDtlSentEmails: (poNum: string) => Promise<void>;
+  authenticateEmail: () => Promise<void>;
+  dtlReplyToEmail: (messageId: string) => Promise<void>;
+  dtlSendEmail: (poNum: string) => Promise<void>;
+  emailMarkAsRead: (id: string) => Promise<void>;
+  deleteMainEmail: (messageId: string) => Promise<void>;
+  loadEmailAttachments: (messageId: string, force?: boolean) => Promise<void>;
+  emailAttachments: Record<string, any[]>;
+  emailAttachmentsLoading: Record<string, boolean>;
+
+  // ── Teams ──
+  teamsLoadPOMessages: (poNum: string, mp?: { channelId: string; teamId: string }) => Promise<void>;
+  teamsStartChat: (poNum: string) => Promise<void>;
+  teamsSendMessage: (poNum: string) => Promise<void>;
+  teamsGraphPost: (path: string, body: any) => Promise<any>;
+  teamsGraph: (path: string, extraHeaders?: Record<string, string>) => Promise<any>;
+  loadTeamsContacts: () => Promise<void>;
+  handleTeamsContactInput: (val: string, target: "main" | "dtl") => void;
+  teamsSendDirect: () => Promise<void>;
+  sendDmReply: () => Promise<void>;
+  loadDmMessages: (chatId: string, silent?: boolean) => Promise<void>;
+  msSignOut: () => void;
+  selectedNotes: LocalNote[];
+  selectedHistory: LocalNote[];
+
+  // ── Detail panel email state ──
+  dtlEmails: Record<string, any[]>;
+  dtlEmailLoading: Record<string, boolean>;
+  dtlEmailErr: Record<string, string | null>;
+  dtlEmailSel: any;
+  dtlEmailThread: any[];
+  dtlThreadLoading: boolean;
+  dtlEmailTab: "inbox" | "sent" | "thread" | "compose" | "teams";
+  setDtlEmailTab: (v: "inbox" | "sent" | "thread" | "compose" | "teams") => void;
+  dtlSentEmails: Record<string, any[]>;
+  dtlSentLoading: Record<string, boolean>;
+  dtlComposeTo: string;
+  setDtlComposeTo: (v: string) => void;
+  dtlComposeSubject: string;
+  setDtlComposeSubject: (v: string) => void;
+  dtlComposeBody: string;
+  setDtlComposeBody: (v: string) => void;
+  dtlSendErr: string | null;
+  setDtlSendErr: (v: string | null) => void;
+  dtlReply: string;
+  setDtlReply: (v: string) => void;
+  dtlNextLink: Record<string, string | null>;
+  dtlLoadingOlder: boolean;
+  setDtlLoadingOlder: (v: boolean) => void;
+
+  // ── Teams state ──
+  teamsChannelMap: Record<string, { channelId: string; teamId: string }>;
+  teamsMessages: Record<string, any[]>;
+  setTeamsMessages: Dispatch<SetStateAction<Record<string, any[]>>>;
+  teamsLoading: Record<string, boolean>;
+  teamsNewMsg: string;
+  setTeamsNewMsg: (v: string) => void;
+  teamsContacts: any[];
+  teamsContactsLoading: boolean;
+  teamsContactsError: string | null;
+
+  // ── Detail panel DM state ──
+  dtlDMTo: string;
+  setDtlDMTo: (v: string) => void;
+  dtlDMMsg: string;
+  setDtlDMMsg: (v: string) => void;
+  dtlDMSending: boolean;
+  setDtlDMSending: (v: boolean) => void;
+  dtlDMErr: string | null;
+  setDtlDMErr: (v: string | null) => void;
+  dtlDMContactSearch: string;
+  setDtlDMContactSearch: (v: string) => void;
+  dtlDMContactDropdown: boolean;
+  setDtlDMContactDropdown: (v: boolean) => void;
+  dtlDMContactSearchResults: any[];
+  setDtlDMContactSearchResults: (v: any[]) => void;
+  dtlDMContactSearchLoading: boolean;
+  setDtlDMContactSearchLoading: (v: boolean) => void;
+
+  // ── DM conversations ──
+  dmConversations: DmConversation[];
+  setDmConversations: Dispatch<SetStateAction<DmConversation[]>>;
+  dmActiveChatId: string | null;
+  setDmActiveChatId: (v: string | null) => void;
+  dmScrollRef: RefObject<HTMLDivElement>;
+}
 
 const TEAMS_PURPLE = "#5b5ea6";
 const TEAMS_PURPLE_LT = "#7b83eb";
