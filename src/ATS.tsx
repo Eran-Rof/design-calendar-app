@@ -5,6 +5,7 @@ import type { ATSRow, ATSSnapshot, ATSSkuData, ATSPoEvent, ATSSoEvent, UploadWar
 import { addDays, fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, skuSimilarity } from "./ats/helpers";
 import { computeRowsFromExcelData } from "./ats/compute";
 import { mergeExcelDataSkus, mergeRows, dedupeExcelData } from "./ats/merge";
+import { useMergeHistory } from "./ats/hooks/useMergeHistory";
 import { exportToExcel } from "./ats/exportExcel";
 import { normalizeExcelData, detectNormChanges, applyNormChanges, type NormChange } from "./ats/normalize";
 import S from "./ats/styles";
@@ -107,10 +108,26 @@ function ATSReport() {
   // ── Drag-to-merge state ──────────────────────────────────────────────────
   const [dragSku,     setDragSku]     = useState<string | null>(null);
   const [dragOverSku, setDragOverSku] = useState<string | null>(null);
-  const [pendingMerge, setPendingMerge] = useState<{
-    fromSku: string; toSku: string; similarity: number;
-  } | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+
+  // Merge history + pending-merge UI state + commit/undo/drop flows live in
+  // their own hook (see useMergeHistory). The hook is stateless about
+  // mergeHistory itself (owned by the ATS reducer) but owns pendingMerge.
+  const mergeActions = useMergeHistory({
+    mergeHistory,
+    setMergeHistory,
+    excelData,
+    setExcelData,
+    rows,
+    setRows,
+    applyPOWIPData: (d: ExcelData) => applyPOWIPData(d),
+    saveNormResult: (d: ExcelData) => saveNormResult(d),
+    isAdmin,
+  });
+  const {
+    pendingMerge, setPendingMerge,
+    saveMergeHistory, commitMerge, handleSkuDrop, undoLastMerge,
+  } = mergeActions;
 
   useEffect(() => {
     fetch(`${SB_URL}/rest/v1/app_data?key=eq.users&select=value`, { headers: SB_HEADERS })
@@ -125,35 +142,8 @@ function ATSReport() {
       .catch(e => console.warn("Failed to load admin users:", e));
   }, []);
 
-  // mergeExcelDataSkus + mergeRows extracted to ./ats/merge.ts for unit testing.
-
-  function commitMerge(fromSku: string, toSku: string) {
-    if (!fromSku || !toSku || fromSku === toSku) return;
-    setPendingMerge(null);
-    const newHistory = [...mergeHistory, { fromSku, toSku }];
-    setMergeHistory(newHistory);
-    saveMergeHistory(newHistory);
-    if (excelData) {
-      // Bake the merge into excelData so popup events and column totals always match
-      const merged = mergeExcelDataSkus(excelData, fromSku, toSku);
-      setExcelData(merged);
-      saveNormResult(merged); // persist merged state to Supabase
-    } else {
-      // Legacy snapshot mode — update rows directly
-      const newRows = mergeRows(rows, fromSku, toSku);
-      if (newRows !== rows) setRows(newRows);
-    }
-  }
-
-  function handleSkuDrop(fromSku: string, toSku: string) {
-    if (!fromSku || !toSku || fromSku === toSku) return;
-    const similarity = skuSimilarity(fromSku, toSku);
-    if (similarity >= 0.8 || isAdmin) {
-      setPendingMerge({ fromSku, toSku, similarity });
-    } else {
-      setPendingMerge({ fromSku, toSku, similarity }); // modal will block non-admins
-    }
-  }
+  // commitMerge, handleSkuDrop, saveMergeHistory, undoLastMerge, pendingMerge
+  // all provided by useMergeHistory hook — see the destructure above.
 
   // ── Close context menu on outside click ────────────────────────────────
   useEffect(() => {
@@ -381,18 +371,7 @@ function ATSReport() {
 
   // mergeRows (row-level) imported from ./ats/merge.ts.
 
-  async function saveMergeHistory(history: Array<{ fromSku: string; toSku: string }>) {
-    try {
-      const res = await fetch(`${SB_URL}/rest/v1/app_data`, {
-        method: "POST",
-        headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify({ key: "ats_merge_history", value: JSON.stringify(history) }),
-      });
-      if (!res.ok) console.warn("Merge history save failed:", res.status);
-    } catch (e) {
-      console.error("Failed to save merge history", e);
-    }
-  }
+  // saveMergeHistory now lives in useMergeHistory hook.
 
   async function loadFromSupabase() {
     setLoading(true);
@@ -669,35 +648,7 @@ function ATSReport() {
     } catch (e) { console.error("Failed to save base data:", e); }
   }
 
-  async function undoLastMerge() {
-    if (mergeHistory.length === 0) return;
-    const newHistory = mergeHistory.slice(0, -1);
-    // Load the pre-merge base data
-    let baseData: ExcelData | null = null;
-    try {
-      const baseRes = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.ats_base_data&select=value`, { headers: SB_HEADERS });
-      if (!baseRes.ok) throw new Error(`Failed to load base data: ${baseRes.status}`);
-      const baseRows = await baseRes.json();
-      if (Array.isArray(baseRows) && baseRows[0]?.value) baseData = JSON.parse(baseRows[0].value);
-    } catch {}
-    if (!baseData) {
-      alert("Cannot undo: no base snapshot found. Please re-upload your Excel files to reset merge history.");
-      return;
-    }
-    // Re-apply POs from tanda_pos
-    let freshBase = baseData;
-    try {
-      const base = { ...baseData, pos: [], skus: baseData.skus.map((s: any) => ({ ...s, onOrder: 0 })) };
-      freshBase = await applyPOWIPData(base);
-    } catch {}
-    // Re-apply remaining merges
-    let rebuilt = freshBase;
-    for (const op of newHistory) rebuilt = mergeExcelDataSkus(rebuilt, op.fromSku, op.toSku);
-    setMergeHistory(newHistory);
-    saveMergeHistory(newHistory);
-    setExcelData(rebuilt);
-    saveNormResult(rebuilt);
-  }
+  // undoLastMerge now lives in useMergeHistory hook.
 
   async function clearAllAtsData() {
     // Delete all ATS upload/merge data from Supabase so user can start fresh
