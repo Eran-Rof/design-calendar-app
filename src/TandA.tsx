@@ -305,6 +305,7 @@ function TandAApp() {
   const [tplUndoStack, setTplUndoStack] = useState<WipTemplate[][]>([]);
   const [tplDragIdx, setTplDragIdx] = useState<number | null>(null);
   const [tplDragOverIdx, setTplDragOverIdx] = useState<number | null>(null);
+  const [tplMovedIds, setTplMovedIds] = useState<Set<string>>(new Set());
 
   // ── Outlook Email state → useEmailState() + useEmailDispatch() (see tanda/state/email/) ──
   const emailConfig = em.emailConfig;
@@ -3439,7 +3440,7 @@ function TandAApp() {
           }
           function tplSave() {
             saveVendorTemplates(tplVendor, localTpl);
-            setTplLocalEdits(null); setTplUndoStack([]);
+            setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set());
           }
           const [showNewVendor, setShowNewVendor_] = [
             (window as any).__showNewVendor ?? false,
@@ -3544,6 +3545,7 @@ function TandAApp() {
                     const isDragging = tplDragIdx === i;
                     const isDropTarget = tplDragOverIdx === i && tplDragIdx !== null && tplDragIdx !== i;
                     const isAbove = tplDragIdx !== null && tplDragIdx < i;
+                    const wasMoved = tplMovedIds.has(tpl.id);
                     return (
                     <div
                       key={tpl.id}
@@ -3557,6 +3559,7 @@ function TandAApp() {
                           const [moved] = arr.splice(from, 1);
                           arr.splice(i, 0, moved);
                           tplPushState(arr);
+                          setTplMovedIds(prev => new Set(prev).add(moved.id));
                         }
                         setTplDragIdx(null); setTplDragOverIdx(null);
                       }}
@@ -3566,14 +3569,18 @@ function TandAApp() {
                         padding: "8px 14px",
                         fontSize: 13,
                         alignItems: "center",
-                        opacity: isDragging ? 0.3 : 1,
+                        opacity: isDragging ? 0.4 : 1,
                         transform: isDragging ? "scale(0.97)" : isDropTarget ? `translateY(${isAbove ? "4px" : "-4px"})` : "none",
-                        transition: "all 0.2s cubic-bezier(0.2, 0, 0, 1)",
-                        background: isDropTarget ? "rgba(59, 130, 246, 0.08)" : isDragging ? "rgba(59, 130, 246, 0.04)" : "transparent",
-                        borderTop: isDropTarget && isAbove ? "3px solid #3B82F6" : "1px solid #1E293B",
-                        borderBottom: isDropTarget && !isAbove ? "3px solid #3B82F6" : "none",
-                        borderRadius: isDropTarget ? 4 : 0,
-                        boxShadow: isDragging ? "0 4px 16px rgba(59, 130, 246, 0.15)" : "none",
+                        transition: "all 0.25s cubic-bezier(0.2, 0, 0, 1)",
+                        background: isDragging ? "rgba(251, 146, 60, 0.12)"
+                          : isDropTarget ? "rgba(251, 146, 60, 0.15)"
+                          : wasMoved ? "rgba(234, 88, 12, 0.18)"
+                          : "transparent",
+                        borderTop: isDropTarget && isAbove ? "3px solid #F97316" : "1px solid #1E293B",
+                        borderBottom: isDropTarget && !isAbove ? "3px solid #F97316" : "none",
+                        borderLeft: wasMoved && !isDragging && !isDropTarget ? "3px solid #EA580C" : undefined,
+                        borderRadius: isDropTarget || wasMoved ? 4 : 0,
+                        boxShadow: isDragging ? "0 4px 16px rgba(249, 115, 22, 0.2)" : wasMoved ? "inset 0 0 0 1px rgba(234, 88, 12, 0.25)" : "none",
                         position: "relative" as const,
                         zIndex: isDragging ? 10 : isDropTarget ? 5 : 1,
                       }}
@@ -3583,7 +3590,7 @@ function TandAApp() {
                           draggable
                           onDragStart={e => { setTplDragIdx(i); e.dataTransfer.setData("text/plain", String(i)); e.dataTransfer.effectAllowed = "move"; (e.target as HTMLElement).style.cursor = "grabbing"; }}
                           onDragEnd={() => { setTplDragIdx(null); setTplDragOverIdx(null); }}
-                          style={{ cursor: isDragging ? "grabbing" : "grab", color: isDragging ? "#3B82F6" : "#475569", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, userSelect: "none", transition: "color 0.15s, transform 0.15s", transform: isDragging ? "scale(1.2)" : "none" }}
+                          style={{ cursor: isDragging ? "grabbing" : "grab", color: isDragging ? "#F97316" : wasMoved ? "#EA580C" : "#475569", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, userSelect: "none", transition: "color 0.15s, transform 0.15s", transform: isDragging ? "scale(1.2)" : "none" }}
                         >⠿</span>
                       )}
                       <span style={{ color: "#6B7280", fontSize: 11 }}>{i + 1}</span>
