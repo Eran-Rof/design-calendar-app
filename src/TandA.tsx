@@ -2751,14 +2751,14 @@ function TandAApp() {
   const tplDirtyGlobal = tplLocalEdits !== null;
   function guardedNav(action: () => void) {
     if (tplDirtyGlobal) {
-      setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes to the production template.", icon: "⚠️", confirmText: "Save", confirmColor: "#2563EB", cancelText: "Discard", onConfirm: () => { saveVendorTemplates(tplLocalEdits!.vendor, tplLocalEdits!.edits); setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); action(); }, onCancel: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); action(); } });
+      setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes to the production template. Would you like to save or discard?", icon: "⚠️", confirmText: "💾 Save Changes", confirmColor: "#2563EB", cancelText: "🗑 Discard", onConfirm: () => { saveVendorTemplates(tplLocalEdits!.vendor, tplLocalEdits!.edits); setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); action(); }, onCancel: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); action(); } });
     } else {
       action();
     }
   }
   function closeSettingsGuarded() {
     if (tplDirtyGlobal) {
-      setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes to the production template.", icon: "⚠️", confirmText: "Save", confirmColor: "#2563EB", cancelText: "Discard", onConfirm: () => { saveVendorTemplates(tplLocalEdits!.vendor, tplLocalEdits!.edits); setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setShowSettings(false); }, onCancel: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setShowSettings(false); } });
+      setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes to the production template. Would you like to save or discard?", icon: "⚠️", confirmText: "💾 Save Changes", confirmColor: "#2563EB", cancelText: "🗑 Discard", onConfirm: () => { saveVendorTemplates(tplLocalEdits!.vendor, tplLocalEdits!.edits); setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setShowSettings(false); }, onCancel: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setShowSettings(false); } });
     } else {
       setShowSettings(false);
     }
@@ -3482,7 +3482,7 @@ function TandAApp() {
                   <select style={{ ...S.select, flex: 1, maxWidth: 300 }} value={tplVendor} onChange={e => {
                     const newVendor = e.target.value;
                     if (tplDirty) {
-                      setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes to the production template.", icon: "⚠️", confirmText: "Save & Switch", confirmColor: "#2563EB", cancelText: "Discard & Switch", onConfirm: () => { saveVendorTemplates(tplLocalEdits!.vendor, tplLocalEdits!.edits); setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setTplVendor(newVendor); }, onCancel: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setTplVendor(newVendor); } });
+                      setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes to the production template. Would you like to save or discard?", icon: "⚠️", confirmText: "💾 Save & Switch", confirmColor: "#2563EB", cancelText: "🗑 Discard & Switch", onConfirm: () => { saveVendorTemplates(tplLocalEdits!.vendor, tplLocalEdits!.edits); setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setTplVendor(newVendor); }, onCancel: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setTplVendor(newVendor); } });
                     } else {
                       setTplVendor(newVendor);
                     }
