@@ -204,7 +204,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
           {/* Row 1: New Message — matches middle-panel header row */}
           <div style={{ padding: "0 10px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", height: 46 }}>
             <button
-              onClick={() => { emSet("emailComposeOpen", true); emSet("emailComposeSubject", emailSelPO ? emailGetPrefix(emailSelPO) + " " : ""); emSet("emailSendErr", null); }}
+              onClick={() => { emSet("emailComposeOpen", true); emSet("emailComposeBody", ""); emSet("emailComposeTo", ""); emSet("emailComposeSubject", emailSelPO ? emailGetPrefix(emailSelPO) + " " : ""); emSet("emailSendErr", null); emSet("emailComposeAttachments", []); }}
               disabled={!emailToken}
               style={{ width: "100%", padding: "7px 0", background: emailToken ? `linear-gradient(135deg, ${C.outlook}, ${C.outlookLt})` : C.bg2, border: "none", borderRadius: 8, color: emailToken ? "#fff" : C.text3, fontSize: 13, fontWeight: 500, cursor: emailToken ? "pointer" : "default", display: "flex", alignItems: "center", gap: 8, justifyContent: "center", fontFamily: "inherit" }}>
               ✎ New Message

@@ -78,6 +78,8 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
   const token = teamsToken;
   const cfg = teamsConfig;
 
+  // Force RichTextEditor remount on each compose open
+  const [composeKey, setComposeKey] = useState(0);
   // Draggable compose modal position
   const [composeDrag, setComposeDrag] = useState<{ x: number; y: number } | null>(null);
   const dragStartRef = useRef<{ mx: number; my: number; sx: number; sy: number } | null>(null);
@@ -462,7 +464,7 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
           {/* Row 1: New Message */}
           <div style={{ padding: "0 10px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", height: 46 }}>
             <button
-              onClick={() => { setComposeDrag(null); setComposeOpen(true); setComposeSubject((prefix || "") + " "); setSendError(null); }}
+              onClick={() => { setComposeDrag(null); setComposeKey(k => k + 1); setComposeOpen(true); setComposeBody(""); setComposeSubject((prefix || "") + " "); setSendError(null); setComposeAttachments([]); }}
               disabled={!token}
               style={{ width: "100%", padding: "7px 0", background: token ? `linear-gradient(135deg, ${C.outlook}, ${C.outlookLt})` : C.bg2, border: "none", borderRadius: 8, color: token ? "#fff" : C.text3, fontSize: 13, fontWeight: 500, cursor: token ? "pointer" : "default", display: "flex", alignItems: "center", gap: 8, justifyContent: "center", fontFamily: "inherit" }}>
               ✎ New Message
@@ -863,7 +865,7 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
                 const origSubject = ctxMail.subject || "";
                 const fwSubject = origSubject.startsWith("Fw:") || origSubject.startsWith("FW:") ? origSubject : `Fw: ${origSubject}`;
                 const fwBody = `<br/><hr/><p style="font-size:12px;color:#475569"><b>From:</b> ${sender}<br/><b>Date:</b> ${date}<br/><b>Subject:</b> ${origSubject}</p><p>${ctxMail.bodyPreview || ""}</p>`;
-                setComposeDrag(null); setComposeOpen(true); setComposeSubject(fwSubject); setComposeBody(fwBody); setComposeTo(""); setSendError(null); setCtxMenu(null);
+                setComposeDrag(null); setComposeKey(k => k + 1); setComposeOpen(true); setComposeSubject(fwSubject); setComposeBody(fwBody); setComposeTo(""); setSendError(null); setComposeAttachments([]); setCtxMenu(null);
               }} style={ctxStyle}>↪ Forward</div>
               <div style={{ height: 1, background: C.border }} />
               <div onClick={() => { setDeletedMessages(prev => [ctxMail, ...prev]); deleteEmail(ctxMail.id); setCtxMenu(null); }}
@@ -932,7 +934,7 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
                 </div>
                 <div>
                   <div style={{ fontSize: 11, color: C.text3, marginBottom: 3 }}>Body</div>
-                  <RichTextEditor value={composeBody} onChange={html => setComposeBody(html)} placeholder="Type your message…" />
+                  <RichTextEditor key={composeKey} value={composeBody} onChange={html => setComposeBody(html)} placeholder="Type your message…" />
                 </div>
                 <div>
                   <div style={{ fontSize: 11, color: C.text3, marginBottom: 3, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
