@@ -1,0 +1,228 @@
+import React from "react";
+import S from "../styles";
+import { fmtDateDisplay } from "../helpers";
+import type { ExcelData } from "../types";
+
+interface ToolbarProps {
+  // Search + filters
+  search: string;
+  setSearch: (v: string) => void;
+  filterCategory: string;
+  setFilterCategory: (v: string) => void;
+  categories: string[];
+  filterStatus: string;
+  setFilterStatus: (v: string) => void;
+
+  // Store dropdown
+  STORES: readonly string[];
+  storeFilter: string[];
+  setStoreFilter: (v: string[]) => void;
+  poDropOpen: boolean;
+  setPoDropOpen: (v: boolean | ((p: boolean) => boolean)) => void;
+  setSoDropOpen: (v: boolean) => void;
+  poDropRef: React.RefObject<HTMLDivElement>;
+  toggleStore: (current: string[], set: (v: string[]) => void, store: string) => void;
+
+  // Min ATS + date range
+  minATS: number | "";
+  setMinATS: (v: number | "") => void;
+  startDate: string;
+  setStartDate: (v: string) => void;
+  rangeUnit: "days" | "weeks" | "months";
+  setRangeUnit: (v: "days" | "weeks" | "months") => void;
+  rangeValue: number;
+  setRangeValue: (v: number) => void;
+
+  // Customer/vendor dropdown
+  excelData: ExcelData | null;
+  customerFilter: string;
+  setCustomerFilter: (v: string) => void;
+  customerDropOpen: boolean;
+  setCustomerDropOpen: (v: boolean) => void;
+  customerSearch: string;
+  setCustomerSearch: (v: string) => void;
+
+  // AT SHIP + status line
+  atShip: boolean;
+  setAtShip: (v: boolean) => void;
+  filteredCount: number;
+  lastSync: string;
+}
+
+export const Toolbar: React.FC<ToolbarProps> = ({
+  search, setSearch, filterCategory, setFilterCategory, categories,
+  filterStatus, setFilterStatus,
+  STORES, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, setSoDropOpen,
+  poDropRef, toggleStore,
+  minATS, setMinATS, startDate, setStartDate,
+  rangeUnit, setRangeUnit, rangeValue, setRangeValue,
+  excelData, customerFilter, setCustomerFilter,
+  customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch,
+  atShip, setAtShip, filteredCount, lastSync,
+}) => (
+  <div style={S.toolbar}>
+    <input
+      type="text"
+      inputMode="text"
+      style={S.searchInput}
+      placeholder="Search SKU or description…"
+      value={search}
+      onChange={e => setSearch(e.target.value)}
+    />
+    <select style={S.select} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
+      {categories.map(c => <option key={c}>{c}</option>)}
+    </select>
+    <select style={S.select} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+      <option value="All">All status</option>
+      <option value="InStock">In stock</option>
+      <option value="Low">Low stock</option>
+      <option value="Out">Out of stock</option>
+    </select>
+
+    {/* Store filter */}
+    <div ref={poDropRef} style={{ position: "relative" }}>
+      <button
+        style={{ ...S.select, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", minWidth: 140, justifyContent: "space-between" }}
+        onClick={() => { setPoDropOpen(o => !o); setSoDropOpen(false); }}
+      >
+        <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, marginRight: 2 }}>Store:</span>
+        <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {storeFilter.includes("All") ? "All stores" : storeFilter.join(", ")}
+        </span>
+        <span style={{ fontSize: 9, color: "#6B7280" }}>▼</span>
+      </button>
+      {poDropOpen && (
+        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200, background: "#1E293B", border: "1px solid #334155", borderRadius: 8, minWidth: 160, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", padding: "6px 0" }}>
+          {(["All", ...STORES] as string[]).map(s => {
+            const checked = s === "All" ? storeFilter.includes("All") : storeFilter.includes(s);
+            return (
+              <label
+                key={s}
+                style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", cursor: "pointer", background: checked ? "rgba(16,185,129,0.08)" : "transparent" }}
+                onMouseEnter={e => (e.currentTarget.style.background = "rgba(16,185,129,0.12)")}
+                onMouseLeave={e => (e.currentTarget.style.background = checked ? "rgba(16,185,129,0.08)" : "transparent")}
+              >
+                <input type="checkbox" checked={checked} onChange={() => toggleStore(storeFilter, setStoreFilter, s)} style={{ accentColor: "#10B981", cursor: "pointer" }} />
+                <span style={{ color: checked ? "#6EE7B7" : "#9CA3AF", fontSize: 13 }}>{s}</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+
+    <div style={S.datePicker}>
+      <label style={S.dateLabel}>Min ATS</label>
+      <input
+        type="number"
+        style={{ ...S.dateInput, width: 72 }}
+        placeholder="0"
+        value={minATS}
+        onChange={e => setMinATS(e.target.value === "" ? "" : Number(e.target.value))}
+      />
+    </div>
+
+    <div style={S.datePicker}>
+      <label style={S.dateLabel}>From</label>
+      <input
+        type="date"
+        style={S.dateInput}
+        value={startDate}
+        onChange={e => setStartDate(e.target.value)}
+      />
+    </div>
+
+    <div style={S.datePicker}>
+      <label style={S.dateLabel}>Show</label>
+      <input
+        type="number"
+        min="1"
+        max={rangeUnit === "days" ? 365 : rangeUnit === "weeks" ? 52 : 24}
+        style={{ ...S.dateInput, width: 60 }}
+        value={rangeValue}
+        onChange={e => { const v = Math.max(1, Number(e.target.value)); if (v) setRangeValue(v); }}
+      />
+      <select
+        style={{ ...S.select, minWidth: 96 }}
+        value={rangeUnit}
+        onChange={e => {
+          setRangeUnit(e.target.value as "days" | "weeks" | "months");
+          setRangeValue(e.target.value === "days" ? 14 : e.target.value === "weeks" ? 2 : 1);
+        }}
+      >
+        <option value="days">Days</option>
+        <option value="weeks">Weeks</option>
+        <option value="months">Months</option>
+      </select>
+    </div>
+
+    {/* Customer / vendor dropdown */}
+    <div style={{ position: "relative" }}>
+      <button
+        style={{ ...S.select, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", minWidth: 160, justifyContent: "space-between" }}
+        onClick={() => setCustomerDropOpen(!customerDropOpen)}
+      >
+        <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, marginRight: 2 }}>Cust/Vend:</span>
+        <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {customerFilter || "All"}
+        </span>
+        <span style={{ fontSize: 9, color: "#6B7280" }}>▼</span>
+      </button>
+      {customerDropOpen && (
+        <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, background: "#1E293B", border: "1px solid #334155", borderRadius: 8, zIndex: 100, width: 280, maxHeight: 340, display: "flex", flexDirection: "column", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+          <div style={{ padding: "8px 10px", borderBottom: "1px solid #334155" }}>
+            <input
+              type="text"
+              placeholder="Search customers…"
+              value={customerSearch}
+              onChange={e => setCustomerSearch(e.target.value)}
+              autoFocus
+              style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, padding: "6px 10px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit", outline: "none" }}
+            />
+          </div>
+          <div style={{ overflowY: "auto", flex: 1 }}>
+            <div
+              style={{ padding: "7px 14px", cursor: "pointer", fontSize: 12, color: !customerFilter ? "#6EE7B7" : "#9CA3AF", background: !customerFilter ? "rgba(16,185,129,0.08)" : "transparent", fontWeight: !customerFilter ? 600 : 400 }}
+              onClick={() => { setCustomerFilter(""); setCustomerDropOpen(false); setCustomerSearch(""); }}
+              onMouseEnter={e => (e.currentTarget.style.background = "rgba(16,185,129,0.12)")}
+              onMouseLeave={e => (e.currentTarget.style.background = !customerFilter ? "rgba(16,185,129,0.08)" : "transparent")}
+            >All Customers</div>
+            {(() => {
+              const custSet = new Set<string>();
+              if (excelData) {
+                excelData.sos.forEach(s => { if (s.customerName) custSet.add(s.customerName); });
+                excelData.pos.forEach(p => { if (p.vendor) custSet.add(p.vendor); });
+              }
+              const all = [...custSet].sort();
+              const q = customerSearch.toLowerCase();
+              const shown = q ? all.filter(c => c.toLowerCase().includes(q)) : all;
+              return shown.map(c => (
+                <div
+                  key={c}
+                  style={{ padding: "7px 14px", cursor: "pointer", fontSize: 12, color: customerFilter === c ? "#6EE7B7" : "#CBD5E1", background: customerFilter === c ? "rgba(16,185,129,0.08)" : "transparent", fontWeight: customerFilter === c ? 600 : 400 }}
+                  onClick={() => { setCustomerFilter(c); setCustomerDropOpen(false); setCustomerSearch(""); }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(16,185,129,0.12)")}
+                  onMouseLeave={e => (e.currentTarget.style.background = customerFilter === c ? "rgba(16,185,129,0.08)" : "transparent")}
+                >{c}</div>
+              ));
+            })()}
+          </div>
+        </div>
+      )}
+    </div>
+
+    {/* AT SHIP toggle */}
+    <label
+      title="Show only qty free to ship — not reserved for future uncovered SOs"
+      style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "4px 10px", borderRadius: 8, border: `1px solid ${atShip ? "#10B981" : "#334155"}`, background: atShip ? "rgba(16,185,129,0.12)" : "transparent", userSelect: "none", whiteSpace: "nowrap" }}
+    >
+      <input type="checkbox" checked={atShip} onChange={e => setAtShip(e.target.checked)} style={{ accentColor: "#10B981", cursor: "pointer", width: 14, height: 14 }} />
+      <span style={{ color: atShip ? "#6EE7B7" : "#9CA3AF", fontSize: 12, fontWeight: atShip ? 700 : 400 }}>AT SHIP</span>
+    </label>
+
+    <div style={{ color: "#6B7280", fontSize: 12, whiteSpace: "nowrap" }}>
+      {filteredCount.toLocaleString()} SKUs
+      {lastSync && <span style={{ display: "block" }}>Synced {fmtDateDisplay(lastSync.split("T")[0])} {new Date(lastSync).toLocaleTimeString()}</span>}
+    </div>
+  </div>
+);
