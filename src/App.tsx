@@ -474,12 +474,15 @@ function App() {
     let warnTimer = null;
     let logoutTimer = null;
 
+    let warningShown = false;
     function resetTimers() {
-      setIdleWarning(false);
+      // Only dispatch state update if warning is actually showing — avoids
+      // re-rendering the entire App on every mousemove/keydown/click
+      if (warningShown) { setIdleWarning(false); warningShown = false; }
       clearTimeout(warnTimer);
       clearTimeout(logoutTimer);
       // Warn 5 minutes before logout (at 85 minutes)
-      warnTimer = setTimeout(() => setIdleWarning(true), IDLE_MS - 5 * 60 * 1000);
+      warnTimer = setTimeout(() => { warningShown = true; setIdleWarning(true); }, IDLE_MS - 5 * 60 * 1000);
       // Log out at 90 minutes
       logoutTimer = setTimeout(() => {
         sessionStorage.removeItem("plm_user");
