@@ -794,20 +794,6 @@ function App() {
 
   const dashboardCtx = { TaskCard };
 
-  const timelineCtx = {
-    tasks, collections, setView, focusCollKey, setFocusCollKey, setEditTask,
-    timelineBackFilter, setTimelineBackFilter, expandedColl, setExpandedColl,
-    dragId, setDragId, dragOverId, setDragOverId, setStatFilter, pushUndo, team,
-    filtered, overdue, sbSaveTask, saveCascade, setTasks, isAdmin, canViewAll,
-    currentUser, filterBrand, filterSeason, filterCustomer, filterVendor, collMap, collList, listView, getBrand,
-  };
-
-  const calendarCtx = {
-    tasks, collections, setEditTask, calViewYear, setCalViewYear, calViewMonth,
-    setCalViewMonth, calDragOver, setCalDragOver, focusCollKey, team,
-    filtered, isAdmin, canViewAll, currentUser, filterBrand, filterSeason,
-    filterCustomer, filterVendor, collMap, collList, dragId, setDragId, setFocusCollKey, setTasks, getBrand,
-  };
 
   return (
     <div
@@ -1079,8 +1065,8 @@ function App() {
         style={{ padding: "26px 22px 100px", maxWidth: 1440, margin: "0 auto" }}
       >
         {view === "dashboard" && <DashboardPanel ctx={dashboardCtx} />}
-        {view === "timeline" && <TimelinePanel ctx={timelineCtx} />}
-        {view === "calendar" && <CalendarPanel ctx={calendarCtx} />}
+        {view === "timeline" && <TimelinePanel />}
+        {view === "calendar" && <CalendarPanel />}
         {view === "teams" && (
           <TeamsView
             collList={collList}

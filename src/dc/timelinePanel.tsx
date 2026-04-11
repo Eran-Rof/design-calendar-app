@@ -3,11 +3,37 @@ import { S, TH, fmtDays } from "./styles";
 import { formatDate, getDaysUntil, getDaysUntilForPhase, addDays, diffDaysForPhase, parseLocalDate, snapToBusinessDay, toDateStr, isPostPO } from "../utils/dates";
 import { STATUS_CONFIG, PHASE_KEYS } from "../utils/constants";
 import Avatar from "../components/Avatar";
+import { useAppStore } from "../store";
+import { selectGetBrand, selectIsAdmin, selectCanViewAll, selectFiltered, selectOverdue, selectCollMap, selectCollList } from "../store/selectors";
+import { sbSaveTask } from "../store/supabaseService";
 
 export type TimelineCtx = Record<string, any>;
 
-function timelinePanelInner(ctx: TimelineCtx): React.ReactElement | null {
-  const { tasks, collections, setView, focusCollKey, setFocusCollKey, setEditTask, timelineBackFilter, setTimelineBackFilter, expandedColl, setExpandedColl, dragId, setDragId, dragOverId, setDragOverId, setStatFilter, pushUndo, team, filtered, overdue, sbSaveTask, saveCascade, setTasks, isAdmin, canViewAll, currentUser, filterBrand, filterSeason, filterCustomer, filterVendor, collMap, collList, listView, getBrand } = ctx;
+function TimelinePanelInner(): React.ReactElement | null {
+  const s = useAppStore();
+  const { tasks, collections, focusCollKey, timelineBackFilter, expandedColl, dragId, dragOverId, team, currentUser, listView } = s;
+  const setView = (v: any) => s.setField("view", v);
+  const setFocusCollKey = (v: any) => s.setField("focusCollKey", v);
+  const setEditTask = (v: any) => s.setField("editTask", v);
+  const setTimelineBackFilter = (v: any) => s.setField("timelineBackFilter", v);
+  const setExpandedColl = (v: any) => s.setField("expandedColl", v);
+  const setDragId = (v: any) => s.setField("dragId", v);
+  const setDragOverId = (v: any) => s.setField("dragOverId", v);
+  const setStatFilter = (v: any) => s.setField("statFilter", v);
+  const { setTasks, saveCascade } = s;
+  const pushUndo = s.pushUndoEntry;
+  const filterBrand = s.filterBrand;
+  const filterSeason = s.filterSeason;
+  const filterCustomer = s.filterCustomer;
+  const filterVendor = s.filterVendor;
+  const isAdmin = selectIsAdmin(s);
+  const canViewAll = selectCanViewAll(s);
+  const getBrand = selectGetBrand(s);
+  const filtered = selectFiltered(s);
+  const overdue = selectOverdue(s);
+  const collMap = selectCollMap(s);
+  const collList = selectCollList(s);
+  const sbSaveTaskFn = (task: any) => sbSaveTask(task, currentUser?.name || "");
 
     const g = {};
     const src = focusCollKey
@@ -361,7 +387,7 @@ function timelinePanelInner(ctx: TimelineCtx): React.ReactElement | null {
                                 pushUndo(tasks, 'drag');
                                 const updated = { ...droppedTask, due: newDue };
                                 setTasks(ts => ts.map(x => x.id === droppedId ? updated : x));
-                                sbSaveTask(updated);
+                                sbSaveTaskFn(updated);
                               }
                               setDragId(null); setDragOverId(null);
                             }}
@@ -475,7 +501,7 @@ function timelinePanelInner(ctx: TimelineCtx): React.ReactElement | null {
                                 pushUndo(tasks, 'drag');
                                 const updated = { ...droppedTask, due: newDue };
                                 setTasks(ts => ts.map(x => x.id === droppedId ? updated : x));
-                                sbSaveTask(updated);
+                                sbSaveTaskFn(updated);
                                 setDragId(null); setDragOverId(null);
                               }}
                               onClick={() => {
@@ -726,7 +752,7 @@ function timelinePanelInner(ctx: TimelineCtx): React.ReactElement | null {
                                     pushUndo(tasks, 'drag');
                                     const updated = { ...droppedTask, due: newDue };
                                     setTasks(ts => ts.map(x => x.id === droppedId ? updated : x));
-                                    sbSaveTask(updated);
+                                    sbSaveTaskFn(updated);
                                   }
                                   setDragId(null);
                                   setDragOverId(null);
@@ -815,8 +841,6 @@ function timelinePanelInner(ctx: TimelineCtx): React.ReactElement | null {
     );
 }
 
-export const TimelinePanel = React.memo(function TimelinePanel({ ctx }: { ctx: TimelineCtx }) {
-  return timelinePanelInner(ctx);
+export const TimelinePanel = React.memo(function TimelinePanel() {
+  return <TimelinePanelInner />;
 });
-
-export const timelinePanel = timelinePanelInner;

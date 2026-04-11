@@ -3,11 +3,31 @@ import { S, TH, fmtDays } from "./styles";
 import { formatDate } from "../utils/dates";
 import { MONTHS } from "../utils/constants";
 import Avatar from "../components/Avatar";
+import { useAppStore } from "../store";
+import { selectGetBrand, selectIsAdmin, selectCanViewAll, selectFiltered, selectCollMap, selectCollList } from "../store/selectors";
 
 export type CalendarCtx = Record<string, any>;
 
-function calendarPanelInner(ctx: CalendarCtx): React.ReactElement | null {
-  const { tasks, collections, setEditTask, calViewYear, setCalViewYear, calViewMonth, setCalViewMonth, calDragOver, setCalDragOver, focusCollKey, team, filtered, isAdmin, canViewAll, currentUser, filterBrand, filterSeason, filterCustomer, filterVendor, collMap, collList, dragId, setDragId, setFocusCollKey, setTasks, getBrand } = ctx;
+function CalendarPanelInner(): React.ReactElement | null {
+  const s = useAppStore();
+  const { tasks, collections, calViewYear, calViewMonth, calDragOver, focusCollKey, team, currentUser, dragId } = s;
+  const setEditTask = (v: any) => s.setField("editTask", v);
+  const setCalViewYear = (v: any) => s.setField("calViewYear", v);
+  const setCalViewMonth = (v: any) => s.setField("calViewMonth", v);
+  const setCalDragOver = (v: any) => s.setField("calDragOver", v);
+  const setDragId = (v: any) => s.setField("dragId", v);
+  const setFocusCollKey = (v: any) => s.setField("focusCollKey", v);
+  const { setTasks } = s;
+  const isAdmin = selectIsAdmin(s);
+  const canViewAll = selectCanViewAll(s);
+  const getBrand = selectGetBrand(s);
+  const filtered = selectFiltered(s);
+  const collMap = selectCollMap(s);
+  const collList = selectCollList(s);
+  const filterBrand = s.filterBrand;
+  const filterSeason = s.filterSeason;
+  const filterCustomer = s.filterCustomer;
+  const filterVendor = s.filterVendor;
 
     const today = new Date();
     // Use parent-level state so month persists when task modal opens/closes
@@ -458,8 +478,6 @@ function calendarPanelInner(ctx: CalendarCtx): React.ReactElement | null {
     );
 }
 
-export const CalendarPanel = React.memo(function CalendarPanel({ ctx }: { ctx: CalendarCtx }) {
-  return calendarPanelInner(ctx);
+export const CalendarPanel = React.memo(function CalendarPanel() {
+  return <CalendarPanelInner />;
 });
-
-export const calendarPanel = calendarPanelInner;
