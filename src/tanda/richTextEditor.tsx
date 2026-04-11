@@ -1,4 +1,29 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect } from "react";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Underline from "@tiptap/extension-underline";
+import TextStyle from "@tiptap/extension-text-style";
+import Color from "@tiptap/extension-color";
+import FontFamily from "@tiptap/extension-font-family";
+import Link from "@tiptap/extension-link";
+import { Extension } from "@tiptap/react";
+
+// Custom fontSize extension — Tiptap doesn't include this by default
+const FontSize = Extension.create({
+  name: "fontSize",
+  addGlobalAttributes() {
+    return [{
+      types: ["textStyle"],
+      attributes: {
+        fontSize: {
+          default: null,
+          parseHTML: el => el.style.fontSize || null,
+          renderHTML: attrs => attrs.fontSize ? { style: `font-size: ${attrs.fontSize}` } : {},
+        },
+      },
+    }];
+  },
+});
 
 export const FONT_CHOICES = [
   { label: "Segoe UI", value: "'Segoe UI', system-ui, sans-serif" },
@@ -12,8 +37,7 @@ export const FONT_CHOICES = [
   { label: "Verdana", value: "Verdana, sans-serif" },
 ];
 
-/** Wrap raw contenteditable HTML in a complete HTML document with default
- *  styling so the recipient's mail client renders it as rich HTML. */
+/** Wrap raw contenteditable HTML in a complete HTML document for email sending */
 export function buildEmailHtml(bodyHtml: string): string {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     body{font-family:'Segoe UI','Aptos','Calibri',sans-serif;font-size:11pt;color:#1f2328;line-height:1.4}
@@ -24,72 +48,95 @@ export function buildEmailHtml(bodyHtml: string): string {
   </style></head><body>${bodyHtml || "&nbsp;"}</body></html>`;
 }
 
-/** Small contenteditable rich-text editor — bold, italic, underline, lists,
- *  link, font family, font size, font color. Toolbar buttons reflect the
- *  current selection state. */
+const FONT_SIZES = [
+  { label: "8", value: "8px" },
+  { label: "10", value: "10px" },
+  { label: "12", value: "12px" },
+  { label: "14", value: "14px" },
+  { label: "18", value: "18px" },
+  { label: "24", value: "24px" },
+  { label: "36", value: "36px" },
+];
+
+/**
+ * Rich text editor powered by Tiptap (ProseMirror-based).
+ * Replaces the deprecated document.execCommand approach.
+ */
 export function RichTextEditor({ value, onChange, placeholder, minHeight = 140 }: { value: string; onChange: (html: string) => void; placeholder?: string; minHeight?: number }) {
-  const ref = useRef<HTMLDivElement | null>(null);
   const colorRef = useRef<HTMLInputElement | null>(null);
-  const [active, setActive] = useState<{ bold: boolean; italic: boolean; underline: boolean; ul: boolean; ol: boolean }>({ bold: false, italic: false, underline: false, ul: false, ol: false });
-  const [currentFont, setCurrentFont] = useState<string>("");
-  const [currentColor, setCurrentColor] = useState<string>("#3B82F6");
+  const currentColorRef = useRef<string>("#3B82F6");
 
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        heading: false,
+      }),
+      Underline,
+      TextStyle,
+      Color,
+      FontFamily,
+      FontSize,
+      Link.configure({ openOnClick: false }),
+    ],
+    content: value || "",
+    onUpdate: ({ editor: e }) => {
+      onChange(e.getHTML());
+    },
+    editorProps: {
+      attributes: {
+        style: `min-height:${minHeight}px;padding:10px 12px;color:#F1F5F9;font-size:13px;font-family:'Segoe UI',system-ui,sans-serif;line-height:1.55;outline:none;overflow-y:auto;max-height:300px`,
+        "data-placeholder": placeholder || "",
+      },
+      handlePaste: (view, event) => {
+        // Allow Tiptap to handle paste natively — it sanitizes by default
+        return false;
+      },
+    },
+  });
+
+  // Sync upstream value changes (e.g. after Send clears the body)
+  const lastValueRef = useRef(value);
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    if (document.activeElement === el) return;
-    if (el.innerHTML !== (value || "")) el.innerHTML = value || "";
-  }, [value]);
+    if (!editor) return;
+    if (value !== lastValueRef.current) {
+      lastValueRef.current = value;
+      if (editor.getHTML() !== (value || "")) {
+        editor.commands.setContent(value || "", false);
+      }
+    }
+  }, [value, editor]);
 
-  const updateActive = () => {
-    if (!ref.current) return;
-    try {
-      setActive({
-        bold: document.queryCommandState("bold"),
-        italic: document.queryCommandState("italic"),
-        underline: document.queryCommandState("underline"),
-        ul: document.queryCommandState("insertUnorderedList"),
-        ol: document.queryCommandState("insertOrderedList"),
-      });
-      const f = document.queryCommandValue("fontName") || "";
-      setCurrentFont(f.replace(/['"]/g, ""));
-      const c = document.queryCommandValue("foreColor") || "";
-      if (c) setCurrentColor(c);
-    } catch {}
-  };
-
+  // Track current color from editor state
   useEffect(() => {
+    if (!editor) return;
     const update = () => {
-      const el = ref.current;
-      if (!el) return;
-      const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) return;
-      const node = sel.anchorNode;
-      if (!node || !el.contains(node)) return;
-      updateActive();
+      const c = editor.getAttributes("textStyle").color;
+      if (c) currentColorRef.current = c;
     };
-    document.addEventListener("selectionchange", update);
-    return () => document.removeEventListener("selectionchange", update);
-  }, []);
+    editor.on("selectionUpdate", update);
+    editor.on("transaction", update);
+    return () => {
+      editor.off("selectionUpdate", update);
+      editor.off("transaction", update);
+    };
+  }, [editor]);
 
-  const exec = (cmd: string, arg?: string) => {
-    ref.current?.focus();
-    document.execCommand(cmd, false, arg);
-    if (ref.current) onChange(ref.current.innerHTML);
-    updateActive();
-  };
+  if (!editor) return null;
 
   const btnBase: React.CSSProperties = { width: 26, height: 26, background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#94A3B8", cursor: "pointer", fontSize: 12, fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 };
   const btnActive: React.CSSProperties = { background: "#1D4ED8", border: "1px solid #3B82F6", color: "#ffffff" };
   const sty = (isActive: boolean, extra: React.CSSProperties = {}) => ({ ...btnBase, ...(isActive ? btnActive : {}), ...extra });
+
+  const currentFont = editor.getAttributes("textStyle").fontFamily || "";
+  const matchedFont = FONT_CHOICES.find(f => currentFont && f.value.toLowerCase().includes(currentFont.toLowerCase().replace(/['"]/g, "")));
 
   return (
     <div style={{ border: "1px solid #334155", borderRadius: 6, background: "#0F172A", overflow: "hidden" }}>
       <div style={{ display: "flex", gap: 4, padding: 6, borderBottom: "1px solid #334155", background: "#1E293B", flexWrap: "wrap", alignItems: "center" }}>
         <select
           title="Font"
-          value={FONT_CHOICES.find(f => currentFont && f.value.toLowerCase().includes(currentFont.toLowerCase()))?.value || ""}
-          onChange={e => exec("fontName", e.target.value)}
+          value={matchedFont?.value || ""}
+          onChange={e => { if (e.target.value) editor.chain().focus().setFontFamily(e.target.value).run(); }}
           style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#94A3B8", fontSize: 11, padding: "3px 4px", height: 26, cursor: "pointer" }}
         >
           <option value="">Font…</option>
@@ -97,65 +144,43 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = 140 }
         </select>
         <select
           title="Font size"
-          onChange={e => { if (e.target.value) exec("fontSize", e.target.value); e.target.value = ""; }}
+          onChange={e => { if (e.target.value) editor.chain().focus().setMark("textStyle", { fontSize: e.target.value }).run(); e.target.value = ""; }}
           style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#94A3B8", fontSize: 11, padding: "3px 4px", height: 26, cursor: "pointer", width: 50 }}
         >
           <option value="">Size</option>
-          <option value="1">8</option>
-          <option value="2">10</option>
-          <option value="3">12</option>
-          <option value="4">14</option>
-          <option value="5">18</option>
-          <option value="6">24</option>
-          <option value="7">36</option>
+          {FONT_SIZES.map(s => <option key={s.label} value={s.value}>{s.label}</option>)}
         </select>
         <div style={{ width: 1, background: "#334155", margin: "0 2px" }} />
-        <button type="button" title="Bold (Ctrl+B)" style={sty(active.bold, { fontWeight: 700 })} onMouseDown={e => { e.preventDefault(); exec("bold"); }}>B</button>
-        <button type="button" title="Italic (Ctrl+I)" style={sty(active.italic, { fontStyle: "italic" })} onMouseDown={e => { e.preventDefault(); exec("italic"); }}>I</button>
-        <button type="button" title="Underline (Ctrl+U)" style={sty(active.underline, { textDecoration: "underline" })} onMouseDown={e => { e.preventDefault(); exec("underline"); }}>U</button>
+        <button type="button" title="Bold (Ctrl+B)" style={sty(editor.isActive("bold"), { fontWeight: 700 })} onMouseDown={e => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }}>B</button>
+        <button type="button" title="Italic (Ctrl+I)" style={sty(editor.isActive("italic"), { fontStyle: "italic" })} onMouseDown={e => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }}>I</button>
+        <button type="button" title="Underline (Ctrl+U)" style={sty(editor.isActive("underline"), { textDecoration: "underline" })} onMouseDown={e => { e.preventDefault(); editor.chain().focus().toggleUnderline().run(); }}>U</button>
         <div style={{ width: 1, background: "#334155", margin: "0 2px" }} />
         <button
           type="button" title="Font color"
-          onMouseDown={e => { e.preventDefault(); ref.current?.focus(); colorRef.current?.click(); }}
+          onMouseDown={e => { e.preventDefault(); editor.commands.focus(); colorRef.current?.click(); }}
           style={{ ...btnBase, position: "relative", flexDirection: "column", gap: 0 }}
         >
           <span style={{ fontSize: 10, lineHeight: 1, color: "#F1F5F9" }}>A</span>
-          <span style={{ width: 14, height: 3, background: currentColor || "#3B82F6", borderRadius: 1, marginTop: 1 }} />
+          <span style={{ width: 14, height: 3, background: currentColorRef.current || "#3B82F6", borderRadius: 1, marginTop: 1 }} />
         </button>
         <input ref={colorRef} type="color" style={{ position: "absolute", visibility: "hidden", width: 0, height: 0 }}
-          onChange={e => exec("foreColor", e.target.value)} />
+          onChange={e => { currentColorRef.current = e.target.value; editor.chain().focus().setColor(e.target.value).run(); }} />
         <div style={{ width: 1, background: "#334155", margin: "0 2px" }} />
-        <button type="button" title="Bulleted list" style={sty(active.ul)} onMouseDown={e => { e.preventDefault(); exec("insertUnorderedList"); }}>•</button>
-        <button type="button" title="Numbered list" style={sty(active.ol)} onMouseDown={e => { e.preventDefault(); exec("insertOrderedList"); }}>1.</button>
+        <button type="button" title="Bulleted list" style={sty(editor.isActive("bulletList"))} onMouseDown={e => { e.preventDefault(); editor.chain().focus().toggleBulletList().run(); }}>•</button>
+        <button type="button" title="Numbered list" style={sty(editor.isActive("orderedList"))} onMouseDown={e => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run(); }}>1.</button>
         <div style={{ width: 1, background: "#334155", margin: "0 2px" }} />
-        <button type="button" title="Insert link" style={btnBase} onMouseDown={e => { e.preventDefault(); const url = window.prompt("URL:"); if (url) exec("createLink", url); }}>🔗</button>
-        <button type="button" title="Clear formatting" style={btnBase} onMouseDown={e => { e.preventDefault(); exec("removeFormat"); }}>✕</button>
+        <button type="button" title="Insert link" style={btnBase} onMouseDown={e => { e.preventDefault(); const url = window.prompt("URL:"); if (url) editor.chain().focus().setLink({ href: url }).run(); }}>🔗</button>
+        <button type="button" title="Clear formatting" style={btnBase} onMouseDown={e => { e.preventDefault(); editor.chain().focus().unsetAllMarks().clearNodes().run(); }}>✕</button>
       </div>
-      <div
-        ref={ref}
-        contentEditable
-        suppressContentEditableWarning
-        data-placeholder={placeholder || ""}
-        onInput={e => onChange((e.target as HTMLDivElement).innerHTML)}
-        onPaste={e => {
-          e.preventDefault();
-          const text = e.clipboardData.getData("text/html") || e.clipboardData.getData("text/plain");
-          const cleaned = text.replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, "");
-          document.execCommand("insertHTML", false, cleaned);
-        }}
-        style={{
-          minHeight,
-          padding: "10px 12px",
-          color: "#F1F5F9",
-          fontSize: 13,
-          fontFamily: "'Segoe UI', system-ui, sans-serif",
-          lineHeight: 1.55,
-          outline: "none",
-          overflowY: "auto" as const,
-          maxHeight: 300,
-        }}
-      />
-      <style>{`[contenteditable][data-placeholder]:empty::before{content:attr(data-placeholder);color:#475569;pointer-events:none}`}</style>
+      <EditorContent editor={editor} />
+      <style>{`
+        .tiptap { outline: none; }
+        .tiptap p { margin: 0 0 8px; }
+        .tiptap p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: #475569; pointer-events: none; float: left; height: 0; }
+        .tiptap ul, .tiptap ol { padding-left: 24px; margin: 0 0 8px; }
+        .tiptap a { color: #60A5FA; text-decoration: underline; }
+        .tiptap blockquote { border-left: 3px solid #334155; margin: 8px 0; padding: 4px 12px; color: #94A3B8; }
+      `}</style>
     </div>
   );
 }
