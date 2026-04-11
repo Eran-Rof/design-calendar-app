@@ -252,7 +252,11 @@ export default function PLMApp() {
                   opacity: locked ? 0.6 : 1,
                   cursor: locked ? "not-allowed" : "pointer",
                 }}
-                onClick={() => !locked && openApp(app.path)}>
+                onClick={() => {
+                  if (locked) return;
+                  if (app.id === "tanda") localStorage.setItem("tanda_view", "dashboard");
+                  openApp(app.path);
+                }}>
 
                 <div style={{ fontSize: 40, marginBottom: 12 }}>{app.icon}</div>
                 <h3 style={{ ...S.appName, color: locked ? "#9CA3AF" : "#111827" }}>
