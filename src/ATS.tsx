@@ -4,6 +4,7 @@ import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
 import type { ATSRow, ATSSnapshot, ATSSkuData, ATSPoEvent, ATSSoEvent, UploadWarning, ExcelData, CtxMenu, SummaryCtxMenu } from "./ats/types";
 import { addDays, fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, skuSimilarity } from "./ats/helpers";
 import { computeRowsFromExcelData } from "./ats/compute";
+import { mergeExcelDataSkus, mergeRows } from "./ats/merge";
 import { exportToExcel } from "./ats/exportExcel";
 import { normalizeExcelData, detectNormChanges, applyNormChanges, type NormChange } from "./ats/normalize";
 import S from "./ats/styles";
@@ -124,37 +125,7 @@ function ATSReport() {
       .catch(e => console.warn("Failed to load admin users:", e));
   }, []);
 
-  function mergeExcelDataSkus(data: ExcelData, fromSku: string, toSku: string): ExcelData {
-    if (fromSku === toSku) return data;
-    const pos = (data.pos || []).map(p => p.sku === fromSku ? { ...p, sku: toSku } : p);
-    const sos = (data.sos || []).map(s => s.sku === fromSku ? { ...s, sku: toSku } : s);
-
-    // Collect ALL matching entries (handles duplicates across stores / stale rows)
-    const fromEntries = data.skus.filter(s => s.sku === fromSku);
-    const toEntries   = data.skus.filter(s => s.sku === toSku);
-    const others      = data.skus.filter(s => s.sku !== fromSku && s.sku !== toSku);
-
-    if (fromEntries.length === 0 && toEntries.length === 0) {
-      return { ...data, skus: others, pos, sos };
-    }
-
-    const all = [...toEntries, ...fromEntries];
-    const base = toEntries[0] ?? fromEntries[0];
-    const totalOnHand = all.reduce((a, s) => a + (s.onHand || 0), 0);
-    const costSum = all.reduce((a, s) => a + ((s.avgCost ?? 0) * (s.onHand || 0)), 0);
-    const anyCost = all.some(s => s.avgCost != null);
-    const merged = {
-      ...base,
-      sku:         toSku,
-      onHand:      totalOnHand,
-      onOrder:     all.reduce((a, s) => a + (s.onOrder     || 0), 0),
-      onCommitted: all.reduce((a, s) => a + (s.onCommitted || 0), 0),
-      totalAmount: all.reduce((a, s) => a + (s.totalAmount || 0), 0),
-      avgCost: anyCost && totalOnHand > 0 ? costSum / totalOnHand : (base.avgCost ?? null),
-    };
-
-    return { ...data, skus: [...others, merged], pos, sos };
-  }
+  // mergeExcelDataSkus + mergeRows extracted to ./ats/merge.ts for unit testing.
 
   function commitMerge(fromSku: string, toSku: string) {
     if (!fromSku || !toSku || fromSku === toSku) return;
@@ -169,7 +140,7 @@ function ATSReport() {
       saveNormResult(merged); // persist merged state to Supabase
     } else {
       // Legacy snapshot mode — update rows directly
-      const newRows = applyMerge(rows, fromSku, toSku);
+      const newRows = mergeRows(rows, fromSku, toSku);
       if (newRows !== rows) setRows(newRows);
     }
   }
@@ -400,7 +371,7 @@ function ATSReport() {
   useEffect(() => {
     if (excelData) {
       let computed = computeRowsFromExcelData(excelData, dates, poStores, soStores);
-      for (const op of mergeHistory) computed = applyMerge(computed, op.fromSku, op.toSku);
+      for (const op of mergeHistory) computed = mergeRows(computed, op.fromSku, op.toSku);
       setRows(computed);
     }
   }, [excelData, dates, poStores, soStores, mergeHistory]);
@@ -408,32 +379,7 @@ function ATSReport() {
   // PO data comes from PO WIP (tanda_pos) — no separate Xoro sync needed
   const syncProgress = null;
 
-  // Pure helper — applies one merge op to a rows array without touching React state
-  function applyMerge(currentRows: ATSRow[], fromSku: string, toSku: string): ATSRow[] {
-    const source = currentRows.find(r => r.sku === fromSku);
-    const target = currentRows.find(r => r.sku === toSku);
-    if (!source || !target) return currentRows;
-    const mergedDates: Record<string, number> = { ...target.dates };
-    for (const [d, q] of Object.entries(source.dates)) {
-      mergedDates[d] = (mergedDates[d] ?? 0) + q;
-    }
-    const totalOnHand = target.onHand + source.onHand;
-    const avgCost = totalOnHand > 0 && target.avgCost != null && source.avgCost != null
-      ? (target.avgCost * target.onHand + source.avgCost * source.onHand) / totalOnHand
-      : (target.avgCost ?? source.avgCost);
-    const lastReceiptDate = [target.lastReceiptDate, source.lastReceiptDate].filter(Boolean).sort().pop();
-    const merged: ATSRow = {
-      ...target,
-      onHand:      totalOnHand,
-      onOrder:     target.onOrder     + source.onOrder,
-      onCommitted: (target.onCommitted ?? 0) + (source.onCommitted ?? 0),
-      totalAmount: (target.totalAmount ?? 0) + (source.totalAmount ?? 0),
-      avgCost,
-      lastReceiptDate,
-      dates: mergedDates,
-    };
-    return currentRows.filter(r => r.sku !== fromSku && r.sku !== toSku).concat(merged);
-  }
+  // mergeRows (row-level) imported from ./ats/merge.ts.
 
   async function saveMergeHistory(history: Array<{ fromSku: string; toSku: string }>) {
     try {
@@ -521,7 +467,7 @@ function ATSReport() {
           map[snap.sku].dates[snap.date] = snap.qty_available;
         });
         let computed = Object.values(map);
-        for (const op of savedHistory) computed = applyMerge(computed, op.fromSku, op.toSku);
+        for (const op of savedHistory) computed = mergeRows(computed, op.fromSku, op.toSku);
         setRows(computed);
         setMockMode(false);
       }
