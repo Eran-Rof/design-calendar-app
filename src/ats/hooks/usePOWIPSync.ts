@@ -21,14 +21,20 @@ function inferStore(poNum: string, brandName: string): string {
 }
 
 // Fetch tanda_pos from Supabase and fold the rows into an ExcelData blob.
-// NOTE: mutates `data` in place (adds to skus/pos). Callers in ATS.tsx always
-// pass a shallow-copied blob so the original excelData is never touched.
-// Keeping the mutation semantics preserves the existing upload/refresh
-// behavior without deep-copy overhead.
+// Pure: returns a new ExcelData; never mutates the input. The work is done
+// against a sku lookup map so we don't rescan the skus array per item.
 export async function applyPOWIPDataToExcel(data: ExcelData): Promise<ExcelData> {
   const poRes = await fetch(`${SB_URL}/rest/v1/tanda_pos?select=data`, { headers: SB_HEADERS });
   if (!poRes.ok) return data;
   const poRows = await poRes.json();
+
+  // Work on a fresh copy of each sku entry so we can safely mutate inside
+  // this function without touching the caller's data.
+  const nextSkus = data.skus.map(s => ({ ...s }));
+  const nextPos = [...data.pos];
+  const skuIndex = new Map<string, number>();
+  nextSkus.forEach((s, i) => skuIndex.set(s.sku, i));
+
   for (const row of poRows) {
     const po = row.data;
     if (!po || po._archived) continue;
@@ -52,9 +58,11 @@ export async function applyPOWIPDataToExcel(data: ExcelData): Promise<ExcelData>
         if (!isNaN(d.getTime())) date = d.toISOString().split("T")[0];
       }
       const store = inferStore(poNum, brandName);
-      const existing = data.skus.find(s => s.sku === sku);
-      if (!existing) {
-        data.skus.push({
+
+      const existingIdx = skuIndex.get(sku);
+      if (existingIdx === undefined) {
+        skuIndex.set(sku, nextSkus.length);
+        nextSkus.push({
           sku,
           description: item.Description ?? "",
           category: brandName || undefined,
@@ -64,12 +72,14 @@ export async function applyPOWIPDataToExcel(data: ExcelData): Promise<ExcelData>
           onCommitted: 0,
         });
       } else {
-        existing.onOrder = (existing.onOrder || 0) + qty;
+        const prev = nextSkus[existingIdx];
+        nextSkus[existingIdx] = { ...prev, onOrder: (prev.onOrder || 0) + qty };
       }
-      if (date) data.pos.push({ sku, date, qty, poNumber: poNum, vendor, store, unitCost });
+      if (date) nextPos.push({ sku, date, qty, poNumber: poNum, vendor, store, unitCost });
     }
   }
-  return data;
+
+  return { ...data, skus: nextSkus, pos: nextPos };
 }
 
 // Hook wrapping applyPOWIPDataToExcel with a stable reference and the
