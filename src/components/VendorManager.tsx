@@ -7,7 +7,7 @@ import { CATEGORIES, DEFAULT_TASK_TEMPLATES } from "../utils/constants";
 import { LeadTimeCell } from "./DateInput";
 import { SB_URL, SB_KEY } from "../utils/supabase";
 
-const DEFAULT_WIP_TEMPLATES_DC = [
+export const DEFAULT_WIP_TEMPLATES_DC = [
   { id: "wip_labdip",    phase: "Lab Dip / Strike Off",      category: "Pre-Production", daysBeforeDDP: 120 },
   { id: "wip_trims",     phase: "Trims",                     category: "Pre-Production", daysBeforeDDP: 110 },
   { id: "wip_rawgoods",  phase: "Raw Goods Available",       category: "Fabric T&A",     daysBeforeDDP: 100 },

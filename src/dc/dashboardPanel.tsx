@@ -1,6 +1,6 @@
-import React from "react";
+import React, { Fragment } from "react";
 import { S, TH, fmtDays } from "./styles";
-import { formatDate, getDaysUntil } from "../utils/dates";
+import { formatDate, getDaysUntil, getBusinessDaysUntil } from "../utils/dates";
 import { STATUS_CONFIG, MONTHS } from "../utils/constants";
 import Avatar from "../components/Avatar";
 import { useAppStore } from "../store";

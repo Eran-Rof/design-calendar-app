@@ -3,6 +3,7 @@ import { TH } from "../utils/theme";
 import { appConfirm } from "../utils/theme";
 import { S } from "../utils/styles";
 import { DEFAULT_CATEGORIES } from "../utils/constants";
+import { uid } from "../utils/dates";
 
 // ─── CATEGORY MANAGER ────────────────────────────────────────────────────────
 function CategoryManager({ categories, setCategories, isAdmin = false }) {

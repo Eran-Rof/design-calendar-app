@@ -316,7 +316,7 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
     finally { setSaving(false); }
   }
 
-  function updatePermission(userId: string, app: "design" | "tanda" | "techpack", field: keyof AppPermission, value: boolean) {
+  function updatePermission(userId: string, app: "design" | "tanda" | "techpack" | "ats", field: keyof AppPermission, value: boolean) {
     const updated = users.map(u => {
       if (u.id !== userId) return u;
       const perms = u.permissions ?? {};

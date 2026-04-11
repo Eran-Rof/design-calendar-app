@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { TH } from "../utils/theme";
+import { TH, appConfirm } from "../utils/theme";
 import { S } from "../utils/styles";
 import { DEFAULT_TASK_TEMPLATES, STATUS_CONFIG } from "../utils/constants";
 import { SB_URL, SB_KEY } from "../utils/supabase";
+import { uid } from "../utils/dates";
+import { DEFAULT_WIP_TEMPLATES_DC } from "./VendorManager";
 
 // ─── ADD TASK MODAL ───────────────────────────────────────────────────────────
 
