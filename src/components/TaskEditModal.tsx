@@ -129,7 +129,7 @@ function TaskEditModal({
       // Show DDP warning — user decides how to handle before committing
       const collTasks = allTasks
         .filter((t) => `${t.brand}||${t.collection}` === collKey)
-        .sort((a, b) => new Date(a.due) - new Date(b.due));
+        .sort((a, b) => +new Date(a.due) - +new Date(b.due));
       setCascadeWarn({
         updatedTasks,
         newDDP,
@@ -154,7 +154,7 @@ function TaskEditModal({
   function proportionalResize(collTasks, changedTaskId, newDue) {
     // Resize pre-Production tasks proportionally so DDP stays the same
     const sorted = [...collTasks].sort(
-      (a, b) => new Date(a.due) - new Date(b.due)
+      (a, b) => +new Date(a.due) - +new Date(b.due)
     );
     const ddpTask = sorted.find((t) => t.phase === "DDP");
     const ddpDate = ddpTask?.due;
@@ -433,7 +433,7 @@ function TaskEditModal({
               {(() => {
                 const sortedColl = allTasks
                   .filter((t) => `${t.brand}||${t.collection}` === collKey)
-                  .sort((a, b) => new Date(a.due) - new Date(b.due));
+                  .sort((a, b) => +new Date(a.due) - +new Date(b.due));
                 const thisIdx = sortedColl.findIndex((t) => t.id === task.id);
                 const prevTask = thisIdx > 0 ? sortedColl[thisIdx - 1] : null;
                 if (!prevTask) return null;
@@ -608,11 +608,11 @@ function TaskEditModal({
                 <div>
                   <label style={S.lbl}>Collection Team</label>
                   <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                    {[
+                    {([
                       ["PD", pd],
                       ["Designer", designer],
                       ["Graphic", graphic],
-                    ]
+                    ] as Array<[string, any]>)
                       .filter(([, m]) => m)
                       .map(([role, m]) => (
                         <div

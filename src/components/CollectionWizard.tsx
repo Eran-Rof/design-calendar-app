@@ -131,7 +131,7 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
     if (!v) return "";
     // Use task templates + vendor overrides to find max lead time
     const templates = (taskTemplates && taskTemplates.length > 0) ? taskTemplates : DEFAULT_TASK_TEMPLATES;
-    const overrides = v.leadOverrides || v.lead || {};
+    const overrides = (v.leadOverrides || (v as any).lead || {}) as Record<string, number>;
     const leadValues = templates.map(tpl => {
       const val = overrides[tpl.phase] !== undefined ? overrides[tpl.phase] : tpl.daysBeforeDDP;
       return Number(val) || 0;
@@ -173,7 +173,7 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
 
   function initStep2Leads(vendorId) {
     const v = vendors.find(vv => vv.id === vendorId);
-    const overrides = v ? (v.leadOverrides || v.lead || {}) : {};
+    const overrides = (v ? (v.leadOverrides || (v as any).lead || {}) : {}) as Record<string, number>;
     const tpls = (taskTemplates && taskTemplates.length > 0) ? taskTemplates : [];
     setStep2Leads(
       tpls
@@ -194,10 +194,11 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
       }
       // Sync to selV.leadOverrides so generateTasks picks it up
       if (selV) {
-        const map = {};
+        const map: Record<string, number> = {};
         leads.forEach(l => { map[l.phase] = l.days; });
         selV.leadOverrides = map;
-        if (selV.lead) leads.forEach(l => { selV.lead[l.phase] = l.days; });
+        const legacyLead = (selV as any).lead;
+        if (legacyLead) leads.forEach(l => { legacyLead[l.phase] = l.days; });
       }
       return leads;
     });
@@ -236,7 +237,7 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
     (taskTemplates && taskTemplates.length > 0 ? taskTemplates : [])
       .filter((t: any) => t.phase !== "DDP" && t.phase !== "Ship Date")
       .map((t: any) => {
-        const overrides = selV ? (selV.leadOverrides || selV.lead || {}) : {};
+        const overrides = (selV ? (selV.leadOverrides || (selV as any).lead || {}) : {}) as Record<string, number>;
         return { phase: t.phase, days: overrides[t.phase] ?? t.daysBeforeDDP ?? 0 };
       })
   );
@@ -591,7 +592,7 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
                   }
                 }}
               >
-                {(genderList || GENDERS).map((g) => (
+                {(genderList || GENDERS).map((g: any) => (
                   <option key={typeof g === "string" ? g : g.label}>{typeof g === "string" ? g : g.label}</option>
                 ))}
               </select>

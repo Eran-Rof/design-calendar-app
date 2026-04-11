@@ -71,6 +71,8 @@ export interface TeamMember {
   role?: string;
   email?: string;
   avatar?: string;
+  color?: string;
+  initials?: string;
 }
 
 export interface User {
@@ -78,6 +80,8 @@ export interface User {
   role?: string;
   permissions?: {
     view_all?: boolean;
+    edit_all?: boolean;
+    edit_own?: boolean;
   };
   teamMemberId?: string;
 }

@@ -86,7 +86,7 @@ function EditCollectionModal({
     );
     if (newDDP && oldDDP && newDDP !== oldDDP) {
       const shift = Math.round(
-        (new Date(newDDP) - new Date(oldDDP)) / 86400000
+        (+new Date(newDDP) - +new Date(oldDDP)) / 86400000
       );
       updatedTasks = updatedTasks.map((t) => {
         if (`${t.brand}||${t.collection}` !== collKey) return t;

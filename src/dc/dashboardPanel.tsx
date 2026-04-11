@@ -305,7 +305,7 @@ function DashboardPanelInner({ TaskCard }: DashboardCtx): React.ReactElement | n
                     }}
                   >
                     {[...activeMeta.tasks]
-                      .sort((a, b) => new Date(a.due) - new Date(b.due))
+                      .sort((a, b) => +new Date(a.due) - +new Date(b.due))
                       .map((t) => (
                         <TaskCard key={t.id} task={t} showDayDate={true} />
                       ))}
@@ -1087,7 +1087,7 @@ function DashboardPanelInner({ TaskCard }: DashboardCtx): React.ReactElement | n
                       .filter(
                         (t) => !["Complete", "Approved"].includes(t.status)
                       )
-                      .sort((a, b) => new Date(a.due) - new Date(b.due))[0];
+                      .sort((a, b) => +new Date(a.due) - +new Date(b.due))[0];
                     const collData = collections[c.key] || {},
                       skuCount = collData.skus?.length || 0;
                     const assigneeIds = [
@@ -1280,7 +1280,7 @@ function DashboardPanelInner({ TaskCard }: DashboardCtx): React.ReactElement | n
                             }}
                           >
                             {c.tasks
-                              .sort((a, b) => new Date(a.due) - new Date(b.due))
+                              .sort((a, b) => +new Date(a.due) - +new Date(b.due))
                               .map((t) => (
                                 <span
                                   key={t.id}

@@ -6,8 +6,8 @@ import { uid, getBrand, formatDate, addDays, diffDays } from "../utils/dates";
 import { Modal } from "./Modal";
 import DateInput from "./DateInput";
 
-function AddTaskModal({ tasks, vendors, team, collections, onSave, onClose }) {
-  const collOptions = [...new Set(tasks.map((t) => `${t.brand}||${t.collection}`))];
+function AddTaskModal({ tasks, vendors, team, collections, onSave, onClose }: { tasks: any[]; vendors: any[]; team: any[]; collections: any; onSave: any; onClose: any }) {
+  const collOptions: string[] = [...new Set(tasks.map((t) => `${t.brand}||${t.collection}`))];
   const todayStr = new Date().toISOString().split("T")[0];
 
   const [form, setForm] = useState({

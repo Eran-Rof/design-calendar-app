@@ -285,7 +285,7 @@ function TimelinePanelInner(): React.ReactElement | null {
                 ];
                 const sorted = [...ctasks].sort((a, b) => {
                   // Primary sort: chronological by due date
-                  const dateDiff = new Date(a.due) - new Date(b.due);
+                  const dateDiff = +new Date(a.due) - +new Date(b.due);
                   if (dateDiff !== 0) return dateDiff;
                   // Tiebreaker: use standard phase order when dates are equal
                   const ai = ALL_PHASES.indexOf(a.phase);

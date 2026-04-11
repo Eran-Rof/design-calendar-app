@@ -341,7 +341,7 @@ function VendorForm({ vendor = null, onSave, onCancel, taskTemplates, isEdit = f
 }
 
 function VendorManager({ vendors, setVendors, isAdmin = false, taskTemplates }) {
-  const fileRef = useRef();
+  const fileRef = useRef<HTMLInputElement | null>(null);
   const [msg, setMsg] = useState(null);
   if (!isAdmin) return (
     <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
