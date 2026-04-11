@@ -1,16 +1,17 @@
 import React, { useState, useRef, useEffect, type Dispatch, type SetStateAction, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { type XoroPO, type Milestone, type WipTemplate, type LocalNote, type User, type DCVendor, type View, type DmConversation,
-  STATUS_COLORS, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, DEFAULT_WIP_TEMPLATES,
-  milestoneUid, itemQty, poTotal, normalizeSize, sizeSort, fmtDate, fmtCurrency } from "../utils/tandaTypes";
-import { styledEmailHtml } from "../utils/emailHtml";
-import { RichTextEditor, buildEmailHtml } from "./richTextEditor";
-import { MS_CLIENT_ID, MS_TENANT_ID } from "../utils/msAuth";
+  STATUS_COLORS, WIP_CATEGORIES, MILESTONE_STATUSES, DEFAULT_WIP_TEMPLATES,
+  milestoneUid, itemQty, poTotal, fmtDate, fmtCurrency } from "../utils/tandaTypes";
 import { printPODetail } from "./exportHelpers";
 import S from "./styles";
 import type { DetailMode, AttachmentEntry } from "./state/core/coreTypes";
 import { EmailTab } from "./detail/emailTab";
 import { MilestonesTab } from "./detail/milestonesTab";
+import { PoMatrixTab } from "./detail/poMatrixTab";
+import { AttachmentsTab } from "./detail/attachmentsTab";
+import { NotesTab } from "./detail/notesTab";
+import { HistoryTab } from "./detail/historyTab";
 
 // ── DetailPanelCtx ──────────────────────────────────────────────────────────
 // Strict prop bag passed by TandA.tsx into the detail panel. Replaces the
@@ -558,258 +559,12 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
           <div style={{ border: "1px solid #334155", borderTop: "none", borderRadius: "0 0 10px 10px", background: "#1E293B", padding: 20, marginBottom: 20 }}>
 
           {/* PO / Matrix combined section */}
-          {showPO && items.length > 0 && (() => {
-            // Matrix data
-            const parsed = items.map((item: any) => {
-              const sku = item.ItemNumber ?? ""; const parts = sku.split("-");
-              const color = parts.length === 4 ? `${parts[1]}-${parts[2]}` : (parts.length >= 2 ? parts[1] : "");
-              const sz = normalizeSize(parts.length === 4 ? parts[3] : parts.length >= 3 ? parts.slice(2).join("-") : "");
-              return { base: parts[0] || sku, color, size: sz, qty: itemQty(item), price: item.UnitPrice ?? 0, desc: item.Description ?? "" };
-            });
-            const sizeSet2 = new Set<string>();
-            parsed.forEach((p: any) => { if (p.size) sizeSet2.add(p.size); });
-            const sizeOrder = [...sizeSet2].sort(sizeSort);
-            const bases: string[] = [];
-            const byBase: Record<string, { color: string; desc: string; sizes: Record<string, number>; price: number }[]> = {};
-            parsed.forEach((p: any) => {
-              if (!byBase[p.base]) { byBase[p.base] = []; bases.push(p.base); }
-              let row = byBase[p.base].find((r: any) => r.color === p.color);
-              if (!row) { row = { color: p.color, desc: p.desc, sizes: {}, price: p.price }; byBase[p.base].push(row); }
-              row.sizes[p.size] = (row.sizes[p.size] || 0) + p.qty;
-            });
-
-            return (
-              <>
-                {/* Matrix — collapsible, milestone-tab style */}
-                <div style={{ marginBottom: 8 }}>
-                  <div onClick={() => setMatrixCollapsed(!matrixCollapsed)}
-                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#0F172A", borderRadius: matrixCollapsed ? 8 : "8px 8px 0 0", cursor: "pointer", userSelect: "none" }}>
-                    <span style={{ color: "#6B7280", fontSize: 12 }}>{matrixCollapsed ? "▶" : "▼"}</span>
-                    <span style={{ color: "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Item Matrix</span>
-                    <span style={{ color: "#6B7280", fontSize: 11, marginLeft: "auto" }}>{bases.length} base parts · {sizeOrder.length} sizes</span>
-                  </div>
-                  {!matrixCollapsed && (
-                    <div style={{ overflowX: "auto", background: "#0F172A", borderRadius: "0 0 8px 8px" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                        <thead>
-                          <tr style={{ background: "#0F172A" }}>
-                            <th style={{ padding: "10px 14px", textAlign: "left", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Base Part</th>
-                            <th style={{ padding: "10px 14px", textAlign: "left", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Description</th>
-                            <th style={{ padding: "10px 14px", textAlign: "left", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Color</th>
-                            {sizeOrder.map(sz => (
-                              <th key={sz} style={{ padding: "10px 14px", textAlign: "center", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155", minWidth: 60 }}>{sz}</th>
-                            ))}
-                            <th style={{ padding: "10px 14px", textAlign: "center", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Total</th>
-                            <th style={{ padding: "10px 14px", textAlign: "right", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>PO Cost</th>
-                            <th style={{ padding: "10px 14px", textAlign: "right", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Total Cost</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {bases.map((base, bi) => {
-                            const rows = byBase[base];
-                            return rows.map((row, ri) => {
-                              const rowTotal = Object.values(row.sizes).reduce((s: number, q: any) => s + q, 0);
-                              const rowCost = rowTotal * row.price;
-                              const isLast = ri === rows.length - 1;
-                              return (
-                                <tr key={base + "-" + row.color} style={{ borderBottom: isLast && bi < bases.length - 1 ? "2px solid #334155" : "1px solid #1E293B" }}>
-                                  <td style={{ padding: "8px 14px", color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, borderRight: "1px solid #334155" }}>{base}</td>
-                                  <td style={{ padding: "8px 14px", color: "#9CA3AF", fontSize: 12 }}>{row.desc || "—"}</td>
-                                  <td style={{ padding: "8px 14px", color: "#D1D5DB" }}>{row.color || "—"}</td>
-                                  {sizeOrder.map(sz => (
-                                    <td key={sz} style={{ padding: "8px 14px", textAlign: "center", color: row.sizes[sz] ? "#E5E7EB" : "#334155", fontFamily: "monospace" }}>{row.sizes[sz] || "—"}</td>
-                                  ))}
-                                  <td style={{ padding: "8px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 700, fontFamily: "monospace" }}>{rowTotal}</td>
-                                  <td style={{ padding: "8px 14px", textAlign: "right", color: "#9CA3AF", fontFamily: "monospace" }}>{fmtCurrency(row.price, selected.CurrencyCode)}</td>
-                                  <td style={{ padding: "8px 14px", textAlign: "right", color: "#10B981", fontWeight: 600, fontFamily: "monospace" }}>{fmtCurrency(rowCost, selected.CurrencyCode)}</td>
-                                </tr>
-                              );
-                            });
-                          })}
-                        </tbody>
-                        <tfoot>
-                          <tr style={{ borderTop: "2px solid #334155", background: "#0F172A" }}>
-                            <td colSpan={3} style={{ padding: "12px 14px", color: "#9CA3AF", fontWeight: 700, textAlign: "right" }}>Grand Total</td>
-                            {sizeOrder.map(sz => {
-                              const colTotal = parsed.filter((p: any) => p.size === sz).reduce((s: number, p: any) => s + p.qty, 0);
-                              return <td key={sz} style={{ padding: "12px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 700, fontFamily: "monospace" }}>{colTotal}</td>;
-                            })}
-                            <td style={{ padding: "12px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 800, fontFamily: "monospace" }}>{totalQty}</td>
-                            <td style={{ padding: "12px 14px" }} />
-                            <td style={{ padding: "12px 14px", textAlign: "right", color: "#10B981", fontWeight: 800, fontFamily: "monospace" }}>{fmtCurrency(total, selected.CurrencyCode)}</td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
-                  )}
-                </div>
-
-                {/* Line Items — collapsible, milestone-tab style */}
-                <div style={{ marginBottom: 20 }}>
-                  <div onClick={() => setLineItemsCollapsed(!lineItemsCollapsed)}
-                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#0F172A", borderRadius: lineItemsCollapsed ? 8 : "8px 8px 0 0", cursor: "pointer", userSelect: "none" }}>
-                    <span style={{ color: "#6B7280", fontSize: 12 }}>{lineItemsCollapsed ? "▶" : "▼"}</span>
-                    <span style={{ color: "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Line Items</span>
-                    <span style={{ color: "#6B7280", fontSize: 11, marginLeft: "auto" }}>{items.length} items</span>
-                  </div>
-                  {!lineItemsCollapsed && (
-                    <div style={{ ...S.itemsTable, borderRadius: "0 0 8px 8px" }}>
-                      <div style={S.itemsHeader}>
-                        <span>SKU</span><span>Description</span><span>Qty</span><span>Unit Price</span><span>Total</span>
-                      </div>
-                      {items.map((item, i) => (
-                        <div key={i} style={S.itemRow}>
-                          <span style={{ color: "#60A5FA", fontFamily: "monospace" }}>{item.ItemNumber ?? "—"}</span>
-                          <span style={{ color: "#D1D5DB" }}>{item.Description ?? "—"}</span>
-                          <span style={{ color: "#E5E7EB", textAlign: "right" }}>{itemQty(item)}{(item.QtyReceived ?? 0) > 0 ? <span style={{ color: "#6B7280", fontSize: 10 }}> / {item.QtyOrder}</span> : ""}</span>
-                          <span style={{ color: "#E5E7EB", textAlign: "right" }}>{fmtCurrency(item.UnitPrice, selected.CurrencyCode)}</span>
-                          <span style={{ color: "#10B981", textAlign: "right", fontWeight: 600 }}>
-                            {fmtCurrency(itemQty(item) * (item.UnitPrice ?? 0), selected.CurrencyCode)}
-                          </span>
-                        </div>
-                      ))}
-                      <div style={S.itemsTotal}>
-                        <span style={{ gridColumn: "1/5", textAlign: "right", color: "#9CA3AF" }}>Total</span>
-                        <span style={{ color: "#10B981", fontWeight: 700 }}>{fmtCurrency(total, selected.CurrencyCode)}</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </>
-            );
-          })()}
+          {/* PO / Matrix combined section */}
+          <PoMatrixTab ctx={ctx} total={total} totalQty={totalQty} />
 
             {/* Attachments Tab */}
-            {(detailMode === "attachments" || detailMode === "all") && (() => {
-              const pn = selected.PoNumber ?? "";
-              const files = attachments[pn] || [];
-              const fmtSize = (b: number) => b < 1024 ? b + " B" : b < 1048576 ? (b / 1024).toFixed(1) + " KB" : (b / 1048576).toFixed(1) + " MB";
-              const getFileIcon = (type: string, name: string) => {
-                const ext = name.split(".").pop()?.toLowerCase() || "";
-                if (type.includes("pdf") || ext === "pdf") return { bg: "#DC2626", label: "PDF" };
-                if (type.includes("sheet") || type.includes("excel") || ext === "xlsx" || ext === "xls" || ext === "csv") return { bg: "#16A34A", label: "XLS" };
-                if (type.includes("word") || type.includes("doc") || ext === "docx" || ext === "doc") return { bg: "#2563EB", label: "DOC" };
-                if (type.includes("presentation") || type.includes("powerpoint") || ext === "pptx" || ext === "ppt") return { bg: "#D97706", label: "PPT" };
-                if (ext === "zip" || ext === "rar" || ext === "7z") return { bg: "#7C3AED", label: "ZIP" };
-                if (ext === "txt" || ext === "rtf") return { bg: "#6B7280", label: "TXT" };
-                return { bg: "#475569", label: ext.toUpperCase().slice(0, 3) || "FILE" };
-              };
-              return (
-                <div style={{ marginBottom: 20 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                    <div style={S.sectionLabel}>Attachments ({files.filter(f => !(f as any).deleted_at).length})</div>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      {uploadingAttachment && <span style={{ fontSize: 12, color: "#F59E0B" }}>Uploading…</span>}
-                      <input id="po-attach-input" type="file" multiple accept="*/*" style={{ display: "none" }} onChange={async e => {
-                        const fileList = e.target.files; if (!fileList || fileList.length === 0) return;
-                        setUploadingAttachment(true);
-                        const existingFiles = (attachments[pn] || []).filter((f: any) => !(f as any).deleted_at);
-                        const names: string[] = [];
-                        for (let i = 0; i < fileList.length; i++) {
-                          const file = fileList[i];
-                          const duplicate = existingFiles.find((f: any) => f.name === file.name);
-                          let uploadFile = file;
-                          if (duplicate) {
-                            const action = await new Promise<"replace" | "add" | "skip">(resolve => {
-                              setConfirmModal({
-                                title: "File Already Exists",
-                                message: `"${file.name}" already exists in this PO's attachments.`,
-                                icon: "📎",
-                                confirmText: "Replace",
-                                confirmColor: "#EF4444",
-                                cancelText: "Add Version",
-                                onConfirm: () => resolve("replace"),
-                                onCancel: () => resolve("add"),
-                              });
-                            });
-                            if (action === "replace") {
-                              await deleteAttachment(pn, duplicate.id);
-                            } else {
-                              // Add version number: count existing copies of this base name
-                              const baseName = file.name.replace(/\.[^.]+$/, "");
-                              const ext = file.name.includes(".") ? "." + file.name.split(".").pop() : "";
-                              // Strip existing version suffix (V2, V3, etc.) from base for counting
-                              const cleanBase = baseName.replace(/ V\d+$/, "");
-                              const versionCount = existingFiles.filter((f: any) => {
-                                const fBase = f.name.replace(/\.[^.]+$/, "").replace(/ V\d+$/, "");
-                                return fBase === cleanBase;
-                              }).length;
-                              const versionedName = `${cleanBase} V${versionCount + 1}${ext}`;
-                              uploadFile = new File([file], versionedName, { type: file.type });
-                            }
-                          }
-                          try {
-                            await uploadAttachment(pn, uploadFile);
-                            names.push(uploadFile.name);
-                          } catch (err) { console.error("Upload error:", err); }
-                        }
-                        if (names.length > 0) {
-                          addHistory(pn, `Attachment${names.length > 1 ? "s" : ""} uploaded: ${names.join(", ")}`);
-                        }
-                        await loadAttachments(pn);
-                        setUploadingAttachment(false);
-                        e.target.value = "";
-                      }} />
-                      <button onClick={() => (document.getElementById("po-attach-input") as HTMLInputElement)?.click()} disabled={uploadingAttachment} style={{ ...S.btnPrimary, fontSize: 11, padding: "6px 14px", width: "auto", opacity: uploadingAttachment ? 0.5 : 1 }}>+ Upload Files</button>
-                    </div>
-                  </div>
-                  {files.length === 0 ? (
-                    <div style={{ background: "#0F172A", borderRadius: 8, padding: 30, textAlign: "center" }}>
-                      <div style={{ fontSize: 32, marginBottom: 8 }}>📎</div>
-                      <div style={{ color: "#6B7280", fontSize: 13, marginBottom: 12 }}>No attachments yet</div>
-                      <button onClick={() => (document.getElementById("po-attach-input") as HTMLInputElement)?.click()} style={{ ...S.btnSecondary, fontSize: 12 }}>Upload your first file</button>
-                    </div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                      {files.map(f => {
-                        const isDeleted = !!(f as any).deleted_at;
-                        const timeAgo = f.uploaded_at ? (() => { const ms = Date.now() - new Date(f.uploaded_at).getTime(); const m = Math.floor(ms / 60000); if (m < 60) return `${m}m ago`; const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`; return `${Math.floor(h / 24)}d ago`; })() : "";
-                        const deleteTimeLeft = isDeleted ? (() => { const ms = 24 * 60 * 60 * 1000 - (Date.now() - new Date((f as any).deleted_at).getTime()); if (ms <= 0) return ""; const h = Math.floor(ms / 3600000); return `${h}h left to undo`; })() : "";
-                        if (isDeleted) {
-                          const msLeft = 24 * 60 * 60 * 1000 - (Date.now() - new Date((f as any).deleted_at).getTime());
-                          if (msLeft <= 0) return null;
-                          const h = Math.floor(msLeft / 3600000); const m = Math.floor((msLeft % 3600000) / 60000); const s = Math.floor((msLeft % 60000) / 1000);
-                          const countdown = `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-                          return (
-                          <div key={f.id} style={{ position: "relative", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "#0F172A", borderRadius: 8, border: "1px dashed #EF444444", overflow: "hidden" }}>
-                            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1 }}>
-                              <span style={{ fontSize: 28, fontWeight: 800, fontFamily: "monospace", color: "#10B981", textShadow: "0 0 12px #10B98166, 0 0 24px #10B98133", letterSpacing: 2 }}>{countdown}</span>
-                            </div>
-                            <div style={{ position: "relative", zIndex: 2, flex: 1, display: "flex", alignItems: "center", gap: 12, opacity: 0.5 }}>
-                              <span style={{ fontSize: 24, flexShrink: 0 }}>🗑</span>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 13, color: "#EF4444", fontWeight: 600, textDecoration: "line-through" }}>{f.name}</div>
-                              </div>
-                            </div>
-                            <button onClick={() => undoDeleteAttachment(pn, f.id)}
-                              style={{ position: "relative", zIndex: 2, padding: "8px 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #F59E0B, #D97706)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, boxShadow: "0 2px 8px rgba(245,158,11,0.3)" }}>↩ Undo</button>
-                          </div>
-                          );
-                        }
-                        return (
-                          <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "#0F172A", borderRadius: 8, border: "1px solid #334155" }}>
-                            {f.type.startsWith("image/") && f.url ? (
-                              <img src={f.url} alt="" style={{ width: 44, height: 44, borderRadius: 6, objectFit: "cover", flexShrink: 0, border: "1px solid #334155" }} />
-                            ) : (
-                              <div style={{ width: 44, height: 44, borderRadius: 6, background: getFileIcon(f.type, f.name).bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                                <span style={{ color: "#fff", fontSize: 11, fontWeight: 800, letterSpacing: 0.5 }}>{getFileIcon(f.type, f.name).label}</span>
-                              </div>
-                            )}
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <a href={f.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "#60A5FA", fontWeight: 600, textDecoration: "none", display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
-                                onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"} onMouseLeave={e => e.currentTarget.style.textDecoration = "none"}>{f.name}</a>
-                              <div style={{ fontSize: 11, color: "#6B7280" }}>{fmtSize(f.size)} · {f.uploaded_by} · {timeAgo}</div>
-                            </div>
-                            <button onClick={e => { e.stopPropagation(); setConfirmModal({ title: "Delete Attachment", message: `Delete "${f.name}"? You'll have 24 hours to undo.`, icon: "🗑", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => deleteAttachment(pn, f.id) }); }}
-                              style={{ background: "none", border: "1px solid #EF444444", color: "#EF4444", borderRadius: 6, padding: "4px 8px", fontSize: 10, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>✕</button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
+            {/* Attachments Tab */}
+            <AttachmentsTab ctx={ctx} />
 
             {/* Email Tab */}
             <EmailTab ctx={ctx} />
@@ -818,82 +573,12 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
             <MilestonesTab ctx={ctx} />
 
             {/* Notes Tab */}
-            {showNotes && (() => {
-              const isAdmin = user?.role === "admin";
-              return <div>
-              <div style={S.sectionLabel}>Notes</div>
-              {selectedNotes.length === 0 && <p style={{ color: "#6B7280", fontSize: 13 }}>No notes yet.</p>}
-              {selectedNotes.map(n => {
-                const canModify = isAdmin || n.user_name === user?.name;
-                const isEditing = editingNoteId === n.id;
-                return (
-                <div key={n.id} style={S.noteCard}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                    <span style={{ color: "#60A5FA", fontWeight: 700, fontSize: 14 }}>{n.user_name}</span>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ color: "#9CA3AF", fontSize: 12 }}>{fmtDate(n.created_at)} {new Date(n.created_at).toLocaleTimeString()}</span>
-                      {canModify && !isEditing && (
-                        <div style={{ display: "flex", gap: 4 }}>
-                          <button onClick={() => { setEditingNoteId(n.id); setEditingNoteText(n.note); }}
-                            style={{ background: "none", border: "none", color: "#6B7280", cursor: "pointer", fontSize: 12, padding: "2px 4px", fontFamily: "inherit" }}
-                            title="Edit">✏️</button>
-                          <button onClick={() => {
-                            setConfirmModal({
-                              title: "Delete Note",
-                              message: `Delete this note by ${n.user_name}?\n\n"${n.note.length > 100 ? n.note.slice(0, 100) + "…" : n.note}"`,
-                              icon: "🗑️",
-                              confirmText: "Delete",
-                              confirmColor: "#EF4444",
-                              onConfirm: () => deleteNote(n.id),
-                            });
-                          }}
-                            style={{ background: "none", border: "none", color: "#6B7280", cursor: "pointer", fontSize: 12, padding: "2px 4px", fontFamily: "inherit" }}
-                            title="Delete">🗑️</button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  {isEditing ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      <textarea style={{ ...S.textarea, fontSize: 14 }} rows={3} value={editingNoteText}
-                        onChange={e => setEditingNoteText(e.target.value)} />
-                      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                        <button style={S.btnSecondary} onClick={() => setEditingNoteId(null)}>Cancel</button>
-                        <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 16px" }}
-                          onClick={async () => { await editNote(n.id, editingNoteText); setEditingNoteId(null); }}>Save</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <p style={{ color: "#D1D5DB", fontSize: 15, margin: 0 }}>{n.note}</p>
-                  )}
-                </div>
-                );
-              })}
-              <div style={{ marginTop: 12, display: "flex", gap: 8, flexDirection: "column" }}>
-                <textarea style={S.textarea} rows={3} placeholder="Add a note..."
-                  value={newNote} onChange={e => setNewNote(e.target.value)} />
-                <button style={S.btnPrimary} onClick={addNote}>Add Note</button>
-              </div>
-            </div>;
-            })()}
+            {/* Notes Tab */}
+            <NotesTab ctx={ctx} />
 
             {/* History Tab */}
-            {showHistory && <div>
-              <div style={S.sectionLabel}>Change History</div>
-              {selectedHistory.length === 0 && <p style={{ color: "#6B7280", fontSize: 13 }}>No history recorded yet.</p>}
-              {selectedHistory.map(h => (
-                <div key={h.id} style={{ display: "flex", gap: 12, padding: "10px 14px", borderBottom: "1px solid #334155", alignItems: "flex-start" }}>
-                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#3B82F6", marginTop: 6, flexShrink: 0 }} />
-                  <div style={{ flex: 1 }}>
-                    <p style={{ color: "#D1D5DB", fontSize: 14, margin: 0 }}>{h.note}</p>
-                    <div style={{ display: "flex", gap: 12, marginTop: 4, fontSize: 11, color: "#6B7280" }}>
-                      <span>{h.user_name}</span>
-                      <span>{fmtDate(h.created_at)} {new Date(h.created_at).toLocaleTimeString()}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>}
+            {/* History Tab */}
+            <HistoryTab ctx={ctx} />
           </div>
         </div>
       </div>
