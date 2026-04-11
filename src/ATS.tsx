@@ -150,8 +150,8 @@ function ATSReport() {
   }, []);
 
   function mergeExcelDataSkus(data: ExcelData, fromSku: string, toSku: string): ExcelData {
-    const pos = data.pos.map(p => p.sku === fromSku ? { ...p, sku: toSku } : p);
-    const sos = data.sos.map(s => s.sku === fromSku ? { ...s, sku: toSku } : s);
+    const pos = (data.pos || []).map(p => p.sku === fromSku ? { ...p, sku: toSku } : p);
+    const sos = (data.sos || []).map(s => s.sku === fromSku ? { ...s, sku: toSku } : s);
     const fromEntry = data.skus.find(s => s.sku === fromSku);
     const toEntry   = data.skus.find(s => s.sku === toSku);
     let skus;
@@ -247,9 +247,9 @@ function ATSReport() {
 
   useEffect(() => {
     if (!summaryCtx) return;
-    const scrollEls = [window, tableRef.current].filter(Boolean);
-    scrollEls.forEach(el => el!.addEventListener("scroll", repositionSummaryCtx, { passive: true }));
-    return () => scrollEls.forEach(el => el!.removeEventListener("scroll", repositionSummaryCtx));
+    const scrollEls = [window, tableRef.current].filter(Boolean) as EventTarget[];
+    scrollEls.forEach(el => el.addEventListener("scroll", repositionSummaryCtx, { passive: true }));
+    return () => scrollEls.forEach(el => el.removeEventListener("scroll", repositionSummaryCtx));
   }, [summaryCtx, repositionSummaryCtx]);
 
   // ── Reposition popup + update arrow direction in DOM (no state re-render) ──
@@ -457,11 +457,12 @@ function ATSReport() {
 
   async function saveMergeHistory(history: Array<{ fromSku: string; toSku: string }>) {
     try {
-      await fetch(`${SB_URL}/rest/v1/app_data`, {
+      const res = await fetch(`${SB_URL}/rest/v1/app_data`, {
         method: "POST",
         headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
         body: JSON.stringify({ key: "ats_merge_history", value: JSON.stringify(history) }),
       });
+      if (!res.ok) console.warn("Merge history save failed:", res.status);
     } catch (e) {
       console.error("Failed to save merge history", e);
     }
@@ -552,7 +553,7 @@ function ATSReport() {
   }
 
   async function applyPOWIPData(data: ExcelData): Promise<ExcelData> {
-    const poRes = await fetch(`${SB_URL}/rest/v1/tanda_pos?select=data`, { headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` } });
+    const poRes = await fetch(`${SB_URL}/rest/v1/tanda_pos?select=data`, { headers: SB_HEADERS });
     if (!poRes.ok) return data;
     const poRows = await poRes.json();
     for (const row of poRows) {
@@ -711,11 +712,12 @@ function ATSReport() {
 
   async function saveNormResult(result: ExcelData) {
     try {
-      await fetch(`${SB_URL}/rest/v1/app_data`, {
+      const res = await fetch(`${SB_URL}/rest/v1/app_data`, {
         method: "POST",
         headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
         body: JSON.stringify({ key: "ats_excel_data", value: JSON.stringify(result) }),
       });
+      if (!res.ok) console.warn("Normalized data save failed:", res.status);
     } catch (e) { console.error("Failed to save normalized data:", e); }
   }
 
