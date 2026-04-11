@@ -150,30 +150,35 @@ function ATSReport() {
   }, []);
 
   function mergeExcelDataSkus(data: ExcelData, fromSku: string, toSku: string): ExcelData {
+    if (fromSku === toSku) return data;
     const pos = (data.pos || []).map(p => p.sku === fromSku ? { ...p, sku: toSku } : p);
     const sos = (data.sos || []).map(s => s.sku === fromSku ? { ...s, sku: toSku } : s);
-    const fromEntry = data.skus.find(s => s.sku === fromSku);
-    const toEntry   = data.skus.find(s => s.sku === toSku);
-    let skus;
-    if (fromEntry && toEntry) {
-      const totalOnHand = toEntry.onHand + fromEntry.onHand;
-      const merged = {
-        ...toEntry,
-        onHand:      totalOnHand,
-        onOrder:     (toEntry.onOrder     || 0) + (fromEntry.onOrder     || 0),
-        onCommitted: (toEntry.onCommitted || 0) + (fromEntry.onCommitted || 0),
-        totalAmount: (toEntry.totalAmount || 0) + (fromEntry.totalAmount || 0),
-        avgCost: totalOnHand > 0 && toEntry.avgCost != null && fromEntry.avgCost != null
-          ? (toEntry.avgCost * toEntry.onHand + fromEntry.avgCost * fromEntry.onHand) / totalOnHand
-          : (toEntry.avgCost ?? fromEntry.avgCost),
-      };
-      skus = data.skus.filter(s => s.sku !== fromSku && s.sku !== toSku).concat(merged);
-    } else if (fromEntry) {
-      skus = data.skus.map(s => s.sku === fromSku ? { ...s, sku: toSku } : s);
-    } else {
-      skus = data.skus.filter(s => s.sku !== fromSku);
+
+    // Collect ALL matching entries (handles duplicates across stores / stale rows)
+    const fromEntries = data.skus.filter(s => s.sku === fromSku);
+    const toEntries   = data.skus.filter(s => s.sku === toSku);
+    const others      = data.skus.filter(s => s.sku !== fromSku && s.sku !== toSku);
+
+    if (fromEntries.length === 0 && toEntries.length === 0) {
+      return { ...data, skus: others, pos, sos };
     }
-    return { ...data, skus, pos, sos };
+
+    const all = [...toEntries, ...fromEntries];
+    const base = toEntries[0] ?? fromEntries[0];
+    const totalOnHand = all.reduce((a, s) => a + (s.onHand || 0), 0);
+    const costSum = all.reduce((a, s) => a + ((s.avgCost ?? 0) * (s.onHand || 0)), 0);
+    const anyCost = all.some(s => s.avgCost != null);
+    const merged = {
+      ...base,
+      sku:         toSku,
+      onHand:      totalOnHand,
+      onOrder:     all.reduce((a, s) => a + (s.onOrder     || 0), 0),
+      onCommitted: all.reduce((a, s) => a + (s.onCommitted || 0), 0),
+      totalAmount: all.reduce((a, s) => a + (s.totalAmount || 0), 0),
+      avgCost: anyCost && totalOnHand > 0 ? costSum / totalOnHand : (base.avgCost ?? null),
+    };
+
+    return { ...data, skus: [...others, merged], pos, sos };
   }
 
   function commitMerge(fromSku: string, toSku: string) {
@@ -873,9 +878,11 @@ function ATSReport() {
     return skus;
   }, [customerFilter, excelData]);
 
+  const searchTokens = search.trim().toLowerCase().split(/\s+/).filter(t => t && t !== "-");
   const filtered = rows.filter(r => {
-    const s = search.toLowerCase();
-    const matchSearch = !s || r.sku.toLowerCase().includes(s) || r.description.toLowerCase().includes(s);
+    const sku = (r.sku ?? "").toLowerCase();
+    const desc = (r.description ?? "").toLowerCase();
+    const matchSearch = searchTokens.length === 0 || searchTokens.every(t => sku.includes(t) || desc.includes(t));
     const matchCat = filterCategory === "All" || r.category === filterCategory;
     const todayQty = r.dates[fmtDate(today)] ?? r.onHand;
     const matchStatus =
