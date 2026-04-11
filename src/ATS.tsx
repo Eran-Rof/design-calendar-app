@@ -7,6 +7,7 @@ import { computeRowsFromExcelData } from "./ats/compute";
 import { mergeExcelDataSkus, mergeRows, dedupeExcelData } from "./ats/merge";
 import { useMergeHistory } from "./ats/hooks/useMergeHistory";
 import { usePOWIPSync } from "./ats/hooks/usePOWIPSync";
+import { useRowFiltering } from "./ats/hooks/useRowFiltering";
 import { exportToExcel } from "./ats/exportExcel";
 import { normalizeExcelData, detectNormChanges, applyNormChanges, type NormChange } from "./ats/normalize";
 import S from "./ats/styles";
@@ -709,32 +710,13 @@ function ATSReport() {
   }, [soStores, soSkusByStore]);
 
   // Build customer SKU set for filtering
-  const customerSkuSet = useMemo(() => {
-    if (!customerFilter || !excelData) return null;
-    const skus = new Set<string>();
-    excelData.sos.forEach(s => { if (s.customerName === customerFilter) skus.add(s.sku); });
-    excelData.pos.forEach(p => { if (p.vendor === customerFilter) skus.add(p.sku); });
-    return skus;
-  }, [customerFilter, excelData]);
-
-  const searchTokens = search.trim().toLowerCase().split(/\s+/).filter(t => t && t !== "-");
-  const filtered = rows.filter(r => {
-    const sku = (r.sku ?? "").toLowerCase();
-    const desc = (r.description ?? "").toLowerCase();
-    const matchSearch = searchTokens.length === 0 || searchTokens.every(t => sku.includes(t) || desc.includes(t));
-    const matchCat = filterCategory === "All" || r.category === filterCategory;
-    const todayQty = r.dates[fmtDate(today)] ?? r.onHand;
-    const matchStatus =
-      filterStatus === "All" ? true :
-      filterStatus === "Out" ? todayQty <= 0 :
-      filterStatus === "Low" ? todayQty > 0 && todayQty <= 10 :
-      todayQty > 10;
-    const matchMin    = minATS === "" || todayQty >= minATS;
-    // Store filter
-    const matchStore = storeFilter.includes("All") || storeFilter.includes(r.store ?? "ROF");
-    // Customer filter
-    const matchCustomer = !customerSkuSet || customerSkuSet.has(r.sku);
-    return matchSearch && matchCat && matchStatus && matchMin && matchStore && matchCustomer;
+  // Filtered/sorted/paginated row chain lives in useRowFiltering.
+  const {
+    customerSkuSet, filtered, statFiltered, sortedFiltered, pageRows, totalPages, filteredSkuSet,
+  } = useRowFiltering({
+    rows, excelData, search, filterCategory, filterStatus, minATS, storeFilter,
+    customerFilter, activeSort, sortCol, sortDir, displayPeriods, today,
+    pageSize: PAGE_SIZE, page,
   });
 
   // ── Summary stats (all based on filtered rows) ─────────────────────────
@@ -745,8 +727,6 @@ function ATSReport() {
   const negATSCount  = filtered.filter(r => Object.values(r.dates).some(q => q < 0)).length;
   const totalSoQty   = filtered.reduce((s, r) => s + r.onCommitted, 0);
   const totalPoQty   = filtered.reduce((s, r) => s + r.onOrder, 0);
-
-  const filteredSkuSet = useMemo(() => new Set(filtered.map(r => r.sku)), [filtered]);
 
   const { totalSoValue, totalPoValue } = useMemo(() => {
     if (!excelData) return { totalSoValue: 0, totalPoValue: 0 };
@@ -790,38 +770,12 @@ function ATSReport() {
     return { marginDollars: margin, marginPct: margin / totalSoValue };
   }, [excelData, filteredSkuSet, totalSoValue, storeFilter]);
 
-  // ── Stat-card filter: show only rows matching the active stat in ANY column ─
-  const statFiltered = useMemo(() => {
-    if (!activeSort) return filtered;
-    if (activeSort === "negATS")    return filtered.filter(r => Object.values(r.dates).some(q => q < 0));
-    if (activeSort === "zeroStock") return filtered.filter(r => displayPeriods.some(p => { const q = r.dates[p.endDate]; return q != null && q <= 0; }));
-    if (activeSort === "lowStock")  return filtered.filter(r => displayPeriods.some(p => { const q = r.dates[p.endDate]; return q != null && q > 0 && q <= 10; }));
-    return filtered;
-  }, [activeSort, filtered, displayPeriods]);
-
-  // ── Sort by column header click ─────────────────────────────────────────
+  // Sort by column header click — the actual sort happens inside useRowFiltering.
   function handleThClick(col: string) {
     if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
     else { setSortCol(col); setSortDir("asc"); }
   }
 
-  const sortedFiltered = useMemo(() => {
-    if (!sortCol) return statFiltered;
-    return [...statFiltered].sort((a, b) => {
-      let av: string | number, bv: string | number;
-      if      (sortCol === "sku")         { av = a.sku;         bv = b.sku; }
-      else if (sortCol === "description") { av = a.description; bv = b.description; }
-      else if (sortCol === "onHand")      { av = a.onHand;      bv = b.onHand; }
-      else if (sortCol === "onOrder")     { av = a.onCommitted; bv = b.onCommitted; }
-      else if (sortCol === "onPO")        { av = a.onOrder;     bv = b.onOrder; }
-      else { av = a.dates[sortCol] ?? 0; bv = b.dates[sortCol] ?? 0; }
-      if (typeof av === "string") return sortDir === "asc" ? av.localeCompare(bv as string) : (bv as string).localeCompare(av);
-      return sortDir === "asc" ? (av as number) - (bv as number) : (bv as number) - (av as number);
-    });
-  }, [sortCol, sortDir, statFiltered]);
-
-  const totalPages = Math.ceil(sortedFiltered.length / PAGE_SIZE);
-  const pageRows   = sortedFiltered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   // Reset to page 0 whenever filters/search/sort change
   useEffect(() => { setPage(0); }, [search, filterCategory, filterStatus, minATS, poStores, soStores, rows, activeSort, sortCol, sortDir]);
 
