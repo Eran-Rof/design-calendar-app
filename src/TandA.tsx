@@ -2748,12 +2748,20 @@ function TandAApp() {
   // ════════════════════════════════════════════════════════════════════════════
   // SETTINGS MODAL
   // ════════════════════════════════════════════════════════════════════════════
+  const tplDirtyGlobal = tplLocalEdits !== null;
+  function closeSettingsGuarded() {
+    if (tplDirtyGlobal) {
+      setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes to the production template. Discard them?", icon: "⚠️", confirmText: "Discard", confirmColor: "#EF4444", cancelText: "Go Back", onConfirm: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setShowSettings(false); } });
+    } else {
+      setShowSettings(false);
+    }
+  }
   const SettingsModal = () => (
-    <div style={S.modalOverlay} onClick={() => setShowSettings(false)}>
+    <div style={S.modalOverlay} onClick={closeSettingsGuarded}>
       <div style={S.modal} onClick={e => e.stopPropagation()}>
         <div style={S.modalHeader}>
           <h2 style={S.modalTitle}>⚙️ Settings</h2>
-          <button style={S.closeBtn} onClick={() => setShowSettings(false)}>✕</button>
+          <button style={S.closeBtn} onClick={closeSettingsGuarded}>✕</button>
         </div>
         <div style={S.modalBody}>
           <h3 style={S.settingSection}>Xoro API Credentials</h3>
@@ -3458,7 +3466,14 @@ function TandAApp() {
                 {/* Vendor selector */}
                 <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 16 }}>
                   <span style={{ color: "#94A3B8", fontSize: 13 }}>Vendor:</span>
-                  <select style={{ ...S.select, flex: 1, maxWidth: 300 }} value={tplVendor} onChange={e => setTplVendor(e.target.value)}>
+                  <select style={{ ...S.select, flex: 1, maxWidth: 300 }} value={tplVendor} onChange={e => {
+                    const newVendor = e.target.value;
+                    if (tplDirty) {
+                      setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes. Discard them and switch vendor?", icon: "⚠️", confirmText: "Discard & Switch", confirmColor: "#EF4444", cancelText: "Go Back", onConfirm: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setTplVendor(newVendor); } });
+                    } else {
+                      setTplVendor(newVendor);
+                    }
+                  }}>
                     <option value="__default__">Default Template</option>
                     {vendorKeys.map(v => <option key={v} value={v}>{v}</option>)}
                   </select>
