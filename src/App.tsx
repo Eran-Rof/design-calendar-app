@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, Fragment } from "react";
+import { useState, useRef, useEffect, Fragment } from "react";
 import { useIdleLogout } from "./hooks/useIdleLogout";
 import { useAppStore } from "./store";
 import { sbLoad as sbLoadSvc, sbSaveTask as sbSaveTaskSvc, sbLoadTasks as sbLoadTasksSvc, sbLoadCollections as sbLoadCollectionsSvc } from "./store/supabaseService";
@@ -40,6 +40,7 @@ import GenderManager from "./components/GenderManager";
 import { type DCState } from "./dc/state/dcTypes";
 import type { DCState } from "./dc/state/dcTypes";
 import { DashboardPanel } from "./dc/dashboardPanel";
+import TaskCard from "./components/TaskCard";
 import { TimelinePanel } from "./dc/timelinePanel";
 import { CalendarPanel } from "./dc/calendarPanel";
 
@@ -289,69 +290,7 @@ function App() {
 
 
 
-  // TaskCard hooks — MUST be before early returns to keep hook order stable.
-  // The component body reads all mutable App-scope values via taskCardCtxRef,
-  // which is assigned after early returns but the ref object itself is stable.
-  const taskCardCtxRef = useRef<any>({});
-  const TaskCard = useCallback(function TaskCardStable({ task, showDayDate }: { task: any; showDayDate?: boolean }) {
-    const ctx = taskCardCtxRef.current;
-    const getBrandSafe = ctx.getBrand || (() => null);
-    const brand = getBrandSafe(task.brand) || { id: "unknown", name: "Unknown", color: "#6B7280", short: "?" };
-    const days = getDaysUntil(task.due);
-    const sc = STATUS_CONFIG[task.status] || STATUS_CONFIG["Not Started"];
-    const isOver = days < 0 && task.status !== "Complete";
-    const assignee = (ctx.team || []).find((m: any) => m.id === task.assigneeId) || null;
-    const DAYS_OF_WEEK_L = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-    const dueDate = parseLocalDate(task.due);
-    const dayOfWeek = DAYS_OF_WEEK_L[dueDate.getDay()];
-    const formattedDue = formatDate(task.due);
-    return (
-      <div
-        draggable
-        onDragStart={() => ctx.setDragId?.(task.id)}
-        onDragOver={(e: any) => { e.preventDefault(); ctx.setDragOverId?.(task.id); }}
-        onDrop={() => ctx.handleDrop?.(task.id)}
-        onDragEnd={() => { ctx.setDragId?.(null); ctx.setDragOverId?.(null); }}
-        onClick={(e: any) => { e.stopPropagation(); ctx.setEditTask?.(task); }}
-        style={{
-          background: ctx.dragOverId === task.id ? TH.surfaceHi : TH.surface,
-          border: `1px solid ${ctx.dragOverId === task.id ? brand.color + "88" : TH.border}`,
-          borderLeft: `3px solid ${brand.color}`,
-          borderRadius: 9, padding: "12px 14px", cursor: "pointer",
-          transition: "all 0.15s", opacity: ctx.dragId === task.id ? 0.4 : 1,
-          boxShadow: `0 1px 4px ${TH.shadow}`,
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: TH.text }}>{task.phase}</span>
-          <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: sc.bg, color: sc.color, fontWeight: 600 }}>{task.status}</span>
-        </div>
-        <div style={{ fontSize: 11, color: TH.textMuted, marginBottom: 2 }}>{task.collection}</div>
-        <div style={{ fontSize: 11, color: TH.textSub2, marginBottom: 6 }}>{task.category}{task.vendorName ? ` · ${task.vendorName}` : ""}</div>
-        {task.customer && <div style={{ fontSize: 11, color: TH.primary, fontWeight: 600, marginBottom: 5 }}>{task.customer}{task.orderType ? ` · ${task.orderType}` : ""}</div>}
-        {showDayDate && (
-          <div style={{ display: "flex", flexDirection: "column" as const, gap: 2, marginBottom: 6, padding: "6px 10px", background: isOver ? "#FEF2F2" : days === 0 ? "#FFFBEB" : "#F0FDF4", borderRadius: 7, border: `1px solid ${isOver ? "#FCA5A5" : days === 0 ? "#FCD34D" : "#BBF7D0"}` }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 10, fontWeight: 600, color: TH.textMuted, textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>Due</span>
-              <span style={{ fontSize: 10, fontWeight: 700, color: isOver ? "#B91C1C" : days === 0 ? "#B45309" : "#065F46" }}>{isOver ? `${Math.abs(days)}d overdue` : days === 0 ? "Today" : `In ${days}d`}</span>
-            </div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: isOver ? "#B91C1C" : TH.text }}>{dayOfWeek}, {formattedDue}</div>
-          </div>
-        )}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 11, color: brand.color, fontWeight: 700 }}>{brand.short}</span>
-            {assignee && <><Avatar member={assignee} size={18} /><span style={{ fontSize: 10, color: TH.textMuted }}>{assignee.name.split(" ")[0]}</span></>}
-          </div>
-          <span style={{ fontSize: 11, fontWeight: 600, color: isOver ? "#B91C1C" : days <= 7 ? "#B45309" : "#047857" }}>{isOver ? `${Math.abs(days)}d over` : days === 0 ? "Today" : `${days}d`}</span>
-        </div>
-        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-          <button onClick={(e: any) => { e.stopPropagation(); ctx.setEditTask?.(task); }} style={{ flex: 1, padding: "5px 0", fontSize: 11, fontWeight: 600, color: TH.textSub, background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>View Card</button>
-          <button onClick={(e: any) => { e.stopPropagation(); ctx.setTimelineBackFilter?.(ctx.statFilter); ctx.setFocusCollKey?.(`${task.brand}||${task.collection}`); ctx.setView?.("timeline"); ctx.setStatFilter?.(null); }} style={{ flex: 1, padding: "5px 0", fontSize: 11, fontWeight: 600, color: TH.primary, background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>View Timeline →</button>
-        </div>
-      </div>
-    );
-  }, []);
+  // TaskCard extracted to src/components/TaskCard.tsx — reads from Zustand store directly
 
   if (!dbxLoaded)
     return (
@@ -490,7 +429,6 @@ function App() {
   );
 
 
-  taskCardCtxRef.current = { getBrand, team, setDragId, setDragOverId, dragOverId, dragId, handleDrop: useAppStore.getState().handleDrop, setEditTask, statFilter, setFocusCollKey, setView, setStatFilter, setTimelineBackFilter };
 
 
   const dashboardCtx = { TaskCard };
