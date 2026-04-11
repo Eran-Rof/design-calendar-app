@@ -10,6 +10,7 @@
  *   setView("view", "timeline");
  */
 import { create } from "zustand";
+import { sbSave, sbLoad, sbSaveTask, sbDeleteTask, sbLoadTasks, sbSaveCollection, sbLoadCollections } from "./supabaseService";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -76,9 +77,31 @@ export interface UIState {
   dbxLoaded: boolean;
 }
 
+export interface DataState {
+  // Reference data (persisted to Supabase key-value store)
+  users: any[];
+  currentUser: any;
+  brands: any[];
+  seasons: any[];
+  customers: any[];
+  vendors: any[];
+  team: any[];
+  tasks: any[];
+  collections: Record<string, any>;
+  sizeLibrary: any[];
+  categoryLib: any[];
+  orderTypes: any[];
+  roles: any[];
+  genders: any[];
+  genderSizes: Record<string, any>;
+  taskTemplates: any[];
+  // Internal
+  _hydrating: boolean;
+}
+
 export interface UIActions {
   /** Generic field setter — replaces dcReducer's SET action */
-  setField: <K extends keyof UIState>(field: K, value: UIState[K]) => void;
+  setField: <K extends keyof (UIState & DataState)>(field: K, value: (UIState & DataState)[K]) => void;
   /** Close all modals at once */
   closeAllModals: () => void;
   /** Push an undo entry */
@@ -87,11 +110,24 @@ export interface UIActions {
   popUndo: () => void;
 }
 
-export type AppStore = UIState & UIActions;
+export interface DataActions {
+  // Persisted reference data setters (auto-save unless _hydrating)
+  setRefData: (key: string, field: keyof DataState, value: any) => void;
+  // Tasks with diff-and-persist
+  setTasks: (updater: any[] | ((prev: any[]) => any[])) => void;
+  setTasksRaw: (tasks: any[]) => void; // skip persistence (for hydration/realtime)
+  // Collections with diff-and-persist
+  setCollections: (updater: Record<string, any> | ((prev: Record<string, any>) => Record<string, any>)) => void;
+  setCollectionsRaw: (collections: Record<string, any>) => void;
+  // Hydrate all data from Supabase
+  loadAll: () => Promise<void>;
+}
+
+export type AppStore = UIState & DataState & UIActions & DataActions;
 
 // ── Store ──────────────────────────────────────────────────────────────────
 
-export const useAppStore = create<AppStore>()((set) => ({
+export const useAppStore = create<AppStore>()((set, get) => ({
   // ── Initial UI state ──
   view: "dashboard",
   listView: false,
@@ -141,7 +177,26 @@ export const useAppStore = create<AppStore>()((set) => ({
   saveErr: "",
   dbxLoaded: false,
 
-  // ── Actions ──
+  // ── Initial data state ──
+  users: [],
+  currentUser: (() => { try { const p = sessionStorage.getItem("plm_user"); return p ? JSON.parse(p) : null; } catch { return null; } })(),
+  brands: [],
+  seasons: [],
+  customers: [],
+  vendors: [],
+  team: [],
+  tasks: [],
+  collections: {},
+  sizeLibrary: [],
+  categoryLib: [],
+  orderTypes: [],
+  roles: [],
+  genders: [],
+  genderSizes: {},
+  taskTemplates: [],
+  _hydrating: false,
+
+  // ── UI Actions ──
   setField: (field, value) => set({ [field]: value } as any),
 
   closeAllModals: () => set({
@@ -160,4 +215,90 @@ export const useAppStore = create<AppStore>()((set) => ({
   popUndo: () => set((s) => ({
     undoStack: s.undoStack.slice(1),
   })),
+
+  // ── Data Actions ──
+  setRefData: (key, field, value) => {
+    set({ [field]: value } as any);
+    if (!get()._hydrating) sbSave(key, value).catch(e => console.error("[Store] save error:", key, e));
+  },
+
+  setTasks: (updater) => {
+    const prev = get().tasks;
+    const next = typeof updater === "function" ? updater(prev) : updater;
+    set({ tasks: next });
+    // Diff and persist
+    if (!get()._hydrating && Array.isArray(next) && Array.isArray(prev)) {
+      const userName = get().currentUser?.name || "";
+      next.forEach(t => {
+        const old = prev.find((p: any) => p.id === t.id);
+        if (!old || JSON.stringify(old) !== JSON.stringify(t)) {
+          sbSaveTask(t, userName).catch(e => console.error("[Store] save task:", e));
+        }
+      });
+      prev.forEach(t => {
+        if (!next.find((n: any) => n.id === t.id)) {
+          sbDeleteTask(t.id).catch(e => console.error("[Store] delete task:", e));
+        }
+      });
+    }
+  },
+
+  setTasksRaw: (tasks) => set({ tasks }),
+
+  setCollections: (updater) => {
+    const prev = get().collections;
+    const next = typeof updater === "function" ? updater(prev) : updater;
+    set({ collections: next });
+    if (!get()._hydrating) {
+      const userName = get().currentUser?.name || "";
+      Object.entries(next).forEach(([key, val]) => {
+        if (JSON.stringify(prev[key] || {}) !== JSON.stringify(val)) {
+          sbSaveCollection(key, val, userName).catch(e => console.error("[Store] save collection:", e));
+        }
+      });
+    }
+  },
+
+  setCollectionsRaw: (collections) => set({ collections }),
+
+  loadAll: async () => {
+    set({ _hydrating: true });
+    console.log("[SB] loadAll starting...");
+    try {
+      const [
+        users, brands, seasons, customers, vendors, team,
+        sizes, categories, orderTypes, rolesData, taskTemplatesData,
+        gendersData, genderSizesData,
+        tasks, collections,
+      ] = await Promise.all([
+        sbLoad("users"), sbLoad("brands"), sbLoad("seasons"),
+        sbLoad("customers"), sbLoad("vendors"), sbLoad("team"),
+        sbLoad("size_library"), sbLoad("categories"), sbLoad("order_types"),
+        sbLoad("roles"), sbLoad("task_templates"),
+        sbLoad("genders"), sbLoad("gender_sizes"),
+        sbLoadTasks(), sbLoadCollections(),
+      ]);
+      set({
+        ...(users ? { users } : {}),
+        ...(brands ? { brands } : {}),
+        ...(seasons ? { seasons } : {}),
+        ...(customers ? { customers } : {}),
+        ...(vendors ? { vendors } : {}),
+        ...(team ? { team } : {}),
+        ...(sizes ? { sizeLibrary: sizes } : {}),
+        ...(categories ? { categoryLib: categories } : {}),
+        ...(orderTypes ? { orderTypes } : {}),
+        ...(rolesData ? { roles: rolesData } : {}),
+        ...(taskTemplatesData ? { taskTemplates: taskTemplatesData } : {}),
+        ...(gendersData ? { genders: gendersData } : {}),
+        ...(genderSizesData ? { genderSizes: genderSizesData } : {}),
+        ...(tasks?.length ? { tasks } : {}),
+        ...(collections && Object.keys(collections).length ? { collections } : {}),
+      });
+      console.log("[SB] loadAll complete");
+    } catch (e) {
+      console.error("[SB] loadAll error:", e);
+    }
+    set({ _hydrating: false, dbxLoaded: true });
+  },
 }));

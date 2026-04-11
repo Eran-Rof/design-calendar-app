@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, Fragment } from "react";
 import { useIdleLogout } from "./hooks/useIdleLogout";
+import { useAppStore } from "./store";
 import React from "react";
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
@@ -195,56 +196,27 @@ function App() {
   const dbxLoaded = dc.dbxLoaded;
   const setDbxLoaded = (v: boolean) => dcSet("dbxLoaded", v);
 
-  // usePersistSb defined outside App component below
-
-  const [users, setUsers] = usePersistSb([], "users", sbSave);
-  const [currentUser, setCurrentUser] = useState(() => {
-    // Read PLM session synchronously so there's never a login-screen flash
-    try {
-      const plmUser = sessionStorage.getItem("plm_user");
-      return plmUser ? JSON.parse(plmUser) : null;
-    } catch { return null; }
-  });
-  const [brands, setBrands] = usePersistSb([], "brands", sbSave);
-  const [seasons, setSeasons] = usePersistSb([], "seasons", sbSave);
-  const [customers, setCustomers] = usePersistSb([], "customers", sbSave);
-  const [vendors, setVendors] = usePersistSb([], "vendors", sbSave);
-  const [team, setTeam] = usePersistSb([], "team", sbSave);
-  const [tasks, _setTasksRaw] = useState([]);
-  const setTasks = (updater) => {
-    _setTasksRaw((prev) => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      // Save all changed/new tasks to Supabase individually
-      if (Array.isArray(next) && Array.isArray(prev)) {
-        next.forEach(t => {
-          const old = prev.find(p => p.id === t.id);
-          if (!old || JSON.stringify(old) !== JSON.stringify(t)) {
-            sbSaveTask(t);
-          }
-        });
-        // Delete removed tasks
-        prev.forEach(t => {
-          if (!next.find(n => n.id === t.id)) sbDeleteTask(t.id);
-        });
-      }
-      return next;
-    });
-  };
-  const [collections, _setCollRaw] = useState({});
-  const setCollections = (updater) => {
-    _setCollRaw((prev) => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      // Save each new/changed collection to Supabase
-      Object.entries(next).forEach(([key, val]) => {
-        const prevStr = JSON.stringify(prev[key] || {});
-        const nextStr = JSON.stringify(val);
-        if (prevStr !== nextStr) {
-          sbSaveCollection(key, val);
-        }
-      });
-      return next;
-    });
-  };
+  // ── Data state — backed by Zustand store ─────────────────────────────────
+  const users = useAppStore(s => s.users);
+  const setUsers = (v: any, skip = false) => { if (skip) useAppStore.setState({ users: typeof v === "function" ? v(useAppStore.getState().users) : v }); else useAppStore.getState().setRefData("users", "users", typeof v === "function" ? v(useAppStore.getState().users) : v); };
+  const currentUser = useAppStore(s => s.currentUser);
+  const setCurrentUser = (v: any) => useAppStore.setState({ currentUser: v });
+  const brands = useAppStore(s => s.brands);
+  const setBrands = (v: any, skip = false) => { if (skip) useAppStore.setState({ brands: typeof v === "function" ? v(useAppStore.getState().brands) : v }); else useAppStore.getState().setRefData("brands", "brands", typeof v === "function" ? v(useAppStore.getState().brands) : v); };
+  const seasons = useAppStore(s => s.seasons);
+  const setSeasons = (v: any, skip = false) => { if (skip) useAppStore.setState({ seasons: typeof v === "function" ? v(useAppStore.getState().seasons) : v }); else useAppStore.getState().setRefData("seasons", "seasons", typeof v === "function" ? v(useAppStore.getState().seasons) : v); };
+  const customers = useAppStore(s => s.customers);
+  const setCustomers = (v: any, skip = false) => { if (skip) useAppStore.setState({ customers: typeof v === "function" ? v(useAppStore.getState().customers) : v }); else useAppStore.getState().setRefData("customers", "customers", typeof v === "function" ? v(useAppStore.getState().customers) : v); };
+  const vendors = useAppStore(s => s.vendors);
+  const setVendors = (v: any, skip = false) => { if (skip) useAppStore.setState({ vendors: typeof v === "function" ? v(useAppStore.getState().vendors) : v }); else useAppStore.getState().setRefData("vendors", "vendors", typeof v === "function" ? v(useAppStore.getState().vendors) : v); };
+  const team = useAppStore(s => s.team);
+  const setTeam = (v: any, skip = false) => { if (skip) useAppStore.setState({ team: typeof v === "function" ? v(useAppStore.getState().team) : v }); else useAppStore.getState().setRefData("team", "team", typeof v === "function" ? v(useAppStore.getState().team) : v); };
+  const tasks = useAppStore(s => s.tasks);
+  const setTasks = useAppStore.getState().setTasks;
+  const _setTasksRaw = useAppStore.getState().setTasksRaw;
+  const collections = useAppStore(s => s.collections);
+  const setCollections = useAppStore.getState().setCollections;
+  const _setCollRaw = useAppStore.getState().setCollectionsRaw;
   // ── View/UI state → useDCState() + useDCDispatch() (see dc/state/) ──
   const view = dc.view;
   const listView = dc.listView;
@@ -282,8 +254,10 @@ function App() {
   const setShowUsers = (v: boolean) => dcSet("showUsers", v);
   const setShowSizeLib = (v: boolean) => dcSet("showSizeLib", v);
   const setShowCatLib = (v: boolean) => dcSet("showCatLib", v);
-  const [sizeLibrary, setSizeLibrary] = usePersistSb([], "size_library", sbSave);
-  const [categoryLib, setCategoryLib] = usePersistSb([], "categories", sbSave);
+  const sizeLibrary = useAppStore(s => s.sizeLibrary);
+  const setSizeLibrary = (v: any, skip = false) => { if (skip) useAppStore.setState({ sizeLibrary: typeof v === "function" ? v(useAppStore.getState().sizeLibrary) : v }); else useAppStore.getState().setRefData("size_library", "sizeLibrary", typeof v === "function" ? v(useAppStore.getState().sizeLibrary) : v); };
+  const categoryLib = useAppStore(s => s.categoryLib);
+  const setCategoryLib = (v: any, skip = false) => { if (skip) useAppStore.setState({ categoryLib: typeof v === "function" ? v(useAppStore.getState().categoryLib) : v }); else useAppStore.getState().setRefData("categories", "categoryLib", typeof v === "function" ? v(useAppStore.getState().categoryLib) : v); };
   const editTask = dc.editTask;
   const dragId = dc.dragId;
   const dragOverId = dc.dragOverId;
@@ -314,11 +288,16 @@ function App() {
   const setShowGenders = (v: boolean) => dcSet("showGenders", v);
   const setShowActivity = (v: boolean) => dcSet("showActivity", v);
   const setShowTaskManager = (v: boolean) => dcSet("showTaskManager", v);
-  const [orderTypes, setOrderTypes] = usePersistSb([], "order_types", sbSave);
-  const [roles, setRoles] = usePersistSb([], "roles", sbSave);
-  const [genders, setGenders] = usePersistSb(GENDERS, "genders", sbSave);
-  const [genderSizes, setGenderSizes] = usePersistSb({}, "gender_sizes", sbSave);
-  const [taskTemplates, setTaskTemplates] = usePersistSb([], "task_templates", sbSave);
+  const orderTypes = useAppStore(s => s.orderTypes);
+  const setOrderTypes = (v: any, skip = false) => { if (skip) useAppStore.setState({ orderTypes: typeof v === "function" ? v(useAppStore.getState().orderTypes) : v }); else useAppStore.getState().setRefData("order_types", "orderTypes", typeof v === "function" ? v(useAppStore.getState().orderTypes) : v); };
+  const roles = useAppStore(s => s.roles);
+  const setRoles = (v: any, skip = false) => { if (skip) useAppStore.setState({ roles: typeof v === "function" ? v(useAppStore.getState().roles) : v }); else useAppStore.getState().setRefData("roles", "roles", typeof v === "function" ? v(useAppStore.getState().roles) : v); };
+  const genders = useAppStore(s => s.genders);
+  const setGenders = (v: any, skip = false) => { if (skip) useAppStore.setState({ genders: typeof v === "function" ? v(useAppStore.getState().genders) : v }); else useAppStore.getState().setRefData("genders", "genders", typeof v === "function" ? v(useAppStore.getState().genders) : v); };
+  const genderSizes = useAppStore(s => s.genderSizes);
+  const setGenderSizes = (v: any, skip = false) => { if (skip) useAppStore.setState({ genderSizes: typeof v === "function" ? v(useAppStore.getState().genderSizes) : v }); else useAppStore.getState().setRefData("gender_sizes", "genderSizes", typeof v === "function" ? v(useAppStore.getState().genderSizes) : v); };
+  const taskTemplates = useAppStore(s => s.taskTemplates);
+  const setTaskTemplates = (v: any, skip = false) => { if (skip) useAppStore.setState({ taskTemplates: typeof v === "function" ? v(useAppStore.getState().taskTemplates) : v }); else useAppStore.getState().setRefData("task_templates", "taskTemplates", typeof v === "function" ? v(useAppStore.getState().taskTemplates) : v); };
   // ─── Undo stack (up to 4 entries) ───────────────────────────────────────────
   const undoStack = dc.undoStack;
   const undoConfirm = dc.undoConfirm;
@@ -361,53 +340,7 @@ function App() {
   const getBrand = getBrandDyn;
 
   // ── Load all data from Supabase on startup ───────────────────────────────
-  useEffect(() => {
-    async function loadAll() {
-      console.log("[SB] loadAll starting...");
-      try {
-        // Load reference data from key-value store + tasks/collections from individual rows
-        const [
-          users, brands, seasons, customers, vendors, team,
-          sizes, categories, orderTypes, rolesData, taskTemplatesData,
-          tasks, collections
-        ] = await Promise.all([
-          sbLoad("users"),
-          sbLoad("brands"),
-          sbLoad("seasons"),
-          sbLoad("customers"),
-          sbLoad("vendors"),
-          sbLoad("team"),
-          sbLoad("size_library"),
-          sbLoad("categories"),
-          sbLoad("order_types"),
-          sbLoad("roles"),
-          sbLoad("task_templates"),
-          sbLoadTasks(),
-          sbLoadCollections(),
-        ]);
-
-        if (users) setUsers(users, true);
-        if (brands) setBrands(brands, true);
-        if (seasons) setSeasons(seasons, true);
-        if (customers) setCustomers(customers, true);
-        if (vendors) setVendors(vendors, true);
-        if (team) setTeam(team, true);
-        if (sizes) setSizeLibrary(sizes, true);
-        if (categories) setCategoryLib(categories, true);
-        if (orderTypes) setOrderTypes(orderTypes, true);
-        if (rolesData) setRoles(rolesData, true);
-        if (taskTemplatesData) setTaskTemplates(taskTemplatesData, true);
-        if (tasks?.length) _setTasksRaw(tasks);
-        if (collections && Object.keys(collections).length) _setCollRaw(collections);
-
-        console.log("[SB] loadAll complete");
-      } catch(e) {
-        console.error("[SB] loadAll error:", e);
-      }
-      setDbxLoaded(true);
-    }
-    loadAll();
-  }, []);
+  useEffect(() => { useAppStore.getState().loadAll(); }, []);
 
   // ── Realtime sync — Supabase websocket subscriptions for multi-user updates ──
   useEffect(() => {

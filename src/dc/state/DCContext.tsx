@@ -40,11 +40,8 @@ export function DCProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Read UI state — now backed by Zustand */
+/** Read state — now backed by Zustand (UI + Data) */
 export function useDCState(): DCState {
-  // Subscribe to the entire Zustand store and return it as DCState.
-  // Components that use this will re-render on any store change (same
-  // as the old useReducer behavior). Fine for the bridge period.
   return useAppStore() as unknown as DCState;
 }
 
