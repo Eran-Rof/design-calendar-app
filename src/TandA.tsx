@@ -3437,6 +3437,7 @@ function TandAApp() {
             const prev = activeTplUndo[activeTplUndo.length - 1];
             setTplUndoStack(s => s.slice(0, -1));
             setTplLocalEdits({ vendor: tplVendor, edits: prev });
+            setTplMovedIds(new Set());
           }
           function tplSave() {
             saveVendorTemplates(tplVendor, localTpl);
