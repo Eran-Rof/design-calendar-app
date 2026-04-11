@@ -74,7 +74,7 @@ export function exportToExcel(rows: ATSRow[], periods: Array<{ endDate: string; 
 
   // ── Build worksheet ─────────────────────────────────────────────────────
   const aoa = [headerRow, ...dataRows];
-  const ws  = XLSXStyle.utils.aoa_to_sheet(aoa, { skipHeader: true });
+  const ws  = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
 
   // Column widths
   ws["!cols"] = [

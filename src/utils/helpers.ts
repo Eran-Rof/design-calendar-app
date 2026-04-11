@@ -142,8 +142,8 @@ export function generateTasks({
     phases.splice(
       bulkIdx,
       0,
-      { name: "Line Review", daysBack: bulkDays + 42, status: "Not Started", notes: "" },
-      { name: "Compliance/Testing", daysBack: bulkDays + 21, status: "Not Started", notes: "" }
+      { name: "Line Review", daysBack: bulkDays + 42, status: "Not Started", notes: "", templateId: null },
+      { name: "Compliance/Testing", daysBack: bulkDays + 21, status: "Not Started", notes: "", templateId: null }
     );
   }
 

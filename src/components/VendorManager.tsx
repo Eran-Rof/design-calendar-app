@@ -29,7 +29,7 @@ export const DEFAULT_WIP_TEMPLATES_DC = [
   { id: "wip_inhouse",   phase: "In House / DDP",            category: "Transit",        daysBeforeDDP: 0   },
 ];
 
-function VendorForm({ vendor, onSave, onCancel, taskTemplates, isEdit = false }) {
+function VendorForm({ vendor = null, onSave, onCancel, taskTemplates, isEdit = false }: { vendor?: any; onSave: any; onCancel: any; taskTemplates: any; isEdit?: boolean }) {
   const templates = (taskTemplates && taskTemplates.length > 0) ? taskTemplates : DEFAULT_TASK_TEMPLATES;
   const [f, setF] = useState(
     vendor || {
@@ -574,7 +574,7 @@ function VendorManager({ vendors, setVendors, isAdmin = false, taskTemplates }) 
               onChange={handleFile}
             />
             <button
-              onClick={() => fileRef.current.click()}
+              onClick={() => fileRef.current?.click()}
               style={{
                 padding: "8px 16px",
                 borderRadius: 8,

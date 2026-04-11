@@ -991,7 +991,7 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
                               {(!MS_CLIENT_ID || !MS_TENANT_ID) ? (
                                 <div style={{ color: "#D97706", fontSize: 12 }}>Azure credentials not configured</div>
                               ) : (
-                                <button onClick={authenticateTeams} style={{ ...S.btnPrimary, width: "auto", fontSize: 12, padding: "8px 18px" }}>Sign in with Microsoft</button>
+                                <button onClick={authenticateEmail} style={{ ...S.btnPrimary, width: "auto", fontSize: 12, padding: "8px 18px" }}>Sign in with Microsoft</button>
                               )}
                             </div>
                           ) : (
@@ -1593,7 +1593,7 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
                                 sortOrder = allCatMs.length > 0 ? allCatMs[allCatMs.length - 1].sort_order + 100 : 0;
                               }
 
-                              const newM: Milestone = { id: milestoneUid(), po_number: poNum, phase: newPhaseForm.name.trim(), category: newPhaseForm.category, sort_order: sortOrder, days_before_ddp: 0, expected_date: autoDueDate || null, actual_date: null, status: "Not Started", status_date: null, status_dates: null, notes: "", note_entries: null, updated_at: new Date().toISOString(), updated_by: user?.name || "" };
+                              const newM: Milestone = { id: milestoneUid(), po_number: poNum, phase: newPhaseForm.name.trim(), category: newPhaseForm.category, sort_order: sortOrder, days_before_ddp: 0, expected_date: autoDueDate || null, actual_date: null, status: "Not Started", status_date: null, status_dates: null, notes: "", note_entries: null, updated_at: new Date().toISOString(), updated_by: user?.name || "", variant_statuses: null };
                               saveMilestone(newM, true);
                               addHistory(poNum, `Custom phase added: "${newPhaseForm.name.trim()}" in ${newPhaseForm.category}${insertRef}`);
                               setNewPhaseForm({ name: "", category: "Pre-Production", dueDate: "", afterPhase: "" });

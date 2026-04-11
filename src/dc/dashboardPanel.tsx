@@ -11,7 +11,7 @@ export type DashboardCtx = { TaskCard: any };
 // Proper React component backed by Zustand store
 function DashboardPanelInner({ TaskCard }: DashboardCtx): React.ReactElement | null {
   const s = useAppStore();
-  const { tasks, collections, view, listView, expandedColl, focusCollKey, statFilter, dragId, miniCalDragOver, team, pendingDeleteColl, brands, seasons, currentUser, showAddTask, editCollKey, globalLog, timelineBackFilter } = s;
+  const { tasks, collections, view, listView, expandedColl, focusCollKey, statFilter, dragId, miniCalDragOver, team, pendingDeleteColl, brands, seasons, currentUser, showAddTask, editCollKey, globalLog, timelineBackFilter, ctxMenu } = s;
   const setView = (v: any) => s.setField("view", v);
   const setExpandedColl = (v: any) => s.setField("expandedColl", v);
   const setFocusCollKey = (v: any) => s.setField("focusCollKey", v);
