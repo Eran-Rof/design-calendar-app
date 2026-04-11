@@ -128,11 +128,34 @@ export const GridTable: React.FC<GridTableProps> = ({
               <tr
                 key={`${row.sku}::${row.store ?? "ROF"}`}
                 draggable
-                onDragStart={e => { setDragSku(row.sku); e.dataTransfer.effectAllowed = "move"; }}
+                onDragStart={e => {
+                  // Carry the source sku on the event itself so the drop
+                  // handler is independent of React state flush timing.
+                  // This fixes the intermittent "row 2 → row 1 doesn't
+                  // merge" case where the drop handler's closure ran before
+                  // dragSku state had propagated.
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("application/x-ats-sku", row.sku);
+                  setDragSku(row.sku);
+                }}
                 onDragEnd={() => { setDragSku(null); setDragOverSku(null); }}
-                onDragOver={e => { e.preventDefault(); if (dragSku && dragSku !== row.sku) setDragOverSku(row.sku); }}
+                onDragOver={e => {
+                  e.preventDefault();
+                  if (dragSku && dragSku !== row.sku && dragOverSku !== row.sku) {
+                    setDragOverSku(row.sku);
+                  }
+                }}
                 onDragLeave={() => setDragOverSku(null)}
-                onDrop={e => { e.preventDefault(); if (dragSku && dragSku !== row.sku) { handleSkuDrop(dragSku, row.sku); setDragSku(null); setDragOverSku(null); } }}
+                onDrop={e => {
+                  e.preventDefault();
+                  // Prefer the dataTransfer payload; fall back to React state.
+                  const fromSku = e.dataTransfer.getData("application/x-ats-sku") || dragSku || "";
+                  if (fromSku && fromSku !== row.sku) {
+                    handleSkuDrop(fromSku, row.sku);
+                  }
+                  setDragSku(null);
+                  setDragOverSku(null);
+                }}
                 style={{
                   background: isDropTarget ? "#1e3a2a" : isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827",
                   opacity: isDragging ? 0.45 : 1,
