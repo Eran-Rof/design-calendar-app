@@ -8,6 +8,7 @@ import { mergeExcelDataSkus, mergeRows, dedupeExcelData } from "./ats/merge";
 import { useMergeHistory } from "./ats/hooks/useMergeHistory";
 import { usePOWIPSync } from "./ats/hooks/usePOWIPSync";
 import { useRowFiltering } from "./ats/hooks/useRowFiltering";
+import { useExcelUpload } from "./ats/hooks/useExcelUpload";
 import { exportToExcel } from "./ats/exportExcel";
 import { normalizeExcelData, detectNormChanges, applyNormChanges, type NormChange } from "./ats/normalize";
 import S from "./ats/styles";
@@ -103,8 +104,6 @@ function ATSReport() {
   const ordRef = useRef<HTMLInputElement>(null);
   const ctxRef = useRef<HTMLDivElement>(null);
   const summaryCtxRef = useRef<HTMLDivElement>(null);
-  const cancelRef = useRef(false);
-  const abortRef = useRef<AbortController | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
 
   // ── Drag-to-merge state ──────────────────────────────────────────────────
@@ -469,119 +468,20 @@ function ATSReport() {
   }
 
   // applyPOWIPData + refreshPOsFromWIP now live in usePOWIPSync hook.
-
-  async function handleFileUpload(inv: File, pur: File | null, ord: File) {
-    // Abort any in-progress upload before starting a new one
-    if (abortRef.current) abortRef.current.abort();
-    setUploadingFile(true);
-    setShowUpload(false);
-    cancelRef.current = false;
-    abortRef.current = new AbortController();
-    try {
-      setUploadProgress({ step: "Parsing files…", pct: 15 });
-      const formData = new FormData();
-      formData.append("inventory", inv);
-      if (pur) formData.append("purchases", pur);
-      formData.append("orders",    ord);
-      const res = await fetch("/api/parse-excel", {
-        method: "POST",
-        body: formData,
-        signal: abortRef.current.signal,
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Parse failed" }));
-        throw new Error(err.error ?? "Parse failed");
-      }
-      if (cancelRef.current) return;
-      setUploadProgress({ step: "Processing data…", pct: 50 });
-      let data: ExcelData = await res.json();
-      if (cancelRef.current) return;
-
-      // Always pull PO data from PO WIP (tanda_pos) — single source of truth
-      setUploadProgress({ step: "Fetching PO data from PO WIP…", pct: 60 });
-      try { data = await applyPOWIPData(data); } catch (e) { console.warn("Failed to fetch PO WIP data:", e); }
-
-      setUploadProgress({ step: "Checking data…", pct: 70 });
-
-      // If the API found any data quality issues, pause and ask user before saving
-      if (data.warnings && data.warnings.length > 0) {
-        setUploadProgress(null);
-        setUploadingFile(false);
-        setPendingUploadData(data);
-        setUploadWarnings(data.warnings);
-        return; // wait for user confirmation
-      }
-
-      await saveUploadData(data);
-    } catch (e) {
-      if ((e as Error).name === "AbortError") return;
-      console.error(e);
-      setUploadError((e as Error).message);
-    } finally {
-      setUploadingFile(false);
-      setUploadProgress(null);
-      cancelRef.current = false;
-      abortRef.current = null;
-    }
-  }
-
-  async function saveUploadData(rawData: ExcelData) {
-    // Collapse any duplicate sku+store rows BEFORE persistence so the
-    // stored blob is clean — compute.ts still has a safety net but this
-    // means Supabase, base snapshot, and merge replays all work with
-    // clean data instead of relying on the render pass to fix it.
-    const data = dedupeExcelData(rawData);
-    setUploadingFile(true);
-    setUploadWarnings(null);
-    setPendingUploadData(null);
-    try {
-      setUploadProgress({ step: `Saving ${data.skus.length.toLocaleString()} SKUs…`, pct: 80 });
-      const saveRes = await fetch(`${SB_URL}/rest/v1/app_data`, {
-        method: "POST",
-        headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify({ key: "ats_excel_data", value: JSON.stringify(data) }),
-      });
-      if (!saveRes.ok) throw new Error("Failed to save data to database");
-      // Also overwrite the pre-merge base snapshot so undo-merge replays
-      // against the freshly uploaded data, not last week's stale base.
-      // Clear merge history too — the old ops don't apply to new SKUs.
-      await saveBaseData(data);
-      await saveMergeHistory([]);
-      setMergeHistory([]);
-      setUploadProgress({ step: `Checking ${data.skus.length.toLocaleString()} SKUs for normalization…`, pct: 88 });
-      // Small delay so the user sees the normalization step
-      await new Promise(r => setTimeout(r, 400));
-      const changes = detectNormChanges(data);
-      console.log(`[SKU Normalization] ${changes.length} changes detected out of ${data.skus.length} SKUs`, changes);
-      if (changes.length > 0) {
-        setUploadProgress({ step: `Found ${changes.length} SKU${changes.length !== 1 ? "s" : ""} to normalize — review required`, pct: 93 });
-        await new Promise(r => setTimeout(r, 800));
-        setNormPendingData(data);
-        setNormChanges(changes);
-        setNormSource("upload");
-        setUploadProgress(null);
-        setUploadingFile(false);
-        return;
-      }
-      setUploadProgress({ step: "SKU normalization: all clean — no changes needed", pct: 93 });
-      await new Promise(r => setTimeout(r, 600));
-      setUploadProgress({ step: "Computing ATS…", pct: 95 });
-      setExcelData(data);
-      setRows(computeRowsFromExcelData(data, dates));
-      setLastSync(data.syncedAt);
-      setMockMode(false);
-      setInvFile(null); setPurFile(null); setOrdFile(null);
-      setUploadProgress(null);
-      setUploadSuccess(`${data.skus.length.toLocaleString()} SKUs uploaded — no normalization needed`);
-      setTimeout(() => setUploadSuccess(null), 6000);
-    } catch (e) {
-      console.error(e);
-      setUploadError((e as Error).message);
-    } finally {
-      setUploadingFile(false);
-      setUploadProgress(null);
-    }
-  }
+  // handleFileUpload + saveUploadData + cancelUpload now live in useExcelUpload hook.
+  const {
+    handleFileUpload, saveUploadData, cancelUpload, cancelRef, abortRef,
+  } = useExcelUpload({
+    applyPOWIPData,
+    saveMergeHistory,
+    saveBaseData: (d: ExcelData) => saveBaseData(d),
+    dates,
+    setUploadingFile, setShowUpload, setUploadProgress, setUploadError,
+    setUploadSuccess, setUploadWarnings, setPendingUploadData,
+    setExcelData, setRows, setLastSync, setMockMode, setMergeHistory,
+    setInvFile, setPurFile, setOrdFile,
+    setNormChanges, setNormPendingData, setNormSource,
+  });
 
   async function saveNormResult(result: ExcelData) {
     try {
@@ -666,12 +566,7 @@ function ATSReport() {
     setNormPendingData(null);
   }
 
-  function cancelUpload() {
-    cancelRef.current = true;
-    abortRef.current?.abort();
-    setUploadingFile(false);
-    setUploadProgress(null);
-  }
+  // cancelUpload now lives in useExcelUpload hook.
 
   // ── Filtering ──────────────────────────────────────────────────────────
   const categories = ["All", ...Array.from(new Set(rows.map(r => r.category ?? "Uncategorized"))).sort()];
