@@ -64,7 +64,7 @@ const FONT_SIZES = [
  */
 export function RichTextEditor({ value, onChange, placeholder, minHeight = 140 }: { value: string; onChange: (html: string) => void; placeholder?: string; minHeight?: number }) {
   const colorRef = useRef<HTMLInputElement | null>(null);
-  const currentColorRef = useRef<string>("#3B82F6");
+  const [currentColor, setCurrentColor] = useState("#3B82F6");
   // Force re-render on every editor transaction so toolbar buttons reflect active state
   const [, forceUpdate] = useState(0);
 
@@ -114,7 +114,7 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = 140 }
     if (!editor) return;
     const update = () => {
       const c = editor.getAttributes("textStyle").color;
-      if (c) currentColorRef.current = c;
+      if (c) setCurrentColor(c);
       forceUpdate(n => n + 1);
     };
     editor.on("selectionUpdate", update);
@@ -144,7 +144,7 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = 140 }
           title="Font"
           value={matchedFont?.value || ""}
           onChange={e => { if (e.target.value) editor.chain().focus().setFontFamily(e.target.value).run(); }}
-          style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#94A3B8", fontSize: 11, padding: "3px 4px", height: 26, cursor: "pointer" }}
+          style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#94A3B8", fontSize: 11, padding: "3px 4px", height: 26, cursor: "pointer", minWidth: 120, maxWidth: 160 }}
         >
           <option value="">Font…</option>
           {FONT_CHOICES.map(f => <option key={f.label} value={f.value}>{f.label}</option>)}
@@ -165,14 +165,15 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = 140 }
         <div style={{ width: 1, background: "#334155", margin: "0 2px" }} />
         <button
           type="button" title="Font color"
-          onClick={() => { colorRef.current?.click(); }}
+          onMouseDown={e => { e.preventDefault(); /* keep editor focus */ }}
+          onClick={() => { editor.commands.focus(); setTimeout(() => colorRef.current?.click(), 0); }}
           style={{ ...btnBase, position: "relative", flexDirection: "column", gap: 0 }}
         >
           <span style={{ fontSize: 10, lineHeight: 1, color: "#F1F5F9" }}>A</span>
-          <span style={{ width: 14, height: 3, background: currentColorRef.current || "#3B82F6", borderRadius: 1, marginTop: 1 }} />
+          <span style={{ width: 14, height: 3, background: currentColor, borderRadius: 1, marginTop: 1 }} />
         </button>
         <input ref={colorRef} type="color" style={{ position: "absolute", visibility: "hidden", width: 0, height: 0 }}
-          onChange={e => { currentColorRef.current = e.target.value; editor.chain().focus().setColor(e.target.value).run(); }} />
+          onChange={e => { setCurrentColor(e.target.value); editor.chain().focus().setColor(e.target.value).run(); }} />
         <div style={{ width: 1, background: "#334155", margin: "0 2px" }} />
         <button type="button" title="Bulleted list" style={sty(editor.isActive("bulletList"))} onClick={() => editor.chain().focus().toggleBulletList().run()}>•</button>
         <button type="button" title="Numbered list" style={sty(editor.isActive("orderedList"))} onClick={() => editor.chain().focus().toggleOrderedList().run()}>1.</button>
