@@ -12,6 +12,7 @@
 import { create } from "zustand";
 import { sbSave, sbLoad, sbSaveTask, sbDeleteTask, sbLoadTasks, sbSaveCollection, sbLoadCollections } from "./supabaseService";
 import { addDays, parseLocalDate, formatDate } from "../utils/dates";
+import type { Task, Brand, Vendor, Customer, TeamMember, User, CollectionMeta, UndoEntry } from "./types";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -65,8 +66,8 @@ export interface UIState {
   calDragOver: string | null;
   miniCalDragOver: any;
   // Undo
-  undoStack: Array<{ prevTasks: any[]; type: "card" | "drag"; taskId?: string; description?: string }>;
-  undoConfirm: { prevTasks: any[]; taskId: string; description?: string } | null;
+  undoStack: UndoEntry[];
+  undoConfirm: { prevTasks: Task[]; taskId: string; description?: string } | null;
   // Teams/Email
   teamsConfig: any;
   teamsToken: any;
@@ -80,21 +81,21 @@ export interface UIState {
 
 export interface DataState {
   // Reference data (persisted to Supabase key-value store)
-  users: any[];
-  currentUser: any;
-  brands: any[];
-  seasons: any[];
-  customers: any[];
-  vendors: any[];
-  team: any[];
-  tasks: any[];
-  collections: Record<string, any>;
+  users: User[];
+  currentUser: User | null;
+  brands: Brand[];
+  seasons: string[];
+  customers: (Customer | string)[];
+  vendors: Vendor[];
+  team: TeamMember[];
+  tasks: Task[];
+  collections: Record<string, CollectionMeta>;
   sizeLibrary: any[];
   categoryLib: any[];
-  orderTypes: any[];
+  orderTypes: string[];
   roles: any[];
-  genders: any[];
-  genderSizes: Record<string, any>;
+  genders: string[];
+  genderSizes: Record<string, string[]>;
   taskTemplates: any[];
   // Internal
   _hydrating: boolean;
@@ -126,17 +127,17 @@ export interface DataActions {
 
 export interface BusinessActions {
   // Task CRUD
-  saveTask: (task: any) => void;
-  quietSaveTask: (task: any) => void;
+  saveTask: (task: Task) => void;
+  quietSaveTask: (task: Task) => void;
   deleteTask: (id: string) => void;
-  saveCascade: (updatedTasks: any[]) => void;
-  addCollection: (newTasks: any[], meta: Record<string, any>) => void;
+  saveCascade: (updatedTasks: Task[]) => void;
+  addCollection: (newTasks: Task[], meta: Record<string, any>) => void;
   // Undo
-  pushUndoEntry: (prevTasks: any[], type: "card" | "drag", taskId?: string, newTask?: any) => void;
+  pushUndoEntry: (prevTasks: Task[], type: "card" | "drag", taskId?: string, newTask?: Task) => void;
   handleUndo: () => void;
   // Drag
   handleDrop: (targetId: string) => void;
-  handleTimelineDrop: (targetId: string, sortedCollTasks: any[]) => void;
+  handleTimelineDrop: (targetId: string, sortedCollTasks: Task[]) => void;
 }
 
 export type AppStore = UIState & DataState & UIActions & DataActions & BusinessActions;

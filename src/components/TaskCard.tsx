@@ -4,6 +4,8 @@ import { getDaysUntil, parseLocalDate, formatDate } from "../utils/dates";
 import { STATUS_CONFIG, BRANDS } from "../utils/constants";
 import Avatar from "./Avatar";
 import { useAppStore } from "../store";
+import type { Task } from "../store/types";
+import { UNKNOWN_BRAND } from "../store/types";
 
 const DAYS_OF_WEEK = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 
@@ -11,9 +13,9 @@ const DAYS_OF_WEEK = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday
  * Task card used on the Dashboard and filtered views.
  * Reads all state from the Zustand store — no props except task data.
  */
-function TaskCard({ task, showDayDate }: { task: any; showDayDate?: boolean }) {
+function TaskCard({ task, showDayDate }: { task: Task; showDayDate?: boolean }) {
   const s = useAppStore();
-  const brand = s.brands.find((b: any) => b.id === task.brand) || s.brands[0] || BRANDS[0] || { id: "unknown", name: "Unknown", color: "#6B7280", short: "?" };
+  const brand = s.brands.find((b) => b.id === task.brand) || s.brands[0] || BRANDS[0] || UNKNOWN_BRAND;
   const days = getDaysUntil(task.due);
   const sc = STATUS_CONFIG[task.status] || STATUS_CONFIG["Not Started"];
   const isOver = days < 0 && task.status !== "Complete";

@@ -5,9 +5,11 @@
 import { BRANDS } from "../utils/constants";
 import { getDaysUntil } from "../utils/dates";
 import type { AppStore } from "./index";
+import type { Brand, Task, CollectionGroup } from "./types";
+import { UNKNOWN_BRAND } from "./types";
 
 export function selectGetBrand(s: AppStore) {
-  return (id: string) => s.brands.find((b: any) => b.id === id) || s.brands[0] || BRANDS[0];
+  return (id: string): Brand => s.brands.find((b) => b.id === id) || s.brands[0] || BRANDS[0] || UNKNOWN_BRAND;
 }
 
 export function selectIsAdmin(s: AppStore) {
@@ -18,14 +20,14 @@ export function selectCanViewAll(s: AppStore) {
   return s.currentUser?.role === "admin" || s.currentUser?.permissions?.view_all;
 }
 
-export function selectVisibleTasks(s: AppStore) {
+export function selectVisibleTasks(s: AppStore): Task[] {
   const canViewAll = selectCanViewAll(s);
-  return canViewAll ? s.tasks : s.tasks.filter((t: any) => t.assigneeId === s.currentUser?.teamMemberId);
+  return canViewAll ? s.tasks : s.tasks.filter((t) => t.assigneeId === s.currentUser?.teamMemberId);
 }
 
-export function selectFiltered(s: AppStore) {
+export function selectFiltered(s: AppStore): Task[] {
   const visible = selectVisibleTasks(s);
-  return visible.filter((t: any) => {
+  return visible.filter((t) => {
     const collKey = `${t.brand}||${t.collection}`;
     const coll = s.collections[collKey] || {};
     return (
@@ -55,19 +57,19 @@ export function selectDue30(s: AppStore) {
   });
 }
 
-export function selectCollMap(s: AppStore) {
-  const map: Record<string, any> = {};
-  s.tasks.forEach((t: any) => {
+export function selectCollMap(s: AppStore): Record<string, CollectionGroup> {
+  const map: Record<string, CollectionGroup> = {};
+  s.tasks.forEach((t) => {
     const k = `${t.brand}||${t.collection}`;
-    if (!map[k]) map[k] = { brand: t.brand, collection: t.collection, season: t.season, category: t.category, vendorName: t.vendorName, tasks: [], key: k };
+    if (!map[k]) map[k] = { brand: t.brand, collection: t.collection, season: t.season, category: t.category, vendorName: t.vendorName || "", tasks: [], key: k };
     map[k].tasks.push(t);
   });
   return map;
 }
 
-export function selectCollList(s: AppStore) {
+export function selectCollList(s: AppStore): CollectionGroup[] {
   const collMap = selectCollMap(s);
-  return Object.values(collMap).filter((c: any) => {
+  return Object.values(collMap).filter((c) => {
     const collKey = `${c.brand}||${c.collection}`;
     const coll = s.collections[collKey] || {};
     return (
