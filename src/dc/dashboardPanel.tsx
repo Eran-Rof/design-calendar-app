@@ -3,12 +3,42 @@ import { S, TH, fmtDays } from "./styles";
 import { formatDate, getDaysUntil } from "../utils/dates";
 import { STATUS_CONFIG, MONTHS } from "../utils/constants";
 import Avatar from "../components/Avatar";
+import { useAppStore } from "../store";
+import { selectGetBrand, selectIsAdmin, selectCanViewAll, selectFiltered, selectOverdue, selectDueThisWeek, selectDue30, selectCollMap, selectCollList } from "../store/selectors";
 
-export type DashboardCtx = Record<string, any>;
+export type DashboardCtx = { TaskCard: any };
 
-// Plain function kept for backwards compat — called by the component wrapper below
-function dashboardPanelInner(ctx: DashboardCtx): React.ReactElement | null {
-  const { tasks, collections, view, setView, listView, expandedColl, setExpandedColl, focusCollKey, setFocusCollKey, statFilter, setStatFilter, setShowWizard, setEditTask, setCtxMenu, setDragId, dragId, miniCalDragOver, setMiniCalDragOver, isAdmin, team, TaskCard, setTasks, handleDrop, handleTimelineDrop, pushUndo, saveCascade, deleteTask, pendingDeleteColl, setPendingDeleteColl, addCollection, filterBrand, filterSeason, filterCustomer, filterVendor, brands, seasons, currentUser, canViewAll, showAddTask, setShowAddTask, editCollKey, setEditCollKey, globalLog, timelineBackFilter, setTimelineBackFilter, overdue, dueThisWeek, due30, collList, collMap, getBrand } = ctx;
+// Proper React component backed by Zustand store
+function DashboardPanelInner({ TaskCard }: DashboardCtx): React.ReactElement | null {
+  const s = useAppStore();
+  const { tasks, collections, view, listView, expandedColl, focusCollKey, statFilter, dragId, miniCalDragOver, team, pendingDeleteColl, brands, seasons, currentUser, showAddTask, editCollKey, globalLog, timelineBackFilter } = s;
+  const setView = (v: any) => s.setField("view", v);
+  const setExpandedColl = (v: any) => s.setField("expandedColl", v);
+  const setFocusCollKey = (v: any) => s.setField("focusCollKey", v);
+  const setStatFilter = (v: any) => s.setField("statFilter", v);
+  const setShowWizard = (v: any) => s.setField("showWizard", v);
+  const setEditTask = (v: any) => s.setField("editTask", v);
+  const setCtxMenu = (v: any) => s.setField("ctxMenu", v);
+  const setDragId = (v: any) => s.setField("dragId", v);
+  const setMiniCalDragOver = (v: any) => s.setField("miniCalDragOver", v);
+  const setPendingDeleteColl = (v: any) => s.setField("pendingDeleteColl", v);
+  const setShowAddTask = (v: any) => s.setField("showAddTask", v);
+  const setEditCollKey = (v: any) => s.setField("editCollKey", v);
+  const setTimelineBackFilter = (v: any) => s.setField("timelineBackFilter", v);
+  const { setTasks, handleDrop, handleTimelineDrop, saveCascade, deleteTask, addCollection } = s;
+  const pushUndo = s.pushUndoEntry;
+  const filterBrand = s.filterBrand;
+  const filterSeason = s.filterSeason;
+  const filterCustomer = s.filterCustomer;
+  const filterVendor = s.filterVendor;
+  const isAdmin = selectIsAdmin(s);
+  const canViewAll = selectCanViewAll(s);
+  const getBrand = selectGetBrand(s);
+  const overdue = selectOverdue(s);
+  const dueThisWeek = selectDueThisWeek(s);
+  const due30 = selectDue30(s);
+  const collMap = selectCollMap(s);
+  const collList = selectCollList(s);
 
     const collListView = listView;
     // Stat filter config
@@ -1362,10 +1392,9 @@ function dashboardPanelInner(ctx: DashboardCtx): React.ReactElement | null {
     );
 }
 
-// Proper React component — React.memo ensures stable reconciliation
+// Proper React component — reads from Zustand store, only needs TaskCard as prop
 export const DashboardPanel = React.memo(function DashboardPanel({ ctx }: { ctx: DashboardCtx }) {
-  return dashboardPanelInner(ctx);
+  return <DashboardPanelInner TaskCard={ctx.TaskCard} />;
 });
 
 // Legacy export for any remaining callers
-export const dashboardPanel = dashboardPanelInner;

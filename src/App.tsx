@@ -792,17 +792,7 @@ function App() {
   taskCardCtxRef.current = { getBrand, team, setDragId, setDragOverId, dragOverId, dragId, handleDrop, setEditTask, statFilter, setFocusCollKey, setView, setStatFilter, setTimelineBackFilter };
 
 
-  const dashboardCtx = {
-    tasks, collections, view, setView, listView, expandedColl, setExpandedColl,
-    focusCollKey, setFocusCollKey, statFilter, setStatFilter, setShowWizard,
-    setEditTask, setCtxMenu, setDragId, dragId, miniCalDragOver, setMiniCalDragOver,
-    isAdmin, team, TaskCard, setTasks, handleDrop, handleTimelineDrop, pushUndo,
-    saveCascade, deleteTask, pendingDeleteColl, setPendingDeleteColl, addCollection,
-    filterBrand, filterSeason, filterCustomer, filterVendor, brands, seasons,
-    currentUser, canViewAll, showAddTask, setShowAddTask, editCollKey, setEditCollKey,
-    globalLog, timelineBackFilter, setTimelineBackFilter,
-    overdue, dueThisWeek, due30, collList, collMap, getBrand,
-  };
+  const dashboardCtx = { TaskCard };
 
   const timelineCtx = {
     tasks, collections, setView, focusCollKey, setFocusCollKey, setEditTask,
