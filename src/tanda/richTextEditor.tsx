@@ -151,13 +151,13 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = 140 }
           {FONT_SIZES.map(s => <option key={s.label} value={s.value}>{s.label}</option>)}
         </select>
         <div style={{ width: 1, background: "#334155", margin: "0 2px" }} />
-        <button type="button" title="Bold (Ctrl+B)" style={sty(editor.isActive("bold"), { fontWeight: 700 })} onMouseDown={e => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }}>B</button>
-        <button type="button" title="Italic (Ctrl+I)" style={sty(editor.isActive("italic"), { fontStyle: "italic" })} onMouseDown={e => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }}>I</button>
-        <button type="button" title="Underline (Ctrl+U)" style={sty(editor.isActive("underline"), { textDecoration: "underline" })} onMouseDown={e => { e.preventDefault(); editor.chain().focus().toggleUnderline().run(); }}>U</button>
+        <button type="button" title="Bold (Ctrl+B)" style={sty(editor.isActive("bold"), { fontWeight: 700 })} onClick={() => editor.chain().focus().toggleBold().run()}>B</button>
+        <button type="button" title="Italic (Ctrl+I)" style={sty(editor.isActive("italic"), { fontStyle: "italic" })} onClick={() => editor.chain().focus().toggleItalic().run()}>I</button>
+        <button type="button" title="Underline (Ctrl+U)" style={sty(editor.isActive("underline"), { textDecoration: "underline" })} onClick={() => editor.chain().focus().toggleUnderline().run()}>U</button>
         <div style={{ width: 1, background: "#334155", margin: "0 2px" }} />
         <button
           type="button" title="Font color"
-          onMouseDown={e => { e.preventDefault(); editor.commands.focus(); colorRef.current?.click(); }}
+          onClick={() => { colorRef.current?.click(); }}
           style={{ ...btnBase, position: "relative", flexDirection: "column", gap: 0 }}
         >
           <span style={{ fontSize: 10, lineHeight: 1, color: "#F1F5F9" }}>A</span>
@@ -166,11 +166,10 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = 140 }
         <input ref={colorRef} type="color" style={{ position: "absolute", visibility: "hidden", width: 0, height: 0 }}
           onChange={e => { currentColorRef.current = e.target.value; editor.chain().focus().setColor(e.target.value).run(); }} />
         <div style={{ width: 1, background: "#334155", margin: "0 2px" }} />
-        <button type="button" title="Bulleted list" style={sty(editor.isActive("bulletList"))} onMouseDown={e => { e.preventDefault(); editor.chain().focus().toggleBulletList().run(); }}>•</button>
-        <button type="button" title="Numbered list" style={sty(editor.isActive("orderedList"))} onMouseDown={e => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run(); }}>1.</button>
+        <button type="button" title="Bulleted list" style={sty(editor.isActive("bulletList"))} onClick={() => editor.chain().focus().toggleBulletList().run()}>•</button>
+        <button type="button" title="Numbered list" style={sty(editor.isActive("orderedList"))} onClick={() => editor.chain().focus().toggleOrderedList().run()}>1.</button>
         <div style={{ width: 1, background: "#334155", margin: "0 2px" }} />
-        <button type="button" title="Insert link" style={btnBase} onMouseDown={e => { e.preventDefault(); const url = window.prompt("URL:"); if (url) editor.chain().focus().setLink({ href: url }).run(); }}>🔗</button>
-        <button type="button" title="Clear formatting" style={btnBase} onMouseDown={e => { e.preventDefault(); editor.chain().focus().unsetAllMarks().clearNodes().run(); }}>✕</button>
+        <button type="button" title="Insert link" style={btnBase} onClick={() => { const url = window.prompt("URL:"); if (url) editor.chain().focus().setLink({ href: url }).run(); }}>🔗</button>
       </div>
       <EditorContent editor={editor} />
       <style>{`

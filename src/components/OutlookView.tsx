@@ -78,6 +78,10 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
   const token = teamsToken;
   const cfg = teamsConfig;
 
+  // Draggable compose modal position
+  const [composeDrag, setComposeDrag] = useState<{ x: number; y: number } | null>(null);
+  const dragStartRef = useRef<{ mx: number; my: number; sx: number; sy: number } | null>(null);
+
   // ── Auth ─────────────────────────────────────────────────────────────────────
   function tokenIsValid() { return !!token && (!teamsTokenExpiry || Date.now() < teamsTokenExpiry); }
   function handleTokenExpired() { setTeamsToken(null); setTeamsTokenExpiry(null); setAuthStatus("idle"); }
@@ -458,7 +462,7 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
           {/* Row 1: New Message */}
           <div style={{ padding: "0 10px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", height: 46 }}>
             <button
-              onClick={() => { setComposeOpen(true); setComposeSubject((prefix || "") + " "); setSendError(null); }}
+              onClick={() => { setComposeDrag(null); setComposeOpen(true); setComposeSubject((prefix || "") + " "); setSendError(null); }}
               disabled={!token}
               style={{ width: "100%", padding: "7px 0", background: token ? `linear-gradient(135deg, ${C.outlook}, ${C.outlookLt})` : C.bg2, border: "none", borderRadius: 8, color: token ? "#fff" : C.text3, fontSize: 13, fontWeight: 500, cursor: token ? "pointer" : "default", display: "flex", alignItems: "center", gap: 8, justifyContent: "center", fontFamily: "inherit" }}>
               ✎ New Message
@@ -859,7 +863,7 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
                 const origSubject = ctxMail.subject || "";
                 const fwSubject = origSubject.startsWith("Fw:") || origSubject.startsWith("FW:") ? origSubject : `Fw: ${origSubject}`;
                 const fwBody = `<br/><hr/><p style="font-size:12px;color:#475569"><b>From:</b> ${sender}<br/><b>Date:</b> ${date}<br/><b>Subject:</b> ${origSubject}</p><p>${ctxMail.bodyPreview || ""}</p>`;
-                setComposeOpen(true); setComposeSubject(fwSubject); setComposeBody(fwBody); setComposeTo(""); setSendError(null); setCtxMenu(null);
+                setComposeDrag(null); setComposeOpen(true); setComposeSubject(fwSubject); setComposeBody(fwBody); setComposeTo(""); setSendError(null); setCtxMenu(null);
               }} style={ctxStyle}>↪ Forward</div>
               <div style={{ height: 1, background: C.border }} />
               <div onClick={() => { setDeletedMessages(prev => [ctxMail, ...prev]); deleteEmail(ctxMail.id); setCtxMenu(null); }}
@@ -868,12 +872,43 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
           );
         })()}
 
-        {/* ── COMPOSE MODAL (floating bottom-right) ────────────────────────────── */}
+        {/* ── COMPOSE MODAL (centered, draggable) ────────────────────────────── */}
         {composeOpen && (
-          <div style={{ position: "absolute", inset: 0, zIndex: 100, pointerEvents: "none" }}>
-            <div style={{ position: "absolute", bottom: 0, right: 0, width: 520, background: C.bg1, border: `1px solid ${C.border2}`, borderRadius: "12px 12px 0 0", boxShadow: "0 -8px 32px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", pointerEvents: "all" }}>
-              {/* Modal header */}
-              <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: C.bg2, borderRadius: "12px 12px 0 0" }}>
+          <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.3)" }}
+            onClick={() => { /* clicking backdrop does nothing — user must close via ✕ */ }}>
+            <div
+              style={{
+                position: composeDrag ? "fixed" : "relative",
+                top: composeDrag?.y,
+                left: composeDrag?.x,
+                width: 560,
+                maxHeight: "90vh",
+                background: C.bg1,
+                border: `1px solid ${C.border2}`,
+                borderRadius: 12,
+                boxShadow: "0 16px 48px rgba(0,0,0,0.5)",
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden",
+              }}
+              onClick={e => e.stopPropagation()}>
+              {/* Modal header — draggable */}
+              <div
+                style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: C.bg2, borderRadius: "12px 12px 0 0", cursor: "grab", userSelect: "none" }}
+                onMouseDown={e => {
+                  const rect = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
+                  dragStartRef.current = { mx: e.clientX, my: e.clientY, sx: rect.left, sy: rect.top };
+                  const onMove = (ev: MouseEvent) => {
+                    if (!dragStartRef.current) return;
+                    setComposeDrag({
+                      x: dragStartRef.current.sx + (ev.clientX - dragStartRef.current.mx),
+                      y: dragStartRef.current.sy + (ev.clientY - dragStartRef.current.my),
+                    });
+                  };
+                  const onUp = () => { dragStartRef.current = null; document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
+                  document.addEventListener("mousemove", onMove);
+                  document.addEventListener("mouseup", onUp);
+                }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: C.text1 }}>New Message</span>
                 <button onClick={() => { setComposeOpen(false); setSendError(null); }} style={{ ...iconBtn, color: C.text2 }}>✕</button>
               </div>
