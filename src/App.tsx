@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, Fragment } from "react";
+import { useIdleLogout } from "./hooks/useIdleLogout";
 import React from "react";
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
@@ -466,43 +467,20 @@ function App() {
   }, []);
 
   // ── AUTO LOGOUT after 90 minutes of inactivity ──────────────────────────
-  const IDLE_MS = 90 * 60 * 1000; // 90 minutes
   const idleWarning = dc.idleWarning;
   const setIdleWarning = (v: boolean) => dcSet("idleWarning", v);
-  useEffect(() => {
-    if (!currentUser) return;
-    let warnTimer = null;
-    let logoutTimer = null;
-
-    let warningShown = false;
-    function resetTimers() {
-      // Only dispatch state update if warning is actually showing — avoids
-      // re-rendering the entire App on every mousemove/keydown/click
-      if (warningShown) { setIdleWarning(false); warningShown = false; }
-      clearTimeout(warnTimer);
-      clearTimeout(logoutTimer);
-      // Warn 5 minutes before logout (at 85 minutes)
-      warnTimer = setTimeout(() => { warningShown = true; setIdleWarning(true); }, IDLE_MS - 5 * 60 * 1000);
-      // Log out at 90 minutes
-      logoutTimer = setTimeout(() => {
-        sessionStorage.removeItem("plm_user");
-        setCurrentUser(null);
-        setIdleWarning(false);
-        setTeamsToken(null);
-        setView("dashboard");
-      }, IDLE_MS);
-    }
-
-    const EVENTS = ["mousemove","mousedown","keydown","touchstart","scroll","click","wheel"];
-    EVENTS.forEach(ev => window.addEventListener(ev, resetTimers, { passive: true }));
-    resetTimers();
-
-    return () => {
-      clearTimeout(warnTimer);
-      clearTimeout(logoutTimer);
-      EVENTS.forEach(ev => window.removeEventListener(ev, resetTimers));
-    };
-  }, [currentUser]);
+  useIdleLogout({
+    enabled: !!currentUser,
+    idleMs: 90 * 60 * 1000,
+    onWarning: setIdleWarning,
+    onLogout: () => {
+      sessionStorage.removeItem("plm_user");
+      setCurrentUser(null);
+      setIdleWarning(false);
+      setTeamsToken(null);
+      setView("dashboard");
+    },
+  });
 
 
 
