@@ -2,6 +2,9 @@ import React from "react";
 import S from "./styles";
 import { StatCard } from "./StatCard";
 import { fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg } from "./helpers";
+import { StatsRow } from "./panels/StatsRow";
+import { MergeConfirmModal } from "./panels/MergeConfirmModal";
+import { UploadWarningsModal } from "./panels/UploadWarningsModal";
 import type { ATSState } from "./state/atsTypes";
 import type { ATSRow, ExcelData, ATSPoEvent, ATSSoEvent, UploadWarning } from "./types";
 import type { NormChange } from "./normalize";
@@ -202,17 +205,13 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
 
       <div style={S.content}>
         {/* STAT CARDS */}
-        <div style={{ ...S.statsRow, gridTemplateColumns: "repeat(9,1fr)" }}>
-          <StatCard icon="△" label="Low Stock (≤10)"  value={lowStock}        color="#F59E0B" sortKey="lowStock"   activeSort={activeSort} onSort={k => setActiveSort(k)} />
-          <StatCard icon="▽" label="Zero Stock"        value={zeroStock}       color="#EF4444" sortKey="zeroStock"  activeSort={activeSort} onSort={k => setActiveSort(k)} />
-          <StatCard icon="↓" label="Negative ATS"      value={negATSCount}     color="#F87171" sortKey="negATS"     activeSort={activeSort} onSort={k => setActiveSort(k)} />
-          <StatCard icon="▦" label="Total SKUs"         value={totalSKUs}       color="#3B82F6" sortKey="total"      activeSort={activeSort} onSort={k => setActiveSort(k)} />
-          <StatCard icon="↑" label="Units on Order"     value={totalSoQty}      color="#10B981" sortKey="onOrder"   activeSort={activeSort} onSort={k => setActiveSort(k)} />
-          <StatCard icon="$" label="$ on Order"         value={totalSoValue}    color="#10B981" fmt="dollar" />
-          <StatCard icon="⬆" label="Units on PO"        value={totalPoQty}      color="#60A5FA" />
-          <StatCard icon="$" label="$ on PO"            value={totalPoValue}    color="#60A5FA" fmt="dollar" />
-          <StatCard icon="%" label="Margin"             value={marginDollars}   color={marginDollars >= 0 ? "#A3E635" : "#F87171"} fmt="margin" marginPct={marginPct} />
-        </div>
+        <StatsRow
+          lowStock={lowStock} zeroStock={zeroStock} negATSCount={negATSCount} totalSKUs={totalSKUs}
+          totalSoQty={totalSoQty} totalSoValue={totalSoValue}
+          totalPoQty={totalPoQty} totalPoValue={totalPoValue}
+          marginDollars={marginDollars} marginPct={marginPct}
+          activeSort={activeSort} setActiveSort={setActiveSort}
+        />
 
         {/* TOOLBAR */}
         <div style={S.toolbar}>
@@ -867,80 +866,13 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         </div>
       )}
 
-      {/* UPLOAD WARNINGS CONFIRMATION MODAL */}
-      {uploadWarnings && pendingUploadData && (
-        <div style={S.modalOverlay}>
-          <div style={{ ...S.modal, width: 560, border: "1px solid #F59E0B" }} onClick={e => e.stopPropagation()}>
-            <div style={{ ...S.modalHeader, borderBottom: "1px solid #78350f" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(245,158,11,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>⚠</div>
-                <div>
-                  <h2 style={{ ...S.modalTitle, color: "#FCD34D", margin: 0 }}>Review Data Issues</h2>
-                  <div style={{ color: "#94A3B8", fontSize: 12, marginTop: 2 }}>
-                    {pendingUploadData.skus.length.toLocaleString()} SKUs · {pendingUploadData.pos.length.toLocaleString()} PO lines · {pendingUploadData.sos.length.toLocaleString()} SO lines parsed
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div style={S.modalBody}>
-              <p style={{ color: "#CBD5E1", fontSize: 13, marginBottom: 16 }}>
-                The following issues were found in your files. Review them before deciding whether to proceed.
-              </p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
-                {uploadWarnings.map((w, i) => (
-                  <div key={i} style={{
-                    background: w.severity === "error" ? "rgba(239,68,68,0.08)" : "rgba(245,158,11,0.08)",
-                    border: `1px solid ${w.severity === "error" ? "rgba(239,68,68,0.3)" : "rgba(245,158,11,0.3)"}`,
-                    borderRadius: 8, padding: "10px 14px",
-                  }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                      <span style={{ fontSize: 14 }}>{w.severity === "error" ? "✗" : "△"}</span>
-                      <span style={{ color: w.severity === "error" ? "#FCA5A5" : "#FCD34D", fontWeight: 700, fontSize: 13 }}>{w.field}</span>
-                      <span style={{ marginLeft: "auto", color: w.severity === "error" ? "#FCA5A5" : "#FCD34D", fontFamily: "monospace", fontSize: 12, fontWeight: 700 }}>
-                        {w.affected.toLocaleString()} / {w.total.toLocaleString()}
-                      </span>
-                    </div>
-                    <div style={{ color: "#94A3B8", fontSize: 12, lineHeight: 1.5, paddingLeft: 22 }}>{w.message}</div>
-                  </div>
-                ))}
-              </div>
-              {pendingUploadData.columnNames && (
-                <details style={{ marginBottom: 18 }}>
-                  <summary style={{ color: "#60A5FA", fontSize: 12, cursor: "pointer", userSelect: "none" }}>
-                    Show detected column names (click to expand)
-                  </summary>
-                  <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-                    {(["purchases", "orders"] as const).map(file => (
-                      <div key={file} style={{ background: "#0F172A", borderRadius: 6, padding: "8px 12px", border: "1px solid #334155" }}>
-                        <div style={{ color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4, fontWeight: 600 }}>
-                          {file === "purchases" ? "Purchases (PO) file" : "Orders (SO) file"}
-                        </div>
-                        <div style={{ color: "#94A3B8", fontSize: 11, fontFamily: "monospace", lineHeight: 1.8 }}>
-                          {pendingUploadData.columnNames![file].join(" · ")}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              )}
-              <div style={{ display: "flex", gap: 10 }}>
-                <button
-                  style={{ flex: 1, background: "none", border: "1px solid #475569", color: "#94A3B8", borderRadius: 8, padding: "10px 0", fontSize: 13, cursor: "pointer", fontWeight: 600 }}
-                  onClick={() => { setUploadWarnings(null); setPendingUploadData(null); }}
-                >
-                  Cancel — Go Back
-                </button>
-                <button
-                  style={{ flex: 2, background: "#F59E0B", border: "none", color: "#0F172A", borderRadius: 8, padding: "10px 0", fontSize: 13, cursor: "pointer", fontWeight: 700 }}
-                  onClick={() => saveUploadData(pendingUploadData)}
-                >
-                  Upload Anyway
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <UploadWarningsModal
+        uploadWarnings={uploadWarnings}
+        pendingUploadData={pendingUploadData}
+        saveUploadData={saveUploadData}
+        setUploadWarnings={setUploadWarnings}
+        setPendingUploadData={setPendingUploadData}
+      />
 
       {/* SKU NORMALIZATION REVIEW MODAL */}
       {normChanges && normChanges.length > 0 && (
@@ -1202,56 +1134,12 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         </div>
       )}
 
-      {/* ── SKU Merge Confirmation Modal ─────────────────────────────────── */}
-      {pendingMerge && (() => {
-        const { fromSku, toSku, similarity } = pendingMerge;
-        const pct = Math.round(similarity * 100);
-        const isLow = similarity < 0.8;
-        const canConfirm = !isLow || isAdmin;
-        return (
-          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 800, display: "flex", alignItems: "center", justifyContent: "center" }}
-               onClick={() => setPendingMerge(null)}>
-            <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 12, padding: 28, maxWidth: 480, width: "90%", boxShadow: "0 16px 48px rgba(0,0,0,0.6)" }}
-                 onClick={e => e.stopPropagation()}>
-              <div style={{ fontSize: 20, fontWeight: 700, color: "#F1F5F9", marginBottom: 6 }}>
-                {isLow ? "⚠️ Low Similarity Warning" : "Merge SKUs?"}
-              </div>
-              <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 20, lineHeight: 1.6 }}>
-                Merging <span style={{ color: "#60A5FA", fontFamily: "monospace" }}>{fromSku}</span> into <span style={{ color: "#10B981", fontFamily: "monospace" }}>{toSku}</span>.
-                <br />
-                All quantities (On Hand, On PO, On Order) and date projections will be summed.
-                The merged row keeps <span style={{ color: "#10B981", fontFamily: "monospace" }}>{toSku}</span>'s identifier.
-              </div>
-              <div style={{ background: "#0F172A", borderRadius: 8, padding: "10px 14px", marginBottom: 20, display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ fontSize: 13, color: "#64748B" }}>SKU similarity</div>
-                <div style={{ flex: 1, height: 6, background: "#1E293B", borderRadius: 3, overflow: "hidden" }}>
-                  <div style={{ width: `${pct}%`, height: "100%", background: isLow ? "#EF4444" : "#10B981", borderRadius: 3, transition: "width 0.3s" }} />
-                </div>
-                <div style={{ fontWeight: 700, fontSize: 15, color: isLow ? "#EF4444" : "#10B981", minWidth: 40 }}>{pct}%</div>
-              </div>
-              {isLow && (
-                <div style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, padding: "10px 14px", marginBottom: 20, fontSize: 13, color: "#FCA5A5" }}>
-                  {canConfirm
-                    ? "These SKUs look different. As an admin you can still proceed."
-                    : "Admin approval required to merge SKUs with less than 80% similarity."}
-                </div>
-              )}
-              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                <button onClick={() => setPendingMerge(null)}
-                  style={{ padding: "8px 18px", borderRadius: 7, border: "1px solid #334155", background: "none", color: "#94A3B8", cursor: "pointer", fontSize: 13 }}>
-                  Cancel
-                </button>
-                <button
-                  disabled={!canConfirm}
-                  onClick={() => canConfirm && commitMerge(fromSku, toSku)}
-                  style={{ padding: "8px 18px", borderRadius: 7, border: "none", background: canConfirm ? "#10B981" : "#1E3A2A", color: canConfirm ? "#fff" : "#4B5563", cursor: canConfirm ? "pointer" : "not-allowed", fontSize: 13, fontWeight: 600 }}>
-                  Merge SKUs
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      <MergeConfirmModal
+        pendingMerge={pendingMerge}
+        isAdmin={isAdmin}
+        commitMerge={commitMerge}
+        setPendingMerge={setPendingMerge}
+      />
     </div>
   );
 }
