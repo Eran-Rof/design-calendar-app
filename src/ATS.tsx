@@ -601,6 +601,12 @@ function ATSReport() {
         body: JSON.stringify({ key: "ats_excel_data", value: JSON.stringify(data) }),
       });
       if (!saveRes.ok) throw new Error("Failed to save data to database");
+      // Also overwrite the pre-merge base snapshot so undo-merge replays
+      // against the freshly uploaded data, not last week's stale base.
+      // Clear merge history too — the old ops don't apply to new SKUs.
+      await saveBaseData(data);
+      await saveMergeHistory([]);
+      setMergeHistory([]);
       setUploadProgress({ step: `Checking ${data.skus.length.toLocaleString()} SKUs for normalization…`, pct: 88 });
       // Small delay so the user sees the normalization step
       await new Promise(r => setTimeout(r, 400));
