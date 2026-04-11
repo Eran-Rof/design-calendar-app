@@ -6,7 +6,8 @@ import Avatar from "../components/Avatar";
 
 export type DashboardCtx = Record<string, any>;
 
-export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
+// Plain function kept for backwards compat — called by the component wrapper below
+function dashboardPanelInner(ctx: DashboardCtx): React.ReactElement | null {
   const { tasks, collections, view, setView, listView, expandedColl, setExpandedColl, focusCollKey, setFocusCollKey, statFilter, setStatFilter, setShowWizard, setEditTask, setCtxMenu, setDragId, dragId, miniCalDragOver, setMiniCalDragOver, isAdmin, team, TaskCard, setTasks, handleDrop, handleTimelineDrop, pushUndo, saveCascade, deleteTask, pendingDeleteColl, setPendingDeleteColl, addCollection, filterBrand, filterSeason, filterCustomer, filterVendor, brands, seasons, currentUser, canViewAll, showAddTask, setShowAddTask, editCollKey, setEditCollKey, globalLog, timelineBackFilter, setTimelineBackFilter, overdue, dueThisWeek, due30, collList, collMap, getBrand } = ctx;
 
     const collListView = listView;
@@ -1360,3 +1361,11 @@ export function dashboardPanel(ctx: DashboardCtx): React.ReactElement | null {
       </div>
     );
 }
+
+// Proper React component — React.memo ensures stable reconciliation
+export const DashboardPanel = React.memo(function DashboardPanel({ ctx }: { ctx: DashboardCtx }) {
+  return dashboardPanelInner(ctx);
+});
+
+// Legacy export for any remaining callers
+export const dashboardPanel = dashboardPanelInner;

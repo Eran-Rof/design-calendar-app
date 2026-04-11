@@ -517,7 +517,7 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
               const s = collSearch.toLowerCase();
               return collList.filter((c: any) => {
                 if (!s) return true;
-                const b = getBrand(c.brand);
+                const b = getBrand(c.brand) || { id: "unknown", name: "Unknown", color: "#6B7280" };
                 const skus = (collections[c.key] || {}).skus || [];
                 return (c.collection || "").toLowerCase().includes(s) || (c.vendorName || "").toLowerCase().includes(s)
                   || (b ? b.name : "").toLowerCase().includes(s)
@@ -528,7 +528,7 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
                 return ub - ua;
               });
             })().map((c: any) => {
-              const b = getBrand(c.brand);
+              const b = getBrand(c.brand) || { id: "unknown", name: "Unknown", color: "#6B7280" };
               const hasPrefix = !!(cfg.emailMap && cfg.emailMap[c.key]);
               const isSelected = selectedCollKey === c.key;
               const unread = (emails[c.key] || []).filter(e => !e.isRead).length;

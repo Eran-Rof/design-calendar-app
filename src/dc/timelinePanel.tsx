@@ -6,7 +6,7 @@ import Avatar from "../components/Avatar";
 
 export type TimelineCtx = Record<string, any>;
 
-export function timelinePanel(ctx: TimelineCtx): React.ReactElement | null {
+function timelinePanelInner(ctx: TimelineCtx): React.ReactElement | null {
   const { tasks, collections, setView, focusCollKey, setFocusCollKey, setEditTask, timelineBackFilter, setTimelineBackFilter, expandedColl, setExpandedColl, dragId, setDragId, dragOverId, setDragOverId, setStatFilter, pushUndo, team, filtered, overdue, sbSaveTask, saveCascade, setTasks, isAdmin, canViewAll, currentUser, filterBrand, filterSeason, filterCustomer, filterVendor, collMap, collList, listView, getBrand } = ctx;
 
     const g = {};
@@ -75,7 +75,7 @@ export function timelinePanel(ctx: TimelineCtx): React.ReactElement | null {
             </thead>
             <tbody>
               {collRows.map((c, ri) => {
-                const brand = getBrand(c.brand);
+                const brand = getBrand(c.brand) || { id: "unknown", name: "Unknown", color: "#6B7280", short: "?" };
                 const done = c.tasks.filter(t => ["Complete","Approved"].includes(t.status)).length;
                 const pct = Math.round((done / c.tasks.length) * 100);
                 const ddpTask = c.tasks.find(t => t.phase === "DDP");
@@ -216,7 +216,7 @@ export function timelinePanel(ctx: TimelineCtx): React.ReactElement | null {
           </div>
         )}
         {Object.entries(g).map(([bid, colls]) => {
-          const brand = getBrand(bid);
+          const brand = getBrand(bid) || { id: bid, name: bid, color: "#6B7280", short: "?" };
           return (
             <div key={bid} style={{ marginBottom: 36 }}>
               <div
@@ -814,3 +814,9 @@ export function timelinePanel(ctx: TimelineCtx): React.ReactElement | null {
       </div>
     );
 }
+
+export const TimelinePanel = React.memo(function TimelinePanel({ ctx }: { ctx: TimelineCtx }) {
+  return timelinePanelInner(ctx);
+});
+
+export const timelinePanel = timelinePanelInner;

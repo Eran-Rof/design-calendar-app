@@ -211,7 +211,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
 
   // (creationDateWarn removed — silently clamp on step 2 load instead of blocking dialog)
 
-  const brand = getBrand(form.brand);
+  const brand = getBrand(form.brand) || { id: "unknown", name: "Unknown", color: "#6B7280", short: "?", isPrivateLabel: false };
   const isPriv = brand.isPrivateLabel;
   const matchV = form.category
     ? vendors.filter(

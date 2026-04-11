@@ -6,7 +6,7 @@ import Avatar from "../components/Avatar";
 
 export type CalendarCtx = Record<string, any>;
 
-export function calendarPanel(ctx: CalendarCtx): React.ReactElement | null {
+function calendarPanelInner(ctx: CalendarCtx): React.ReactElement | null {
   const { tasks, collections, setEditTask, calViewYear, setCalViewYear, calViewMonth, setCalViewMonth, calDragOver, setCalDragOver, focusCollKey, team, filtered, isAdmin, canViewAll, currentUser, filterBrand, filterSeason, filterCustomer, filterVendor, collMap, collList, dragId, setDragId, setFocusCollKey, setTasks, getBrand } = ctx;
 
     const today = new Date();
@@ -457,3 +457,9 @@ export function calendarPanel(ctx: CalendarCtx): React.ReactElement | null {
       </div>
     );
 }
+
+export const CalendarPanel = React.memo(function CalendarPanel({ ctx }: { ctx: CalendarCtx }) {
+  return calendarPanelInner(ctx);
+});
+
+export const calendarPanel = calendarPanelInner;

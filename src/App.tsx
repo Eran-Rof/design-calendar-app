@@ -36,9 +36,9 @@ import RoleManager from "./components/RoleManager";
 import GenderManager from "./components/GenderManager";
 import { DCProvider, useDCState, useDCDispatch } from "./dc/state/DCContext";
 import type { DCState } from "./dc/state/dcTypes";
-import { dashboardPanel as dashboardPanelExtracted } from "./dc/dashboardPanel";
-import { timelinePanel as timelinePanelExtracted } from "./dc/timelinePanel";
-import { calendarPanel as calendarPanelExtracted } from "./dc/calendarPanel";
+import { DashboardPanel } from "./dc/dashboardPanel";
+import { TimelinePanel } from "./dc/timelinePanel";
+import { CalendarPanel } from "./dc/calendarPanel";
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 
@@ -878,7 +878,7 @@ function App() {
   taskCardCtxRef.current = { getBrand, team, setDragId, setDragOverId, dragOverId, dragId, handleDrop, setEditTask, statFilter, setFocusCollKey, setView, setStatFilter, setTimelineBackFilter };
 
 
-  const Dashboard = () => dashboardPanelExtracted({
+  const dashboardCtx = {
     tasks, collections, view, setView, listView, expandedColl, setExpandedColl,
     focusCollKey, setFocusCollKey, statFilter, setStatFilter, setShowWizard,
     setEditTask, setCtxMenu, setDragId, dragId, miniCalDragOver, setMiniCalDragOver,
@@ -888,23 +888,22 @@ function App() {
     currentUser, canViewAll, showAddTask, setShowAddTask, editCollKey, setEditCollKey,
     globalLog, timelineBackFilter, setTimelineBackFilter,
     overdue, dueThisWeek, due30, collList, collMap, getBrand,
-  });
+  };
 
-  const Timeline = () => timelinePanelExtracted({
+  const timelineCtx = {
     tasks, collections, setView, focusCollKey, setFocusCollKey, setEditTask,
     timelineBackFilter, setTimelineBackFilter, expandedColl, setExpandedColl,
     dragId, setDragId, dragOverId, setDragOverId, setStatFilter, pushUndo, team,
     filtered, overdue, sbSaveTask, saveCascade, setTasks, isAdmin, canViewAll,
     currentUser, filterBrand, filterSeason, filterCustomer, filterVendor, collMap, collList, listView, getBrand,
-  });
+  };
 
-  // ── CALENDAR VIEW ──────────────────────────────────────────────────────────
-  const CalendarView = () => calendarPanelExtracted({
+  const calendarCtx = {
     tasks, collections, setEditTask, calViewYear, setCalViewYear, calViewMonth,
     setCalViewMonth, calDragOver, setCalDragOver, focusCollKey, team,
     filtered, isAdmin, canViewAll, currentUser, filterBrand, filterSeason,
     filterCustomer, filterVendor, collMap, collList, dragId, setDragId, setFocusCollKey, setTasks, getBrand,
-  });
+  };
 
   return (
     <div
@@ -1175,9 +1174,9 @@ function App() {
       <div
         style={{ padding: "26px 22px 100px", maxWidth: 1440, margin: "0 auto" }}
       >
-        {view === "dashboard" && Dashboard()}
-        {view === "timeline" && Timeline()}
-        {view === "calendar" && CalendarView()}
+        {view === "dashboard" && <DashboardPanel ctx={dashboardCtx} />}
+        {view === "timeline" && <TimelinePanel ctx={timelineCtx} />}
+        {view === "calendar" && <CalendarPanel ctx={calendarCtx} />}
         {view === "teams" && (
           <TeamsView
             collList={collList}
