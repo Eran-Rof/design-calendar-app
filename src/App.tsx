@@ -1224,6 +1224,8 @@ function App() {
             taskTemplates={taskTemplates}
             genders={genders}
             genderSizes={genderSizes}
+            brands={brands}
+            categories={categoryLib}
             onSave={addCollection}
             onClose={() => setShowWizard(false)}
           />

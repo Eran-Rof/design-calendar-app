@@ -106,7 +106,11 @@ function PrevTaskInput({ fromPrev, onCommit }) {
 }
 
 // ─── COLLECTION WIZARD ────────────────────────────────────────────────────────
-function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSave, onClose, taskTemplates, genders: genderList, genderSizes }) {
+function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSave, onClose, taskTemplates, genders: genderList, genderSizes, brands: brandsProp, categories: categoriesProp }) {
+  const brandList = (brandsProp && brandsProp.length > 0) ? brandsProp : BRANDS;
+  const categoryList = (categoriesProp && categoriesProp.length > 0)
+    ? categoriesProp.map((c: any) => typeof c === "string" ? c : c.name || c.category || c)
+    : CATEGORIES;
   const [step, setStep] = useState(1);
 
   // Compute initial recommended vendor for Denim (default category)
@@ -510,7 +514,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
             value={form.brand}
             onChange={(e) => set("brand", e.target.value)}
           >
-            {BRANDS.map((b) => (
+            {brandList.map((b) => (
               <option key={b.id} value={b.id}>
                 {b.name}
                 {b.isPrivateLabel ? " (PL)" : ""}
@@ -604,7 +608,7 @@ function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSav
                   set("vendorId", newVendorId);
                 }}
               >
-                {CATEGORIES.map((c) => (
+                {categoryList.map((c) => (
                   <option key={c}>{c}</option>
                 ))}
               </select>
