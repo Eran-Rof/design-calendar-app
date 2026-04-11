@@ -143,8 +143,19 @@ export default async function handler(req, res) {
           const date         = parseDate(rawDate);
           const orderNumber  = str(r["Order Number"] || r["Order #"] || r["SO Number"] || r["SO #"] || r["Sales Order"] || r["Order No"]);
           const customerName = str(r["Customer Name"] || r["Customer"] || r["Bill To Name"] || r["Ship To Name"] || r["Client Name"]);
-          const unitPrice    = parseFloat(String(r["Unit Price"] || r["Unit Cost"] || r["Price"] || 0).replace(/[^0-9.-]/g, "")) || 0;
-          const totalPrice   = parseFloat(String(r["Total Sum of Total Price"] || r["Total Price"] || r["Extended Price"] || 0).replace(/[^0-9.-]/g, "")) || 0;
+          const unitPrice    = parseFloat(String(
+            r["Unit Price"] || r["Unit Cost"] || r["Price"] ||
+            r["Total Average of Unit Price"] || r["Total Sum of Unit Price"] ||
+            r["Average of Unit Price"] || r["Sum of Unit Price"] ||
+            r["Total Average of Unit Cost"] || r["Item Price"] || r["Item Cost"] ||
+            0
+          ).replace(/[^0-9.-]/g, "")) || 0;
+          const totalPrice   = parseFloat(String(
+            r["Total Sum of Total Price"] || r["Total Price"] || r["Extended Price"] ||
+            r["Sum of Total Price"] || r["Total Sum of Amount"] ||
+            r["Total Sum of Amount Home Currency"] || r["Amount"] ||
+            0
+          ).replace(/[^0-9.-]/g, "")) || 0;
 
           if (!date)        soNoDate++;
           if (!orderNumber) soNoOrderNum++;

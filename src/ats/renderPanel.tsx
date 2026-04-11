@@ -150,7 +150,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           <div ref={poDropRef} style={{ position: "relative" }}>
             <button
               style={{ ...S.select, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", minWidth: 140, justifyContent: "space-between" }}
-              onClick={() => { setPoDropOpen(o => !o); setSoDropOpen(false); }}
+              onClick={() => { setPoDropOpen(!poDropOpen); setSoDropOpen(false); }}
             >
               <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, marginRight: 2 }}>Store:</span>
               <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -504,7 +504,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
             <button
               style={{ ...S.navBtn, opacity: page === 0 ? 0.3 : 1, cursor: page === 0 ? "default" : "pointer" }}
               disabled={page === 0}
-              onClick={() => setPage(p => Math.max(0, p - 1))}
+              onClick={() => setPage(Math.max(0, page - 1))}
             >← Prev</button>
             <span style={{ color: "#9CA3AF", fontSize: 13 }}>
               Page {page + 1} of {totalPages} &nbsp;·&nbsp; {filtered.length.toLocaleString()} SKUs
@@ -512,7 +512,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
             <button
               style={{ ...S.navBtn, opacity: page >= totalPages - 1 ? 0.3 : 1, cursor: page >= totalPages - 1 ? "default" : "pointer" }}
               disabled={page >= totalPages - 1}
-              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+              onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
             >Next →</button>
           </div>
         )}

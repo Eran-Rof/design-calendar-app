@@ -962,7 +962,7 @@ function ATSReport() {
 
   // ── Sort by column header click ─────────────────────────────────────────
   function handleThClick(col: string) {
-    if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
+    if (sortCol === col) setSortDir(sortDir === "asc" ? "desc" : "asc");
     else { setSortCol(col); setSortDir("asc"); }
   }
 
