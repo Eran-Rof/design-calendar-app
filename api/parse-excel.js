@@ -121,6 +121,7 @@ export default async function handler(req, res) {
       // ── 3. All Orders Report → SO events (outgoing) ───────────────────────
       const sos = [];
       let soTotal = 0, soNoDate = 0, soNoOrderNum = 0, soNoCustName = 0;
+      let soNoUnitPrice = 0;
 
       for (const r of ordRows) {
         const base  = str(r["Base Part"]);
@@ -160,6 +161,7 @@ export default async function handler(req, res) {
           if (!date)        soNoDate++;
           if (!orderNumber) soNoOrderNum++;
           if (!customerName) soNoCustName++;
+          if (unitPrice <= 0 && totalPrice <= 0) soNoUnitPrice++;
 
           const saleStore = str(r["Sale Store"] || r["Store"] || r["Channel"] || "");
           const brand     = str(r["Brand"] || r["Brand Name"] || "");
@@ -199,6 +201,26 @@ export default async function handler(req, res) {
           affected: soNoCustName,
           total: soTotal,
           message: `${soNoCustName} of ${soTotal} sales order lines are missing a customer name.`,
+        });
+      }
+      // If *every* sales order line came through with 0 unit & total price, the
+      // file almost certainly uses a column name we don't recognize. Surface the
+      // detected headers so the user can tell us which one to add.
+      if (soTotal > 0 && soNoUnitPrice === soTotal) {
+        const priceLikeHeaders = columnNames.orders.filter(h =>
+          /price|cost|amount/i.test(h)
+        );
+        warnings.push({
+          severity: "warn",
+          field: "Order Unit Price",
+          affected: soTotal,
+          total: soTotal,
+          message:
+            `All ${soTotal} sales order lines have $0 for unit/total price — ` +
+            `no recognized price column was found. $ on Order and margin will be 0. ` +
+            (priceLikeHeaders.length
+              ? `Detected price-like headers: ${priceLikeHeaders.map(h => `"${h}"`).join(", ")}.`
+              : `No price-like headers were detected in the order file.`),
         });
       }
       if (poNoDate > 0) {

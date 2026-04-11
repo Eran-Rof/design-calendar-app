@@ -57,8 +57,18 @@ export interface ATSState {
   atShip: boolean;
 }
 
+// Per-field SET action so `value` is typed to match `field`.
+// Allowing a functional updater (prev => next) keeps React-style ergonomics.
+export type SetAction = {
+  [K in keyof ATSState]: {
+    type: "SET";
+    field: K;
+    value: ATSState[K] | ((prev: ATSState[K]) => ATSState[K]);
+  };
+}[keyof ATSState];
+
 export type ATSAction =
-  | { type: "SET"; field: keyof ATSState; value: any }
+  | SetAction
   | { type: "UPLOAD_START" }
   | { type: "UPLOAD_PROGRESS"; step: string; pct: number }
   | { type: "UPLOAD_DONE"; message: string }

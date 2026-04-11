@@ -2,8 +2,95 @@ import React from "react";
 import S from "./styles";
 import { StatCard } from "./StatCard";
 import { fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg } from "./helpers";
+import type { ATSState } from "./state/atsTypes";
+import type { ATSRow, ExcelData, ATSPoEvent, ATSSoEvent, UploadWarning } from "./types";
+import type { NormChange } from "./normalize";
 
-export type ATSRenderCtx = Record<string, any>;
+// Functional-updater-aware setter, matches the shape produced by ATS.tsx's `mk()`
+type Setter<T> = (v: T | ((prev: T) => T)) => void;
+
+// Setters for every top-level field on ATSState — auto-derived so new state
+// fields only need to be added in one place (atsTypes.ts). Partial because
+// the render panel only pulls the subset of setters it actually uses; the
+// type check still catches typos and type mismatches on any passed setter.
+type ATSStateSetters = Partial<{
+  [K in keyof ATSState as `set${Capitalize<string & K>}`]: Setter<ATSState[K]>;
+}>;
+
+// Non-state values computed each render in ATS.tsx and handed to the panel.
+interface ATSDerivedCtx {
+  // Constants
+  STORES: readonly string[];
+  PAGE_SIZE: number;
+  // Store filter aliases
+  poStores: string[];
+  soStores: string[];
+  // Refs
+  poDropRef: React.RefObject<HTMLDivElement>;
+  soDropRef: React.RefObject<HTMLDivElement>;
+  invRef: React.RefObject<HTMLInputElement>;
+  purRef: React.RefObject<HTMLInputElement>;
+  ordRef: React.RefObject<HTMLInputElement>;
+  ctxRef: React.RefObject<HTMLDivElement>;
+  summaryCtxRef: React.RefObject<HTMLDivElement>;
+  tableRef: React.RefObject<HTMLDivElement>;
+  cancelRef: React.MutableRefObject<boolean>;
+  abortRef: React.MutableRefObject<AbortController | null>;
+  // Computed data
+  dates: string[];
+  displayPeriods: Array<{ key: string; periodStart: string; endDate: string; label: string; isToday: boolean; isWeekend: boolean }>;
+  eventIndex: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null;
+  filtered: ATSRow[];
+  statFiltered: ATSRow[];
+  sortedFiltered: ATSRow[];
+  pageRows: ATSRow[];
+  totalPages: number;
+  categories: string[];
+  filteredSkuSet: Set<string>;
+  todayKey: string;
+  // Summary stats
+  totalSoValue: number;
+  totalPoValue: number;
+  marginDollars: number;
+  marginPct: number;
+  lowStock: number;
+  negATSCount: number;
+  zeroStock: number;
+  totalSKUs: number;
+  totalPoQty: number;
+  totalSoQty: number;
+  syncProgress: { step: string; pct: number; log: string[] } | null;
+  // Drag state (plain useState, not reducer)
+  dragSku: string | null;
+  setDragSku: (v: string | null) => void;
+  dragOverSku: string | null;
+  setDragOverSku: (v: string | null) => void;
+  pendingMerge: { fromSku: string; toSku: string; similarity: number } | null;
+  setPendingMerge: (v: { fromSku: string; toSku: string; similarity: number } | null) => void;
+  isAdmin: boolean;
+  // Callbacks
+  handleFileUpload: (inv: File, pur: File | null, ord: File) => Promise<void>;
+  refreshPOsFromWIP: () => Promise<void>;
+  handleThClick: (col: string) => void;
+  loadFromSupabase: () => Promise<void>;
+  saveUploadData: (data: ExcelData) => Promise<void>;
+  toggleStore: (current: string[], set: (v: string[]) => void, store: string) => void;
+  exportToExcel: (rows: ATSRow[], periods: Array<{ endDate: string; label: string }>, atShip: boolean) => void;
+  repositionCtxMenu: () => void;
+  repositionSummaryCtx: () => void;
+  cancelUpload: () => void;
+  openSummaryCtx: (e: React.MouseEvent, type: "onHand" | "onOrder" | "onPO", row: ATSRow) => void;
+  getEventsInPeriod: (sku: string, periodStart: string, endDate: string, rowStore?: string) => { pos: ATSPoEvent[]; sos: ATSSoEvent[] };
+  applyNormReview: () => void;
+  dismissNormReview: () => void;
+  commitMerge: (fromSku: string, toSku: string) => void;
+  handleSkuDrop: (fromSku: string, toSku: string) => void;
+  undoLastMerge: () => Promise<void>;
+  clearAllAtsData: () => Promise<void>;
+  saveMergeHistory: (history: Array<{ fromSku: string; toSku: string }>) => Promise<void>;
+}
+
+export type ATSRenderCtx = ATSState & ATSStateSetters & ATSDerivedCtx;
 
 export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
   const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterStatus, setFilterStatus, minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, syncing, syncStatus, lastSync, syncError, setSyncError, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, sortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
@@ -150,7 +237,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           <div ref={poDropRef} style={{ position: "relative" }}>
             <button
               style={{ ...S.select, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", minWidth: 140, justifyContent: "space-between" }}
-              onClick={() => { setPoDropOpen(!poDropOpen); setSoDropOpen(false); }}
+              onClick={() => { setPoDropOpen(o => !o); setSoDropOpen(false); }}
             >
               <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, marginRight: 2 }}>Store:</span>
               <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -504,7 +591,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
             <button
               style={{ ...S.navBtn, opacity: page === 0 ? 0.3 : 1, cursor: page === 0 ? "default" : "pointer" }}
               disabled={page === 0}
-              onClick={() => setPage(Math.max(0, page - 1))}
+              onClick={() => setPage(p => Math.max(0, p - 1))}
             >← Prev</button>
             <span style={{ color: "#9CA3AF", fontSize: 13 }}>
               Page {page + 1} of {totalPages} &nbsp;·&nbsp; {filtered.length.toLocaleString()} SKUs
@@ -512,7 +599,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
             <button
               style={{ ...S.navBtn, opacity: page >= totalPages - 1 ? 0.3 : 1, cursor: page >= totalPages - 1 ? "default" : "pointer" }}
               disabled={page >= totalPages - 1}
-              onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
+              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
             >Next →</button>
           </div>
         )}

@@ -9,7 +9,7 @@ import { normalizeExcelData, detectNormChanges, applyNormChanges, type NormChang
 import S from "./ats/styles";
 import { StatCard } from "./ats/StatCard";
 import { ATSProvider, useATSState, useATSDispatch } from "./ats/state/ATSContext";
-import type { ATSState } from "./ats/state/atsTypes";
+import type { ATSState, ATSAction } from "./ats/state/atsTypes";
 import { atsRenderPanel } from "./ats/renderPanel";
 
 // ── Main Component ────────────────────────────────────────────────────────────
@@ -20,97 +20,72 @@ export default function ATSReportWrapper() {
 function ATSReport() {
   const st = useATSState();
   const stD = useATSDispatch();
-  const stSet = <K extends keyof ATSState>(field: K, value: ATSState[K]) => stD({ type: "SET", field, value });
+  // Typed setter factory: accepts a plain value OR a functional updater
+  // (prev => next), mirroring React's useState API. The reducer resolves
+  // updaters against current state, so functional form is always safe.
+  type Updater<T> = T | ((prev: T) => T);
+  // The `as ATSAction` cast is required because TS can't prove a generic K
+  // satisfies any individual variant of the discriminated SetAction union.
+  // The runtime shape is correct — the reducer handles both plain values and
+  // functional updaters.
+  const mk = <K extends keyof ATSState>(field: K) =>
+    (value: Updater<ATSState[K]>) => stD({ type: "SET", field, value } as ATSAction);
   const today = new Date();
   // ── State → useATSState() + useATSDispatch() (see ats/state/) ──
-  const startDate = st.startDate;
-  const rangeUnit = st.rangeUnit;
-  const rangeValue = st.rangeValue;
-  const search = st.search;
-  const filterCategory = st.filterCategory;
-  const filterStatus = st.filterStatus;
-  const minATS = st.minATS;
-  const storeFilter = st.storeFilter;
-  const poDropOpen = st.poDropOpen;
-  const soDropOpen = st.soDropOpen;
-  const rows = st.rows;
-  const loading = st.loading;
-  const mockMode = st.mockMode;
-  const page = st.page;
-  const excelData = st.excelData;
-  const uploadingFile = st.uploadingFile;
-  const uploadProgress = st.uploadProgress;
-  const uploadSuccess = st.uploadSuccess;
-  const uploadError = st.uploadError;
-  const uploadWarnings = st.uploadWarnings;
-  const pendingUploadData = st.pendingUploadData;
-  const showUpload = st.showUpload;
-  const invFile = st.invFile;
-  const purFile = st.purFile;
-  const ordFile = st.ordFile;
-  const syncing = st.syncing;
-  const syncStatus = st.syncStatus;
-  const lastSync = st.lastSync;
-  const syncError = st.syncError;
-  const hoveredCell = st.hoveredCell;
-  const pinnedSku = st.pinnedSku;
-  const ctxMenu = st.ctxMenu;
-  const summaryCtx = st.summaryCtx;
-  const activeSort = st.activeSort;
-  const sortCol = st.sortCol;
-  const sortDir = st.sortDir;
-  const setStartDate = (v: string) => stSet("startDate", v);
-  const setRangeUnit = (v: "days" | "weeks" | "months") => stSet("rangeUnit", v);
-  const setRangeValue = (v: number) => stSet("rangeValue", v);
-  const setSearch = (v: string) => stSet("search", v);
-  const setFilterCategory = (v: string) => stSet("filterCategory", v);
-  const setFilterStatus = (v: string) => stSet("filterStatus", v);
-  const setMinATS = (v: number | "") => stSet("minATS", v);
-  const setStoreFilter = (v: string[]) => stSet("storeFilter", v);
-  const setPoDropOpen = (v: boolean) => stSet("poDropOpen", v);
-  const setSoDropOpen = (v: boolean) => stSet("soDropOpen", v);
-  const setRows = (v: any) => stSet("rows", v);
-  const setLoading = (v: boolean) => stSet("loading", v);
-  const setMockMode = (v: boolean) => stSet("mockMode", v);
-  const setPage = (v: number) => stSet("page", v);
-  const setExcelData = (v: any) => stSet("excelData", v);
-  const setUploadingFile = (v: boolean) => stSet("uploadingFile", v);
-  const setUploadProgress = (v: any) => stSet("uploadProgress", v);
-  const setUploadSuccess = (v: any) => stSet("uploadSuccess", v);
-  const setUploadError = (v: any) => stSet("uploadError", v);
-  const setUploadWarnings = (v: any) => stSet("uploadWarnings", v);
-  const setPendingUploadData = (v: any) => stSet("pendingUploadData", v);
-  const setShowUpload = (v: boolean) => stSet("showUpload", v);
-  const setInvFile = (v: any) => stSet("invFile", v);
-  const setPurFile = (v: any) => stSet("purFile", v);
-  const setOrdFile = (v: any) => stSet("ordFile", v);
-  const setSyncing = (v: boolean) => stSet("syncing", v);
-  const setSyncStatus = (v: string) => stSet("syncStatus", v);
-  const setLastSync = (v: string) => stSet("lastSync", v);
-  const setSyncError = (v: any) => stSet("syncError", v);
-  const setHoveredCell = (v: any) => stSet("hoveredCell", v);
-  const setPinnedSku = (v: any) => stSet("pinnedSku", v);
-  const setCtxMenu = (v: any) => stSet("ctxMenu", v);
-  const setSummaryCtx = (v: any) => stSet("summaryCtx", v);
-  const setActiveSort = (v: any) => stSet("activeSort", v);
-  const setSortCol = (v: any) => stSet("sortCol", v);
-  const setSortDir = (v: "asc" | "desc") => stSet("sortDir", v);
-  const mergeHistory = st.mergeHistory;
-  const setMergeHistory = (v: Array<{ fromSku: string; toSku: string }>) => stSet("mergeHistory", v);
-  const atShip = st.atShip;
-  const setAtShip = (v: boolean) => stSet("atShip", v);
-  const normChanges = st.normChanges;
-  const normPendingData = st.normPendingData;
-  const normSource = st.normSource;
-  const setNormChanges = (v: NormChange[] | null) => stSet("normChanges", v);
-  const setNormPendingData = (v: ExcelData | null) => stSet("normPendingData", v);
-  const setNormSource = (v: "upload" | "load") => stSet("normSource", v);
-  const customerFilter = st.customerFilter;
-  const customerDropOpen = st.customerDropOpen;
-  const customerSearch = st.customerSearch;
-  const setCustomerFilter = (v: string) => stSet("customerFilter", v);
-  const setCustomerDropOpen = (v: boolean) => stSet("customerDropOpen", v);
-  const setCustomerSearch = (v: string) => stSet("customerSearch", v);
+  const {
+    startDate, rangeUnit, rangeValue, search, filterCategory, filterStatus,
+    minATS, storeFilter, poDropOpen, soDropOpen, rows, loading, mockMode,
+    page, excelData, uploadingFile, uploadProgress, uploadSuccess, uploadError,
+    uploadWarnings, pendingUploadData, showUpload, invFile, purFile, ordFile,
+    syncing, syncStatus, lastSync, syncError, hoveredCell, pinnedSku, ctxMenu,
+    summaryCtx, activeSort, sortCol, sortDir, mergeHistory, atShip,
+    normChanges, normPendingData, normSource, customerFilter, customerDropOpen,
+    customerSearch,
+  } = st;
+  const setStartDate         = mk("startDate");
+  const setRangeUnit         = mk("rangeUnit");
+  const setRangeValue        = mk("rangeValue");
+  const setSearch            = mk("search");
+  const setFilterCategory    = mk("filterCategory");
+  const setFilterStatus      = mk("filterStatus");
+  const setMinATS            = mk("minATS");
+  const setStoreFilter       = mk("storeFilter");
+  const setPoDropOpen        = mk("poDropOpen");
+  const setSoDropOpen        = mk("soDropOpen");
+  const setRows              = mk("rows");
+  const setLoading           = mk("loading");
+  const setMockMode          = mk("mockMode");
+  const setPage              = mk("page");
+  const setExcelData         = mk("excelData");
+  const setUploadingFile     = mk("uploadingFile");
+  const setUploadProgress    = mk("uploadProgress");
+  const setUploadSuccess     = mk("uploadSuccess");
+  const setUploadError       = mk("uploadError");
+  const setUploadWarnings    = mk("uploadWarnings");
+  const setPendingUploadData = mk("pendingUploadData");
+  const setShowUpload        = mk("showUpload");
+  const setInvFile           = mk("invFile");
+  const setPurFile           = mk("purFile");
+  const setOrdFile           = mk("ordFile");
+  const setSyncing           = mk("syncing");
+  const setSyncStatus        = mk("syncStatus");
+  const setLastSync          = mk("lastSync");
+  const setSyncError         = mk("syncError");
+  const setHoveredCell       = mk("hoveredCell");
+  const setPinnedSku         = mk("pinnedSku");
+  const setCtxMenu           = mk("ctxMenu");
+  const setSummaryCtx        = mk("summaryCtx");
+  const setActiveSort        = mk("activeSort");
+  const setSortCol           = mk("sortCol");
+  const setSortDir           = mk("sortDir");
+  const setMergeHistory      = mk("mergeHistory");
+  const setAtShip            = mk("atShip");
+  const setNormChanges       = mk("normChanges");
+  const setNormPendingData   = mk("normPendingData");
+  const setNormSource        = mk("normSource");
+  const setCustomerFilter    = mk("customerFilter");
+  const setCustomerDropOpen  = mk("customerDropOpen");
+  const setCustomerSearch    = mk("customerSearch");
   const STORES = ["ROF", "ROF ECOM", "PT"] as const;
   const poStores = storeFilter;
   const soStores = storeFilter;
@@ -962,7 +937,7 @@ function ATSReport() {
 
   // ── Sort by column header click ─────────────────────────────────────────
   function handleThClick(col: string) {
-    if (sortCol === col) setSortDir(sortDir === "asc" ? "desc" : "asc");
+    if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
     else { setSortCol(col); setSortDir("asc"); }
   }
 
@@ -1005,7 +980,8 @@ function ATSReport() {
     handleFileUpload, refreshPOsFromWIP, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel,
     repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef,
     cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress,
-    normChanges, setNormChanges, applyNormReview, dismissNormReview,
+    normChanges, setNormChanges, normPendingData, setNormPendingData, normSource, setNormSource,
+    applyNormReview, dismissNormReview,
     customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch,
     dragSku, setDragSku, dragOverSku, setDragOverSku,
     pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
