@@ -610,11 +610,28 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
           )}
         </div>
 
-        {/* ── COMPOSE MODAL */}
+        {/* ── COMPOSE MODAL (centered, draggable) */}
         {emailComposeOpen && (
-          <div style={{ position: "absolute", inset: 0, zIndex: 100, pointerEvents: "none" }}>
-            <div style={{ position: "absolute", bottom: 0, right: 0, width: 520, background: C.bg1, border: `1px solid ${C.border2}`, borderRadius: "12px 12px 0 0", boxShadow: "0 -8px 32px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", pointerEvents: "all" }}>
-              <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: C.bg2, borderRadius: "12px 12px 0 0" }}>
+          <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.3)" }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ width: 560, maxHeight: "90vh", background: C.bg1, border: `1px solid ${C.border2}`, borderRadius: 12, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", overflow: "hidden" }}
+              onClick={e => e.stopPropagation()}>
+              <div
+                style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: C.bg2, borderRadius: "12px 12px 0 0", cursor: "grab", userSelect: "none" as const }}
+                onMouseDown={e => {
+                  const modal = e.currentTarget.parentElement as HTMLElement;
+                  const rect = modal.getBoundingClientRect();
+                  const startX = e.clientX, startY = e.clientY;
+                  const origLeft = rect.left, origTop = rect.top;
+                  modal.style.position = "fixed";
+                  modal.style.margin = "0";
+                  modal.style.left = origLeft + "px";
+                  modal.style.top = origTop + "px";
+                  const onMove = (ev: MouseEvent) => { modal.style.left = (origLeft + ev.clientX - startX) + "px"; modal.style.top = (origTop + ev.clientY - startY) + "px"; };
+                  const onUp = () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
+                  document.addEventListener("mousemove", onMove);
+                  document.addEventListener("mouseup", onUp);
+                }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: C.text1 }}>New Message</span>
                 <button onClick={() => { emSet("emailComposeOpen", false); emSet("emailSendErr", null); }} style={{ ...iconBtn, color: C.text2 }}>✕</button>
               </div>
