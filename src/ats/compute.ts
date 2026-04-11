@@ -1,4 +1,5 @@
 import type { ATSRow, ExcelData } from "./types";
+import { dedupeSkuEntries } from "./merge";
 
 export function computeRowsFromExcelData(data: ExcelData, dates: string[], poStores: string[] = ["All"], soStores: string[] = ["All"]): ATSRow[] {
   const allPo = poStores.includes("All");
@@ -22,31 +23,9 @@ export function computeRowsFromExcelData(data: ExcelData, dates: string[], poSto
 
   const rangeStart = dates[0];
 
-  // Dedupe skus by sku+store — defensive guard against duplicate source rows
-  // (upload artifacts, legacy merges) that would otherwise render twice.
-  const dedupedSkus: typeof data.skus = [];
-  const seen = new Map<string, number>();
-  for (const s of data.skus) {
-    const key = `${s.sku}::${s.store ?? "ROF"}`;
-    const idx = seen.get(key);
-    if (idx === undefined) {
-      seen.set(key, dedupedSkus.length);
-      dedupedSkus.push({ ...s });
-    } else {
-      const prev = dedupedSkus[idx];
-      const totalOnHand = (prev.onHand || 0) + (s.onHand || 0);
-      const anyCost = prev.avgCost != null || s.avgCost != null;
-      const costSum = (prev.avgCost ?? 0) * (prev.onHand || 0) + (s.avgCost ?? 0) * (s.onHand || 0);
-      dedupedSkus[idx] = {
-        ...prev,
-        onHand:      totalOnHand,
-        onOrder:     (prev.onOrder     || 0) + (s.onOrder     || 0),
-        onCommitted: (prev.onCommitted || 0) + (s.onCommitted || 0),
-        totalAmount: (prev.totalAmount || 0) + (s.totalAmount || 0),
-        avgCost: anyCost && totalOnHand > 0 ? costSum / totalOnHand : (prev.avgCost ?? s.avgCost ?? null),
-      };
-    }
-  }
+  // Belt-and-suspenders dedupe — upload/load paths already clean the data,
+  // but a second pass here is cheap and catches legacy snapshots.
+  const dedupedSkus = dedupeSkuEntries(data.skus);
 
   return dedupedSkus.map(s => {
     const rowKey = `${s.sku}::${s.store ?? "ROF"}`;

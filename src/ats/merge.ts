@@ -1,4 +1,45 @@
-import type { ATSRow, ExcelData } from "./types";
+import type { ATSRow, ATSSkuData, ExcelData } from "./types";
+
+// Collapses duplicate sku entries (same sku + same store) into a single row
+// by summing numeric fields and computing a weighted avg cost. Pure; safe to
+// run on already-clean data. Used both at upload time (persisted) and as a
+// belt-and-suspenders guard inside computeRowsFromExcelData.
+export function dedupeSkuEntries(skus: ATSSkuData[]): ATSSkuData[] {
+  const out: ATSSkuData[] = [];
+  const seen = new Map<string, number>();
+  for (const s of skus) {
+    const key = `${s.sku}::${s.store ?? "ROF"}`;
+    const idx = seen.get(key);
+    if (idx === undefined) {
+      seen.set(key, out.length);
+      out.push({ ...s });
+      continue;
+    }
+    const prev = out[idx];
+    const totalOnHand = (prev.onHand || 0) + (s.onHand || 0);
+    const anyCost = prev.avgCost != null || s.avgCost != null;
+    const costSum =
+      (prev.avgCost ?? 0) * (prev.onHand || 0) +
+      (s.avgCost   ?? 0) * (s.onHand   || 0);
+    out[idx] = {
+      ...prev,
+      onHand:      totalOnHand,
+      onOrder:     (prev.onOrder     || 0) + (s.onOrder     || 0),
+      onCommitted: (prev.onCommitted || 0) + (s.onCommitted || 0),
+      totalAmount: (prev.totalAmount || 0) + (s.totalAmount || 0),
+      avgCost: anyCost && totalOnHand > 0 ? costSum / totalOnHand : (prev.avgCost ?? s.avgCost ?? undefined),
+    };
+  }
+  return out;
+}
+
+// Wraps dedupeSkuEntries for whole ExcelData blobs — call this in the upload
+// and load pipelines before persistence.
+export function dedupeExcelData(data: ExcelData): ExcelData {
+  const skus = dedupeSkuEntries(data.skus);
+  if (skus.length === data.skus.length) return data; // no change
+  return { ...data, skus };
+}
 
 // Bakes a `fromSku → toSku` merge into an ExcelData blob: renames events,
 // folds all matching sku entries (including duplicates across stores or

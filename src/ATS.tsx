@@ -4,7 +4,7 @@ import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
 import type { ATSRow, ATSSnapshot, ATSSkuData, ATSPoEvent, ATSSoEvent, UploadWarning, ExcelData, CtxMenu, SummaryCtxMenu } from "./ats/types";
 import { addDays, fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, skuSimilarity } from "./ats/helpers";
 import { computeRowsFromExcelData } from "./ats/compute";
-import { mergeExcelDataSkus, mergeRows } from "./ats/merge";
+import { mergeExcelDataSkus, mergeRows, dedupeExcelData } from "./ats/merge";
 import { exportToExcel } from "./ats/exportExcel";
 import { normalizeExcelData, detectNormChanges, applyNormChanges, type NormChange } from "./ats/normalize";
 import S from "./ats/styles";
@@ -416,12 +416,13 @@ function ATSReport() {
       if (!excelRes.ok) throw new Error(`Failed to load Excel data: ${excelRes.status}`);
       const excelRows = await excelRes.json();
       if (Array.isArray(excelRows) && excelRows[0]?.value) {
-        const data: ExcelData = JSON.parse(excelRows[0].value);
+        // Clean stored blob on load (legacy uploads may have duplicates baked in).
+        const data: ExcelData = dedupeExcelData(JSON.parse(excelRows[0].value));
         // Auto-refresh PO data from PO WIP on every load
         let freshData = data;
         try {
           const base = { ...data, pos: [], skus: data.skus.map((s: any) => ({ ...s, onOrder: 0 })) };
-          freshData = await applyPOWIPData(base);
+          freshData = dedupeExcelData(await applyPOWIPData(base));
         } catch (e) {
           console.warn("Auto PO refresh failed, using cached data:", e);
         }
@@ -589,7 +590,12 @@ function ATSReport() {
     }
   }
 
-  async function saveUploadData(data: ExcelData) {
+  async function saveUploadData(rawData: ExcelData) {
+    // Collapse any duplicate sku+store rows BEFORE persistence so the
+    // stored blob is clean — compute.ts still has a safety net but this
+    // means Supabase, base snapshot, and merge replays all work with
+    // clean data instead of relying on the render pass to fix it.
+    const data = dedupeExcelData(rawData);
     setUploadingFile(true);
     setUploadWarnings(null);
     setPendingUploadData(null);

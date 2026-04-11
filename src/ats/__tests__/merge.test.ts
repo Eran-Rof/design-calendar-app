@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mergeExcelDataSkus, mergeRows } from "../merge";
+import { mergeExcelDataSkus, mergeRows, dedupeSkuEntries, dedupeExcelData } from "../merge";
 import { computeRowsFromExcelData } from "../compute";
 import type { ExcelData } from "../types";
 
@@ -109,6 +109,54 @@ describe("mergeExcelDataSkus", () => {
     expect(replayed.skus).toHaveLength(1);
     expect(replayed.skus[0].sku).toBe("C");
     expect(replayed.skus[0].onHand).toBe(60); // 10+20+30
+  });
+});
+
+// ── dedupeSkuEntries / dedupeExcelData ───────────────────────────────────
+
+describe("dedupeSkuEntries", () => {
+  it("returns the input unchanged when there are no duplicates", () => {
+    const input = [
+      { sku: "A", store: "ROF",      description: "", onHand: 10, onOrder: 0 },
+      { sku: "A", store: "ROF ECOM", description: "", onHand:  5, onOrder: 0 },
+      { sku: "B", store: "ROF",      description: "", onHand: 20, onOrder: 0 },
+    ];
+    const out = dedupeSkuEntries(input);
+    expect(out).toHaveLength(3);
+  });
+
+  it("sums duplicate sku+store rows with weighted avg cost", () => {
+    const input = [
+      { sku: "X", store: "ROF", description: "", onHand: 10, onOrder: 2, onCommitted: 1, avgCost: 5 },
+      { sku: "X", store: "ROF", description: "", onHand: 20, onOrder: 3, onCommitted: 2, avgCost: 8 },
+    ];
+    const out = dedupeSkuEntries(input);
+    expect(out).toHaveLength(1);
+    expect(out[0].onHand).toBe(30);
+    expect(out[0].onOrder).toBe(5);
+    expect(out[0].onCommitted).toBe(3);
+    // (5*10 + 8*20) / 30 = 7
+    expect(out[0].avgCost).toBeCloseTo(7, 3);
+  });
+
+  it("treats null/undefined store as ROF for dedupe key", () => {
+    const input = [
+      { sku: "X", store: undefined as any, description: "", onHand: 1, onOrder: 0 },
+      { sku: "X", store: "ROF",             description: "", onHand: 1, onOrder: 0 },
+    ];
+    const out = dedupeSkuEntries(input);
+    expect(out).toHaveLength(1);
+    expect(out[0].onHand).toBe(2);
+  });
+
+  it("dedupeExcelData returns the same reference when nothing changes", () => {
+    const data = {
+      syncedAt: "",
+      skus: [{ sku: "A", store: "ROF", description: "", onHand: 1, onOrder: 0 }],
+      pos: [],
+      sos: [],
+    };
+    expect(dedupeExcelData(data)).toBe(data);
   });
 });
 
