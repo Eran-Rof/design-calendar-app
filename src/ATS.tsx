@@ -138,16 +138,15 @@ function ATSReport() {
 
   useEffect(() => {
     fetch(`${SB_URL}/rest/v1/app_data?key=eq.users&select=value`, { headers: SB_HEADERS })
-      .then(r => r.json())
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then(rows => {
         if (!rows?.length) return;
         const users: Array<{ name: string; role?: string }> = JSON.parse(rows[0].value);
-        // Match by stored name; fallback: any admin exists
         const stored = localStorage.getItem("ats_user");
         const match = stored ? users.find(u => u.name === stored) : null;
         setIsAdmin((match ?? users[0])?.role === "admin");
       })
-      .catch(() => {});
+      .catch(e => console.warn("Failed to load admin users:", e));
   }, []);
 
   function mergeExcelDataSkus(data: ExcelData, fromSku: string, toSku: string): ExcelData {
@@ -419,14 +418,12 @@ function ATSReport() {
   }, []);
 
   useEffect(() => {
-    if (mockMode) {
-      setRows(generateMockData(dates));
-    } else if (excelData) {
+    if (excelData) {
       let computed = computeRowsFromExcelData(excelData, dates, poStores, soStores);
       for (const op of mergeHistory) computed = applyMerge(computed, op.fromSku, op.toSku);
       setRows(computed);
     }
-  }, [mockMode, excelData, dates, poStores, soStores, mergeHistory]);
+  }, [excelData, dates, poStores, soStores, mergeHistory]);
 
   // PO data comes from PO WIP (tanda_pos) — no separate Xoro sync needed
   const syncProgress = null;
@@ -489,6 +486,7 @@ function ATSReport() {
         `${SB_URL}/rest/v1/app_data?key=eq.ats_excel_data&select=value`,
         { headers: SB_HEADERS }
       );
+      if (!excelRes.ok) throw new Error(`Failed to load Excel data: ${excelRes.status}`);
       const excelRows = await excelRes.json();
       if (Array.isArray(excelRows) && excelRows[0]?.value) {
         const data: ExcelData = JSON.parse(excelRows[0].value);
@@ -531,6 +529,7 @@ function ATSReport() {
         `${SB_URL}/rest/v1/ats_snapshots?select=*&${dateFilter}&order=sku,date`,
         { headers: SB_HEADERS }
       );
+      if (!res.ok) throw new Error(`Failed to load snapshots: ${res.status}`);
       const data: ATSSnapshot[] = await res.json();
       if (Array.isArray(data) && data.length > 0) {
         const map: Record<string, ATSRow> = {};
@@ -609,6 +608,8 @@ function ATSReport() {
   }
 
   async function handleFileUpload(inv: File, pur: File | null, ord: File) {
+    // Abort any in-progress upload before starting a new one
+    if (abortRef.current) abortRef.current.abort();
     setUploadingFile(true);
     setShowUpload(false);
     cancelRef.current = false;
@@ -735,6 +736,7 @@ function ATSReport() {
     let baseData: ExcelData | null = null;
     try {
       const baseRes = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.ats_base_data&select=value`, { headers: SB_HEADERS });
+      if (!baseRes.ok) throw new Error(`Failed to load base data: ${baseRes.status}`);
       const baseRows = await baseRes.json();
       if (Array.isArray(baseRows) && baseRows[0]?.value) baseData = JSON.parse(baseRows[0].value);
     } catch {}
