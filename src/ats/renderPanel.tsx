@@ -5,6 +5,8 @@ import { fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeeken
 import { StatsRow } from "./panels/StatsRow";
 import { MergeConfirmModal } from "./panels/MergeConfirmModal";
 import { UploadWarningsModal } from "./panels/UploadWarningsModal";
+import { NormalizationReviewModal } from "./panels/NormalizationReviewModal";
+import { UploadProgressOverlay, SuccessToast, SyncErrorModal, UploadErrorModal } from "./panels/StatusOverlays";
 import type { ATSState } from "./state/atsTypes";
 import type { ATSRow, ExcelData, ATSPoEvent, ATSSoEvent, UploadWarning } from "./types";
 import type { NormChange } from "./normalize";
@@ -874,171 +876,17 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         setPendingUploadData={setPendingUploadData}
       />
 
-      {/* SKU NORMALIZATION REVIEW MODAL */}
-      {normChanges && normChanges.length > 0 && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 250, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => dismissNormReview()}>
-          <div style={{ background: "#1E293B", borderRadius: 14, width: 700, maxHeight: "80vh", display: "flex", flexDirection: "column", border: "1px solid #3B82F6" }} onClick={e => e.stopPropagation()}>
-            <div style={{ padding: "16px 20px", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(59,130,246,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>{"✎"}</div>
-              <div>
-                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#F1F5F9" }}>Review SKU Normalization</h2>
-                <div style={{ color: "#94A3B8", fontSize: 12, marginTop: 2 }}>
-                  {normChanges.length} SKU{normChanges.length !== 1 ? "s" : ""} would be renamed · {normChanges.filter(c => c.accepted).length} accepted
-                </div>
-              </div>
-              <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                <button
-                  style={{ background: "none", border: "1px solid #475569", color: "#94A3B8", borderRadius: 6, padding: "5px 12px", fontSize: 11, cursor: "pointer", fontWeight: 600 }}
-                  onClick={() => setNormChanges(normChanges.map(c => ({ ...c, accepted: true })))}
-                >Accept All</button>
-                <button
-                  style={{ background: "none", border: "1px solid #475569", color: "#94A3B8", borderRadius: 6, padding: "5px 12px", fontSize: 11, cursor: "pointer", fontWeight: 600 }}
-                  onClick={() => setNormChanges(normChanges.map(c => ({ ...c, accepted: false })))}
-                >Reject All</button>
-              </div>
-            </div>
-            <div style={{ overflowY: "auto", padding: "12px 20px", flex: 1 }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, fontFamily: "inherit" }}>
-                <thead>
-                  <tr style={{ borderBottom: "1px solid #334155" }}>
-                    <th style={{ padding: "8px 10px", textAlign: "center", color: "#6B7280", fontSize: 10, fontWeight: 600, textTransform: "uppercase", width: 40 }}></th>
-                    <th style={{ padding: "8px 10px", textAlign: "left", color: "#6B7280", fontSize: 10, fontWeight: 600, textTransform: "uppercase" }}>Original</th>
-                    <th style={{ padding: "8px 10px", textAlign: "center", color: "#6B7280", fontSize: 10, width: 30 }}></th>
-                    <th style={{ padding: "8px 10px", textAlign: "left", color: "#6B7280", fontSize: 10, fontWeight: 600, textTransform: "uppercase" }}>Normalized</th>
-                    <th style={{ padding: "8px 10px", textAlign: "left", color: "#6B7280", fontSize: 10, fontWeight: 600, textTransform: "uppercase" }}>Found In</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {normChanges.map((c, i) => (
-                    <tr key={i}
-                      style={{
-                        borderBottom: "1px solid #1E293B",
-                        background: c.accepted ? "rgba(16,185,129,0.06)" : "transparent",
-                        cursor: "pointer",
-                      }}
-                      onClick={() => {
-                        const updated = [...normChanges];
-                        updated[i] = { ...c, accepted: !c.accepted };
-                        setNormChanges(updated);
-                      }}
-                    >
-                      <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                        <div style={{
-                          width: 18, height: 18, borderRadius: 4, display: "inline-flex", alignItems: "center", justifyContent: "center",
-                          border: c.accepted ? "none" : "1px solid #475569",
-                          background: c.accepted ? "#10B981" : "transparent",
-                          color: "#fff", fontSize: 12, fontWeight: 700,
-                        }}>{c.accepted ? "✓" : ""}</div>
-                      </td>
-                      <td style={{ padding: "8px 10px", color: "#FCA5A5", fontFamily: "monospace", fontSize: 11, textDecoration: c.accepted ? "line-through" : "none", opacity: c.accepted ? 0.6 : 1 }}>{c.original}</td>
-                      <td style={{ padding: "8px 10px", textAlign: "center", color: "#475569" }}>→</td>
-                      <td style={{ padding: "8px 10px", color: "#6EE7B7", fontFamily: "monospace", fontSize: 11 }}>{c.normalized}</td>
-                      <td style={{ padding: "8px 10px" }}>
-                        <div style={{ display: "flex", gap: 4 }}>
-                          {c.sources.map(s => (
-                            <span key={s} style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 4, padding: "1px 6px", fontSize: 9, color: "#94A3B8", textTransform: "uppercase" }}>{s}</span>
-                          ))}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div style={{ padding: "14px 20px", borderTop: "1px solid #334155", display: "flex", gap: 10 }}>
-              <button
-                style={{ flex: 1, background: "none", border: "1px solid #475569", color: "#94A3B8", borderRadius: 8, padding: "10px 0", fontSize: 13, cursor: "pointer", fontWeight: 600 }}
-                onClick={() => dismissNormReview()}
-              >Skip All — Keep Original</button>
-              <button
-                style={{ flex: 2, background: "#3B82F6", border: "none", color: "#fff", borderRadius: 8, padding: "10px 0", fontSize: 13, cursor: "pointer", fontWeight: 700 }}
-                onClick={() => applyNormReview()}
-              >Apply {normChanges.filter(c => c.accepted).length} Change{normChanges.filter(c => c.accepted).length !== 1 ? "s" : ""}</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <NormalizationReviewModal
+        normChanges={normChanges}
+        setNormChanges={setNormChanges}
+        applyNormReview={applyNormReview}
+        dismissNormReview={dismissNormReview}
+      />
 
-      {/* UPLOAD PROGRESS OVERLAY */}
-      {uploadProgress && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#1E293B", borderRadius: 14, padding: "28px 32px", width: 380, border: "1px solid #334155" }}>
-            <div style={{ fontWeight: 700, fontSize: 16, color: "#F1F5F9", marginBottom: 8 }}>Uploading…</div>
-            <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 20 }}>{uploadProgress.step}</div>
-            <div style={{ background: "#0F172A", borderRadius: 8, height: 10, overflow: "hidden", marginBottom: 20 }}>
-              <div style={{ height: "100%", borderRadius: 8, background: "linear-gradient(90deg,#10B981,#3B82F6)", width: `${uploadProgress.pct}%`, transition: "width 0.4s ease" }} />
-            </div>
-            <button
-              style={{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 6, padding: "7px 18px", fontSize: 13, cursor: "pointer", width: "100%" }}
-              onClick={cancelUpload}
-            >
-              Cancel Upload
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* SUCCESS TOAST */}
-      {uploadSuccess && (
-        <div style={{ position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)", background: "#064e3b", border: "1px solid #10B981", borderRadius: 10, padding: "12px 24px", color: "#6ee7b7", fontSize: 14, fontWeight: 600, zIndex: 300, display: "flex", alignItems: "center", gap: 10, boxShadow: "0 4px 24px rgba(0,0,0,0.4)" }}>
-          <span style={{ fontSize: 18 }}>✓</span>
-          {uploadSuccess}
-          <button style={{ background: "none", border: "none", color: "#6ee7b7", cursor: "pointer", fontSize: 16, marginLeft: 8 }} onClick={() => setUploadSuccess(null)}>✕</button>
-        </div>
-      )}
-
-      {/* SYNC ERROR MODAL */}
-      {syncError && (
-        <div style={S.modalOverlay} onClick={() => setSyncError(null)}>
-          <div style={{ ...S.modal, width: 460, border: "1px solid #EF4444" }} onClick={e => e.stopPropagation()}>
-            <div style={{ ...S.modalHeader, borderBottom: "1px solid #7f1d1d" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(239,68,68,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>⚠</div>
-                <h2 style={{ ...S.modalTitle, color: "#FCA5A5" }}>{syncError.title}</h2>
-              </div>
-              <button style={S.closeBtn} onClick={() => setSyncError(null)}>✕</button>
-            </div>
-            <div style={{ ...S.modalBody, paddingTop: 20 }}>
-              <p style={{ color: "#F1F5F9", fontSize: 14, marginBottom: 16, lineHeight: 1.6 }}>
-                {syncError.detail}
-              </p>
-              <div style={{ background: "#0F172A", borderRadius: 8, padding: "10px 14px", marginBottom: 20, border: "1px solid #334155" }}>
-                <div style={{ color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, fontWeight: 600 }}>What to check</div>
-                <div style={{ color: "#94A3B8", fontSize: 12, lineHeight: 1.8 }}>
-                  • Verify <span style={{ color: "#60A5FA", fontFamily: "monospace" }}>VITE_XORO_API_KEY</span> and <span style={{ color: "#60A5FA", fontFamily: "monospace" }}>VITE_XORO_API_SECRET</span> are set in Vercel<br/>
-                  • Confirm Xoro API access is enabled for your account<br/>
-                  • Check the browser console for the full error trace
-                </div>
-              </div>
-              <button
-                style={{ ...S.navBtnPrimary, width: "100%", justifyContent: "center", padding: "10px 0" }}
-                onClick={() => setSyncError(null)}
-              >
-                Dismiss
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* UPLOAD ERROR MODAL */}
-      {uploadError && (
-        <div style={S.modalOverlay} onClick={() => setUploadError(null)}>
-          <div style={{ ...S.modal, width: 440, border: "1px solid #EF4444" }} onClick={e => e.stopPropagation()}>
-            <div style={{ ...S.modalHeader, borderBottom: "1px solid #7f1d1d" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(239,68,68,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>⚠</div>
-                <h2 style={{ ...S.modalTitle, color: "#FCA5A5" }}>Upload Failed</h2>
-              </div>
-              <button style={S.closeBtn} onClick={() => setUploadError(null)}>✕</button>
-            </div>
-            <div style={{ ...S.modalBody, paddingTop: 20 }}>
-              <p style={{ color: "#F1F5F9", fontSize: 14, marginBottom: 20, lineHeight: 1.6 }}>{uploadError}</p>
-              <button style={{ ...S.navBtnPrimary, width: "100%", justifyContent: "center", padding: "10px 0" }} onClick={() => setUploadError(null)}>Dismiss</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <UploadProgressOverlay uploadProgress={uploadProgress} cancelUpload={cancelUpload} />
+      <SuccessToast uploadSuccess={uploadSuccess} setUploadSuccess={setUploadSuccess} />
+      <SyncErrorModal syncError={syncError} setSyncError={setSyncError} />
+      <UploadErrorModal uploadError={uploadError} setUploadError={setUploadError} />
 
       {/* UPLOAD MODAL */}
       {showUpload && (
