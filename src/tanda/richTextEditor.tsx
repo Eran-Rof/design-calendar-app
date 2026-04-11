@@ -144,7 +144,7 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = 140 }
           title="Font"
           value={matchedFont?.value || ""}
           onChange={e => { if (e.target.value) editor.chain().focus().setFontFamily(e.target.value).run(); }}
-          style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#94A3B8", fontSize: 11, padding: "3px 4px", height: 26, cursor: "pointer", minWidth: 120, maxWidth: 160 }}
+          style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#94A3B8", fontSize: 11, padding: "3px 6px", height: 26, cursor: "pointer", width: "auto" }}
         >
           <option value="">Font…</option>
           {FONT_CHOICES.map(f => <option key={f.label} value={f.value}>{f.label}</option>)}
