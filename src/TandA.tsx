@@ -2749,6 +2749,13 @@ function TandAApp() {
   // SETTINGS MODAL
   // ════════════════════════════════════════════════════════════════════════════
   const tplDirtyGlobal = tplLocalEdits !== null;
+  function guardedNav(action: () => void) {
+    if (tplDirtyGlobal) {
+      setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes to the production template. Discard them?", icon: "⚠️", confirmText: "Discard", confirmColor: "#EF4444", cancelText: "Go Back", onConfirm: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); action(); } });
+    } else {
+      action();
+    }
+  }
   function closeSettingsGuarded() {
     if (tplDirtyGlobal) {
       setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes to the production template. Discard them?", icon: "⚠️", confirmText: "Discard", confirmColor: "#EF4444", cancelText: "Go Back", onConfirm: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setShowSettings(false); } });
@@ -3012,11 +3019,11 @@ function TandAApp() {
           <span style={S.navSub}>via XoroERP</span>
         </div>
         <div style={S.navRight}>
-          <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("dashboard"); }}>Dashboard</button>
-          <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("list"); }}>All POs</button>
-          <button style={view === "templates" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("templates"); }}>Templates</button>
-          <button style={view === "teams" ? { ...S.navBtnActive, borderColor: TEAMS_PURPLE, color: TEAMS_PURPLE_LT } : { ...S.navBtn, color: TEAMS_PURPLE_LT }} onClick={() => { setSelected(null); setView("teams"); }}>💬 Teams</button>
-          <button style={view === "email" ? S.navBtnActive : S.navBtn} onClick={() => {
+          <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("dashboard"); })}>Dashboard</button>
+          <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("list"); })}>All POs</button>
+          <button style={view === "templates" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("templates"); })}>Templates</button>
+          <button style={view === "teams" ? { ...S.navBtnActive, borderColor: TEAMS_PURPLE, color: TEAMS_PURPLE_LT } : { ...S.navBtn, color: TEAMS_PURPLE_LT }} onClick={() => guardedNav(() => { setSelected(null); setView("teams"); })}>💬 Teams</button>
+          <button style={view === "email" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => {
             setSelected(null); setView("email");
             if (emailSelPO && msToken) {
               loadPOEmails(emailSelPO, undefined, true);
@@ -3029,11 +3036,11 @@ function TandAApp() {
               const firstPO = (sorted[0]?.PoNumber ?? "") as string;
               if (firstPO) { setEmailSelPO(firstPO); setEmailSelectedId(null); setEmailSelMsg(null); setEmailThreadMsgs([]); setEmailActiveFolder("inbox"); loadPOEmails(firstPO, undefined, true); }
             }
-          }}>📧 Email</button>
-          <button style={view === "activity" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("activity"); }}>📋 Activity</button>
-          <button style={view === "vendors" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("vendors"); loadArchivedPOs(); }}>🏆 Vendors</button>
-          <button style={view === "timeline" ? S.navBtnActive : S.navBtn} onClick={() => { if (selected) setSearch(selected.PoNumber ?? ""); setView("timeline"); }}>📊 Timeline</button>
-          <button style={view === "archive" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("archive"); loadArchivedPOs(); }}>📦 Archive{archivedPos.length > 0 ? ` (${archivedPos.length})` : ""}</button>
+          })}>📧 Email</button>
+          <button style={view === "activity" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("activity"); })}>📋 Activity</button>
+          <button style={view === "vendors" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("vendors"); loadArchivedPOs(); })}>🏆 Vendors</button>
+          <button style={view === "timeline" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { if (selected) setSearch(selected.PoNumber ?? ""); setView("timeline"); })}>📊 Timeline</button>
+          <button style={view === "archive" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("archive"); loadArchivedPOs(); })}>📦 Archive{archivedPos.length > 0 ? ` (${archivedPos.length})` : ""}</button>
           <button style={S.navBtn} onClick={() => { setShowBulkUpdate(true); setBulkVendor(""); setBulkPhase(""); setBulkPhases([]); setBulkCategory(""); setBulkStatus(""); setBulkPOs([]); setBulkPOSearch(""); }}>⚡ Bulk Update</button>
           <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing} title="Sync POs from Xoro">
             {syncing ? "⏳ Syncing…" : "🔄 Sync"}
