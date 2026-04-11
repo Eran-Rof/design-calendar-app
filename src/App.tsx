@@ -763,20 +763,7 @@ function App() {
 
       {showWizard && (
         <Modal title="New Collection" onClose={() => setShowWizard(false)} wide>
-          <CollectionWizard
-            orderTypes={orderTypes}
-            vendors={vendors}
-            team={team}
-            customers={customers}
-            seasons={seasons}
-            taskTemplates={taskTemplates}
-            genders={genders}
-            genderSizes={genderSizes}
-            brands={brands}
-            categories={categoryLib}
-            onSave={useAppStore.getState().addCollection}
-            onClose={() => setShowWizard(false)}
-          />
+          <CollectionWizard onClose={() => setShowWizard(false)} />
         </Modal>
       )}
       {showVendors && (
@@ -869,21 +856,6 @@ function App() {
       )}
       {editTask && (
         <TaskEditModal
-          task={editTask}
-          team={team}
-          collections={collections}
-          allTasks={tasks}
-          vendors={vendors}
-          onSave={useAppStore.getState().saveTask}
-          onQuietSave={useAppStore.getState().quietSaveTask}
-          onSaveCascade={useAppStore.getState().saveCascade}
-          onDelete={useAppStore.getState().deleteTask}
-          onClose={() => setEditTask(null)}
-          currentUser={currentUser}
-          customerList={customers}
-          orderTypes={orderTypes}
-          genders={genders}
-          undoConfirm={undoConfirm}
           onUndoConfirm={(confirmed) => {
             if (confirmed && undoConfirm) {
               setTasks(undoConfirm.prevTasks);
@@ -902,19 +874,6 @@ function App() {
       )}
       {editCollKey && (
         <EditCollectionModal
-          collKey={editCollKey}
-          collMap={collMap}
-          collections={collections}
-          tasks={tasks}
-          setTasks={setTasks}
-          setCollections={setCollections}
-          seasons={seasons}
-          customerList={customers}
-          orderTypes={orderTypes}
-          brands={brands}
-          genders={genders}
-          categories={categoryLib}
-          currentUser={currentUser}
           onLogActivity={(entries) => setGlobalLog(gl => [...gl, ...entries])}
           onClose={() => setEditCollKey(null)}
         />

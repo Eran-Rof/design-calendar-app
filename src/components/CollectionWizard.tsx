@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { TH } from "../utils/theme";
 import { S } from "../utils/styles";
 import { STATUS_CONFIG, DEFAULT_TASK_TEMPLATES, GENDERS, CATEGORIES, CHANNEL_TYPES, DEFAULT_CUSTOMERS, BRANDS } from "../utils/constants";
+import { useAppStore } from "../store";
 import { uid, formatDate, addDays, diffDays, parseLocalDate, toDateStr, addDaysForPhase, diffDaysForPhase, getBrand, diffBusinessDays, addBusinessDays, getDaysUntil } from "../utils/dates";
 import { generateTasks, getChannelForCustomer } from "../utils/helpers";
 import { DateInput, LeadTimeCell } from "./DateInput";
@@ -106,10 +107,14 @@ function PrevTaskInput({ fromPrev, onCommit }) {
 }
 
 // ─── COLLECTION WIZARD ────────────────────────────────────────────────────────
-function CollectionWizard({ vendors, team, customers, seasons, orderTypes, onSave, onClose, taskTemplates, genders: genderList, genderSizes, brands: brandsProp, categories: categoriesProp }) {
-  const brandList = (brandsProp && brandsProp.length > 0) ? brandsProp : BRANDS;
-  const categoryList = (categoriesProp && categoriesProp.length > 0)
-    ? categoriesProp.map((c: any) => typeof c === "string" ? c : c.name || c.category || c)
+function CollectionWizard({ onClose }: { onClose: () => void }) {
+  const store = useAppStore();
+  const { vendors, team, customers, seasons, orderTypes, taskTemplates, genderSizes } = store;
+  const genderList = store.genders;
+  const onSave = store.addCollection;
+  const brandList = (store.brands && store.brands.length > 0) ? store.brands : BRANDS;
+  const categoryList = (store.categoryLib && store.categoryLib.length > 0)
+    ? store.categoryLib.map((c: any) => typeof c === "string" ? c : c.name || c.category || c)
     : CATEGORIES;
   const [step, setStep] = useState(1);
 

@@ -6,30 +6,29 @@ import { getBrand, addDays } from "../utils/dates";
 import { getChannelForCustomer } from "../utils/helpers";
 import { Modal } from "./Modal";
 import DateInput from "./DateInput";
+import { useAppStore } from "../store";
+import { selectCollMap } from "../store/selectors";
 
 // ─── EDIT COLLECTION MODAL ───────────────────────────────────────────────────
 function EditCollectionModal({
-  collKey,
-  collMap,
-  collections,
-  tasks,
-  setTasks,
-  setCollections,
-  seasons,
-  customerList,
-  orderTypes,
-  brands: brandsProp,
-  genders: gendersProp,
-  categories: categoriesProp,
-  currentUser,
   onLogActivity,
   onClose,
+}: {
+  onLogActivity?: (entries: any[]) => void;
+  onClose: () => void;
 }) {
+  const store = useAppStore();
+  const collKey = store.editCollKey;
+  const collMap = selectCollMap(store);
+  const { collections, tasks, seasons, customers: customerList, orderTypes, currentUser, brands: brandsProp, genders: gendersProp, categoryLib: categoriesProp } = store;
+  const setTasks = store.setTasks;
+  const setCollections = store.setCollections;
   const brandList = (brandsProp && brandsProp.length > 0) ? brandsProp : DEFAULT_BRANDS;
   const genderList = (gendersProp && gendersProp.length > 0) ? gendersProp : DEFAULT_GENDERS;
   const categoryList = (categoriesProp && categoriesProp.length > 0)
     ? categoriesProp.map((c: any) => typeof c === "string" ? c : c.name || c.category || c)
     : DEFAULT_CATEGORIES;
+  if (!collKey) return null;
   const coll = collMap[collKey];
   if (!coll) return null;
   const meta = collections[collKey] || {};

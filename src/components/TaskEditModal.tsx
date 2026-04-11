@@ -11,26 +11,32 @@ import { NoteInput, buildAttachmentPage } from "./NoteInput";
 import ImageUploader from "./ImageUploader";
 import SkuManager from "./SkuManager";
 import { DateInput } from "./DateInput";
+import { useAppStore } from "../store";
 
 function TaskEditModal({
-  task,
-  team,
-  collections,
-  allTasks,
-  onSave,
-  onQuietSave,
-  onSaveCascade,
-  onDelete,
-  onClose,
-  vendors,
-  currentUser,
   onSkuChange,
-  customerList,
-  orderTypes,
-  genders: genderList,
-  undoConfirm,
   onUndoConfirm,
+}: {
+  onSkuChange?: (key: string, skus: any[]) => void;
+  onUndoConfirm?: (confirmed: boolean) => void;
 }) {
+  const store = useAppStore();
+  const task = store.editTask;
+  const team = store.team;
+  const collections = store.collections;
+  const allTasks = store.tasks;
+  const vendors = store.vendors;
+  const currentUser = store.currentUser;
+  const customerList = store.customers;
+  const orderTypes = store.orderTypes;
+  const genderList = store.genders;
+  const undoConfirm = store.undoConfirm;
+  const onSave = store.saveTask;
+  const onQuietSave = store.quietSaveTask;
+  const onSaveCascade = store.saveCascade;
+  const onDelete = store.deleteTask;
+  const onClose = () => store.setField("editTask", null);
+  if (!task) return null;
   const [f, setF] = useState({
     ...task,
     history: task.history || [],
