@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { msSignIn, loadMsTokens, saveMsTokens, clearMsTokens, getMsAccessToken, MS_CLIENT_ID, MS_TENANT_ID } from "./utils/msAuth";
 import { useMSAuth, friendlyContactError } from "./tanda/hooks/useMSAuth";
 import { useDashboardData } from "./tanda/hooks/useDashboardData";
+import { useEmailOps } from "./tanda/hooks/useEmailOps";
 import { useTeamsOps } from "./tanda/hooks/useTeamsOps";
 
 import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
@@ -584,157 +585,27 @@ function TandAApp() {
     });
   }
 
-  async function emailGraph(path: string) {
-    const tok = await getGraphToken();
-    const r = await fetch("https://graph.microsoft.com/v1.0" + path, { headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" } });
-    if (r.status === 401) { handleEmailTokenExpired(); throw new Error("Session expired"); }
-    if (!r.ok) throw new Error("Graph " + r.status + ": " + await r.text());
-    return r.json();
-  }
-  async function emailGraphPost(path: string, body: any) {
-    const tok = await getGraphToken();
-    const r = await fetch("https://graph.microsoft.com/v1.0" + path, { method: "POST", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    if (r.status === 401) { handleEmailTokenExpired(); throw new Error("Session expired"); }
-    if (r.status === 202 || r.status === 200) return r.status === 202 ? {} : r.json();
-    if (!r.ok) throw new Error("Graph " + r.status + ": " + await r.text());
-    return r.json();
-  }
-  async function loadEmailAttachments(messageId: string, force = false) {
-    if (!force && emailAttachments[messageId] !== undefined && emailAttachments[messageId].length > 0) return;
-    setEmailAttachmentsLoading(a => ({ ...a, [messageId]: true }));
-    try {
-      const tok = await getGraphToken();
-      // Expand fileAttachment so we get contentBytes inline; filter out inline images (cid:) since they're embedded in the body.
-      const r = await fetch("https://graph.microsoft.com/v1.0/me/messages/" + messageId + "/attachments?$top=20", { headers: { Authorization: "Bearer " + tok } });
-      if (!r.ok) {
-        const txt = await r.text();
-        console.warn(`loadEmailAttachments(${messageId}) failed:`, r.status, txt);
-        setEmailAttachments(a => ({ ...a, [messageId]: [] }));
-      } else {
-        const d = await r.json();
-        const all = (d.value || []) as any[];
-        // Store ALL attachments (inline + file). Inline ones are used by the
-        // renderer to swap cid: refs to data URLs; file ones show in the chip
-        // list. UI filters at display time.
-        setEmailAttachments(a => ({ ...a, [messageId]: all }));
-      }
-    } catch (e) {
-      console.warn(`loadEmailAttachments(${messageId}) error:`, e);
-      setEmailAttachments(a => ({ ...a, [messageId]: [] }));
-    }
-    setEmailAttachmentsLoading(a => ({ ...a, [messageId]: false }));
-  }
-
-  async function emailMarkAsRead(id: string) {
-    try {
-      const tok = await getGraphToken();
-      await fetch("https://graph.microsoft.com/v1.0/me/messages/" + id, {
-        method: "PATCH",
-        headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" },
-        body: JSON.stringify({ isRead: true }),
-      });
-    } catch {}
-  }
-
-  async function emailGraphDelete(path: string) {
-    const tok = await getGraphToken();
-    const r = await fetch("https://graph.microsoft.com/v1.0" + path, { method: "DELETE", headers: { Authorization: "Bearer " + tok } });
-    if (r.status === 401) { handleEmailTokenExpired(); throw new Error("Session expired"); }
-  }
-  async function deleteMainEmail(messageId: string) {
-    try {
-      // Move to Deleted Items (trash) instead of permanently deleting.
-      // Graph's POST /move with destinationId:"deleteditems" mirrors Outlook's behavior.
-      await emailGraphPost("/me/messages/" + messageId + "/move", { destinationId: "deleteditems" });
-      setEmailSelectedId(null);
-      setEmailSelMsg(null);
-      setEmailDeleteConfirm(null);
-      setEmailThreadMsgs([]);
-      const filterOut = (arr: any[]) => arr.filter((e: any) => e.id !== messageId);
-      if (emailSelPO) {
-        setEmailsMap(m => ({ ...m, [emailSelPO]: filterOut(m[emailSelPO] || []) }));
-        setEmailSentMap(m => ({ ...m, [emailSelPO]: filterOut(m[emailSelPO] || []) }));
-        setDtlEmails(m => ({ ...m, [emailSelPO]: filterOut(m[emailSelPO] || []) }));
-        setDtlSentEmails(m => ({ ...m, [emailSelPO]: filterOut(m[emailSelPO] || []) }));
-      }
-      // Also remove from global caches — use functional updater pattern via
-      // the SET action reading current state, not the stale em closure.
-      setEmailAllMessages((arr: any[]) => (arr || []).filter((e: any) => e.id !== messageId));
-    } catch(e) { console.error("Delete email error", e); }
-  }
-
-  // ── Detail panel email helpers ───────────────────────────────────────────
-  async function loadDtlEmails(poNum: string, olderUrl?: string) {
-    if (!emailToken) return;
-    const prefix = "[PO-" + poNum + "]";
-    if (olderUrl) { setDtlLoadingOlder(true); } else { setDtlEmailLoading(l => ({ ...l, [poNum]: true })); }
-    setDtlEmailErr(e => ({ ...e, [poNum]: null }));
-    try {
-      const searchTerm = prefix.replace(/[\[\]{}()*?]/g, "").trim();
-      const url = olderUrl || ("/me/mailFolders/Inbox/messages?$search=" + encodeURIComponent('"' + searchTerm + '"') + "&$top=25&$select=id,subject,from,receivedDateTime,bodyPreview,conversationId,isRead,hasAttachments");
-      const d = await emailGraph(url);
-      const items = d.value || [];
-      if (olderUrl) {
-        setDtlEmails(m => ({ ...m, [poNum]: [...(m[poNum] || []), ...items] }));
-        setEmailsMap(m => ({ ...m, [poNum]: [...(m[poNum] || []), ...items] }));
-      } else {
-        setDtlEmails(m => ({ ...m, [poNum]: items }));
-        setEmailsMap(m => ({ ...m, [poNum]: items }));
-      }
-      const nextLink = d["@odata.nextLink"] ? d["@odata.nextLink"].replace("https://graph.microsoft.com/v1.0", "") : null;
-      setDtlNextLink(nl => ({ ...nl, [poNum]: nextLink }));
-      setEmailNextLinks(nl => ({ ...nl, [poNum]: nextLink }));
-      setEmailLastRefresh(lr => ({ ...lr, [poNum]: Date.now() }));
-    } catch (e: any) { setDtlEmailErr(err => ({ ...err, [poNum]: e.message })); }
-    setDtlEmailLoading(l => ({ ...l, [poNum]: false }));
-    setDtlLoadingOlder(false);
-  }
-  async function loadDtlSentEmails(poNum: string) {
-    if (!emailToken) return;
-    const prefix = "[PO-" + poNum + "]";
-    setDtlSentLoading(l => ({ ...l, [poNum]: true }));
-    try {
-      const searchTerm = prefix.replace(/[\[\]{}()*?]/g, "").trim();
-      const d = await emailGraph("/me/mailFolders/SentItems/messages?$search=" + encodeURIComponent('"' + searchTerm + '"') + "&$top=25&$select=id,subject,from,toRecipients,sentDateTime,bodyPreview,conversationId,hasAttachments");
-      setDtlSentEmails(m => ({ ...m, [poNum]: d.value || [] }));
-      setEmailSentMap(m => ({ ...m, [poNum]: d.value || [] }));
-    } catch (e) { console.error(e); }
-    setDtlSentLoading(l => ({ ...l, [poNum]: false }));
-  }
-
-  async function loadDtlFullEmail(id: string) {
-    try { const d = await emailGraph("/me/messages/" + id); setDtlEmailSel(d); } catch (e) { console.error(e); }
-  }
-  async function loadDtlThread(conversationId: string) {
-    setDtlThreadLoading(true);
-    try {
-      const d = await emailGraph("/me/messages?$filter=" + encodeURIComponent("conversationId eq '" + conversationId + "'") + "&$orderby=receivedDateTime%20asc&$select=id,subject,from,receivedDateTime,body,conversationId,isRead,hasAttachments");
-      setDtlEmailThread(d.value || []);
-    } catch (e) { setDtlEmailThread([]); }
-    setDtlThreadLoading(false);
-    setDtlEmailTab("thread");
-  }
-  async function dtlSendEmail(poNum: string) {
-    if (!dtlComposeTo.trim() || !dtlComposeSubject.trim()) return;
-    setDtlSendErr(null);
-    try {
-      await emailGraphPost("/me/sendMail", {
-        message: { subject: dtlComposeSubject, body: { contentType: "HTML", content: buildEmailHtml(dtlComposeBody) }, toRecipients: dtlComposeTo.split(",").map(e => ({ emailAddress: { address: e.trim() } })) },
-      });
-      setDtlComposeTo(""); setDtlComposeSubject(""); setDtlComposeBody("");
-      setDtlEmailTab("inbox");
-      setTimeout(() => { loadDtlEmails(poNum); loadPOEmails(poNum); }, 2000);
-    } catch (e: any) { setDtlSendErr("Failed to send: " + e.message); }
-  }
-  async function dtlReplyToEmail(messageId: string) {
-    if (!dtlReply.trim()) return;
-    setDtlSendErr(null);
-    try {
-      await emailGraphPost("/me/messages/" + messageId + "/reply", { comment: dtlReply });
-      setDtlReply("");
-      if (dtlEmailSel?.conversationId) loadDtlThread(dtlEmailSel.conversationId);
-    } catch (e: any) { setDtlSendErr("Failed to reply: " + e.message); }
-  }
+  // ── Email operations (see tanda/hooks/useEmailOps) ─────────────────────
+  const loadPOEmailsRef = useRef<((poNum: string) => void) | undefined>();
+  const {
+    emailGraph, emailGraphPost, emailGraphDelete,
+    loadEmailAttachments, emailMarkAsRead, deleteMainEmail,
+    loadDtlEmails, loadDtlSentEmails, loadDtlFullEmail, loadDtlThread,
+    dtlSendEmail, dtlReplyToEmail,
+  } = useEmailOps({
+    getGraphToken, handleEmailTokenExpired, msToken,
+    emailAttachments, setEmailAttachments, setEmailAttachmentsLoading,
+    emailSelPO, setEmailSelectedId, setEmailSelMsg, setEmailDeleteConfirm,
+    setEmailThreadMsgs, setEmailsMap, setEmailSentMap, setEmailAllMessages,
+    setEmailNextLinks, setEmailLastRefresh,
+    setDtlEmails, setDtlSentEmails, setDtlEmailLoading, setDtlEmailErr,
+    setDtlLoadingOlder, setDtlSentLoading, setDtlNextLink,
+    setDtlEmailSel, setDtlEmailThread, setDtlThreadLoading, setDtlEmailTab,
+    dtlComposeTo, setDtlComposeTo, dtlComposeSubject, setDtlComposeSubject,
+    dtlComposeBody, setDtlComposeBody, setDtlSendErr,
+    dtlReply, setDtlReply, dtlEmailSel,
+    loadPOEmailsRef,
+  });
 
   // ── PLM session auto-login ────────────────────────────────────────────────
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -2589,6 +2460,8 @@ function TandAApp() {
   }
 
   async function loadPOEmails(poNum: string, olderUrl?: string, autoSelect?: boolean) {
+    // Keep the ref in sync so useEmailOps can call us after send.
+    loadPOEmailsRef.current = loadPOEmails;
     if (!msToken) return;
     const prefix = emailGetPrefix(poNum);
     if (olderUrl) { setEmailLoadingOlder(true); } else { setEmailLoadingMap(l => ({ ...l, [poNum]: true })); }
