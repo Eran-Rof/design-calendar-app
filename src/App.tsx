@@ -37,8 +37,7 @@ import CustomerManager from "./components/CustomerManager";
 import OrderTypeManager from "./components/OrderTypeManager";
 import RoleManager from "./components/RoleManager";
 import GenderManager from "./components/GenderManager";
-import { type DCState } from "./dc/state/dcTypes";
-import type { DCState } from "./dc/state/dcTypes";
+import type { AppStore } from "./store";
 import { DashboardPanel } from "./dc/dashboardPanel";
 import TaskCard from "./components/TaskCard";
 import { TimelinePanel } from "./dc/timelinePanel";
@@ -53,7 +52,7 @@ export default function AppWrapper() {
 
 function App() {
   const dc = useAppStore();
-  const dcSet = <K extends keyof DCState>(field: K, value: DCState[K]) => useAppStore.getState().setField(field as any, value);
+  const dcSet = <K extends keyof AppStore>(field: K, value: AppStore[K]) => useAppStore.getState().setField(field as any, value);
   // ── Confirm modal state ────────────────────────────────────────────────
   const [confirmState, setConfirmState] = useState<{ message: string; action: string; onConfirm: () => void } | null>(null);
   setConfirmHandler((opts) => setConfirmState(opts));
@@ -61,9 +60,6 @@ function App() {
   // ── Supabase persistence ─────────────────────────────────────────────────
   const saveErr = dc.saveErr;
   const setSaveErr = (v: string) => dcSet("saveErr", v);
-  const saveErrTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Clear save-error timer on unmount
-  useEffect(() => () => { if (saveErrTimer.current) clearTimeout(saveErrTimer.current); }, []);
 
 
   const dbxLoaded = dc.dbxLoaded;
@@ -90,7 +86,7 @@ function App() {
   const collections = useAppStore(s => s.collections);
   const setCollections = useAppStore.getState().setCollections;
   const _setCollRaw = useAppStore.getState().setCollectionsRaw;
-  // ── View/UI state → useDCState() + useDCDispatch() (see dc/state/) ──
+  // ── View/UI state → useAppStore (see store/index.ts) ──
   const view = dc.view;
   const listView = dc.listView;
   const expandedColl = dc.expandedColl;
