@@ -9,6 +9,7 @@ import { useMergeHistory } from "./ats/hooks/useMergeHistory";
 import { usePOWIPSync } from "./ats/hooks/usePOWIPSync";
 import { useRowFiltering } from "./ats/hooks/useRowFiltering";
 import { useExcelUpload } from "./ats/hooks/useExcelUpload";
+import { useXoroSync } from "./ats/hooks/useXoroSync";
 import { exportToExcel } from "./ats/exportExcel";
 import { normalizeExcelData, detectNormChanges, applyNormChanges, type NormChange } from "./ats/normalize";
 import S from "./ats/styles";
@@ -330,6 +331,12 @@ function ATSReport() {
   }, [startDate, rangeUnit, rangeValue]);
 
   // ── Display periods: what columns to render in the table ─────────────────
+  // Xoro API sync (must be after dates useMemo)
+  const xoroSync = useXoroSync({
+    dates, setExcelData, setRows, setLastSync, setMockMode,
+    setMergeHistory, saveMergeHistory, applyPOWIPData,
+  });
+
   const displayPeriods = useMemo(() => {
     if (rangeUnit === "days") {
       return dates.map(d => ({ key: d, periodStart: d, endDate: d, label: fmtDateHeader(d), isToday: isToday(d), isWeekend: isWeekend(d) }));
@@ -700,5 +707,6 @@ function ATSReport() {
     pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
     mergeHistory, setMergeHistory, saveMergeHistory, undoLastMerge, clearAllAtsData,
     atShip, setAtShip,
+    xoroSync,
   });
 }
