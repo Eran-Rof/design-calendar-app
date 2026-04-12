@@ -16,14 +16,11 @@ import { buildEmailHtml } from "./tanda/richTextEditor";
 import { teamsViewPanel as teamsViewPanelExtracted, type TeamsPanelCtx } from "./tanda/teamsPanel";
 import { timelinePanel as timelinePanelExtracted, type TimelinePanelCtx } from "./tanda/timelinePanel";
 import { detailPanel as detailPanelExtracted, WipTemplateEditor } from "./tanda/detailPanel";
-import { SyncProvider, useSyncState, useSyncDispatch } from "./tanda/state/sync/SyncContext";
 import type { SyncLogEntry } from "./tanda/state/sync/syncTypes";
-import { EmailProvider, useEmailState, useEmailDispatch } from "./tanda/state/email/EmailContext";
 import type { EmailState } from "./tanda/state/email/emailTypes";
-import { TeamsProvider, useTeamsState, useTeamsDispatch } from "./tanda/state/teams/TeamsContext";
 import type { TeamsState } from "./tanda/state/teams/teamsTypes";
-import { CoreProvider, useCoreState, useCoreDispatch } from "./tanda/state/core/CoreContext";
 import type { CoreState } from "./tanda/state/core/coreTypes";
+import { useTandaStore } from "./tanda/store/index";
 
 // ── Supabase helpers ──────────────────────────────────────────────────────────
 const sb = {
@@ -152,21 +149,41 @@ function daysUntil(d?: string) {
 
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function TandAAppWrapper() {
-  return <CoreProvider><SyncProvider><EmailProvider><TeamsProvider><TandAApp /></TeamsProvider></EmailProvider></SyncProvider></CoreProvider>;
+  return <TandAApp />;
 }
 
 function TandAApp() {
-  const sync = useSyncState();
-  const syncD = useSyncDispatch();
-  const em = useEmailState();
-  const emD = useEmailDispatch();
-  const emSet = <K extends keyof EmailState>(field: K, value: EmailState[K]) => emD({ type: "SET", field, value });
-  const tm = useTeamsState();
-  const tmD = useTeamsDispatch();
-  const tmSet = <K extends keyof TeamsState>(field: K, value: TeamsState[K]) => tmD({ type: "SET", field, value });
-  const core = useCoreState();
-  const coreD = useCoreDispatch();
-  const coreSet = <K extends keyof CoreState>(field: K, value: CoreState[K]) => coreD({ type: "SET", field, value });
+  const store = useTandaStore();
+  const core = store;
+  const sync = store;
+  const em = store;
+  const tm = store;
+  const coreSet = store.setCoreField;
+  const emSet = store.setEmailField;
+  const tmSet = store.setTeamsField;
+  // Shim dispatchers for extracted panels that still expect the legacy dispatch signature.
+  // Panels will be migrated to read from useTandaStore directly in a follow-up.
+  const emD = (action: import("./tanda/state/email/emailTypes").EmailAction) => {
+    const s = useTandaStore.getState();
+    switch (action.type) {
+      case "SET": s.setEmailField(action.field, action.value as any); break;
+      case "TOGGLE_FLAGGED": s.toggleFlagged(action.id); break;
+      case "TOGGLE_COLLAPSED_MSG": s.toggleCollapsedMsg(action.id); break;
+      case "EMAIL_RESET_COMPOSE": s.emailResetCompose(); break;
+      case "EMAIL_RESET_DETAIL": s.emailResetDetail(); break;
+      case "MERGE_EMAILS_MAP": s.mergeEmailsMap(action.key, action.emails, action.append); break;
+      case "MERGE_SENT_MAP": s.mergeSentMap(action.key, action.emails); break;
+      case "SET_NEXT_LINK": s.setEmailNextLink(action.key, action.link); break;
+    }
+  };
+  const tmD = (action: import("./tanda/state/teams/teamsTypes").TeamsAction) => {
+    const s = useTandaStore.getState();
+    switch (action.type) {
+      case "SET": s.setTeamsField(action.field, action.value as any); break;
+      case "TEAMS_RESET_DM": s.teamsResetDm(); break;
+      case "TEAMS_RESET_DTL_DM": s.teamsResetDtlDm(); break;
+    }
+  };
   // ── Core PO state → useCoreState() + useCoreDispatch() (see tanda/state/core/) ──
   const user = core.user;
   const view = core.view;
@@ -248,11 +265,11 @@ function TandAApp() {
   const syncErr = sync.syncErr;
   const lastSync = sync.lastSync;
   const showSyncModal = sync.showSyncModal;
-  const setLoading = (v: boolean) => syncD({ type: "SET_LOADING", payload: v });
-  const setSyncing = (v: boolean) => syncD({ type: "SET_SYNCING", payload: v });
-  const setSyncErr = (v: string) => syncD({ type: "SET_SYNC_ERR", payload: v });
-  const setLastSync = (v: string) => syncD({ type: "SET_LAST_SYNC", payload: v });
-  const setShowSyncModal = (v: boolean) => syncD({ type: "SET_SHOW_SYNC_MODAL", payload: v });
+  const setLoading = (v: boolean) => store.setSyncField("loading", v);
+  const setSyncing = (v: boolean) => store.setSyncField("syncing", v);
+  const setSyncErr = (v: string) => store.setSyncField("syncErr", v);
+  const setLastSync = (v: string) => store.setSyncField("lastSync", v);
+  const setShowSyncModal = (v: boolean) => store.setSyncField("showSyncModal", v);
   const [search, setSearch]     = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterVendor, setFilterVendor] = useState("All");
@@ -278,19 +295,19 @@ function TandAApp() {
   const vendorSearch = sync.vendorSearch;
   const loadingVendors = sync.loadingVendors;
   const newManualVendor = sync.newManualVendor;
-  const setSyncFilters = (v: any) => { if (typeof v === "function") syncD({ type: "SET_SYNC_FILTERS", payload: v(sync.syncFilters) }); else syncD({ type: "SET_SYNC_FILTERS", payload: v }); };
-  const setSyncProgress = (v: number) => syncD({ type: "SET_SYNC_PROGRESS", payload: v });
-  const setSyncProgressMsg = (v: string) => syncD({ type: "SET_SYNC_PROGRESS_MSG", payload: v });
-  const setSyncDone = (v: { added: number; changed: number; deleted: number } | null) => syncD({ type: "SET_SYNC_DONE", payload: v });
-  const setSyncLog = (v: SyncLogEntry[]) => syncD({ type: "SET_SYNC_LOG", payload: v });
-  const setShowSyncLog = (v: boolean) => syncD({ type: "SET_SHOW_SYNC_LOG", payload: v });
-  const setPoSearch = (v: string) => syncD({ type: "SET_PO_SEARCH", payload: v });
-  const setPoDropdownOpen = (v: boolean) => syncD({ type: "SET_PO_DROPDOWN_OPEN", payload: v });
-  const setXoroVendors = (v: string[]) => syncD({ type: "SET_XORO_VENDORS", payload: v });
-  const setManualVendors = (v: string[]) => syncD({ type: "SET_MANUAL_VENDORS", payload: v });
-  const setVendorSearch = (v: string) => syncD({ type: "SET_VENDOR_SEARCH", payload: v });
-  const setLoadingVendors = (v: boolean) => syncD({ type: "SET_LOADING_VENDORS", payload: v });
-  const setNewManualVendor = (v: string) => syncD({ type: "SET_NEW_MANUAL_VENDOR", payload: v });
+  const setSyncFilters = (v: any) => { if (typeof v === "function") store.setSyncField("syncFilters", v(store.syncFilters)); else store.setSyncField("syncFilters", v); };
+  const setSyncProgress = (v: number) => store.setSyncField("syncProgress", v);
+  const setSyncProgressMsg = (v: string) => store.setSyncField("syncProgressMsg", v);
+  const setSyncDone = (v: { added: number; changed: number; deleted: number } | null) => store.setSyncField("syncDone", v);
+  const setSyncLog = (v: SyncLogEntry[]) => store.setSyncField("syncLog", v);
+  const setShowSyncLog = (v: boolean) => store.setSyncField("showSyncLog", v);
+  const setPoSearch = (v: string) => store.setSyncField("poSearch", v);
+  const setPoDropdownOpen = (v: boolean) => store.setSyncField("poDropdownOpen", v);
+  const setXoroVendors = (v: string[]) => store.setSyncField("xoroVendors", v);
+  const setManualVendors = (v: string[]) => store.setSyncField("manualVendors", v);
+  const setVendorSearch = (v: string) => store.setSyncField("vendorSearch", v);
+  const setLoadingVendors = (v: boolean) => store.setSyncField("loadingVendors", v);
+  const setNewManualVendor = (v: string) => store.setSyncField("newManualVendor", v);
 
   // ── WIP Milestone state → core reducer ──
   const wipTemplates = core.wipTemplates;
@@ -940,7 +957,7 @@ function TandAApp() {
           onConfirm: async () => {
             try {
               await sb.from("tanda_milestones").upsert({ id: m.id, data: m }, { onConflict: "id" });
-              coreD({ type: "UPDATE_MILESTONE", poNumber: m.po_number, milestoneId: m.id, milestone: m });
+              store.updateMilestone(m.po_number, m.id, m);
             } finally {
               conflictPendingRef.current.delete(m.id);
             }
@@ -954,7 +971,7 @@ function TandAApp() {
       }
     }
     await sb.from("tanda_milestones").upsert({ id: m.id, data: m }, { onConflict: "id" });
-    coreD({ type: "UPDATE_MILESTONE", poNumber: m.po_number, milestoneId: m.id, milestone: m });
+    store.updateMilestone(m.po_number, m.id, m);
     // Clear collapsed overrides for this PO so auto-collapse/expand recalculates
     if (!skipHistory) {
       // Check if this milestone completing finishes its entire category
@@ -1004,7 +1021,7 @@ function TandAApp() {
       ms.map(m => ({ id: m.id, data: m })),
       { onConflict: "id" }
     );
-    ms.forEach(m => coreD({ type: "UPDATE_MILESTONE", poNumber: m.po_number, milestoneId: m.id, milestone: m }));
+    ms.forEach(m => store.updateMilestone(m.po_number, m.id, m));
   }
 
   async function deleteMilestonesForPO(poNumber: string) {
@@ -1013,7 +1030,7 @@ function TandAApp() {
     for (const m of existing) {
       await sb.from("tanda_milestones").delete(`id=eq.${encodeURIComponent(m.id)}`);
     }
-    coreD({ type: "DELETE_MILESTONES_FOR_PO", poNumber });
+    store.deleteMilestonesForPo(poNumber);
   }
 
   function generateMilestones(poNumber: string, ddpDate: string, vendorName?: string): Milestone[] {
@@ -1033,7 +1050,7 @@ function TandAApp() {
       // Double-check DB to prevent duplicates
       const dbExisting = await loadMilestones(poNum);
       if (dbExisting.length > 0) {
-        coreD({ type: "SET_MILESTONES_FOR_PO", poNumber: poNum, milestones: dbExisting });
+        store.setMilestonesForPo(poNum, dbExisting);
         return dbExisting;
       }
       const ddp = po.DateExpectedDelivery;
@@ -1087,7 +1104,7 @@ function TandAApp() {
         await sb.from("tanda_milestones").delete(`id=eq.${encodeURIComponent(m.id)}`);
       }
       // 3. Atomically replace in state — never leave milestones[poNum] empty
-      coreD({ type: "SET_MILESTONES_FOR_PO", poNumber: poNum, milestones: merged });
+      store.setMilestonesForPo(poNum, merged);
       addHistory(poNum, `Milestones regenerated (${merged.length} phases)`);
     } finally {
       generatingRef.current.delete(poNum);
@@ -1266,7 +1283,7 @@ function TandAApp() {
               const msg = (archErr as any)?.message || JSON.stringify(archErr);
               throw new Error(msg);
             }
-            coreD({ type: "REMOVE_PO", poNumber });
+            store.removePo(poNumber);
             if (selected?.PoNumber === poNumber) setSelected(null);
           } else {
             // Source 2/3: PO has a terminal status in the DB, or is absent from ALL
@@ -1706,7 +1723,7 @@ function TandAApp() {
     const { data } = await sb.from("tanda_notes").select("*", `po_number=eq.${encodeURIComponent(poNumber)}&status_override=eq.__attachment__`);
     if (data) {
       const entries = data.map((r: any) => { try { return JSON.parse(r.note); } catch { return null; } }).filter(Boolean);
-      coreD({ type: "SET_ATTACHMENTS_FOR_PO", poNumber, attachments: entries });
+      store.setAttachmentsForPo(poNumber, entries);
     }
   }
   async function deleteAttachment(poNumber: string, attachId: string) {
@@ -1734,7 +1751,7 @@ function TandAApp() {
       await loadAttachments(poNumber);
       return;
     }
-    coreD({ type: "UPDATE_ATTACHMENT", poNumber, attachId, entry: updatedEntry });
+    store.updateAttachment(poNumber, attachId, updatedEntry);
     addHistory(poNumber, `Attachment soft-deleted: ${entry.name} (undo available for 24h)`);
   }
 
@@ -1747,7 +1764,7 @@ function TandAApp() {
     if (row) {
       await sb.from("tanda_notes").upsert({ id: row.id, po_number: poNumber, note: JSON.stringify(restoredEntry), status_override: "__attachment__", user_name: entry.uploaded_by, created_at: entry.uploaded_at }, { onConflict: "id" });
     }
-    coreD({ type: "UPDATE_ATTACHMENT", poNumber, attachId, entry: restoredEntry });
+    store.updateAttachment(poNumber, attachId, restoredEntry);
     addHistory(poNumber, `Attachment restored: ${entry.name}`);
   }
 
@@ -1790,7 +1807,7 @@ function TandAApp() {
     const { data: refreshed } = await sb.from("tanda_notes").select("*", `po_number=eq.${encodeURIComponent(poNumber)}&status_override=eq.__attachment__`);
     if (refreshed) {
       const entries = refreshed.map((r: any) => { try { return JSON.parse(r.note); } catch { return null; } }).filter(Boolean);
-      coreD({ type: "SET_ATTACHMENTS_FOR_PO", poNumber, attachments: entries });
+      store.setAttachmentsForPo(poNumber, entries);
     }
   }
 
@@ -1809,7 +1826,7 @@ function TandAApp() {
       if (n.id) await sb.from("tanda_notes").delete(`id=eq.${encodeURIComponent(n.id)}`);
     }
     // Remove from local state — atomic via reducer
-    coreD({ type: "REMOVE_PO", poNumber });
+    store.removePo(poNumber);
     if (selected?.PoNumber === poNumber) setSelected(null);
   }
 
@@ -1824,7 +1841,7 @@ function TandAApp() {
       await sb.from("tanda_pos").upsert({ po_number: poNumber, data: archived }, { onConflict: "po_number" });
     }
     // Remove from active local state only
-    coreD({ type: "REMOVE_PO", poNumber });
+    store.removePo(poNumber);
     if (selected?.PoNumber === poNumber) setSelected(null);
   }
 
@@ -2504,8 +2521,8 @@ function TandAApp() {
   // user can review/restore/empty them. Limited to 200 most recent.
   async function loadDeletedFolder() {
     if (!msToken) return;
-    emD({ type: "SET", field: "emailDeletedLoading", value: true });
-    emD({ type: "SET", field: "emailDeletedError", value: null });
+    store.setEmailField("emailDeletedLoading", true);
+    store.setEmailField("emailDeletedError", null);
     try {
       const url = "/me/mailFolders/DeletedItems/messages?$top=200&$orderby=receivedDateTime desc&$select=id,subject,from,receivedDateTime,bodyPreview,conversationId,isRead,hasAttachments";
       const d = await emailGraph(url);
@@ -2514,11 +2531,11 @@ function TandAApp() {
         const match = (m.subject || "").match(/\[PO-([^\]]+)\]/);
         return match ? { ...m, _poNumber: match[1] } : m;
       });
-      emD({ type: "SET", field: "emailDeletedMessages", value: items });
+      store.setEmailField("emailDeletedMessages", items);
     } catch (e: any) {
-      emD({ type: "SET", field: "emailDeletedError", value: e?.message || "Failed to load deleted folder" });
+      store.setEmailField("emailDeletedError", e?.message || "Failed to load deleted folder");
     } finally {
-      emD({ type: "SET", field: "emailDeletedLoading", value: false });
+      store.setEmailField("emailDeletedLoading", false);
     }
   }
 
@@ -2529,7 +2546,7 @@ function TandAApp() {
     let messages: any[] = [];
     setEmailDeletedMessages((cur: any[]) => { messages = cur || []; return cur; });
     if (messages.length === 0) return;
-    emD({ type: "SET", field: "emailDeletedLoading", value: true });
+    store.setEmailField("emailDeletedLoading", true);
     try {
       // Best-effort: serial deletes (Graph batch is more code than it's worth here)
       for (const m of messages) {
@@ -2543,9 +2560,9 @@ function TandAApp() {
           console.warn("emptyDeletedFolder: failed for", m.id, e);
         }
       }
-      emD({ type: "SET", field: "emailDeletedMessages", value: [] });
+      store.setEmailField("emailDeletedMessages", []);
     } finally {
-      emD({ type: "SET", field: "emailDeletedLoading", value: false });
+      store.setEmailField("emailDeletedLoading", false);
     }
   }
 
@@ -2555,8 +2572,8 @@ function TandAApp() {
   // unread badges + counts appear without the user having to click each PO.
   async function loadAllPOEmailStats() {
     if (!msToken) return;
-    emD({ type: "SET", field: "emailAllStatsLoading", value: true });
-    emD({ type: "SET", field: "emailAllStatsError", value: null });
+    store.setEmailField("emailAllStatsLoading", true);
+    store.setEmailField("emailAllStatsError", null);
     try {
       const url = `/me/mailFolders/Inbox/messages?$search=${encodeURIComponent('"[PO-"')}&$top=500&$select=id,subject,from,receivedDateTime,bodyPreview,isRead,hasAttachments,conversationId`;
       const d = await emailGraph(url);
@@ -2582,12 +2599,12 @@ function TandAApp() {
         // Tag the message so the global views know which PO it belongs to
         tagged.push({ ...m, _poNumber: poNum });
       }
-      emD({ type: "SET", field: "emailAllStats", value: stats });
-      emD({ type: "SET", field: "emailAllMessages", value: tagged });
+      store.setEmailField("emailAllStats", stats);
+      store.setEmailField("emailAllMessages", tagged);
     } catch (e: any) {
-      emD({ type: "SET", field: "emailAllStatsError", value: e?.message || "Failed to load email stats" });
+      store.setEmailField("emailAllStatsError", e?.message || "Failed to load email stats");
     } finally {
-      emD({ type: "SET", field: "emailAllStatsLoading", value: false });
+      store.setEmailField("emailAllStatsLoading", false);
     }
   }
 
