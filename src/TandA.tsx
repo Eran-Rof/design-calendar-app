@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { msSignIn, loadMsTokens, saveMsTokens, clearMsTokens, getMsAccessToken, MS_CLIENT_ID, MS_TENANT_ID } from "./utils/msAuth";
+import { useMSAuth, friendlyContactError } from "./tanda/hooks/useMSAuth";
 
 import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
 import { type XoroPO, type Milestone, type WipTemplate, type LocalNote, type User, type DCVendor, type DmConversation, type SyncFilters, type View, ALL_PO_STATUSES, ACTIVE_PO_STATUSES, STATUS_COLORS, STATUS_OPTIONS, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, DEFAULT_WIP_TEMPLATES, milestoneUid, itemQty, poTotal, normalizeSize, sizeSort, mapXoroRaw, fmtDate, fmtCurrency } from "./utils/tandaTypes";
@@ -504,77 +505,18 @@ function TandAApp() {
   const setEmailAttachments = (v: any) => { if (typeof v === "function") emSet("emailAttachments", v(em.emailAttachments)); else emSet("emailAttachments", v); };
   const setEmailAttachmentsLoading = (v: any) => { if (typeof v === "function") emSet("emailAttachmentsLoading", v(em.emailAttachmentsLoading)); else emSet("emailAttachmentsLoading", v); };
 
-  // ── Microsoft auth — shared token for Email + Teams ────────────────────
-  function emailTokenIsValid() {
-    return !!msToken;
-  }
-  function handleEmailTokenExpired() {
-    clearMsTokens();
-    setMsToken(null);
-    setMsDisplayName("");
-  }
-  async function authenticateMS() {
-    if (!MS_CLIENT_ID || !MS_TENANT_ID) return;
-    setTeamsAuthStatus("loading");
-    try {
-      const tokens = await msSignIn();
-      setMsToken(tokens.accessToken);
-      setTeamsAuthStatus("idle");
-      // Load display name
-      try {
-        const me = await fetch("https://graph.microsoft.com/v1.0/me?$select=displayName", { headers: { Authorization: "Bearer " + tokens.accessToken } });
-        const meData = await me.json();
-        if (meData.displayName) setMsDisplayName(meData.displayName);
-      } catch(_) {}
-    } catch(e) { console.error("MS auth failed:", e); setTeamsAuthStatus("error"); }
-  }
-  const authenticateEmail = authenticateMS;
-  const authenticateTeams = authenticateMS;
-
-  // ── On mount: restore token from localStorage ─────────────────────────
-  useEffect(() => {
-    (async () => {
-      const tok = await getMsAccessToken();
-      if (tok) {
-        setMsToken(tok);
-        try {
-          const me = await fetch("https://graph.microsoft.com/v1.0/me?$select=displayName", { headers: { Authorization: "Bearer " + tok } });
-          const meData = await me.json();
-          if (meData.displayName) setMsDisplayName(meData.displayName);
-        } catch(_) {}
-      }
-    })();
-  }, []);
-
-  // ── MS Graph helpers ─────────────────────────────────────────────────
-  async function getGraphToken(): Promise<string> {
-    // Try auto-refresh first, fall back to current state token
-    const tok = await getMsAccessToken();
-    if (tok) { if (tok !== msToken) setMsToken(tok); return tok; }
-    if (msToken) return msToken;
-    throw new Error("Not signed in to Microsoft");
-  }
-  async function teamsGraph(path: string, extraHeaders?: Record<string, string>) {
-    const tok = await getGraphToken();
-    const r = await fetch("https://graph.microsoft.com/v1.0" + path, { headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json", ...extraHeaders } });
-    if (r.status === 401) { handleEmailTokenExpired(); throw new Error("Session expired — please sign in again"); }
-    if (!r.ok) throw new Error("Graph " + r.status + ": " + await r.text());
-    return r.json();
-  }
-  async function teamsGraphPost(path: string, body: any) {
-    const tok = await getGraphToken();
-    const r = await fetch("https://graph.microsoft.com/v1.0" + path, { method: "POST", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    if (r.status === 401) { handleEmailTokenExpired(); throw new Error("Session expired — please sign in again"); }
-    if (!r.ok) throw new Error("Graph " + r.status + ": " + await r.text());
-    return r.json();
-  }
-  function friendlyContactError(e: any): string {
-    const msg: string = e?.message || "";
-    if (msg.includes("403") || msg.toLowerCase().includes("insufficient")) return "Permission denied — sign out and sign back in";
-    if (msg.includes("401") || msg.toLowerCase().includes("expired")) return "Session expired — sign out and sign back in";
-    if (msg.includes("404")) return "Contacts not available on this account";
-    return "Could not load contacts — sign out and sign back in";
-  }
+  // ── Microsoft auth — shared token for Email + Teams (see tanda/hooks/useMSAuth) ──
+  const {
+    authenticateMS, authenticateEmail, authenticateTeams,
+    emailTokenIsValid, handleEmailTokenExpired,
+    getGraphToken,
+    graphGet: teamsGraph,
+    graphPost: teamsGraphPost,
+    msSignOut,
+  } = useMSAuth({
+    msToken, setMsToken, msDisplayName, setMsDisplayName,
+    teamsAuthStatus, setTeamsAuthStatus,
+  });
 
   async function loadTeamsContacts() {
     if (teamsContactsLoading) return;
@@ -768,12 +710,7 @@ function TandAApp() {
     }
     setDmSending(false);
   }
-  function msSignOut() {
-    clearMsTokens();
-    setMsToken(null);
-    setMsDisplayName("");
-    setTeamsAuthStatus("idle");
-  }
+  // msSignOut now provided by useMSAuth hook above.
   useEffect(() => { teamsLoadChannelMap(); }, []);
   useEffect(() => { if (teamsSelPO && teamsToken && teamsChannelMap[teamsSelPO]) teamsLoadPOMessages(teamsSelPO); }, [teamsSelPO, teamsToken]);
   useEffect(() => { if (teamsToken && teamsContacts.length === 0 && !teamsContactsLoading) loadTeamsContacts(); }, [teamsToken]);
