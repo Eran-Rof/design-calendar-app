@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { msSignIn, loadMsTokens, saveMsTokens, clearMsTokens, getMsAccessToken, MS_CLIENT_ID, MS_TENANT_ID } from "./utils/msAuth";
 import { useMSAuth, friendlyContactError } from "./tanda/hooks/useMSAuth";
+import { useDashboardData } from "./tanda/hooks/useDashboardData";
 import { useTeamsOps } from "./tanda/hooks/useTeamsOps";
 
 import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
@@ -1622,58 +1623,16 @@ function TandAApp() {
   }).length;
   const totalValue = pos.reduce((s, p) => s + poTotal(p), 0);
 
-  // ── Dashboard: scope all cards to search-filtered POs ─────────────────
-  const dashPOs = search ? filtered : pos;
-  const dashPoNums = new Set(dashPOs.map((p: XoroPO) => p.PoNumber ?? ""));
-
-  // ── Milestone dashboard aggregates ────────────────────────────────────
-  const allMilestonesList = Object.values(milestones).flat();
-  const today = new Date().toISOString().slice(0, 10);
-  const weekFromNow = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
-  const overdueMilestones = allMilestonesList.filter(m => m.expected_date && m.expected_date < today && m.status !== "Complete" && m.status !== "N/A");
-  const dueThisWeekMilestones = allMilestonesList.filter(m => m.expected_date && m.expected_date >= today && m.expected_date <= weekFromNow && m.status !== "Complete" && m.status !== "N/A");
-  const completedMilestones = allMilestonesList.filter(m => m.status === "Complete");
-  const milestoneCompletionRate = allMilestonesList.length > 0 ? Math.round((completedMilestones.length / allMilestonesList.length) * 100) : 0;
-  const upcomingMilestones = allMilestonesList
-    .filter(m => m.expected_date && m.expected_date >= today && m.status !== "Complete" && m.status !== "N/A")
-    .sort((a, b) => (a.expected_date ?? "").localeCompare(b.expected_date ?? ""))
-    .slice(0, 15);
-
-  // ── Dashboard-scoped aggregates (filtered to dashPOs when search active) ──
-  const dashMs = search ? allMilestonesList.filter(m => dashPoNums.has(m.po_number ?? "")) : allMilestonesList;
-  const dashOverdueMilestones = dashMs.filter(m => m.expected_date && m.expected_date < today && m.status !== "Complete" && m.status !== "N/A");
-  const dashDueThisWeekMilestones = dashMs.filter(m => m.expected_date && m.expected_date >= today && m.expected_date <= weekFromNow && m.status !== "Complete" && m.status !== "N/A");
-  const dashUpcomingMilestones = dashMs.filter(m => m.expected_date && m.expected_date >= today && m.status !== "Complete" && m.status !== "N/A").sort((a, b) => (a.expected_date ?? "").localeCompare(b.expected_date ?? "")).slice(0, 15);
-  const dashMsCompleted = dashMs.filter(m => m.status === "Complete");
-  const dashMilestoneCompletionRate = dashMs.length > 0 ? Math.round((dashMsCompleted.length / dashMs.length) * 100) : 0;
-  const dashTotalValue = dashPOs.reduce((s: number, p: XoroPO) => s + poTotal(p), 0);
-  const dashOverduePOs = dashPOs.filter((p: XoroPO) => { const d = daysUntil(p.DateExpectedDelivery); return d !== null && d < 0 && p.StatusName !== "Received" && p.StatusName !== "Closed"; }).length;
-  const dashDueThisWeekPOs = dashPOs.filter((p: XoroPO) => { const d = daysUntil(p.DateExpectedDelivery); return d !== null && d >= 0 && d <= 7; }).length;
-
-  // Cascade alerts: POs where upstream delays block downstream categories
-  const cascadeAlerts: { poNum: string; vendor: string; blockedCat: string; delayedCat: string; daysLate: number }[] = [];
-  pos.forEach(po => {
-    const poNum = po.PoNumber ?? "";
-    const poMs = milestones[poNum] || [];
-    if (poMs.length === 0) return;
-    const grouped: Record<string, Milestone[]> = {};
-    poMs.forEach(m => { if (!grouped[m.category]) grouped[m.category] = []; grouped[m.category].push(m); });
-    const activeCats = WIP_CATEGORIES.filter(c => grouped[c]?.length);
-    activeCats.forEach((cat, idx) => {
-      for (let p = 0; p < idx; p++) {
-        const prevCat = activeCats[p];
-        const prevMs = grouped[prevCat] || [];
-        if (prevMs.every(m => m.status === "Complete" || m.status === "N/A")) continue;
-        const maxLate = prevMs.reduce((max, m) => {
-          if (m.status === "Complete" || m.status === "N/A" || !m.expected_date) return max;
-          const d = Math.ceil((Date.now() - new Date(m.expected_date).getTime()) / 86400000);
-          return d > 0 ? Math.max(max, d) : max;
-        }, 0);
-        if (maxLate > 0) cascadeAlerts.push({ poNum, vendor: po.VendorName ?? "", blockedCat: cat, delayedCat: prevCat, daysLate: maxLate });
-        break; // only report the first blocking predecessor
-      }
-    });
-  });
+  // ── Dashboard data + milestone aggregates (see tanda/hooks/useDashboardData) ──
+  const {
+    dashPOs, dashPoNums, today, weekFromNow,
+    allMilestonesList, overdueMilestones, dueThisWeekMilestones,
+    completedMilestones, milestoneCompletionRate, upcomingMilestones,
+    dashMs, dashOverdueMilestones, dashDueThisWeekMilestones,
+    dashUpcomingMilestones, dashMsCompleted, dashMilestoneCompletionRate,
+    dashTotalValue, dashOverduePOs, dashDueThisWeekPOs,
+    cascadeAlerts,
+  } = useDashboardData({ pos, filtered, search, milestones });
 
   function isCatBlocked(poNum: string, cat: string): { blocked: boolean; delayedCat: string; daysLate: number } {
     const poMs = milestones[poNum] || [];
