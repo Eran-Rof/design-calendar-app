@@ -1,4 +1,4 @@
-import React from "react";
+import React, { Suspense } from "react";
 import { TH } from "../utils/theme";
 import { S } from "../utils/styles";
 
@@ -80,7 +80,9 @@ export function Modal({ title, onClose, children, wide, extraWide }: {
           </button>
         </div>
         <div style={{ padding: "28px 32px 32px", flex: 1 }}>
-          {children}
+          <Suspense fallback={<div style={{ textAlign: "center", padding: 40, color: TH.textMuted }}>Loading…</div>}>
+            {children}
+          </Suspense>
         </div>
       </div>
     </div>

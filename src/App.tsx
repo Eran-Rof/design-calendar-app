@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, Fragment } from "react";
+import { useState, useRef, useEffect, Fragment, lazy, Suspense } from "react";
 import { useIdleLogout } from "./hooks/useIdleLogout";
 import { useAppStore } from "./store";
 import { sbLoad as sbLoadSvc, sbSaveTask as sbSaveTaskSvc, sbLoadTasks as sbLoadTasksSvc, sbLoadCollections as sbLoadCollectionsSvc } from "./store/supabaseService";
@@ -16,27 +16,27 @@ import { SB_URL, SB_KEY, supabaseClient } from "./utils/supabase";
 import Avatar from "./components/Avatar";
 import { Modal, ConfirmModal } from "./components/Modal";
 import ContextMenu from "./components/ContextMenu";
-import ActivityPanel from "./components/ActivityPanel";
+const ActivityPanel = lazy(() => import("./components/ActivityPanel"));
 import SettingsDropdown from "./components/SettingsDropdown";
 import CollectionWizard from "./components/CollectionWizard";
 import TaskEditModal from "./components/TaskEditModal";
 import AddTaskModal from "./components/AddTaskModal";
 import EditCollectionModal from "./components/EditCollectionModal";
 import FilterBar from "./components/FilterBar";
-import TeamsView from "./components/TeamsView";
-import OutlookView from "./components/OutlookView";
-import CategoryManager from "./components/CategoryManager";
+const TeamsView = lazy(() => import("./components/TeamsView"));
+const OutlookView = lazy(() => import("./components/OutlookView"));
+const CategoryManager = lazy(() => import("./components/CategoryManager"));
 import SizeLibrary from "./components/SizeLibrary";
-import TaskManager from "./components/TaskManager";
-import TeamManager from "./components/TeamManager";
-import UserManager from "./components/UserManager";
-import VendorManager from "./components/VendorManager";
-import BrandManager from "./components/BrandManager";
-import SeasonManager from "./components/SeasonManager";
-import CustomerManager from "./components/CustomerManager";
-import OrderTypeManager from "./components/OrderTypeManager";
-import RoleManager from "./components/RoleManager";
-import GenderManager from "./components/GenderManager";
+const TaskManager = lazy(() => import("./components/TaskManager"));
+const TeamManager = lazy(() => import("./components/TeamManager"));
+const UserManager = lazy(() => import("./components/UserManager"));
+const VendorManager = lazy(() => import("./components/VendorManager"));
+const BrandManager = lazy(() => import("./components/BrandManager"));
+const SeasonManager = lazy(() => import("./components/SeasonManager"));
+const CustomerManager = lazy(() => import("./components/CustomerManager"));
+const OrderTypeManager = lazy(() => import("./components/OrderTypeManager"));
+const RoleManager = lazy(() => import("./components/RoleManager"));
+const GenderManager = lazy(() => import("./components/GenderManager"));
 import type { AppStore } from "./store";
 import { DashboardPanel } from "./dc/dashboardPanel";
 import TaskCard from "./components/TaskCard";
@@ -703,6 +703,7 @@ function App() {
         {view === "timeline" && <TimelinePanel />}
         {view === "calendar" && <CalendarPanel />}
         {view === "teams" && (
+          <Suspense fallback={<div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.5)" }}>Loading Teams…</div>}>
           <TeamsView
             collList={collList}
             collMap={collMap}
@@ -712,8 +713,10 @@ function App() {
             getBrand={getBrand}
             currentUser={currentUser}
           />
+          </Suspense>
         )}
         {view === "email" && (
+          <Suspense fallback={<div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.5)" }}>Loading Email…</div>}>
           <OutlookView
             collList={collList}
             collMap={collMap}
@@ -729,6 +732,7 @@ function App() {
             setShowEmailConfig={setShowEmailConfig}
             getBrand={getBrand}
           />
+          </Suspense>
         )}
       </div>
 
@@ -813,14 +817,16 @@ function App() {
         </Modal>
       )}
       {showActivity && (
-        <ActivityPanel
-          tasks={tasks}
-          globalLog={globalLog}
-          currentUser={currentUser}
-          isAdmin={isAdmin}
-          team={team}
-          onClose={() => setShowActivity(false)}
-        />
+        <Suspense fallback={null}>
+          <ActivityPanel
+            tasks={tasks}
+            globalLog={globalLog}
+            currentUser={currentUser}
+            isAdmin={isAdmin}
+            team={team}
+            onClose={() => setShowActivity(false)}
+          />
+        </Suspense>
       )}
       {showSeasons && (
         <Modal title="Season Manager" onClose={() => setShowSeasons(false)} wide>
