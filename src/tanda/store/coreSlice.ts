@@ -60,5 +60,6 @@ export const createCoreSlice: StateCreator<TandaStore, [], [], CoreSlice> = (set
     pos: s.pos.filter((p) => (p.PoNumber ?? "") !== poNumber),
     notes: s.notes.filter((n) => n.po_number !== poNumber),
     milestones: (() => { const next = { ...s.milestones }; delete next[poNumber]; return next; })(),
+    attachments: (() => { const next = { ...s.attachments }; delete next[poNumber]; return next; })(),
   })),
 });

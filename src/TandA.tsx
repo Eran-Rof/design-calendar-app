@@ -172,11 +172,11 @@ function TandAApp() {
   const uploadingAttachment = core.uploadingAttachment;
   const setUser = (v: User | null) => coreSet("user", v);
   const setView = (v: View) => coreSet("view", v);
-  const setPos = (v: any) => { if (typeof v === "function") coreSet("pos", v(core.pos)); else coreSet("pos", v); };
-  const setNotes = (v: any) => { if (typeof v === "function") coreSet("notes", v(core.notes)); else coreSet("notes", v); };
+  const setPos = (v: any) => { if (typeof v === "function") coreSet("pos", v(useTandaStore.getState().pos)); else coreSet("pos", v); };
+  const setNotes = (v: any) => { if (typeof v === "function") coreSet("notes", v(useTandaStore.getState().notes)); else coreSet("notes", v); };
   const setSelected = (v: XoroPO | null) => coreSet("selected", v);
   const setDetailMode = (v: "header" | "po" | "milestones" | "notes" | "history" | "matrix" | "email" | "attachments" | "all") => coreSet("detailMode", v);
-  const setAttachments = (v: any) => { if (typeof v === "function") coreSet("attachments", v(core.attachments)); else coreSet("attachments", v); };
+  const setAttachments = (v: any) => { if (typeof v === "function") coreSet("attachments", v(useTandaStore.getState().attachments)); else coreSet("attachments", v); };
   const setUploadingAttachment = (v: boolean) => coreSet("uploadingAttachment", v);
   const [, setCountdownTick] = useState(0);
   // Tick every second when there are soft-deleted attachments (for live countdown)
@@ -272,7 +272,7 @@ function TandAApp() {
   const vendorSearch = sync.vendorSearch;
   const loadingVendors = sync.loadingVendors;
   const newManualVendor = sync.newManualVendor;
-  const setSyncFilters = (v: any) => { if (typeof v === "function") store.setSyncField("syncFilters", v(store.syncFilters)); else store.setSyncField("syncFilters", v); };
+  const setSyncFilters = (v: any) => { if (typeof v === "function") store.setSyncField("syncFilters", v(useTandaStore.getState().syncFilters)); else store.setSyncField("syncFilters", v); };
   const setSyncProgress = (v: number) => store.setSyncField("syncProgress", v);
   const setSyncProgressMsg = (v: string) => store.setSyncField("syncProgressMsg", v);
   const setSyncDone = (v: { added: number; changed: number; deleted: number } | null) => store.setSyncField("syncDone", v);
@@ -291,8 +291,8 @@ function TandAApp() {
   const milestones = core.milestones;
   const dcVendors = core.dcVendors;
   const designTemplates = core.designTemplates;
-  const setWipTemplates = (v: any) => { if (typeof v === "function") coreSet("wipTemplates", v(core.wipTemplates)); else coreSet("wipTemplates", v); };
-  const setMilestones = (v: any) => { if (typeof v === "function") coreSet("milestones", v(core.milestones)); else coreSet("milestones", v); };
+  const setWipTemplates = (v: any) => { if (typeof v === "function") coreSet("wipTemplates", v(useTandaStore.getState().wipTemplates)); else coreSet("wipTemplates", v); };
+  const setMilestones = (v: any) => { if (typeof v === "function") coreSet("milestones", v(useTandaStore.getState().milestones)); else coreSet("milestones", v); };
   const setDcVendors = (v: any) => coreSet("dcVendors", v);
   const setDesignTemplates = (v: any) => coreSet("designTemplates", v);
   const [collapsedCats, setCollapsedCats] = useState<Record<string, boolean>>({});
@@ -339,23 +339,23 @@ function TandAApp() {
   const setMsDisplayName = (v: string) => emSet("msDisplayName", v);
   const setShowEmailConfig = (v: boolean) => emSet("showEmailConfig", v);
   const setEmailSelPO = (v: string | null) => emSet("emailSelPO", v);
-  const setEmailsMap = (v: any) => { if (typeof v === "function") emSet("emailsMap", v(em.emailsMap)); else emSet("emailsMap", v); };
-  const setEmailLoadingMap = (v: any) => { if (typeof v === "function") emSet("emailLoadingMap", v(em.emailLoadingMap)); else emSet("emailLoadingMap", v); };
-  const setEmailErrorsMap = (v: any) => { if (typeof v === "function") emSet("emailErrorsMap", v(em.emailErrorsMap)); else emSet("emailErrorsMap", v); };
+  const setEmailsMap = (v: any) => { if (typeof v === "function") emSet("emailsMap", v(useTandaStore.getState().emailsMap)); else emSet("emailsMap", v); };
+  const setEmailLoadingMap = (v: any) => { if (typeof v === "function") emSet("emailLoadingMap", v(useTandaStore.getState().emailLoadingMap)); else emSet("emailLoadingMap", v); };
+  const setEmailErrorsMap = (v: any) => { if (typeof v === "function") emSet("emailErrorsMap", v(useTandaStore.getState().emailErrorsMap)); else emSet("emailErrorsMap", v); };
   const setEmailSelMsg = (v: any) => emSet("emailSelMsg", v);
   const setEmailThreadMsgs = (v: any) => emSet("emailThreadMsgs", v);
   const setEmailThreadLoading = (v: boolean) => emSet("emailThreadLoading", v);
   const setEmailTabCur = (v: "inbox" | "sent" | "thread" | "compose") => emSet("emailTabCur", v);
-  const setEmailSentMap = (v: any) => { if (typeof v === "function") emSet("emailSentMap", v(em.emailSentMap)); else emSet("emailSentMap", v); };
-  const setEmailSentLoading = (v: any) => { if (typeof v === "function") emSet("emailSentLoading", v(em.emailSentLoading)); else emSet("emailSentLoading", v); };
-  const setEmailSentErrMap = (v: any) => { if (typeof v === "function") emSet("emailSentErr", v(em.emailSentErr)); else emSet("emailSentErr", v); };
+  const setEmailSentMap = (v: any) => { if (typeof v === "function") emSet("emailSentMap", v(useTandaStore.getState().emailSentMap)); else emSet("emailSentMap", v); };
+  const setEmailSentLoading = (v: any) => { if (typeof v === "function") emSet("emailSentLoading", v(useTandaStore.getState().emailSentLoading)); else emSet("emailSentLoading", v); };
+  const setEmailSentErrMap = (v: any) => { if (typeof v === "function") emSet("emailSentErr", v(useTandaStore.getState().emailSentErr)); else emSet("emailSentErr", v); };
   const setEmailComposeTo = (v: string) => emSet("emailComposeTo", v);
   const setEmailComposeSubject = (v: string) => emSet("emailComposeSubject", v);
   const setEmailComposeBody = (v: string) => emSet("emailComposeBody", v);
   const setEmailSendErr = (v: string | null) => emSet("emailSendErr", v);
-  const setEmailNextLinks = (v: any) => { if (typeof v === "function") emSet("emailNextLinks", v(em.emailNextLinks)); else emSet("emailNextLinks", v); };
+  const setEmailNextLinks = (v: any) => { if (typeof v === "function") emSet("emailNextLinks", v(useTandaStore.getState().emailNextLinks)); else emSet("emailNextLinks", v); };
   const setEmailLoadingOlder = (v: boolean) => emSet("emailLoadingOlder", v);
-  const setEmailLastRefresh = (v: any) => { if (typeof v === "function") emSet("emailLastRefresh", v(em.emailLastRefresh)); else emSet("emailLastRefresh", v); };
+  const setEmailLastRefresh = (v: any) => { if (typeof v === "function") emSet("emailLastRefresh", v(useTandaStore.getState().emailLastRefresh)); else emSet("emailLastRefresh", v); };
   const setEmailReply = (v: string) => emSet("emailReply", v);
   const setEmailConfigForm = (v: any) => emSet("emailConfigForm", v);
   const setEmailPOSearch = (v: string) => emSet("emailPOSearch", v);
@@ -406,8 +406,8 @@ function TandAApp() {
   const setTeamsChannelMap = (v: any) => tmSet("teamsChannelMap", v);
   const setTeamsTeamId = (v: string) => tmSet("teamsTeamId", v);
   const setTeamsSelPO = (v: string | null) => tmSet("teamsSelPO", v);
-  const setTeamsMessages = (v: any) => { if (typeof v === "function") tmSet("teamsMessages", v(tm.teamsMessages)); else tmSet("teamsMessages", v); };
-  const setTeamsLoading = (v: any) => { if (typeof v === "function") tmSet("teamsLoading", v(tm.teamsLoading)); else tmSet("teamsLoading", v); };
+  const setTeamsMessages = (v: any) => { if (typeof v === "function") tmSet("teamsMessages", v(useTandaStore.getState().teamsMessages)); else tmSet("teamsMessages", v); };
+  const setTeamsLoading = (v: any) => { if (typeof v === "function") tmSet("teamsLoading", v(useTandaStore.getState().teamsLoading)); else tmSet("teamsLoading", v); };
   const setTeamsCreating = (v: string | null) => tmSet("teamsCreating", v);
   const setTeamsNewMsg = (v: string) => tmSet("teamsNewMsg", v);
   const setTeamsAuthStatus = (v: "idle" | "loading" | "error") => tmSet("teamsAuthStatus", v);
@@ -417,7 +417,7 @@ function TandAApp() {
   const setTeamsDirectSending = (v: boolean) => tmSet("teamsDirectSending", v);
   const setTeamsDirectErr = (v: string | null) => tmSet("teamsDirectErr", v);
   const setTeamsTab = (v: "channels" | "direct") => tmSet("teamsTab", v);
-  const setDmConversations = (v: any) => { if (typeof v === "function") tmSet("dmConversations", v(tm.dmConversations)); else tmSet("dmConversations", v); };
+  const setDmConversations = (v: any) => { if (typeof v === "function") tmSet("dmConversations", v(useTandaStore.getState().dmConversations)); else tmSet("dmConversations", v); };
   const setDmActiveChatId = (v: string | null) => tmSet("dmActiveChatId", v);
   const setDmComposing = (v: boolean) => tmSet("dmComposing", v);
   const setDmSelectedName = (v: string) => tmSet("dmSelectedName", v);
@@ -470,23 +470,23 @@ function TandAApp() {
   const emailCtxMenu = em.emailCtxMenu;
   const emailAttachments = em.emailAttachments;
   const emailAttachmentsLoading = em.emailAttachmentsLoading;
-  const setEmailAllMessages = (v: any) => { if (typeof v === "function") emSet("emailAllMessages" as any, v((em as any).emailAllMessages)); else emSet("emailAllMessages" as any, v); };
-  const setEmailDeletedMessages = (v: any) => { if (typeof v === "function") emSet("emailDeletedMessages" as any, v((em as any).emailDeletedMessages)); else emSet("emailDeletedMessages" as any, v); };
-  const setDtlEmails = (v: any) => { if (typeof v === "function") emSet("dtlEmails", v(em.dtlEmails)); else emSet("dtlEmails", v); };
-  const setDtlEmailLoading = (v: any) => { if (typeof v === "function") emSet("dtlEmailLoading", v(em.dtlEmailLoading)); else emSet("dtlEmailLoading", v); };
-  const setDtlEmailErr = (v: any) => { if (typeof v === "function") emSet("dtlEmailErr", v(em.dtlEmailErr)); else emSet("dtlEmailErr", v); };
+  const setEmailAllMessages = (v: any) => { if (typeof v === "function") emSet("emailAllMessages" as any, v((useTandaStore.getState() as any).emailAllMessages)); else emSet("emailAllMessages" as any, v); };
+  const setEmailDeletedMessages = (v: any) => { if (typeof v === "function") emSet("emailDeletedMessages" as any, v((useTandaStore.getState() as any).emailDeletedMessages)); else emSet("emailDeletedMessages" as any, v); };
+  const setDtlEmails = (v: any) => { if (typeof v === "function") emSet("dtlEmails", v(useTandaStore.getState().dtlEmails)); else emSet("dtlEmails", v); };
+  const setDtlEmailLoading = (v: any) => { if (typeof v === "function") emSet("dtlEmailLoading", v(useTandaStore.getState().dtlEmailLoading)); else emSet("dtlEmailLoading", v); };
+  const setDtlEmailErr = (v: any) => { if (typeof v === "function") emSet("dtlEmailErr", v(useTandaStore.getState().dtlEmailErr)); else emSet("dtlEmailErr", v); };
   const setDtlEmailSel = (v: any) => emSet("dtlEmailSel", v);
   const setDtlEmailThread = (v: any) => emSet("dtlEmailThread", v);
   const setDtlThreadLoading = (v: boolean) => emSet("dtlThreadLoading", v);
   const setDtlEmailTab = (v: "inbox" | "sent" | "thread" | "compose" | "teams") => emSet("dtlEmailTab", v);
-  const setDtlSentEmails = (v: any) => { if (typeof v === "function") emSet("dtlSentEmails", v(em.dtlSentEmails)); else emSet("dtlSentEmails", v); };
-  const setDtlSentLoading = (v: any) => { if (typeof v === "function") emSet("dtlSentLoading", v(em.dtlSentLoading)); else emSet("dtlSentLoading", v); };
+  const setDtlSentEmails = (v: any) => { if (typeof v === "function") emSet("dtlSentEmails", v(useTandaStore.getState().dtlSentEmails)); else emSet("dtlSentEmails", v); };
+  const setDtlSentLoading = (v: any) => { if (typeof v === "function") emSet("dtlSentLoading", v(useTandaStore.getState().dtlSentLoading)); else emSet("dtlSentLoading", v); };
   const setDtlComposeTo = (v: string) => emSet("dtlComposeTo", v);
   const setDtlComposeSubject = (v: string) => emSet("dtlComposeSubject", v);
   const setDtlComposeBody = (v: string) => emSet("dtlComposeBody", v);
   const setDtlSendErr = (v: string | null) => emSet("dtlSendErr", v);
   const setDtlReply = (v: string) => emSet("dtlReply", v);
-  const setDtlNextLink = (v: any) => { if (typeof v === "function") emSet("dtlNextLink", v(em.dtlNextLink)); else emSet("dtlNextLink", v); };
+  const setDtlNextLink = (v: any) => { if (typeof v === "function") emSet("dtlNextLink", v(useTandaStore.getState().dtlNextLink)); else emSet("dtlNextLink", v); };
   const setDtlLoadingOlder = (v: boolean) => emSet("dtlLoadingOlder", v);
   const setEmailActiveFolder = (v: "inbox" | "sent") => emSet("emailActiveFolder", v);
   const setEmailSearchQuery = (v: string) => emSet("emailSearchQuery", v);
@@ -499,8 +499,8 @@ function TandAApp() {
   const setEmailReplyText = (v: string) => emSet("emailReplyText", v);
   const setEmailSelectedId = (v: string | null) => emSet("emailSelectedId", v);
   const setEmailCtxMenu = (v: any) => emSet("emailCtxMenu", v);
-  const setEmailAttachments = (v: any) => { if (typeof v === "function") emSet("emailAttachments", v(em.emailAttachments)); else emSet("emailAttachments", v); };
-  const setEmailAttachmentsLoading = (v: any) => { if (typeof v === "function") emSet("emailAttachmentsLoading", v(em.emailAttachmentsLoading)); else emSet("emailAttachmentsLoading", v); };
+  const setEmailAttachments = (v: any) => { if (typeof v === "function") emSet("emailAttachments", v(useTandaStore.getState().emailAttachments)); else emSet("emailAttachments", v); };
+  const setEmailAttachmentsLoading = (v: any) => { if (typeof v === "function") emSet("emailAttachmentsLoading", v(useTandaStore.getState().emailAttachmentsLoading)); else emSet("emailAttachmentsLoading", v); };
 
   // ── Microsoft auth — shared token for Email + Teams (see tanda/hooks/useMSAuth) ──
   const {
@@ -2519,9 +2519,7 @@ function TandAApp() {
   // Permanently delete every message currently in Deleted Items.
   async function emptyDeletedFolder() {
     if (!msToken) return;
-    // Read current deleted messages from state via the setter pattern to avoid stale closure
-    let messages: any[] = [];
-    setEmailDeletedMessages((cur: any[]) => { messages = cur || []; return cur; });
+    const messages: any[] = (useTandaStore.getState() as any).emailDeletedMessages || [];
     if (messages.length === 0) return;
     store.setEmailField("emailDeletedLoading", true);
     try {

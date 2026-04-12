@@ -86,7 +86,8 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
       emSet("emailComposeTo", ""); emSet("emailComposeSubject", ""); emSet("emailComposeBody", "");
       emSet("emailComposeAttachments", []);
       emSet("emailComposeOpen", false);
-      if (emailSelPO) setTimeout(() => loadPOEmails(emailSelPO), 2000);
+      const curPO = useTandaStore.getState().emailSelPO;
+      if (curPO) setTimeout(() => loadPOEmails(curPO), 2000);
     } catch (e: any) { emSet("emailSendErr", "Failed to send: " + e.message); }
   }
 
@@ -97,7 +98,8 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
     emSet("emailComposeAttachLoading", true);
     try {
       const TOTAL_LIMIT = 3 * 1024 * 1024; // 3 MB safe limit for /me/sendMail
-      const existingSize = emailComposeAttachments.reduce((s, a) => s + a.size, 0);
+      const curAttachments = useTandaStore.getState().emailComposeAttachments;
+      const existingSize = curAttachments.reduce((s, a) => s + a.size, 0);
       const newOnes: Array<{ name: string; size: number; contentType: string; contentBytes: string }> = [];
       let runningSize = existingSize;
       for (const f of Array.from(files)) {
@@ -115,7 +117,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
         newOnes.push({ name: f.name, size: f.size, contentType: f.type || "application/octet-stream", contentBytes: b64 });
         runningSize += f.size;
       }
-      emSet("emailComposeAttachments", [...emailComposeAttachments, ...newOnes]);
+      emSet("emailComposeAttachments", [...useTandaStore.getState().emailComposeAttachments, ...newOnes]);
     } catch (e: any) {
       emSet("emailSendErr", "Failed to read file: " + (e?.message || e));
     } finally {
@@ -128,7 +130,8 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
     emSet("emailSendErr", null);
     try {
       await emailGraphPost("/me/messages/" + messageId + "/reply", { comment });
-      if (emailSelMsg?.conversationId) loadEmailThread(emailSelMsg.conversationId);
+      const curSelMsg = useTandaStore.getState().emailSelMsg;
+      if (curSelMsg?.conversationId) loadEmailThread(curSelMsg.conversationId);
       emSet("emailReplyText", "");
     } catch (e: any) { emSet("emailSendErr", "Failed to reply: " + e.message); }
   }
