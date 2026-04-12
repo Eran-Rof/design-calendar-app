@@ -2,13 +2,11 @@ import React from "react";
 import { STATUS_COLORS } from "../utils/tandaTypes";
 import { MS_CLIENT_ID, MS_TENANT_ID } from "../utils/msAuth";
 import type { XoroPO } from "../utils/tandaTypes";
-import type { TeamsState, TeamsAction } from "./state/teams/teamsTypes";
-import type { EmailState } from "./state/email/emailTypes";
+import type { TeamsState } from "./state/teams/teamsTypes";
 import S from "./styles";
+import { useTandaStore } from "./store";
 
 export interface TeamsPanelCtx {
-  tm: TeamsState;
-  tmD: React.Dispatch<TeamsAction>;
   // Email state reads (shared MS auth)
   msToken: string | null;
   msDisplayName: string;
@@ -33,12 +31,12 @@ const TEAMS_PURPLE = "#5b5ea6";
 const TEAMS_PURPLE_LT = "#7b83eb";
 
 export function teamsViewPanel(ctx: TeamsPanelCtx): React.ReactElement {
-  const { tm, tmD, msToken, msDisplayName, pos, setView, dmScrollRef, teamsLoadPOMessages, teamsStartChat, teamsSendMessage, teamsSendDirect, sendDmReply, loadDmMessages, handleTeamsContactInput, loadTeamsContacts, authenticateTeams, msSignOut } = ctx;
+  const { msToken, msDisplayName, pos, setView, dmScrollRef, teamsLoadPOMessages, teamsStartChat, teamsSendMessage, teamsSendDirect, sendDmReply, loadDmMessages, handleTeamsContactInput, loadTeamsContacts, authenticateTeams, msSignOut } = ctx;
 
-  const tmSet = (field: keyof TeamsState, value: any) => tmD({ type: "SET", field, value });
-  const tmSetFn = (field: keyof TeamsState, fn: (prev: any) => any) => tmD({ type: "SET", field, value: fn((tm as any)[field]) });
+  const store = useTandaStore.getState();
+  const tmSet = <K extends keyof TeamsState>(field: K, value: TeamsState[K]) => useTandaStore.getState().setTeamsField(field, value);
 
-  const { teamsSearchPO, teamsSelPO, teamsChannelMap, teamsMessages, teamsLoading, teamsCreating, teamsNewMsg, teamsAuthStatus, teamsTab, dmConversations, dmActiveChatId, dmComposing, dmSelectedName, dmLoading, dmError, dmNewMsg, dmSending, teamsContacts, teamsContactsLoading, teamsContactSearch, teamsContactDropdown, teamsContactSearchResults, teamsContactSearchLoading, teamsContactsError, teamsDirectTo, teamsDirectMsg, teamsDirectSending, teamsDirectErr } = tm;
+  const { teamsSearchPO, teamsSelPO, teamsChannelMap, teamsMessages, teamsLoading, teamsCreating, teamsNewMsg, teamsAuthStatus, teamsTab, dmConversations, dmActiveChatId, dmComposing, dmSelectedName, dmLoading, dmError, dmNewMsg, dmSending, teamsContacts, teamsContactsLoading, teamsContactSearch, teamsContactDropdown, teamsContactSearchResults, teamsContactSearchLoading, teamsContactsError, teamsDirectTo, teamsDirectMsg, teamsDirectSending, teamsDirectErr } = store;
 
   const teamsToken = msToken;
   const poList2 = pos.filter(p => {

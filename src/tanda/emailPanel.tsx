@@ -5,14 +5,11 @@ import { RichTextEditor, buildEmailHtml } from "./richTextEditor";
 import { STATUS_COLORS } from "../utils/tandaTypes";
 import { MS_CLIENT_ID, MS_TENANT_ID } from "../utils/msAuth";
 import type { XoroPO } from "../utils/tandaTypes";
-import type { EmailState, EmailAction } from "./state/email/emailTypes";
+import { useTandaStore } from "./store";
 
 
 
 export interface EmailPanelCtx {
-  // Email state (from useEmailState)
-  em: EmailState;
-  emD: React.Dispatch<EmailAction>;
   // Core reads
   pos: XoroPO[];
   setView: (v: any) => void;
@@ -34,11 +31,11 @@ export interface EmailPanelCtx {
 }
 
 export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
-  const { em, emD, pos, setView, emailGraph, emailGraphPost, loadEmailAttachments, authenticateEmail, loadPOEmails, loadFullEmail, loadEmailThread, emailGetPrefix, emailMarkAsRead, deleteMainEmail, msSignOut, loadAllPOEmailStats, loadDeletedFolder, emptyDeletedFolder } = ctx;
+  const { pos, setView, emailGraph, emailGraphPost, loadEmailAttachments, authenticateEmail, loadPOEmails, loadFullEmail, loadEmailThread, emailGetPrefix, emailMarkAsRead, deleteMainEmail, msSignOut, loadAllPOEmailStats, loadDeletedFolder, emptyDeletedFolder } = ctx;
 
-  // Helper to set email state fields
-  const emSet = (field: keyof EmailState, value: any) => emD({ type: "SET", field, value });
-  const emSetFn = (field: keyof EmailState, fn: (prev: any) => any) => emD({ type: "SET", field, value: fn((em as any)[field]) });
+  const store = useTandaStore.getState();
+  const emSet = (field: string, value: any) => useTandaStore.getState().setEmailField(field as any, value);
+  const emSetFn = (field: string, fn: (prev: any) => any) => { const s = useTandaStore.getState(); s.setEmailField(field as any, fn((s as any)[field])); };
 
   const C = {
     bg0: "#0F172A", bg1: "#1E293B", bg2: "#253347", bg3: "#2D3D52",
@@ -50,8 +47,8 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
   };
 
   const poList = pos;
-  const emailToken = em.msToken;
-  const { emailSelPO, emailsMap, emailLoadingMap, emailErrorsMap, emailSelMsg, emailThreadMsgs, emailThreadLoading, emailSentMap, emailSentLoading, emailComposeTo, emailComposeSubject, emailComposeBody, emailSendErr, emailNextLinks, emailLoadingOlder, emailReplyText, emailPOSearch, emailActiveFolder, emailSearchQuery, emailFilterUnread, emailFilterFlagged, emailFlaggedSet, emailCollapsedMsgs, emailComposeOpen, emailDeleteConfirm, emailSelectedId, emailCtxMenu, emailAttachments, emailAttachmentsLoading, showEmailConfig, msDisplayName, emailAllStats, emailAllStatsLoading, emailAllMessages, emailGlobalView, emailComposeAttachments, emailComposeAttachLoading, emailDeletedMessages, emailDeletedLoading, emailFolderCtxMenu } = em;
+  const emailToken = store.msToken;
+  const { emailSelPO, emailsMap, emailLoadingMap, emailErrorsMap, emailSelMsg, emailThreadMsgs, emailThreadLoading, emailSentMap, emailSentLoading, emailComposeTo, emailComposeSubject, emailComposeBody, emailSendErr, emailNextLinks, emailLoadingOlder, emailReplyText, emailPOSearch, emailActiveFolder, emailSearchQuery, emailFilterUnread, emailFilterFlagged, emailFlaggedSet, emailCollapsedMsgs, emailComposeOpen, emailDeleteConfirm, emailSelectedId, emailCtxMenu, emailAttachments, emailAttachmentsLoading, showEmailConfig, msDisplayName, emailAllStats, emailAllStatsLoading, emailAllMessages, emailGlobalView, emailComposeAttachments, emailComposeAttachLoading, emailDeletedMessages, emailDeletedLoading, emailFolderCtxMenu } = store;
 
   const iconBtn: React.CSSProperties = { width: 28, height: 28, borderRadius: 6, border: "none", background: "transparent", color: C.text3, cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit" };
 
@@ -153,7 +150,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
     ? (emailGlobalView === "deleted" ? emailDeletedLoading : emailAllStatsLoading)
     : (emailSelPO ? !!emailLoadingMap[emailSelPO] : false);
   const eError = isGlobal
-    ? (emailGlobalView === "deleted" ? em.emailDeletedError : em.emailAllStatsError)
+    ? (emailGlobalView === "deleted" ? store.emailDeletedError : store.emailAllStatsError)
     : (emailSelPO ? emailErrorsMap[emailSelPO] : null);
 
   const visibleEmails = [...activeList]
@@ -496,7 +493,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
                 </div>
                 <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                   <button style={iconBtn} title="Flag"
-                    onClick={() => emD({ type: "TOGGLE_FLAGGED", id: emailSelectedId })}>
+                    onClick={() => useTandaStore.getState().toggleFlagged(emailSelectedId)}>
                     <span style={{ color: emailFlaggedSet.has(emailSelectedId) ? C.warning : C.text3 }}>{emailFlaggedSet.has(emailSelectedId) ? "★" : "☆"}</span>
                   </button>
                   <button style={{ ...iconBtn, color: C.error }} title="Move to Deleted Items" onClick={() => {
@@ -532,7 +529,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
                     return (
                       <div key={msg.id} style={{ background: C.bg1, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 10, overflow: "hidden" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: !isLast ? "pointer" : "default" }}
-                          onClick={() => { if (!isLast) emD({ type: "TOGGLE_COLLAPSED_MSG", id: msg.id }); }}>
+                          onClick={() => { if (!isLast) useTandaStore.getState().toggleCollapsedMsg(msg.id); }}>
                           <div style={{ width: 32, height: 32, borderRadius: "50%", background: C.outlook + "33", border: "2px solid " + C.outlook, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: C.outlook, flexShrink: 0 }}>{initials}</div>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 13, fontWeight: 500, color: C.text1 }}>{sender}</div>
@@ -685,7 +682,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
                 </div>
               </div>
               <div style={{ padding: "10px 16px", borderTop: `1px solid ${C.border}`, display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                <button onClick={() => { emD({ type: "EMAIL_RESET_COMPOSE" }); emSet("emailComposeAttachments", []); emSet("emailComposeOpen", false); }}
+                <button onClick={() => { useTandaStore.getState().emailResetCompose(); emSet("emailComposeAttachments", []); emSet("emailComposeOpen", false); }}
                   style={{ padding: "7px 16px", borderRadius: 7, border: `1px solid ${C.border}`, background: "none", color: C.text3, cursor: "pointer", fontFamily: "inherit" }}>Discard</button>
                 <button onClick={doSendEmail} disabled={!emailComposeTo.trim() || !emailComposeSubject.trim()}
                   style={{ padding: "7px 18px", background: `linear-gradient(135deg, ${C.outlook}, ${C.outlookLt})`, border: "none", borderRadius: 7, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", opacity: (!emailComposeTo.trim() || !emailComposeSubject.trim()) ? 0.5 : 1 }}>

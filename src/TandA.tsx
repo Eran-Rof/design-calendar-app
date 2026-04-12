@@ -161,30 +161,7 @@ function TandAApp() {
   const coreSet = store.setCoreField;
   const emSet = store.setEmailField;
   const tmSet = store.setTeamsField;
-  // Shim dispatchers for extracted panels that still expect the legacy dispatch signature.
-  // Panels will be migrated to read from useTandaStore directly in a follow-up.
-  const emD = (action: import("./tanda/state/email/emailTypes").EmailAction) => {
-    const s = useTandaStore.getState();
-    switch (action.type) {
-      case "SET": s.setEmailField(action.field, action.value as any); break;
-      case "TOGGLE_FLAGGED": s.toggleFlagged(action.id); break;
-      case "TOGGLE_COLLAPSED_MSG": s.toggleCollapsedMsg(action.id); break;
-      case "EMAIL_RESET_COMPOSE": s.emailResetCompose(); break;
-      case "EMAIL_RESET_DETAIL": s.emailResetDetail(); break;
-      case "MERGE_EMAILS_MAP": s.mergeEmailsMap(action.key, action.emails, action.append); break;
-      case "MERGE_SENT_MAP": s.mergeSentMap(action.key, action.emails); break;
-      case "SET_NEXT_LINK": s.setEmailNextLink(action.key, action.link); break;
-    }
-  };
-  const tmD = (action: import("./tanda/state/teams/teamsTypes").TeamsAction) => {
-    const s = useTandaStore.getState();
-    switch (action.type) {
-      case "SET": s.setTeamsField(action.field, action.value as any); break;
-      case "TEAMS_RESET_DM": s.teamsResetDm(); break;
-      case "TEAMS_RESET_DTL_DM": s.teamsResetDtlDm(); break;
-    }
-  };
-  // ── Core PO state → useCoreState() + useCoreDispatch() (see tanda/state/core/) ──
+  // ── Core PO state (from useTandaStore) ──
   const user = core.user;
   const view = core.view;
   const pos = core.pos;
@@ -259,7 +236,7 @@ function TandAApp() {
   const [bulkPOs, setBulkPOs] = useState<string[]>([]);
   const [bulkPOSearch, setBulkPOSearch] = useState("");
   const [bulkPhases, setBulkPhases] = useState<string[]>([]);
-  // sync state → useSyncState() + useSyncDispatch() (see tanda/state/sync/)
+  // ── Sync state (from useTandaStore) ──
   const loading = sync.loading;
   const syncing = sync.syncing;
   const syncErr = sync.syncErr;
@@ -328,7 +305,7 @@ function TandAApp() {
   const [tplDragOverIdx, setTplDragOverIdx] = useState<number | null>(null);
   const [tplMovedIds, setTplMovedIds] = useState<Set<string>>(new Set());
 
-  // ── Outlook Email state → useEmailState() + useEmailDispatch() (see tanda/state/email/) ──
+  // ── Outlook Email state (from useTandaStore) ──
   const emailConfig = em.emailConfig;
   const msToken = em.msToken;
   const msDisplayName = em.msDisplayName;
@@ -382,7 +359,7 @@ function TandAApp() {
   const setEmailReply = (v: string) => emSet("emailReply", v);
   const setEmailConfigForm = (v: any) => emSet("emailConfigForm", v);
   const setEmailPOSearch = (v: string) => emSet("emailPOSearch", v);
-  // ── Teams state → useTeamsState() + useTeamsDispatch() (see tanda/state/teams/) ──
+  // ── Teams state (from useTandaStore) ──
   const teamsChannelMap = tm.teamsChannelMap;
   const teamsTeamId = tm.teamsTeamId;
   const teamsSelPO = tm.teamsSelPO;
@@ -595,7 +572,7 @@ function TandAApp() {
 
   function teamsViewPanel() {
     return teamsViewPanelExtracted({
-      tm, tmD, msToken, msDisplayName, pos, setView, dmScrollRef,
+      msToken, msDisplayName, pos, setView, dmScrollRef,
       teamsLoadPOMessages, teamsStartChat, teamsSendMessage, teamsSendDirect,
       sendDmReply, loadDmMessages, handleTeamsContactInput, loadTeamsContacts,
       authenticateTeams, msSignOut,
@@ -2610,7 +2587,7 @@ function TandAApp() {
 
   function emailViewPanel() {
     return emailViewPanelExtracted({
-      em, emD, pos, setView,
+      pos, setView,
       emailGraph, emailGraphPost, loadEmailAttachments, authenticateEmail,
       loadPOEmails, loadFullEmail, loadEmailThread, emailGetPrefix,
       emailMarkAsRead, deleteMainEmail, msSignOut,
