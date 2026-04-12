@@ -13,12 +13,17 @@
 
 export const config = { maxDuration: 60 };
 
-const ATS_KEY    = process.env.VITE_XORO_ATS_KEY;
-const ATS_SECRET = process.env.VITE_XORO_ATS_SECRET;
-const BASE       = "https://res.xorosoft.io/api/xerp";
+const BASE = "https://res.xorosoft.io/api/xerp";
+
+function getCredentials() {
+  const key = (process.env.VITE_XORO_ATS_KEY || "").trim();
+  const secret = (process.env.VITE_XORO_ATS_SECRET || "").trim();
+  return { key, secret };
+}
 
 function authHeader() {
-  return "Basic " + Buffer.from(`${ATS_KEY}:${ATS_SECRET}`).toString("base64");
+  const { key, secret } = getCredentials();
+  return "Basic " + Buffer.from(`${key}:${secret}`).toString("base64");
 }
 
 async function xoroGet(path, params = {}) {
@@ -170,6 +175,7 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(200).end();
 
+  const { key: ATS_KEY, secret: ATS_SECRET } = getCredentials();
   if (!ATS_KEY || !ATS_SECRET) {
     return res.status(500).json({ error: "ATS Xoro credentials not configured. Set VITE_XORO_ATS_KEY and VITE_XORO_ATS_SECRET in Vercel." });
   }
@@ -179,6 +185,24 @@ export default async function handler(req, res) {
   const storeFilter = url.searchParams.get("store") || "";
 
   try {
+    if (type === "debug") {
+      // Return raw page-1 response from Xoro for debugging
+      const raw = await xoroGet("inventory/getinventorybyitem", { min_on_hand: "1", page: "1" });
+      return res.status(200).json({
+        keyPresent: !!ATS_KEY,
+        secretPresent: !!ATS_SECRET,
+        keyFirst8: ATS_KEY?.slice(0, 8),
+        keyLen: ATS_KEY?.length,
+        secretLen: ATS_SECRET?.length,
+        authHeaderPreview: authHeader().slice(0, 30) + "...",
+        xoroResult: raw.Result,
+        xoroMessage: raw.Message,
+        totalPages: raw.TotalPages,
+        dataCount: Array.isArray(raw.Data) ? raw.Data.length : 0,
+        firstItem: Array.isArray(raw.Data) && raw.Data[0] ? { ItemNumber: raw.Data[0].ItemNumber, OnHandQty: raw.Data[0].OnHandQty, StoreName: raw.Data[0].StoreName } : null,
+      });
+    }
+
     if (type === "inventory") {
       const inv = await fetchInventory(storeFilter);
       return res.status(200).json({ Result: true, ...inv });
