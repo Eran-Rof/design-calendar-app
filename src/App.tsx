@@ -51,19 +51,19 @@ export default function AppWrapper() {
 }
 
 function App() {
-  const dc = useAppStore();
-  const dcSet = <K extends keyof AppStore>(field: K, value: AppStore[K]) => useAppStore.getState().setField(field as any, value);
+  const s = useAppStore();
+  // dcSet removed — all callers now use useAppStore.getState().setField() directly
   // ── Confirm modal state ────────────────────────────────────────────────
   const [confirmState, setConfirmState] = useState<{ message: string; action: string; onConfirm: () => void } | null>(null);
   setConfirmHandler((opts) => setConfirmState(opts));
 
   // ── Supabase persistence ─────────────────────────────────────────────────
-  const saveErr = dc.saveErr;
-  const setSaveErr = (v: string) => dcSet("saveErr", v);
+  const saveErr = s.saveErr;
+  const setSaveErr = (v: string) => useAppStore.getState().setField("saveErr", v);
 
 
-  const dbxLoaded = dc.dbxLoaded;
-  const setDbxLoaded = (v: boolean) => dcSet("dbxLoaded", v);
+  const dbxLoaded = s.dbxLoaded;
+  const setDbxLoaded = (v: boolean) => useAppStore.getState().setField("dbxLoaded", v);
 
   // ── Data state — backed by Zustand store ─────────────────────────────────
   const users = useAppStore(s => s.users);
@@ -87,76 +87,76 @@ function App() {
   const setCollections = useAppStore.getState().setCollections;
   const _setCollRaw = useAppStore.getState().setCollectionsRaw;
   // ── View/UI state → useAppStore (see store/index.ts) ──
-  const view = dc.view;
-  const listView = dc.listView;
-  const expandedColl = dc.expandedColl;
-  const filterBrand = dc.filterBrand;
-  const filterSeason = dc.filterSeason;
-  const filterCustomer = dc.filterCustomer;
-  const filterVendor = dc.filterVendor;
-  const focusCollKey = dc.focusCollKey;
-  const pendingDeleteColl = dc.pendingDeleteColl;
-  const timelineBackFilter = dc.timelineBackFilter;
-  const globalLog = dc.globalLog;
-  const showNav = dc.showNav;
-  const showWizard = dc.showWizard;
-  const showVendors = dc.showVendors;
-  const showTeam = dc.showTeam;
-  const showUsers = dc.showUsers;
-  const showSizeLib = dc.showSizeLib;
-  const showCatLib = dc.showCatLib;
-  const setView = (v: string) => dcSet("view", v);
-  const setListView = (v: boolean) => dcSet("listView", v);
-  const setExpandedColl = (v: string | null) => dcSet("expandedColl", v);
-  const setFilterBrand = (v: any) => { if (typeof v === "function") dcSet("filterBrand", v(dc.filterBrand)); else dcSet("filterBrand", v); };
-  const setFilterSeason = (v: any) => { if (typeof v === "function") dcSet("filterSeason", v(dc.filterSeason)); else dcSet("filterSeason", v); };
-  const setFilterCustomer = (v: any) => { if (typeof v === "function") dcSet("filterCustomer", v(dc.filterCustomer)); else dcSet("filterCustomer", v); };
-  const setFilterVendor = (v: any) => { if (typeof v === "function") dcSet("filterVendor", v(dc.filterVendor)); else dcSet("filterVendor", v); };
-  const setFocusCollKey = (v: any) => dcSet("focusCollKey", v);
-  const setPendingDeleteColl = (v: string | null) => dcSet("pendingDeleteColl", v);
-  const setTimelineBackFilter = (v: string | null) => dcSet("timelineBackFilter", v);
-  const setGlobalLog = (v: any) => { if (typeof v === "function") dcSet("globalLog", v(dc.globalLog)); else dcSet("globalLog", v); };
-  const setShowNav = (v: boolean) => dcSet("showNav", v);
-  const setShowWizard = (v: boolean) => dcSet("showWizard", v);
-  const setShowVendors = (v: boolean) => dcSet("showVendors", v);
-  const setShowTeam = (v: boolean) => dcSet("showTeam", v);
-  const setShowUsers = (v: boolean) => dcSet("showUsers", v);
-  const setShowSizeLib = (v: boolean) => dcSet("showSizeLib", v);
-  const setShowCatLib = (v: boolean) => dcSet("showCatLib", v);
+  const view = s.view;
+  const listView = s.listView;
+  const expandedColl = s.expandedColl;
+  const filterBrand = s.filterBrand;
+  const filterSeason = s.filterSeason;
+  const filterCustomer = s.filterCustomer;
+  const filterVendor = s.filterVendor;
+  const focusCollKey = s.focusCollKey;
+  const pendingDeleteColl = s.pendingDeleteColl;
+  const timelineBackFilter = s.timelineBackFilter;
+  const globalLog = s.globalLog;
+  const showNav = s.showNav;
+  const showWizard = s.showWizard;
+  const showVendors = s.showVendors;
+  const showTeam = s.showTeam;
+  const showUsers = s.showUsers;
+  const showSizeLib = s.showSizeLib;
+  const showCatLib = s.showCatLib;
+  const setView = (v: string) => useAppStore.getState().setField("view", v);
+  const setListView = (v: boolean) => useAppStore.getState().setField("listView", v);
+  const setExpandedColl = (v: string | null) => useAppStore.getState().setField("expandedColl", v);
+  const setFilterBrand = (v: any) => { if (typeof v === "function") useAppStore.getState().setField("filterBrand", v(s.filterBrand)); else useAppStore.getState().setField("filterBrand", v); };
+  const setFilterSeason = (v: any) => { if (typeof v === "function") useAppStore.getState().setField("filterSeason", v(s.filterSeason)); else useAppStore.getState().setField("filterSeason", v); };
+  const setFilterCustomer = (v: any) => { if (typeof v === "function") useAppStore.getState().setField("filterCustomer", v(s.filterCustomer)); else useAppStore.getState().setField("filterCustomer", v); };
+  const setFilterVendor = (v: any) => { if (typeof v === "function") useAppStore.getState().setField("filterVendor", v(s.filterVendor)); else useAppStore.getState().setField("filterVendor", v); };
+  const setFocusCollKey = (v: any) => useAppStore.getState().setField("focusCollKey", v);
+  const setPendingDeleteColl = (v: string | null) => useAppStore.getState().setField("pendingDeleteColl", v);
+  const setTimelineBackFilter = (v: string | null) => useAppStore.getState().setField("timelineBackFilter", v);
+  const setGlobalLog = (v: any) => { if (typeof v === "function") useAppStore.getState().setField("globalLog", v(s.globalLog)); else useAppStore.getState().setField("globalLog", v); };
+  const setShowNav = (v: boolean) => useAppStore.getState().setField("showNav", v);
+  const setShowWizard = (v: boolean) => useAppStore.getState().setField("showWizard", v);
+  const setShowVendors = (v: boolean) => useAppStore.getState().setField("showVendors", v);
+  const setShowTeam = (v: boolean) => useAppStore.getState().setField("showTeam", v);
+  const setShowUsers = (v: boolean) => useAppStore.getState().setField("showUsers", v);
+  const setShowSizeLib = (v: boolean) => useAppStore.getState().setField("showSizeLib", v);
+  const setShowCatLib = (v: boolean) => useAppStore.getState().setField("showCatLib", v);
   const sizeLibrary = useAppStore(s => s.sizeLibrary);
   const setSizeLibrary = (v: any, skip = false) => { if (skip) useAppStore.setState({ sizeLibrary: typeof v === "function" ? v(useAppStore.getState().sizeLibrary) : v }); else useAppStore.getState().setRefData("size_library", "sizeLibrary", typeof v === "function" ? v(useAppStore.getState().sizeLibrary) : v); };
   const categoryLib = useAppStore(s => s.categoryLib);
   const setCategoryLib = (v: any, skip = false) => { if (skip) useAppStore.setState({ categoryLib: typeof v === "function" ? v(useAppStore.getState().categoryLib) : v }); else useAppStore.getState().setRefData("categories", "categoryLib", typeof v === "function" ? v(useAppStore.getState().categoryLib) : v); };
-  const editTask = dc.editTask;
-  const dragId = dc.dragId;
-  const dragOverId = dc.dragOverId;
-  const ctxMenu = dc.ctxMenu;
-  const editCollKey = dc.editCollKey;
-  const statFilter = dc.statFilter;
-  const showAddTask = dc.showAddTask;
-  const showBrands = dc.showBrands;
-  const showSeasons = dc.showSeasons;
-  const showCustomers = dc.showCustomers;
-  const showOrderTypes = dc.showOrderTypes;
-  const showRoles = dc.showRoles;
-  const showGenders = dc.showGenders;
-  const showActivity = dc.showActivity;
-  const showTaskManager = dc.showTaskManager;
-  const setEditTask = (v: any) => dcSet("editTask", v);
-  const setDragId = (v: any) => dcSet("dragId", v);
-  const setDragOverId = (v: any) => dcSet("dragOverId", v);
-  const setCtxMenu = (v: any) => dcSet("ctxMenu", v);
-  const setEditCollKey = (v: any) => dcSet("editCollKey", v);
-  const setStatFilter = (v: any) => dcSet("statFilter", v);
-  const setShowAddTask = (v: boolean) => dcSet("showAddTask", v);
-  const setShowBrands = (v: boolean) => dcSet("showBrands", v);
-  const setShowSeasons = (v: boolean) => dcSet("showSeasons", v);
-  const setShowCustomers = (v: boolean) => dcSet("showCustomers", v);
-  const setShowOrderTypes = (v: boolean) => dcSet("showOrderTypes", v);
-  const setShowRoles = (v: boolean) => dcSet("showRoles", v);
-  const setShowGenders = (v: boolean) => dcSet("showGenders", v);
-  const setShowActivity = (v: boolean) => dcSet("showActivity", v);
-  const setShowTaskManager = (v: boolean) => dcSet("showTaskManager", v);
+  const editTask = s.editTask;
+  const dragId = s.dragId;
+  const dragOverId = s.dragOverId;
+  const ctxMenu = s.ctxMenu;
+  const editCollKey = s.editCollKey;
+  const statFilter = s.statFilter;
+  const showAddTask = s.showAddTask;
+  const showBrands = s.showBrands;
+  const showSeasons = s.showSeasons;
+  const showCustomers = s.showCustomers;
+  const showOrderTypes = s.showOrderTypes;
+  const showRoles = s.showRoles;
+  const showGenders = s.showGenders;
+  const showActivity = s.showActivity;
+  const showTaskManager = s.showTaskManager;
+  const setEditTask = (v: any) => useAppStore.getState().setField("editTask", v);
+  const setDragId = (v: any) => useAppStore.getState().setField("dragId", v);
+  const setDragOverId = (v: any) => useAppStore.getState().setField("dragOverId", v);
+  const setCtxMenu = (v: any) => useAppStore.getState().setField("ctxMenu", v);
+  const setEditCollKey = (v: any) => useAppStore.getState().setField("editCollKey", v);
+  const setStatFilter = (v: any) => useAppStore.getState().setField("statFilter", v);
+  const setShowAddTask = (v: boolean) => useAppStore.getState().setField("showAddTask", v);
+  const setShowBrands = (v: boolean) => useAppStore.getState().setField("showBrands", v);
+  const setShowSeasons = (v: boolean) => useAppStore.getState().setField("showSeasons", v);
+  const setShowCustomers = (v: boolean) => useAppStore.getState().setField("showCustomers", v);
+  const setShowOrderTypes = (v: boolean) => useAppStore.getState().setField("showOrderTypes", v);
+  const setShowRoles = (v: boolean) => useAppStore.getState().setField("showRoles", v);
+  const setShowGenders = (v: boolean) => useAppStore.getState().setField("showGenders", v);
+  const setShowActivity = (v: boolean) => useAppStore.getState().setField("showActivity", v);
+  const setShowTaskManager = (v: boolean) => useAppStore.getState().setField("showTaskManager", v);
   const orderTypes = useAppStore(s => s.orderTypes);
   const setOrderTypes = (v: any, skip = false) => { if (skip) useAppStore.setState({ orderTypes: typeof v === "function" ? v(useAppStore.getState().orderTypes) : v }); else useAppStore.getState().setRefData("order_types", "orderTypes", typeof v === "function" ? v(useAppStore.getState().orderTypes) : v); };
   const roles = useAppStore(s => s.roles);
@@ -168,28 +168,28 @@ function App() {
   const taskTemplates = useAppStore(s => s.taskTemplates);
   const setTaskTemplates = (v: any, skip = false) => { if (skip) useAppStore.setState({ taskTemplates: typeof v === "function" ? v(useAppStore.getState().taskTemplates) : v }); else useAppStore.getState().setRefData("task_templates", "taskTemplates", typeof v === "function" ? v(useAppStore.getState().taskTemplates) : v); };
   // ─── Undo stack (up to 4 entries) ───────────────────────────────────────────
-  const undoStack = dc.undoStack;
-  const undoConfirm = dc.undoConfirm;
-  const miniCalDragOver = dc.miniCalDragOver;
-  const calViewYear = dc.calViewYear;
-  const calViewMonth = dc.calViewMonth;
-  const calDragOver = dc.calDragOver;
-  const teamsConfig = dc.teamsConfig;
-  const teamsToken = dc.teamsToken;
-  const showTeamsConfig = dc.showTeamsConfig;
-  const teamsTokenExpiry = dc.teamsTokenExpiry;
-  const showEmailConfig = dc.showEmailConfig;
-  const setUndoStack = (v: any) => { if (typeof v === "function") dcSet("undoStack", v(dc.undoStack)); else dcSet("undoStack", v); };
-  const setUndoConfirm = (v: any) => dcSet("undoConfirm", v);
-  const setMiniCalDragOver = (v: any) => dcSet("miniCalDragOver", v);
-  const setCalViewYear = (v: any) => { if (typeof v === "function") dcSet("calViewYear", v(dc.calViewYear)); else dcSet("calViewYear", v); };
-  const setCalViewMonth = (v: any) => { if (typeof v === "function") dcSet("calViewMonth", v(dc.calViewMonth)); else dcSet("calViewMonth", v); };
-  const setCalDragOver = (v: string | null) => dcSet("calDragOver", v);
-  const setTeamsConfig = (v: any) => dcSet("teamsConfig", v);
-  const setTeamsToken = (v: any) => dcSet("teamsToken", v);
-  const setShowTeamsConfig = (v: boolean) => dcSet("showTeamsConfig", v);
-  const setTeamsTokenExpiry = (v: any) => dcSet("teamsTokenExpiry", v);
-  const setShowEmailConfig = (v: boolean) => dcSet("showEmailConfig", v);
+  const undoStack = s.undoStack;
+  const undoConfirm = s.undoConfirm;
+  const miniCalDragOver = s.miniCalDragOver;
+  const calViewYear = s.calViewYear;
+  const calViewMonth = s.calViewMonth;
+  const calDragOver = s.calDragOver;
+  const teamsConfig = s.teamsConfig;
+  const teamsToken = s.teamsToken;
+  const showTeamsConfig = s.showTeamsConfig;
+  const teamsTokenExpiry = s.teamsTokenExpiry;
+  const showEmailConfig = s.showEmailConfig;
+  const setUndoStack = (v: any) => { if (typeof v === "function") useAppStore.getState().setField("undoStack", v(s.undoStack)); else useAppStore.getState().setField("undoStack", v); };
+  const setUndoConfirm = (v: any) => useAppStore.getState().setField("undoConfirm", v);
+  const setMiniCalDragOver = (v: any) => useAppStore.getState().setField("miniCalDragOver", v);
+  const setCalViewYear = (v: any) => { if (typeof v === "function") useAppStore.getState().setField("calViewYear", v(s.calViewYear)); else useAppStore.getState().setField("calViewYear", v); };
+  const setCalViewMonth = (v: any) => { if (typeof v === "function") useAppStore.getState().setField("calViewMonth", v(s.calViewMonth)); else useAppStore.getState().setField("calViewMonth", v); };
+  const setCalDragOver = (v: string | null) => useAppStore.getState().setField("calDragOver", v);
+  const setTeamsConfig = (v: any) => useAppStore.getState().setField("teamsConfig", v);
+  const setTeamsToken = (v: any) => useAppStore.getState().setField("teamsToken", v);
+  const setShowTeamsConfig = (v: boolean) => useAppStore.getState().setField("showTeamsConfig", v);
+  const setTeamsTokenExpiry = (v: any) => useAppStore.getState().setField("teamsTokenExpiry", v);
+  const setShowEmailConfig = (v: boolean) => useAppStore.getState().setField("showEmailConfig", v);
 
   // Auto-restore Microsoft token from localStorage on startup (like PO WIP / Tech Pack)
   useEffect(() => {
@@ -269,8 +269,8 @@ function App() {
   }, []);
 
   // ── AUTO LOGOUT after 90 minutes of inactivity ──────────────────────────
-  const idleWarning = dc.idleWarning;
-  const setIdleWarning = (v: boolean) => dcSet("idleWarning", v);
+  const idleWarning = s.idleWarning;
+  const setIdleWarning = (v: boolean) => useAppStore.getState().setField("idleWarning", v);
   useIdleLogout({
     enabled: !!currentUser,
     idleMs: 90 * 60 * 1000,
