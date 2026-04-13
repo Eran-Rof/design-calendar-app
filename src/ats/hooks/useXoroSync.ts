@@ -56,13 +56,27 @@ export function useXoroSync(opts: UseXoroSyncOpts) {
       const meta = (json.Data as any)._meta;
       delete (data as any)._meta;
 
-      // Step 2: Apply PO data from PO WIP (tanda_pos)
+      // Step 2: Apply PO data from PO WIP (tanda_pos) for timeline events.
+      // The inventory API already set onOrder = QtyOnPO per item. We keep
+      // that as the baseline and layer PO WIP events (pos[]) on top for
+      // the date-based timeline. We do NOT zero out onOrder — if PO WIP
+      // can't match a SKU, the inventory API total is still correct.
       setSyncProgress({ step: "Merging PO data from PO WIP…", pct: 65 });
       try {
-        const base: ExcelData = { ...data, pos: [], skus: data.skus.map(s => ({ ...s, onOrder: 0 })) };
-        data = await applyPOWIPData(base);
+        // Save original onOrder from inventory API
+        const invOnOrder = new Map(data.skus.map(s => [s.sku, s.onOrder || 0]));
+        const base: ExcelData = { ...data, pos: [], skus: data.skus.map(s => ({ ...s })) };
+        const merged = await applyPOWIPData(base);
+        // For each SKU: use PO WIP's onOrder if it found events, else keep inventory's
+        data = {
+          ...merged,
+          skus: merged.skus.map(s => ({
+            ...s,
+            onOrder: s.onOrder > 0 ? s.onOrder : (invOnOrder.get(s.sku) ?? s.onOrder),
+          })),
+        };
       } catch (e) {
-        console.warn("PO WIP merge failed, using Xoro PO data:", e);
+        console.warn("PO WIP merge failed, using Xoro inventory PO totals:", e);
       }
 
       // Step 3: Dedupe
