@@ -142,4 +142,48 @@ describe("getArchiveDecisions", () => {
       expect(getArchiveDecisions(xoro, cached, new Set(["Open"]))).toHaveLength(0);
     });
   });
+
+  describe("edge cases", () => {
+    it("handles PO with undefined PoNumber gracefully", () => {
+      const xoro = [makePO({ PoNumber: undefined, StatusName: "Closed" })];
+      const decisions = getArchiveDecisions(xoro, [], null);
+      // Should filter out falsy poNumber
+      expect(decisions.every(d => d.poNumber !== "")).toBe(true);
+    });
+
+    it("handles empty inputs — no POs and no cached rows", () => {
+      expect(getArchiveDecisions([], [], null)).toHaveLength(0);
+      expect(getArchiveDecisions([], [], new Set())).toHaveLength(0);
+    });
+
+    it("deduplicates when same PO appears in both Xoro and cache", () => {
+      const xoro = [makePO({ PoNumber: "PO-DUP", StatusName: "Closed" })];
+      const cached = [makeRow("PO-DUP", "Closed", false)];
+      const decisions = getArchiveDecisions(xoro, cached, null);
+      const dupDecisions = decisions.filter(d => d.poNumber === "PO-DUP");
+      expect(dupDecisions).toHaveLength(1);
+      // freshData should be set from Xoro (source 1 takes precedence)
+      expect(dupDecisions[0].freshData).toBeDefined();
+    });
+
+    it("handles Received status correctly", () => {
+      const xoro = [makePO({ PoNumber: "PO-RCV", StatusName: "Received" })];
+      const decisions = getArchiveDecisions(xoro, [], null);
+      expect(decisions).toHaveLength(1);
+      expect(decisions[0].poNumber).toBe("PO-RCV");
+    });
+
+    it("handles Cancelled status correctly", () => {
+      const xoro = [makePO({ PoNumber: "PO-CAN", StatusName: "Cancelled" })];
+      const decisions = getArchiveDecisions(xoro, [], null);
+      expect(decisions).toHaveLength(1);
+    });
+
+    it("handles cached row with missing data property", () => {
+      const cached = [{ po_number: "PO-BAD", data: undefined as any }];
+      // Should not crash
+      const decisions = getArchiveDecisions([], cached, null);
+      expect(decisions).toHaveLength(0);
+    });
+  });
 });

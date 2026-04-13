@@ -243,11 +243,8 @@ const TEAMS_PURPLE = "#5b5ea6";
 const TEAMS_PURPLE_LT = "#7b83eb";
 const OUTLOOK_BLUE = "#0078D4";
 
-function daysUntil(d?: string) {
-  if (!d) return null;
-  return Math.ceil((new Date(d).getTime() - Date.now()) / 86400000);
-}
-
+export { daysUntil, computeMatrixRows, computeCascadeInfo, sortCategoryMilestones } from "./detailHelpers";
+import { daysUntil, computeMatrixRows } from "./detailHelpers";
 
 function InfoCell({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -386,23 +383,7 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
     const totalQty = items.reduce((s, i) => s + itemQty(i), 0);
 
     // Matrix rows (base+color combos) — shared by Item Matrix table and variant panel
-    const matrixRows = (() => {
-      const byKey: Record<string, { base: string; color: string; desc: string; qty: number; price: number }> = {};
-      const rows: { base: string; color: string; desc: string; qty: number; price: number }[] = [];
-      items.forEach((item: any) => {
-        const sku = item.ItemNumber ?? "";
-        const parts = sku.split("-");
-        const color = parts.length === 4 ? `${parts[1]}-${parts[2]}` : (parts.length >= 2 ? parts[1] : "");
-        const base = parts[0] || sku;
-        const key = `${base}-${color}`;
-        if (!byKey[key]) {
-          byKey[key] = { base, color, desc: item.Description ?? "", qty: 0, price: item.UnitPrice ?? 0 };
-          rows.push(byKey[key]);
-        }
-        byKey[key].qty += itemQty(item);
-      });
-      return rows;
-    })();
+    const matrixRows = computeMatrixRows(items);
 
     const tabStyle = (mode: string): React.CSSProperties => ({
       flex: 1, padding: "12px 20px", fontSize: 16, cursor: "pointer", fontWeight: 700,

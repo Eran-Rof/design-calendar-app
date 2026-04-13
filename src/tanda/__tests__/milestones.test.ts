@@ -131,4 +131,76 @@ describe("mergeMilestones", () => {
     expect(merged[0].id).toBe("e1");   // preserved — has actual_date
     expect(merged[1].id).toBe("f2");   // fresh — no existing for Trims
   });
+
+  it("preserves variant_statuses and note_entries from existing", () => {
+    const variantStatuses = { "VAR-1": { status: "Complete", status_date: "2026-03-01" } };
+    const noteEntries = [{ text: "Test note", user: "Alice", date: "2026-03-01" }];
+    const fresh = [makeMs({ id: "new-id" })];
+    const existing = [makeMs({
+      id: "old-id",
+      status: "In Progress",
+      variant_statuses: variantStatuses,
+      note_entries: noteEntries,
+    })];
+    const merged = mergeMilestones(existing, fresh);
+    expect(merged[0].variant_statuses).toEqual(variantStatuses);
+    expect(merged[0].note_entries).toEqual(noteEntries);
+  });
+
+  it("uses fresh expected_date and sort_order even when preserving existing state", () => {
+    const fresh = [makeMs({ id: "new-id", expected_date: "2026-05-01", sort_order: 5, days_before_ddp: 60 })];
+    const existing = [makeMs({ id: "old-id", expected_date: "2026-04-01", sort_order: 0, days_before_ddp: 120, status: "Complete" })];
+    const merged = mergeMilestones(existing, fresh);
+    // Fresh structural fields should be used
+    expect(merged[0].expected_date).toBe("2026-05-01");
+    expect(merged[0].sort_order).toBe(5);
+    expect(merged[0].days_before_ddp).toBe(60);
+    // But old state is preserved
+    expect(merged[0].id).toBe("old-id");
+    expect(merged[0].status).toBe("Complete");
+  });
+
+  it("returns empty array when both existing and fresh are empty", () => {
+    expect(mergeMilestones([], [])).toHaveLength(0);
+  });
+
+  it("handles multiple existing milestones with same phase — uses first match", () => {
+    const fresh = [makeMs({ id: "f1", phase: "Lab Dip" })];
+    const existing = [
+      makeMs({ id: "e1", phase: "Lab Dip", status: "Complete" }),
+      makeMs({ id: "e2", phase: "Lab Dip", status: "In Progress" }),
+    ];
+    const merged = mergeMilestones(existing, fresh);
+    // Should match first one (e1)
+    expect(merged[0].id).toBe("e1");
+    expect(merged[0].status).toBe("Complete");
+  });
+});
+
+describe("generateMilestones — additional edge cases", () => {
+  it("handles DDP on a leap year date", () => {
+    const templates = [TEMPLATES[0]]; // 120 days before
+    const ms = generateMilestones("PO-1", "2028-02-29", templates, "");
+    expect(ms).toHaveLength(1);
+    expect(ms[0].expected_date).toBeDefined();
+    // 120 days before Feb 29, 2028 = Oct 31, 2027
+    expect(ms[0].expected_date).toBe("2027-10-31");
+  });
+
+  it("handles large daysBeforeDDP that crosses a year boundary", () => {
+    const templates: WipTemplate[] = [
+      { id: "t1", phase: "Long Lead", category: "Pre-Production", daysBeforeDDP: 365, status: "Not Started", notes: "" },
+    ];
+    const ms = generateMilestones("PO-1", "2026-06-15", templates, "");
+    expect(ms).toHaveLength(1);
+    // 365 days before Jun 15 2026 = Jun 15 2025
+    expect(ms[0].expected_date).toBe("2025-06-15");
+  });
+
+  it("sets updated_at to a valid ISO timestamp", () => {
+    const ms = generateMilestones("PO-1", "2026-08-01", TEMPLATES, "");
+    for (const m of ms) {
+      expect(new Date(m.updated_at).toISOString()).toBe(m.updated_at);
+    }
+  });
 });
