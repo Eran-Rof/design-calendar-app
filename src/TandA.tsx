@@ -166,7 +166,12 @@ export default function TandAAppWrapper() {
 }
 
 function TandAApp() {
-  const store = useTandaStore();
+  // Subscribe to store changes via a tick counter — avoids returning the full
+  // state object from useTandaStore() which creates a new reference on every
+  // field change and triggers infinite re-render cascades.
+  const [, _tick] = useState(0);
+  useEffect(() => useTandaStore.subscribe(() => _tick(c => c + 1)), []);
+  const store = useTandaStore.getState();
   const core = store;
   const sync = store;
   const em = store;
