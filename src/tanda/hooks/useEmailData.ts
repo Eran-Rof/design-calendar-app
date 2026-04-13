@@ -1,11 +1,9 @@
-import { useCallback } from "react";
 import { useTandaStore } from "../store";
 
 interface UseEmailDataOpts {
   emailGraph: (path: string) => Promise<any>;
   getGraphToken: () => Promise<string>;
   msToken: string | null;
-  // State setters passed from TandA
   setEmailSelMsg: (v: any) => void;
   setEmailThreadLoading: (v: boolean) => void;
   setEmailThreadMsgs: (v: any) => void;
@@ -18,58 +16,47 @@ interface UseEmailDataOpts {
   setEmailNextLinks: (v: any) => void;
   setDtlNextLink: (v: any) => void;
   setEmailLastRefresh: (v: any) => void;
-  // Downstream helpers
   loadEmailAttachments: (messageId: string) => void;
   loadPOEmailsRef: React.MutableRefObject<((poNum: string) => void) | undefined>;
 }
 
 export function useEmailData(opts: UseEmailDataOpts) {
-  const {
-    emailGraph, getGraphToken, msToken,
-    setEmailSelMsg, setEmailThreadLoading, setEmailThreadMsgs,
-    setEmailLoadingOlder, setEmailLoadingMap, setEmailErrorsMap,
-    setEmailsMap, setDtlEmails, setEmailSelectedId,
-    setEmailNextLinks, setDtlNextLink, setEmailLastRefresh,
-    loadEmailAttachments, loadPOEmailsRef,
-  } = opts;
-
+  // All functions read opts/store at call time (not memoized) to avoid
+  // useCallback dep arrays that change every render and cause re-render loops.
   const getStore = () => useTandaStore.getState();
 
-  const emailGetPrefix = useCallback((poNum: string) => {
-    return "[PO-" + poNum + "]";
-  }, []);
+  function emailGetPrefix(poNum: string) { return "[PO-" + poNum + "]"; }
 
-  const loadFullEmail = useCallback(async (id: string) => {
-    try { const d = await emailGraph("/me/messages/" + id); setEmailSelMsg(d); } catch (e) { console.error(e); }
-  }, [emailGraph, setEmailSelMsg]);
+  async function loadFullEmail(id: string) {
+    try { const d = await opts.emailGraph("/me/messages/" + id); opts.setEmailSelMsg(d); } catch (e) { console.error(e); }
+  }
 
-  const loadEmailThread = useCallback(async (conversationId: string) => {
-    setEmailThreadLoading(true);
+  async function loadEmailThread(conversationId: string) {
+    opts.setEmailThreadLoading(true);
     try {
-      const d = await emailGraph("/me/messages?$filter=" + encodeURIComponent("conversationId eq '" + conversationId + "'") + "&$orderby=receivedDateTime%20asc&$select=id,subject,from,receivedDateTime,body,conversationId,isRead,hasAttachments");
-      setEmailThreadMsgs(d.value || []);
-    } catch (e) { setEmailThreadMsgs([]); }
-    setEmailThreadLoading(false);
-  }, [emailGraph, setEmailThreadMsgs, setEmailThreadLoading]);
+      const d = await opts.emailGraph("/me/messages?$filter=" + encodeURIComponent("conversationId eq '" + conversationId + "'") + "&$orderby=receivedDateTime%20asc&$select=id,subject,from,receivedDateTime,body,conversationId,isRead,hasAttachments");
+      opts.setEmailThreadMsgs(d.value || []);
+    } catch (e) { opts.setEmailThreadMsgs([]); }
+    opts.setEmailThreadLoading(false);
+  }
 
-  const loadPOEmails = useCallback(async (poNum: string, olderUrl?: string, autoSelect?: boolean) => {
-    // Keep the ref in sync so useEmailOps can call us after send.
-    loadPOEmailsRef.current = loadPOEmails;
-    if (!msToken) return;
+  async function loadPOEmails(poNum: string, olderUrl?: string, autoSelect?: boolean) {
+    opts.loadPOEmailsRef.current = loadPOEmails;
+    if (!opts.msToken) return;
     const prefix = emailGetPrefix(poNum);
-    if (olderUrl) { setEmailLoadingOlder(true); } else { setEmailLoadingMap((l: any) => ({ ...l, [poNum]: true })); }
-    setEmailErrorsMap((e: any) => ({ ...e, [poNum]: null }));
+    if (olderUrl) { opts.setEmailLoadingOlder(true); } else { opts.setEmailLoadingMap((l: any) => ({ ...l, [poNum]: true })); }
+    opts.setEmailErrorsMap((e: any) => ({ ...e, [poNum]: null }));
     try {
       const searchTermPO = prefix.replace(/[\[\]{}()*?]/g, "").trim();
       const url = olderUrl || ("/me/mailFolders/Inbox/messages?$search=" + encodeURIComponent('"' + searchTermPO + '"') + "&$top=25&$select=id,subject,from,receivedDateTime,bodyPreview,conversationId,isRead,hasAttachments");
-      const d = await emailGraph(url);
+      const d = await opts.emailGraph(url);
       const items = d.value || [];
       if (olderUrl) {
-        setEmailsMap((m: any) => ({ ...m, [poNum]: [...(m[poNum] || []), ...items] }));
-        setDtlEmails((m: any) => ({ ...m, [poNum]: [...(m[poNum] || []), ...items] }));
+        opts.setEmailsMap((m: any) => ({ ...m, [poNum]: [...(m[poNum] || []), ...items] }));
+        opts.setDtlEmails((m: any) => ({ ...m, [poNum]: [...(m[poNum] || []), ...items] }));
       } else {
-        setEmailsMap((m: any) => ({ ...m, [poNum]: items }));
-        setDtlEmails((m: any) => ({ ...m, [poNum]: items }));
+        opts.setEmailsMap((m: any) => ({ ...m, [poNum]: items }));
+        opts.setDtlEmails((m: any) => ({ ...m, [poNum]: items }));
         if (autoSelect && items.length > 0) {
           const sorted = [...items].sort((a: any, b: any) => {
             if (!a.isRead && b.isRead) return -1;
@@ -77,31 +64,29 @@ export function useEmailData(opts: UseEmailDataOpts) {
             return new Date(b.receivedDateTime || 0).getTime() - new Date(a.receivedDateTime || 0).getTime();
           });
           const first = sorted[0];
-          setEmailSelectedId(first.id);
-          setEmailSelMsg(null);
+          opts.setEmailSelectedId(first.id);
+          opts.setEmailSelMsg(null);
           loadFullEmail(first.id);
           if (first.conversationId) loadEmailThread(first.conversationId);
-          if (first.hasAttachments) loadEmailAttachments(first.id);
+          if (first.hasAttachments) opts.loadEmailAttachments(first.id);
         }
       }
       const nextLink = d["@odata.nextLink"] ? d["@odata.nextLink"].replace("https://graph.microsoft.com/v1.0", "") : null;
-      setEmailNextLinks((nl: any) => ({ ...nl, [poNum]: nextLink }));
-      setDtlNextLink((nl: any) => ({ ...nl, [poNum]: nextLink }));
-      setEmailLastRefresh((lr: any) => ({ ...lr, [poNum]: Date.now() }));
-    } catch (e: any) { setEmailErrorsMap((err: any) => ({ ...err, [poNum]: e.message })); }
-    setEmailLoadingMap((l: any) => ({ ...l, [poNum]: false }));
-    setEmailLoadingOlder(false);
-  }, [msToken, emailGetPrefix, emailGraph, setEmailLoadingOlder, setEmailLoadingMap, setEmailErrorsMap, setEmailsMap, setDtlEmails, setEmailSelectedId, setEmailSelMsg, loadFullEmail, loadEmailThread, loadEmailAttachments, setEmailNextLinks, setDtlNextLink, setEmailLastRefresh, loadPOEmailsRef]);
+      opts.setEmailNextLinks((nl: any) => ({ ...nl, [poNum]: nextLink }));
+      opts.setDtlNextLink((nl: any) => ({ ...nl, [poNum]: nextLink }));
+      opts.setEmailLastRefresh((lr: any) => ({ ...lr, [poNum]: Date.now() }));
+    } catch (e: any) { opts.setEmailErrorsMap((err: any) => ({ ...err, [poNum]: e.message })); }
+    opts.setEmailLoadingMap((l: any) => ({ ...l, [poNum]: false }));
+    opts.setEmailLoadingOlder(false);
+  }
 
-  // Fetch all messages currently in the Outlook Deleted Items folder so the
-  // user can review/restore/empty them. Limited to 200 most recent.
-  const loadDeletedFolder = useCallback(async () => {
-    if (!msToken) return;
+  async function loadDeletedFolder() {
+    if (!opts.msToken) return;
     getStore().setEmailField("emailDeletedLoading", true);
     getStore().setEmailField("emailDeletedError", null);
     try {
       const url = "/me/mailFolders/DeletedItems/messages?$top=200&$orderby=receivedDateTime desc&$select=id,subject,from,receivedDateTime,bodyPreview,conversationId,isRead,hasAttachments";
-      const d = await emailGraph(url);
+      const d = await opts.emailGraph(url);
       const raw = Array.isArray(d?.value) ? d.value : [];
       const items: any[] = raw.map((m: any) => {
         const match = (m.subject || "").match(/\[PO-([^\]]+)\]/);
@@ -113,19 +98,17 @@ export function useEmailData(opts: UseEmailDataOpts) {
     } finally {
       getStore().setEmailField("emailDeletedLoading", false);
     }
-  }, [msToken, emailGraph]);
+  }
 
-  // Permanently delete every message currently in Deleted Items.
-  const emptyDeletedFolder = useCallback(async () => {
-    if (!msToken) return;
-    const messages: any[] = (useTandaStore.getState() as any).emailDeletedMessages || [];
+  async function emptyDeletedFolder() {
+    if (!opts.msToken) return;
+    const messages: any[] = (getStore() as any).emailDeletedMessages || [];
     if (messages.length === 0) return;
     getStore().setEmailField("emailDeletedLoading", true);
     try {
-      // Best-effort: serial deletes (Graph batch is more code than it's worth here)
       for (const m of messages) {
         try {
-          const tok = await getGraphToken();
+          const tok = await opts.getGraphToken();
           await fetch(`https://graph.microsoft.com/v1.0/me/messages/${m.id}`, {
             method: "DELETE",
             headers: { Authorization: "Bearer " + tok },
@@ -138,21 +121,16 @@ export function useEmailData(opts: UseEmailDataOpts) {
     } finally {
       getStore().setEmailField("emailDeletedLoading", false);
     }
-  }, [msToken, getGraphToken]);
+  }
 
-  // Pre-fetches a single batch of inbox messages tagged with a [PO-...] prefix,
-  // groups them by PO number, and stores per-PO stats + a flat list for the
-  // "All POs" / "Unread" global views. Cheaper than per-PO fetches and means
-  // unread badges + counts appear without the user having to click each PO.
-  const loadAllPOEmailStats = useCallback(async () => {
-    if (!msToken) return;
+  async function loadAllPOEmailStats() {
+    if (!opts.msToken) return;
     getStore().setEmailField("emailAllStatsLoading", true);
     getStore().setEmailField("emailAllStatsError", null);
     try {
       const url = `/me/mailFolders/Inbox/messages?$search=${encodeURIComponent('"[PO-"')}&$top=500&$select=id,subject,from,receivedDateTime,bodyPreview,isRead,hasAttachments,conversationId`;
-      const d = await emailGraph(url);
+      const d = await opts.emailGraph(url);
       const items: any[] = Array.isArray(d?.value) ? d.value : [];
-      // Group by extracted PO number — subject must contain "[PO-...]"
       const stats: Record<string, { total: number; unread: number; latestDate: string; latestSubject: string; latestSender: string }> = {};
       const re = /\[PO-([^\]]+)\]/;
       const tagged: any[] = [];
@@ -170,7 +148,6 @@ export function useEmailData(opts: UseEmailDataOpts) {
           stats[poNum].latestSubject = subj;
           stats[poNum].latestSender = m.from?.emailAddress?.name || m.from?.emailAddress?.address || "";
         }
-        // Tag the message so the global views know which PO it belongs to
         tagged.push({ ...m, _poNumber: poNum });
       }
       getStore().setEmailField("emailAllStats", stats);
@@ -180,7 +157,7 @@ export function useEmailData(opts: UseEmailDataOpts) {
     } finally {
       getStore().setEmailField("emailAllStatsLoading", false);
     }
-  }, [msToken, emailGraph]);
+  }
 
   return {
     emailGetPrefix,

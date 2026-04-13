@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect } from "react";
 import { msSignIn, getMsAccessToken, clearMsTokens, MS_CLIENT_ID, MS_TENANT_ID } from "../../utils/msAuth";
 
 interface UseMSAuthOpts {
@@ -28,15 +28,15 @@ export function useMSAuth(opts: UseMSAuthOpts) {
     })();
   }, []);
 
-  const emailTokenIsValid = useCallback(() => !!msToken, [msToken]);
+  function emailTokenIsValid() { return !!msToken; }
 
-  const handleEmailTokenExpired = useCallback(() => {
+  function handleEmailTokenExpired() {
     clearMsTokens();
     setMsToken(null);
     setMsDisplayName("");
-  }, [setMsToken, setMsDisplayName]);
+  }
 
-  const authenticateMS = useCallback(async () => {
+  async function authenticateMS() {
     if (!MS_CLIENT_ID || !MS_TENANT_ID) return;
     setTeamsAuthStatus("loading");
     try {
@@ -52,16 +52,16 @@ export function useMSAuth(opts: UseMSAuthOpts) {
       console.error("MS auth failed:", e);
       setTeamsAuthStatus("error");
     }
-  }, [setMsToken, setMsDisplayName, setTeamsAuthStatus]);
+  }
 
-  const getGraphToken = useCallback(async (): Promise<string> => {
+  async function getGraphToken(): Promise<string> {
     const tok = await getMsAccessToken();
     if (tok) { if (tok !== msToken) setMsToken(tok); return tok; }
     if (msToken) return msToken;
     throw new Error("Not signed in to Microsoft");
-  }, [msToken, setMsToken]);
+  }
 
-  const graphGet = useCallback(async (path: string, extraHeaders?: Record<string, string>) => {
+  async function graphGet(path: string, extraHeaders?: Record<string, string>) {
     const tok = await getGraphToken();
     const r = await fetch("https://graph.microsoft.com/v1.0" + path, {
       headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json", ...extraHeaders },
@@ -69,9 +69,9 @@ export function useMSAuth(opts: UseMSAuthOpts) {
     if (r.status === 401) { handleEmailTokenExpired(); throw new Error("Session expired — please sign in again"); }
     if (!r.ok) throw new Error("Graph " + r.status + ": " + await r.text());
     return r.json();
-  }, [getGraphToken, handleEmailTokenExpired]);
+  }
 
-  const graphPost = useCallback(async (path: string, body: any) => {
+  async function graphPost(path: string, body: any) {
     const tok = await getGraphToken();
     const r = await fetch("https://graph.microsoft.com/v1.0" + path, {
       method: "POST",
@@ -81,14 +81,14 @@ export function useMSAuth(opts: UseMSAuthOpts) {
     if (r.status === 401) { handleEmailTokenExpired(); throw new Error("Session expired — please sign in again"); }
     if (!r.ok) throw new Error("Graph " + r.status + ": " + await r.text());
     return r.json();
-  }, [getGraphToken, handleEmailTokenExpired]);
+  }
 
-  const msSignOut = useCallback(() => {
+  function msSignOut() {
     clearMsTokens();
     setMsToken(null);
     setMsDisplayName("");
     setTeamsAuthStatus("idle");
-  }, [setMsToken, setMsDisplayName, setTeamsAuthStatus]);
+  }
 
   return {
     authenticateMS,

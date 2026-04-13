@@ -1,4 +1,3 @@
-import React, { useCallback } from "react";
 import { buildEmailHtml } from "../richTextEditor";
 
 interface UseEmailOpsOpts {
@@ -67,30 +66,30 @@ export function useEmailOps(opts: UseEmailOpsOpts) {
 
   const emailToken = msToken;
 
-  const emailGraph = useCallback(async (path: string) => {
+  async function emailGraph(path: string) {
     const tok = await getGraphToken();
     const r = await fetch("https://graph.microsoft.com/v1.0" + path, { headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" } });
     if (r.status === 401) { handleEmailTokenExpired(); throw new Error("Session expired"); }
     if (!r.ok) throw new Error("Graph " + r.status + ": " + await r.text());
     return r.json();
-  }, [getGraphToken, handleEmailTokenExpired]);
+  }
 
-  const emailGraphPost = useCallback(async (path: string, body: any) => {
+  async function emailGraphPost(path: string, body: any) {
     const tok = await getGraphToken();
     const r = await fetch("https://graph.microsoft.com/v1.0" + path, { method: "POST", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify(body) });
     if (r.status === 401) { handleEmailTokenExpired(); throw new Error("Session expired"); }
     if (r.status === 202 || r.status === 200) return r.status === 202 ? {} : r.json();
     if (!r.ok) throw new Error("Graph " + r.status + ": " + await r.text());
     return r.json();
-  }, [getGraphToken, handleEmailTokenExpired]);
+  }
 
-  const emailGraphDelete = useCallback(async (path: string) => {
+  async function emailGraphDelete(path: string) {
     const tok = await getGraphToken();
     const r = await fetch("https://graph.microsoft.com/v1.0" + path, { method: "DELETE", headers: { Authorization: "Bearer " + tok } });
     if (r.status === 401) { handleEmailTokenExpired(); throw new Error("Session expired"); }
-  }, [getGraphToken, handleEmailTokenExpired]);
+  }
 
-  const loadEmailAttachments = useCallback(async (messageId: string, force = false) => {
+  async function loadEmailAttachments(messageId: string, force = false) {
     if (!force && emailAttachments[messageId] !== undefined && emailAttachments[messageId].length > 0) return;
     setEmailAttachmentsLoading((a: any) => ({ ...a, [messageId]: true }));
     try {
@@ -108,9 +107,9 @@ export function useEmailOps(opts: UseEmailOpsOpts) {
       setEmailAttachments((a: any) => ({ ...a, [messageId]: [] }));
     }
     setEmailAttachmentsLoading((a: any) => ({ ...a, [messageId]: false }));
-  }, [emailAttachments, getGraphToken, setEmailAttachments, setEmailAttachmentsLoading]);
+  }
 
-  const emailMarkAsRead = useCallback(async (id: string) => {
+  async function emailMarkAsRead(id: string) {
     try {
       const tok = await getGraphToken();
       await fetch("https://graph.microsoft.com/v1.0/me/messages/" + id, {
@@ -119,9 +118,9 @@ export function useEmailOps(opts: UseEmailOpsOpts) {
         body: JSON.stringify({ isRead: true }),
       });
     } catch {}
-  }, [getGraphToken]);
+  }
 
-  const deleteMainEmail = useCallback(async (messageId: string) => {
+  async function deleteMainEmail(messageId: string) {
     try {
       await emailGraphPost("/me/messages/" + messageId + "/move", { destinationId: "deleteditems" });
       setEmailSelectedId(null);
@@ -137,9 +136,9 @@ export function useEmailOps(opts: UseEmailOpsOpts) {
       }
       setEmailAllMessages((arr: any[]) => (arr || []).filter((e: any) => e.id !== messageId));
     } catch (e) { console.error("Delete email error", e); }
-  }, [emailGraphPost, emailSelPO, setEmailSelectedId, setEmailSelMsg, setEmailDeleteConfirm, setEmailThreadMsgs, setEmailsMap, setEmailSentMap, setDtlEmails, setDtlSentEmails, setEmailAllMessages]);
+  }
 
-  const loadDtlEmails = useCallback(async (poNum: string, olderUrl?: string) => {
+  async function loadDtlEmails(poNum: string, olderUrl?: string) {
     if (!emailToken) return;
     const prefix = "[PO-" + poNum + "]";
     if (olderUrl) { setDtlLoadingOlder(true); } else { setDtlEmailLoading((l: any) => ({ ...l, [poNum]: true })); }
@@ -163,9 +162,9 @@ export function useEmailOps(opts: UseEmailOpsOpts) {
     } catch (e: any) { setDtlEmailErr((err: any) => ({ ...err, [poNum]: e.message })); }
     setDtlEmailLoading((l: any) => ({ ...l, [poNum]: false }));
     setDtlLoadingOlder(false);
-  }, [emailToken, emailGraph, setDtlEmails, setEmailsMap, setDtlNextLink, setEmailNextLinks, setEmailLastRefresh, setDtlEmailLoading, setDtlEmailErr, setDtlLoadingOlder]);
+  }
 
-  const loadDtlSentEmails = useCallback(async (poNum: string) => {
+  async function loadDtlSentEmails(poNum: string) {
     if (!emailToken) return;
     const prefix = "[PO-" + poNum + "]";
     setDtlSentLoading((l: any) => ({ ...l, [poNum]: true }));
@@ -176,13 +175,13 @@ export function useEmailOps(opts: UseEmailOpsOpts) {
       setEmailSentMap((m: any) => ({ ...m, [poNum]: d.value || [] }));
     } catch (e) { console.error(e); }
     setDtlSentLoading((l: any) => ({ ...l, [poNum]: false }));
-  }, [emailToken, emailGraph, setDtlSentEmails, setEmailSentMap, setDtlSentLoading]);
+  }
 
-  const loadDtlFullEmail = useCallback(async (id: string) => {
+  async function loadDtlFullEmail(id: string) {
     try { const d = await emailGraph("/me/messages/" + id); setDtlEmailSel(d); } catch (e) { console.error(e); }
-  }, [emailGraph, setDtlEmailSel]);
+  }
 
-  const loadDtlThread = useCallback(async (conversationId: string) => {
+  async function loadDtlThread(conversationId: string) {
     setDtlThreadLoading(true);
     try {
       const d = await emailGraph("/me/messages?$filter=" + encodeURIComponent("conversationId eq '" + conversationId + "'") + "&$orderby=receivedDateTime%20asc&$select=id,subject,from,receivedDateTime,body,conversationId,isRead,hasAttachments");
@@ -190,9 +189,9 @@ export function useEmailOps(opts: UseEmailOpsOpts) {
     } catch { setDtlEmailThread([]); }
     setDtlThreadLoading(false);
     setDtlEmailTab("thread");
-  }, [emailGraph, setDtlEmailThread, setDtlThreadLoading, setDtlEmailTab]);
+  }
 
-  const dtlSendEmail = useCallback(async (poNum: string) => {
+  async function dtlSendEmail(poNum: string) {
     if (!dtlComposeTo.trim() || !dtlComposeSubject.trim()) return;
     setDtlSendErr(null);
     try {
@@ -203,9 +202,9 @@ export function useEmailOps(opts: UseEmailOpsOpts) {
       setDtlEmailTab("inbox");
       setTimeout(() => { loadDtlEmails(poNum); loadPOEmailsRef.current?.(poNum); }, 2000);
     } catch (e: any) { setDtlSendErr("Failed to send: " + e.message); }
-  }, [dtlComposeTo, dtlComposeSubject, dtlComposeBody, emailGraphPost, setDtlComposeTo, setDtlComposeSubject, setDtlComposeBody, setDtlSendErr, setDtlEmailTab, loadDtlEmails, loadPOEmailsRef]);
+  }
 
-  const dtlReplyToEmail = useCallback(async (messageId: string) => {
+  async function dtlReplyToEmail(messageId: string) {
     if (!dtlReply.trim()) return;
     setDtlSendErr(null);
     try {
@@ -213,7 +212,7 @@ export function useEmailOps(opts: UseEmailOpsOpts) {
       setDtlReply("");
       if (dtlEmailSel?.conversationId) loadDtlThread(dtlEmailSel.conversationId);
     } catch (e: any) { setDtlSendErr("Failed to reply: " + e.message); }
-  }, [dtlReply, emailGraphPost, setDtlReply, setDtlSendErr, dtlEmailSel, loadDtlThread]);
+  }
 
   return {
     emailGraph,
