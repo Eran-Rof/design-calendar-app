@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useSyncExternalStore } from "react";
 import { msSignIn, loadMsTokens, saveMsTokens, clearMsTokens, getMsAccessToken, MS_CLIENT_ID, MS_TENANT_ID } from "./utils/msAuth";
 import { useMSAuth, friendlyContactError } from "./tanda/hooks/useMSAuth";
 import { useDashboardData } from "./tanda/hooks/useDashboardData";
@@ -165,13 +165,12 @@ export default function TandAAppWrapper() {
   return <TandAApp />;
 }
 
+const _renderCount = { current: 0 };
 function TandAApp() {
-  // Subscribe to store changes via a tick counter — avoids returning the full
-  // state object from useTandaStore() which creates a new reference on every
-  // field change and triggers infinite re-render cascades.
-  const [, _tick] = useState(0);
-  useEffect(() => useTandaStore.subscribe(() => _tick(c => c + 1)), []);
-  const store = useTandaStore.getState();
+  _renderCount.current++;
+  if (_renderCount.current > 100) { console.error("TandAApp rendered", _renderCount.current, "times — likely infinite loop"); throw new Error("render loop detected"); }
+  // Subscribe to store via useSyncExternalStore — React-safe, no setState during render.
+  const store = useSyncExternalStore(useTandaStore.subscribe, useTandaStore.getState, useTandaStore.getState);
   const core = store;
   const sync = store;
   const em = store;
