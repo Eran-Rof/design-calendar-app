@@ -43,26 +43,55 @@ export function useXoroSync(opts: UseXoroSyncOpts) {
     setSyncProgress({ step: "Fetching inventory from Xoro…", pct: 10 });
 
     try {
-      // Step 1a: Fetch inventory (the critical data — on hand, on PO, on SO)
-      const invRes = await fetch("/api/ats-sync?type=inventory", {
-        signal: AbortSignal.timeout(55000),
-      });
-      if (!invRes.ok) {
-        const err = await invRes.json().catch(() => ({ error: "Inventory sync failed" }));
-        throw new Error(err.error ?? `HTTP ${invRes.status}`);
-      }
-      const invJson = await invRes.json();
-      if (!invJson.Result || !invJson.skus) {
-        throw new Error(invJson.Message || "No inventory data returned");
+      // ── Client-side pagination through xoro-proxy ──
+      // The ats-sync serverless function times out at 60s for 84+ pages.
+      // Instead, the browser paginates directly — no timeout limit.
+
+      // Step 1a: Fetch inventory page count
+      const p1Res = await fetch("/api/xoro-proxy?app=ats&path=inventory/getinventorybyitem&min_on_hand=1&page=1&fetch_all=false");
+      const p1 = await p1Res.json();
+      if (!p1.Result) throw new Error(p1.Message || "Xoro inventory failed");
+      const totalPages = p1.TotalPages || 1;
+      const allItems: any[] = [...(p1.Data || [])];
+
+      // Fetch remaining pages through the proxy (fetch_all handles 15 at a time)
+      for (let start = 2; start <= totalPages; start += 15) {
+        const pct = Math.round(10 + (start / totalPages) * 35);
+        setSyncProgress({ step: `Fetching inventory page ${start}–${Math.min(start + 14, totalPages)} of ${totalPages}…`, pct });
+        const params = new URLSearchParams({ app: "ats", path: "inventory/getinventorybyitem", min_on_hand: "1", page: String(start), fetch_all: "true" });
+        const res = await fetch(`/api/xoro-proxy?${params}`);
+        const json = await res.json();
+        if (json.Data) allItems.push(...json.Data);
       }
 
-      // Step 1b: Fetch sales orders (separate call to avoid timeout)
-      setSyncProgress({ step: "Fetching sales orders from Xoro…", pct: 35 });
+      // Convert raw inventory items to ExcelData skus
+      setSyncProgress({ step: "Processing inventory…", pct: 48 });
+      const skuMap: Record<string, ExcelData["skus"][0]> = {};
+      for (const item of allItems) {
+        const raw = item.ItemNumber || "";
+        if (!raw) continue;
+        const parts = raw.split("-");
+        const rawSku = parts.length >= 3 ? parts[0] + " - " + parts.slice(1, -1).join(" - ")
+          : parts.length === 2 ? parts[0] + " - " + parts[1] : raw;
+        const sku = normalizeSku(rawSku);
+        const sn = (item.StoreName || "").toUpperCase();
+        const store = sn.includes("ECOM") ? "ROF ECOM"
+          : (sn.includes("PSYCHO") || sn.includes("PTUNA") || sn.includes("P TUNA") || sn === "PT" || sn.startsWith("PREBOOK")) ? "PT"
+          : (sn.includes("ROF") || sn.includes("RING")) ? "ROF" : item.StoreName || "ROF";
+        const key = `${sku}::${store}`;
+        if (!skuMap[key]) {
+          skuMap[key] = { sku, description: item.ItemDescription || "", store, onHand: 0, onOrder: 0, onCommitted: 0 };
+        }
+        skuMap[key].onHand      += item.OnHandQty   || 0;
+        skuMap[key].onOrder     += item.QtyOnPO      || 0;
+        skuMap[key].onCommitted += item.QtyOnSO      || 0;
+      }
+
+      // Step 1b: Fetch sales orders (use ats-sync endpoint — smaller dataset)
+      setSyncProgress({ step: "Fetching sales orders…", pct: 50 });
       let sos: ExcelData["sos"] = [];
       try {
-        const soRes = await fetch("/api/ats-sync?type=salesorders", {
-          signal: AbortSignal.timeout(55000),
-        });
+        const soRes = await fetch("/api/ats-sync?type=salesorders");
         if (soRes.ok) {
           const soJson = await soRes.json();
           if (soJson.Result && soJson.sos) sos = soJson.sos;
@@ -71,14 +100,10 @@ export function useXoroSync(opts: UseXoroSyncOpts) {
         console.warn("SO sync failed, continuing with inventory only:", e);
       }
 
-      setSyncProgress({ step: "Processing Xoro data…", pct: 50 });
-      let data: ExcelData = {
-        syncedAt: new Date().toISOString(),
-        skus: invJson.skus,
-        pos: [],
-        sos,
-      };
-      const meta = { skusWithStock: invJson.skus?.length, soLinesOpen: sos.length };
+      setSyncProgress({ step: "Processing data…", pct: 55 });
+      const skus = Object.values(skuMap);
+      let data: ExcelData = { syncedAt: new Date().toISOString(), skus, pos: [], sos };
+      const meta = { skusWithStock: skus.length, soLinesOpen: sos.length, totalInvItems: allItems.length };
 
       // Step 2: Merge PO WIP events for the right-click detail popups.
       // onOrder totals come from the inventory API (QtyOnPO) — we do NOT
