@@ -1,5 +1,4 @@
 import React from "react";
-import { useTandaStore } from "../store/index";
 import { useDashboardData } from "../hooks/useDashboardData";
 import {
   type XoroPO,
@@ -222,7 +221,7 @@ export function DashboardView({
               const vMs = vPOs.flatMap(p => milestones[p.PoNumber ?? ""] || []).filter(m => m.status !== "N/A");
               const done = vMs.filter(m => m.status === "Complete");
               let onTime = 0;
-              done.forEach(m => { const d = m.status_date || m.status_dates?.["Complete"]; if (d && m.expected_date && d <= m.expected_date) onTime++; else onTime++; });
+              done.forEach(m => { const d = m.status_date || m.status_dates?.["Complete"]; if (d && m.expected_date && d <= m.expected_date) onTime++; });
               const pct = done.length > 0 ? Math.round((onTime / done.length) * 100) : 0;
               return { vendor: v, poCount: vPOs.length, msTotal: vMs.length, done: done.length, pct };
             }).filter(v => v.msTotal > 0).sort((a, b) => b.pct - a.pct).slice(0, 5);
@@ -313,7 +312,7 @@ export function DashboardView({
               <div style={{ display: "grid", gridTemplateColumns: "100px 1fr 80px 60px", padding: "6px 10px", color: "#6B7280", fontWeight: 600, borderBottom: "1px solid #334155", textTransform: "uppercase", letterSpacing: 1, fontSize: 9 }}>
                 <span>PO #</span><span>Phase</span><span>Due</span><span style={{ textAlign: "right" }}>Late</span>
               </div>
-              {dashOverdueMilestones.sort((a, b) => (a.expected_date ?? "").localeCompare(b.expected_date ?? "")).slice(0, 10).map(m => {
+              {[...dashOverdueMilestones].sort((a, b) => (a.expected_date ?? "").localeCompare(b.expected_date ?? "")).slice(0, 10).map(m => {
                 const daysLate = m.expected_date ? Math.abs(Math.ceil((new Date(m.expected_date).getTime() - Date.now()) / 86400000)) : 0;
                 return (
                   <div key={m.id} style={{ display: "grid", gridTemplateColumns: "100px 1fr 80px 60px", padding: "6px 10px", borderBottom: "1px solid #1E293B", cursor: "pointer", alignItems: "center" }}
