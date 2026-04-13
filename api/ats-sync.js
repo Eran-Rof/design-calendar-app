@@ -29,11 +29,20 @@ function authHeader() {
 async function xoroGet(path, params = {}) {
   const p = new URLSearchParams(params);
   const url = `${BASE}/${path}?${p}`;
-  const r = await fetch(url, {
-    headers: { Authorization: authHeader(), "Content-Type": "application/json" },
-  });
-  const text = await r.text();
-  try { return JSON.parse(text); } catch { return { Result: false, Message: "Non-JSON", raw: text.slice(0, 300) }; }
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const r = await fetch(url, {
+      headers: { Authorization: authHeader(), "Content-Type": "application/json" },
+      signal: ctrl.signal,
+    });
+    clearTimeout(t);
+    const text = await r.text();
+    try { return JSON.parse(text); } catch { return { Result: false, Message: "Non-JSON", raw: text.slice(0, 300) }; }
+  } catch (e) {
+    clearTimeout(t);
+    return { Result: false, Message: e.name === "AbortError" ? "Xoro request timeout" : e.message };
+  }
 }
 
 async function fetchAllPages(path, baseParams, maxPages = 100) {
