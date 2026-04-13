@@ -91,13 +91,16 @@ export default async function handler(req, res) {
     }
 
     // ── fetch_all mode: fetch pages 1-3 in parallel, then any beyond 3 ────
-    // Speculatively fetch the first 3 pages simultaneously so we never wait
-    // for page 1 before starting page 2 (avoids 2× round-trip for 2-page results).
     const speculative = await Promise.allSettled([
       xoroFetchPage(1),
       xoroFetchPage(2),
       xoroFetchPage(3),
     ]);
+    // Diagnostic: log what each speculative page returned
+    const pageCounts = speculative.map((s, i) => {
+      if (s.status !== "fulfilled") return { page: i + 1, error: String(s.reason?.message || s.reason) };
+      return { page: i + 1, result: s.value?.Result, dataLen: Array.isArray(s.value?.Data) ? s.value.Data.length : -1, totalPages: s.value?.TotalPages };
+    });
 
     const page1 = speculative[0].status === "fulfilled" ? speculative[0].value : null;
     if (!page1 || !page1.Result) {
@@ -138,7 +141,7 @@ export default async function handler(req, res) {
       }
     }
 
-    return res.status(200).json({ Result: true, Data: allData, TotalPages: reportedTotalPages, _recordsReturned: allData.length });
+    return res.status(200).json({ Result: true, Data: allData, TotalPages: reportedTotalPages, _recordsReturned: allData.length, _pageCounts: pageCounts, _status: xoroParams.get("status") });
 
   } catch (err) {
     const msg = err.name === "AbortError"
