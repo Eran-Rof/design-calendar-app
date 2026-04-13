@@ -13,7 +13,7 @@ export interface ArchiveViewProps {
   archiveSelected: Set<string>;
   setArchiveSelected: (v: Set<string>) => void;
   archiveLoading: boolean;
-  unarchivePO: (poNumber: string) => void;
+  unarchivePO: (poNumber: string) => void | Promise<void>;
   permanentDeleteArchived: (poNumbers: string[]) => Promise<void>;
   setConfirmModal: (v: any) => void;
 }
@@ -45,7 +45,7 @@ export function ArchiveView({
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           {archiveSelected.size > 0 && (<>
-            <button onClick={() => { archiveSelected.forEach(pn => unarchivePO(pn)); setArchiveSelected(new Set()); }}
+            <button onClick={async () => { await Promise.all([...archiveSelected].map(pn => unarchivePO(pn))); setArchiveSelected(new Set()); }}
               style={{ ...S.navBtn, color: "#10B981", borderColor: "#10B98144" }}>↩ Restore {archiveSelected.size} Selected</button>
             <button onClick={() => {
               setConfirmModal({
@@ -63,7 +63,7 @@ export function ArchiveView({
                 message: `Restore all ${archivedPos.length} archived PO${archivedPos.length > 1 ? "s" : ""} back to All POs?\n\nPOs that should stay archived (Closed, Received, Cancelled) will be re-archived on your next sync.`,
                 icon: "↩", confirmText: "Restore All", confirmColor: "#10B981",
                 onConfirm: async () => {
-                  for (const po of archivedPos) await unarchivePO(po.PoNumber ?? "");
+                  await Promise.all(archivedPos.map(po => unarchivePO(po.PoNumber ?? "")));
                   setArchiveSelected(new Set());
                 },
               });

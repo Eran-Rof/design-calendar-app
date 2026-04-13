@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { msSignIn, loadMsTokens, saveMsTokens, clearMsTokens, getMsAccessToken, MS_CLIENT_ID, MS_TENANT_ID } from "./utils/msAuth";
 import { useMSAuth, friendlyContactError } from "./tanda/hooks/useMSAuth";
 import { useDashboardData } from "./tanda/hooks/useDashboardData";
@@ -891,10 +891,13 @@ function TandAApp() {
     });
   }, [pos.length]);
 
-  // ── Derived ───────────────────────────────────────────────────────────────
-  const vendors = ["All", ...Array.from(new Set(pos.map(p => p.VendorName ?? "Unknown"))).sort()];
+  // ── Derived (memoized to avoid recompute on every store tick) ──────────────
+  const vendors = useMemo(
+    () => ["All", ...Array.from(new Set(pos.map(p => p.VendorName ?? "Unknown"))).sort()],
+    [pos]
+  );
 
-  const filtered = pos.filter(p => {
+  const filtered = useMemo(() => pos.filter(p => {
     const s = search.toLowerCase();
     const matchSearch = !s
       || (p.PoNumber ?? "").toLowerCase().includes(s)
@@ -910,12 +913,6 @@ function TandAApp() {
     const matchVendor = filterVendor === "All" || (p.VendorName ?? "") === filterVendor;
     return matchSearch && matchStatus && matchVendor;
   }).sort((a, b) => {
-    // Status priority: lower = "more delayed" (shown first when asc).
-    //   0 overdue (DDP in past, not received/closed/cancelled)
-    //   1 active (Open/Released/Pending/Draft/Partially Received), DDP in future
-    //   2 active with no DDP
-    //   3 Received/Closed
-    //   4 Cancelled
     const statusPriority = (p: XoroPO): number => {
       const s = p.StatusName ?? "";
       if (s === "Cancelled") return 4;
@@ -933,31 +930,27 @@ function TandAApp() {
     };
     let cmp = 0;
     if (sortBy === "ddp") {
-      // asc = earliest DDP first (most urgent)
       cmp = tsOr(a.DateExpectedDelivery, Infinity) - tsOr(b.DateExpectedDelivery, Infinity);
     } else if (sortBy === "po_date") {
-      // asc = oldest PO first
       cmp = tsOr(a.DateOrder, Infinity) - tsOr(b.DateOrder, Infinity);
     } else {
-      // status: asc = delayed/overdue first → completed last
       cmp = statusPriority(a) - statusPriority(b);
-      // Within the same priority, fall back to DDP ascending so the list stays predictable
       if (cmp === 0) {
         cmp = tsOr(a.DateExpectedDelivery, Infinity) - tsOr(b.DateExpectedDelivery, Infinity);
       }
     }
     return sortDir === "asc" ? cmp : -cmp;
-  });
+  }), [pos, search, filterStatus, filterVendor, sortBy, sortDir]);
 
-  const overdue = pos.filter(p => {
+  const overdue = useMemo(() => pos.filter(p => {
     const d = daysUntil(p.DateExpectedDelivery);
     return d !== null && d < 0 && p.StatusName !== "Received" && p.StatusName !== "Closed";
-  }).length;
-  const dueThisWeek = pos.filter(p => {
+  }).length, [pos]);
+  const dueThisWeek = useMemo(() => pos.filter(p => {
     const d = daysUntil(p.DateExpectedDelivery);
     return d !== null && d >= 0 && d <= 7;
-  }).length;
-  const totalValue = pos.reduce((s, p) => s + poTotal(p), 0);
+  }).length, [pos]);
+  const totalValue = useMemo(() => pos.reduce((s, p) => s + poTotal(p), 0), [pos]);
 
   // ── Dashboard data + milestone aggregates (see tanda/hooks/useDashboardData) ──
   const {

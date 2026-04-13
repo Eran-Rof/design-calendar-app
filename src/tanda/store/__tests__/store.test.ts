@@ -31,13 +31,18 @@ function makeMilestone(id: string, poNumber: string): Milestone {
     phase: "Design",
     category: "Review",
     sort_order: 1,
-    label: "Test milestone",
-    status: "pending",
-    due_date: "2026-05-01",
-    completed_at: null,
-    created_at: "2026-01-01",
+    days_before_ddp: 0,
+    expected_date: "2026-05-01",
+    actual_date: null,
+    status: "Not Started",
+    status_date: null,
+    status_dates: null,
+    notes: "",
+    note_entries: null,
     updated_at: "2026-01-01",
-  } as Milestone;
+    updated_by: "test",
+    variant_statuses: null,
+  };
 }
 
 function makeAttachment(id: string): AttachmentEntry {
@@ -58,7 +63,7 @@ function makeNote(poNumber: string): LocalNote {
     po_number: poNumber,
     note: "Test note",
     created_at: "2026-01-01",
-    updated_at: "2026-01-01",
+    user_name: "test",
   };
 }
 
@@ -194,9 +199,9 @@ describe("CoreSlice", () => {
     it("updates existing milestone by id", () => {
       const m = makeMilestone("m1", "PO-1");
       get().setMilestonesForPo("PO-1", [m]);
-      const updated = { ...m, label: "Updated" };
+      const updated = { ...m, phase: "Updated" };
       get().updateMilestone("PO-1", "m1", updated);
-      expect(get().milestones["PO-1"][0].label).toBe("Updated");
+      expect(get().milestones["PO-1"][0].phase).toBe("Updated");
     });
 
     it("appends milestone when id not found", () => {

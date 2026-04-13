@@ -1,5 +1,10 @@
 import { useTandaStore } from "../store";
 
+// Module-level in-flight tracker to prevent overlapping loadPOEmails calls
+// for the same PO. Prevents races where two concurrent fetches for the same
+// PO overwrite each other's results.
+const _loadPOInFlight = new Set<string>();
+
 interface UseEmailDataOpts {
   emailGraph: (path: string) => Promise<any>;
   getGraphToken: () => Promise<string>;
@@ -42,6 +47,11 @@ export function useEmailData(opts: UseEmailDataOpts) {
 
   async function loadPOEmails(poNum: string, olderUrl?: string, autoSelect?: boolean) {
     if (!opts.msToken) return;
+    // Skip if a fetch is already in flight for this PO (olderUrl=load-more is
+    // still allowed since it appends rather than replaces).
+    const inFlightKey = poNum + (olderUrl ? ":more" : ":refresh");
+    if (_loadPOInFlight.has(inFlightKey)) return;
+    _loadPOInFlight.add(inFlightKey);
     const prefix = emailGetPrefix(poNum);
     if (olderUrl) { opts.setEmailLoadingOlder(true); } else { opts.setEmailLoadingMap((l: any) => ({ ...l, [poNum]: true })); }
     opts.setEmailErrorsMap((e: any) => ({ ...e, [poNum]: null }));
@@ -75,8 +85,13 @@ export function useEmailData(opts: UseEmailDataOpts) {
       opts.setDtlNextLink((nl: any) => ({ ...nl, [poNum]: nextLink }));
       opts.setEmailLastRefresh((lr: any) => ({ ...lr, [poNum]: Date.now() }));
     } catch (e: any) { opts.setEmailErrorsMap((err: any) => ({ ...err, [poNum]: e.message })); }
-    opts.setEmailLoadingMap((l: any) => ({ ...l, [poNum]: false }));
-    opts.setEmailLoadingOlder(false);
+    finally {
+      // Only clear the flag we actually set — avoids clobbering a concurrent
+      // non-older fetch's loading state when a load-more call finishes.
+      if (olderUrl) opts.setEmailLoadingOlder(false);
+      else opts.setEmailLoadingMap((l: any) => ({ ...l, [poNum]: false }));
+      _loadPOInFlight.delete(inFlightKey);
+    }
   }
 
   async function loadDeletedFolder() {
