@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { msSignIn, loadMsTokens, saveMsTokens, clearMsTokens, getMsAccessToken, MS_CLIENT_ID, MS_TENANT_ID } from "./utils/msAuth";
 import { useMSAuth, friendlyContactError } from "./tanda/hooks/useMSAuth";
+import { StatCard } from "./tanda/components/StatCard";
+import { PORow } from "./tanda/components/PORow";
 import { useDashboardData } from "./tanda/hooks/useDashboardData";
 import { useEmailOps } from "./tanda/hooks/useEmailOps";
 import { useTeamsOps } from "./tanda/hooks/useTeamsOps";
@@ -2118,9 +2120,9 @@ function TandAApp() {
               {search ? (
                 filtered.length === 0
                   ? <p style={{ color: "#6B7280", fontSize: 13 }}>No POs match "{search}"</p>
-                  : filtered.map((po, i) => <PORow key={i} po={po} onClick={() => { setDetailMode("milestones"); setNewNote(""); setSelected(po); }} detailed />)
+                  : filtered.map((po, i) => <PORow key={i} po={po} milestones={milestones[po.PoNumber ?? ""] || []} today={today} weekFromNow={weekFromNow} onClick={() => { setDetailMode("milestones"); setNewNote(""); setSelected(po); }} detailed />)
               ) : (
-                pos.slice(0, 8).map((po, i) => <PORow key={i} po={po} onClick={() => { setDetailMode("milestones"); setNewNote(""); setSelected(po); }} />)
+                pos.slice(0, 8).map((po, i) => <PORow key={i} po={po} milestones={milestones[po.PoNumber ?? ""] || []} today={today} weekFromNow={weekFromNow} onClick={() => { setDetailMode("milestones"); setNewNote(""); setSelected(po); }} />)
               )}
             </div>
           </>
@@ -2174,7 +2176,7 @@ function TandAApp() {
                   {pos.length === 0 && <button style={S.btnPrimary} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing}>🔄 Sync from Xoro</button>}
                 </div>
               )}
-              {filtered.map((po, i) => <PORow key={i} po={po} onClick={() => { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(po); }} detailed />)}
+              {filtered.map((po, i) => <PORow key={i} po={po} milestones={milestones[po.PoNumber ?? ""] || []} today={today} weekFromNow={weekFromNow} onClick={() => { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(po); }} detailed />)}
             </div>
           </div>
         )}
@@ -2922,84 +2924,6 @@ function TandAApp() {
     </div>
   );
 
-  function StatCard({ label, value, color, icon, onClick }: { label: string; value: string | number; color: string; icon: string; onClick?: () => void }) {
-    return (
-      <div style={{ ...S.statCard, borderTop: `3px solid ${color}`, cursor: onClick ? "pointer" : "default", transition: "transform 0.15s, box-shadow 0.15s" }}
-        onClick={onClick}
-        onMouseEnter={e => { if (onClick) { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.3)"; } }}
-        onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; }}>
-        <div style={{ fontSize: 24 }}>{icon}</div>
-        <div style={{ fontSize: 28, fontWeight: 700, color, fontFamily: "monospace" }}>{value}</div>
-        <div style={{ color: "#9CA3AF", fontSize: 13 }}>{label}</div>
-      </div>
-    );
-  }
-
-  function PORow({ po, onClick, detailed }: { po: XoroPO; onClick: () => void; detailed?: boolean }) {
-    const color = STATUS_COLORS[po.StatusName ?? ""] ?? "#6B7280";
-    const days  = daysUntil(po.DateExpectedDelivery);
-    const total = poTotal(po);
-    const items = po.Items ?? po.PoLineArr ?? [];
-    const poMs = milestones[po.PoNumber ?? ""] || [];
-    const msComplete = poMs.filter(m => m.status === "Complete").length;
-    const msActive = poMs.filter(m => m.status !== "N/A").length;
-    const msInProg = poMs.filter(m => m.status === "In Progress").length;
-    const msDelayed = poMs.filter(m => m.status === "Delayed").length;
-    const msNotStarted = msActive - msComplete - msInProg - msDelayed;
-    const msOverdue = poMs.some(m => m.expected_date && m.expected_date < today && m.status !== "Complete" && m.status !== "N/A");
-    const msApproaching = poMs.some(m => m.expected_date && m.expected_date >= today && m.expected_date <= weekFromNow && m.status !== "Complete" && m.status !== "N/A");
-    const msDotColor = msActive === 0 ? "#6B7280" : msOverdue ? "#EF4444" : msApproaching ? "#F59E0B" : "#10B981";
-    const msPercent = msActive > 0 ? Math.round((msComplete / msActive) * 100) : 0;
-    const statusBars = [
-      [msComplete, "#047857", "#6EE7B7"],
-      [msInProg, "#1D4ED8", "#93C5FD"],
-      [msDelayed, "#7F1D1D", "#FCA5A5"],
-      [msNotStarted, "#374151", "#9CA3AF"],
-    ].filter(([c]) => (c as number) > 0) as [number, string, string][];
-    return (
-      <div style={{ ...S.poRow, borderLeft: `3px solid ${color}` }} onClick={onClick}>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-            <span style={S.poNumber}>{po.PoNumber ?? "—"}</span>
-            <span style={{ ...S.badge, background: color + "22", color, border: `1px solid ${color}44` }}>
-              {po.StatusName ?? "Unknown"}
-            </span>
-            {days !== null && days < 0 && <span style={{ ...S.badge, background: "#EF444422", color: "#EF4444", border: "1px solid #EF444444" }}>Overdue</span>}
-            {days !== null && days >= 0 && days <= 7 && <span style={{ ...S.badge, background: "#F59E0B22", color: "#F59E0B", border: "1px solid #F59E0B44" }}>Due Soon</span>}
-          </div>
-          <div style={{ color: "#D1D5DB", fontWeight: 600 }}>{po.VendorName ?? "Unknown Vendor"}</div>
-          {detailed && po.Memo && <div style={{ color: "#6B7280", fontSize: 12, marginTop: 2 }}>{po.Memo}</div>}
-        </div>
-        {/* Milestone segmented progress bars */}
-        {msActive > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, minWidth: 110 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ color: "#9CA3AF", fontSize: 11, fontFamily: "monospace" }}>{msComplete}/{msActive}</span>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: msDotColor }} />
-              <span style={{ color: "#10B981", fontSize: 12, fontWeight: 700, fontFamily: "monospace" }}>{msPercent}%</span>
-            </div>
-            {statusBars.map(([count, dark, light], i) => {
-              const sPct = msActive > 0 ? Math.round(((count as number) / msActive) * 100) : 0;
-              return (
-                <div key={i} style={{ width: 110, height: 6, borderRadius: 3, background: "#0F172A", overflow: "hidden" }}>
-                  <div style={{ width: `${sPct}%`, height: "100%", background: `linear-gradient(90deg, ${light}, ${dark})`, borderRadius: 3, minWidth: (count as number) > 0 ? 3 : 0 }} />
-                </div>
-              );
-            })}
-          </div>
-        )}
-        <div style={{ textAlign: "right", minWidth: 160 }}>
-          <div style={{ color: "#10B981", fontWeight: 700, fontSize: 16 }}>{fmtCurrency(total, po.CurrencyCode)}</div>
-          {detailed && <div style={{ color: "#6B7280", fontSize: 12 }}>{items.length} line items</div>}
-          {detailed && <div style={{ color: "#9CA3AF", fontSize: 12, marginTop: 4 }}>
-            Created: <span style={{ color: "#94A3B8" }}>{fmtDate(po.DateOrder) || "—"}</span>
-          </div>}
-          <div style={{ color: "#9CA3AF", fontSize: 12, marginTop: 2 }}>
-            DDP Date: <span style={{ color: "#60A5FA" }}>{fmtDate(po.DateExpectedDelivery) || "—"}</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // StatCard and PORow extracted to tanda/components/
 }
 
