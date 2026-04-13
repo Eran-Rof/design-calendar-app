@@ -11,7 +11,7 @@
 // The function paginates internally (parallel batches of 10) and
 // aggregates before returning, so the client gets one response.
 
-export const config = { maxDuration: 900 };
+export const config = { maxDuration: 800 };
 
 const BASE = "https://res.xorosoft.io/api/xerp";
 
