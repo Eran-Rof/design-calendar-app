@@ -866,17 +866,23 @@ function TandAApp() {
 
   // ── Auto-delay overdue milestones ────────────────────────────────────────
   const autoDelayedRef = useRef<Set<string>>(new Set());
+  const autoDelayRanRef = useRef(false);
   useEffect(() => {
+    if (autoDelayRanRef.current) return;
+    const ms = useTandaStore.getState().milestones;
     const today = new Date().toISOString().slice(0, 10);
-    Object.values(milestones).flat().forEach(m => {
+    let didUpdate = false;
+    Object.values(ms).flat().forEach(m => {
       if (m.expected_date && m.expected_date <= today && m.status === "Not Started" && !autoDelayedRef.current.has(m.id)) {
         autoDelayedRef.current.add(m.id);
         const dates = { ...(m.status_dates || {}) };
         if (!dates["Delayed"]) dates["Delayed"] = today;
         saveMilestone({ ...m, status: "Delayed", status_date: dates["Delayed"], status_dates: dates, updated_at: new Date().toISOString(), updated_by: "System" }, true);
+        didUpdate = true;
       }
     });
-  }, [milestones]);
+    if (!didUpdate) autoDelayRanRef.current = true;
+  });
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const vendors = ["All", ...Array.from(new Set(pos.map(p => p.VendorName ?? "Unknown"))).sort()];

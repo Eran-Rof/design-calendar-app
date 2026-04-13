@@ -28,12 +28,11 @@ interface MilestoneOpsDeps {
 
 export function useMilestoneOps(deps: MilestoneOpsDeps) {
   const { sb, addHistory, setConfirmModal, setCollapsedCats, acceptedBlocked } = deps;
-  const store = useTandaStore();
   const generatingRef = useRef<Set<string>>(new Set());
   const conflictPendingRef = useRef<Set<string>>(new Set());
 
-  // Access latest state from store for async functions
   const getState = () => useTandaStore.getState();
+  const store = getState();
 
   function getVendorTemplates(vendorName?: string): WipTemplate[] {
     const { wipTemplates } = getState();
