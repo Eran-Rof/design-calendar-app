@@ -28,7 +28,7 @@ const vcConfig = JSON.stringify({ runtime: 'nodejs20.x', handler: 'index.js', la
 writeFileSync('.vercel/output/functions/api/xoro-proxy.func/.vc-config.json', vcConfig);
 writeFileSync('.vercel/output/functions/api/dropbox-proxy.func/.vc-config.json', vcConfig);
 writeFileSync('.vercel/output/functions/api/parse-excel.func/.vc-config.json', vcConfig);
-writeFileSync('.vercel/output/functions/api/ats-sync.func/.vc-config.json', JSON.stringify({ ...JSON.parse(vcConfig), maxDuration: 60 }));
+writeFileSync('.vercel/output/functions/api/ats-sync.func/.vc-config.json', JSON.stringify({ ...JSON.parse(vcConfig), maxDuration: 900 }));
 
 // Copy static build output
 cpSync('dist', '.vercel/output/static', { recursive: true });

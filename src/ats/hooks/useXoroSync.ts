@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import type { ExcelData } from "../types";
 import { dedupeExcelData } from "../merge";
 import { computeRowsFromExcelData } from "../compute";
+import { detectNormChanges, type NormChange } from "../normalize";
 import { normalizeSku } from "../helpers";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
 import type { MergeOp } from "./useMergeHistory";
@@ -14,7 +15,10 @@ interface UseXoroSyncOpts {
   setMockMode: (v: boolean) => void;
   setMergeHistory: (v: MergeOp[]) => void;
   saveMergeHistory: (v: MergeOp[]) => Promise<void>;
-  applyPOWIPData: (data: ExcelData) => Promise<ExcelData>;
+  // Normalization review (shared with upload flow)
+  setNormChanges: (v: NormChange[] | null) => void;
+  setNormPendingData: (v: ExcelData | null) => void;
+  setNormSource: (v: "upload" | "load") => void;
 }
 
 interface SyncProgress {
@@ -25,7 +29,8 @@ interface SyncProgress {
 export function useXoroSync(opts: UseXoroSyncOpts) {
   const {
     dates, setExcelData, setRows, setLastSync, setMockMode,
-    setMergeHistory, saveMergeHistory, applyPOWIPData,
+    setMergeHistory, saveMergeHistory,
+    setNormChanges, setNormPendingData, setNormSource,
   } = opts;
 
   const [syncing, setSyncing] = useState(false);
@@ -35,102 +40,92 @@ export function useXoroSync(opts: UseXoroSyncOpts) {
   const syncFromXoro = useCallback(async () => {
     setSyncing(true);
     setSyncError(null);
-    setSyncProgress({ step: "Fetching inventory from Xoro…", pct: 10 });
+    setSyncProgress({ step: "Fetching inventory + sales orders from Xoro…", pct: 10 });
 
     try {
-      // ── Client-side pagination through xoro-proxy ──
-      // Serverless has a 60s limit; Xoro's API is too slow for 84 pages in
-      // one call. Browser has no timeout — we paginate here, one single
-      // page per proxy call, 5 in parallel per batch.
-
-      // Page 1 to learn total page count
-      setSyncProgress({ step: "Fetching inventory page 1…", pct: 5 });
-      const p1Res = await fetch("/api/xoro-proxy?app=ats&path=inventory/getinventorybyitem&min_on_hand=1&page=1", {
-        signal: AbortSignal.timeout(60000),
+      // Single call to serverless endpoint — Pro plan allows 15 min
+      // function duration, so we can fetch inventory (84 pages) + sales
+      // orders (56 pages) in one go. The server normalizes SKUs and
+      // returns ExcelData-shaped JSON.
+      const res = await fetch("/api/ats-sync?type=full", {
+        signal: AbortSignal.timeout(600000), // 10 min client timeout
       });
-      if (!p1Res.ok) throw new Error(`Inventory fetch failed: ${p1Res.status}`);
-      const p1 = await p1Res.json();
-      if (!p1.Result) throw new Error(p1.Message || "Xoro inventory failed");
-      const totalPages = p1.TotalPages || 1;
-      const allItems: any[] = [...(p1.Data || [])];
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Sync failed" }));
+        throw new Error(err.error ?? `HTTP ${res.status}`);
+      }
+      const json = await res.json();
+      if (!json.Result || !json.Data) {
+        throw new Error(json.Message || json.error || "No data returned from Xoro");
+      }
 
-      // Remaining pages in parallel batches of 5 (Xoro handles 5 concurrent
-      // better than 10+ — fewer rate-limit issues).
-      const BATCH = 5;
-      for (let start = 2; start <= totalPages; start += BATCH) {
-        const end = Math.min(start + BATCH - 1, totalPages);
-        const pct = Math.round(5 + ((start - 1) / totalPages) * 45);
-        setSyncProgress({ step: `Inventory pages ${start}–${end} of ${totalPages}…`, pct });
-        const pageNums = Array.from({ length: end - start + 1 }, (_, i) => start + i);
-        const results = await Promise.allSettled(
-          pageNums.map(p =>
-            fetch(`/api/xoro-proxy?app=ats&path=inventory/getinventorybyitem&min_on_hand=1&page=${p}`, {
-              signal: AbortSignal.timeout(60000),
-            }).then(r => r.json())
-          )
-        );
-        for (const r of results) {
-          if (r.status === "fulfilled" && Array.isArray(r.value?.Data)) {
-            allItems.push(...r.value.Data);
+      setSyncProgress({ step: "Processing Xoro data…", pct: 50 });
+      let data: ExcelData = json.Data;
+      const meta = (data as any)._meta;
+      delete (data as any)._meta;
+
+      // Merge PO WIP events for right-click detail. Inventory API already
+      // set onOrder = QtyOnPO — keep that baseline; PO WIP events layer
+      // on top so the period cells show individual PO lines linking to
+      // PO WIP milestones.
+      setSyncProgress({ step: "Loading PO detail from PO WIP…", pct: 60 });
+      try {
+        const poRes = await fetch(`${SB_URL}/rest/v1/tanda_pos?select=data`, { headers: SB_HEADERS });
+        if (poRes.ok) {
+          const poRows = await poRes.json();
+          const newPos: ExcelData["pos"] = [];
+          for (const row of poRows) {
+            const po = row.data;
+            if (!po || po._archived) continue;
+            const poNum = po.PoNumber ?? "";
+            const vendor = po.VendorName ?? "";
+            const expDate = po.DateExpectedDelivery ?? "";
+            const brandName = po.BrandName ?? "";
+            const items = po.Items ?? po.PoLineArr ?? [];
+            for (const item of items) {
+              const rawSku = item.ItemNumber ?? "";
+              if (!rawSku) continue;
+              const parts = rawSku.split("-");
+              const rawConverted = parts.length >= 3 ? parts[0] + " - " + parts.slice(1, -1).join(" - ")
+                        : parts.length === 2 ? parts[0] + " - " + parts[1]
+                        : rawSku;
+              const sku = normalizeSku(rawConverted);
+              const qty = item.QtyRemaining != null ? item.QtyRemaining : (item.QtyOrder ?? 0) - (item.QtyReceived ?? 0);
+              if (qty <= 0) continue;
+              let date = "";
+              if (expDate) { const d = new Date(expDate); if (!isNaN(d.getTime())) date = d.toISOString().split("T")[0]; }
+              const pn = poNum.toUpperCase();
+              const bn = brandName.toUpperCase();
+              const store = pn.includes("ECOM") ? "ROF ECOM" : (bn.includes("PSYCHO") || bn.includes("PTUNA") || bn.includes("P TUNA") || bn === "PT" || bn.startsWith("PT ")) ? "PT" : "ROF";
+              const unitCost = item.UnitPrice ?? 0;
+              if (date) newPos.push({ sku, date, qty, poNumber: poNum, vendor, store, unitCost });
+            }
+          }
+          if (newPos.length > 0) {
+            data = { ...data, pos: newPos };
           }
         }
-      }
-
-      // Build ExcelData skus from raw inventory items
-      setSyncProgress({ step: "Processing inventory…", pct: 52 });
-      const skuMap: Record<string, ExcelData["skus"][0]> = {};
-      for (const item of allItems) {
-        const raw = item.ItemNumber || "";
-        if (!raw) continue;
-        const parts = raw.split("-");
-        const rawSku = parts.length >= 3 ? parts[0] + " - " + parts.slice(1, -1).join(" - ")
-          : parts.length === 2 ? parts[0] + " - " + parts[1] : raw;
-        const sku = normalizeSku(rawSku);
-        const sn = (item.StoreName || "").toUpperCase();
-        const store = sn.includes("ECOM") ? "ROF ECOM"
-          : (sn.includes("PSYCHO") || sn.includes("PTUNA") || sn.includes("P TUNA") || sn === "PT" || sn.startsWith("PREBOOK")) ? "PT"
-          : (sn.includes("ROF") || sn.includes("RING")) ? "ROF" : item.StoreName || "ROF";
-        const key = `${sku}::${store}`;
-        if (!skuMap[key]) {
-          skuMap[key] = { sku, description: item.ItemDescription || "", store, onHand: 0, onOrder: 0, onCommitted: 0 };
-        }
-        skuMap[key].onHand      += item.OnHandQty   || 0;
-        skuMap[key].onOrder     += item.QtyOnPO      || 0;
-        skuMap[key].onCommitted += item.QtyOnSO      || 0;
-      }
-
-      setSyncProgress({ step: "Fetching sales order detail…", pct: 55 });
-      let sos: ExcelData["sos"] = [];
-      try {
-        const soRes = await fetch("/api/ats-sync?type=salesorders", {
-          signal: AbortSignal.timeout(60000),
-        });
-        if (soRes.ok) {
-          const soJson = await soRes.json();
-          if (soJson.Result && soJson.sos) sos = soJson.sos;
-        }
       } catch (e) {
-        console.warn("SO fetch failed, continuing with inventory only:", e);
+        console.warn("PO WIP event merge failed (right-click detail will be empty):", e);
       }
 
-      const skus = Object.values(skuMap);
-      let data: ExcelData = { syncedAt: new Date().toISOString(), skus, pos: [], sos };
-      const meta = { skusWithStock: skus.length, soLinesOpen: sos.length, totalInvItems: allItems.length };
-
-      // Step 2: Apply PO data from PO WIP (tanda_pos)
-      setSyncProgress({ step: "Merging PO data from PO WIP…", pct: 65 });
-      try {
-        const base: ExcelData = { ...data, pos: [], skus: data.skus.map(s => ({ ...s, onOrder: 0 })) };
-        data = await applyPOWIPData(base);
-      } catch (e) {
-        console.warn("PO WIP merge failed, using Xoro PO data:", e);
-      }
-
-      // Step 3: Dedupe
+      // Dedupe
       data = dedupeExcelData(data);
 
-      // Step 4: Save to Supabase
-      setSyncProgress({ step: "Saving to database…", pct: 80 });
+      // Normalization review — pause if any SKUs would be renamed
+      setSyncProgress({ step: "Checking SKU normalization…", pct: 75 });
+      const normChanges = detectNormChanges(data);
+      if (normChanges.length > 0) {
+        setSyncProgress(null);
+        setNormPendingData(data);
+        setNormChanges(normChanges);
+        setNormSource("load");
+        setSyncing(false);
+        return;
+      }
+
+      // Save to Supabase
+      setSyncProgress({ step: "Saving to database…", pct: 85 });
       const saveRes = await fetch(`${SB_URL}/rest/v1/app_data`, {
         method: "POST",
         headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
@@ -138,7 +133,6 @@ export function useXoroSync(opts: UseXoroSyncOpts) {
       });
       if (!saveRes.ok) throw new Error("Failed to save synced data");
 
-      // Save base snapshot + clear merge history (fresh sync = fresh start)
       await fetch(`${SB_URL}/rest/v1/app_data`, {
         method: "POST",
         headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
@@ -147,7 +141,7 @@ export function useXoroSync(opts: UseXoroSyncOpts) {
       await saveMergeHistory([]);
       setMergeHistory([]);
 
-      // Step 5: Compute rows
+      // Compute rows
       setSyncProgress({ step: "Computing ATS grid…", pct: 95 });
       setExcelData(data);
       setRows(computeRowsFromExcelData(data, dates));
@@ -155,7 +149,7 @@ export function useXoroSync(opts: UseXoroSyncOpts) {
       setMockMode(false);
 
       setSyncProgress(null);
-      console.log(`[Xoro Sync] Complete — ${meta?.skusWithStock ?? "?"} SKUs, ${meta?.soLinesOpen ?? "?"} open SO lines`);
+      console.log(`[Xoro Sync] Complete — ${meta?.skusWithStock ?? data.skus.length} SKUs, ${meta?.soLinesOpen ?? data.sos.length} open SO lines`);
     } catch (e: any) {
       console.error("[Xoro Sync] Failed:", e);
       setSyncError(e.message);
@@ -163,7 +157,7 @@ export function useXoroSync(opts: UseXoroSyncOpts) {
     } finally {
       setSyncing(false);
     }
-  }, [dates, setExcelData, setRows, setLastSync, setMockMode, setMergeHistory, saveMergeHistory, applyPOWIPData]);
+  }, [dates, setExcelData, setRows, setLastSync, setMockMode, setMergeHistory, saveMergeHistory, setNormChanges, setNormPendingData, setNormSource]);
 
   return { syncing, syncProgress, syncError, setSyncError, syncFromXoro };
 }

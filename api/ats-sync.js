@@ -11,7 +11,7 @@
 // The function paginates internally (parallel batches of 10) and
 // aggregates before returning, so the client gets one response.
 
-export const config = { maxDuration: 60 };
+export const config = { maxDuration: 900 };
 
 const BASE = "https://res.xorosoft.io/api/xerp";
 
@@ -86,6 +86,26 @@ function xoroSkuToExcel(raw) {
   return raw;
 }
 
+// Matches helpers.ts normalizeSku — title-case color portion + abbreviation
+// standardization so inventory/SO/PO SKUs converge to a single canonical form.
+function normalizeSku(sku) {
+  let s = sku.replace(/\s+/g, " ").trim();
+  s = s.replace(/\s*-\s*/g, " - ");
+  const firstDash = s.indexOf(" - ");
+  if (firstDash >= 0) {
+    const base = s.slice(0, firstDash);
+    let rest = s.slice(firstDash + 3);
+    rest = rest.replace(/\bmd\b/gi, "Med").replace(/\blt\b/gi, "Lt").replace(/\bdk\b/gi, "Dk");
+    const titleCased = rest.replace(/\b\w+/g, (word) => {
+      const lower = word.toLowerCase();
+      if (lower === "w" || lower === "of") return lower;
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    });
+    s = base + " - " + titleCased;
+  }
+  return s;
+}
+
 // ── Inventory → skus[] ──
 async function fetchInventory(storeFilter) {
   const params = { min_on_hand: "1" };
@@ -97,7 +117,7 @@ async function fetchInventory(storeFilter) {
   for (const item of items) {
     const rawSku = item.ItemNumber || "";
     if (!rawSku) continue;
-    const sku = xoroSkuToExcel(rawSku);
+    const sku = normalizeSku(xoroSkuToExcel(rawSku));
     const store = normalizeStore(item.StoreName);
     const key = `${sku}::${store}`;
     if (!skuMap[key]) {
@@ -147,7 +167,7 @@ async function fetchSalesOrders(storeFilter) {
 
       const rawSku = line.ItemNumber || "";
       if (!rawSku) continue;
-      const sku = xoroSkuToExcel(rawSku);
+      const sku = normalizeSku(xoroSkuToExcel(rawSku));
 
       // Parse cancel/ship date
       let date = "";
