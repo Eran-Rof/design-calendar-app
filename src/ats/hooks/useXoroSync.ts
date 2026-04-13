@@ -13,7 +13,6 @@ interface UseXoroSyncOpts {
   setMockMode: (v: boolean) => void;
   setMergeHistory: (v: MergeOp[]) => void;
   saveMergeHistory: (v: MergeOp[]) => Promise<void>;
-  applyPOWIPData: (data: ExcelData) => Promise<ExcelData>;
 }
 
 interface SyncProgress {
@@ -24,7 +23,7 @@ interface SyncProgress {
 export function useXoroSync(opts: UseXoroSyncOpts) {
   const {
     dates, setExcelData, setRows, setLastSync, setMockMode,
-    setMergeHistory, saveMergeHistory, applyPOWIPData,
+    setMergeHistory, saveMergeHistory,
   } = opts;
 
   const [syncing, setSyncing] = useState(false);
@@ -56,28 +55,9 @@ export function useXoroSync(opts: UseXoroSyncOpts) {
       const meta = (json.Data as any)._meta;
       delete (data as any)._meta;
 
-      // Step 2: Apply PO data from PO WIP (tanda_pos) for timeline events.
-      // The inventory API already set onOrder = QtyOnPO per item. We keep
-      // that as the baseline and layer PO WIP events (pos[]) on top for
-      // the date-based timeline. We do NOT zero out onOrder — if PO WIP
-      // can't match a SKU, the inventory API total is still correct.
-      setSyncProgress({ step: "Merging PO data from PO WIP…", pct: 65 });
-      try {
-        // Save original onOrder from inventory API
-        const invOnOrder = new Map(data.skus.map(s => [s.sku, s.onOrder || 0]));
-        const base: ExcelData = { ...data, pos: [], skus: data.skus.map(s => ({ ...s })) };
-        const merged = await applyPOWIPData(base);
-        // For each SKU: use PO WIP's onOrder if it found events, else keep inventory's
-        data = {
-          ...merged,
-          skus: merged.skus.map(s => ({
-            ...s,
-            onOrder: s.onOrder > 0 ? s.onOrder : (invOnOrder.get(s.sku) ?? s.onOrder),
-          })),
-        };
-      } catch (e) {
-        console.warn("PO WIP merge failed, using Xoro inventory PO totals:", e);
-      }
+      // Inventory API already provides QtyOnPO per item — no need to
+      // merge from PO WIP. PO WIP is only used for the right-click
+      // "open in PO WIP" link, not for quantity data.
 
       // Step 3: Dedupe
       data = dedupeExcelData(data);
@@ -116,7 +96,7 @@ export function useXoroSync(opts: UseXoroSyncOpts) {
     } finally {
       setSyncing(false);
     }
-  }, [dates, setExcelData, setRows, setLastSync, setMockMode, setMergeHistory, saveMergeHistory, applyPOWIPData]);
+  }, [dates, setExcelData, setRows, setLastSync, setMockMode, setMergeHistory, saveMergeHistory]);
 
   return { syncing, syncProgress, syncError, setSyncError, syncFromXoro };
 }
