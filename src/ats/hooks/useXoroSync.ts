@@ -55,9 +55,49 @@ export function useXoroSync(opts: UseXoroSyncOpts) {
       const meta = (json.Data as any)._meta;
       delete (data as any)._meta;
 
-      // Inventory API already provides QtyOnPO per item — no need to
-      // merge from PO WIP. PO WIP is only used for the right-click
-      // "open in PO WIP" link, not for quantity data.
+      // Step 2: Merge PO WIP events for the right-click detail popups.
+      // onOrder totals come from the inventory API (QtyOnPO) — we do NOT
+      // overwrite those. We only pull pos[] events from tanda_pos so the
+      // period-cell right-click shows individual PO lines + links to PO WIP.
+      setSyncProgress({ step: "Loading PO detail from PO WIP…", pct: 65 });
+      try {
+        const poRes = await fetch(`${SB_URL}/rest/v1/tanda_pos?select=data`, { headers: SB_HEADERS });
+        if (poRes.ok) {
+          const poRows = await poRes.json();
+          const newPos: ExcelData["pos"] = [];
+          for (const row of poRows) {
+            const po = row.data;
+            if (!po || po._archived) continue;
+            const poNum = po.PoNumber ?? "";
+            const vendor = po.VendorName ?? "";
+            const expDate = po.DateExpectedDelivery ?? "";
+            const brandName = po.BrandName ?? "";
+            const items = po.Items ?? po.PoLineArr ?? [];
+            for (const item of items) {
+              const rawSku = item.ItemNumber ?? "";
+              if (!rawSku) continue;
+              const parts = rawSku.split("-");
+              const sku = parts.length >= 3 ? parts[0] + " - " + parts.slice(1, -1).join(" - ")
+                        : parts.length === 2 ? parts[0] + " - " + parts[1]
+                        : rawSku;
+              const qty = item.QtyRemaining != null ? item.QtyRemaining : (item.QtyOrder ?? 0) - (item.QtyReceived ?? 0);
+              if (qty <= 0) continue;
+              let date = "";
+              if (expDate) { const d = new Date(expDate); if (!isNaN(d.getTime())) date = d.toISOString().split("T")[0]; }
+              const pn = poNum.toUpperCase();
+              const bn = brandName.toUpperCase();
+              const store = pn.includes("ECOM") ? "ROF ECOM" : (bn.includes("PSYCHO") || bn.includes("PTUNA") || bn.includes("P TUNA") || bn === "PT" || bn.startsWith("PT ")) ? "PT" : "ROF";
+              const unitCost = item.UnitPrice ?? 0;
+              if (date) newPos.push({ sku, date, qty, poNumber: poNum, vendor, store, unitCost });
+            }
+          }
+          if (newPos.length > 0) {
+            data = { ...data, pos: newPos };
+          }
+        }
+      } catch (e) {
+        console.warn("PO WIP event merge failed (right-click detail will be empty):", e);
+      }
 
       // Step 3: Dedupe
       data = dedupeExcelData(data);
