@@ -33,7 +33,7 @@ export function useEmailData(opts: UseEmailDataOpts) {
     loadEmailAttachments, loadPOEmailsRef,
   } = opts;
 
-  const store = useTandaStore();
+  const getStore = () => useTandaStore.getState();
 
   const emailGetPrefix = useCallback((poNum: string) => {
     return "[PO-" + poNum + "]";
@@ -97,8 +97,8 @@ export function useEmailData(opts: UseEmailDataOpts) {
   // user can review/restore/empty them. Limited to 200 most recent.
   const loadDeletedFolder = useCallback(async () => {
     if (!msToken) return;
-    store.setEmailField("emailDeletedLoading", true);
-    store.setEmailField("emailDeletedError", null);
+    getStore().setEmailField("emailDeletedLoading", true);
+    getStore().setEmailField("emailDeletedError", null);
     try {
       const url = "/me/mailFolders/DeletedItems/messages?$top=200&$orderby=receivedDateTime desc&$select=id,subject,from,receivedDateTime,bodyPreview,conversationId,isRead,hasAttachments";
       const d = await emailGraph(url);
@@ -107,20 +107,20 @@ export function useEmailData(opts: UseEmailDataOpts) {
         const match = (m.subject || "").match(/\[PO-([^\]]+)\]/);
         return match ? { ...m, _poNumber: match[1] } : m;
       });
-      store.setEmailField("emailDeletedMessages", items);
+      getStore().setEmailField("emailDeletedMessages", items);
     } catch (e: any) {
-      store.setEmailField("emailDeletedError", e?.message || "Failed to load deleted folder");
+      getStore().setEmailField("emailDeletedError", e?.message || "Failed to load deleted folder");
     } finally {
-      store.setEmailField("emailDeletedLoading", false);
+      getStore().setEmailField("emailDeletedLoading", false);
     }
-  }, [msToken, emailGraph, store]);
+  }, [msToken, emailGraph]);
 
   // Permanently delete every message currently in Deleted Items.
   const emptyDeletedFolder = useCallback(async () => {
     if (!msToken) return;
     const messages: any[] = (useTandaStore.getState() as any).emailDeletedMessages || [];
     if (messages.length === 0) return;
-    store.setEmailField("emailDeletedLoading", true);
+    getStore().setEmailField("emailDeletedLoading", true);
     try {
       // Best-effort: serial deletes (Graph batch is more code than it's worth here)
       for (const m of messages) {
@@ -134,11 +134,11 @@ export function useEmailData(opts: UseEmailDataOpts) {
           console.warn("emptyDeletedFolder: failed for", m.id, e);
         }
       }
-      store.setEmailField("emailDeletedMessages", []);
+      getStore().setEmailField("emailDeletedMessages", []);
     } finally {
-      store.setEmailField("emailDeletedLoading", false);
+      getStore().setEmailField("emailDeletedLoading", false);
     }
-  }, [msToken, getGraphToken, store]);
+  }, [msToken, getGraphToken]);
 
   // Pre-fetches a single batch of inbox messages tagged with a [PO-...] prefix,
   // groups them by PO number, and stores per-PO stats + a flat list for the
@@ -146,8 +146,8 @@ export function useEmailData(opts: UseEmailDataOpts) {
   // unread badges + counts appear without the user having to click each PO.
   const loadAllPOEmailStats = useCallback(async () => {
     if (!msToken) return;
-    store.setEmailField("emailAllStatsLoading", true);
-    store.setEmailField("emailAllStatsError", null);
+    getStore().setEmailField("emailAllStatsLoading", true);
+    getStore().setEmailField("emailAllStatsError", null);
     try {
       const url = `/me/mailFolders/Inbox/messages?$search=${encodeURIComponent('"[PO-"')}&$top=500&$select=id,subject,from,receivedDateTime,bodyPreview,isRead,hasAttachments,conversationId`;
       const d = await emailGraph(url);
@@ -173,14 +173,14 @@ export function useEmailData(opts: UseEmailDataOpts) {
         // Tag the message so the global views know which PO it belongs to
         tagged.push({ ...m, _poNumber: poNum });
       }
-      store.setEmailField("emailAllStats", stats);
-      store.setEmailField("emailAllMessages", tagged);
+      getStore().setEmailField("emailAllStats", stats);
+      getStore().setEmailField("emailAllMessages", tagged);
     } catch (e: any) {
-      store.setEmailField("emailAllStatsError", e?.message || "Failed to load email stats");
+      getStore().setEmailField("emailAllStatsError", e?.message || "Failed to load email stats");
     } finally {
-      store.setEmailField("emailAllStatsLoading", false);
+      getStore().setEmailField("emailAllStatsLoading", false);
     }
-  }, [msToken, emailGraph, store]);
+  }, [msToken, emailGraph]);
 
   return {
     emailGetPrefix,
