@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import type { ExcelData } from "../types";
 import { dedupeExcelData } from "../merge";
 import { computeRowsFromExcelData } from "../compute";
+import { normalizeSku } from "../helpers";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
 import type { MergeOp } from "./useMergeHistory";
 
@@ -77,9 +78,10 @@ export function useXoroSync(opts: UseXoroSyncOpts) {
               const rawSku = item.ItemNumber ?? "";
               if (!rawSku) continue;
               const parts = rawSku.split("-");
-              const sku = parts.length >= 3 ? parts[0] + " - " + parts.slice(1, -1).join(" - ")
+              const rawConverted = parts.length >= 3 ? parts[0] + " - " + parts.slice(1, -1).join(" - ")
                         : parts.length === 2 ? parts[0] + " - " + parts[1]
                         : rawSku;
+              const sku = normalizeSku(rawConverted);
               const qty = item.QtyRemaining != null ? item.QtyRemaining : (item.QtyOrder ?? 0) - (item.QtyReceived ?? 0);
               if (qty <= 0) continue;
               let date = "";
