@@ -43,17 +43,16 @@ async function fetchAllPages(path, baseParams, maxPages = 100) {
   const totalPages = Math.min(page1.TotalPages || 1, maxPages);
   let allData = [...page1.Data];
 
-  // Fetch remaining pages in parallel batches of 10
-  for (let batch = 2; batch <= totalPages; batch += 10) {
-    const pageNums = [];
-    for (let p = batch; p < batch + 10 && p <= totalPages; p++) pageNums.push(p);
-    const results = await Promise.allSettled(
-      pageNums.map(p => xoroGet(path, { ...baseParams, page: String(p) }))
-    );
-    for (const r of results) {
-      if (r.status === "fulfilled" && r.value.Result && Array.isArray(r.value.Data)) {
-        allData.push(...r.value.Data);
-      }
+  // Fetch ALL remaining pages in one parallel burst (no sequential batching).
+  // This is faster than batches of 10 and stays within the 60s timeout for
+  // ~80 pages because Xoro responds in ~200-500ms per request.
+  const pageNums = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
+  const results = await Promise.allSettled(
+    pageNums.map(p => xoroGet(path, { ...baseParams, page: String(p) }))
+  );
+  for (const r of results) {
+    if (r.status === "fulfilled" && r.value.Result && Array.isArray(r.value.Data)) {
+      allData.push(...r.value.Data);
     }
   }
   return allData;
