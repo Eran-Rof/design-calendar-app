@@ -29,20 +29,11 @@ function authHeader() {
 async function xoroGet(path, params = {}) {
   const p = new URLSearchParams(params);
   const url = `${BASE}/${path}?${p}`;
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 8000);
-  try {
-    const r = await fetch(url, {
-      headers: { Authorization: authHeader(), "Content-Type": "application/json" },
-      signal: ctrl.signal,
-    });
-    clearTimeout(t);
-    const text = await r.text();
-    try { return JSON.parse(text); } catch { return { Result: false, Message: "Non-JSON", raw: text.slice(0, 300) }; }
-  } catch (e) {
-    clearTimeout(t);
-    return { Result: false, Message: e.name === "AbortError" ? "Xoro timeout (8s)" : e.message };
-  }
+  const r = await fetch(url, {
+    headers: { Authorization: authHeader(), "Content-Type": "application/json" },
+  });
+  const text = await r.text();
+  try { return JSON.parse(text); } catch { return { Result: false, Message: "Non-JSON", raw: text.slice(0, 300) }; }
 }
 
 async function fetchAllPages(path, baseParams, maxPages = 100) {
@@ -52,13 +43,10 @@ async function fetchAllPages(path, baseParams, maxPages = 100) {
   const totalPages = Math.min(page1.TotalPages || 1, maxPages);
   let allData = [...page1.Data];
 
-  // Fetch remaining pages in parallel batches of 15 (Xoro rate-limits
-  // if we fire all 80+ at once). 15 matches the proven xoro-proxy pattern.
-  console.log(`[ats-sync] ${path}: ${totalPages} pages, fetching ${totalPages - 1} remaining`);
-  const BATCH = 15;
-  for (let batch = 2; batch <= totalPages; batch += BATCH) {
+  // Fetch remaining pages in parallel batches of 10
+  for (let batch = 2; batch <= totalPages; batch += 10) {
     const pageNums = [];
-    for (let p = batch; p < batch + BATCH && p <= totalPages; p++) pageNums.push(p);
+    for (let p = batch; p < batch + 10 && p <= totalPages; p++) pageNums.push(p);
     const results = await Promise.allSettled(
       pageNums.map(p => xoroGet(path, { ...baseParams, page: String(p) }))
     );
@@ -69,27 +57,6 @@ async function fetchAllPages(path, baseParams, maxPages = 100) {
     }
   }
   return allData;
-}
-
-// ── SKU normalization (matches helpers.ts normalizeSku) ──
-function normalizeSku(sku) {
-  let s = sku.replace(/\s+/g, " ").trim();
-  s = s.replace(/\s*-\s*/g, " - ");
-  const firstDash = s.indexOf(" - ");
-  if (firstDash >= 0) {
-    const base = s.slice(0, firstDash);
-    let rest = s.slice(firstDash + 3);
-    rest = rest.replace(/\bmd\b/gi, "Med")
-               .replace(/\blt\b/gi, "Lt")
-               .replace(/\bdk\b/gi, "Dk");
-    const titleCased = rest.replace(/\b\w+/g, (word) => {
-      const lower = word.toLowerCase();
-      if (lower === "w" || lower === "of") return lower;
-      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-    });
-    s = base + " - " + titleCased;
-  }
-  return s;
 }
 
 // ── Store name normalization (matches ATS.tsx / parse-excel.js logic) ──
@@ -121,7 +88,7 @@ async function fetchInventory(storeFilter) {
   for (const item of items) {
     const rawSku = item.ItemNumber || "";
     if (!rawSku) continue;
-    const sku = normalizeSku(xoroSkuToExcel(rawSku));
+    const sku = xoroSkuToExcel(rawSku);
     const store = normalizeStore(item.StoreName);
     const key = `${sku}::${store}`;
     if (!skuMap[key]) {
@@ -148,7 +115,7 @@ async function fetchSalesOrders(storeFilter) {
   since.setMonth(since.getMonth() - 12);
   const params = { created_at_min: since.toISOString() };
   if (storeFilter) params.sale_store_name = storeFilter;
-  const orders = await fetchAllPages("salesorder/getsalesorder", params, 30);
+  const orders = await fetchAllPages("salesorder/getsalesorder", params, 60);
 
   const sos = [];
   for (const so of orders) {
@@ -171,7 +138,7 @@ async function fetchSalesOrders(storeFilter) {
 
       const rawSku = line.ItemNumber || "";
       if (!rawSku) continue;
-      const sku = normalizeSku(xoroSkuToExcel(rawSku));
+      const sku = xoroSkuToExcel(rawSku);
 
       // Parse cancel/ship date
       let date = "";
