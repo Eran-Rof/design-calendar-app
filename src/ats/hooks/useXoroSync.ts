@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import type { ExcelData } from "../types";
 import { dedupeExcelData } from "../merge";
 import { computeRowsFromExcelData } from "../compute";
+import { detectNormChanges, type NormChange } from "../normalize";
 import { normalizeSku } from "../helpers";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
 import type { MergeOp } from "./useMergeHistory";
@@ -14,6 +15,10 @@ interface UseXoroSyncOpts {
   setMockMode: (v: boolean) => void;
   setMergeHistory: (v: MergeOp[]) => void;
   saveMergeHistory: (v: MergeOp[]) => Promise<void>;
+  // Normalization review (shared with upload flow)
+  setNormChanges: (v: NormChange[] | null) => void;
+  setNormPendingData: (v: ExcelData | null) => void;
+  setNormSource: (v: "upload" | "load") => void;
 }
 
 interface SyncProgress {
@@ -25,6 +30,7 @@ export function useXoroSync(opts: UseXoroSyncOpts) {
   const {
     dates, setExcelData, setRows, setLastSync, setMockMode,
     setMergeHistory, saveMergeHistory,
+    setNormChanges, setNormPendingData, setNormSource,
   } = opts;
 
   const [syncing, setSyncing] = useState(false);
@@ -103,6 +109,20 @@ export function useXoroSync(opts: UseXoroSyncOpts) {
 
       // Step 3: Dedupe
       data = dedupeExcelData(data);
+
+      // Step 3b: Check for normalization changes — if found, pause and
+      // show the review modal (same flow as Excel upload). The user
+      // approves/rejects, then applyNormReview finishes the save.
+      setSyncProgress({ step: "Checking SKU normalization…", pct: 75 });
+      const normChanges = detectNormChanges(data);
+      if (normChanges.length > 0) {
+        setSyncProgress(null);
+        setNormPendingData(data);
+        setNormChanges(normChanges);
+        setNormSource("load");
+        setSyncing(false);
+        return; // user will approve → applyNormReview handles the rest
+      }
 
       // Step 4: Save to Supabase
       setSyncProgress({ step: "Saving to database…", pct: 80 });

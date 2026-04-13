@@ -335,6 +335,7 @@ function ATSReport() {
   const xoroSync = useXoroSync({
     dates, setExcelData, setRows, setLastSync, setMockMode,
     setMergeHistory, saveMergeHistory,
+    setNormChanges, setNormPendingData, setNormSource,
   });
 
   const displayPeriods = useMemo(() => {
