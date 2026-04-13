@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import type { ExcelData } from "../types";
 import { dedupeExcelData } from "../merge";
 import { computeRowsFromExcelData } from "../compute";
+import { normalizeSku } from "../helpers";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
 import type { MergeOp } from "./useMergeHistory";
 
@@ -37,25 +38,72 @@ export function useXoroSync(opts: UseXoroSyncOpts) {
     setSyncProgress({ step: "Fetching inventory from Xoro…", pct: 10 });
 
     try {
-      // Step 1a: Fetch inventory (the critical data)
-      const invRes = await fetch("/api/ats-sync?type=inventory", {
-        signal: AbortSignal.timeout(90000),
+      // ── Client-side pagination through xoro-proxy ──
+      // Serverless has a 60s limit; Xoro's API is too slow for 84 pages in
+      // one call. Browser has no timeout — we paginate here, one single
+      // page per proxy call, 5 in parallel per batch.
+
+      // Page 1 to learn total page count
+      setSyncProgress({ step: "Fetching inventory page 1…", pct: 5 });
+      const p1Res = await fetch("/api/xoro-proxy?app=ats&path=inventory/getinventorybyitem&min_on_hand=1&page=1", {
+        signal: AbortSignal.timeout(60000),
       });
-      if (!invRes.ok) {
-        const err = await invRes.json().catch(() => ({ error: "Sync failed" }));
-        throw new Error(err.error ?? `HTTP ${invRes.status}`);
-      }
-      const invJson = await invRes.json();
-      if (!invJson.Result || !invJson.skus) {
-        throw new Error(invJson.Message || "No inventory data returned");
+      if (!p1Res.ok) throw new Error(`Inventory fetch failed: ${p1Res.status}`);
+      const p1 = await p1Res.json();
+      if (!p1.Result) throw new Error(p1.Message || "Xoro inventory failed");
+      const totalPages = p1.TotalPages || 1;
+      const allItems: any[] = [...(p1.Data || [])];
+
+      // Remaining pages in parallel batches of 5 (Xoro handles 5 concurrent
+      // better than 10+ — fewer rate-limit issues).
+      const BATCH = 5;
+      for (let start = 2; start <= totalPages; start += BATCH) {
+        const end = Math.min(start + BATCH - 1, totalPages);
+        const pct = Math.round(5 + ((start - 1) / totalPages) * 45);
+        setSyncProgress({ step: `Inventory pages ${start}–${end} of ${totalPages}…`, pct });
+        const pageNums = Array.from({ length: end - start + 1 }, (_, i) => start + i);
+        const results = await Promise.allSettled(
+          pageNums.map(p =>
+            fetch(`/api/xoro-proxy?app=ats&path=inventory/getinventorybyitem&min_on_hand=1&page=${p}`, {
+              signal: AbortSignal.timeout(60000),
+            }).then(r => r.json())
+          )
+        );
+        for (const r of results) {
+          if (r.status === "fulfilled" && Array.isArray(r.value?.Data)) {
+            allItems.push(...r.value.Data);
+          }
+        }
       }
 
-      // Step 1b: Fetch sales orders (separate call, tolerate failure)
-      setSyncProgress({ step: "Fetching sales orders from Xoro…", pct: 35 });
+      // Build ExcelData skus from raw inventory items
+      setSyncProgress({ step: "Processing inventory…", pct: 52 });
+      const skuMap: Record<string, ExcelData["skus"][0]> = {};
+      for (const item of allItems) {
+        const raw = item.ItemNumber || "";
+        if (!raw) continue;
+        const parts = raw.split("-");
+        const rawSku = parts.length >= 3 ? parts[0] + " - " + parts.slice(1, -1).join(" - ")
+          : parts.length === 2 ? parts[0] + " - " + parts[1] : raw;
+        const sku = normalizeSku(rawSku);
+        const sn = (item.StoreName || "").toUpperCase();
+        const store = sn.includes("ECOM") ? "ROF ECOM"
+          : (sn.includes("PSYCHO") || sn.includes("PTUNA") || sn.includes("P TUNA") || sn === "PT" || sn.startsWith("PREBOOK")) ? "PT"
+          : (sn.includes("ROF") || sn.includes("RING")) ? "ROF" : item.StoreName || "ROF";
+        const key = `${sku}::${store}`;
+        if (!skuMap[key]) {
+          skuMap[key] = { sku, description: item.ItemDescription || "", store, onHand: 0, onOrder: 0, onCommitted: 0 };
+        }
+        skuMap[key].onHand      += item.OnHandQty   || 0;
+        skuMap[key].onOrder     += item.QtyOnPO      || 0;
+        skuMap[key].onCommitted += item.QtyOnSO      || 0;
+      }
+
+      setSyncProgress({ step: "Fetching sales order detail…", pct: 55 });
       let sos: ExcelData["sos"] = [];
       try {
         const soRes = await fetch("/api/ats-sync?type=salesorders", {
-          signal: AbortSignal.timeout(90000),
+          signal: AbortSignal.timeout(60000),
         });
         if (soRes.ok) {
           const soJson = await soRes.json();
@@ -65,14 +113,9 @@ export function useXoroSync(opts: UseXoroSyncOpts) {
         console.warn("SO fetch failed, continuing with inventory only:", e);
       }
 
-      setSyncProgress({ step: "Processing Xoro data…", pct: 50 });
-      let data: ExcelData = {
-        syncedAt: new Date().toISOString(),
-        skus: invJson.skus,
-        pos: [],
-        sos,
-      };
-      const meta = { skusWithStock: invJson.skus?.length, soLinesOpen: sos.length };
+      const skus = Object.values(skuMap);
+      let data: ExcelData = { syncedAt: new Date().toISOString(), skus, pos: [], sos };
+      const meta = { skusWithStock: skus.length, soLinesOpen: sos.length, totalInvItems: allItems.length };
 
       // Step 2: Apply PO data from PO WIP (tanda_pos)
       setSyncProgress({ step: "Merging PO data from PO WIP…", pct: 65 });
