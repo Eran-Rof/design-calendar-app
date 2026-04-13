@@ -47,21 +47,29 @@ export function useXoroSync(opts: UseXoroSyncOpts) {
       // The ats-sync serverless function times out at 60s for 84+ pages.
       // Instead, the browser paginates directly — no timeout limit.
 
-      // Step 1a: Fetch inventory page count
-      const p1Res = await fetch("/api/xoro-proxy?app=ats&path=inventory/getinventorybyitem&min_on_hand=1&page=1&fetch_all=false");
+      // Step 1a: Fetch inventory page 1 to get total page count
+      const p1Res = await fetch("/api/xoro-proxy?app=ats&path=inventory/getinventorybyitem&min_on_hand=1&page=1");
       const p1 = await p1Res.json();
       if (!p1.Result) throw new Error(p1.Message || "Xoro inventory failed");
       const totalPages = p1.TotalPages || 1;
       const allItems: any[] = [...(p1.Data || [])];
 
-      // Fetch remaining pages through the proxy (fetch_all handles 15 at a time)
-      for (let start = 2; start <= totalPages; start += 15) {
-        const pct = Math.round(10 + (start / totalPages) * 35);
-        setSyncProgress({ step: `Fetching inventory page ${start}–${Math.min(start + 14, totalPages)} of ${totalPages}…`, pct });
-        const params = new URLSearchParams({ app: "ats", path: "inventory/getinventorybyitem", min_on_hand: "1", page: String(start), fetch_all: "true" });
-        const res = await fetch(`/api/xoro-proxy?${params}`);
-        const json = await res.json();
-        if (json.Data) allItems.push(...json.Data);
+      // Fetch remaining pages in parallel batches of 10 from the browser.
+      // Each call goes through the proxy as a single-page request.
+      const BATCH = 10;
+      for (let start = 2; start <= totalPages; start += BATCH) {
+        const end = Math.min(start + BATCH - 1, totalPages);
+        const pct = Math.round(10 + ((start - 1) / totalPages) * 40);
+        setSyncProgress({ step: `Fetching inventory pages ${start}–${end} of ${totalPages}…`, pct });
+        const pageNums = Array.from({ length: end - start + 1 }, (_, i) => start + i);
+        const results = await Promise.allSettled(
+          pageNums.map(p => fetch(`/api/xoro-proxy?app=ats&path=inventory/getinventorybyitem&min_on_hand=1&page=${p}`).then(r => r.json()))
+        );
+        for (const r of results) {
+          if (r.status === "fulfilled" && Array.isArray(r.value?.Data)) {
+            allItems.push(...r.value.Data);
+          }
+        }
       }
 
       // Convert raw inventory items to ExcelData skus
