@@ -1119,12 +1119,16 @@ function TandAApp() {
 
   // Auto-load email stats once after MS auth, then refresh every 2 minutes.
   // MUST be declared before any early returns below to keep hook order stable.
+  // Indirected through a ref because `loadAllPOEmailStats` is declared further
+  // below (from useEmailData); direct forward reference from a useEffect closure
+  // is allowed by JS semantics but tripped Terser's minification in production.
+  const loadAllPOEmailStatsRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     if (!msToken) return;
-    loadAllPOEmailStats();
-    const id = setInterval(loadAllPOEmailStats, 120000);
+    loadAllPOEmailStatsRef.current?.();
+    const id = setInterval(() => loadAllPOEmailStatsRef.current?.(), 120000);
     return () => clearInterval(id);
-  }, [msToken]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [msToken]);
 
   // While checking PLM session, show blank (prevents login flash)
   if (!sessionChecked) return <div style={{ minHeight: "100vh", background: "#F9FAFB" }} />;
@@ -1232,6 +1236,8 @@ function TandAApp() {
     setEmailNextLinks, setDtlNextLink, setEmailLastRefresh,
     loadEmailAttachments, loadPOEmailsRef,
   });
+  // Publish to the ref the early useEffect at top of the component uses.
+  loadAllPOEmailStatsRef.current = loadAllPOEmailStats;
 
   function emailViewPanel() {
     return emailViewPanelExtracted({
