@@ -423,8 +423,23 @@ describe("syncFromXoro", () => {
       expect(get().syncDone?.deleted).toBeGreaterThanOrEqual(1);
     });
 
-    it("archives Received POs", async () => {
+    it("archives Received POs when previously synced (status change)", async () => {
       const receivedPO = makePO({ PoNumber: "PO-RECV", StatusName: "Received" });
+      const existingPO = makePO({ PoNumber: "PO-RECV", StatusName: "Open" });
+
+      const fetchMock = buildFetchMock({ xoroPOs: [receivedPO], existingPOs: [existingPO] });
+      vi.spyOn(globalThis, "fetch").mockImplementation(fetchMock);
+
+      const deps = makeDeps();
+      const hook = callHook(deps);
+
+      await hook.syncFromXoro();
+
+      expect(get().syncDone?.deleted).toBeGreaterThanOrEqual(1);
+    });
+
+    it("does NOT archive Received POs on first-time sync (no previous cache)", async () => {
+      const receivedPO = makePO({ PoNumber: "PO-NEW-RECV", StatusName: "Received" });
 
       const fetchMock = buildFetchMock({ xoroPOs: [receivedPO], existingPOs: [] });
       vi.spyOn(globalThis, "fetch").mockImplementation(fetchMock);
@@ -434,7 +449,8 @@ describe("syncFromXoro", () => {
 
       await hook.syncFromXoro();
 
-      expect(get().syncDone?.deleted).toBeGreaterThanOrEqual(1);
+      // No archive — the PO was never tracked, so we skip it entirely
+      expect(get().syncDone?.deleted).toBe(0);
     });
 
     it("does NOT archive Partially Received POs", async () => {

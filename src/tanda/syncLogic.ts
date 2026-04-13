@@ -21,7 +21,9 @@ export interface ArchiveDecision {
  * Determine which POs to archive and whether fresh Xoro data is available.
  *
  * Three sources:
- * 1. Xoro returned the PO as Closed/Received/Cancelled  → archive with fresh data (correct label)
+ * 1. Xoro returned the PO as Closed/Received/Cancelled AND the PO was previously
+ *    synced (exists in cachedRows) → archive with fresh data. Skips terminal POs
+ *    that were never tracked by the app (first-time sync shouldn't pull history).
  * 2. Cached PO already has a Closed/Received/Cancelled status → archive (DB data is correct)
  * 3. PO is absent from Xoro results (likely deleted) → archive only when it's safe to do so:
  *    - statusesWithResults must be provided (full unfiltered sync)
@@ -36,11 +38,17 @@ export function getArchiveDecisions(
   statusesWithResults: Set<string> | null
 ): ArchiveDecision[] {
   const decisions = new Map<string, ArchiveDecision>();
+  const cachedPoNums = new Set(cachedRows.map(r => r.po_number));
 
-  // 1. POs Xoro returned as closed — archive with fresh data so the label is correct
+  // 1. POs Xoro returned as closed — archive ONLY IF the PO was previously
+  //    synced (status transitioned from active to terminal). This prevents
+  //    first-time syncs from pulling in historical Closed/Received POs that
+  //    were never tracked by the app. If a PO is currently terminal and
+  //    never existed in our cache, it's skipped entirely.
   for (const po of xoroPos) {
-    if (shouldArchive(po.StatusName ?? "")) {
-      decisions.set(po.PoNumber ?? "", { poNumber: po.PoNumber ?? "", freshData: po });
+    const poNum = po.PoNumber ?? "";
+    if (shouldArchive(po.StatusName ?? "") && cachedPoNums.has(poNum)) {
+      decisions.set(poNum, { poNumber: poNum, freshData: po });
     }
   }
 

@@ -33,11 +33,19 @@ describe("shouldArchive", () => {
 
 describe("getArchiveDecisions", () => {
   describe("source 1: Xoro returned PO as closed", () => {
-    it("archives with freshData so status label is correct", () => {
+    it("archives with freshData when PO was previously synced", () => {
       const xoro = [makePO({ PoNumber: "PO-001", StatusName: "Closed" })];
-      const decisions = getArchiveDecisions(xoro, [], null);
+      // PO exists in cache (as "Open") — terminal status in fresh fetch triggers archive
+      const cached = [makeRow("PO-001", "Open", false)];
+      const decisions = getArchiveDecisions(xoro, cached, null);
       expect(decisions).toHaveLength(1);
       expect(decisions[0].freshData?.StatusName).toBe("Closed");
+    });
+
+    it("skips terminal PO not previously synced (first-time-sync guard)", () => {
+      const xoro = [makePO({ PoNumber: "PO-001", StatusName: "Closed" })];
+      // No cache — this is a historical Closed PO we don't want to pull in
+      expect(getArchiveDecisions(xoro, [], null)).toHaveLength(0);
     });
 
     it("does not archive an Open PO from Xoro", () => {
@@ -166,16 +174,18 @@ describe("getArchiveDecisions", () => {
       expect(dupDecisions[0].freshData).toBeDefined();
     });
 
-    it("handles Received status correctly", () => {
+    it("handles Received status correctly (when previously synced)", () => {
       const xoro = [makePO({ PoNumber: "PO-RCV", StatusName: "Received" })];
-      const decisions = getArchiveDecisions(xoro, [], null);
+      const cached = [makeRow("PO-RCV", "Open", false)];
+      const decisions = getArchiveDecisions(xoro, cached, null);
       expect(decisions).toHaveLength(1);
       expect(decisions[0].poNumber).toBe("PO-RCV");
     });
 
-    it("handles Cancelled status correctly", () => {
+    it("handles Cancelled status correctly (when previously synced)", () => {
       const xoro = [makePO({ PoNumber: "PO-CAN", StatusName: "Cancelled" })];
-      const decisions = getArchiveDecisions(xoro, [], null);
+      const cached = [makeRow("PO-CAN", "Open", false)];
+      const decisions = getArchiveDecisions(xoro, cached, null);
       expect(decisions).toHaveLength(1);
     });
 
