@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useSyncExternalStore } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { msSignIn, loadMsTokens, saveMsTokens, clearMsTokens, getMsAccessToken, MS_CLIENT_ID, MS_TENANT_ID } from "./utils/msAuth";
 import { useMSAuth, friendlyContactError } from "./tanda/hooks/useMSAuth";
 import { useDashboardData } from "./tanda/hooks/useDashboardData";
@@ -165,12 +165,17 @@ export default function TandAAppWrapper() {
   return <TandAApp />;
 }
 
-const _renderCount = { current: 0 };
 function TandAApp() {
-  _renderCount.current++;
-  if (_renderCount.current > 100) { console.error("TandAApp rendered", _renderCount.current, "times — likely infinite loop"); throw new Error("render loop detected"); }
-  // Subscribe to store via useSyncExternalStore — React-safe, no setState during render.
-  const store = useSyncExternalStore(useTandaStore.subscribe, useTandaStore.getState, useTandaStore.getState);
+  const [, rerender] = useState(0);
+  const rafRef = useRef(0);
+  useEffect(() => {
+    const unsub = useTandaStore.subscribe(() => {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(() => rerender(c => c + 1));
+    });
+    return () => { unsub(); cancelAnimationFrame(rafRef.current); };
+  }, []);
+  const store = useTandaStore.getState();
   const core = store;
   const sync = store;
   const em = store;
