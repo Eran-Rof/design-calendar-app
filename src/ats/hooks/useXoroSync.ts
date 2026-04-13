@@ -43,24 +43,42 @@ export function useXoroSync(opts: UseXoroSyncOpts) {
     setSyncProgress({ step: "Fetching inventory from Xoro…", pct: 10 });
 
     try {
-      // Step 1: Fetch inventory + sales orders from the serverless endpoint
-      const res = await fetch("/api/ats-sync?type=full", {
+      // Step 1a: Fetch inventory (the critical data — on hand, on PO, on SO)
+      const invRes = await fetch("/api/ats-sync?type=inventory", {
         signal: AbortSignal.timeout(55000),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Sync failed" }));
-        throw new Error(err.error ?? `HTTP ${res.status}`);
+      if (!invRes.ok) {
+        const err = await invRes.json().catch(() => ({ error: "Inventory sync failed" }));
+        throw new Error(err.error ?? `HTTP ${invRes.status}`);
+      }
+      const invJson = await invRes.json();
+      if (!invJson.Result || !invJson.skus) {
+        throw new Error(invJson.Message || "No inventory data returned");
+      }
+
+      // Step 1b: Fetch sales orders (separate call to avoid timeout)
+      setSyncProgress({ step: "Fetching sales orders from Xoro…", pct: 35 });
+      let sos: ExcelData["sos"] = [];
+      try {
+        const soRes = await fetch("/api/ats-sync?type=salesorders", {
+          signal: AbortSignal.timeout(55000),
+        });
+        if (soRes.ok) {
+          const soJson = await soRes.json();
+          if (soJson.Result && soJson.sos) sos = soJson.sos;
+        }
+      } catch (e) {
+        console.warn("SO sync failed, continuing with inventory only:", e);
       }
 
       setSyncProgress({ step: "Processing Xoro data…", pct: 50 });
-      const json = await res.json();
-      if (!json.Result || !json.Data) {
-        throw new Error(json.Message || json.error || "No data returned from Xoro");
-      }
-
-      let data: ExcelData = json.Data;
-      const meta = (json.Data as any)._meta;
-      delete (data as any)._meta;
+      let data: ExcelData = {
+        syncedAt: new Date().toISOString(),
+        skus: invJson.skus,
+        pos: [],
+        sos,
+      };
+      const meta = { skusWithStock: invJson.skus?.length, soLinesOpen: sos.length };
 
       // Step 2: Merge PO WIP events for the right-click detail popups.
       // onOrder totals come from the inventory API (QtyOnPO) — we do NOT
