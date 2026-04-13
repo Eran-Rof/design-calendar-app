@@ -41,7 +41,6 @@ export function useEmailData(opts: UseEmailDataOpts) {
   }
 
   async function loadPOEmails(poNum: string, olderUrl?: string, autoSelect?: boolean) {
-    opts.loadPOEmailsRef.current = loadPOEmails;
     if (!opts.msToken) return;
     const prefix = emailGetPrefix(poNum);
     if (olderUrl) { opts.setEmailLoadingOlder(true); } else { opts.setEmailLoadingMap((l: any) => ({ ...l, [poNum]: true })); }
@@ -158,6 +157,11 @@ export function useEmailData(opts: UseEmailDataOpts) {
       getStore().setEmailField("emailAllStatsLoading", false);
     }
   }
+
+  // Publish loadPOEmails to the shared ref so other hooks (e.g. useEmailOps)
+  // can call it after sending. Set this at hook-body scope so it's populated
+  // on mount, not lazily on first invocation.
+  opts.loadPOEmailsRef.current = loadPOEmails;
 
   return {
     emailGetPrefix,

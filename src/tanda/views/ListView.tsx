@@ -107,7 +107,7 @@ export function ListView({
             {pos.length === 0 && <button style={S.btnPrimary} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing}>🔄 Sync from Xoro</button>}
           </div>
         )}
-        {filtered.map((po, i) => <PORow key={i} po={po} milestones={milestones[po.PoNumber ?? ""] || []} today={today} weekFromNow={weekFromNow} onClick={() => { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(po); }} detailed />)}
+        {filtered.map((po, i) => <PORow key={po.PoNumber ?? i} po={po} milestones={milestones[po.PoNumber ?? ""] || []} today={today} weekFromNow={weekFromNow} onClick={() => { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(po); }} detailed />)}
       </div>
     </div>
   );

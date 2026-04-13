@@ -117,7 +117,7 @@ export function useEmailOps(opts: UseEmailOpsOpts) {
         headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" },
         body: JSON.stringify({ isRead: true }),
       });
-    } catch {}
+    } catch (e) { console.warn("emailMarkAsRead failed", id, e); }
   }
 
   async function deleteMainEmail(messageId: string) {

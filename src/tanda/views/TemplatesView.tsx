@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   type WipTemplate, type User,
   WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, milestoneUid,
@@ -44,10 +44,7 @@ export function TemplatesView({
   setConfirmModal,
 }: TemplatesViewProps) {
   const isAdmin = user?.role === "admin";
-  const [tplTab, setTplTab_] = [
-    (window as any).__tplTab ?? "production",
-    (v: string) => { (window as any).__tplTab = v; setWipTemplates({ ...wipTemplates }); }
-  ];
+  const [tplTab, setTplTab_] = useState<string>("production");
   const vendorKeys = templateVendorList();
   // All unique vendors from POs (for adding new vendor templates)
   const poVendors = [...new Set(pos.map(p => p.VendorName ?? "").filter(Boolean))].sort();
@@ -81,10 +78,7 @@ export function TemplatesView({
     saveVendorTemplates(tplVendor, localTpl);
     setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set());
   }
-  const [showNewVendor, setShowNewVendor_] = [
-    (window as any).__showNewVendor ?? false,
-    (v: boolean) => { (window as any).__showNewVendor = v; setWipTemplates({ ...wipTemplates }); }
-  ];
+  const [showNewVendor, setShowNewVendor_] = useState<boolean>(false);
 
   return (
     <>
@@ -195,9 +189,6 @@ export function TemplatesView({
             return (
             <div
               key={tpl.id}
-              draggable={!!isAdmin}
-              onDragStart={isAdmin ? (e => { setTplDragIdx(i); e.dataTransfer.setData("text/plain", String(i)); e.dataTransfer.effectAllowed = "move"; }) : undefined}
-              onDragEnd={isAdmin ? (() => { setTplDragIdx(null); setTplDragOverIdx(null); }) : undefined}
               onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (tplDragIdx !== null && tplDragIdx !== i) setTplDragOverIdx(i); }}
               onDragLeave={() => { if (tplDragOverIdx === i) setTplDragOverIdx(null); }}
               onDrop={e => {

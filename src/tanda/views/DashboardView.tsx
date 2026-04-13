@@ -351,9 +351,9 @@ export function DashboardView({
         {search ? (
           filtered.length === 0
             ? <p style={{ color: "#6B7280", fontSize: 13 }}>No POs match "{search}"</p>
-            : filtered.map((po, i) => <PORow key={i} po={po} milestones={milestones[po.PoNumber ?? ""] || []} today={today} weekFromNow={weekFromNow} onClick={() => { setDetailMode("milestones"); setNewNote(""); setSelected(po); }} detailed />)
+            : filtered.map((po, i) => <PORow key={po.PoNumber ?? i} po={po} milestones={milestones[po.PoNumber ?? ""] || []} today={today} weekFromNow={weekFromNow} onClick={() => { setDetailMode("milestones"); setNewNote(""); setSelected(po); }} detailed />)
         ) : (
-          pos.slice(0, 8).map((po, i) => <PORow key={i} po={po} milestones={milestones[po.PoNumber ?? ""] || []} today={today} weekFromNow={weekFromNow} onClick={() => { setDetailMode("milestones"); setNewNote(""); setSelected(po); }} />)
+          pos.slice(0, 8).map((po, i) => <PORow key={po.PoNumber ?? i} po={po} milestones={milestones[po.PoNumber ?? ""] || []} today={today} weekFromNow={weekFromNow} onClick={() => { setDetailMode("milestones"); setNewNote(""); setSelected(po); }} />)
         )}
       </div>
     </>
