@@ -43,16 +43,19 @@ async function fetchAllPages(path, baseParams, maxPages = 100) {
   const totalPages = Math.min(page1.TotalPages || 1, maxPages);
   let allData = [...page1.Data];
 
-  // Fetch ALL remaining pages in one parallel burst (no sequential batching).
-  // This is faster than batches of 10 and stays within the 60s timeout for
-  // ~80 pages because Xoro responds in ~200-500ms per request.
-  const pageNums = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
-  const results = await Promise.allSettled(
-    pageNums.map(p => xoroGet(path, { ...baseParams, page: String(p) }))
-  );
-  for (const r of results) {
-    if (r.status === "fulfilled" && r.value.Result && Array.isArray(r.value.Data)) {
-      allData.push(...r.value.Data);
+  // Fetch remaining pages in parallel batches of 15 (Xoro rate-limits
+  // if we fire all 80+ at once). 15 matches the proven xoro-proxy pattern.
+  const BATCH = 15;
+  for (let batch = 2; batch <= totalPages; batch += BATCH) {
+    const pageNums = [];
+    for (let p = batch; p < batch + BATCH && p <= totalPages; p++) pageNums.push(p);
+    const results = await Promise.allSettled(
+      pageNums.map(p => xoroGet(path, { ...baseParams, page: String(p) }))
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled" && r.value.Result && Array.isArray(r.value.Data)) {
+        allData.push(...r.value.Data);
+      }
     }
   }
   return allData;
@@ -135,7 +138,7 @@ async function fetchSalesOrders(storeFilter) {
   since.setMonth(since.getMonth() - 12);
   const params = { created_at_min: since.toISOString() };
   if (storeFilter) params.sale_store_name = storeFilter;
-  const orders = await fetchAllPages("salesorder/getsalesorder", params, 60);
+  const orders = await fetchAllPages("salesorder/getsalesorder", params, 30);
 
   const sos = [];
   for (const so of orders) {
