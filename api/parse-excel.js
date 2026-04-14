@@ -93,8 +93,11 @@ export default async function handler(req, res) {
         const poStore = detectSkuStore(poBrand);
         // Find existing SKU entry for any store
         const poKey = Object.keys(skuMap).find(k => k.startsWith(sku + "::")) || `${sku}::${poStore}`;
+        const poDesc = str(r["Description"]);
         if (!skuMap[poKey]) {
-          skuMap[poKey] = { sku, description: str(r["Description"]), category: poBrand || undefined, store: poStore, onHand: 0, onOrder: 0, onCommitted: 0 };
+          skuMap[poKey] = { sku, description: poDesc, category: poBrand || undefined, store: poStore, onHand: 0, onOrder: 0, onCommitted: 0 };
+        } else if (!skuMap[poKey].description && poDesc) {
+          skuMap[poKey].description = poDesc;
         }
         if (qty > 0) {
           poTotal++;
@@ -145,8 +148,15 @@ export default async function handler(req, res) {
         const soKey = skuMap[preferredKey]
           ? preferredKey
           : (Object.keys(skuMap).find(k => k.startsWith(sku + "::")) || preferredKey);
+        // Pull description from the order row — the orders file uses a few
+        // different header spellings, so try each. Items that exist only in
+        // the SO file (no inventory row) would otherwise render with a blank
+        // description column.
+        const soDesc = str(r["Description"] || r["Item Description"] || r["Product Name"] || r["Item Name"] || "");
         if (!skuMap[soKey]) {
-          skuMap[soKey] = { sku, description: "", category: soBrand || undefined, store: invStore, onHand: 0, onOrder: 0, onCommitted: 0 };
+          skuMap[soKey] = { sku, description: soDesc, category: soBrand || undefined, store: invStore, onHand: 0, onOrder: 0, onCommitted: 0 };
+        } else if (!skuMap[soKey].description && soDesc) {
+          skuMap[soKey].description = soDesc;
         }
         if (qty > 0) {
           soTotal++;
