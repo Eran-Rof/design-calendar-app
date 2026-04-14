@@ -196,17 +196,18 @@ export function useSyncOps(deps: SyncOpsDeps) {
     setSyncField("showSyncModal", false);
     setSyncField("syncFilters", { poNumbers: [], dateFrom: "", dateTo: "", vendors: [], statuses: [] });
     try {
-      // Single unfiltered fetch from Xoro. Xoro's server-side `status` param is
-      // unreliable — fanning out per-status (previously 6-8 parallel proxy
-      // calls) caused rate-limit/timeouts that silently dropped most buckets.
-      // One paginated call returns everything; status filtering happens
-      // client-side below.
+      // Xoro's PO endpoint returns 0 records when the `status` param is
+      // omitted entirely, but accepts a comma-joined list and filters
+      // correctly. One single call with all statuses (active + terminal)
+      // avoids the rate-limit/timeout issues of per-status fan-out while
+      // still giving us the full dataset needed for archive detection.
+      const ALL_SYNC_STATUSES = ["Open", "Released", "Partially Received", "Received", "Closed", "Cancelled", "Pending", "Draft"];
       const apiPoNumber = filters?.poNumbers?.length === 1 ? filters.poNumbers[0] : undefined;
 
       setSyncField("syncProgressMsg", "Fetching POs from Xoro\u2026");
       setSyncField("syncProgress", 10);
 
-      const fetchOpts = { fetchAll: true, signal: controller.signal, vendors: filters?.vendors, poNumber: apiPoNumber, dateFrom: filters?.dateFrom, dateTo: filters?.dateTo };
+      const fetchOpts = { fetchAll: true, signal: controller.signal, statuses: ALL_SYNC_STATUSES, vendors: filters?.vendors, poNumber: apiPoNumber, dateFrom: filters?.dateFrom, dateTo: filters?.dateTo };
       let fetchErr: string | null = null;
       const [fetchResult, existingRowsRes] = await Promise.all([
         fetchXoroPOs(fetchOpts).catch(err => { fetchErr = err?.message ?? "Unknown error"; return { pos: [] as XoroPO[], totalPages: 0 }; }),
