@@ -100,6 +100,9 @@ describe("xoroSkuToExcel", () => {
   it("returns as-is for single part", () => {
     expect(xoroSkuToExcel("RYB0185")).toBe("RYB0185");
   });
+  it("strips size with dash in range (e.g. Xs(5-6))", () => {
+    expect(xoroSkuToExcel("100226242GK-Medium Wash-Xs(5-6)")).toBe("100226242GK - Medium Wash");
+  });
 });
 
 describe("normalizeSku", () => {

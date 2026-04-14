@@ -107,7 +107,14 @@ export function skuSimilarity(a: string, b: string): number {
 
 export function xoroSkuToExcel(rawSku: string): string {
   const parts = rawSku.split("-");
+  if (parts.length < 2) return rawSku;
+  // Sizes like "Xs(5-6)" contain a dash, so splitting naively yields multiple segments.
+  // Detect the size start by finding the first segment (after index 0) that contains "(".
+  const sizeIdx = parts.slice(1).findIndex(p => p.includes("("));
+  if (sizeIdx !== -1) {
+    const colorParts = parts.slice(1, sizeIdx + 1);
+    return colorParts.length > 0 ? parts[0] + " - " + colorParts.join(" - ") : parts[0];
+  }
   if (parts.length >= 3) return parts[0] + " - " + parts.slice(1, -1).join(" - ");
-  if (parts.length === 2) return parts[0] + " - " + parts[1];
-  return rawSku;
+  return parts[0] + " - " + parts[1];
 }
