@@ -52,19 +52,23 @@ async function fetchAllPages(path, baseParams, maxPages = 200) {
   const totalPages = Math.min(page1.TotalPages || 1, maxPages);
   let allData = [...page1.Data];
 
-  // Fetch remaining pages sequentially — parallel requests cause Xoro to
-  // rate-limit/timeout. On Pro plan (800s function limit) we have plenty
-  // of time for ~150 sequential pages.
-  for (let p = 2; p <= totalPages; p++) {
-    const res = await xoroGet(path, { ...baseParams, page: String(p) });
-    if (res.Result && Array.isArray(res.Data)) {
-      allData.push(...res.Data);
-    } else {
-      // One retry on transient failure
-      console.log(`[fetchAllPages] ${path} page ${p} failed, retrying:`, res.Message);
-      await new Promise(r => setTimeout(r, 1000));
-      const retry = await xoroGet(path, { ...baseParams, page: String(p) });
-      if (retry.Result && Array.isArray(retry.Data)) allData.push(...retry.Data);
+  // Fetch in parallel batches of 3 (higher concurrency triggers Xoro
+  // rate limits; lower is too slow). Retry transient failures once.
+  const BATCH = 3;
+  for (let batch = 2; batch <= totalPages; batch += BATCH) {
+    const pageNums = [];
+    for (let p = batch; p < batch + BATCH && p <= totalPages; p++) pageNums.push(p);
+    const results = await Promise.allSettled(
+      pageNums.map(p => xoroGet(path, { ...baseParams, page: String(p) }))
+    );
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      if (r.status === "fulfilled" && r.value.Result && Array.isArray(r.value.Data)) {
+        allData.push(...r.value.Data);
+      } else {
+        const retry = await xoroGet(path, { ...baseParams, page: String(pageNums[i]) });
+        if (retry.Result && Array.isArray(retry.Data)) allData.push(...retry.Data);
+      }
     }
   }
   return allData;
