@@ -367,6 +367,22 @@ function ATSReport() {
     loadFromSupabase();
   }, []);
 
+  // Clear merge history in Supabase when the user leaves the ATS page (tab
+  // close, browser close, or any navigation away). keepalive keeps the request
+  // alive past the page unload. Module-level SB_URL/SB_HEADERS are stable refs.
+  useEffect(() => {
+    const clearOnExit = () => {
+      fetch(`${SB_URL}/rest/v1/app_data`, {
+        method: "POST",
+        headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ key: "ats_merge_history", value: JSON.stringify([]) }),
+        keepalive: true,
+      }).catch(() => {});
+    };
+    window.addEventListener("pagehide", clearOnExit);
+    return () => window.removeEventListener("pagehide", clearOnExit);
+  }, []);
+
   useEffect(() => {
     if (excelData) {
       let computed = computeRowsFromExcelData(excelData, dates, poStores, soStores);
@@ -564,6 +580,12 @@ function ATSReport() {
     setMockMode(false);
     setLastSync(null as any);
   }
+
+  const clearMergeAndNavigate = useCallback(async () => {
+    setMergeHistory([]);
+    await saveMergeHistory([]);
+    window.location.href = "/";
+  }, [saveMergeHistory]);
 
   async function applyNormReview() {
     if (!normPendingData || !normChanges) return;
@@ -770,7 +792,7 @@ function ATSReport() {
     customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch,
     dragSku, setDragSku, dragOverSku, setDragOverSku,
     pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
-    mergeHistory, setMergeHistory, saveMergeHistory, undoLastMerge, clearAllAtsData,
+    mergeHistory, setMergeHistory, saveMergeHistory, undoLastMerge, clearAllAtsData, clearMergeAndNavigate,
     atShip, setAtShip,
   });
 }

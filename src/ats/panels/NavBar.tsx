@@ -6,6 +6,7 @@ interface NavBarProps {
   mergeHistory: Array<{ fromSku: string; toSku: string }>;
   undoLastMerge: () => void;
   clearAllAtsData: () => Promise<void>;
+  onNavigateHome: () => Promise<void>;
   setShowUpload: (v: boolean) => void;
   uploadingFile: boolean;
   invFile: File | null;
@@ -18,7 +19,7 @@ interface NavBarProps {
 }
 
 export const NavBar: React.FC<NavBarProps> = ({
-  mergeHistory, undoLastMerge, clearAllAtsData, setShowUpload,
+  mergeHistory, undoLastMerge, clearAllAtsData, onNavigateHome, setShowUpload,
   uploadingFile, invFile, purFile, ordFile,
   exportToExcel, filtered, displayPeriods, atShip,
 }) => (
@@ -66,7 +67,7 @@ export const NavBar: React.FC<NavBarProps> = ({
         </svg>
         Export Excel
       </button>
-      <a href="/" style={{ ...S.navBtn, textDecoration: "none" }}>← PLM Home</a>
+      <button style={{ ...S.navBtn, cursor: "pointer" }} onClick={onNavigateHome}>← PLM Home</button>
     </div>
   </nav>
 );

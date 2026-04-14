@@ -98,6 +98,7 @@ interface ATSDerivedCtx {
   handleSkuDrop: (fromSku: string, toSku: string) => void;
   undoLastMerge: () => Promise<void>;
   clearAllAtsData: () => Promise<void>;
+  clearMergeAndNavigate: () => Promise<void>;
   saveMergeHistory: (history: Array<{ fromSku: string; toSku: string }>) => Promise<void>;
 }
 
@@ -105,7 +106,7 @@ export type ATSRenderCtx = ATSState & ATSStateSetters & ATSDerivedCtx;
 
 export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
   const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterStatus, setFilterStatus, minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, syncing, syncStatus, lastSync, syncError, setSyncError, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, sortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
-  mergeHistory, undoLastMerge, clearAllAtsData,
+  mergeHistory, undoLastMerge, clearAllAtsData, clearMergeAndNavigate,
   atShip, setAtShip } = ctx;
 
   return (
@@ -128,6 +129,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         mergeHistory={mergeHistory}
         undoLastMerge={undoLastMerge}
         clearAllAtsData={clearAllAtsData}
+        onNavigateHome={clearMergeAndNavigate}
         setShowUpload={setShowUpload}
         uploadingFile={uploadingFile}
         invFile={invFile}
