@@ -547,7 +547,7 @@ function App() {
           {[["dashboard","Dashboard"],["timeline","Timeline"],["calendar","Calendar"]].map(([v,label]) =>
             navBtn(v, label)
           )}
-          {currentUser?.apps?.tanda?.access && (
+          {currentUser && (
             <a
               href="/tanda"
               style={{
@@ -595,7 +595,7 @@ function App() {
           )}
           {/* Activity log button */}
           <button
-            onClick={() => setShowActivity(v => !v)}
+            onClick={() => setShowActivity(!showActivity)}
             title="Activity Log"
             style={{ padding: "7px 13px", borderRadius: 8, border: `1px solid ${showActivity ? TH.primary : "rgba(255,255,255,0.15)"}`, background: showActivity ? TH.primary + "33" : "none", color: showActivity ? "#fff" : "rgba(255,255,255,0.8)", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
             📋 Activity
@@ -960,7 +960,7 @@ function App() {
 
       {/* ── BOTTOM NAV TOGGLE TAB ── */}
       <button
-        onClick={() => setShowNav((v) => !v)}
+        onClick={() => setShowNav(!showNav)}
         style={{
           position: "fixed",
           bottom: showNav ? 66 : 0,

@@ -9,6 +9,7 @@ function FilterBar({
   filterSeason, setFilterSeason,
   filterCustomer, setFilterCustomer,
   filterVendor, setFilterVendor,
+  canViewAll,
 }) {
   const [open, setOpen] = useState(false);
   const [openSection, setOpenSection] = useState(null);
