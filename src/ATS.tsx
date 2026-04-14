@@ -475,6 +475,7 @@ function ATSReport() {
     applyPOWIPData,
     saveMergeHistory,
     saveBaseData: (d: ExcelData) => saveBaseData(d),
+    mergeHistory,
     dates,
     setUploadingFile, setShowUpload, setUploadProgress, setUploadError,
     setUploadSuccess, setUploadWarnings, setPendingUploadData,
@@ -528,16 +529,22 @@ function ATSReport() {
     // value (e.g., "Md Wash" and "Med Wash" → "Med Wash") produce duplicate
     // entries in skus[]. Without this, the saved data stays duplicated until
     // next reload when dedupeExcelData runs.
-    const result = dedupeExcelData(applyNormChanges(normPendingData, normChanges));
+    const baseResult = dedupeExcelData(applyNormChanges(normPendingData, normChanges));
+    // On upload, the pending data is pre-merge — replay the saved merges over
+    // the normalized result so row-level merges survive re-uploading. On
+    // "load" (background normalization pass on already-saved data), merges
+    // are already applied; replaying would double-apply them.
+    let result = baseResult;
+    if (normSource === "upload") {
+      for (const op of mergeHistory) result = mergeExcelDataSkus(result, op.fromSku, op.toSku);
+    }
     setExcelData(result);
     setRows(computeRowsFromExcelData(result, dates));
     setLastSync(result.syncedAt);
     setMockMode(false);
-    // Save clean (pre-merge) base so undo can rebuild from scratch
-    saveBaseData(result);
-    // Also clear merge history since this is a fresh upload
-    setMergeHistory([]);
-    saveMergeHistory([]);
+    // Save clean (pre-merge) base so undo can rebuild from scratch — on
+    // "load" we don't overwrite the base (it's already the true pre-merge snapshot).
+    if (normSource === "upload") saveBaseData(baseResult);
     saveNormResult(result);
     if (normSource === "upload") {
       setInvFile(null); setPurFile(null); setOrdFile(null);
@@ -551,16 +558,17 @@ function ATSReport() {
 
   function dismissNormReview() {
     if (!normPendingData) return;
-    // Keep original SKUs — save raw data back
-    setExcelData(normPendingData);
-    setRows(computeRowsFromExcelData(normPendingData, dates));
-    setLastSync(normPendingData.syncedAt);
+    // Keep original SKUs — replay saved merges so row-level merges survive.
+    let result = normPendingData;
+    if (normSource === "upload") {
+      for (const op of mergeHistory) result = mergeExcelDataSkus(result, op.fromSku, op.toSku);
+    }
+    setExcelData(result);
+    setRows(computeRowsFromExcelData(result, dates));
+    setLastSync(result.syncedAt);
     setMockMode(false);
-    // Save clean base + clear merge history on fresh upload
-    saveBaseData(normPendingData);
-    setMergeHistory([]);
-    saveMergeHistory([]);
-    saveNormResult(normPendingData);
+    if (normSource === "upload") saveBaseData(normPendingData);
+    saveNormResult(result);
     if (normSource === "upload") {
       setInvFile(null); setPurFile(null); setOrdFile(null);
       setUploadSuccess(`${normPendingData.skus.length.toLocaleString()} SKUs uploaded — normalization skipped`);

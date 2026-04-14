@@ -2,7 +2,7 @@ import { useCallback, useRef } from "react";
 import type { ATSRow, ExcelData, UploadWarning } from "../types";
 import type { NormChange } from "../normalize";
 import { detectNormChanges } from "../normalize";
-import { dedupeExcelData } from "../merge";
+import { dedupeExcelData, mergeExcelDataSkus } from "../merge";
 import { computeRowsFromExcelData } from "../compute";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
 import type { MergeOp } from "./useMergeHistory";
@@ -12,6 +12,7 @@ interface UseExcelUploadOpts {
   applyPOWIPData: (data: ExcelData) => Promise<ExcelData>;
   saveMergeHistory: (history: MergeOp[]) => Promise<void>;
   saveBaseData: (data: ExcelData) => Promise<void>;
+  mergeHistory: MergeOp[];
   dates: string[];
   // State setters for upload UI
   setUploadingFile: (v: boolean) => void;
@@ -49,7 +50,15 @@ export function useExcelUpload(opts: UseExcelUploadOpts) {
     // stored blob is clean — compute.ts still has a safety net but this
     // means Supabase, base snapshot, and merge replays all work with
     // clean data instead of relying on the render pass to fix it.
-    const data = dedupeExcelData(rawData);
+    const baseData = dedupeExcelData(rawData);
+    // Replay saved merges over the freshly uploaded data so row-level merges
+    // (e.g. "Lt Grey" → "Grey") survive re-uploading. Ops whose skus no
+    // longer exist no-op inside mergeExcelDataSkus, so stale entries are
+    // harmless — the user can undo to remove them if desired.
+    let data: ExcelData = baseData;
+    for (const op of opts.mergeHistory) {
+      data = mergeExcelDataSkus(data, op.fromSku, op.toSku);
+    }
     opts.setUploadingFile(true);
     opts.setUploadWarnings(null);
     opts.setPendingUploadData(null);
@@ -61,12 +70,10 @@ export function useExcelUpload(opts: UseExcelUploadOpts) {
         body: JSON.stringify({ key: "ats_excel_data", value: JSON.stringify(data) }),
       });
       if (!saveRes.ok) throw new Error("Failed to save data to database");
-      // Also overwrite the pre-merge base snapshot so undo-merge replays
-      // against the freshly uploaded data, not last week's stale base.
-      // Clear merge history too — the old ops don't apply to new SKUs.
-      await opts.saveBaseData(data);
-      await opts.saveMergeHistory([]);
-      opts.setMergeHistory([]);
+      // Overwrite the pre-merge base snapshot with the fresh upload so
+      // undo replays against current data, not last week's. Merge history
+      // is preserved — already applied above via the replay loop.
+      await opts.saveBaseData(baseData);
       opts.setUploadProgress({ step: `Checking ${data.skus.length.toLocaleString()} SKUs for normalization…`, pct: 88 });
       await new Promise(r => setTimeout(r, 400));
       const changes = detectNormChanges(data);
