@@ -212,10 +212,19 @@ export function useSyncOps(deps: SyncOpsDeps) {
       setSyncField("syncProgress", 10);
 
       const baseFetchOpts = { fetchAll: true, signal: controller.signal, vendors: filters?.vendors, poNumber: apiPoNumber, dateFrom: filters?.dateFrom, dateTo: filters?.dateTo };
-      const [statusResults, existingRowsRes] = await Promise.all([
-        Promise.allSettled(
-          statusList.map(status => fetchXoroPOs({ ...baseFetchOpts, statuses: [status] }))
-        ),
+      // Batch at 3 — above this, Xoro rate-limits and drops buckets silently.
+      const CONCURRENCY = 3;
+      const statusResults: PromiseSettledResult<{ pos: XoroPO[]; totalPages: number }>[] = [];
+      const [, existingRowsRes] = await Promise.all([
+        (async () => {
+          for (let i = 0; i < statusList.length; i += CONCURRENCY) {
+            const batch = statusList.slice(i, i + CONCURRENCY);
+            const batchResults = await Promise.allSettled(
+              batch.map(status => fetchXoroPOs({ ...baseFetchOpts, statuses: [status] }))
+            );
+            statusResults.push(...batchResults);
+          }
+        })(),
         sb.from("tanda_pos").select("po_number,data"),
       ]);
 

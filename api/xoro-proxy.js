@@ -87,53 +87,34 @@ export default async function handler(req, res) {
       }
     }
 
-    // ── fetch_all mode: fetch pages 1-3 in parallel, then any beyond 3 ────
-    const speculative = await Promise.allSettled([
-      xoroFetchPage(1),
-      xoroFetchPage(2),
-      xoroFetchPage(3),
-    ]);
-    // Diagnostic: log what each speculative page returned
-    const pageCounts = speculative.map((s, i) => {
-      if (s.status !== "fulfilled") return { page: i + 1, error: String(s.reason?.message || s.reason) };
-      return { page: i + 1, result: s.value?.Result, dataLen: Array.isArray(s.value?.Data) ? s.value.Data.length : -1, totalPages: s.value?.TotalPages };
-    });
-
-    const page1 = speculative[0].status === "fulfilled" ? speculative[0].value : null;
-    if (!page1 || !page1.Result) {
-      // If Xoro returns Result:false with an empty Data array it means "no records found" — treat as success
-      if (page1 && Array.isArray(page1.Data)) {
-        return res.status(200).json({ Result: true, Data: page1.Data, TotalPages: page1.TotalPages ?? 0, _noResults: true });
+    // ── fetch_all mode: sequential pagination ───────────────────────────
+    // Parallel speculative fetches were tripping Xoro rate limits (confirmed
+    // against ats-sync.js comment: >3 concurrent → rate-limited). Go strictly
+    // sequential: page 1, 2, 3, ... until we see an empty page or hit the cap.
+    // Trust Data.length, not the unreliable Result/TotalPages fields.
+    const pageCounts = [];
+    let allData = [];
+    let reportedTotalPages = 1;
+    for (let page = 1; page <= 50; page++) {
+      let r;
+      try {
+        r = await xoroFetchPage(page);
+      } catch (err) {
+        pageCounts.push({ page, error: String(err?.message || err) });
+        break;
       }
-      return res.status(200).json(page1 ?? { Result: false, Message: "Page 1 fetch failed" });
-    }
-
-    const reportedTotalPages = page1.TotalPages ?? 1;
-    let allData = Array.isArray(page1.Data) ? [...page1.Data] : [];
-
-    // Xoro's Result flag and TotalPages field are unreliable — it sometimes
-    // returns Result:false with a populated Data array, and under-reports
-    // TotalPages based on the per_page hint rather than actual records/page.
-    // Only trust Data.length.
-    let lastSpeculativeHadData = false;
-    for (let i = 1; i < speculative.length; i++) {
-      const r = speculative[i];
-      if (r.status === "fulfilled" && Array.isArray(r.value?.Data) && r.value.Data.length > 0) {
-        allData = [...allData, ...r.value.Data];
-        if (i === speculative.length - 1) lastSpeculativeHadData = true;
+      const dataLen = Array.isArray(r?.Data) ? r.Data.length : -1;
+      pageCounts.push({ page, result: r?.Result, dataLen, totalPages: r?.TotalPages });
+      if (page === 1) {
+        reportedTotalPages = r?.TotalPages ?? 1;
+        if (!Array.isArray(r?.Data)) {
+          // Page 1 with no Data array — return the raw Xoro response so the
+          // caller can see what happened (auth error, bad status value, etc).
+          return res.status(200).json(r ?? { Result: false, Message: "Page 1 fetch failed" });
+        }
       }
-    }
-
-    // Keep paginating past page 3 as long as records keep coming back.
-    // Cap at 50 pages as a safety net (~5000 records at 100/page).
-    if (lastSpeculativeHadData || reportedTotalPages > 3) {
-      for (let page = 4; page <= 50; page++) {
-        try {
-          const r = await xoroFetchPage(page);
-          if (!Array.isArray(r?.Data) || r.Data.length === 0) break;
-          allData = [...allData, ...r.Data];
-        } catch { break; }
-      }
+      if (dataLen <= 0) break;
+      allData = [...allData, ...r.Data];
     }
 
     return res.status(200).json({ Result: true, Data: allData, TotalPages: reportedTotalPages, _recordsReturned: allData.length, _pageCounts: pageCounts, _status: xoroParams.get("status") });
