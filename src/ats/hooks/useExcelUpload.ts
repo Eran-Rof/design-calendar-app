@@ -70,6 +70,10 @@ export function useExcelUpload(opts: UseExcelUploadOpts) {
       const allChanges = detectNormChanges(data);
       const decisions = await opts.loadNormDecisions();
       const { known, unknown } = partitionNormChanges(allChanges, decisions);
+      console.info(`[norm] upload: ${allChanges.length} detected, ${known.length} known (${known.filter(c => c.accepted).length} accept / ${known.filter(c => !c.accepted).length} reject), ${unknown.length} unknown`);
+      if (unknown.length > 0 && unknown.length <= 10) {
+        console.info("[norm] unknown SKUs:", unknown.map(u => u.original));
+      }
       // Apply the known-accepted ones silently so the data we save is already
       // in its post-normalization state. Known-rejected ones stay raw.
       if (known.length > 0) {

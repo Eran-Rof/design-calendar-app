@@ -509,21 +509,41 @@ function ATSReport() {
   async function loadNormDecisions(): Promise<NormDecisions> {
     try {
       const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.ats_norm_decisions&select=value`, { headers: SB_HEADERS });
-      if (!res.ok) return {};
+      if (!res.ok) {
+        console.warn("[norm] load decisions failed:", res.status);
+        return {};
+      }
       const rows = await res.json();
-      if (Array.isArray(rows) && rows[0]?.value) return JSON.parse(rows[0].value);
+      if (Array.isArray(rows) && rows[0]?.value) {
+        const parsed = JSON.parse(rows[0].value);
+        console.info(`[norm] loaded ${Object.keys(parsed).length} decisions`);
+        return parsed;
+      }
+      console.info("[norm] no saved decisions yet");
       return {};
-    } catch { return {}; }
+    } catch (e) {
+      console.warn("[norm] load decisions threw:", e);
+      return {};
+    }
   }
 
   async function saveNormDecisions(next: NormDecisions) {
     try {
-      await fetch(`${SB_URL}/rest/v1/app_data`, {
+      const res = await fetch(`${SB_URL}/rest/v1/app_data`, {
         method: "POST",
         headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
         body: JSON.stringify({ key: "ats_norm_decisions", value: JSON.stringify(next) }),
       });
-    } catch (e) { console.error("Failed to save norm decisions:", e); }
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        console.error(`[norm] save failed: ${res.status} ${body}`);
+        setUploadError(`Normalization decisions couldn't be saved (${res.status}). You may be re-prompted on next upload.`);
+      } else {
+        console.info(`[norm] saved ${Object.keys(next).length} decisions`);
+      }
+    } catch (e) {
+      console.error("[norm] save threw:", e);
+    }
   }
 
   // undoLastMerge now lives in useMergeHistory hook.
@@ -544,13 +564,16 @@ function ATSReport() {
     setLastSync(null as any);
   }
 
-  function applyNormReview() {
+  async function applyNormReview() {
     if (!normPendingData || !normChanges) return;
     // Persist the user's accept/reject decisions so future uploads can
     // auto-apply the accepts and skip the rejects without re-prompting.
-    loadNormDecisions().then(existing => {
-      saveNormDecisions(mergeNormDecisions(existing, normChanges));
-    });
+    // Await — if we fire-and-forget and the user re-uploads quickly, the
+    // POST can race past and lose the decisions.
+    try {
+      const existing = await loadNormDecisions();
+      await saveNormDecisions(mergeNormDecisions(existing, normChanges));
+    } catch (e) { console.error("[norm] persist decisions failed:", e); }
     // Dedupe after normalization — two raw SKUs that normalize to the same
     // value (e.g., "Md Wash" and "Med Wash" → "Med Wash") produce duplicate
     // entries in skus[]. Without this, the saved data stays duplicated until
@@ -582,16 +605,17 @@ function ATSReport() {
     setNormPendingData(null);
   }
 
-  function dismissNormReview() {
+  async function dismissNormReview() {
     if (!normPendingData) return;
     // Persist rejections so we stop asking about these SKUs. If the modal
     // was opened with some pre-accepted changes, those count as rejects too
     // — the user explicitly chose to skip.
     if (normChanges && normChanges.length > 0) {
       const rejected = normChanges.map(c => ({ ...c, accepted: false }));
-      loadNormDecisions().then(existing => {
-        saveNormDecisions(mergeNormDecisions(existing, rejected));
-      });
+      try {
+        const existing = await loadNormDecisions();
+        await saveNormDecisions(mergeNormDecisions(existing, rejected));
+      } catch (e) { console.error("[norm] persist rejects failed:", e); }
     }
     // Keep original SKUs — replay saved merges so row-level merges survive.
     let result = normPendingData;
