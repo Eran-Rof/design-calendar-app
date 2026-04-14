@@ -226,12 +226,29 @@ export function useSyncOps(deps: SyncOpsDeps) {
         (existingRows ?? []).map((r: any) => [r.po_number as string, r.data as XoroPO])
       );
 
-      // Active set for DB: user's selection if any, else Open/Released/Partially Received.
-      // Closed/Received/Cancelled/Pending/Draft drop from `synced` but still feed
-      // archive detection below via `all`.
-      const DEFAULT_ACTIVE_STATUSES = new Set(["Open", "Released", "Partially Received"]);
-      const activeSet = filters?.statuses?.length ? new Set(filters.statuses) : DEFAULT_ACTIVE_STATUSES;
-      const synced = all.filter(po => activeSet.has(po.StatusName ?? ""));
+      // Active set for DB: user's selection if any, else the "active" defaults.
+      // Match loosely (lowercase + collapsed whitespace) so Xoro variants like
+      // "OPEN", "Partial Received", "partially received" all still qualify.
+      const DEFAULT_ACTIVE_STATUSES = ["Open", "Released", "Partially Received"];
+      const normalizeStatus = (s: string) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
+      const rawActive = filters?.statuses?.length ? filters.statuses : DEFAULT_ACTIVE_STATUSES;
+      const activeSet = new Set(rawActive.map(normalizeStatus));
+      // "Partially Received" and "Partial Received" should both match when
+      // either is requested — treat the two as synonyms.
+      if (activeSet.has("partially received")) activeSet.add("partial received");
+      if (activeSet.has("partial received")) activeSet.add("partially received");
+
+      // One-time diagnostic: histogram of actual StatusName values returned by
+      // Xoro. Remove once status-matching is confirmed stable.
+      const statusHistogram: Record<string, number> = {};
+      for (const po of all) {
+        const s = po.StatusName ?? "(empty)";
+        statusHistogram[s] = (statusHistogram[s] ?? 0) + 1;
+      }
+      console.log("[Sync] Xoro StatusName histogram:", statusHistogram, "total:", all.length);
+
+      const synced = all.filter(po => activeSet.has(normalizeStatus(po.StatusName ?? "")));
+      console.log("[Sync] active POs after filter:", synced.length, "active set:", Array.from(activeSet));
 
       const addedPOs = synced.filter(po => !existingMap.has(po.PoNumber ?? ""));
       // Always update ALL existing POs to ensure QtyReceived/QtyRemaining data is fresh
