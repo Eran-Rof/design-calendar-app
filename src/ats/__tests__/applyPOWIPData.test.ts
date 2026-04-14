@@ -63,8 +63,9 @@ describe("applyPOWIPDataToExcel", () => {
   });
 
   it("sums onOrder when the sku already exists", async () => {
-    // xoroSkuToExcel splits on "-" so "BASE-COLOR" becomes "BASE - COLOR".
-    // Match that so the lookup hits the existing entry.
+    // xoroSkuToExcel splits "BASE-COLOR" → "BASE - COLOR", then normalizeSku
+    // title-cases → "Base - Color". Input sku must use the normalized form
+    // to match (since baked excelData is normalized on upload).
     stubTandaPos([{
       data: {
         PoNumber: "PO1",
@@ -76,7 +77,7 @@ describe("applyPOWIPDataToExcel", () => {
     }]);
 
     const input = makeData({
-      skus: [{ sku: "BASE - COLOR", description: "", store: "ROF", onHand: 0, onOrder: 10 }],
+      skus: [{ sku: "BASE - Color", description: "", store: "ROF", onHand: 0, onOrder: 10 }],
     });
     const out = await applyPOWIPDataToExcel(input);
 

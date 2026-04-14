@@ -524,7 +524,11 @@ function ATSReport() {
 
   function applyNormReview() {
     if (!normPendingData || !normChanges) return;
-    const result = applyNormChanges(normPendingData, normChanges);
+    // Dedupe after normalization — two raw SKUs that normalize to the same
+    // value (e.g., "Md Wash" and "Med Wash" → "Med Wash") produce duplicate
+    // entries in skus[]. Without this, the saved data stays duplicated until
+    // next reload when dedupeExcelData runs.
+    const result = dedupeExcelData(applyNormChanges(normPendingData, normChanges));
     setExcelData(result);
     setRows(computeRowsFromExcelData(result, dates));
     setLastSync(result.syncedAt);

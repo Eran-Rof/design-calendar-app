@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import type { ExcelData } from "../types";
-import { xoroSkuToExcel } from "../helpers";
+import { xoroSkuToExcel, normalizeSku } from "../helpers";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
 
 interface UsePOWIPSyncOpts {
@@ -46,7 +46,10 @@ export async function applyPOWIPDataToExcel(data: ExcelData): Promise<ExcelData>
     for (const item of items) {
       const rawItemSku = item.ItemNumber ?? "";
       if (!rawItemSku) continue;
-      const sku = xoroSkuToExcel(rawItemSku);
+      // Normalize so case/spacing/abbreviation differences between PO WIP
+      // data and the baked excelData (which was normalized on upload) don't
+      // produce duplicate SKU entries or break merge replay.
+      const sku = normalizeSku(xoroSkuToExcel(rawItemSku));
       const qty = item.QtyRemaining != null
         ? item.QtyRemaining
         : (item.QtyOrder ?? 0) - (item.QtyReceived ?? 0);
