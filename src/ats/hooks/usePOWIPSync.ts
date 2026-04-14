@@ -32,8 +32,11 @@ export async function applyPOWIPDataToExcel(data: ExcelData): Promise<ExcelData>
   // this function without touching the caller's data.
   const nextSkus = data.skus.map(s => ({ ...s }));
   const nextPos = [...data.pos];
+  // Key by sku + store so PO events land on the correct store's row,
+  // not just whichever sku row happens to be first in the array.
+  const keyOf = (sku: string, store: string) => `${sku}::${store || "ROF"}`;
   const skuIndex = new Map<string, number>();
-  nextSkus.forEach((s, i) => skuIndex.set(s.sku, i));
+  nextSkus.forEach((s, i) => skuIndex.set(keyOf(s.sku, s.store ?? "ROF"), i));
 
   for (const row of poRows) {
     const po = row.data;
@@ -62,9 +65,10 @@ export async function applyPOWIPDataToExcel(data: ExcelData): Promise<ExcelData>
       }
       const store = inferStore(poNum, brandName);
 
-      const existingIdx = skuIndex.get(sku);
+      const key = keyOf(sku, store);
+      const existingIdx = skuIndex.get(key);
       if (existingIdx === undefined) {
-        skuIndex.set(sku, nextSkus.length);
+        skuIndex.set(key, nextSkus.length);
         nextSkus.push({
           sku,
           description: item.Description ?? "",
