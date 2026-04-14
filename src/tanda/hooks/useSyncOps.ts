@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
-import { type XoroPO, type SyncFilters, ALL_PO_STATUSES, mapXoroRaw } from "../../utils/tandaTypes";
+import { type XoroPO, type SyncFilters, mapXoroRaw } from "../../utils/tandaTypes";
 import { getArchiveDecisions } from "../syncLogic";
 import type { SyncLogEntry } from "../state/sync/syncTypes";
 import { useTandaStore } from "../store/index";
@@ -75,8 +75,10 @@ async function fetchXoroPOs(opts: XoroFetchOpts = {}): Promise<{ pos: XoroPO[]; 
   const { page = 1, fetchAll = false, signal, statuses, vendors, poNumber, dateFrom, dateTo } = opts;
   const params = new URLSearchParams({ path: "purchaseorder/getpurchaseorder", per_page: "200", page_size: "200", pagesize: "200", rows: "200", limit: "200", RecordsPerPage: "200", PageSize: "200", itemsPerPage: "200" });
   if (fetchAll) { params.set("fetch_all", "true"); } else { params.set("page", String(page)); }
-  const statusList = statuses?.length ? statuses : ALL_PO_STATUSES;
-  params.set("status", statusList.join(","));
+  // Only set status when caller explicitly provides one. Xoro's server-side
+  // status filter is unreliable (drops rows for multi-word values, ignores
+  // comma lists) — omitting it forces a full dataset that we filter client-side.
+  if (statuses?.length) params.set("status", statuses.join(","));
   if (vendors?.length) params.set("vendor_name", vendors.join(","));
   if (poNumber) params.set("order_number", poNumber);
   if (dateFrom) {
@@ -87,9 +89,9 @@ async function fetchXoroPOs(opts: XoroFetchOpts = {}): Promise<{ pos: XoroPO[]; 
     const d = new Date(dateTo + "T23:59:59");
     if (!isNaN(d.getTime())) params.set("created_at_max", d.toISOString());
   }
-  // 30s per-request timeout — chained with caller's signal so cancelSync still works.
+  // 120s per-request timeout covers a full paginated fetch_all from the proxy.
   const timeoutCtl = new AbortController();
-  const timeoutId = setTimeout(() => timeoutCtl.abort(), 30000);
+  const timeoutId = setTimeout(() => timeoutCtl.abort(), 120000);
   const onAbort = () => timeoutCtl.abort();
   if (signal) {
     if (signal.aborted) timeoutCtl.abort();
@@ -194,54 +196,28 @@ export function useSyncOps(deps: SyncOpsDeps) {
     setSyncField("showSyncModal", false);
     setSyncField("syncFilters", { poNumbers: [], dateFrom: "", dateTo: "", vendors: [], statuses: [] });
     try {
-      let all: XoroPO[] = [];
-      // When the user leaves status blank, sync the three active buckets plus
-      // the three terminal ones (Received/Closed/Cancelled) so source-1 archive
-      // detection still fires with fresh labels. Drops Pending/Draft vs. the
-      // old ALL_PO_STATUSES fan-out to reduce the concurrent-fetch count and
-      // avoid Vercel 60s timeouts that were masking terminal-status POs.
-      const DEFAULT_SYNC_STATUSES = ["Open", "Released", "Partially Received", "Received", "Closed", "Cancelled"];
-      const statusList = filters?.statuses?.length ? filters.statuses : DEFAULT_SYNC_STATUSES;
-      // Pass first PO number to API if only one selected; multi is filtered client-side
+      // Single unfiltered fetch from Xoro. Xoro's server-side `status` param is
+      // unreliable — fanning out per-status (previously 6-8 parallel proxy
+      // calls) caused rate-limit/timeouts that silently dropped most buckets.
+      // One paginated call returns everything; status filtering happens
+      // client-side below.
       const apiPoNumber = filters?.poNumbers?.length === 1 ? filters.poNumbers[0] : undefined;
 
       setSyncField("syncProgressMsg", "Fetching POs from Xoro\u2026");
       setSyncField("syncProgress", 10);
 
-      // Each status fetched in parallel — proxy handles pagination server-side per call.
-      // DB check runs concurrently too.
       const fetchOpts = { fetchAll: true, signal: controller.signal, vendors: filters?.vendors, poNumber: apiPoNumber, dateFrom: filters?.dateFrom, dateTo: filters?.dateTo };
-      const [statusResults, existingRowsRes] = await Promise.all([
-        Promise.allSettled(
-          statusList.map(status => fetchXoroPOs({ ...fetchOpts, statuses: [status] }))
-        ),
+      let fetchErr: string | null = null;
+      const [fetchResult, existingRowsRes] = await Promise.all([
+        fetchXoroPOs(fetchOpts).catch(err => { fetchErr = err?.message ?? "Unknown error"; return { pos: [] as XoroPO[], totalPages: 0 }; }),
         sb.from("tanda_pos").select("po_number,data"),
       ]);
+      if (fetchErr) throw new Error(`Xoro sync failed: ${fetchErr}`);
+      let all: XoroPO[] = fetchResult.pos;
 
-      // Track which statuses returned >=1 result — used to guard against silent empty responses
-      const statusesWithResults = new Set<string>();
-      let firstError: string | null = null;
-      for (let i = 0; i < statusResults.length; i++) {
-        const result = statusResults[i];
-        if (result.status === "fulfilled") {
-          const pos = Array.isArray(result.value?.pos) ? result.value.pos : [];
-          all = [...all, ...pos];
-          if (pos.length > 0) statusesWithResults.add(statusList[i]);
-        } else {
-          const msg = (result as PromiseRejectedResult).reason?.message;
-          console.warn("Sync warning:", msg);
-          if (!firstError) firstError = msg ?? "Unknown error";
-        }
-      }
-
-      // Only fail if every status fetch failed — a successful fetch with 0 results is valid
-      const successCount = statusResults.filter(r => r.status === "fulfilled").length;
-      if (successCount === 0 && firstError) {
-        throw new Error(`Xoro sync failed: ${firstError}`);
-      }
-
-      // Client-side fallback filter
-      all = applyFilters(all, filters);
+      // Apply non-status filters (vendor/poNumber/date) only. Status is applied
+      // later so terminal-status POs still flow through to archive detection.
+      all = applyFilters(all, filters ? { ...filters, statuses: [] } : undefined);
 
       setSyncField("syncProgress", 78);
 
@@ -250,11 +226,12 @@ export function useSyncOps(deps: SyncOpsDeps) {
         (existingRows ?? []).map((r: any) => [r.po_number as string, r.data as XoroPO])
       );
 
-      // Only fully Closed/Received/Cancelled — "Partially Received" stays active
-      const autoDeleteStatuses = ["Closed", "Received", "Cancelled"];
-      // Never delete partially received POs
-      const toKeep = (s: string) => (s || "").toLowerCase().includes("partial");
-      const synced = all.filter(po => !autoDeleteStatuses.includes(po.StatusName ?? "") || toKeep(po.StatusName ?? ""));
+      // Active set for DB: user's selection if any, else Open/Released/Partially Received.
+      // Closed/Received/Cancelled/Pending/Draft drop from `synced` but still feed
+      // archive detection below via `all`.
+      const DEFAULT_ACTIVE_STATUSES = new Set(["Open", "Released", "Partially Received"]);
+      const activeSet = filters?.statuses?.length ? new Set(filters.statuses) : DEFAULT_ACTIVE_STATUSES;
+      const synced = all.filter(po => activeSet.has(po.StatusName ?? ""));
 
       const addedPOs = synced.filter(po => !existingMap.has(po.PoNumber ?? ""));
       // Always update ALL existing POs to ensure QtyReceived/QtyRemaining data is fresh
@@ -295,9 +272,13 @@ export function useSyncOps(deps: SyncOpsDeps) {
 
       const cachedRows = (existingRows ?? []).map((r: any) => ({ po_number: r.po_number as string, data: r.data as XoroPO }));
 
-      // Only check for missing POs on a full unfiltered sync where all fetches succeeded
-      const allStatusesSucceeded = statusResults.every(r => r.status === "fulfilled");
-      const isFullSync = allStatusesSucceeded && !filters?.poNumbers?.length && !filters?.vendors?.length && !filters?.dateFrom && !filters?.dateTo && !filters?.statuses?.length;
+      // Only check for missing POs on a full unfiltered sync (fetch already
+      // succeeded or we'd have thrown above).
+      const isFullSync = !filters?.poNumbers?.length && !filters?.vendors?.length && !filters?.dateFrom && !filters?.dateTo && !filters?.statuses?.length;
+      // One fetch returns all statuses — any cached PO absent from `all` is
+      // genuinely missing from Xoro. Pass a sentinel Set to enable source-3
+      // archive detection (the Set's contents aren't used, just the non-null check).
+      const statusesWithResults = new Set<string>(all.map(po => po.StatusName ?? "").filter(Boolean));
 
       const archiveDecisions = getArchiveDecisions(all, cachedRows, isFullSync ? statusesWithResults : null);
       const archiveFailures: Array<{ poNumber: string; error: string }> = [];

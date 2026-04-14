@@ -1,7 +1,7 @@
-// api/xoro-proxy.js — Vercel Node.js Serverless Function (60s timeout on free tier)
+// api/xoro-proxy.js — Vercel Node.js Serverless Function
 
-// maxDuration 60s (Vercel free tier max for Node.js serverless)
-export const config = { maxDuration: 60 };
+// Pro plan: headroom for a single paginated fetch (up to 50 pages).
+export const config = { maxDuration: 300 };
 
 export default async function handler(req, res) {
   // CORS
