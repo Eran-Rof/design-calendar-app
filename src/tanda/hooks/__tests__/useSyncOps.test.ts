@@ -484,6 +484,68 @@ describe("syncFromXoro", () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // status normalization — Xoro has been observed returning StatusName in
+  // varied case and the "Partial Received"/"Partially Received" synonym pair.
+  // These tests ensure the client-side activeSet filter still admits them.
+  // -------------------------------------------------------------------------
+  describe("status normalization", () => {
+    /** Mock that returns all supplied POs regardless of the requested status
+     *  bucket — needed so we can plant a PO with an off-case StatusName and
+     *  verify the client-side filter normalizes before matching. */
+    function buildPermissiveFetchMock(xoroPOs: XoroPO[], existingPOs: XoroPO[] = []) {
+      let servedOnce = false;
+      return vi.fn(async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.includes("/api/xoro-proxy")) {
+          // Return the full set on the first status fetch; empty for the rest
+          // so we don't end up with duplicates across the 6-status fan-out.
+          if (servedOnce) return okJson(xoroResponse([]));
+          servedOnce = true;
+          return okJson(xoroResponse(xoroPOs));
+        }
+        if (url.includes("/rest/v1/tanda_pos") && (!init?.method || init.method === "GET")) {
+          return okJson(sbPosRows(existingPOs));
+        }
+        if (url.includes("/rest/v1/tanda_pos") && init?.method === "POST") {
+          return okJson(JSON.parse((init.body as string) || "[]"));
+        }
+        if (url.includes("/rest/v1/app_data")) return okJson({});
+        return okJson({});
+      });
+    }
+
+    it("matches lowercase StatusName against default active set", async () => {
+      const po = makePO({ PoNumber: "PO-LC", StatusName: "open" });
+      vi.spyOn(globalThis, "fetch").mockImplementation(buildPermissiveFetchMock([po]));
+
+      const deps = makeDeps();
+      await callHook(deps).syncFromXoro();
+
+      expect(get().syncDone?.added).toBe(1);
+    });
+
+    it("matches whitespace-padded uppercase StatusName", async () => {
+      const po = makePO({ PoNumber: "PO-WS", StatusName: "  RELEASED  " });
+      vi.spyOn(globalThis, "fetch").mockImplementation(buildPermissiveFetchMock([po]));
+
+      const deps = makeDeps();
+      await callHook(deps).syncFromXoro();
+
+      expect(get().syncDone?.added).toBe(1);
+    });
+
+    it("treats 'Partial Received' as a synonym for 'Partially Received'", async () => {
+      const po = makePO({ PoNumber: "PO-PR", StatusName: "Partial Received" });
+      vi.spyOn(globalThis, "fetch").mockImplementation(buildPermissiveFetchMock([po]));
+
+      const deps = makeDeps();
+      await callHook(deps).syncFromXoro();
+
+      expect(get().syncDone?.added).toBe(1);
+    });
+  });
+
   describe("error handling", () => {
     it("sets syncErr when all Xoro status fetches fail", async () => {
       vi.spyOn(globalThis, "fetch").mockImplementation(async (input: string | URL | Request): Promise<Response> => {

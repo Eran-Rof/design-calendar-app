@@ -5,7 +5,7 @@ import { useDashboardData } from "./tanda/hooks/useDashboardData";
 import { useEmailOps } from "./tanda/hooks/useEmailOps";
 import { useTeamsOps } from "./tanda/hooks/useTeamsOps";
 import { useMilestoneOps } from "./tanda/hooks/useMilestoneOps";
-import { useSyncOps } from "./tanda/hooks/useSyncOps";
+import { useSyncOps, fetchXoroPOs } from "./tanda/hooks/useSyncOps";
 import { useTemplateOps } from "./tanda/hooks/useTemplateOps";
 import { useNotesOps } from "./tanda/hooks/useNotesOps";
 import { useArchiveOps } from "./tanda/hooks/useArchiveOps";
@@ -67,90 +67,12 @@ const sb = {
     },
   }),
 };
-// ── Xoro fetch helpers ────────────────────────────────────────────────────────
-
-interface XoroFetchOpts {
-  page?: number;
-  fetchAll?: boolean;
-  signal?: AbortSignal;
-  statuses?: string[];
-  vendors?: string[];
-  poNumber?: string;
-  dateFrom?: string;
-  dateTo?: string;
-}
-
-async function fetchXoroPOs(opts: XoroFetchOpts = {}): Promise<{ pos: XoroPO[]; totalPages: number }> {
-  const { page = 1, fetchAll = false, signal, statuses, vendors, poNumber, dateFrom, dateTo } = opts;
-  const params = new URLSearchParams({ path: "purchaseorder/getpurchaseorder", per_page: "200", page_size: "200", pagesize: "200", rows: "200", limit: "200", RecordsPerPage: "200", PageSize: "200", itemsPerPage: "200" });
-  if (fetchAll) { params.set("fetch_all", "true"); } else { params.set("page", String(page)); }
-  const statusList = statuses?.length ? statuses : ALL_PO_STATUSES;
-  params.set("status", statusList.join(","));
-  if (vendors?.length) params.set("vendor_name", vendors.join(","));
-  if (poNumber) params.set("order_number", poNumber);
-  if (dateFrom) {
-    const d = new Date(dateFrom);
-    if (!isNaN(d.getTime())) params.set("created_at_min", d.toISOString());
-  }
-  if (dateTo) {
-    const d = new Date(dateTo + "T23:59:59");
-    if (!isNaN(d.getTime())) params.set("created_at_max", d.toISOString());
-  }
-  // 30s per-request timeout — chained with caller's signal so cancelSync still works.
-  const timeoutCtl = new AbortController();
-  const timeoutId = setTimeout(() => timeoutCtl.abort(), 30000);
-  const onAbort = () => timeoutCtl.abort();
-  if (signal) {
-    if (signal.aborted) timeoutCtl.abort();
-    else signal.addEventListener("abort", onAbort, { once: true });
-  }
-  let res: Response;
-  try {
-    res = await fetch(`/api/xoro-proxy?${params}`, { signal: timeoutCtl.signal });
-  } catch (err: any) {
-    if (timeoutCtl.signal.aborted && !signal?.aborted) {
-      throw new Error("Xoro proxy timed out after 30s");
-    }
-    throw err;
-  } finally {
-    clearTimeout(timeoutId);
-    if (signal) signal.removeEventListener("abort", onAbort);
-  }
-  if (!res.ok) throw new Error(`Xoro proxy error: ${res.status}`);
-  const json = await res.json();
-  if (!json.Result) {
-    if (Array.isArray(json.Data) && json.Data.length > 0) {
-      // Has data despite Result:false — use it
-    } else {
-      return { pos: [], totalPages: 0 };
-    }
-  }
-  const raw = Array.isArray(json.Data) ? json.Data : [];
-  if (json._pagesActuallyFetched) console.log(`[Xoro] pages fetched: ${json._pagesActuallyFetched}, records: ${raw.length}`);
-  return { pos: mapXoroRaw(raw), totalPages: json.TotalPages ?? 1 };
-}
-
-function applyFilters(pos: XoroPO[], filters?: SyncFilters): XoroPO[] {
-  if (!filters) return pos;
-  return pos.filter(po => {
-    if (filters.poNumbers?.length && !filters.poNumbers.some(pn => (po.PoNumber ?? "").toLowerCase().includes(pn.toLowerCase()))) return false;
-    if (filters.statuses?.length && !filters.statuses.includes(po.StatusName ?? "")) return false;
-    if (filters.vendors?.length && !filters.vendors.some(v => v.toLowerCase() === (po.VendorName ?? "").toLowerCase())) return false;
-    if (filters.dateFrom) {
-      const d = po.DateOrder ? new Date(po.DateOrder) : null;
-      if (!d || d < new Date(filters.dateFrom)) return false;
-    }
-    if (filters.dateTo) {
-      const d = po.DateOrder ? new Date(po.DateOrder) : null;
-      if (!d || d > new Date(filters.dateTo + "T23:59:59")) return false;
-    }
-    return true;
-  });
-}
-
 async function fetchXoroVendors(): Promise<string[]> {
   try {
-    const { pos } = await fetchXoroPOs({ page: 1 });
+    // Pass an explicit status — Xoro's endpoint returns 0 records when the
+    // status param is omitted. Open is fine for a vendor-name dropdown
+    // since active vendors all have at least one Open PO.
+    const { pos } = await fetchXoroPOs({ page: 1, statuses: ["Open"] });
     return [...new Set(pos.map(p => p.VendorName ?? "").filter(Boolean))].sort();
   } catch { return []; }
 }

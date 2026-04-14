@@ -76,7 +76,7 @@ export default async function handler(req, res) {
         let parsed;
         try { parsed = JSON.parse(text); } catch { parsed = { raw: text }; }
         return res.status(200).json({
-          _debug: { url: xoroUrl, status: xoroRes.status, keyFirst8: XORO_API_KEY?.slice(0, 8) },
+          _debug: { url: xoroUrl, status: xoroRes.status },
           ...parsed,
         });
       }

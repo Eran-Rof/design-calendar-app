@@ -333,7 +333,8 @@ function App() {
   });
 
 
-  const collMap = {};
+  type CollGroup = { brand: string; collection: string; season: string; category: string; vendorName: string; tasks: any[]; key: string };
+  const collMap: Record<string, CollGroup> = {};
   tasks.forEach((t) => {
     const k = `${t.brand}||${t.collection}`;
     if (!collMap[k])
