@@ -1,7 +1,7 @@
 import { useCallback, useRef } from "react";
 import type { ATSRow, ExcelData, UploadWarning } from "../types";
-import type { NormChange } from "../normalize";
-import { detectNormChanges } from "../normalize";
+import type { NormChange, NormDecisions } from "../normalize";
+import { detectNormChanges, partitionNormChanges, applyNormChanges } from "../normalize";
 import { dedupeExcelData, mergeExcelDataSkus } from "../merge";
 import { computeRowsFromExcelData } from "../compute";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
@@ -13,6 +13,7 @@ interface UseExcelUploadOpts {
   saveMergeHistory: (history: MergeOp[]) => Promise<void>;
   saveBaseData: (data: ExcelData) => Promise<void>;
   mergeHistory: MergeOp[];
+  loadNormDecisions: () => Promise<NormDecisions>;
   dates: string[];
   // State setters for upload UI
   setUploadingFile: (v: boolean) => void;
@@ -63,7 +64,19 @@ export function useExcelUpload(opts: UseExcelUploadOpts) {
     opts.setUploadWarnings(null);
     opts.setPendingUploadData(null);
     try {
-      opts.setUploadProgress({ step: `Saving ${data.skus.length.toLocaleString()} SKUs…`, pct: 80 });
+      // Auto-apply normalization decisions the user previously approved. Only
+      // never-seen-before SKUs surface in the review modal.
+      opts.setUploadProgress({ step: `Checking ${data.skus.length.toLocaleString()} SKUs for normalization…`, pct: 82 });
+      const allChanges = detectNormChanges(data);
+      const decisions = await opts.loadNormDecisions();
+      const { known, unknown } = partitionNormChanges(allChanges, decisions);
+      // Apply the known-accepted ones silently so the data we save is already
+      // in its post-normalization state. Known-rejected ones stay raw.
+      if (known.length > 0) {
+        data = applyNormChanges(data, known);
+      }
+
+      opts.setUploadProgress({ step: `Saving ${data.skus.length.toLocaleString()} SKUs…`, pct: 85 });
       const saveRes = await fetch(`${SB_URL}/rest/v1/app_data`, {
         method: "POST",
         headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
@@ -74,20 +87,21 @@ export function useExcelUpload(opts: UseExcelUploadOpts) {
       // undo replays against current data, not last week's. Merge history
       // is preserved — already applied above via the replay loop.
       await opts.saveBaseData(baseData);
-      opts.setUploadProgress({ step: `Checking ${data.skus.length.toLocaleString()} SKUs for normalization…`, pct: 88 });
-      await new Promise(r => setTimeout(r, 400));
-      const changes = detectNormChanges(data);
-      if (changes.length > 0) {
-        opts.setUploadProgress({ step: `Found ${changes.length} SKU${changes.length !== 1 ? "s" : ""} to normalize — review required`, pct: 93 });
-        await new Promise(r => setTimeout(r, 800));
+
+      if (unknown.length > 0) {
+        opts.setUploadProgress({ step: `Found ${unknown.length} new SKU${unknown.length !== 1 ? "s" : ""} to normalize — review required`, pct: 93 });
+        await new Promise(r => setTimeout(r, 600));
         opts.setNormPendingData(data);
-        opts.setNormChanges(changes);
+        opts.setNormChanges(unknown);
         opts.setNormSource("upload");
         opts.setUploadProgress(null);
         opts.setUploadingFile(false);
         return;
       }
-      opts.setUploadProgress({ step: "SKU normalization: all clean — no changes needed", pct: 93 });
+      const autoMsg = known.length > 0
+        ? `SKU normalization: ${known.filter(c => c.accepted).length} auto-applied from saved decisions`
+        : "SKU normalization: all clean — no changes needed";
+      opts.setUploadProgress({ step: autoMsg, pct: 93 });
       await new Promise(r => setTimeout(r, 600));
       opts.setUploadProgress({ step: "Computing ATS…", pct: 95 });
       opts.setExcelData(data);
@@ -98,7 +112,7 @@ export function useExcelUpload(opts: UseExcelUploadOpts) {
       opts.setPurFile(null);
       opts.setOrdFile(null);
       opts.setUploadProgress(null);
-      opts.setUploadSuccess(`${data.skus.length.toLocaleString()} SKUs uploaded — no normalization needed`);
+      opts.setUploadSuccess(`${data.skus.length.toLocaleString()} SKUs uploaded${known.filter(c => c.accepted).length > 0 ? ` — ${known.filter(c => c.accepted).length} normalizations auto-applied` : " — no normalization needed"}`);
       setTimeout(() => opts.setUploadSuccess(null), 6000);
     } catch (e) {
       console.error(e);

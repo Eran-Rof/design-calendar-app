@@ -26,9 +26,9 @@ export const NormalizationReviewModal: React.FC<NormalizationReviewModalProps> =
         <div style={{ padding: "16px 20px", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(59,130,246,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>{"✎"}</div>
           <div>
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#F1F5F9" }}>Review SKU Normalization</h2>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#F1F5F9" }}>Review New SKUs</h2>
             <div style={{ color: "#94A3B8", fontSize: 12, marginTop: 2 }}>
-              {normChanges.length} SKU{normChanges.length !== 1 ? "s" : ""} would be renamed · {acceptedCount} accepted
+              {normChanges.length} new SKU{normChanges.length !== 1 ? "s" : ""} · {acceptedCount} accepted · your decision is remembered for future uploads
             </div>
           </div>
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>

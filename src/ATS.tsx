@@ -10,7 +10,7 @@ import { usePOWIPSync } from "./ats/hooks/usePOWIPSync";
 import { useRowFiltering } from "./ats/hooks/useRowFiltering";
 import { useExcelUpload } from "./ats/hooks/useExcelUpload";
 import { exportToExcel } from "./ats/exportExcel";
-import { normalizeExcelData, detectNormChanges, applyNormChanges, type NormChange } from "./ats/normalize";
+import { normalizeExcelData, detectNormChanges, applyNormChanges, mergeNormDecisions, type NormChange, type NormDecisions } from "./ats/normalize";
 import S from "./ats/styles";
 import { StatCard } from "./ats/StatCard";
 import { ATSProvider, useATSState, useATSDispatch } from "./ats/state/ATSContext";
@@ -476,6 +476,7 @@ function ATSReport() {
     saveMergeHistory,
     saveBaseData: (d: ExcelData) => saveBaseData(d),
     mergeHistory,
+    loadNormDecisions,
     dates,
     setUploadingFile, setShowUpload, setUploadProgress, setUploadError,
     setUploadSuccess, setUploadWarnings, setPendingUploadData,
@@ -505,11 +506,31 @@ function ATSReport() {
     } catch (e) { console.error("Failed to save base data:", e); }
   }
 
+  async function loadNormDecisions(): Promise<NormDecisions> {
+    try {
+      const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.ats_norm_decisions&select=value`, { headers: SB_HEADERS });
+      if (!res.ok) return {};
+      const rows = await res.json();
+      if (Array.isArray(rows) && rows[0]?.value) return JSON.parse(rows[0].value);
+      return {};
+    } catch { return {}; }
+  }
+
+  async function saveNormDecisions(next: NormDecisions) {
+    try {
+      await fetch(`${SB_URL}/rest/v1/app_data`, {
+        method: "POST",
+        headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ key: "ats_norm_decisions", value: JSON.stringify(next) }),
+      });
+    } catch (e) { console.error("Failed to save norm decisions:", e); }
+  }
+
   // undoLastMerge now lives in useMergeHistory hook.
 
   async function clearAllAtsData() {
     // Delete all ATS upload/merge data from Supabase so user can start fresh
-    const keys = ["ats_excel_data", "ats_base_data", "ats_merge_history"];
+    const keys = ["ats_excel_data", "ats_base_data", "ats_merge_history", "ats_norm_decisions"];
     await Promise.all(keys.map(key =>
       fetch(`${SB_URL}/rest/v1/app_data?key=eq.${key}`, {
         method: "DELETE",
@@ -525,6 +546,11 @@ function ATSReport() {
 
   function applyNormReview() {
     if (!normPendingData || !normChanges) return;
+    // Persist the user's accept/reject decisions so future uploads can
+    // auto-apply the accepts and skip the rejects without re-prompting.
+    loadNormDecisions().then(existing => {
+      saveNormDecisions(mergeNormDecisions(existing, normChanges));
+    });
     // Dedupe after normalization — two raw SKUs that normalize to the same
     // value (e.g., "Md Wash" and "Med Wash" → "Med Wash") produce duplicate
     // entries in skus[]. Without this, the saved data stays duplicated until
@@ -558,6 +584,15 @@ function ATSReport() {
 
   function dismissNormReview() {
     if (!normPendingData) return;
+    // Persist rejections so we stop asking about these SKUs. If the modal
+    // was opened with some pre-accepted changes, those count as rejects too
+    // — the user explicitly chose to skip.
+    if (normChanges && normChanges.length > 0) {
+      const rejected = normChanges.map(c => ({ ...c, accepted: false }));
+      loadNormDecisions().then(existing => {
+        saveNormDecisions(mergeNormDecisions(existing, rejected));
+      });
+    }
     // Keep original SKUs — replay saved merges so row-level merges survive.
     let result = normPendingData;
     if (normSource === "upload") {

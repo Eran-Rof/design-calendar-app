@@ -8,6 +8,44 @@ export interface NormChange {
   accepted: boolean;
 }
 
+// Persisted per-SKU normalization decisions. Key: the original (raw) SKU
+// string. Value: "accept" means the user okayed the normalize, "reject"
+// means they chose to keep the raw form. Stored in Supabase under
+// ats_norm_decisions so re-uploads only prompt for never-seen SKUs.
+export type NormDecisions = Record<string, "accept" | "reject">;
+
+// Split the detected changes by whether the user has already made a decision
+// for that original SKU. Known decisions apply silently; unknowns go to the
+// review modal. Accepted state on known changes is pre-filled from history so
+// if the modal does open (because of the unknowns), rendering it with the
+// full list still looks consistent.
+export function partitionNormChanges(
+  changes: NormChange[],
+  decisions: NormDecisions,
+): { known: NormChange[]; unknown: NormChange[] } {
+  const known: NormChange[] = [];
+  const unknown: NormChange[] = [];
+  for (const c of changes) {
+    const d = decisions[c.original];
+    if (d === "accept") known.push({ ...c, accepted: true });
+    else if (d === "reject") known.push({ ...c, accepted: false });
+    else unknown.push(c);
+  }
+  return { known, unknown };
+}
+
+// Merge a batch of user-made decisions into the stored map. Per-call
+// overwrites (user can change their mind by rejecting something they once
+// accepted — next upload flow would then skip it).
+export function mergeNormDecisions(
+  existing: NormDecisions,
+  changes: NormChange[],
+): NormDecisions {
+  const next = { ...existing };
+  for (const c of changes) next[c.original] = c.accepted ? "accept" : "reject";
+  return next;
+}
+
 /** Detect all SKU normalization changes without applying them. */
 export function detectNormChanges(data: ExcelData): NormChange[] {
   const map: Record<string, NormChange> = {};
