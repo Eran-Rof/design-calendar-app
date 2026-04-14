@@ -196,25 +196,49 @@ export function useSyncOps(deps: SyncOpsDeps) {
     setSyncField("showSyncModal", false);
     setSyncField("syncFilters", { poNumbers: [], dateFrom: "", dateTo: "", vendors: [], statuses: [] });
     try {
-      // Xoro's PO endpoint returns 0 records when the `status` param is
-      // omitted entirely, but accepts a comma-joined list and filters
-      // correctly. One single call with all statuses (active + terminal)
-      // avoids the rate-limit/timeout issues of per-status fan-out while
-      // still giving us the full dataset needed for archive detection.
-      const ALL_SYNC_STATUSES = ["Open", "Released", "Partially Received", "Received", "Closed", "Cancelled", "Pending", "Draft"];
+      // Xoro's `status` param works per single value but silently ignores
+      // comma-joined lists (returns only terminal POs). Fan out one request
+      // per status, in parallel. Scope the list to the 6 statuses we care
+      // about (drops Pending/Draft from the old 8-status fan-out) to keep
+      // concurrent fetches low enough to avoid rate-limit timeouts.
+      const ACTIVE_FETCH_STATUSES = ["Open", "Released", "Partially Received"];
+      const TERMINAL_FETCH_STATUSES = ["Received", "Closed", "Cancelled"];
+      const statusList = filters?.statuses?.length
+        ? filters.statuses
+        : [...ACTIVE_FETCH_STATUSES, ...TERMINAL_FETCH_STATUSES];
       const apiPoNumber = filters?.poNumbers?.length === 1 ? filters.poNumbers[0] : undefined;
 
       setSyncField("syncProgressMsg", "Fetching POs from Xoro\u2026");
       setSyncField("syncProgress", 10);
 
-      const fetchOpts = { fetchAll: true, signal: controller.signal, statuses: ALL_SYNC_STATUSES, vendors: filters?.vendors, poNumber: apiPoNumber, dateFrom: filters?.dateFrom, dateTo: filters?.dateTo };
-      let fetchErr: string | null = null;
-      const [fetchResult, existingRowsRes] = await Promise.all([
-        fetchXoroPOs(fetchOpts).catch(err => { fetchErr = err?.message ?? "Unknown error"; return { pos: [] as XoroPO[], totalPages: 0 }; }),
+      const baseFetchOpts = { fetchAll: true, signal: controller.signal, vendors: filters?.vendors, poNumber: apiPoNumber, dateFrom: filters?.dateFrom, dateTo: filters?.dateTo };
+      const [statusResults, existingRowsRes] = await Promise.all([
+        Promise.allSettled(
+          statusList.map(status => fetchXoroPOs({ ...baseFetchOpts, statuses: [status] }))
+        ),
         sb.from("tanda_pos").select("po_number,data"),
       ]);
-      if (fetchErr) throw new Error(`Xoro sync failed: ${fetchErr}`);
-      let all: XoroPO[] = fetchResult.pos;
+
+      let all: XoroPO[] = [];
+      const perStatusCounts: Record<string, number> = {};
+      const errors: string[] = [];
+      for (let i = 0; i < statusResults.length; i++) {
+        const result = statusResults[i];
+        const status = statusList[i];
+        if (result.status === "fulfilled") {
+          const pos = Array.isArray(result.value?.pos) ? result.value.pos : [];
+          all = [...all, ...pos];
+          perStatusCounts[status] = pos.length;
+        } else {
+          perStatusCounts[status] = -1;
+          errors.push(`${status}: ${(result as PromiseRejectedResult).reason?.message ?? "unknown"}`);
+        }
+      }
+      console.log("[Sync] per-status counts:", perStatusCounts);
+      // Fail only if every bucket errored.
+      if (statusResults.every(r => r.status === "rejected")) {
+        throw new Error(`Xoro sync failed: ${errors[0] ?? "all fetches rejected"}`);
+      }
 
       // Apply non-status filters (vendor/poNumber/date) only. Status is applied
       // later so terminal-status POs still flow through to archive detection.
