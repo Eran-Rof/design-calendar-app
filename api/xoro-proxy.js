@@ -11,11 +11,8 @@ export default async function handler(req, res) {
 
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  const url = new URL(req.url, `https://${req.headers.host}`);
-  // ?app=ats routes to the ATS-specific Xoro credentials
-  const app = url.searchParams.get("app");
-  const XORO_API_KEY    = (app === "ats" ? process.env.VITE_XORO_ATS_KEY : process.env.VITE_XORO_API_KEY || "")?.trim();
-  const XORO_API_SECRET = (app === "ats" ? process.env.VITE_XORO_ATS_SECRET : process.env.VITE_XORO_API_SECRET || "")?.trim();
+  const XORO_API_KEY    = process.env.VITE_XORO_API_KEY;
+  const XORO_API_SECRET = process.env.VITE_XORO_API_SECRET;
 
   if (!XORO_API_KEY || !XORO_API_SECRET) {
     return res.status(500).json({
@@ -28,6 +25,7 @@ export default async function handler(req, res) {
   const creds = Buffer.from(`${XORO_API_KEY}:${XORO_API_SECRET}`).toString("base64");
   const authHeader = `Basic ${creds}`;
 
+  const url = new URL(req.url, `https://${req.headers.host}`);
   const path = url.searchParams.get("path");
   if (!path) return res.status(400).json({ error: "Missing 'path' query parameter" });
 
@@ -37,7 +35,6 @@ export default async function handler(req, res) {
   const xoroParams = new URLSearchParams(url.searchParams);
   xoroParams.delete("path");
   xoroParams.delete("fetch_all");
-  xoroParams.delete("app");
 
   async function xoroFetchPage(page) {
     const p = new URLSearchParams(xoroParams);
