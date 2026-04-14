@@ -65,13 +65,19 @@ export async function applyPOWIPDataToExcel(data: ExcelData): Promise<ExcelData>
       }
       const store = inferStore(poNum, brandName);
 
+      // PO WIP items sometimes carry Description on the item row, sometimes on
+      // a sibling field. Try a few spellings so new-from-PO rows get a human
+      // name instead of showing up blank in the Description column.
+      const itemDesc: string =
+        item.Description ?? item.ItemDescription ?? item.ProductName ?? item.ItemName ?? "";
+
       const key = keyOf(sku, store);
       const existingIdx = skuIndex.get(key);
       if (existingIdx === undefined) {
         skuIndex.set(key, nextSkus.length);
         nextSkus.push({
           sku,
-          description: item.Description ?? "",
+          description: itemDesc,
           category: brandName || undefined,
           store,
           onHand: 0,
@@ -80,7 +86,10 @@ export async function applyPOWIPDataToExcel(data: ExcelData): Promise<ExcelData>
         });
       } else {
         const prev = nextSkus[existingIdx];
-        nextSkus[existingIdx] = { ...prev, onOrder: (prev.onOrder || 0) + qty };
+        // Backfill description when the existing row is blank — Excel inventory
+        // may not have had this SKU yet, so the PO WIP name is the best we have.
+        const nextDesc = prev.description || itemDesc;
+        nextSkus[existingIdx] = { ...prev, onOrder: (prev.onOrder || 0) + qty, description: nextDesc };
       }
       if (date) nextPos.push({ sku, date, qty, poNumber: poNum, vendor, store, unitCost });
     }
