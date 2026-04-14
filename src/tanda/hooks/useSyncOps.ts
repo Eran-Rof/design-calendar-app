@@ -212,12 +212,15 @@ export function useSyncOps(deps: SyncOpsDeps) {
       setSyncField("syncProgress", 10);
 
       const baseFetchOpts = { fetchAll: true, signal: controller.signal, vendors: filters?.vendors, poNumber: apiPoNumber, dateFrom: filters?.dateFrom, dateTo: filters?.dateTo };
-      // Batch at 3 — above this, Xoro rate-limits and drops buckets silently.
-      const CONCURRENCY = 3;
+      // Batch at 2 with a short stagger between batches. 3 was still tripping
+      // Xoro's per-caller rate limit for Released/Cancelled buckets.
+      const CONCURRENCY = 2;
+      const BATCH_DELAY_MS = 600;
       const statusResults: PromiseSettledResult<{ pos: XoroPO[]; totalPages: number }>[] = [];
       const [, existingRowsRes] = await Promise.all([
         (async () => {
           for (let i = 0; i < statusList.length; i += CONCURRENCY) {
+            if (i > 0) await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
             const batch = statusList.slice(i, i + CONCURRENCY);
             const batchResults = await Promise.allSettled(
               batch.map(status => fetchXoroPOs({ ...baseFetchOpts, statuses: [status] }))

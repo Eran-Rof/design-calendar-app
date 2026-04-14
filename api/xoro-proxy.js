@@ -96,16 +96,18 @@ export default async function handler(req, res) {
     let allData = [];
     let reportedTotalPages = 1;
 
-    async function fetchPageWithRetry(page, isFirstPage) {
-      const delays = isFirstPage ? [0, 800, 2000] : [0];
+    async function fetchPageWithRetry(page) {
+      // Retry any page that comes back Result:false — this is the usual
+      // Xoro signal for "throttled" when there is still data to fetch. Pages
+      // with a truly empty dataset still return Result:false + Data:[], so
+      // the caller distinguishes by inspecting Data on the final try.
+      const delays = [0, 800, 2000, 4000];
       let last;
       for (const delay of delays) {
         if (delay) await new Promise(r => setTimeout(r, delay));
         last = await xoroFetchPage(page);
-        const hasData = Array.isArray(last?.Data) && last.Data.length > 0;
-        if (hasData) return last;
-        // On the first page only, retry on Result:false (likely throttled).
-        if (!isFirstPage || last?.Result !== false) return last;
+        if (Array.isArray(last?.Data) && last.Data.length > 0) return last;
+        if (last?.Result !== false) return last;
       }
       return last;
     }
@@ -113,7 +115,7 @@ export default async function handler(req, res) {
     for (let page = 1; page <= 50; page++) {
       let r;
       try {
-        r = await fetchPageWithRetry(page, page === 1);
+        r = await fetchPageWithRetry(page);
       } catch (err) {
         pageCounts.push({ page, error: String(err?.message || err) });
         break;
