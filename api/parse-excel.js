@@ -81,6 +81,7 @@ export default async function handler(req, res) {
       // ── 2. Purchased Items Report → PO events (incoming) ──────────────────
       const pos = [];
       let poTotal = 0, poNoDate = 0, poNoPoNum = 0, poNoVendor = 0;
+      const poNoDateItems = [];
 
       for (const r of purRows) {
         const base  = str(r["BasePart"]);
@@ -107,7 +108,7 @@ export default async function handler(req, res) {
           const poNumber = str(r["PO"] || r["PO #"] || r["PO Number"] || r["Purchase Order"] || r["PO No"]);
           const vendor   = str(r["Vendor"] || r["Vendor Name"] || r["Supplier"] || r["Vendor/Supplier"]);
 
-          if (!date)     poNoDate++;
+          if (!date) { poNoDate++; poNoDateItems.push({ sku, qty, poNumber: poNumber || undefined, vendor: vendor || undefined }); }
           if (!poNumber) poNoPoNum++;
           if (!vendor)   poNoVendor++;
 
@@ -125,6 +126,7 @@ export default async function handler(req, res) {
       const sos = [];
       let soTotal = 0, soNoDate = 0, soNoOrderNum = 0, soNoCustName = 0;
       let soNoUnitPrice = 0;
+      const soNoDateItems = [];
 
       for (const r of ordRows) {
         const base  = str(r["Base Part"]);
@@ -180,7 +182,7 @@ export default async function handler(req, res) {
             0
           ).replace(/[^0-9.-]/g, "")) || 0;
 
-          if (!date)        soNoDate++;
+          if (!date) { soNoDate++; soNoDateItems.push({ sku, qty, orderNumber: orderNumber || undefined, customerName: customerName || undefined }); }
           if (!orderNumber) soNoOrderNum++;
           if (!customerName) soNoCustName++;
           if (unitPrice <= 0 && totalPrice <= 0) soNoUnitPrice++;
@@ -201,6 +203,7 @@ export default async function handler(req, res) {
           affected: soNoDate,
           total: soTotal,
           message: `${soNoDate} of ${soTotal} sales order lines have no valid cancel or ship date. These orders will NOT move the ATS timeline (they are still counted in the On Order total).`,
+          items: soNoDateItems,
         });
       }
       if (soNoOrderNum > 0) {
@@ -248,6 +251,7 @@ export default async function handler(req, res) {
           affected: poNoDate,
           total: poTotal,
           message: `${poNoDate} of ${poTotal} purchase order lines have no valid expected delivery date. These POs will NOT move the ATS timeline (they are still counted in the On PO total).`,
+          items: poNoDateItems,
         });
       }
       if (poNoPoNum > 0) {
