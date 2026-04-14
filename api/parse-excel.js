@@ -140,11 +140,12 @@ export default async function handler(req, res) {
         const saleStore   = str(r["Sale Store"] || r["Store"] || r["Channel"] || "");
         const orderNumber = str(r["Order Number"] || r["Order #"] || r["SO Number"] || r["SO #"] || r["Sales Order"] || r["Order No"]);
         const soStore     = detectSoStore(orderNumber, saleStore, soBrand);
-        // ROF ECOM shares inventory rows with ROF (no separate ECOM inventory).
-        const invStore = soStore === "ROF ECOM" ? "ROF" : soStore;
-        const preferredKey = `${sku}::${invStore}`;
-        // Prefer the sku row matching the SO's actual store. Only fall back to
-        // any-store match when the preferred row doesn't exist yet.
+        // Prefer the sku row matching the SO's actual store (including ROF
+        // ECOM — the inventory loop does produce ECOM rows when the file's
+        // Store column says so). Only fall back to any-store match when the
+        // preferred row doesn't exist yet, so non-ECOM stores still light up
+        // when inventory and SO happen to disagree on store.
+        const preferredKey = `${sku}::${soStore}`;
         const soKey = skuMap[preferredKey]
           ? preferredKey
           : (Object.keys(skuMap).find(k => k.startsWith(sku + "::")) || preferredKey);
@@ -154,7 +155,7 @@ export default async function handler(req, res) {
         // description column.
         const soDesc = str(r["Description"] || r["Item Description"] || r["Product Name"] || r["Item Name"] || "");
         if (!skuMap[soKey]) {
-          skuMap[soKey] = { sku, description: soDesc, category: soBrand || undefined, store: invStore, onHand: 0, onOrder: 0, onCommitted: 0 };
+          skuMap[soKey] = { sku, description: soDesc, category: soBrand || undefined, store: soStore, onHand: 0, onOrder: 0, onCommitted: 0 };
         } else if (!skuMap[soKey].description && soDesc) {
           skuMap[soKey].description = soDesc;
         }

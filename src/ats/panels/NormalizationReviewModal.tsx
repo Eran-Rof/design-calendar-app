@@ -17,7 +17,14 @@ export const NormalizationReviewModal: React.FC<NormalizationReviewModalProps> =
   return (
     <div
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 250, display: "flex", alignItems: "center", justifyContent: "center" }}
-      onClick={() => dismissNormReview()}
+      onClick={() => {
+        // Backdrop click permanently rejects everything in the modal — confirm
+        // before acting so an accidental click doesn't silently kill a batch
+        // the user meant to accept.
+        if (window.confirm("Skip normalization for these SKUs? They'll stay in their raw form and won't be reviewed again.")) {
+          dismissNormReview();
+        }
+      }}
     >
       <div
         style={{ background: "#1E293B", borderRadius: 14, width: 700, maxHeight: "80vh", display: "flex", flexDirection: "column", border: "1px solid #3B82F6" }}

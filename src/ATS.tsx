@@ -543,6 +543,7 @@ function ATSReport() {
       }
     } catch (e) {
       console.error("[norm] save threw:", e);
+      setUploadError("Normalization decisions couldn't be saved (network). You may be re-prompted on next upload.");
     }
   }
 
