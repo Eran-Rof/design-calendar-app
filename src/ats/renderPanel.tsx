@@ -134,7 +134,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         purFile={purFile}
         ordFile={ordFile}
         exportToExcel={exportToExcel}
-        filtered={filtered}
+        filtered={sortedFiltered}
         displayPeriods={displayPeriods}
         atShip={atShip}
       />
