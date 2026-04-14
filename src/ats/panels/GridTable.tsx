@@ -256,11 +256,21 @@ export const GridTable: React.FC<GridTableProps> = ({
                         const cellEl = e.currentTarget as HTMLElement;
                         const cellRect = cellEl.getBoundingClientRect();
                         setSummaryCtx(null);
+                        // Compute effective unit cost: prefer inventory avgCost;
+                        // fall back to weighted avg of PO unitCosts for this cell.
+                        const poList = ev?.pos ?? [];
+                        let effectiveCost = row.avgCost ?? 0;
+                        if (!effectiveCost && poList.length) {
+                          const priced = poList.filter(p => p.unitCost > 0);
+                          const totQty = priced.reduce((a, p) => a + p.qty, 0);
+                          effectiveCost = totQty > 0 ? priced.reduce((a, p) => a + p.qty * p.unitCost, 0) / totQty : 0;
+                        }
                         setCtxMenu({
                           x: cellRect.left, y: cellRect.bottom + 2, anchorY: cellRect.top,
-                          pos: ev?.pos ?? [], sos: ev?.sos ?? [],
+                          pos: poList, sos: ev?.sos ?? [],
                           onHand: row.onHand, skuStore: row.store ?? "ROF",
                           cellKey, cellEl, flipped: false, arrowLeft: 20,
+                          unitCost: effectiveCost,
                         });
                       }}
                     >

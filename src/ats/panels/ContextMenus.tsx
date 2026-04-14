@@ -77,40 +77,47 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
           </div>
         )}
 
-        {type === "onOrder" && (
-          <div>
-            {(() => {
-              const totalSoQty = sos.reduce((s, o) => s + o.qty, 0);
-              const totalSoVal = sos.reduce((s, o) => s + (o.totalPrice || 0), 0);
-              return (
-                <div style={{ background: "rgba(245,158,11,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#FCD34D", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #3D2E00" }}>
-                  Committed Sales Orders — {sos.length} line{sos.length !== 1 ? "s" : ""} · {totalSoQty.toLocaleString()} units{totalSoVal > 0 ? ` · $${totalSoVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(totalSoVal / totalSoQty).toFixed(2)}/unit` : ""}
-                </div>
-              );
-            })()}
-            {Object.keys(soByStore).length > 1 && (
-              <div style={{ padding: "6px 14px", borderBottom: "1px solid #1a2030", display: "flex", gap: 12, flexWrap: "wrap" }}>
-                {Object.entries(soByStore).map(([st, qty]) => (
-                  <span key={st} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>{storeTag(st)}<span style={{ color: "#F59E0B", fontFamily: "monospace", fontWeight: 600 }}>{qty.toLocaleString()}</span></span>
-                ))}
+        {type === "onOrder" && (() => {
+          // Effective unit cost: prefer row.avgCost; else weighted avg of PO unit costs.
+          const effectiveCost = (row.avgCost && row.avgCost > 0) ? row.avgCost : avgCost;
+          const totalSoQty = sos.reduce((s, o) => s + o.qty, 0);
+          const totalSoVal = sos.reduce((s, o) => s + (o.totalPrice || 0), 0);
+          const totalSoCost = effectiveCost > 0 ? effectiveCost * totalSoQty : 0;
+          const headerMarginPct = totalSoVal > 0 && totalSoCost > 0 ? ((totalSoVal - totalSoCost) / totalSoVal) * 100 : null;
+          return (
+            <div>
+              <div style={{ background: "rgba(245,158,11,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#FCD34D", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #3D2E00" }}>
+                Committed Sales Orders — {sos.length} line{sos.length !== 1 ? "s" : ""} · {totalSoQty.toLocaleString()} units{totalSoVal > 0 ? ` · $${totalSoVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(totalSoVal / totalSoQty).toFixed(2)}/unit` : ""}{headerMarginPct !== null ? ` · Margin ${headerMarginPct >= 0 ? "" : "-"}${Math.abs(headerMarginPct).toFixed(1)}%` : ""}
               </div>
-            )}
-            {sos.map((s, i) => (
-              <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                  <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700 }}>{s.orderNumber || "—"}</span>
-                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>{s.store && storeTag(s.store)}<span style={{ color: "#F59E0B", fontWeight: 700 }}>{s.qty.toLocaleString()} units</span></span>
+              {Object.keys(soByStore).length > 1 && (
+                <div style={{ padding: "6px 14px", borderBottom: "1px solid #1a2030", display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  {Object.entries(soByStore).map(([st, qty]) => (
+                    <span key={st} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>{storeTag(st)}<span style={{ color: "#F59E0B", fontFamily: "monospace", fontWeight: 600 }}>{qty.toLocaleString()}</span></span>
+                  ))}
                 </div>
-                <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{s.customerName || "—"}</div>
-                <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-                  <span style={{ color: "#94A3B8", fontSize: 11 }}>Cancel: {fmtDateDisplay(s.date)}</span>
-                  {s.unitPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Unit: ${s.unitPrice.toFixed(2)}</span>}
-                  {s.totalPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Total: ${s.totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+              )}
+              {sos.map((s, i) => {
+                const lineMargin = (effectiveCost > 0 && s.unitPrice > 0) ? ((s.unitPrice - effectiveCost) / s.unitPrice) * 100 : null;
+                const marginColor = lineMargin === null ? "#94A3B8" : lineMargin >= 30 ? "#6EE7B7" : lineMargin >= 10 ? "#FCD34D" : "#FCA5A5";
+                return (
+                  <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                      <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700 }}>{s.orderNumber || "—"}</span>
+                      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>{s.store && storeTag(s.store)}<span style={{ color: "#F59E0B", fontWeight: 700 }}>{s.qty.toLocaleString()} units</span></span>
+                    </div>
+                    <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{s.customerName || "—"}</div>
+                    <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                      <span style={{ color: "#94A3B8", fontSize: 11 }}>Cancel: {fmtDateDisplay(s.date)}</span>
+                      {s.unitPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Unit: ${s.unitPrice.toFixed(2)}</span>}
+                      {s.totalPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Total: ${s.totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
+                      {lineMargin !== null && <span style={{ color: marginColor, fontSize: 11, fontWeight: 600 }}>Margin {lineMargin >= 0 ? "" : "-"}{Math.abs(lineMargin).toFixed(1)}%</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         {type === "onPO" && (() => {
           const poGrouped: Record<string, { poNumber: string; vendor: string; store: string; date: string; totalQty: number; totalValue: number }> = {};
@@ -211,36 +218,42 @@ export const CellContextMenu: React.FC<CellContextMenuProps> = ({ ctxMenu, ctxRe
           >✕</button>
         </div>
 
-        {ctxMenu.sos.length > 0 && (
-          <div>
-            {(() => {
-              const tQty = ctxMenu.sos.reduce((s, o) => s + o.qty, 0);
-              const tVal = ctxMenu.sos.reduce((s, o) => s + (o.totalPrice || o.unitPrice * o.qty || 0), 0);
-              return (
-                <div style={{ background: "rgba(59,130,246,0.15)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#93C5FD", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #1E3A5F" }}>
-                  Sales Orders ({ctxMenu.sos.length}) · {tQty.toLocaleString()} units{tVal > 0 ? ` · $${tVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(tVal / tQty).toFixed(2)}/unit` : ""}
-                </div>
-              );
-            })()}
-            {ctxMenu.sos.map((s, i) => (
-              <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                  <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700 }}>{s.orderNumber || "—"}</span>
-                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    {s.store && storeTag(s.store)}
-                    <span style={{ color: "#10B981", fontWeight: 700 }}>{s.qty.toLocaleString()} units</span>
-                  </span>
-                </div>
-                <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{s.customerName || "—"}</div>
-                <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-                  <span style={{ color: "#94A3B8", fontSize: 11 }}>Cancel: {fmtDateDisplay(s.date)}</span>
-                  <span style={{ color: "#94A3B8", fontSize: 11 }}>Unit: ${s.unitPrice?.toFixed(2) ?? "—"}</span>
-                  <span style={{ color: "#94A3B8", fontSize: 11 }}>Total: ${s.totalPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "—"}</span>
-                </div>
+        {ctxMenu.sos.length > 0 && (() => {
+          const unitCost = ctxMenu.unitCost ?? 0;
+          const tQty = ctxMenu.sos.reduce((s, o) => s + o.qty, 0);
+          const tVal = ctxMenu.sos.reduce((s, o) => s + (o.totalPrice || o.unitPrice * o.qty || 0), 0);
+          const tCost = unitCost > 0 ? unitCost * tQty : 0;
+          const headerMarginPct = tVal > 0 && tCost > 0 ? ((tVal - tCost) / tVal) * 100 : null;
+          return (
+            <div>
+              <div style={{ background: "rgba(59,130,246,0.15)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#93C5FD", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #1E3A5F" }}>
+                Sales Orders ({ctxMenu.sos.length}) · {tQty.toLocaleString()} units{tVal > 0 ? ` · $${tVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(tVal / tQty).toFixed(2)}/unit` : ""}{headerMarginPct !== null ? ` · Margin ${headerMarginPct >= 0 ? "" : "-"}${Math.abs(headerMarginPct).toFixed(1)}%` : ""}
               </div>
-            ))}
-          </div>
-        )}
+              {ctxMenu.sos.map((s, i) => {
+                const lineMargin = (unitCost > 0 && s.unitPrice > 0) ? ((s.unitPrice - unitCost) / s.unitPrice) * 100 : null;
+                const marginColor = lineMargin === null ? "#94A3B8" : lineMargin >= 30 ? "#6EE7B7" : lineMargin >= 10 ? "#FCD34D" : "#FCA5A5";
+                return (
+                  <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                      <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700 }}>{s.orderNumber || "—"}</span>
+                      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        {s.store && storeTag(s.store)}
+                        <span style={{ color: "#10B981", fontWeight: 700 }}>{s.qty.toLocaleString()} units</span>
+                      </span>
+                    </div>
+                    <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{s.customerName || "—"}</div>
+                    <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                      <span style={{ color: "#94A3B8", fontSize: 11 }}>Cancel: {fmtDateDisplay(s.date)}</span>
+                      <span style={{ color: "#94A3B8", fontSize: 11 }}>Unit: ${s.unitPrice?.toFixed(2) ?? "—"}</span>
+                      <span style={{ color: "#94A3B8", fontSize: 11 }}>Total: ${s.totalPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "—"}</span>
+                      {lineMargin !== null && <span style={{ color: marginColor, fontSize: 11, fontWeight: 600 }}>Margin {lineMargin >= 0 ? "" : "-"}{Math.abs(lineMargin).toFixed(1)}%</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         {ctxMenu.pos.length > 0 && (() => {
           const poGrp: Record<string, { poNumber: string; vendor: string; store: string; date: string; totalQty: number; totalValue: number }> = {};
