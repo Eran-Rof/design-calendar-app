@@ -78,8 +78,17 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
         )}
 
         {type === "onOrder" && (() => {
-          // Effective unit cost: prefer row.avgCost; else weighted avg of PO unit costs.
-          const effectiveCost = (row.avgCost && row.avgCost > 0) ? row.avgCost : avgCost;
+          // Blended unit cost: weighted average of on-hand inventory (at avgCost)
+          // and all incoming POs (each at its unitCost). Matches the formula
+          //   (onHandQty × avgCost + Σ poQty × poUnitCost) / (onHandQty + Σ poQty)
+          const poQtySum  = pos.reduce((a, p) => a + (p.qty || 0), 0);
+          const poCostSum = pos.reduce((a, p) => a + (p.qty || 0) * (p.unitCost || 0), 0);
+          const onHandCostSum = (row.onHand || 0) * (row.avgCost || 0);
+          const totalQty = (row.onHand || 0) + poQtySum;
+          const blendedCost = totalQty > 0 ? (onHandCostSum + poCostSum) / totalQty : 0;
+          // If no on-hand or on-hand has no cost, fall back to PO-only weighted avg
+          const effectiveCost = blendedCost > 0 ? blendedCost : avgCost;
+
           const totalSoQty = sos.reduce((s, o) => s + o.qty, 0);
           const totalSoVal = sos.reduce((s, o) => s + (o.totalPrice || 0), 0);
           const totalSoCost = effectiveCost > 0 ? effectiveCost * totalSoQty : 0;

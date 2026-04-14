@@ -256,10 +256,19 @@ export const GridTable: React.FC<GridTableProps> = ({
                         const cellEl = e.currentTarget as HTMLElement;
                         const cellRect = cellEl.getBoundingClientRect();
                         setSummaryCtx(null);
-                        // Compute effective unit cost: prefer inventory avgCost;
-                        // fall back to weighted avg of PO unitCosts for this cell.
+                        // Compute blended unit cost using full row history
+                        // (on-hand at avgCost + ALL incoming POs at their unitCost)
+                        // so margin reflects the full replenishment picture, not
+                        // just this cell's POs.
                         const poList = ev?.pos ?? [];
-                        let effectiveCost = row.avgCost ?? 0;
+                        const allRowPos = eventIndex?.[row.sku]
+                          ? Object.values(eventIndex[row.sku]).flatMap(v => v.pos.filter(p => !row.store || (p.store ?? "ROF") === row.store))
+                          : [];
+                        const poQtySum  = allRowPos.reduce((a, p) => a + (p.qty || 0), 0);
+                        const poCostSum = allRowPos.reduce((a, p) => a + (p.qty || 0) * (p.unitCost || 0), 0);
+                        const onHandCostSum = (row.onHand || 0) * (row.avgCost || 0);
+                        const totalQty = (row.onHand || 0) + poQtySum;
+                        let effectiveCost = totalQty > 0 ? (onHandCostSum + poCostSum) / totalQty : 0;
                         if (!effectiveCost && poList.length) {
                           const priced = poList.filter(p => p.unitCost > 0);
                           const totQty = priced.reduce((a, p) => a + p.qty, 0);
