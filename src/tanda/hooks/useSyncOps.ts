@@ -232,22 +232,16 @@ export function useSyncOps(deps: SyncOpsDeps) {
       ]);
 
       let all: XoroPO[] = [];
-      const perStatusCounts: Record<string, number> = {};
       const errors: string[] = [];
       for (let i = 0; i < statusResults.length; i++) {
         const result = statusResults[i];
-        const status = statusList[i];
         if (result.status === "fulfilled") {
           const pos = Array.isArray(result.value?.pos) ? result.value.pos : [];
           all = [...all, ...pos];
-          perStatusCounts[status] = pos.length;
         } else {
-          perStatusCounts[status] = -1;
-          errors.push(`${status}: ${(result as PromiseRejectedResult).reason?.message ?? "unknown"}`);
+          errors.push(`${statusList[i]}: ${(result as PromiseRejectedResult).reason?.message ?? "unknown"}`);
         }
       }
-      console.log("[Sync] per-status counts:", perStatusCounts);
-      // Fail only if every bucket errored.
       if (statusResults.every(r => r.status === "rejected")) {
         throw new Error(`Xoro sync failed: ${errors[0] ?? "all fetches rejected"}`);
       }
@@ -275,17 +269,7 @@ export function useSyncOps(deps: SyncOpsDeps) {
       if (activeSet.has("partially received")) activeSet.add("partial received");
       if (activeSet.has("partial received")) activeSet.add("partially received");
 
-      // One-time diagnostic: histogram of actual StatusName values returned by
-      // Xoro. Remove once status-matching is confirmed stable.
-      const statusHistogram: Record<string, number> = {};
-      for (const po of all) {
-        const s = po.StatusName ?? "(empty)";
-        statusHistogram[s] = (statusHistogram[s] ?? 0) + 1;
-      }
-      console.log("[Sync] Xoro StatusName histogram:", statusHistogram, "total:", all.length);
-
       const synced = all.filter(po => activeSet.has(normalizeStatus(po.StatusName ?? "")));
-      console.log("[Sync] active POs after filter:", synced.length, "active set:", Array.from(activeSet));
 
       const addedPOs = synced.filter(po => !existingMap.has(po.PoNumber ?? ""));
       // Always update ALL existing POs to ensure QtyReceived/QtyRemaining data is fresh
