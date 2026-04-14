@@ -15,6 +15,25 @@ export interface PendingMerge {
   similarity: number;
 }
 
+// Pure: rebuild the post-undo data set from the pre-merge base snapshot.
+// Zeroes onOrder + clears pos so PO WIP can re-seed them (that's the source
+// of truth for POs), then replays the remaining merge ops in original order.
+// Extracted so the replay order can be verified in isolation.
+export async function rebuildAfterUndo(
+  newHistory: MergeOp[],
+  baseData: ExcelData,
+  applyPOWIPData: (d: ExcelData) => Promise<ExcelData>,
+): Promise<ExcelData> {
+  let freshBase = baseData;
+  try {
+    const base = { ...baseData, pos: [], skus: baseData.skus.map(s => ({ ...s, onOrder: 0 })) };
+    freshBase = await applyPOWIPData(base);
+  } catch { /* PO WIP fetch can fail offline — fall back to bare base */ }
+  let rebuilt = freshBase;
+  for (const op of newHistory) rebuilt = mergeExcelDataSkus(rebuilt, op.fromSku, op.toSku);
+  return rebuilt;
+}
+
 interface UseMergeHistoryOpts {
   mergeHistory: MergeOp[];
   setMergeHistory: (v: MergeOp[] | ((p: MergeOp[]) => MergeOp[])) => void;
@@ -94,13 +113,7 @@ export function useMergeHistory(opts: UseMergeHistoryOpts) {
       alert("Cannot undo: no base snapshot found. Please re-upload your Excel files to reset merge history.");
       return;
     }
-    let freshBase = baseData;
-    try {
-      const base = { ...baseData, pos: [], skus: baseData.skus.map((s: any) => ({ ...s, onOrder: 0 })) };
-      freshBase = await applyPOWIPData(base);
-    } catch {}
-    let rebuilt = freshBase;
-    for (const op of newHistory) rebuilt = mergeExcelDataSkus(rebuilt, op.fromSku, op.toSku);
+    const rebuilt = await rebuildAfterUndo(newHistory, baseData, applyPOWIPData);
     setMergeHistory(newHistory);
     saveMergeHistory(newHistory);
     setExcelData(rebuilt);

@@ -39,14 +39,11 @@ interface UseExcelUploadOpts {
   setNormSource: (v: "upload" | "load") => void;
 }
 
-// Encapsulates the entire Excel upload flow: parse API call, PO WIP merge,
-// warnings gate, normalization review, persistence, and computing ATS rows.
-// Also owns the cancel/abort refs so the parent doesn't need to thread them.
-export function useExcelUpload(opts: UseExcelUploadOpts) {
-  const cancelRef = useRef(false);
-  const abortRef  = useRef<AbortController | null>(null);
-
-  const saveUploadData = useCallback(async (rawData: ExcelData) => {
+// Pure implementation of the "save upload data" step — extracted so it can
+// be unit-tested without a React render context. The hook below is a thin
+// useCallback wrapper. Returns the data that was saved (or would have been
+// saved) so callers can assert on the result.
+export async function runSaveUploadData(rawData: ExcelData, opts: UseExcelUploadOpts): Promise<ExcelData> {
     // Collapse any duplicate sku+store rows BEFORE persistence so the
     // stored blob is clean — compute.ts still has a safety net but this
     // means Supabase, base snapshot, and merge replays all work with
@@ -100,7 +97,7 @@ export function useExcelUpload(opts: UseExcelUploadOpts) {
         opts.setNormSource("upload");
         opts.setUploadProgress(null);
         opts.setUploadingFile(false);
-        return;
+        return data;
       }
       const autoMsg = known.length > 0
         ? `SKU normalization: ${known.filter(c => c.accepted).length} auto-applied from saved decisions`
@@ -125,6 +122,18 @@ export function useExcelUpload(opts: UseExcelUploadOpts) {
       opts.setUploadingFile(false);
       opts.setUploadProgress(null);
     }
+    return data;
+}
+
+// Encapsulates the entire Excel upload flow: parse API call, PO WIP merge,
+// warnings gate, normalization review, persistence, and computing ATS rows.
+// Also owns the cancel/abort refs so the parent doesn't need to thread them.
+export function useExcelUpload(opts: UseExcelUploadOpts) {
+  const cancelRef = useRef(false);
+  const abortRef  = useRef<AbortController | null>(null);
+
+  const saveUploadData = useCallback(async (rawData: ExcelData) => {
+    await runSaveUploadData(rawData, opts);
   }, [opts]);
 
   const handleFileUpload = useCallback(async (inv: File, pur: File | null, ord: File) => {

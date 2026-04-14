@@ -321,7 +321,7 @@ function toIsoDate(v) {
 }
 
 // Derive store for an inventory SKU from its brand name (no ECOM distinction at SKU level)
-function detectSkuStore(brandName) {
+export function detectSkuStore(brandName) {
   const bn = (brandName || "").toUpperCase();
   if (bn.includes("PSYCHO") || bn.includes("PTUNA") || bn.includes("P TUNA") || bn === "PT" || bn.startsWith("PT ")) return "PT";
   return "ROF";
@@ -331,7 +331,7 @@ function detectSkuStore(brandName) {
 // ROF ECOM = PO number contains "ECOM"
 // PT       = brand contains "Psycho" / "PTUNA" / "P TUNA" or starts with "PT"
 // ROF      = everything else (Ring of Fire)
-function detectPoStore(poNumber, brandName) {
+export function detectPoStore(poNumber, brandName) {
   const pn = (poNumber || "").toUpperCase();
   const bn = (brandName || "").toUpperCase();
   if (pn.includes("ECOM")) return "ROF ECOM";
@@ -340,7 +340,7 @@ function detectPoStore(poNumber, brandName) {
 }
 
 // Derive store from order number, sale store field, and brand
-function detectSoStore(orderNumber, saleStore, brand) {
+export function detectSoStore(orderNumber, saleStore, brand) {
   const on = (orderNumber || "").toUpperCase();
   const ss = (saleStore || "").toUpperCase();
   const br = (brand || "").toUpperCase();
