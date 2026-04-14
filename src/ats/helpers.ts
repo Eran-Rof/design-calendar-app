@@ -15,7 +15,11 @@ export function fmtDateShort(iso: string): string {
 
 export function fmtDateDisplay(dateStr: string): string {
   if (!dateStr) return "—";
-  const d = dateStr.includes("-") ? new Date(dateStr + "T00:00:00") : new Date(dateStr);
+  // Only the YYYY-MM-DD branch needs the T00:00:00 suffix to anchor it to local
+  // time. Anything else (including JS Date.toString() output, which contains
+  // dashes inside its GMT offset) goes through the default Date parser.
+  const isoDate = /^\d{4}-\d{2}-\d{2}$/.test(dateStr);
+  const d = isoDate ? new Date(dateStr + "T00:00:00") : new Date(dateStr);
   if (isNaN(d.getTime())) return dateStr;
   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   return `${months[d.getMonth()]}/${String(d.getDate()).padStart(2,"0")}/${d.getFullYear()}`;

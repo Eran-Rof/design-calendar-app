@@ -69,7 +69,7 @@ export default async function handler(req, res) {
             onHand: 0,
             onOrder: 0,
             onCommitted: 0,
-            lastReceiptDate: str(r["Last Receipt Date"]) || undefined,
+            lastReceiptDate: toIsoDate(r["Last Receipt Date"]) || undefined,
             totalAmount: 0,
             avgCost: parseFloat(String(r["Avrg Cost"] || 0).replace(/[^0-9.-]/g, "")) || 0,
           };
@@ -286,6 +286,20 @@ function str(v) {
 function toNum(v) {
   const n = parseFloat(String(v).replace(/[^0-9.-]/g, ""));
   return isNaN(n) ? 0 : Math.round(n);
+}
+
+// Excel cells parsed with cellDates:true become JS Date objects. Stringify
+// them as YYYY-MM-DD so downstream display (fmtDateDisplay) can format them
+// consistently as MMM/DD/YYYY without timezone drift.
+function toIsoDate(v) {
+  if (!v) return "";
+  if (v instanceof Date && !isNaN(v.getTime())) {
+    const y = v.getFullYear();
+    const m = String(v.getMonth() + 1).padStart(2, "0");
+    const d = String(v.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  return String(v).trim();
 }
 
 // Derive store for an inventory SKU from its brand name (no ECOM distinction at SKU level)
