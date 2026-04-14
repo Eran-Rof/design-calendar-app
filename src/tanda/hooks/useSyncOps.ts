@@ -195,10 +195,13 @@ export function useSyncOps(deps: SyncOpsDeps) {
     setSyncField("syncFilters", { poNumbers: [], dateFrom: "", dateTo: "", vendors: [], statuses: [] });
     try {
       let all: XoroPO[] = [];
-      // Fetch ALL statuses so that:
-      // - Terminal-status POs (Received/Closed/Cancelled) are caught by source-1 archiving with correct labels
-      // - POs absent from every status bucket are truly deleted from Xoro -> source-3 archiving
-      const statusList = filters?.statuses?.length ? filters.statuses : ALL_PO_STATUSES;
+      // When the user leaves status blank, sync the three active buckets plus
+      // the three terminal ones (Received/Closed/Cancelled) so source-1 archive
+      // detection still fires with fresh labels. Drops Pending/Draft vs. the
+      // old ALL_PO_STATUSES fan-out to reduce the concurrent-fetch count and
+      // avoid Vercel 60s timeouts that were masking terminal-status POs.
+      const DEFAULT_SYNC_STATUSES = ["Open", "Released", "Partially Received", "Received", "Closed", "Cancelled"];
+      const statusList = filters?.statuses?.length ? filters.statuses : DEFAULT_SYNC_STATUSES;
       // Pass first PO number to API if only one selected; multi is filtered client-side
       const apiPoNumber = filters?.poNumbers?.length === 1 ? filters.poNumbers[0] : undefined;
 
