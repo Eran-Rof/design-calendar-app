@@ -130,11 +130,23 @@ export default async function handler(req, res) {
         const sku = color ? `${base} - ${color}` : base;
         const qty = toNum(r["Total Sum of Qty Ordered"]);
 
-        const soBrand = str(r["Brand"] || r["Brand Name"] || "");
-        const soStore = detectSkuStore(soBrand);
-        const soKey = Object.keys(skuMap).find(k => k.startsWith(sku + "::")) || `${sku}::${soStore}`;
+        // Determine the SO's true store from order number + sale store + brand,
+        // not brand alone. A "Ring of Fire"-branded SO with Sale Store "PT"
+        // belongs to PT — detectSkuStore(brand) alone would mis-bucket it.
+        const soBrand     = str(r["Brand"] || r["Brand Name"] || "");
+        const saleStore   = str(r["Sale Store"] || r["Store"] || r["Channel"] || "");
+        const orderNumber = str(r["Order Number"] || r["Order #"] || r["SO Number"] || r["SO #"] || r["Sales Order"] || r["Order No"]);
+        const soStore     = detectSoStore(orderNumber, saleStore, soBrand);
+        // ROF ECOM shares inventory rows with ROF (no separate ECOM inventory).
+        const invStore = soStore === "ROF ECOM" ? "ROF" : soStore;
+        const preferredKey = `${sku}::${invStore}`;
+        // Prefer the sku row matching the SO's actual store. Only fall back to
+        // any-store match when the preferred row doesn't exist yet.
+        const soKey = skuMap[preferredKey]
+          ? preferredKey
+          : (Object.keys(skuMap).find(k => k.startsWith(sku + "::")) || preferredKey);
         if (!skuMap[soKey]) {
-          skuMap[soKey] = { sku, description: "", category: soBrand || undefined, store: soStore, onHand: 0, onOrder: 0, onCommitted: 0 };
+          skuMap[soKey] = { sku, description: "", category: soBrand || undefined, store: invStore, onHand: 0, onOrder: 0, onCommitted: 0 };
         }
         if (qty > 0) {
           soTotal++;
@@ -142,7 +154,6 @@ export default async function handler(req, res) {
 
           const rawDate      = r["Date to be Cancelled"] || r["Cancel Date"] || r["Order Date to be Shipped"] || r["Ship Date"] || r["Requested Ship Date"];
           const date         = parseDate(rawDate);
-          const orderNumber  = str(r["Order Number"] || r["Order #"] || r["SO Number"] || r["SO #"] || r["Sales Order"] || r["Order No"]);
           const customerName = str(r["Customer Name"] || r["Customer"] || r["Bill To Name"] || r["Ship To Name"] || r["Client Name"]);
           const unitPrice    = parseFloat(String(
             r["Unit Price"] || r["Unit Cost"] || r["Price"] ||
@@ -163,12 +174,8 @@ export default async function handler(req, res) {
           if (!customerName) soNoCustName++;
           if (unitPrice <= 0 && totalPrice <= 0) soNoUnitPrice++;
 
-          const saleStore = str(r["Sale Store"] || r["Store"] || r["Channel"] || "");
-          const brand     = str(r["Brand"] || r["Brand Name"] || "");
-          const store     = detectSoStore(orderNumber, saleStore, brand);
-
           if (date) {
-            sos.push({ sku, date, qty, orderNumber, customerName, unitPrice, totalPrice, store });
+            sos.push({ sku, date, qty, orderNumber, customerName, unitPrice, totalPrice, store: soStore });
           }
         }
       }
