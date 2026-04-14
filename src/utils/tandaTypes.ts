@@ -110,16 +110,17 @@ export const ALL_PO_STATUSES = ["Open", "Released", "Received", "Partially Recei
 export const ACTIVE_PO_STATUSES = ["Open", "Released", "Partially Received", "Pending", "Draft"];
 
 export const STATUS_COLORS: Record<string, string> = {
-  Open:       "#3B82F6",
-  Released:   "#8B5CF6",
-  Received:   "#10B981",
-  Closed:     "#6B7280",
-  Cancelled:  "#EF4444",
-  Pending:    "#F59E0B",
-  Draft:      "#9CA3AF",
+  Open:                 "#3B82F6",
+  Released:             "#8B5CF6",
+  "Partially Received": "#14B8A6",
+  Received:             "#10B981",
+  Closed:               "#6B7280",
+  Cancelled:            "#EF4444",
+  Pending:              "#F59E0B",
+  Draft:                "#9CA3AF",
 };
 
-export const STATUS_OPTIONS = ["Open", "Released", "Received", "Closed", "Cancelled", "Pending", "Draft"];
+export const STATUS_OPTIONS = ["Open", "Released", "Partially Received", "Received", "Closed", "Cancelled", "Pending", "Draft"];
 
 export const WIP_CATEGORIES = ["Pre-Production", "Fabric T&A", "Samples", "Production", "Transit"];
 
