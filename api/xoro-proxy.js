@@ -87,18 +87,33 @@ export default async function handler(req, res) {
       }
     }
 
-    // ── fetch_all mode: sequential pagination ───────────────────────────
-    // Parallel speculative fetches were tripping Xoro rate limits (confirmed
-    // against ats-sync.js comment: >3 concurrent → rate-limited). Go strictly
-    // sequential: page 1, 2, 3, ... until we see an empty page or hit the cap.
-    // Trust Data.length, not the unreliable Result/TotalPages fields.
+    // ── fetch_all mode: sequential pagination with retries ──────────────
+    // Parallel speculative fetches tripped Xoro rate limits (confirmed via
+    // ats-sync.js BATCH=3 comment). Go sequential; each page retries with
+    // backoff when Xoro rate-limits (Result:false + empty Data on page 1
+    // with no data yet accumulated usually means throttling, not truly empty).
     const pageCounts = [];
     let allData = [];
     let reportedTotalPages = 1;
+
+    async function fetchPageWithRetry(page, isFirstPage) {
+      const delays = isFirstPage ? [0, 800, 2000] : [0];
+      let last;
+      for (const delay of delays) {
+        if (delay) await new Promise(r => setTimeout(r, delay));
+        last = await xoroFetchPage(page);
+        const hasData = Array.isArray(last?.Data) && last.Data.length > 0;
+        if (hasData) return last;
+        // On the first page only, retry on Result:false (likely throttled).
+        if (!isFirstPage || last?.Result !== false) return last;
+      }
+      return last;
+    }
+
     for (let page = 1; page <= 50; page++) {
       let r;
       try {
-        r = await xoroFetchPage(page);
+        r = await fetchPageWithRetry(page, page === 1);
       } catch (err) {
         pageCounts.push({ page, error: String(err?.message || err) });
         break;
@@ -108,8 +123,6 @@ export default async function handler(req, res) {
       if (page === 1) {
         reportedTotalPages = r?.TotalPages ?? 1;
         if (!Array.isArray(r?.Data)) {
-          // Page 1 with no Data array — return the raw Xoro response so the
-          // caller can see what happened (auth error, bad status value, etc).
           return res.status(200).json(r ?? { Result: false, Message: "Page 1 fetch failed" });
         }
       }
