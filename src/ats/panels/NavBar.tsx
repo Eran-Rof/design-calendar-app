@@ -5,7 +5,6 @@ import type { ATSRow } from "../types";
 interface NavBarProps {
   mergeHistory: Array<{ fromSku: string; toSku: string }>;
   undoLastMerge: () => void;
-  clearAllAtsData: () => Promise<void>;
   onNavigateHome: () => Promise<void>;
   setShowUpload: (v: boolean) => void;
   uploadingFile: boolean;
@@ -20,7 +19,7 @@ interface NavBarProps {
 }
 
 export const NavBar: React.FC<NavBarProps> = ({
-  mergeHistory, undoLastMerge, clearAllAtsData, onNavigateHome, setShowUpload,
+  mergeHistory, undoLastMerge, onNavigateHome, setShowUpload,
   uploadingFile, invFile, purFile, ordFile,
   exportToExcel, filtered, displayPeriods, atShip, onNegInven,
 }) => (
@@ -40,16 +39,6 @@ export const NavBar: React.FC<NavBarProps> = ({
           ↩ Undo Merge ({mergeHistory.length})
         </button>
       )}
-      <button
-        style={{ ...S.navBtn, background: "#7F1D1D", border: "1px solid #991B1B", color: "#FCA5A5", fontWeight: 600 }}
-        onClick={async () => {
-          if (window.confirm("Delete ALL uploaded ATS data (Excel, PO, merges) and start fresh?\n\nThis cannot be undone.")) {
-            await clearAllAtsData();
-          }
-        }}
-      >
-        🗑 Clear Data
-      </button>
       <button style={S.navBtn} onClick={() => setShowUpload(true)} disabled={uploadingFile}>
         {uploadingFile ? "Uploading…" : "Upload Excel"}
         {!uploadingFile && (invFile || purFile || ordFile) && (

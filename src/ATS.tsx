@@ -566,21 +566,6 @@ function ATSReport() {
 
   // undoLastMerge now lives in useMergeHistory hook.
 
-  async function clearAllAtsData() {
-    // Delete all ATS upload/merge data from Supabase so user can start fresh
-    const keys = ["ats_excel_data", "ats_base_data", "ats_merge_history", "ats_norm_decisions"];
-    await Promise.all(keys.map(key =>
-      fetch(`${SB_URL}/rest/v1/app_data?key=eq.${key}`, {
-        method: "DELETE",
-        headers: SB_HEADERS,
-      }).catch(() => {})
-    ));
-    setExcelData(null);
-    setRows([]);
-    setMergeHistory([]);
-    setMockMode(false);
-    setLastSync(null as any);
-  }
 
   const clearMergeAndNavigate = useCallback(async () => {
     setMergeHistory([]);
@@ -798,7 +783,7 @@ function ATSReport() {
     customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch,
     dragSku, setDragSku, dragOverSku, setDragOverSku,
     pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
-    mergeHistory, setMergeHistory, saveMergeHistory, undoLastMerge, clearAllAtsData, clearMergeAndNavigate,
+    mergeHistory, setMergeHistory, saveMergeHistory, undoLastMerge, clearMergeAndNavigate,
     atShip, setAtShip, onNegInven,
   });
 }
