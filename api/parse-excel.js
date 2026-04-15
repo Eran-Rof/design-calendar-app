@@ -52,6 +52,7 @@ export default async function handler(req, res) {
         if (!base) continue;
         const sku = color ? `${base} - ${color}` : base;
         const brand = str(r["Brand"]);
+        const gender = str(r["Gender"] || r["Dept"] || r["Department"] || r["Gender Code"] || "") || undefined;
         const rawStore = str(r["Store"]).toUpperCase();
         const storeCol = rawStore.includes("ECOM") ? "ROF ECOM"
           : (rawStore.includes("PSYCHO") || rawStore.includes("PTUNA") || rawStore.includes("P TUNA") || rawStore === "PT" || rawStore.startsWith("PREBOOK")) ? "PT"
@@ -65,6 +66,7 @@ export default async function handler(req, res) {
             sku,
             description: str(r["Description"]),
             category: brand || undefined,
+            gender,
             store,
             onHand: 0,
             onOrder: 0,

@@ -28,8 +28,19 @@ const STORAGE_PER_PALLET_MONTH = 20;
 
 // ── Parse SKU into base part + color (strip size) ─────────────────────────────
 function parseSku(sku: string): { base: string; color: string } {
+  // ATS SKUs use " - " (space-dash-space) as separator: "CMO0002 - Black/Red"
+  // Xoro raw SKUs use plain "-": "CMO0002-Black/Red-SM"
+  const spaceDelim = sku.indexOf(" - ");
+  if (spaceDelim !== -1) {
+    // ATS format: everything before first " - " is base, rest is color
+    return {
+      base:  sku.slice(0, spaceDelim).trim(),
+      color: sku.slice(spaceDelim + 3).trim(),
+    };
+  }
+  // Raw Xoro format: split on "-", strip trailing size segment
   const parts = sku.split("-");
-  if (parts.length < 2) return { base: sku, color: "" };
+  if (parts.length < 2) return { base: sku.trim(), color: "" };
   const sizeIdx = parts.slice(1).findIndex(p => p.includes("("));
   let colorParts: string[];
   if (sizeIdx !== -1) {
@@ -39,7 +50,7 @@ function parseSku(sku: string): { base: string; color: string } {
   } else {
     colorParts = parts.slice(1);
   }
-  return { base: parts[0], color: colorParts.join("-") };
+  return { base: parts[0].trim(), color: colorParts.join("-").trim() };
 }
 
 // ── Compute aged days from lastReceiptDate (or fallback) ──────────────────────
@@ -98,7 +109,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number) {
 
     exploded.push({
       store:           r.store ?? "Unknown",
-      gender:          r.category ?? "?",
+      gender:          r.gender ?? r.category ?? "?",
       base,
       color,
       description:     r.description ?? "",
