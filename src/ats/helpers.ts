@@ -15,14 +15,32 @@ export function fmtDateShort(iso: string): string {
 
 export function fmtDateDisplay(dateStr: string): string {
   if (!dateStr) return "—";
-  // Only the YYYY-MM-DD branch needs the T00:00:00 suffix to anchor it to local
-  // time. Anything else (including JS Date.toString() output, which contains
-  // dashes inside its GMT offset) goes through the default Date parser.
-  const isoDate = /^\d{4}-\d{2}-\d{2}$/.test(dateStr);
-  const d = isoDate ? new Date(dateStr + "T00:00:00") : new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  return `${months[d.getMonth()]}/${String(d.getDate()).padStart(2,"0")}/${d.getFullYear()}`;
+
+  // ISO YYYY-MM-DD — anchor to local midnight to avoid timezone drift
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const d = new Date(dateStr + "T00:00:00");
+    if (!isNaN(d.getTime()))
+      return `${months[d.getMonth()]}/${String(d.getDate()).padStart(2,"0")}/${d.getFullYear()}`;
+  }
+
+  // Numeric slash/dot formats that may arrive if stored value bypassed toIsoDate
+  const slashDot = dateStr.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+  if (slashDot) {
+    const A = parseInt(slashDot[1], 10), B = parseInt(slashDot[2], 10);
+    const y = parseInt(slashDot[3], 10);
+    // If A > 12 it must be the day (DD/MM/YYYY); otherwise assume US MM/DD/YYYY
+    const month = A > 12 ? B : A;
+    const day   = A > 12 ? A : B;
+    return `${months[month - 1]}/${String(day).padStart(2,"0")}/${y}`;
+  }
+
+  // Fallback: let the JS parser try
+  const d = new Date(dateStr);
+  if (!isNaN(d.getTime()))
+    return `${months[d.getMonth()]}/${String(d.getDate()).padStart(2,"0")}/${d.getFullYear()}`;
+
+  return dateStr;
 }
 
 export function fmtDateHeader(iso: string): string {

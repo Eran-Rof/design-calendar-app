@@ -313,17 +313,70 @@ function toNum(v) {
 }
 
 // Excel cells parsed with cellDates:true become JS Date objects. Stringify
-// them as YYYY-MM-DD so downstream display (fmtDateDisplay) can format them
-// consistently as MMM/DD/YYYY without timezone drift.
+// Always returns YYYY-MM-DD or "" so downstream fmtDateDisplay shows MMM/DD/YYYY
+// consistently regardless of how XLSX delivers the cell (Date object, serial
+// number, or string in any regional format).
 function toIsoDate(v) {
   if (!v) return "";
-  if (v instanceof Date && !isNaN(v.getTime())) {
+
+  // ── JS Date object (XLSX numeric date cells) ──────────────────────────────
+  if (v instanceof Date) {
+    if (isNaN(v.getTime())) return "";
     const y = v.getFullYear();
     const m = String(v.getMonth() + 1).padStart(2, "0");
     const d = String(v.getDate()).padStart(2, "0");
     return `${y}-${m}-${d}`;
   }
-  return String(v).trim();
+
+  // ── Excel serial number ───────────────────────────────────────────────────
+  if (typeof v === "number") {
+    const p = XLSX.SSF.parse_date_code(v);
+    if (p) return `${p.y}-${String(p.m).padStart(2,"0")}-${String(p.d).padStart(2,"0")}`;
+    return "";
+  }
+
+  const s = String(v).trim();
+  if (!s) return "";
+
+  // ── Already ISO: YYYY-MM-DD ───────────────────────────────────────────────
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  // ── Numeric slash/dot formats: M/D/YYYY  D/M/YYYY  etc. ──────────────────
+  const slashDot = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+  if (slashDot) {
+    let [, a, b, y] = slashDot;
+    const A = parseInt(a, 10), B = parseInt(b, 10);
+    let month, day;
+    if (A > 12) {
+      // A can't be a month — must be DD/MM/YYYY
+      day = A; month = B;
+    } else if (B > 12) {
+      // B can't be a month — must be MM/DD/YYYY
+      month = A; day = B;
+    } else {
+      // Ambiguous: both ≤ 12. Xoro exports US format (MM/DD), so assume that.
+      month = A; day = B;
+    }
+    return `${y}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+  }
+
+  // ── YYYY/MM/DD or YYYY/DD/MM ─────────────────────────────────────────────
+  const yFirst = s.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/);
+  if (yFirst) {
+    const [, y, m, d] = yFirst;
+    return `${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;
+  }
+
+  // ── Named-month strings: "Sep 20, 2024"  "20 Sep 2024"  "September 20 2024" ─
+  const named = new Date(s);
+  if (!isNaN(named.getTime())) {
+    const y = named.getFullYear();
+    const m = String(named.getMonth() + 1).padStart(2, "0");
+    const d = String(named.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
+  return "";
 }
 
 // Derive store for an inventory SKU from its brand name (no ECOM distinction at SKU level)
