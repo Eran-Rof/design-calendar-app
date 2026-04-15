@@ -61,7 +61,8 @@ export function computeRowsFromExcelData(data: ExcelData, dates: string[], poSto
     const freeMap: Record<string, number> = {};
     for (const date of dates) {
       const atsAtDate = dateMap[date];
-      if (atsAtDate == null || atsAtDate <= 0) { freeMap[date] = 0; continue; }
+      if (atsAtDate == null) { freeMap[date] = 0; continue; }
+      if (atsAtDate <= 0) { freeMap[date] = atsAtDate; continue; } // preserve 0 or negative as-is
       // Walk future events in order, find maximum reserve needed
       let running = 0;
       let minRunning = 0;
