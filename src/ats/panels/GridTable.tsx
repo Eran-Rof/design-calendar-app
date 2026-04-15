@@ -283,7 +283,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                         });
                       }}
                     >
-                      {isEmpty ? (
+                      {(isEmpty || qty === 0) ? (
                         <span style={{ color: "#334155", fontSize: 11 }}>—</span>
                       ) : isNeg ? (
                         <span style={{
@@ -306,7 +306,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                           fontFamily: "monospace",
                           fontWeight: qty! <= 10 ? 700 : 500,
                         }}>
-                          {qty === 0 ? "0" : qty!.toLocaleString()}
+                          {qty!.toLocaleString()}
                         </span>
                       )}
                     </td>

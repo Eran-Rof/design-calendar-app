@@ -64,9 +64,9 @@ export function exportToExcel(rows: ATSRow[], periods: Array<{ endDate: string; 
       { v: r.onOrder    || 0,  t: "n", s: numB },
       ...periods.map(p => {
         const q = atShip ? (r.freeMap?.[p.endDate] ?? r.dates[p.endDate]) : r.dates[p.endDate];
-        if (q == null) return { v: "", t: "s", s: base };
+        if (q == null || q === 0) return { v: "", t: "s", s: base };
         const nb = numB;
-        const style = q < 0 ? negStyle(nb) : q === 0 ? outStyle(nb) : q <= 10 ? lowStyle(nb) : nb;
+        const style = q < 0 ? negStyle(nb) : q <= 10 ? lowStyle(nb) : nb;
         return { v: q, t: "n", s: style };
       }),
     ];
