@@ -713,7 +713,7 @@ function ATSReport() {
   const totalSKUs    = filtered.length;
   const zeroStock    = filtered.filter(r => (r.dates[todayKey] ?? r.onHand) <= 0).length;
   const lowStock     = filtered.filter(r => { const q = r.dates[todayKey] ?? r.onHand; return q > 0 && q <= 10; }).length;
-  const negATSCount  = filtered.filter(r => Object.values(r.dates).some(q => q < 0)).length;
+  const negATSCount  = filtered.filter(r => displayPeriods.some(p => { const q = r.dates[p.endDate]; return q != null && q < 0; })).length;
   const totalSoQty   = filtered.reduce((s, r) => s + r.onCommitted, 0);
   const totalPoQty   = filtered.reduce((s, r) => s + r.onOrder, 0);
 

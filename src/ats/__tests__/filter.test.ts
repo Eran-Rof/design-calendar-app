@@ -112,8 +112,17 @@ describe("statFilterRows", () => {
     expect(statFilterRows(rows, null, periods)).toBe(rows);
   });
 
-  it("negATS matches any negative value", () => {
+  it("negATS matches any negative value in displayPeriods", () => {
     const out = statFilterRows(rows, "negATS", periods);
+    expect(out.map(r => r.sku)).toEqual(["A"]);
+  });
+  it("negATS ignores negative values on dates outside displayPeriods", () => {
+    const withHistorical = [
+      ...rows,
+      // Only negative on a past date not in displayPeriods — should NOT appear
+      row({ sku: "D", dates: { "2025-12-01": -3, "2026-04-10": 0, "2026-05-01": 0 } }),
+    ];
+    const out = statFilterRows(withHistorical, "negATS", periods);
     expect(out.map(r => r.sku)).toEqual(["A"]);
   });
 

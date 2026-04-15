@@ -53,7 +53,10 @@ export function statFilterRows(
 ): ATSRow[] {
   if (!activeSort) return rows;
   if (activeSort === "negATS") {
-    return rows.filter(r => Object.values(r.dates).some(q => q < 0));
+    return rows.filter(r => displayPeriods.some(p => {
+      const q = r.dates[p.endDate];
+      return q != null && q < 0;
+    }));
   }
   if (activeSort === "zeroStock") {
     return rows.filter(r => displayPeriods.some(p => {
