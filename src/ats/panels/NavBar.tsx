@@ -16,12 +16,13 @@ interface NavBarProps {
   filtered: ATSRow[];
   displayPeriods: Array<{ endDate: string; label: string }>;
   atShip: boolean;
+  onNegInven: () => void;
 }
 
 export const NavBar: React.FC<NavBarProps> = ({
   mergeHistory, undoLastMerge, clearAllAtsData, onNavigateHome, setShowUpload,
   uploadingFile, invFile, purFile, ordFile,
-  exportToExcel, filtered, displayPeriods, atShip,
+  exportToExcel, filtered, displayPeriods, atShip, onNegInven,
 }) => (
   <nav style={S.nav}>
     <div style={S.navLeft}>
@@ -66,6 +67,17 @@ export const NavBar: React.FC<NavBarProps> = ({
           <path d="M11 10l3-4.5h-2.1L10 8.3 8.1 5.5H6l3 4.5L6 14.5h2.1L10 11.7l1.9 2.8H14L11 10z" fill="white" />
         </svg>
         Export Excel
+      </button>
+      <button
+        style={{ ...S.navBtn, background: "#7F1D1D", border: "1px solid #991B1B", color: "#FCA5A5", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}
+        onClick={onNegInven}
+        title="Select Neg ATS filter and download Neg Inventory report"
+      >
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="20" height="20" rx="3" fill="#991B1B" />
+          <path d="M11 10l3-4.5h-2.1L10 8.3 8.1 5.5H6l3 4.5L6 14.5h2.1L10 11.7l1.9 2.8H14L11 10z" fill="#FCA5A5" />
+        </svg>
+        Neg Inven
       </button>
       <button style={{ ...S.navBtn, cursor: "pointer" }} onClick={onNavigateHome}>← PLM Home</button>
     </div>
