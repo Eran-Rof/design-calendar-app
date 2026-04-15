@@ -11,6 +11,7 @@ import { useRowFiltering } from "./ats/hooks/useRowFiltering";
 import { useExcelUpload } from "./ats/hooks/useExcelUpload";
 import { exportToExcel } from "./ats/exportExcel";
 import { exportNegInven } from "./ats/exportNegInven";
+import { exportAgedInven } from "./ats/exportAgedInven";
 import { normalizeExcelData, detectNormChanges, applyNormChanges, mergeNormDecisions, type NormChange, type NormDecisions } from "./ats/normalize";
 import S from "./ats/styles";
 import { StatCard } from "./ats/StatCard";
@@ -578,6 +579,10 @@ function ATSReport() {
     exportNegInven(rows, displayPeriods, atShip);
   }, [rows, displayPeriods, atShip]);
 
+  const onAgedInven = useCallback((days: number) => {
+    exportAgedInven(rows, days);
+  }, [rows]);
+
   async function applyNormReview() {
     if (!normPendingData || !normChanges) return;
     // Persist the user's accept/reject decisions so future uploads can
@@ -784,6 +789,6 @@ function ATSReport() {
     dragSku, setDragSku, dragOverSku, setDragOverSku,
     pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
     mergeHistory, setMergeHistory, saveMergeHistory, undoLastMerge, clearMergeAndNavigate,
-    atShip, setAtShip, onNegInven,
+    atShip, setAtShip, onNegInven, onAgedInven,
   });
 }
