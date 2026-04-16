@@ -660,7 +660,10 @@ function ATSReport() {
   // cancelUpload now lives in useExcelUpload hook.
 
   // ── Filtering ──────────────────────────────────────────────────────────
-  const categories = ["All", ...Array.from(new Set(rows.map(r => r.category ?? "Uncategorized"))).sort()];
+  const categories = ["All", ...Array.from(new Set(
+    rows.filter(r => r.onHand > 0 || r.onOrder > 0 || r.onCommitted > 0)
+        .map(r => r.category).filter(Boolean) as string[]
+  )).sort()];
 
   // Build SKU sets keyed by store for fast row filtering
   const poSkusByStore = useMemo(() => {

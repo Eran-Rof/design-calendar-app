@@ -52,6 +52,7 @@ export default async function handler(req, res) {
         if (!base) continue;
         const sku = color ? `${base} - ${color}` : base;
         const brand = str(r["Brand"]);
+        const category = str(r["Catergory"] || r["Category"] || r["Item Category"] || r["Item Group"] || r["Product Group"] || r["Product Category"] || r["Category Code"] || r["Category Name"] || r["Group"] || r["Class"] || r["Item Class"] || "") || undefined;
         const gender = str(r["Gender"] || r["Dept"] || r["Department"] || r["Gender Code"] || "") || undefined;
         const rawStore = str(r["Store"]).toUpperCase();
         const storeCol = rawStore.includes("ECOM") ? "ROF ECOM"
@@ -65,7 +66,7 @@ export default async function handler(req, res) {
           skuMap[key] = {
             sku,
             description: str(r["Description"]),
-            category: brand || undefined,
+            category,
             gender,
             store,
             onHand: 0,
@@ -98,7 +99,7 @@ export default async function handler(req, res) {
         const poKey = Object.keys(skuMap).find(k => k.startsWith(sku + "::")) || `${sku}::${poStore}`;
         const poDesc = str(r["Description"]);
         if (!skuMap[poKey]) {
-          skuMap[poKey] = { sku, description: poDesc, category: poBrand || undefined, store: poStore, onHand: 0, onOrder: 0, onCommitted: 0 };
+          skuMap[poKey] = { sku, description: poDesc, category: undefined, store: poStore, onHand: 0, onOrder: 0, onCommitted: 0 };
         } else if (!skuMap[poKey].description && poDesc) {
           skuMap[poKey].description = poDesc;
         }
@@ -158,10 +159,12 @@ export default async function handler(req, res) {
         // the SO file (no inventory row) would otherwise render with a blank
         // description column.
         const soDesc = str(r["Description"] || r["Item Description"] || r["Product Name"] || r["Item Name"] || "");
+        const soCategory = str(r["item category"] || r["Item Category"] || r["Catergory"] || r["Category"] || r["Item Group"] || r["Product Group"] || "") || undefined;
         if (!skuMap[soKey]) {
-          skuMap[soKey] = { sku, description: soDesc, category: soBrand || undefined, store: soStore, onHand: 0, onOrder: 0, onCommitted: 0 };
-        } else if (!skuMap[soKey].description && soDesc) {
-          skuMap[soKey].description = soDesc;
+          skuMap[soKey] = { sku, description: soDesc, category: soCategory, store: soStore, onHand: 0, onOrder: 0, onCommitted: 0 };
+        } else {
+          if (!skuMap[soKey].description && soDesc) skuMap[soKey].description = soDesc;
+          if (!skuMap[soKey].category && soCategory) skuMap[soKey].category = soCategory;
         }
         if (qty > 0) {
           soTotal++;
@@ -197,6 +200,23 @@ export default async function handler(req, res) {
 
       // ── Build warnings ────────────────────────────────────────────────────
       const warnings = [];
+
+      // Check if any category column was found in the inventory file
+      const CATEGORY_COLS = ["Catergory", "Category", "Item Category", "Item Group", "Product Group", "Product Category", "Category Code", "Category Name", "Group", "Class", "Item Class"];
+      const foundCategoryCol = columnNames.inventory.find(h => CATEGORY_COLS.includes(h));
+      if (!foundCategoryCol) {
+        const catLike = columnNames.inventory.filter(h => /categor|group|class|dept|division/i.test(h));
+        warnings.push({
+          severity: "warn",
+          field: "Category Column",
+          affected: 0,
+          total: 0,
+          message: `No recognized category column found in the inventory file. The Category filter will be empty. ` +
+            (catLike.length
+              ? `Possible match(es): ${catLike.map(h => `"${h}"`).join(", ")} — let the developer know which one to use.`
+              : `No category-like columns detected. See "Show detected column names" below for the full list.`),
+        });
+      }
 
       if (soNoDate > 0) {
         warnings.push({

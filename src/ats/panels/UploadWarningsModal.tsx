@@ -164,10 +164,10 @@ export const UploadWarningsModal: React.FC<UploadWarningsModalProps> = ({
                 Show detected column names (click to expand)
               </summary>
               <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-                {(["purchases", "orders"] as const).map(file => (
+                {(["inventory", "purchases", "orders"] as const).map(file => (
                   <div key={file} style={{ background: "#0F172A", borderRadius: 6, padding: "8px 12px", border: "1px solid #334155" }}>
                     <div style={{ color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4, fontWeight: 600 }}>
-                      {file === "purchases" ? "Purchases (PO) file" : "Orders (SO) file"}
+                      {file === "inventory" ? "Inventory file" : file === "purchases" ? "Purchases (PO) file" : "Orders (SO) file"}
                     </div>
                     <div style={{ color: "#94A3B8", fontSize: 11, fontFamily: "monospace", lineHeight: 1.8 }}>
                       {pendingUploadData.columnNames![file].join(" · ")}
