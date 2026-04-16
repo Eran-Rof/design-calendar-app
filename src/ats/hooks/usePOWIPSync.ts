@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import type { ExcelData } from "../types";
 import { xoroSkuToExcel, normalizeSku } from "../helpers";
+import { isLineClosed } from "../../utils/tandaTypes";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
 
 interface UsePOWIPSyncOpts {
@@ -49,6 +50,9 @@ export async function applyPOWIPDataToExcel(data: ExcelData): Promise<ExcelData>
     for (const item of items) {
       const rawItemSku = item.ItemNumber ?? "";
       if (!rawItemSku) continue;
+      // Closed lines won't be received — exclude from onOrder rollup even if
+      // QtyRemaining is still nonzero on the Xoro payload.
+      if (isLineClosed(item)) continue;
       // Normalize so case/spacing/abbreviation differences between PO WIP
       // data and the baked excelData (which was normalized on upload) don't
       // produce duplicate SKU entries or break merge replay.

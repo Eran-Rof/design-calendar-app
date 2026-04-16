@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { itemQty, poTotal, normalizeSize, sizeSort, milestoneUid, fmtDate, fmtCurrency, mapXoroRaw } from "../tandaTypes";
+import { itemQty, isLineClosed, poTotal, normalizeSize, sizeSort, milestoneUid, fmtDate, fmtCurrency, mapXoroRaw } from "../tandaTypes";
 import type { XoroPO } from "../tandaTypes";
 
 describe("itemQty", () => {
@@ -17,6 +17,28 @@ describe("itemQty", () => {
   });
   it("returns QtyRemaining even when 0", () => {
     expect(itemQty({ QtyRemaining: 0, QtyOrder: 100 })).toBe(0);
+  });
+  it("returns 0 for closed lines regardless of remaining qty", () => {
+    expect(itemQty({ QtyOrder: 288, QtyRemaining: 288, StatusName: "Closed" })).toBe(0);
+  });
+});
+
+describe("isLineClosed", () => {
+  it("detects Closed status (case-insensitive)", () => {
+    expect(isLineClosed({ StatusName: "Closed" })).toBe(true);
+    expect(isLineClosed({ StatusName: "closed" })).toBe(true);
+  });
+  it("detects Cancelled / Canceled", () => {
+    expect(isLineClosed({ StatusName: "Cancelled" })).toBe(true);
+    expect(isLineClosed({ StatusName: "Canceled" })).toBe(true);
+  });
+  it("returns false for open / partial / received / missing", () => {
+    expect(isLineClosed({ StatusName: "Open" })).toBe(false);
+    expect(isLineClosed({ StatusName: "Received" })).toBe(false);
+    expect(isLineClosed({})).toBe(false);
+  });
+  it("falls back to bare Status field", () => {
+    expect(isLineClosed({ Status: "Closed" })).toBe(true);
   });
 });
 

@@ -1,5 +1,5 @@
 import React from "react";
-import { itemQty, normalizeSize, sizeSort, fmtCurrency } from "../../utils/tandaTypes";
+import { itemQty, isLineClosed, normalizeSize, sizeSort, fmtCurrency } from "../../utils/tandaTypes";
 import S from "../styles";
 import type { DetailPanelCtx } from "../detailPanel";
 
@@ -24,17 +24,23 @@ export function PoMatrixTab({ ctx, total, totalQty }: { ctx: DetailPanelCtx; tot
     const sku = item.ItemNumber ?? ""; const parts = sku.split("-");
     const color = parts.length === 4 ? `${parts[1]}-${parts[2]}` : (parts.length >= 2 ? parts[1] : "");
     const sz = normalizeSize(parts.length === 4 ? parts[3] : parts.length >= 3 ? parts.slice(2).join("-") : "");
-    return { base: parts[0] || sku, color, size: sz, qty: itemQty(item), price: item.UnitPrice ?? 0, desc: item.Description ?? "" };
+    const closed = isLineClosed(item);
+    // Closed lines display their original ordered qty so they stay visible,
+    // but they're segregated into their own matrix rows and excluded from totals.
+    const displayQty = closed ? (item.QtyOrder ?? 0) : itemQty(item);
+    return { base: parts[0] || sku, color, size: sz, qty: displayQty, price: item.UnitPrice ?? 0, desc: item.Description ?? "", closed };
   });
   const sizeSet2 = new Set<string>();
   parsed.forEach((p: any) => { if (p.size) sizeSet2.add(p.size); });
   const sizeOrder = [...sizeSet2].sort(sizeSort);
   const bases: string[] = [];
-  const byBase: Record<string, { color: string; desc: string; sizes: Record<string, number>; price: number }[]> = {};
+  const byBase: Record<string, { color: string; desc: string; sizes: Record<string, number>; price: number; closed: boolean }[]> = {};
   parsed.forEach((p: any) => {
     if (!byBase[p.base]) { byBase[p.base] = []; bases.push(p.base); }
-    let row = byBase[p.base].find((r: any) => r.color === p.color);
-    if (!row) { row = { color: p.color, desc: p.desc, sizes: {}, price: p.price }; byBase[p.base].push(row); }
+    // Split open vs closed into separate rows so we can mark closed visually
+    // and keep them out of the totals.
+    let row = byBase[p.base].find((r: any) => r.color === p.color && r.closed === p.closed);
+    if (!row) { row = { color: p.color, desc: p.desc, sizes: {}, price: p.price, closed: p.closed }; byBase[p.base].push(row); }
     row.sizes[p.size] = (row.sizes[p.size] || 0) + p.qty;
   });
 
@@ -70,17 +76,21 @@ export function PoMatrixTab({ ctx, total, totalQty }: { ctx: DetailPanelCtx; tot
                     const rowTotal = Object.values(row.sizes).reduce((s: number, q: any) => s + q, 0);
                     const rowCost = rowTotal * row.price;
                     const isLast = ri === rows.length - 1;
+                    const dim = row.closed ? { opacity: 0.55, textDecoration: "line-through" as const } : {};
                     return (
-                      <tr key={base + "-" + row.color} style={{ borderBottom: isLast && bi < bases.length - 1 ? "2px solid #334155" : "1px solid #1E293B" }}>
-                        <td style={{ padding: "8px 14px", color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, borderRight: "1px solid #334155" }}>{base}</td>
-                        <td style={{ padding: "8px 14px", color: "#9CA3AF", fontSize: 12 }}>{row.desc || "—"}</td>
-                        <td style={{ padding: "8px 14px", color: "#D1D5DB" }}>{row.color || "—"}</td>
+                      <tr key={base + "-" + row.color + "-" + (row.closed ? "c" : "o")} style={{ borderBottom: isLast && bi < bases.length - 1 ? "2px solid #334155" : "1px solid #1E293B", background: row.closed ? "#1E1B1B" : undefined }}>
+                        <td style={{ padding: "8px 14px", color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, borderRight: "1px solid #334155", ...dim }}>{base}</td>
+                        <td style={{ padding: "8px 14px", color: "#9CA3AF", fontSize: 12, ...dim }}>{row.desc || "—"}</td>
+                        <td style={{ padding: "8px 14px", color: "#D1D5DB" }}>
+                          <span style={dim}>{row.color || "—"}</span>
+                          {row.closed && <span style={{ marginLeft: 8, padding: "2px 6px", borderRadius: 4, background: "#7F1D1D", color: "#FCA5A5", fontSize: 10, fontWeight: 700, letterSpacing: 0.5 }}>CLOSED</span>}
+                        </td>
                         {sizeOrder.map(sz => (
-                          <td key={sz} style={{ padding: "8px 14px", textAlign: "center", color: row.sizes[sz] ? "#E5E7EB" : "#334155", fontFamily: "monospace" }}>{row.sizes[sz] || "—"}</td>
+                          <td key={sz} style={{ padding: "8px 14px", textAlign: "center", color: row.sizes[sz] ? "#E5E7EB" : "#334155", fontFamily: "monospace", ...dim }}>{row.sizes[sz] || "—"}</td>
                         ))}
-                        <td style={{ padding: "8px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 700, fontFamily: "monospace" }}>{rowTotal}</td>
-                        <td style={{ padding: "8px 14px", textAlign: "right", color: "#9CA3AF", fontFamily: "monospace" }}>{fmtCurrency(row.price, selected.CurrencyCode)}</td>
-                        <td style={{ padding: "8px 14px", textAlign: "right", color: "#10B981", fontWeight: 600, fontFamily: "monospace" }}>{fmtCurrency(rowCost, selected.CurrencyCode)}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 700, fontFamily: "monospace", ...dim }}>{rowTotal}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "right", color: "#9CA3AF", fontFamily: "monospace", ...dim }}>{fmtCurrency(row.price, selected.CurrencyCode)}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "right", color: "#10B981", fontWeight: 600, fontFamily: "monospace", ...dim }}>{fmtCurrency(rowCost, selected.CurrencyCode)}</td>
                       </tr>
                     );
                   });
@@ -90,7 +100,7 @@ export function PoMatrixTab({ ctx, total, totalQty }: { ctx: DetailPanelCtx; tot
                 <tr style={{ borderTop: "2px solid #334155", background: "#0F172A" }}>
                   <td colSpan={3} style={{ padding: "12px 14px", color: "#9CA3AF", fontWeight: 700, textAlign: "right" }}>Grand Total</td>
                   {sizeOrder.map(sz => {
-                    const colTotal = parsed.filter((p: any) => p.size === sz).reduce((s: number, p: any) => s + p.qty, 0);
+                    const colTotal = parsed.filter((p: any) => p.size === sz && !p.closed).reduce((s: number, p: any) => s + p.qty, 0);
                     return <td key={sz} style={{ padding: "12px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 700, fontFamily: "monospace" }}>{colTotal}</td>;
                   })}
                   <td style={{ padding: "12px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 800, fontFamily: "monospace" }}>{totalQty}</td>
@@ -115,17 +125,26 @@ export function PoMatrixTab({ ctx, total, totalQty }: { ctx: DetailPanelCtx; tot
             <div style={S.itemsHeader}>
               <span>SKU</span><span>Description</span><span>Qty</span><span>Unit Price</span><span>Total</span>
             </div>
-            {items.map((item, i) => (
-              <div key={i} style={S.itemRow}>
-                <span style={{ color: "#60A5FA", fontFamily: "monospace" }}>{item.ItemNumber ?? "—"}</span>
-                <span style={{ color: "#D1D5DB" }}>{item.Description ?? "—"}</span>
-                <span style={{ color: "#E5E7EB", textAlign: "right" }}>{itemQty(item)}{(item.QtyReceived ?? 0) > 0 ? <span style={{ color: "#6B7280", fontSize: 10 }}> / {item.QtyOrder}</span> : ""}</span>
-                <span style={{ color: "#E5E7EB", textAlign: "right" }}>{fmtCurrency(item.UnitPrice, selected.CurrencyCode)}</span>
-                <span style={{ color: "#10B981", textAlign: "right", fontWeight: 600 }}>
-                  {fmtCurrency(itemQty(item) * (item.UnitPrice ?? 0), selected.CurrencyCode)}
-                </span>
-              </div>
-            ))}
+            {items.map((item, i) => {
+              const closed = isLineClosed(item);
+              const dim = closed ? { opacity: 0.55, textDecoration: "line-through" as const } : {};
+              const displayQty = closed ? (item.QtyOrder ?? 0) : itemQty(item);
+              const displayTotal = closed ? 0 : itemQty(item) * (item.UnitPrice ?? 0);
+              return (
+                <div key={i} style={{ ...S.itemRow, background: closed ? "#1E1B1B" : undefined }}>
+                  <span style={{ color: "#60A5FA", fontFamily: "monospace" }}>
+                    <span style={dim}>{item.ItemNumber ?? "—"}</span>
+                    {closed && <span style={{ marginLeft: 8, padding: "2px 6px", borderRadius: 4, background: "#7F1D1D", color: "#FCA5A5", fontSize: 10, fontWeight: 700, letterSpacing: 0.5 }}>CLOSED</span>}
+                  </span>
+                  <span style={{ color: "#D1D5DB", ...dim }}>{item.Description ?? "—"}</span>
+                  <span style={{ color: "#E5E7EB", textAlign: "right", ...dim }}>{displayQty}{(item.QtyReceived ?? 0) > 0 ? <span style={{ color: "#6B7280", fontSize: 10 }}> / {item.QtyOrder}</span> : ""}</span>
+                  <span style={{ color: "#E5E7EB", textAlign: "right", ...dim }}>{fmtCurrency(item.UnitPrice, selected.CurrencyCode)}</span>
+                  <span style={{ color: "#10B981", textAlign: "right", fontWeight: 600, ...dim }}>
+                    {fmtCurrency(displayTotal, selected.CurrencyCode)}
+                  </span>
+                </div>
+              );
+            })}
             <div style={S.itemsTotal}>
               <span style={{ gridColumn: "1/5", textAlign: "right", color: "#9CA3AF" }}>Total</span>
               <span style={{ color: "#10B981", fontWeight: 700 }}>{fmtCurrency(total, selected.CurrencyCode)}</span>

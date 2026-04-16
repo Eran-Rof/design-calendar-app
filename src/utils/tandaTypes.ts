@@ -39,6 +39,7 @@ export interface XoroPOItem {
   QtyRemaining?: number;
   UnitPrice?: number;
   Discount?: number;
+  StatusName?: string;
 }
 
 export interface LocalNote {
@@ -162,8 +163,15 @@ export function milestoneUid() {
   return "ms_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
 
-/** Get effective qty for a PO line item: QtyRemaining for partially received, QtyOrder otherwise. */
+/** True when a PO line has been closed/cancelled on Xoro (header status may still be Open/Released). */
+export function isLineClosed(item: any): boolean {
+  const s = (item?.StatusName ?? item?.Status ?? "").toString().toLowerCase();
+  return s === "closed" || s === "cancelled" || s === "canceled";
+}
+
+/** Get effective qty for a PO line item: QtyRemaining for partially received, QtyOrder otherwise. Closed lines are 0. */
 export function itemQty(item: any): number {
+  if (isLineClosed(item)) return 0;
   if (item.QtyRemaining != null) return item.QtyRemaining;
   if (item.QtyReceived != null && item.QtyReceived > 0) return (item.QtyOrder ?? 0) - item.QtyReceived;
   return item.QtyOrder ?? 0;
@@ -230,6 +238,7 @@ export function mapXoroRaw(raw: any[]): XoroPO[] {
         QtyReceived: l.QtyReceived ?? 0,
         QtyRemaining: l.QtyRemaining ?? (l.QtyOrder ?? 0) - (l.QtyReceived ?? 0),
         UnitPrice:   l.UnitPrice ?? l.EffectiveUnitPrice ?? 0,
+        StatusName:  l.StatusName ?? l.Status ?? l.LineStatusName ?? "",
       })),
     } as XoroPO;
   });
