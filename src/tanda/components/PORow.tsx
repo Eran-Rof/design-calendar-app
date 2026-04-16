@@ -1,6 +1,6 @@
 import React from "react";
 import S from "../styles";
-import { type XoroPO, type Milestone, STATUS_COLORS, poTotal, fmtDate, fmtCurrency } from "../../utils/tandaTypes";
+import { type XoroPO, type Milestone, STATUS_COLORS, poTotal, hasMultipleDeliveryDates, fmtDate, fmtCurrency } from "../../utils/tandaTypes";
 
 function daysUntil(d?: string) {
   if (!d) return null;
@@ -48,6 +48,7 @@ export const PORow: React.FC<PORowProps> = ({ po, onClick, detailed, milestones:
           </span>
           {days !== null && days < 0 && <span style={{ ...S.badge, background: "#EF444422", color: "#EF4444", border: "1px solid #EF444444" }}>Overdue</span>}
           {days !== null && days >= 0 && days <= 7 && <span style={{ ...S.badge, background: "#F59E0B22", color: "#F59E0B", border: "1px solid #F59E0B44" }}>Due Soon</span>}
+          {hasMultipleDeliveryDates(po) && <span style={{ ...S.badge, background: "#F59E0B22", color: "#F59E0B", border: "1px solid #F59E0B44" }} title="This PO has multiple line-level delivery dates">Multiple Dates</span>}
         </div>
         <div style={{ color: "#D1D5DB", fontWeight: 600 }}>{po.VendorName ?? "Unknown Vendor"}</div>
         {detailed && po.Memo && <div style={{ color: "#6B7280", fontSize: 12, marginTop: 2 }}>{po.Memo}</div>}

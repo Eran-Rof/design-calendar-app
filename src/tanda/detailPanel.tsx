@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, type Dispatch, type SetStateAction,
 import { createPortal } from "react-dom";
 import { type XoroPO, type Milestone, type WipTemplate, type LocalNote, type User, type DCVendor, type View, type DmConversation,
   STATUS_COLORS, WIP_CATEGORIES, MILESTONE_STATUSES, DEFAULT_WIP_TEMPLATES,
-  milestoneUid, itemQty, poTotal, fmtDate, fmtCurrency } from "../utils/tandaTypes";
+  milestoneUid, itemQty, poTotal, hasMultipleDeliveryDates, fmtDate, fmtCurrency } from "../utils/tandaTypes";
 import { printPODetail } from "./exportHelpers";
 import S from "./styles";
 import type { DetailMode, AttachmentEntry } from "./state/core/coreTypes";
@@ -432,9 +432,10 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
                 const ddpColor = days !== null && days < 0 ? "#EF4444" : days !== null && days <= 7 ? "#F59E0B" : "#10B981";
                 const ddpSuffix = days === null ? "" : days < 0 ? ` (${Math.abs(days)}d late)` : days === 0 ? " (Today!)" : ` (${days}d)`;
                 const origin = (() => { const v = dcVendors.find(v => v.name === selected.VendorName); return (v as any)?.country || null; })();
+                const multiDates = hasMultipleDeliveryDates(selected);
                 const pills: [string, string, string?][] = [
                   ["Order", fmtDate(selected.DateOrder) || "—"],
-                  ["DDP", (fmtDate(selected.DateExpectedDelivery) || "—") + ddpSuffix, ddpColor],
+                  ["DDP", (fmtDate(selected.DateExpectedDelivery) || "—") + ddpSuffix + (multiDates ? " · multiple line dates" : ""), multiDates ? "#F59E0B" : ddpColor],
                   ...(selected.VendorReqDate ? [["Vendor Req", fmtDate(selected.VendorReqDate)] as [string, string]] : []),
                   ["Value", fmtCurrency(total, selected.CurrencyCode)],
                   ["Qty", totalQty.toLocaleString()],

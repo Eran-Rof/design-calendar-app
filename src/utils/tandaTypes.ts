@@ -40,6 +40,7 @@ export interface XoroPOItem {
   UnitPrice?: number;
   Discount?: number;
   StatusName?: string;
+  DateExpectedDelivery?: string;
 }
 
 export interface LocalNote {
@@ -169,6 +170,31 @@ export function isLineClosed(item: any): boolean {
   return s === "closed" || s === "cancelled" || s === "canceled";
 }
 
+/** Return the line's delivery date if Xoro provided one, else fall back to the PO header date. */
+export function lineDeliveryDate(item: any, headerDate?: string): string {
+  return (item?.DateExpectedDelivery ?? "") || (headerDate ?? "");
+}
+
+/**
+ * True when at least one line carries a delivery date that differs from the PO header date.
+ * Lines without a date are treated as "matches header" and don't trigger the flag.
+ */
+export function hasMultipleDeliveryDates(po: XoroPO): boolean {
+  const items = po.Items ?? po.PoLineArr ?? [];
+  if (items.length === 0) return false;
+  const header = (po.DateExpectedDelivery ?? "").slice(0, 10);
+  const dates = new Set<string>();
+  for (const it of items) {
+    const d = (it.DateExpectedDelivery ?? "").slice(0, 10);
+    if (d) dates.add(d);
+  }
+  if (dates.size === 0) return false;
+  if (dates.size > 1) return true;
+  // size === 1: differs from header only if header is set and doesn't match
+  const only = [...dates][0];
+  return !!header && only !== header;
+}
+
 /** Get effective qty for a PO line item: QtyRemaining for partially received, QtyOrder otherwise. Closed lines are 0. */
 export function itemQty(item: any): number {
   if (isLineClosed(item)) return 0;
@@ -239,6 +265,7 @@ export function mapXoroRaw(raw: any[]): XoroPO[] {
         QtyRemaining: l.QtyRemaining ?? (l.QtyOrder ?? 0) - (l.QtyReceived ?? 0),
         UnitPrice:   l.UnitPrice ?? l.EffectiveUnitPrice ?? 0,
         StatusName:  l.StatusName ?? l.Status ?? l.LineStatusName ?? "",
+        DateExpectedDelivery: l.DateExpectedDelivery ?? l.DeliveryDate ?? l.DateDelivery ?? l.DateExpected ?? "",
       })),
     } as XoroPO;
   });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { itemQty, isLineClosed, poTotal, normalizeSize, sizeSort, milestoneUid, fmtDate, fmtCurrency, mapXoroRaw } from "../tandaTypes";
+import { itemQty, isLineClosed, hasMultipleDeliveryDates, poTotal, normalizeSize, sizeSort, milestoneUid, fmtDate, fmtCurrency, mapXoroRaw } from "../tandaTypes";
 import type { XoroPO } from "../tandaTypes";
 
 describe("itemQty", () => {
@@ -20,6 +20,48 @@ describe("itemQty", () => {
   });
   it("returns 0 for closed lines regardless of remaining qty", () => {
     expect(itemQty({ QtyOrder: 288, QtyRemaining: 288, StatusName: "Closed" })).toBe(0);
+  });
+});
+
+describe("hasMultipleDeliveryDates", () => {
+  it("returns false when no items", () => {
+    expect(hasMultipleDeliveryDates({ DateExpectedDelivery: "2026-04-15", Items: [] })).toBe(false);
+  });
+  it("returns false when all line dates match the header", () => {
+    expect(hasMultipleDeliveryDates({
+      DateExpectedDelivery: "2026-04-15",
+      Items: [
+        { DateExpectedDelivery: "2026-04-15" },
+        { DateExpectedDelivery: "2026-04-15" },
+      ],
+    })).toBe(false);
+  });
+  it("returns false when no line carries a date", () => {
+    expect(hasMultipleDeliveryDates({
+      DateExpectedDelivery: "2026-04-15",
+      Items: [{ ItemNumber: "X" }, { ItemNumber: "Y" }],
+    })).toBe(false);
+  });
+  it("returns true when lines have differing dates", () => {
+    expect(hasMultipleDeliveryDates({
+      DateExpectedDelivery: "2026-04-15",
+      Items: [
+        { DateExpectedDelivery: "2026-04-13" },
+        { DateExpectedDelivery: "2026-05-01" },
+      ],
+    })).toBe(true);
+  });
+  it("returns true when a single line date differs from header", () => {
+    expect(hasMultipleDeliveryDates({
+      DateExpectedDelivery: "2026-04-15",
+      Items: [{ DateExpectedDelivery: "2026-04-13" }],
+    })).toBe(true);
+  });
+  it("ignores ISO time component when comparing", () => {
+    expect(hasMultipleDeliveryDates({
+      DateExpectedDelivery: "2026-04-15T00:00:00",
+      Items: [{ DateExpectedDelivery: "2026-04-15T08:30:00" }],
+    })).toBe(false);
   });
 });
 

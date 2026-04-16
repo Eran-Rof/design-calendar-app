@@ -1,5 +1,5 @@
 import React from "react";
-import { itemQty, isLineClosed, normalizeSize, sizeSort, fmtCurrency } from "../../utils/tandaTypes";
+import { itemQty, isLineClosed, lineDeliveryDate, normalizeSize, sizeSort, fmtCurrency, fmtDate } from "../../utils/tandaTypes";
 import S from "../styles";
 import type { DetailPanelCtx } from "../detailPanel";
 
@@ -28,19 +28,20 @@ export function PoMatrixTab({ ctx, total, totalQty }: { ctx: DetailPanelCtx; tot
     // Closed lines display their original ordered qty so they stay visible,
     // but they're segregated into their own matrix rows and excluded from totals.
     const displayQty = closed ? (item.QtyOrder ?? 0) : itemQty(item);
-    return { base: parts[0] || sku, color, size: sz, qty: displayQty, price: item.UnitPrice ?? 0, desc: item.Description ?? "", closed };
+    const delivery = (lineDeliveryDate(item, selected.DateExpectedDelivery) || "").slice(0, 10);
+    return { base: parts[0] || sku, color, size: sz, qty: displayQty, price: item.UnitPrice ?? 0, desc: item.Description ?? "", closed, delivery };
   });
   const sizeSet2 = new Set<string>();
   parsed.forEach((p: any) => { if (p.size) sizeSet2.add(p.size); });
   const sizeOrder = [...sizeSet2].sort(sizeSort);
   const bases: string[] = [];
-  const byBase: Record<string, { color: string; desc: string; sizes: Record<string, number>; price: number; closed: boolean }[]> = {};
+  const byBase: Record<string, { color: string; desc: string; sizes: Record<string, number>; price: number; closed: boolean; delivery: string }[]> = {};
   parsed.forEach((p: any) => {
     if (!byBase[p.base]) { byBase[p.base] = []; bases.push(p.base); }
-    // Split open vs closed into separate rows so we can mark closed visually
-    // and keep them out of the totals.
-    let row = byBase[p.base].find((r: any) => r.color === p.color && r.closed === p.closed);
-    if (!row) { row = { color: p.color, desc: p.desc, sizes: {}, price: p.price, closed: p.closed }; byBase[p.base].push(row); }
+    // Split rows by closed-state AND delivery date so each row reflects a
+    // single shipment date — required when a PO has staggered line deliveries.
+    let row = byBase[p.base].find((r: any) => r.color === p.color && r.closed === p.closed && r.delivery === p.delivery);
+    if (!row) { row = { color: p.color, desc: p.desc, sizes: {}, price: p.price, closed: p.closed, delivery: p.delivery }; byBase[p.base].push(row); }
     row.sizes[p.size] = (row.sizes[p.size] || 0) + p.qty;
   });
 
@@ -67,6 +68,7 @@ export function PoMatrixTab({ ctx, total, totalQty }: { ctx: DetailPanelCtx; tot
                   <th style={{ padding: "10px 14px", textAlign: "center", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Total</th>
                   <th style={{ padding: "10px 14px", textAlign: "right", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>PO Cost</th>
                   <th style={{ padding: "10px 14px", textAlign: "right", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Total Cost</th>
+                  <th style={{ padding: "10px 14px", textAlign: "center", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, borderBottom: "2px solid #334155" }}>Delivery</th>
                 </tr>
               </thead>
               <tbody>
@@ -91,6 +93,7 @@ export function PoMatrixTab({ ctx, total, totalQty }: { ctx: DetailPanelCtx; tot
                         <td style={{ padding: "8px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 700, fontFamily: "monospace", ...dim }}>{rowTotal}</td>
                         <td style={{ padding: "8px 14px", textAlign: "right", color: "#9CA3AF", fontFamily: "monospace", ...dim }}>{fmtCurrency(row.price, selected.CurrencyCode)}</td>
                         <td style={{ padding: "8px 14px", textAlign: "right", color: "#10B981", fontWeight: 600, fontFamily: "monospace", ...dim }}>{fmtCurrency(rowCost, selected.CurrencyCode)}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "center", color: "#60A5FA", fontFamily: "monospace", ...dim }}>{row.delivery ? fmtDate(row.delivery) : "—"}</td>
                       </tr>
                     );
                   });
@@ -106,6 +109,7 @@ export function PoMatrixTab({ ctx, total, totalQty }: { ctx: DetailPanelCtx; tot
                   <td style={{ padding: "12px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 800, fontFamily: "monospace" }}>{totalQty}</td>
                   <td style={{ padding: "12px 14px" }} />
                   <td style={{ padding: "12px 14px", textAlign: "right", color: "#10B981", fontWeight: 800, fontFamily: "monospace" }}>{fmtCurrency(total, selected.CurrencyCode)}</td>
+                  <td style={{ padding: "12px 14px" }} />
                 </tr>
               </tfoot>
             </table>
@@ -123,13 +127,17 @@ export function PoMatrixTab({ ctx, total, totalQty }: { ctx: DetailPanelCtx; tot
         {!lineItemsCollapsed && (
           <div style={{ ...S.itemsTable, borderRadius: "0 0 8px 8px" }}>
             <div style={S.itemsHeader}>
-              <span>SKU</span><span>Description</span><span>Qty</span><span>Unit Price</span><span>Total</span>
+              <span>SKU</span><span>Description</span><span>Qty</span><span>Unit Price</span><span>Total</span><span>Delivery</span>
             </div>
             {items.map((item, i) => {
               const closed = isLineClosed(item);
               const dim = closed ? { opacity: 0.55, textDecoration: "line-through" as const } : {};
               const displayQty = closed ? (item.QtyOrder ?? 0) : itemQty(item);
               const displayTotal = closed ? 0 : itemQty(item) * (item.UnitPrice ?? 0);
+              const lineDate = lineDeliveryDate(item, selected.DateExpectedDelivery);
+              const headerDate = (selected.DateExpectedDelivery ?? "").slice(0, 10);
+              const lineDateShort = (lineDate ?? "").slice(0, 10);
+              const differs = !!lineDateShort && !!headerDate && lineDateShort !== headerDate;
               return (
                 <div key={i} style={{ ...S.itemRow, background: closed ? "#1E1B1B" : undefined }}>
                   <span style={{ color: "#60A5FA", fontFamily: "monospace" }}>
@@ -142,12 +150,16 @@ export function PoMatrixTab({ ctx, total, totalQty }: { ctx: DetailPanelCtx; tot
                   <span style={{ color: "#10B981", textAlign: "right", fontWeight: 600, ...dim }}>
                     {fmtCurrency(displayTotal, selected.CurrencyCode)}
                   </span>
+                  <span style={{ color: differs ? "#F59E0B" : "#9CA3AF", fontFamily: "monospace", fontWeight: differs ? 700 : 400 }}>
+                    {lineDate ? fmtDate(lineDate) : "—"}
+                  </span>
                 </div>
               );
             })}
             <div style={S.itemsTotal}>
               <span style={{ gridColumn: "1/5", textAlign: "right", color: "#9CA3AF" }}>Total</span>
               <span style={{ color: "#10B981", fontWeight: 700 }}>{fmtCurrency(total, selected.CurrencyCode)}</span>
+              <span />
             </div>
           </div>
         )}

@@ -71,9 +71,9 @@ const S: Record<string, React.CSSProperties> = {
   sectionLabel: { color: "#6B7280", fontSize: 12, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10, fontWeight: 600 },
 
   itemsTable:   { background: "#0F172A", borderRadius: 8, overflow: "hidden" },
-  itemsHeader:  { display: "grid", gridTemplateColumns: "1fr 2fr 80px 100px 100px", padding: "10px 14px", background: "#1E293B", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, gap: 8 },
-  itemRow:      { display: "grid", gridTemplateColumns: "1fr 2fr 80px 100px 100px", padding: "10px 14px", borderTop: "1px solid #1E293B", gap: 8, fontSize: 13 },
-  itemsTotal:   { display: "grid", gridTemplateColumns: "1fr 2fr 80px 100px 100px", padding: "12px 14px", borderTop: "2px solid #334155", gap: 8, background: "#1A2332" },
+  itemsHeader:  { display: "grid", gridTemplateColumns: "1fr 2fr 80px 100px 100px 110px", padding: "10px 14px", background: "#1E293B", color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, gap: 8 },
+  itemRow:      { display: "grid", gridTemplateColumns: "1fr 2fr 80px 100px 100px 110px", padding: "10px 14px", borderTop: "1px solid #1E293B", gap: 8, fontSize: 13 },
+  itemsTotal:   { display: "grid", gridTemplateColumns: "1fr 2fr 80px 100px 100px 110px", padding: "12px 14px", borderTop: "2px solid #334155", gap: 8, background: "#1A2332" },
 
   noteCard:     { background: "#0F172A", borderRadius: 8, padding: 14, marginBottom: 10 },
 };
