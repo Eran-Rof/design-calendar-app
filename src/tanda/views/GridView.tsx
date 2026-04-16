@@ -20,12 +20,13 @@ const FIXED_COLS = "32px 32px 130px 160px 140px 110px 90px 72px";
 const PHASE_SUB  = "70px 90px 82px 56px 26px";
 const PHASE_COLS = 5;
 
-// Border constants — all 2px to avoid corner-miter artifacts.
-// Phase boundaries use COLOR (indigo) rather than extra thickness so
-// horizontal lines never "overlap" vertical ones at corners.
-const B_CELL  = "2px solid #374151";   // standard cell border — bright enough to see
-const B_HDR   = "2px solid #475569";   // header borders — slightly brighter
-const B_PHASE = "2px solid #818CF8";   // phase-group divider — indigo, same width as B_CELL
+// Border constants — standard borders 2px, phase divider 4px.
+// Phase dividers are rendered via boxShadow (not borderRight) so they never
+// participate in CSS corner-miter logic — horizontal lines stay clean.
+const B_CELL  = "2px solid #374151";           // standard cell border
+const B_HDR   = "2px solid #475569";           // header borders
+const B_PHASE = "2px solid #818CF8";           // NOT used directly on cells
+const PHASE_SHADOW = "4px 0 0 0 #818CF8";      // box-shadow used instead of borderRight for phase dividers
 
 function buildColTpl(phaseCount: number) {
   return phaseCount > 0
@@ -534,8 +535,9 @@ export function GridView({
                       justifyContent: "center",
                       background: "#1A2535",
                       color: "#C4B5FD",
-                      // Double-thick divider between phases; no border on last
-                      borderRight: i === phases.length - 1 ? "none" : B_PHASE,
+                      // Phase divider via boxShadow — doesn't create corner-miter with borderBottom
+                      borderRight: "none",
+                      boxShadow: i === phases.length - 1 ? "none" : PHASE_SHADOW,
                       borderBottom: B_HDR,
                     }}>
                       {p}
@@ -556,8 +558,8 @@ export function GridView({
                         <span style={{ ...hdr2 }}>Status</span>
                         <span style={{ ...hdr2 }}>Status Date</span>
                         <span style={{ ...hdr2 }}>Days</span>
-                        {/* Notes sub-label — double-thick right border between phases */}
-                        <span style={{ ...hdr2, borderRight: isLast ? "none" : B_PHASE }}>📝</span>
+                        {/* Notes sub-label — 4px indigo divider via boxShadow, no miter */}
+                        <span style={{ ...hdr2, borderRight: "none", boxShadow: isLast ? "none" : PHASE_SHADOW }}>📝</span>
                       </React.Fragment>
                     );
                   })}
@@ -653,8 +655,11 @@ export function GridView({
                     {phases.map((phase, pi) => {
                       const m      = phaseMap.get(phase);
                       const isLast = pi === phases.length - 1;
-                      // Notes cell gets double-thick right border between phases
-                      const notesBorder: React.CSSProperties = { borderRight: isLast ? "none" : B_PHASE };
+                      // Phase divider via boxShadow — no borderRight so no corner-miter with borderBottom
+                      const notesBorder: React.CSSProperties = {
+                        borderRight: "none",
+                        boxShadow: isLast ? "none" : PHASE_SHADOW,
+                      };
 
                       if (!m) {
                         return (
