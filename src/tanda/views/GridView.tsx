@@ -16,9 +16,15 @@ const MAX_UNDO  = 30;
 // Fixed column widths: expand | notes | PO# | Vendor | Buyer | BuyerPO | DDP | Days from DDP
 const FIXED_COLS = "32px 32px 130px 160px 140px 110px 90px 72px";
 // Per-phase sub-columns sized to fit content + ~2-char breathing room:
-//   Due Date (MM/DD/YYYY)=70 | Status ("Not Started")=90 | Status Date=82 | Days ("365 late")=56 | Phase Notes=26
+//   Due Date 70 | Status ("Not Started") 90 | Status Date 82 | Days ("365 late") 56 | Phase Notes 26
 const PHASE_SUB  = "70px 90px 82px 56px 26px";
-const PHASE_COLS = 5; // sub-columns per phase
+const PHASE_COLS = 5;
+
+// Border constants
+const B_CELL   = "2px solid #1E293B";   // standard cell border (H and V)
+const B_INNER  = "2px solid #0F172A";   // darker inner top-of-row divider
+const B_HDR    = "2px solid #334155";   // header borders
+const B_PHASE  = "4px solid #334155";   // thick divider between phase groups
 
 function buildColTpl(phaseCount: number) {
   return phaseCount > 0
@@ -26,6 +32,130 @@ function buildColTpl(phaseCount: number) {
     : FIXED_COLS;
 }
 
+// ── NotesModal ─────────────────────────────────────────────────────────────
+// Separate component so it can own its own state (noteText, addPhase).
+interface NotesModalProps {
+  po: XoroPO;
+  ms: Milestone[];           // live milestone list (optimistically updated)
+  filterPhase?: string;      // if set, scopes display + add-target to one phase
+  onClose: () => void;
+  onAddNote: (m: Milestone, text: string) => void;
+}
+function NotesModal({ po, ms, filterPhase, onClose, onAddNote }: NotesModalProps) {
+  const [noteText, setNoteText] = useState("");
+  const [addPhase, setAddPhase] = useState(filterPhase ?? "");
+
+  // Milestones selectable for adding a note
+  const availableMs = filterPhase ? ms.filter(m => m.phase === filterPhase) : ms;
+
+  // Set initial addPhase once
+  useEffect(() => {
+    if (!addPhase && availableMs.length > 0) setAddPhase(availableMs[0].phase);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Notes to display
+  const shown = filterPhase
+    ? ms.filter(m => m.phase === filterPhase && ((m.note_entries && m.note_entries.length > 0) || m.notes))
+    : ms.filter(m => (m.note_entries && m.note_entries.length > 0) || m.notes);
+
+  const handleAdd = () => {
+    if (!noteText.trim()) return;
+    const target = availableMs.find(m => m.phase === addPhase) ?? availableMs[0];
+    if (!target) return;
+    onAddNote(target, noteText.trim());
+    setNoteText("");
+  };
+
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}
+      onClick={onClose}
+    >
+      <div
+        style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 10, width: 560, maxHeight: "75vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{ padding: "14px 20px", borderBottom: "1px solid #1E293B", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+          <div>
+            <div style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, fontSize: 15 }}>
+              {po.PoNumber}
+              {filterPhase && <span style={{ marginLeft: 10, color: "#C4B5FD", fontFamily: "sans-serif", fontSize: 12, fontWeight: 400 }}>· {filterPhase}</span>}
+            </div>
+            <div style={{ color: "#6B7280", fontSize: 12, marginTop: 2 }}>
+              {filterPhase ? "Phase Notes" : "All Milestone Notes"}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
+        </div>
+
+        {/* Existing notes — scrollable */}
+        <div style={{ padding: "16px 20px", overflowY: "auto", flex: 1 }}>
+          {shown.length === 0 ? (
+            <div style={{ color: "#6B7280", fontSize: 13, textAlign: "center", padding: "20px 0" }}>
+              No notes yet — add one below.
+            </div>
+          ) : (
+            shown.map(m => (
+              <div key={m.id} style={{ marginBottom: 18 }}>
+                {!filterPhase && (
+                  <div style={{ color: "#C4B5FD", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 7 }}>
+                    {m.phase}
+                    <span style={{ marginLeft: 8, color: "#6B7280", fontWeight: 400, textTransform: "none", fontSize: 10 }}>{m.category}</span>
+                  </div>
+                )}
+                {m.note_entries && m.note_entries.length > 0
+                  ? m.note_entries.map((ne, i) => (
+                      <div key={i} style={{ background: "#1E293B", borderRadius: 6, padding: "8px 12px", marginBottom: 6 }}>
+                        <div style={{ color: "#E5E7EB", fontSize: 12 }}>{ne.text}</div>
+                        <div style={{ color: "#4B5563", fontSize: 10, marginTop: 4 }}>{ne.user} · {ne.date}</div>
+                      </div>
+                    ))
+                  : m.notes
+                    ? <div style={{ background: "#1E293B", borderRadius: 6, padding: "8px 12px" }}>
+                        <div style={{ color: "#E5E7EB", fontSize: 12 }}>{m.notes}</div>
+                      </div>
+                    : null}
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Add note footer */}
+        <div style={{ padding: "12px 20px", borderTop: "1px solid #1E293B", flexShrink: 0, background: "#080F1A", borderRadius: "0 0 10px 10px" }}>
+          {!filterPhase && availableMs.length > 1 && (
+            <select
+              value={addPhase}
+              onChange={e => setAddPhase(e.target.value)}
+              style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, color: "#D1D5DB", fontSize: 11, padding: "5px 8px", marginBottom: 8, boxSizing: "border-box", outline: "none" }}
+            >
+              {availableMs.map(m => <option key={m.id} value={m.phase}>{m.phase}</option>)}
+            </select>
+          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <textarea
+              value={noteText}
+              onChange={e => setNoteText(e.target.value)}
+              placeholder={filterPhase ? `Add note for ${filterPhase}…` : "Add a note…"}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAdd(); } }}
+              style={{ flex: 1, background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: "#E5E7EB", fontSize: 12, padding: "8px 10px", resize: "none", height: 60, outline: "none", boxSizing: "border-box", fontFamily: "inherit" }}
+            />
+            <button
+              onClick={handleAdd}
+              disabled={!noteText.trim()}
+              style={{ background: noteText.trim() ? "#3B82F6" : "#1A2535", border: "none", borderRadius: 6, color: noteText.trim() ? "#fff" : "#374151", fontSize: 12, padding: "0 16px", cursor: noteText.trim() ? "pointer" : "default", fontWeight: 600, flexShrink: 0, transition: "background 0.15s" }}
+            >
+              Add
+            </button>
+          </div>
+          <div style={{ color: "#374151", fontSize: 10, marginTop: 5 }}>Enter to submit · Shift+Enter for new line</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── GridView ───────────────────────────────────────────────────────────────
 interface GridViewProps {
   pos: XoroPO[];
   milestones: Record<string, Milestone[]>;
@@ -45,7 +175,7 @@ export function GridView({
   saveMilestone, ensureMilestones, vendorHasTemplate, user,
 }: GridViewProps) {
 
-  // Inject scrollbar CSS once — always-visible horizontal bar styled to dark theme.
+  // Inject scrollbar CSS once — always-visible horizontal bar in dark-theme colors.
   useEffect(() => {
     const id = "gv-scrollbar-style";
     if (document.getElementById(id)) return;
@@ -70,15 +200,13 @@ export function GridView({
   const [buyerPoDraft, setBuyerPoDraft]     = useState("");
   const [page, setPage]                     = useState(0);
   const [undoStack, setUndoStack]           = useState<Milestone[]>([]);
-
-  // notesModal: show all PO notes, or a single phase's notes when filterPhase is set.
-  const [notesModal, setNotesModal] = useState<{
+  const [notesModal, setNotesModal]         = useState<{
     po: XoroPO; ms: Milestone[]; filterPhase?: string;
   } | null>(null);
 
   const ensureAttemptedRef = useRef<Set<string>>(new Set());
 
-  // ── Filtered + paged rows ───────────────────────────────────────────────
+  // ── Rows ────────────────────────────────────────────────────────────────
   const rows = useMemo(() => {
     const s = search.toLowerCase();
     return pos.filter(p => {
@@ -99,7 +227,6 @@ export function GridView({
   const totalPages = Math.ceil(rows.length / PAGE_SIZE);
   const pageRows   = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
-  // Auto-generate milestones for visible POs when a filter is active.
   const hasActiveFilter = search.trim() !== "" || filterVendor !== "All" || filterBuyer !== "All";
   useEffect(() => {
     if (!ensureMilestones || !hasActiveFilter) return;
@@ -115,7 +242,6 @@ export function GridView({
     }
   }, [rows, milestones, ensureMilestones, vendorHasTemplate, hasActiveFilter]);
 
-  // Phases from ALL rows so columns stay stable across pages.
   const phases = useMemo(() => {
     const order = new Map<string, number>();
     rows.forEach(p => {
@@ -127,7 +253,7 @@ export function GridView({
     return [...order.entries()].sort((a, b) => a[1] - b[1]).map(([phase]) => phase);
   }, [rows, milestones]);
 
-  // ── Mutation helpers (with undo tracking) ─────────────────────────────
+  // ── Mutations ───────────────────────────────────────────────────────────
   const pushUndo = useCallback((old: Milestone) => {
     setUndoStack(s => [old, ...s].slice(0, MAX_UNDO));
   }, []);
@@ -147,10 +273,10 @@ export function GridView({
     }, true);
   };
 
-  const updateField = (m: Milestone, patch: Partial<Milestone>) => {
+  const updateField = useCallback((m: Milestone, patch: Partial<Milestone>) => {
     pushUndo(m);
     saveMilestone({ ...m, ...patch, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
-  };
+  }, [pushUndo, saveMilestone, user]);
 
   const handleUndo = () => {
     if (undoStack.length === 0) return;
@@ -159,7 +285,26 @@ export function GridView({
     saveMilestone({ ...prev, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
   };
 
-  // ── Buyer PO ───────────────────────────────────────────────────────────
+  // Add note to a specific milestone; optimistically updates the open modal.
+  const addNote = useCallback((milestone: Milestone, text: string) => {
+    const now      = new Date();
+    const dateStr  = now.toISOString().slice(0, 10);
+    const newEntry = { text, user: user?.name || "Unknown", date: dateStr };
+    const updated  = {
+      ...milestone,
+      note_entries: [...(milestone.note_entries || []), newEntry],
+      updated_at: now.toISOString(),
+      updated_by: user?.name || "",
+    };
+    saveMilestone(updated, true);
+    // Optimistic update so the new note appears immediately without closing the modal.
+    setNotesModal(prev => prev ? {
+      ...prev,
+      ms: prev.ms.map(m => m.id === milestone.id ? updated : m),
+    } : prev);
+  }, [user, saveMilestone]);
+
+  // ── Buyer PO ────────────────────────────────────────────────────────────
   const persistBuyerPo = async (poNumber: string, value: string) => {
     const trimmed = value.trim();
     useTandaStore.getState().updatePo(poNumber, { BuyerPo: trimmed });
@@ -172,56 +317,27 @@ export function GridView({
     } catch (e) { console.error("Failed to update buyer_po:", e); }
   };
 
-  // ── Excel export ───────────────────────────────────────────────────────
+  // ── Excel export ────────────────────────────────────────────────────────
   const exportToExcel = () => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
-
-    // Excel-green header style
     const HDR: any = {
       font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 10, name: "Calibri" },
       fill:      { fgColor: { rgb: "217346" }, patternType: "solid" },
       alignment: { horizontal: "center", vertical: "center", wrapText: true },
-      border: {
-        top:    { style: "thin", color: { rgb: "145A2E" } },
-        bottom: { style: "medium", color: { rgb: "145A2E" } },
-        left:   { style: "thin", color: { rgb: "145A2E" } },
-        right:  { style: "thin", color: { rgb: "145A2E" } },
-      },
+      border: { top: { style: "thin", color: { rgb: "145A2E" } }, bottom: { style: "medium", color: { rgb: "145A2E" } }, left: { style: "thin", color: { rgb: "145A2E" } }, right: { style: "thin", color: { rgb: "145A2E" } } },
     };
-    const HDR2: any = {
-      ...HDR,
-      fill: { fgColor: { rgb: "1A5C38" }, patternType: "solid" },
-      font: { ...HDR.font, sz: 9 },
-    };
-    const cellBase: any = {
-      font:      { sz: 10, name: "Calibri" },
-      alignment: { vertical: "center" },
-      border: {
-        top:    { style: "thin", color: { rgb: "D0D8E4" } },
-        bottom: { style: "thin", color: { rgb: "D0D8E4" } },
-        left:   { style: "thin", color: { rgb: "D0D8E4" } },
-        right:  { style: "thin", color: { rgb: "D0D8E4" } },
-      },
-    };
-    const cellAlt: any = { ...cellBase, fill: { fgColor: { rgb: "F0FAF4" }, patternType: "solid" } };
-    const mono = (base: any): any => ({ ...base, font: { ...base.font, name: "Courier New" } });
+    const HDR2: any = { ...HDR, fill: { fgColor: { rgb: "1A5C38" }, patternType: "solid" }, font: { ...HDR.font, sz: 9 } };
+    const cellBase: any = { font: { sz: 10, name: "Calibri" }, alignment: { vertical: "center" }, border: { top: { style: "thin", color: { rgb: "D0D8E4" } }, bottom: { style: "thin", color: { rgb: "D0D8E4" } }, left: { style: "thin", color: { rgb: "D0D8E4" } }, right: { style: "thin", color: { rgb: "D0D8E4" } } } };
+    const cellAlt: any  = { ...cellBase, fill: { fgColor: { rgb: "F0FAF4" }, patternType: "solid" } };
+    const mono = (b: any): any => ({ ...b, font: { ...b.font, name: "Courier New" } });
 
     const fixedHdrs1 = ["PO #", "Vendor", "Buyer", "Buyer PO", "DDP", "Days from DDP"];
     const phaseHdrs1: string[] = [];
     const phaseHdrs2: string[] = [];
-    phases.forEach(p => {
-      phaseHdrs1.push(p, "", "", "", ""); // spans 5 cols, rest blank
-      phaseHdrs2.push("Due Date", "Status", "Status Date", "Days", "Notes");
-    });
+    phases.forEach(p => { phaseHdrs1.push(p, "", "", "", ""); phaseHdrs2.push("Due Date", "Status", "Status Date", "Days", "Notes"); });
 
-    const row1 = [
-      ...fixedHdrs1.map(h => ({ v: h, t: "s", s: HDR })),
-      ...phaseHdrs1.map(h => ({ v: h, t: "s", s: h ? HDR : { ...HDR, fill: { fgColor: { rgb: "1A5C38" }, patternType: "solid" } } })),
-    ];
-    const row2 = [
-      ...fixedHdrs1.map(() => ({ v: "", t: "s", s: HDR2 })),
-      ...phaseHdrs2.map(h => ({ v: h, t: "s", s: HDR2 })),
-    ];
+    const row1 = [...fixedHdrs1.map(h => ({ v: h, t: "s", s: HDR })), ...phaseHdrs1.map(h => ({ v: h, t: "s", s: h ? HDR : { ...HDR, fill: { fgColor: { rgb: "1A5C38" }, patternType: "solid" } } }))];
+    const row2 = [...fixedHdrs1.map(() => ({ v: "", t: "s", s: HDR2 })), ...phaseHdrs2.map(h => ({ v: h, t: "s", s: HDR2 }))];
 
     const dataRows = rows.map((po, ri) => {
       const base = ri % 2 === 0 ? cellBase : cellAlt;
@@ -229,93 +345,57 @@ export function GridView({
       const poMs  = milestones[poNum] || [];
       const phaseMap = new Map<string, Milestone>();
       poMs.forEach(m => phaseMap.set(m.phase, m));
-
-      const ddp  = po.DateExpectedDelivery;
-      const days = ddp ? Math.ceil((new Date(ddp).getTime() - today.getTime()) / 86400000) : null;
+      const ddp    = po.DateExpectedDelivery;
+      const days   = ddp ? Math.ceil((new Date(ddp).getTime() - today.getTime()) / 86400000) : null;
       const daysTxt = days === null ? "" : days < 0 ? `${Math.abs(days)} late` : days === 0 ? "Today" : `${days}`;
-
       const fixed = [
-        { v: poNum,              t: "s", s: mono(base) },
-        { v: po.VendorName || "", t: "s", s: base },
-        { v: po.BuyerName  || "", t: "s", s: base },
-        { v: po.BuyerPo    || "", t: "s", s: mono(base) },
-        { v: fmtDate(ddp)  || "", t: "s", s: base },
-        { v: daysTxt,             t: "s", s: base },
+        { v: poNum, t: "s", s: mono(base) }, { v: po.VendorName || "", t: "s", s: base },
+        { v: po.BuyerName || "", t: "s", s: base }, { v: po.BuyerPo || "", t: "s", s: mono(base) },
+        { v: fmtDate(ddp) || "", t: "s", s: base }, { v: daysTxt, t: "s", s: base },
       ];
-
       const phaseCells: any[] = [];
       phases.forEach(phase => {
         const m = phaseMap.get(phase);
-        if (!m) {
-          for (let i = 0; i < PHASE_COLS; i++) phaseCells.push({ v: "", t: "s", s: base });
-          return;
-        }
-        const daysRem = m.expected_date
-          ? Math.ceil((new Date(m.expected_date + "T00:00:00").getTime() - today.getTime()) / 86400000)
-          : null;
-        const dTxt = m.status === "Complete" ? "Done" : m.status === "N/A" ? ""
-          : daysRem === null ? "" : daysRem < 0 ? `${Math.abs(daysRem)} late`
-          : daysRem === 0 ? "Today" : `${daysRem}`;
+        if (!m) { for (let i = 0; i < PHASE_COLS; i++) phaseCells.push({ v: "", t: "s", s: base }); return; }
+        const daysRem = m.expected_date ? Math.ceil((new Date(m.expected_date + "T00:00:00").getTime() - today.getTime()) / 86400000) : null;
+        const dTxt = m.status === "Complete" ? "Done" : m.status === "N/A" ? "" : daysRem === null ? "" : daysRem < 0 ? `${Math.abs(daysRem)} late` : daysRem === 0 ? "Today" : `${daysRem}`;
         const sdVal = (m.status_dates || {})[m.status] || m.status_date || "";
         const noteCount = (m.note_entries?.length || 0) + (m.notes ? 1 : 0);
+        const allNoteText = [
+          ...(m.note_entries || []).map(ne => `${ne.date} ${ne.user}: ${ne.text}`),
+          ...(m.notes ? [m.notes] : []),
+        ].join(" | ");
         phaseCells.push(
           { v: m.expected_date ? fmtDate(m.expected_date) || "" : "", t: "s", s: base },
-          { v: m.status,   t: "s", s: base },
-          { v: sdVal ? fmtDate(sdVal) || "" : "",   t: "s", s: base },
-          { v: dTxt,       t: "s", s: base },
-          { v: noteCount > 0 ? `${noteCount} note${noteCount > 1 ? "s" : ""}` : "", t: "s", s: base },
+          { v: m.status, t: "s", s: base },
+          { v: sdVal ? fmtDate(sdVal) || "" : "", t: "s", s: base },
+          { v: dTxt, t: "s", s: base },
+          { v: noteCount > 0 ? allNoteText : "", t: "s", s: base },
         );
       });
-
       return [...fixed, ...phaseCells];
     });
 
-    const ws = XLSXStyle.utils.aoa_to_sheet([[]]); // blank then set_cell_value
-    XLSXStyle.utils.sheet_add_aoa(ws, [
-      row1.map(c => c.v),
-      row2.map(c => c.v),
-      ...dataRows.map(r => r.map((c: any) => c.v)),
-    ]);
-
-    // Apply styles cell by cell
-    const applyRow = (rowIdx: number, cells: any[]) => {
-      cells.forEach((c, ci) => {
-        const addr = XLSXStyle.utils.encode_cell({ r: rowIdx, c: ci });
-        if (!ws[addr]) ws[addr] = { v: c.v, t: c.t };
-        ws[addr].s = c.s;
-      });
-    };
-    applyRow(0, row1);
-    applyRow(1, row2);
-    dataRows.forEach((r, ri) => applyRow(ri + 2, r));
-
-    // Column widths
+    const ws = XLSXStyle.utils.aoa_to_sheet([[]]);
+    XLSXStyle.utils.sheet_add_aoa(ws, [row1.map(c => c.v), row2.map(c => c.v), ...dataRows.map(r => r.map((c: any) => c.v))]);
+    const applyRow = (ri: number, cells: any[]) => cells.forEach((c, ci) => { const addr = XLSXStyle.utils.encode_cell({ r: ri, c: ci }); if (!ws[addr]) ws[addr] = { v: c.v, t: c.t }; ws[addr].s = c.s; });
+    applyRow(0, row1); applyRow(1, row2); dataRows.forEach((r, ri) => applyRow(ri + 2, r));
     const fixedWidths = [12, 22, 18, 14, 12, 14];
-    const phaseWidths = phases.flatMap(() => [12, 14, 12, 10, 8]);
+    const phaseWidths = phases.flatMap(() => [12, 14, 12, 10, 30]);
     ws["!cols"] = [...fixedWidths, ...phaseWidths].map(w => ({ wch: w }));
-
-    // Merge phase header cells (row 0, 5 cols each)
-    ws["!merges"] = phases.map((_, pi) => ({
-      s: { r: 0, c: fixedHdrs1.length + pi * PHASE_COLS },
-      e: { r: 0, c: fixedHdrs1.length + pi * PHASE_COLS + PHASE_COLS - 1 },
-    }));
-
+    ws["!merges"] = phases.map((_, pi) => ({ s: { r: 0, c: fixedHdrs1.length + pi * PHASE_COLS }, e: { r: 0, c: fixedHdrs1.length + pi * PHASE_COLS + PHASE_COLS - 1 } }));
     ws["!rows"] = [{ hpx: 28 }, { hpx: 18 }];
-
     const wb = XLSXStyle.utils.book_new();
     XLSXStyle.utils.book_append_sheet(wb, ws, "WIP Grid");
     XLSXStyle.writeFile(wb, `WIP_Grid_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
-  // ── Cell styles ────────────────────────────────────────────────────────
-  const BORDER  = "1px solid #1E293B";
-  const BORDER2 = "1px solid #0F172A";
-
+  // ── Cell styles ─────────────────────────────────────────────────────────
   const cell: React.CSSProperties = {
     padding: "4px 7px",
-    borderRight: BORDER,
-    borderBottom: BORDER,
-    borderTop: BORDER2,
+    borderRight:  B_CELL,
+    borderBottom: B_CELL,
+    borderTop:    B_INNER,
     overflow: "hidden",
     fontSize: 11,
     display: "flex",
@@ -323,7 +403,6 @@ export function GridView({
     boxSizing: "border-box",
   };
 
-  // Row-1 header: phase group labels, wraps text.
   const hdr1: React.CSSProperties = {
     ...cell,
     background: "#162032",
@@ -332,15 +411,15 @@ export function GridView({
     fontWeight: 700,
     textTransform: "uppercase",
     letterSpacing: 0.5,
-    borderTop: "1px solid #334155",
-    borderBottom: "1px solid #334155",
+    borderTop:    B_HDR,
+    borderBottom: B_HDR,
+    borderRight:  B_HDR,
     whiteSpace: "normal",
     wordBreak: "break-word",
     minHeight: 38,
     alignItems: "center",
   };
 
-  // Row-2 header: sub-labels.
   const hdr2: React.CSSProperties = {
     ...cell,
     background: "#111827",
@@ -349,31 +428,31 @@ export function GridView({
     fontWeight: 600,
     textTransform: "uppercase",
     letterSpacing: 0.4,
-    borderTop: BORDER2,
+    borderTop:    B_INNER,
     borderBottom: "2px solid #334155",
+    borderRight:  B_HDR,
     justifyContent: "center",
     minHeight: 24,
     padding: "3px 4px",
   };
 
-  // Phase sub-cell (compact, ~50% size of milestones tab).
   const sub: React.CSSProperties = {
     ...cell,
     fontSize: 10,
     padding: "2px 4px",
-    borderTop: BORDER2,
+    borderTop: B_INNER,
   };
+
+  // Left border on first column to close the outer frame.
+  const firstCol: React.CSSProperties = { borderLeft: B_CELL };
 
   const ct    = buildColTpl(phases.length);
   const today = new Date(); today.setHours(0, 0, 0, 0);
 
-  // Left-border on first cell (expand column) to close the outer grid frame.
-  const firstCellExtra: React.CSSProperties = { borderLeft: "1px solid #1E293B" };
-
   return (
     <div style={{ maxWidth: "100%", margin: "0 auto", padding: "0 12px" }}>
 
-      {/* ── Toolbar ───────────────────────────────────────────────────── */}
+      {/* ── Toolbar ────────────────────────────────────────────────────── */}
       <div style={{ ...S.filters, flexWrap: "wrap" }}>
         <input
           style={{ ...S.input, flex: 1, minWidth: 240, marginBottom: 0 }}
@@ -391,37 +470,19 @@ export function GridView({
         </select>
         <button style={S.btnSecondary} onClick={() => { setSearch(""); setFilterVendor("All"); setFilterBuyer("All"); }}>Clear</button>
 
-        {/* Undo */}
         <button
           onClick={handleUndo}
           disabled={undoStack.length === 0}
           title={undoStack.length > 0 ? `Undo last change (${undoStack.length} available)` : "Nothing to undo"}
-          style={{
-            ...S.btnSecondary,
-            opacity: undoStack.length === 0 ? 0.35 : 1,
-            display: "flex", alignItems: "center", gap: 5,
-          }}
+          style={{ ...S.btnSecondary, opacity: undoStack.length === 0 ? 0.35 : 1, display: "flex", alignItems: "center", gap: 5 }}
         >
           ↩ Undo
         </button>
 
-        {/* Excel download — Excel green */}
         <button
           onClick={exportToExcel}
           title="Download as Excel"
-          style={{
-            background: "#217346",
-            border: "1px solid #145A2E",
-            color: "#fff",
-            borderRadius: 8,
-            padding: "8px 14px",
-            fontSize: 13,
-            cursor: "pointer",
-            fontWeight: 600,
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-          }}
+          style={{ background: "#217346", border: "1px solid #145A2E", color: "#fff", borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}
         >
           <span style={{ fontSize: 15 }}>⬇</span> Excel
         </button>
@@ -429,22 +490,16 @@ export function GridView({
 
       <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
 
-        {/* ── Status bar + pagination ──────────────────────────────── */}
+        {/* ── Status bar + pagination ─────────────────────────────────── */}
         <div style={{ padding: "10px 14px", color: "#9CA3AF", fontSize: 13, borderBottom: "1px solid #1E293B", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span>
-            Showing {pageRows.length} of {rows.length} PO{rows.length !== 1 ? "s" : ""} · {phases.length} phase{phases.length !== 1 ? "s" : ""}
-          </span>
+          <span>Showing {pageRows.length} of {rows.length} PO{rows.length !== 1 ? "s" : ""} · {phases.length} phase{phases.length !== 1 ? "s" : ""}</span>
           {totalPages > 1 && (
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
-                style={{ ...S.btnSecondary, padding: "3px 10px", fontSize: 11, opacity: page === 0 ? 0.4 : 1 }}>
-                ‹ Prev
-              </button>
+                style={{ ...S.btnSecondary, padding: "3px 10px", fontSize: 11, opacity: page === 0 ? 0.4 : 1 }}>‹ Prev</button>
               <span style={{ color: "#6B7280", fontSize: 11 }}>Page {page + 1} / {totalPages}</span>
               <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}
-                style={{ ...S.btnSecondary, padding: "3px 10px", fontSize: 11, opacity: page >= totalPages - 1 ? 0.4 : 1 }}>
-                Next ›
-              </button>
+                style={{ ...S.btnSecondary, padding: "3px 10px", fontSize: 11, opacity: page >= totalPages - 1 ? 0.4 : 1 }}>Next ›</button>
             </div>
           )}
         </div>
@@ -457,12 +512,12 @@ export function GridView({
           <div className="gv-scroll" style={{ maxHeight: "calc(100vh - 240px)" }}>
             <div style={{ minWidth: "fit-content" }}>
 
-              {/* ── Sticky two-row header ─────────────────────────────── */}
+              {/* ── Sticky two-row header ──────────────────────────────── */}
               <div style={{ position: "sticky", top: 0, zIndex: 3 }}>
 
-                {/* Row 1: fixed labels + phase group label spanning PHASE_COLS each */}
+                {/* Row 1 */}
                 <div style={{ display: "grid", gridTemplateColumns: ct }}>
-                  <span style={{ ...hdr1, ...firstCellExtra }} />
+                  <span style={{ ...hdr1, ...firstCol }} />
                   <span style={{ ...hdr1 }} />
                   <span style={{ ...hdr1 }}>PO #</span>
                   <span style={{ ...hdr1 }}>Vendor</span>
@@ -477,28 +532,33 @@ export function GridView({
                       justifyContent: "center",
                       background: "#1A2535",
                       color: "#C4B5FD",
-                      borderRight: i === phases.length - 1 ? "none" : hdr1.borderRight,
-                      borderBottom: "1px solid #475569",
+                      // Double-thick divider between phases; no border on last
+                      borderRight: i === phases.length - 1 ? "none" : B_PHASE,
+                      borderBottom: "2px solid #475569",
                     }}>
                       {p}
                     </span>
                   ))}
                 </div>
 
-                {/* Row 2: sub-column labels */}
+                {/* Row 2 */}
                 <div style={{ display: "grid", gridTemplateColumns: ct }}>
                   {Array.from({ length: 8 }).map((_, i) => (
-                    <span key={i} style={{ ...hdr2, ...(i === 0 ? firstCellExtra : {}) }} />
+                    <span key={i} style={{ ...hdr2, ...(i === 0 ? firstCol : {}) }} />
                   ))}
-                  {phases.map((p, pi) => (
-                    <React.Fragment key={p}>
-                      <span style={{ ...hdr2 }}>Due Date</span>
-                      <span style={{ ...hdr2 }}>Status</span>
-                      <span style={{ ...hdr2 }}>Status Date</span>
-                      <span style={{ ...hdr2 }}>Days</span>
-                      <span style={{ ...hdr2, borderRight: pi === phases.length - 1 ? "none" : hdr2.borderRight }}>📝</span>
-                    </React.Fragment>
-                  ))}
+                  {phases.map((p, pi) => {
+                    const isLast = pi === phases.length - 1;
+                    return (
+                      <React.Fragment key={p}>
+                        <span style={{ ...hdr2 }}>Due Date</span>
+                        <span style={{ ...hdr2 }}>Status</span>
+                        <span style={{ ...hdr2 }}>Status Date</span>
+                        <span style={{ ...hdr2 }}>Days</span>
+                        {/* Notes sub-label — double-thick right border between phases */}
+                        <span style={{ ...hdr2, borderRight: isLast ? "none" : B_PHASE }}>📝</span>
+                      </React.Fragment>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -513,7 +573,6 @@ export function GridView({
                 const days    = ddp ? Math.ceil((new Date(ddp).getTime() - today.getTime()) / 86400000) : null;
                 const daysClr = days === null ? "#6B7280" : days < 0 ? "#EF4444" : days <= 7 ? "#F59E0B" : "#10B981";
                 const daysTxt = days === null ? "—" : days < 0 ? `${Math.abs(days)} late` : days === 0 ? "Today" : `${days}`;
-
                 const isEditing  = buyerPoEditing === poNum;
                 const isExpanded = expandedPo?.PoNumber === poNum;
                 const hasNotes   = poMs.some(m => (m.note_entries && m.note_entries.length > 0) || m.notes);
@@ -521,9 +580,9 @@ export function GridView({
                 return (
                   <div key={poNum} style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: isExpanded ? "#1E293B44" : undefined }}>
 
-                    {/* Expand — orange, 20% larger */}
+                    {/* Expand */}
                     <span
-                      style={{ ...cell, ...firstCellExtra, justifyContent: "center", cursor: "pointer" }}
+                      style={{ ...cell, ...firstCol, justifyContent: "center", cursor: "pointer" }}
                       onClick={() => setExpandedPo(isExpanded ? null : po)}
                       title={isExpanded ? "Collapse" : "Expand line items & milestones"}
                     >
@@ -532,11 +591,11 @@ export function GridView({
                       </span>
                     </span>
 
-                    {/* Row-level notes button */}
+                    {/* Row-level notes — opens all-PO notes + add form */}
                     <span
                       style={{ ...cell, justifyContent: "center", cursor: "pointer" }}
                       onClick={() => setNotesModal({ po, ms: poMs })}
-                      title={hasNotes ? "View all PO notes" : "No notes yet"}
+                      title={hasNotes ? "View / add PO notes" : "Add PO notes"}
                     >
                       <span style={{ fontSize: 13, color: hasNotes ? "#60A5FA" : "#374151" }}>📝</span>
                     </span>
@@ -588,11 +647,12 @@ export function GridView({
                       {daysTxt}
                     </span>
 
-                    {/* Phase sub-cells: Due Date | Status | Status Date | Days | Notes */}
+                    {/* Phase sub-cells */}
                     {phases.map((phase, pi) => {
                       const m      = phaseMap.get(phase);
                       const isLast = pi === phases.length - 1;
-                      const lastB: React.CSSProperties = isLast ? { borderRight: "none" } : {};
+                      // Notes cell gets double-thick right border between phases
+                      const notesBorder: React.CSSProperties = { borderRight: isLast ? "none" : B_PHASE };
 
                       if (!m) {
                         return (
@@ -601,7 +661,7 @@ export function GridView({
                             <span style={{ ...sub, justifyContent: "center", color: "#1E293B" }}>—</span>
                             <span style={{ ...sub, justifyContent: "center", color: "#1E293B" }}>—</span>
                             <span style={{ ...sub, justifyContent: "center", color: "#1E293B" }}>—</span>
-                            <span style={{ ...sub, justifyContent: "center", color: "#1E293B", ...lastB }}>—</span>
+                            <span style={{ ...sub, justifyContent: "center", color: "#1E293B", ...notesBorder }}>—</span>
                           </React.Fragment>
                         );
                       }
@@ -614,9 +674,9 @@ export function GridView({
                       const dTxt = m.status === "Complete" ? "Done" : m.status === "N/A" ? "—"
                         : daysRem === null ? "—" : daysRem < 0 ? `${Math.abs(daysRem)} late`
                         : daysRem === 0 ? "Today" : `${daysRem}`;
-                      const sdVal  = (m.status_dates || {})[m.status] || m.status_date || "";
+                      const sdVal        = (m.status_dates || {})[m.status] || m.status_date || "";
                       const phaseHasNotes = (m.note_entries && m.note_entries.length > 0) || !!m.notes;
-                      const noteCount = (m.note_entries?.length || 0) + (m.notes ? 1 : 0);
+                      const noteCount    = (m.note_entries?.length || 0) + (m.notes ? 1 : 0);
 
                       return (
                         <React.Fragment key={phase}>
@@ -661,11 +721,11 @@ export function GridView({
                             {dTxt}
                           </span>
 
-                          {/* Per-phase notes button */}
+                          {/* Per-phase notes — double-thick right border separates phases */}
                           <span
-                            style={{ ...sub, justifyContent: "center", cursor: "pointer", padding: 2, ...lastB }}
+                            style={{ ...sub, justifyContent: "center", cursor: "pointer", padding: 2, ...notesBorder }}
                             onClick={() => setNotesModal({ po, ms: poMs, filterPhase: phase })}
-                            title={phaseHasNotes ? `${noteCount} note${noteCount !== 1 ? "s" : ""} for ${phase}` : `No notes for ${phase}`}
+                            title={phaseHasNotes ? `${noteCount} note${noteCount !== 1 ? "s" : ""} — click to view/add` : `Add note for ${phase}`}
                           >
                             <span style={{ fontSize: 11, color: phaseHasNotes ? "#60A5FA" : "#374151" }}>
                               {phaseHasNotes ? `📝${noteCount}` : "📝"}
@@ -683,61 +743,15 @@ export function GridView({
       </div>
 
       {/* ── Notes modal ───────────────────────────────────────────────────── */}
-      {notesModal && (() => {
-        const shown = notesModal.filterPhase
-          ? notesModal.ms.filter(m => m.phase === notesModal.filterPhase && ((m.note_entries && m.note_entries.length > 0) || m.notes))
-          : notesModal.ms.filter(m => (m.note_entries && m.note_entries.length > 0) || m.notes);
-        return (
-          <div
-            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}
-            onClick={() => setNotesModal(null)}
-          >
-            <div
-              style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 10, width: 560, maxHeight: "70vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
-              onClick={e => e.stopPropagation()}
-            >
-              <div style={{ padding: "14px 20px", borderBottom: "1px solid #1E293B", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, background: "#0F172A", zIndex: 1 }}>
-                <div>
-                  <div style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, fontSize: 15 }}>
-                    {notesModal.po.PoNumber}
-                    {notesModal.filterPhase && <span style={{ marginLeft: 10, color: "#C4B5FD", fontFamily: "sans-serif", fontSize: 12, fontWeight: 400 }}>· {notesModal.filterPhase}</span>}
-                  </div>
-                  <div style={{ color: "#6B7280", fontSize: 12, marginTop: 2 }}>
-                    {notesModal.filterPhase ? "Phase Notes" : "All Milestone Notes"}
-                  </div>
-                </div>
-                <button onClick={() => setNotesModal(null)} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
-              </div>
-              <div style={{ padding: "16px 20px" }}>
-                {shown.length === 0 ? (
-                  <div style={{ color: "#6B7280", fontSize: 13, textAlign: "center", padding: "24px 0" }}>No notes here yet.</div>
-                ) : (
-                  shown.map(m => (
-                    <div key={m.id} style={{ marginBottom: 18 }}>
-                      <div style={{ color: "#C4B5FD", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 7 }}>
-                        {m.phase}
-                        <span style={{ marginLeft: 8, color: "#6B7280", fontWeight: 400, textTransform: "none", fontSize: 10 }}>{m.category}</span>
-                      </div>
-                      {m.note_entries && m.note_entries.length > 0
-                        ? m.note_entries.map((ne, i) => (
-                            <div key={i} style={{ background: "#1E293B", borderRadius: 6, padding: "8px 12px", marginBottom: 6 }}>
-                              <div style={{ color: "#E5E7EB", fontSize: 12 }}>{ne.text}</div>
-                              <div style={{ color: "#4B5563", fontSize: 10, marginTop: 4 }}>{ne.user} · {ne.date}</div>
-                            </div>
-                          ))
-                        : m.notes
-                          ? <div style={{ background: "#1E293B", borderRadius: 6, padding: "8px 12px" }}>
-                              <div style={{ color: "#E5E7EB", fontSize: 12 }}>{m.notes}</div>
-                            </div>
-                          : null}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {notesModal && (
+        <NotesModal
+          po={notesModal.po}
+          ms={notesModal.ms}
+          filterPhase={notesModal.filterPhase}
+          onClose={() => setNotesModal(null)}
+          onAddNote={addNote}
+        />
+      )}
 
       {/* ── PO expand slide-out panel ─────────────────────────────────────── */}
       {expandedPo && (
