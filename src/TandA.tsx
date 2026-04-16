@@ -119,7 +119,7 @@ function TandAApp() {
   const setPos = (v: any) => { if (typeof v === "function") coreSet("pos", v(useTandaStore.getState().pos)); else coreSet("pos", v); };
   const setNotes = (v: any) => { if (typeof v === "function") coreSet("notes", v(useTandaStore.getState().notes)); else coreSet("notes", v); };
   const setSelected = (v: XoroPO | null) => coreSet("selected", v);
-  const setDetailMode = (v: "header" | "po" | "milestones" | "notes" | "history" | "matrix" | "email" | "attachments" | "all") => coreSet("detailMode", v);
+  const setDetailMode = (v: "header" | "po" | "milestones" | "grid" | "notes" | "history" | "matrix" | "email" | "attachments" | "all") => coreSet("detailMode", v);
   const setAttachments = (v: any) => { if (typeof v === "function") coreSet("attachments", v(useTandaStore.getState().attachments)); else coreSet("attachments", v); };
   const setUploadingAttachment = (v: boolean) => coreSet("uploadingAttachment", v);
   const [, setCountdownTick] = useState(0);

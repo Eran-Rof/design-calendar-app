@@ -23,7 +23,7 @@ interface ListViewProps {
   syncing: boolean;
   lastSync: string;
   setView: (v: View) => void;
-  setDetailMode: (v: "header" | "po" | "milestones" | "notes" | "history" | "matrix" | "email" | "attachments" | "all") => void;
+  setDetailMode: (v: "header" | "po" | "milestones" | "grid" | "notes" | "history" | "matrix" | "email" | "attachments" | "all") => void;
   setNewNote: (v: string) => void;
   setSelected: (v: XoroPO | null) => void;
   setShowSyncModal: (v: boolean) => void;

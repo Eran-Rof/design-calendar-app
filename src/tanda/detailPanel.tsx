@@ -10,6 +10,7 @@ import S from "./styles";
 import type { DetailMode, AttachmentEntry } from "./state/core/coreTypes";
 import { EmailTab } from "./detail/emailTab";
 import { MilestonesTab } from "./detail/milestonesTab";
+import { MilestoneGridTab } from "./detail/milestoneGridTab";
 import { PoMatrixTab } from "./detail/poMatrixTab";
 import { AttachmentsTab } from "./detail/attachmentsTab";
 import { NotesTab } from "./detail/notesTab";
@@ -570,6 +571,7 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
           <div style={{ display: "flex", gap: 2, marginBottom: 0 }}>
             <button style={tabStyle("po")} onClick={() => setDetailMode("po")}>PO / Matrix</button>
             <button style={tabStyle("milestones")} onClick={() => setDetailMode("milestones")}>Milestones</button>
+            <button style={tabStyle("grid")} onClick={() => setDetailMode("grid")}>Grid</button>
             <button style={tabStyle("notes")} onClick={() => setDetailMode("notes")}>Notes</button>
             <button style={tabStyle("attachments")} onClick={() => { setDetailMode("attachments"); const pn = selected.PoNumber ?? ""; if (pn && !attachments[pn]) loadAttachments(pn); }}>📎 Files</button>
             <button style={tabStyle("email")} onClick={() => { setDetailMode("email"); setDtlEmailTab("inbox"); const pn = selected.PoNumber ?? ""; if (pn && emailToken && !dtlEmails[pn]?.length) loadDtlEmails(pn); }}>📧 Email/Teams</button>
@@ -591,6 +593,9 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
 
             {/* Production Milestones */}
             <MilestonesTab ctx={ctx} />
+
+            {/* Milestones Grid (compact spreadsheet entry) */}
+            <MilestoneGridTab ctx={ctx} />
 
             {/* Notes Tab */}
             {/* Notes Tab */}
