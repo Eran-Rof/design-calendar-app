@@ -1,5 +1,5 @@
 import React from "react";
-import { type Milestone, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, milestoneUid, itemQty, normalizeSize, fmtDate, fmtCurrency } from "../../utils/tandaTypes";
+import { type Milestone, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, milestoneUid, itemQty, isLineClosed, lineDeliveryDate, normalizeSize, fmtDate, fmtCurrency } from "../../utils/tandaTypes";
 import S from "../styles";
 import { MilestoneDateInput } from "./MilestoneDateInput";
 import type { DetailPanelCtx } from "../detailPanel";
@@ -24,21 +24,33 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
   const items = selected.Items ?? selected.PoLineArr ?? [];
 
   // Matrix rows (base+color combos) — same calc the PO/Matrix tab uses, kept
-  // local to this tab so we don't have to thread it through ctx.
+  // local to this tab so we don't have to thread it through ctx. The row key
+  // stays (base, color) so variant_statuses lookups don't churn; closed-line
+  // and per-line delivery info are surfaced as row-level annotations instead
+  // of by splitting rows.
   const matrixRows = (() => {
-    const byKey: Record<string, { base: string; color: string; desc: string; qty: number; price: number }> = {};
-    const rows: { base: string; color: string; desc: string; qty: number; price: number }[] = [];
+    const byKey: Record<string, { base: string; color: string; desc: string; qty: number; closedQty: number; price: number; deliveries: Set<string>; allClosed: boolean }> = {};
+    const rows: { base: string; color: string; desc: string; qty: number; closedQty: number; price: number; deliveries: Set<string>; allClosed: boolean }[] = [];
     items.forEach((item: any) => {
       const sku = item.ItemNumber ?? "";
       const parts = sku.split("-");
       const color = parts.length === 4 ? `${parts[1]}-${parts[2]}` : (parts.length >= 2 ? parts[1] : "");
       const base = parts[0] || sku;
       const key = `${base}-${color}`;
+      const closed = isLineClosed(item);
       if (!byKey[key]) {
-        byKey[key] = { base, color, desc: item.Description ?? "", qty: 0, price: item.UnitPrice ?? 0 };
+        byKey[key] = { base, color, desc: item.Description ?? "", qty: 0, closedQty: 0, price: item.UnitPrice ?? 0, deliveries: new Set<string>(), allClosed: true };
         rows.push(byKey[key]);
       }
-      byKey[key].qty += itemQty(item);
+      const row = byKey[key];
+      if (closed) {
+        row.closedQty += item.QtyOrder ?? 0;
+      } else {
+        row.qty += itemQty(item);
+        row.allClosed = false;
+      }
+      const dShort = (lineDeliveryDate(item, selected.DateExpectedDelivery) || "").slice(0, 10);
+      if (dShort) row.deliveries.add(dShort);
     });
     return rows;
   })();
@@ -260,8 +272,8 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
                             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                               <thead>
                                 <tr>
-                                  {["Base Part","Description","Color","Status","Status Date","Qty","PO Cost","Total Cost"].map(h => (
-                                    <th key={h} style={{ padding: "6px 10px", textAlign: h === "Qty" || h === "PO Cost" || h === "Total Cost" ? "right" : "left", color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, borderBottom: "1px solid #334155", whiteSpace: "nowrap" }}>{h}</th>
+                                  {["Base Part","Description","Color","Status","Status Date","Qty","PO Cost","Total Cost","Delivery"].map(h => (
+                                    <th key={h} style={{ padding: "6px 10px", textAlign: h === "Qty" || h === "PO Cost" || h === "Total Cost" ? "right" : h === "Delivery" ? "center" : "left", color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, borderBottom: "1px solid #334155", whiteSpace: "nowrap" }}>{h}</th>
                                   ))}
                                 </tr>
                               </thead>
@@ -270,13 +282,21 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
                                   const key = `${row.base}-${row.color}`;
                                   const vEntry = variantStatuses[key] || { status: m.status, status_date: statusDateVal };
                                   const vMismatch = vEntry.status !== m.status;
+                                  const dim = row.allClosed ? { opacity: 0.55, textDecoration: "line-through" as const } : {};
+                                  const displayQty = row.allClosed ? row.closedQty : row.qty;
+                                  const partialClosed = !row.allClosed && row.closedQty > 0;
+                                  const dates = [...row.deliveries].sort();
+                                  const deliveryLabel = dates.length === 0 ? "—" : dates.length === 1 ? fmtDate(dates[0]) : "Multi";
+                                  const deliveryTitle = dates.length > 1 ? dates.map(fmtDate).join(", ") : "";
                                   return (
-                                    <tr key={key} style={{ borderBottom: "1px solid #1E293B", background: vMismatch ? "#78350F22" : "transparent" }}>
-                                      <td style={{ padding: "5px 10px", color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, whiteSpace: "nowrap" }}>{row.base}</td>
-                                      <td style={{ padding: "5px 10px", color: "#9CA3AF", fontSize: 11 }}>{row.desc || "—"}</td>
+                                    <tr key={key} style={{ borderBottom: "1px solid #1E293B", background: row.allClosed ? "#1E1B1B" : vMismatch ? "#78350F22" : "transparent" }}>
+                                      <td style={{ padding: "5px 10px", color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, whiteSpace: "nowrap", ...dim }}>{row.base}</td>
+                                      <td style={{ padding: "5px 10px", color: "#9CA3AF", fontSize: 11, ...dim }}>{row.desc || "—"}</td>
                                       <td style={{ padding: "5px 10px", color: vMismatch ? "#FDE68A" : "#D1D5DB", whiteSpace: "nowrap" }}>
-                                        {row.color || "—"}
-                                        {vMismatch && <span style={{ fontSize: 10, color: "#F59E0B", marginLeft: 6 }}>⚠</span>}
+                                        <span style={dim}>{row.color || "—"}</span>
+                                        {vMismatch && !row.allClosed && <span style={{ fontSize: 10, color: "#F59E0B", marginLeft: 6 }}>⚠</span>}
+                                        {row.allClosed && <span style={{ marginLeft: 6, padding: "1px 5px", borderRadius: 4, background: "#7F1D1D", color: "#FCA5A5", fontSize: 9, fontWeight: 700, letterSpacing: 0.3 }}>CLOSED</span>}
+                                        {partialClosed && <span title={`${row.closedQty} qty on closed lines`} style={{ marginLeft: 6, padding: "1px 5px", borderRadius: 4, background: "#7F1D1D", color: "#FCA5A5", fontSize: 9, fontWeight: 700, letterSpacing: 0.3 }}>{row.closedQty} CLOSED</span>}
                                       </td>
                                       <td style={{ padding: "5px 10px" }}>
                                         <select
@@ -302,9 +322,10 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
                                           }}
                                         />
                                       </td>
-                                      <td style={{ padding: "5px 10px", textAlign: "right", color: "#F59E0B", fontWeight: 700, fontFamily: "monospace" }}>{row.qty}</td>
-                                      <td style={{ padding: "5px 10px", textAlign: "right", color: "#9CA3AF", fontFamily: "monospace" }}>{fmtCurrency(row.price, selected.CurrencyCode)}</td>
-                                      <td style={{ padding: "5px 10px", textAlign: "right", color: "#10B981", fontWeight: 600, fontFamily: "monospace" }}>{fmtCurrency(row.qty * row.price, selected.CurrencyCode)}</td>
+                                      <td style={{ padding: "5px 10px", textAlign: "right", color: "#F59E0B", fontWeight: 700, fontFamily: "monospace", ...dim }}>{displayQty}</td>
+                                      <td style={{ padding: "5px 10px", textAlign: "right", color: "#9CA3AF", fontFamily: "monospace", ...dim }}>{fmtCurrency(row.price, selected.CurrencyCode)}</td>
+                                      <td style={{ padding: "5px 10px", textAlign: "right", color: "#10B981", fontWeight: 600, fontFamily: "monospace", ...dim }}>{fmtCurrency(row.qty * row.price, selected.CurrencyCode)}</td>
+                                      <td title={deliveryTitle} style={{ padding: "5px 10px", textAlign: "center", color: dates.length > 1 ? "#F59E0B" : "#60A5FA", fontFamily: "monospace", fontWeight: dates.length > 1 ? 700 : 400 }}>{deliveryLabel}</td>
                                     </tr>
                                   );
                                 })}
@@ -315,6 +336,7 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
                                   <td style={{ padding: "8px 10px", textAlign: "right", color: "#F59E0B", fontWeight: 800, fontFamily: "monospace" }}>{matrixRows.reduce((s, r) => s + r.qty, 0)}</td>
                                   <td style={{ padding: "8px 10px" }} />
                                   <td style={{ padding: "8px 10px", textAlign: "right", color: "#10B981", fontWeight: 800, fontFamily: "monospace" }}>{fmtCurrency(matrixRows.reduce((s, r) => s + r.qty * r.price, 0), selected.CurrencyCode)}</td>
+                                  <td style={{ padding: "8px 10px" }} />
                                 </tr>
                               </tfoot>
                             </table>
