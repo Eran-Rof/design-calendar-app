@@ -7,6 +7,7 @@ interface UseRowFilteringOpts {
   excelData: ExcelData | null;
   search: string;
   filterCategory: string;
+  filterGender: string;
   filterStatus: string;
   minATS: number | "";
   storeFilter: string[];
@@ -35,13 +36,14 @@ export function useRowFiltering(opts: UseRowFilteringOpts) {
   const filtered = useMemo(() => filterRows(opts.rows, {
     search: opts.search,
     filterCategory: opts.filterCategory,
+    filterGender: opts.filterGender,
     filterStatus: opts.filterStatus,
     minATS: opts.minATS,
     storeFilter: opts.storeFilter,
     customerSkuSet,
     today: opts.today,
   }), [
-    opts.rows, opts.search, opts.filterCategory, opts.filterStatus,
+    opts.rows, opts.search, opts.filterCategory, opts.filterGender, opts.filterStatus,
     opts.minATS, opts.storeFilter, customerSkuSet, opts.today,
   ]);
 

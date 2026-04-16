@@ -10,6 +10,8 @@ interface ToolbarProps {
   filterCategory: string;
   setFilterCategory: (v: string) => void;
   categories: string[];
+  filterGender: string;
+  setFilterGender: (v: string) => void;
   filterStatus: string;
   setFilterStatus: (v: string) => void;
 
@@ -51,6 +53,7 @@ interface ToolbarProps {
 
 export const Toolbar: React.FC<ToolbarProps> = ({
   search, setSearch, filterCategory, setFilterCategory, categories,
+  filterGender, setFilterGender,
   filterStatus, setFilterStatus,
   STORES, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, setSoDropOpen,
   poDropRef, toggleStore,
@@ -69,9 +72,23 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       value={search}
       onChange={e => setSearch(e.target.value)}
     />
-    <select style={S.select} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
-      {categories.map(c => <option key={c}>{c}</option>)}
-    </select>
+    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+      <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Category:</span>
+      <select style={S.select} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
+        {categories.map(c => <option key={c} value={c}>{c === "All" ? "All" : c}</option>)}
+      </select>
+    </div>
+    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+      <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Gender:</span>
+      <select style={S.select} value={filterGender} onChange={e => setFilterGender(e.target.value)}>
+        <option value="All">All</option>
+        <option value="M">Mens</option>
+        <option value="B">Boys</option>
+        <option value="C">Child</option>
+        <option value="Wms">Women's</option>
+        <option value="G">Girls</option>
+      </select>
+    </div>
     <select style={S.select} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
       <option value="All">All status</option>
       <option value="InStock">In stock</option>

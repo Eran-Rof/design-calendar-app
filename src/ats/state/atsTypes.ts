@@ -9,6 +9,7 @@ export interface ATSState {
   // Filters
   search: string;
   filterCategory: string;
+  filterGender: string;
   filterStatus: string;
   minATS: number | "";
   storeFilter: string[];
@@ -85,6 +86,7 @@ export function createInitialState(startDate: string): ATSState {
     rangeValue: 6,
     search: "",
     filterCategory: "All",
+    filterGender: "All",
     filterStatus: "All",
     minATS: "",
     storeFilter: ["All"],

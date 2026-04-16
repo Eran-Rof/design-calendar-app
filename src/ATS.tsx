@@ -40,7 +40,7 @@ function ATSReport() {
   const today = new Date();
   // ── State → useATSState() + useATSDispatch() (see ats/state/) ──
   const {
-    startDate, rangeUnit, rangeValue, search, filterCategory, filterStatus,
+    startDate, rangeUnit, rangeValue, search, filterCategory, filterGender, filterStatus,
     minATS, storeFilter, poDropOpen, soDropOpen, rows, loading, mockMode,
     page, excelData, uploadingFile, uploadProgress, uploadSuccess, uploadError,
     uploadWarnings, pendingUploadData, showUpload, invFile, purFile, ordFile,
@@ -54,6 +54,7 @@ function ATSReport() {
   const setRangeValue        = mk("rangeValue");
   const setSearch            = mk("search");
   const setFilterCategory    = mk("filterCategory");
+  const setFilterGender      = mk("filterGender");
   const setFilterStatus      = mk("filterStatus");
   const setMinATS            = mk("minATS");
   const setStoreFilter       = mk("storeFilter");
@@ -699,7 +700,7 @@ function ATSReport() {
   const {
     customerSkuSet, filtered, statFiltered, sortedFiltered, pageRows, totalPages, filteredSkuSet,
   } = useRowFiltering({
-    rows, excelData, search, filterCategory, filterStatus, minATS, storeFilter,
+    rows, excelData, search, filterCategory, filterGender, filterStatus, minATS, storeFilter,
     customerFilter, activeSort, sortCol, sortDir, displayPeriods, today,
     pageSize: PAGE_SIZE, page,
   });
@@ -762,13 +763,13 @@ function ATSReport() {
   }
 
   // Reset to page 0 whenever filters/search/sort change
-  useEffect(() => { setPage(0); }, [search, filterCategory, filterStatus, minATS, poStores, soStores, rows, activeSort, sortCol, sortDir]);
+  useEffect(() => { setPage(0); }, [search, filterCategory, filterGender, filterStatus, minATS, poStores, soStores, rows, activeSort, sortCol, sortDir]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // RENDER — see ats/renderPanel.tsx
   return atsRenderPanel({
     startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue,
-    search, setSearch, filterCategory, setFilterCategory, filterStatus, setFilterStatus,
+    search, setSearch, filterCategory, setFilterCategory, filterGender, setFilterGender, filterStatus, setFilterStatus,
     minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen,
     soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage,
     excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess,

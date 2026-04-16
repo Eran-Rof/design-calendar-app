@@ -4,6 +4,7 @@ import { fmtDate } from "./helpers";
 export interface RowFilterOpts {
   search: string;
   filterCategory: string;
+  filterGender: string;
   filterStatus: string;
   minATS: number | "";
   storeFilter: string[];
@@ -31,6 +32,7 @@ export function filterRows(rows: ATSRow[], opts: RowFilterOpts): ATSRow[] {
   return rows.filter(r => {
     if (!rowMatchesSearch(r, tokens)) return false;
     if (opts.filterCategory !== "All" && r.category !== opts.filterCategory) return false;
+    if (opts.filterGender !== "All" && (r.gender ?? "") !== opts.filterGender) return false;
     const todayQty = r.dates[todayKey] ?? r.onHand;
     if (opts.filterStatus !== "All") {
       if (opts.filterStatus === "Out" && !(todayQty <= 0)) return false;
