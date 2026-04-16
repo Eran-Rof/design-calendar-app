@@ -1294,6 +1294,7 @@ function TandAApp() {
           saveMilestones={saveMilestones}
           ensureMilestones={ensureMilestones}
           generateMilestones={generateMilestones}
+          regenerateMilestones={regenerateMilestones}
           vendorHasTemplate={vendorHasTemplate}
           templateVendorList={templateVendorList}
           getVendorTemplates={getVendorTemplates}

@@ -261,6 +261,7 @@ interface GridViewProps {
   saveMilestones: (ms: Milestone[]) => Promise<void>;
   ensureMilestones: (po: XoroPO) => Promise<Milestone[] | "needs_template"> | void;
   generateMilestones: (poNumber: string, ddpDate: string, vendorName?: string) => Milestone[];
+  regenerateMilestones: (po: XoroPO) => Promise<void>;
   vendorHasTemplate: (vendorName: string) => boolean;
   templateVendorList: () => string[];
   getVendorTemplates: (vendor?: string) => WipTemplate[];
@@ -270,7 +271,7 @@ interface GridViewProps {
 
 export function GridView({
   pos, milestones, buyers, vendors, setView, setSelected, setDetailMode,
-  saveMilestone, saveMilestones, ensureMilestones, generateMilestones,
+  saveMilestone, saveMilestones, ensureMilestones, generateMilestones, regenerateMilestones,
   vendorHasTemplate, templateVendorList, getVendorTemplates, saveVendorTemplates,
   user,
 }: GridViewProps) {
@@ -355,30 +356,43 @@ export function GridView({
   }, [pageRows, vendorHasTemplate, dismissedTplVendors]);
 
   // Auto-populate milestones for every PO on the current page.
+  // Also detects partial milestones (PO has some phases but fewer than the current
+  // template) and silently regenerates them so new template phases fill in.
   useEffect(() => {
     for (const po of pageRows) {
       if (!ensureMilestones) continue;
-      const poNum = po.PoNumber ?? "";
-      // Normalise DDP — handles "YYYY-MM-DDTHH:mm:ss", "MM/DD/YYYY", etc.
-      const ddp = normDateISO(po.DateExpectedDelivery);
+      const poNum    = po.PoNumber ?? "";
+      const vendorN  = po.VendorName ?? "";
+      const ddp      = normDateISO(po.DateExpectedDelivery);
       if (!poNum || !ddp) continue;
-      if ((milestones[poNum] || []).length > 0) continue;
-      if (ensureAttemptedRef.current.has(poNum)) continue;
-      ensureAttemptedRef.current.add(poNum);
-      // Use normalised DDP so generateMilestones gets a clean date.
-      const normPo = ddp !== (po.DateExpectedDelivery ?? "") ? { ...po, DateExpectedDelivery: ddp } : po;
-      void (async () => {
-        try {
-          await ensureMilestones(normPo);
-        } catch (e) {
-          // DB save failed — remove from attempted so next render can retry.
-          ensureAttemptedRef.current.delete(poNum);
-          console.error("[Grid] ensureMilestones failed for", poNum, e);
+
+      const existing = milestones[poNum] || [];
+
+      if (existing.length === 0) {
+        // No milestones yet — try to generate.
+        if (ensureAttemptedRef.current.has(poNum)) continue;
+        ensureAttemptedRef.current.add(poNum);
+        const normPo = ddp !== (po.DateExpectedDelivery ?? "") ? { ...po, DateExpectedDelivery: ddp } : po;
+        void (async () => {
+          try { await ensureMilestones(normPo); }
+          catch (e) { ensureAttemptedRef.current.delete(poNum); console.error("[Grid] ensureMilestones failed for", poNum, e); }
+        })();
+      } else if (vendorN && vendorHasTemplate(vendorN)) {
+        // PO has milestones — check if they're partial (fewer phases than current template).
+        const templatePhaseCount = getVendorTemplates(vendorN).length;
+        const regenKey = poNum + "_regen";
+        if (templatePhaseCount > 0 && existing.length < templatePhaseCount && !ensureAttemptedRef.current.has(regenKey)) {
+          ensureAttemptedRef.current.add(regenKey);
+          const normPo = ddp !== (po.DateExpectedDelivery ?? "") ? { ...po, DateExpectedDelivery: ddp } : po;
+          void regenerateMilestones(normPo).catch(e => {
+            ensureAttemptedRef.current.delete(regenKey);
+            console.error("[Grid] regenerateMilestones failed for", poNum, e);
+          });
         }
-      })();
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageRows, milestones, ensureMilestones]);
+  }, [pageRows, milestones, ensureMilestones, vendorHasTemplate, getVendorTemplates, regenerateMilestones]);
 
   const phases = useMemo(() => {
     const order = new Map<string, number>();
@@ -825,13 +839,18 @@ export function GridView({
                     const source = getVendorTemplates(copyFrom === "__default__" ? undefined : copyFrom) || [];
                     const newTpls = source.map((t: WipTemplate) => ({ ...t, id: milestoneUid() }));
                     await saveVendorTemplates(vendorN, newTpls);
-                    // Generate milestones for all POs of this vendor that have a DDP
                     const vendorPos = pos.filter(p => p.VendorName === vendorN && p.DateExpectedDelivery);
+                    // Generate fresh milestones for POs with none; regenerate POs with partial milestones.
                     const allMs: Milestone[] = [];
                     for (const vpo of vendorPos) {
-                      if ((milestones[vpo.PoNumber ?? ""] || []).length > 0) continue;
-                      const ms = generateMilestones(vpo.PoNumber ?? "", vpo.DateExpectedDelivery!, vendorN);
-                      allMs.push(...ms);
+                      const existing = milestones[vpo.PoNumber ?? ""] || [];
+                      if (existing.length === 0) {
+                        const ms = generateMilestones(vpo.PoNumber ?? "", vpo.DateExpectedDelivery!, vendorN);
+                        allMs.push(...ms);
+                      } else {
+                        // Has partial milestones — regenerate to pick up new phases.
+                        void regenerateMilestones(vpo);
+                      }
                     }
                     if (allMs.length > 0) await saveMilestones(allMs);
                     dismiss();

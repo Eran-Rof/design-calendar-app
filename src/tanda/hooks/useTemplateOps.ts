@@ -84,7 +84,8 @@ export function useTemplateOps() {
   }
 
   function vendorHasTemplate(vendorName: string): boolean {
-    return !!(vendorName && getWipTemplates()[vendorName]);
+    const tpl = getWipTemplates()[vendorName];
+    return !!(vendorName && tpl && tpl.length > 0);
   }
 
   function templateVendorList(): string[] {

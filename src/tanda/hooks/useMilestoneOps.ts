@@ -42,7 +42,8 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
 
   function vendorHasTemplate(vendorName: string): boolean {
     const { wipTemplates } = getState();
-    return !!(vendorName && wipTemplates[vendorName]);
+    const tpl = wipTemplates[vendorName];
+    return !!(vendorName && tpl && tpl.length > 0);
   }
 
   async function loadAllMilestones() {
