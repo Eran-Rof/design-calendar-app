@@ -1,4 +1,5 @@
-import React, { useMemo, useState, useEffect, useRef } from "react";
+import React, { useMemo, useState, useEffect, useRef, useCallback } from "react";
+import XLSXStyle from "xlsx-js-style";
 import {
   type XoroPO, type Milestone, type View,
   MILESTONE_STATUS_COLORS, MILESTONE_STATUSES, fmtDate,
@@ -10,11 +11,14 @@ import { SB_URL, SB_HEADERS } from "../../utils/supabase";
 import { useTandaStore } from "../store/index";
 
 const PAGE_SIZE = 16;
+const MAX_UNDO  = 30;
 
-// Fixed column widths: expand | notes | PO# | Vendor | Buyer | BuyerPO | DDP | Days
-const FIXED_COLS = "32px 32px 130px 160px 140px 110px 90px 62px";
-// Per-phase sub-columns: Due Date | Status | Status Date | Days
-const PHASE_SUB = "90px 110px 90px 48px";
+// Fixed column widths: expand | notes | PO# | Vendor | Buyer | BuyerPO | DDP | Days from DDP
+const FIXED_COLS = "32px 32px 130px 160px 140px 110px 90px 72px";
+// Per-phase sub-columns sized to fit content + ~2-char breathing room:
+//   Due Date (MM/DD/YYYY)=70 | Status ("Not Started")=90 | Status Date=82 | Days ("365 late")=56 | Phase Notes=26
+const PHASE_SUB  = "70px 90px 82px 56px 26px";
+const PHASE_COLS = 5; // sub-columns per phase
 
 function buildColTpl(phaseCount: number) {
   return phaseCount > 0
@@ -40,7 +44,8 @@ export function GridView({
   pos, milestones, buyers, vendors, setView, setSelected, setDetailMode,
   saveMilestone, ensureMilestones, vendorHasTemplate, user,
 }: GridViewProps) {
-  // Inject scrollbar CSS once — styled to match the app dark theme.
+
+  // Inject scrollbar CSS once — always-visible horizontal bar styled to dark theme.
   useEffect(() => {
     const id = "gv-scrollbar-style";
     if (document.getElementById(id)) return;
@@ -57,16 +62,23 @@ export function GridView({
     document.head.appendChild(el);
   }, []);
 
-  const [search, setSearch]               = useState("");
-  const [filterVendor, setFilterVendor]   = useState("All");
-  const [filterBuyer, setFilterBuyer]     = useState("All");
-  const [expandedPo, setExpandedPo]       = useState<XoroPO | null>(null);
+  const [search, setSearch]                 = useState("");
+  const [filterVendor, setFilterVendor]     = useState("All");
+  const [filterBuyer, setFilterBuyer]       = useState("All");
+  const [expandedPo, setExpandedPo]         = useState<XoroPO | null>(null);
   const [buyerPoEditing, setBuyerPoEditing] = useState<string | null>(null);
-  const [buyerPoDraft, setBuyerPoDraft]   = useState("");
-  const [page, setPage]                   = useState(0);
-  const [notesModal, setNotesModal]       = useState<{ po: XoroPO; ms: Milestone[] } | null>(null);
-  const ensureAttemptedRef                = useRef<Set<string>>(new Set());
+  const [buyerPoDraft, setBuyerPoDraft]     = useState("");
+  const [page, setPage]                     = useState(0);
+  const [undoStack, setUndoStack]           = useState<Milestone[]>([]);
 
+  // notesModal: show all PO notes, or a single phase's notes when filterPhase is set.
+  const [notesModal, setNotesModal] = useState<{
+    po: XoroPO; ms: Milestone[]; filterPhase?: string;
+  } | null>(null);
+
+  const ensureAttemptedRef = useRef<Set<string>>(new Set());
+
+  // ── Filtered + paged rows ───────────────────────────────────────────────
   const rows = useMemo(() => {
     const s = search.toLowerCase();
     return pos.filter(p => {
@@ -82,7 +94,6 @@ export function GridView({
     });
   }, [pos, search, filterVendor, filterBuyer]);
 
-  // Reset page whenever filters change.
   useEffect(() => setPage(0), [search, filterVendor, filterBuyer]);
 
   const totalPages = Math.ceil(rows.length / PAGE_SIZE);
@@ -104,7 +115,7 @@ export function GridView({
     }
   }, [rows, milestones, ensureMilestones, vendorHasTemplate, hasActiveFilter]);
 
-  // Derive phases from ALL rows (not just pageRows) so columns stay stable across pages.
+  // Phases from ALL rows so columns stay stable across pages.
   const phases = useMemo(() => {
     const order = new Map<string, number>();
     rows.forEach(p => {
@@ -116,8 +127,13 @@ export function GridView({
     return [...order.entries()].sort((a, b) => a[1] - b[1]).map(([phase]) => phase);
   }, [rows, milestones]);
 
-  // ── Milestone mutation helpers ─────────────────────────────────────────
+  // ── Mutation helpers (with undo tracking) ─────────────────────────────
+  const pushUndo = useCallback((old: Milestone) => {
+    setUndoStack(s => [old, ...s].slice(0, MAX_UNDO));
+  }, []);
+
   const updateStatus = (po: XoroPO, m: Milestone, newStatus: string) => {
+    pushUndo(m);
     const dates = { ...(m.status_dates || {}) };
     const iso   = new Date().toISOString().split("T")[0];
     if (newStatus !== "Not Started" && !dates[newStatus]) dates[newStatus] = iso;
@@ -131,10 +147,19 @@ export function GridView({
     }, true);
   };
 
-  const updateField = (m: Milestone, patch: Partial<Milestone>) =>
+  const updateField = (m: Milestone, patch: Partial<Milestone>) => {
+    pushUndo(m);
     saveMilestone({ ...m, ...patch, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
+  };
 
-  // ── Buyer PO persistence ───────────────────────────────────────────────
+  const handleUndo = () => {
+    if (undoStack.length === 0) return;
+    const [prev, ...rest] = undoStack;
+    setUndoStack(rest);
+    saveMilestone({ ...prev, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
+  };
+
+  // ── Buyer PO ───────────────────────────────────────────────────────────
   const persistBuyerPo = async (poNumber: string, value: string) => {
     const trimmed = value.trim();
     useTandaStore.getState().updatePo(poNumber, { BuyerPo: trimmed });
@@ -144,16 +169,153 @@ export function GridView({
         headers: { ...SB_HEADERS, "Content-Type": "application/json", Prefer: "return=minimal" },
         body: JSON.stringify({ buyer_po: trimmed || null }),
       });
-    } catch (e) {
-      console.error("Failed to update buyer_po:", e);
-    }
+    } catch (e) { console.error("Failed to update buyer_po:", e); }
+  };
+
+  // ── Excel export ───────────────────────────────────────────────────────
+  const exportToExcel = () => {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+
+    // Excel-green header style
+    const HDR: any = {
+      font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 10, name: "Calibri" },
+      fill:      { fgColor: { rgb: "217346" }, patternType: "solid" },
+      alignment: { horizontal: "center", vertical: "center", wrapText: true },
+      border: {
+        top:    { style: "thin", color: { rgb: "145A2E" } },
+        bottom: { style: "medium", color: { rgb: "145A2E" } },
+        left:   { style: "thin", color: { rgb: "145A2E" } },
+        right:  { style: "thin", color: { rgb: "145A2E" } },
+      },
+    };
+    const HDR2: any = {
+      ...HDR,
+      fill: { fgColor: { rgb: "1A5C38" }, patternType: "solid" },
+      font: { ...HDR.font, sz: 9 },
+    };
+    const cellBase: any = {
+      font:      { sz: 10, name: "Calibri" },
+      alignment: { vertical: "center" },
+      border: {
+        top:    { style: "thin", color: { rgb: "D0D8E4" } },
+        bottom: { style: "thin", color: { rgb: "D0D8E4" } },
+        left:   { style: "thin", color: { rgb: "D0D8E4" } },
+        right:  { style: "thin", color: { rgb: "D0D8E4" } },
+      },
+    };
+    const cellAlt: any = { ...cellBase, fill: { fgColor: { rgb: "F0FAF4" }, patternType: "solid" } };
+    const mono = (base: any): any => ({ ...base, font: { ...base.font, name: "Courier New" } });
+
+    const fixedHdrs1 = ["PO #", "Vendor", "Buyer", "Buyer PO", "DDP", "Days from DDP"];
+    const phaseHdrs1: string[] = [];
+    const phaseHdrs2: string[] = [];
+    phases.forEach(p => {
+      phaseHdrs1.push(p, "", "", "", ""); // spans 5 cols, rest blank
+      phaseHdrs2.push("Due Date", "Status", "Status Date", "Days", "Notes");
+    });
+
+    const row1 = [
+      ...fixedHdrs1.map(h => ({ v: h, t: "s", s: HDR })),
+      ...phaseHdrs1.map(h => ({ v: h, t: "s", s: h ? HDR : { ...HDR, fill: { fgColor: { rgb: "1A5C38" }, patternType: "solid" } } })),
+    ];
+    const row2 = [
+      ...fixedHdrs1.map(() => ({ v: "", t: "s", s: HDR2 })),
+      ...phaseHdrs2.map(h => ({ v: h, t: "s", s: HDR2 })),
+    ];
+
+    const dataRows = rows.map((po, ri) => {
+      const base = ri % 2 === 0 ? cellBase : cellAlt;
+      const poNum = po.PoNumber ?? "";
+      const poMs  = milestones[poNum] || [];
+      const phaseMap = new Map<string, Milestone>();
+      poMs.forEach(m => phaseMap.set(m.phase, m));
+
+      const ddp  = po.DateExpectedDelivery;
+      const days = ddp ? Math.ceil((new Date(ddp).getTime() - today.getTime()) / 86400000) : null;
+      const daysTxt = days === null ? "" : days < 0 ? `${Math.abs(days)} late` : days === 0 ? "Today" : `${days}`;
+
+      const fixed = [
+        { v: poNum,              t: "s", s: mono(base) },
+        { v: po.VendorName || "", t: "s", s: base },
+        { v: po.BuyerName  || "", t: "s", s: base },
+        { v: po.BuyerPo    || "", t: "s", s: mono(base) },
+        { v: fmtDate(ddp)  || "", t: "s", s: base },
+        { v: daysTxt,             t: "s", s: base },
+      ];
+
+      const phaseCells: any[] = [];
+      phases.forEach(phase => {
+        const m = phaseMap.get(phase);
+        if (!m) {
+          for (let i = 0; i < PHASE_COLS; i++) phaseCells.push({ v: "", t: "s", s: base });
+          return;
+        }
+        const daysRem = m.expected_date
+          ? Math.ceil((new Date(m.expected_date + "T00:00:00").getTime() - today.getTime()) / 86400000)
+          : null;
+        const dTxt = m.status === "Complete" ? "Done" : m.status === "N/A" ? ""
+          : daysRem === null ? "" : daysRem < 0 ? `${Math.abs(daysRem)} late`
+          : daysRem === 0 ? "Today" : `${daysRem}`;
+        const sdVal = (m.status_dates || {})[m.status] || m.status_date || "";
+        const noteCount = (m.note_entries?.length || 0) + (m.notes ? 1 : 0);
+        phaseCells.push(
+          { v: m.expected_date ? fmtDate(m.expected_date) || "" : "", t: "s", s: base },
+          { v: m.status,   t: "s", s: base },
+          { v: sdVal ? fmtDate(sdVal) || "" : "",   t: "s", s: base },
+          { v: dTxt,       t: "s", s: base },
+          { v: noteCount > 0 ? `${noteCount} note${noteCount > 1 ? "s" : ""}` : "", t: "s", s: base },
+        );
+      });
+
+      return [...fixed, ...phaseCells];
+    });
+
+    const ws = XLSXStyle.utils.aoa_to_sheet([[]]); // blank then set_cell_value
+    XLSXStyle.utils.sheet_add_aoa(ws, [
+      row1.map(c => c.v),
+      row2.map(c => c.v),
+      ...dataRows.map(r => r.map((c: any) => c.v)),
+    ]);
+
+    // Apply styles cell by cell
+    const applyRow = (rowIdx: number, cells: any[]) => {
+      cells.forEach((c, ci) => {
+        const addr = XLSXStyle.utils.encode_cell({ r: rowIdx, c: ci });
+        if (!ws[addr]) ws[addr] = { v: c.v, t: c.t };
+        ws[addr].s = c.s;
+      });
+    };
+    applyRow(0, row1);
+    applyRow(1, row2);
+    dataRows.forEach((r, ri) => applyRow(ri + 2, r));
+
+    // Column widths
+    const fixedWidths = [12, 22, 18, 14, 12, 14];
+    const phaseWidths = phases.flatMap(() => [12, 14, 12, 10, 8]);
+    ws["!cols"] = [...fixedWidths, ...phaseWidths].map(w => ({ wch: w }));
+
+    // Merge phase header cells (row 0, 5 cols each)
+    ws["!merges"] = phases.map((_, pi) => ({
+      s: { r: 0, c: fixedHdrs1.length + pi * PHASE_COLS },
+      e: { r: 0, c: fixedHdrs1.length + pi * PHASE_COLS + PHASE_COLS - 1 },
+    }));
+
+    ws["!rows"] = [{ hpx: 28 }, { hpx: 18 }];
+
+    const wb = XLSXStyle.utils.book_new();
+    XLSXStyle.utils.book_append_sheet(wb, ws, "WIP Grid");
+    XLSXStyle.writeFile(wb, `WIP_Grid_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   // ── Cell styles ────────────────────────────────────────────────────────
+  const BORDER  = "1px solid #1E293B";
+  const BORDER2 = "1px solid #0F172A";
+
   const cell: React.CSSProperties = {
     padding: "4px 7px",
-    borderRight: "1px solid #1E293B",
-    borderBottom: "1px solid #1E293B",
+    borderRight: BORDER,
+    borderBottom: BORDER,
+    borderTop: BORDER2,
     overflow: "hidden",
     fontSize: 11,
     display: "flex",
@@ -161,7 +323,7 @@ export function GridView({
     boxSizing: "border-box",
   };
 
-  // Row-1 header: wraps text so long phase names don't stretch the column.
+  // Row-1 header: phase group labels, wraps text.
   const hdr1: React.CSSProperties = {
     ...cell,
     background: "#162032",
@@ -170,6 +332,7 @@ export function GridView({
     fontWeight: 700,
     textTransform: "uppercase",
     letterSpacing: 0.5,
+    borderTop: "1px solid #334155",
     borderBottom: "1px solid #334155",
     whiteSpace: "normal",
     wordBreak: "break-word",
@@ -177,7 +340,7 @@ export function GridView({
     alignItems: "center",
   };
 
-  // Row-2 header: sub-labels (Due Date / Status / Status Date / Days).
+  // Row-2 header: sub-labels.
   const hdr2: React.CSSProperties = {
     ...cell,
     background: "#111827",
@@ -186,22 +349,31 @@ export function GridView({
     fontWeight: 600,
     textTransform: "uppercase",
     letterSpacing: 0.4,
+    borderTop: BORDER2,
     borderBottom: "2px solid #334155",
     justifyContent: "center",
     minHeight: 24,
     padding: "3px 4px",
   };
 
-  // Sub-cell inside each phase column (50% the size of milestones tab cells).
-  const sub: React.CSSProperties = { ...cell, fontSize: 10, padding: "2px 4px" };
+  // Phase sub-cell (compact, ~50% size of milestones tab).
+  const sub: React.CSSProperties = {
+    ...cell,
+    fontSize: 10,
+    padding: "2px 4px",
+    borderTop: BORDER2,
+  };
 
   const ct    = buildColTpl(phases.length);
   const today = new Date(); today.setHours(0, 0, 0, 0);
 
+  // Left-border on first cell (expand column) to close the outer grid frame.
+  const firstCellExtra: React.CSSProperties = { borderLeft: "1px solid #1E293B" };
+
   return (
     <div style={{ maxWidth: "100%", margin: "0 auto", padding: "0 12px" }}>
 
-      {/* ── Filters ───────────────────────────────────────────────────── */}
+      {/* ── Toolbar ───────────────────────────────────────────────────── */}
       <div style={{ ...S.filters, flexWrap: "wrap" }}>
         <input
           style={{ ...S.input, flex: 1, minWidth: 240, marginBottom: 0 }}
@@ -218,6 +390,41 @@ export function GridView({
           {buyers.map(b => <option key={b} value={b}>{b}</option>)}
         </select>
         <button style={S.btnSecondary} onClick={() => { setSearch(""); setFilterVendor("All"); setFilterBuyer("All"); }}>Clear</button>
+
+        {/* Undo */}
+        <button
+          onClick={handleUndo}
+          disabled={undoStack.length === 0}
+          title={undoStack.length > 0 ? `Undo last change (${undoStack.length} available)` : "Nothing to undo"}
+          style={{
+            ...S.btnSecondary,
+            opacity: undoStack.length === 0 ? 0.35 : 1,
+            display: "flex", alignItems: "center", gap: 5,
+          }}
+        >
+          ↩ Undo
+        </button>
+
+        {/* Excel download — Excel green */}
+        <button
+          onClick={exportToExcel}
+          title="Download as Excel"
+          style={{
+            background: "#217346",
+            border: "1px solid #145A2E",
+            color: "#fff",
+            borderRadius: 8,
+            padding: "8px 14px",
+            fontSize: 13,
+            cursor: "pointer",
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <span style={{ fontSize: 15 }}>⬇</span> Excel
+        </button>
       </div>
 
       <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
@@ -229,17 +436,15 @@ export function GridView({
           </span>
           {totalPages > 1 && (
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <button
-                onClick={() => setPage(p => Math.max(0, p - 1))}
-                disabled={page === 0}
-                style={{ ...S.btnSecondary, padding: "3px 10px", fontSize: 11, opacity: page === 0 ? 0.4 : 1 }}
-              >‹ Prev</button>
+              <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
+                style={{ ...S.btnSecondary, padding: "3px 10px", fontSize: 11, opacity: page === 0 ? 0.4 : 1 }}>
+                ‹ Prev
+              </button>
               <span style={{ color: "#6B7280", fontSize: 11 }}>Page {page + 1} / {totalPages}</span>
-              <button
-                onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-                disabled={page >= totalPages - 1}
-                style={{ ...S.btnSecondary, padding: "3px 10px", fontSize: 11, opacity: page >= totalPages - 1 ? 0.4 : 1 }}
-              >Next ›</button>
+              <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}
+                style={{ ...S.btnSecondary, padding: "3px 10px", fontSize: 11, opacity: page >= totalPages - 1 ? 0.4 : 1 }}>
+                Next ›
+              </button>
             </div>
           )}
         </div>
@@ -249,16 +454,15 @@ export function GridView({
         ) : phases.length === 0 ? (
           <div style={{ padding: 32, color: "#6B7280", fontSize: 13, textAlign: "center" }}>No milestones generated yet for the visible POs.</div>
         ) : (
-          /* ── Scrollable grid ────────────────────────────────────────── */
           <div className="gv-scroll" style={{ maxHeight: "calc(100vh - 240px)" }}>
             <div style={{ minWidth: "fit-content" }}>
 
-              {/* Sticky two-row header */}
+              {/* ── Sticky two-row header ─────────────────────────────── */}
               <div style={{ position: "sticky", top: 0, zIndex: 3 }}>
 
-                {/* Row 1 — fixed labels + phase group label (spans 4 sub-cols each) */}
+                {/* Row 1: fixed labels + phase group label spanning PHASE_COLS each */}
                 <div style={{ display: "grid", gridTemplateColumns: ct }}>
-                  <span style={{ ...hdr1 }} />
+                  <span style={{ ...hdr1, ...firstCellExtra }} />
                   <span style={{ ...hdr1 }} />
                   <span style={{ ...hdr1 }}>PO #</span>
                   <span style={{ ...hdr1 }}>Vendor</span>
@@ -267,41 +471,38 @@ export function GridView({
                   <span style={{ ...hdr1, justifyContent: "center" }}>DDP</span>
                   <span style={{ ...hdr1, justifyContent: "flex-end" }}>Days from DDP</span>
                   {phases.map((p, i) => (
-                    <span
-                      key={p}
-                      title={p}
-                      style={{
-                        ...hdr1,
-                        gridColumn: "span 4",
-                        justifyContent: "center",
-                        background: "#1A2535",
-                        color: "#C4B5FD",
-                        borderRight: i === phases.length - 1 ? "none" : hdr1.borderRight,
-                        borderBottom: "1px solid #475569",
-                      }}
-                    >
+                    <span key={p} title={p} style={{
+                      ...hdr1,
+                      gridColumn: `span ${PHASE_COLS}`,
+                      justifyContent: "center",
+                      background: "#1A2535",
+                      color: "#C4B5FD",
+                      borderRight: i === phases.length - 1 ? "none" : hdr1.borderRight,
+                      borderBottom: "1px solid #475569",
+                    }}>
                       {p}
                     </span>
                   ))}
                 </div>
 
-                {/* Row 2 — sub-column labels for each phase */}
+                {/* Row 2: sub-column labels */}
                 <div style={{ display: "grid", gridTemplateColumns: ct }}>
                   {Array.from({ length: 8 }).map((_, i) => (
-                    <span key={i} style={{ ...hdr2 }} />
+                    <span key={i} style={{ ...hdr2, ...(i === 0 ? firstCellExtra : {}) }} />
                   ))}
                   {phases.map((p, pi) => (
                     <React.Fragment key={p}>
                       <span style={{ ...hdr2 }}>Due Date</span>
                       <span style={{ ...hdr2 }}>Status</span>
                       <span style={{ ...hdr2 }}>Status Date</span>
-                      <span style={{ ...hdr2, borderRight: pi === phases.length - 1 ? "none" : hdr2.borderRight }}>Days</span>
+                      <span style={{ ...hdr2 }}>Days</span>
+                      <span style={{ ...hdr2, borderRight: pi === phases.length - 1 ? "none" : hdr2.borderRight }}>📝</span>
                     </React.Fragment>
                   ))}
                 </div>
               </div>
 
-              {/* ── Data rows ──────────────────────────────────────────── */}
+              {/* ── Data rows ─────────────────────────────────────────── */}
               {pageRows.map(po => {
                 const poNum    = po.PoNumber ?? "";
                 const poMs     = milestones[poNum] || [];
@@ -318,13 +519,11 @@ export function GridView({
                 const hasNotes   = poMs.some(m => (m.note_entries && m.note_entries.length > 0) || m.notes);
 
                 return (
-                  <div
-                    key={poNum}
-                    style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: isExpanded ? "#1E293B44" : undefined }}
-                  >
-                    {/* Expand — orange, 20% larger than default icon */}
+                  <div key={poNum} style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: isExpanded ? "#1E293B44" : undefined }}>
+
+                    {/* Expand — orange, 20% larger */}
                     <span
-                      style={{ ...cell, justifyContent: "center", cursor: "pointer" }}
+                      style={{ ...cell, ...firstCellExtra, justifyContent: "center", cursor: "pointer" }}
                       onClick={() => setExpandedPo(isExpanded ? null : po)}
                       title={isExpanded ? "Collapse" : "Expand line items & milestones"}
                     >
@@ -333,11 +532,11 @@ export function GridView({
                       </span>
                     </span>
 
-                    {/* Notes — blue when notes exist */}
+                    {/* Row-level notes button */}
                     <span
                       style={{ ...cell, justifyContent: "center", cursor: "pointer" }}
                       onClick={() => setNotesModal({ po, ms: poMs })}
-                      title={hasNotes ? "View PO notes" : "No notes yet"}
+                      title={hasNotes ? "View all PO notes" : "No notes yet"}
                     >
                       <span style={{ fontSize: 13, color: hasNotes ? "#60A5FA" : "#374151" }}>📝</span>
                     </span>
@@ -361,7 +560,7 @@ export function GridView({
                       {po.BuyerName || "—"}
                     </span>
 
-                    {/* Buyer PO — inline editable */}
+                    {/* Buyer PO */}
                     <span
                       style={{ ...cell, justifyContent: "center", cursor: isEditing ? "text" : "pointer", color: po.BuyerPo ? "#60A5FA" : "#4B5563", fontFamily: "monospace", padding: isEditing ? 0 : cell.padding }}
                       onClick={() => { if (!isEditing) { setBuyerPoEditing(poNum); setBuyerPoDraft(po.BuyerPo || ""); } }}
@@ -384,16 +583,16 @@ export function GridView({
                       {fmtDate(ddp) || "—"}
                     </span>
 
-                    {/* Days from DDP — no "d" suffix, "late" for overdue */}
+                    {/* Days from DDP */}
                     <span style={{ ...cell, justifyContent: "flex-end", color: daysClr, fontWeight: 700 }}>
                       {daysTxt}
                     </span>
 
-                    {/* Phase sub-cells: Due Date | Status | Status Date | Days */}
+                    {/* Phase sub-cells: Due Date | Status | Status Date | Days | Notes */}
                     {phases.map((phase, pi) => {
                       const m      = phaseMap.get(phase);
                       const isLast = pi === phases.length - 1;
-                      const lastBorder: React.CSSProperties = isLast ? { borderRight: "none" } : {};
+                      const lastB: React.CSSProperties = isLast ? { borderRight: "none" } : {};
 
                       if (!m) {
                         return (
@@ -401,7 +600,8 @@ export function GridView({
                             <span style={{ ...sub, justifyContent: "center", color: "#1E293B" }}>—</span>
                             <span style={{ ...sub, justifyContent: "center", color: "#1E293B" }}>—</span>
                             <span style={{ ...sub, justifyContent: "center", color: "#1E293B" }}>—</span>
-                            <span style={{ ...sub, justifyContent: "center", color: "#1E293B", ...lastBorder }}>—</span>
+                            <span style={{ ...sub, justifyContent: "center", color: "#1E293B" }}>—</span>
+                            <span style={{ ...sub, justifyContent: "center", color: "#1E293B", ...lastB }}>—</span>
                           </React.Fragment>
                         );
                       }
@@ -414,7 +614,9 @@ export function GridView({
                       const dTxt = m.status === "Complete" ? "Done" : m.status === "N/A" ? "—"
                         : daysRem === null ? "—" : daysRem < 0 ? `${Math.abs(daysRem)} late`
                         : daysRem === 0 ? "Today" : `${daysRem}`;
-                      const sdVal = (m.status_dates || {})[m.status] || m.status_date || "";
+                      const sdVal  = (m.status_dates || {})[m.status] || m.status_date || "";
+                      const phaseHasNotes = (m.note_entries && m.note_entries.length > 0) || !!m.notes;
+                      const noteCount = (m.note_entries?.length || 0) + (m.notes ? 1 : 0);
 
                       return (
                         <React.Fragment key={phase}>
@@ -442,22 +644,32 @@ export function GridView({
 
                           {/* Status Date */}
                           <span style={{ ...sub, padding: 2 }}>
-                            <input
-                              type="date"
+                            <MilestoneDateInput
                               value={sdVal}
-                              onChange={e => {
-                                const val = e.target.value || null;
+                              onCommit={v => {
+                                const val = v || null;
                                 const dates = { ...(m.status_dates || {}) };
                                 if (val) dates[m.status] = val; else delete dates[m.status];
                                 updateField(m, { status_date: val, status_dates: Object.keys(dates).length > 0 ? dates : null });
                               }}
-                              style={{ background: "transparent", border: "1px solid #334155", borderRadius: 3, color: sdVal ? "#60A5FA" : "#334155", fontSize: 10, padding: "1px 2px", width: "100%", boxSizing: "border-box", colorScheme: "dark" }}
+                              style={{ background: "transparent", border: "1px solid #334155", borderRadius: 3, color: sdVal ? "#60A5FA" : "#334155", fontSize: 10, padding: "2px 5px", width: "100%", boxSizing: "border-box", cursor: "pointer" } as React.CSSProperties}
                             />
                           </span>
 
                           {/* Days */}
-                          <span style={{ ...sub, justifyContent: "center", color: dClr, fontWeight: 700, ...lastBorder }}>
+                          <span style={{ ...sub, justifyContent: "center", color: dClr, fontWeight: 700 }}>
                             {dTxt}
+                          </span>
+
+                          {/* Per-phase notes button */}
+                          <span
+                            style={{ ...sub, justifyContent: "center", cursor: "pointer", padding: 2, ...lastB }}
+                            onClick={() => setNotesModal({ po, ms: poMs, filterPhase: phase })}
+                            title={phaseHasNotes ? `${noteCount} note${noteCount !== 1 ? "s" : ""} for ${phase}` : `No notes for ${phase}`}
+                          >
+                            <span style={{ fontSize: 11, color: phaseHasNotes ? "#60A5FA" : "#374151" }}>
+                              {phaseHasNotes ? `📝${noteCount}` : "📝"}
+                            </span>
                           </span>
                         </React.Fragment>
                       );
@@ -471,29 +683,36 @@ export function GridView({
       </div>
 
       {/* ── Notes modal ───────────────────────────────────────────────────── */}
-      {notesModal && (
-        <div
-          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}
-          onClick={() => setNotesModal(null)}
-        >
+      {notesModal && (() => {
+        const shown = notesModal.filterPhase
+          ? notesModal.ms.filter(m => m.phase === notesModal.filterPhase && ((m.note_entries && m.note_entries.length > 0) || m.notes))
+          : notesModal.ms.filter(m => (m.note_entries && m.note_entries.length > 0) || m.notes);
+        return (
           <div
-            style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 10, width: 560, maxHeight: "70vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
-            onClick={e => e.stopPropagation()}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={() => setNotesModal(null)}
           >
-            <div style={{ padding: "14px 20px", borderBottom: "1px solid #1E293B", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, background: "#0F172A", zIndex: 1 }}>
-              <div>
-                <div style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, fontSize: 15 }}>{notesModal.po.PoNumber}</div>
-                <div style={{ color: "#6B7280", fontSize: 12, marginTop: 2 }}>All Milestone Notes</div>
+            <div
+              style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 10, width: 560, maxHeight: "70vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div style={{ padding: "14px 20px", borderBottom: "1px solid #1E293B", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, background: "#0F172A", zIndex: 1 }}>
+                <div>
+                  <div style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, fontSize: 15 }}>
+                    {notesModal.po.PoNumber}
+                    {notesModal.filterPhase && <span style={{ marginLeft: 10, color: "#C4B5FD", fontFamily: "sans-serif", fontSize: 12, fontWeight: 400 }}>· {notesModal.filterPhase}</span>}
+                  </div>
+                  <div style={{ color: "#6B7280", fontSize: 12, marginTop: 2 }}>
+                    {notesModal.filterPhase ? "Phase Notes" : "All Milestone Notes"}
+                  </div>
+                </div>
+                <button onClick={() => setNotesModal(null)} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
               </div>
-              <button onClick={() => setNotesModal(null)} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
-            </div>
-            <div style={{ padding: "16px 20px" }}>
-              {notesModal.ms.filter(m => (m.note_entries && m.note_entries.length > 0) || m.notes).length === 0 ? (
-                <div style={{ color: "#6B7280", fontSize: 13, textAlign: "center", padding: "24px 0" }}>No notes for this PO yet.</div>
-              ) : (
-                notesModal.ms
-                  .filter(m => (m.note_entries && m.note_entries.length > 0) || m.notes)
-                  .map(m => (
+              <div style={{ padding: "16px 20px" }}>
+                {shown.length === 0 ? (
+                  <div style={{ color: "#6B7280", fontSize: 13, textAlign: "center", padding: "24px 0" }}>No notes here yet.</div>
+                ) : (
+                  shown.map(m => (
                     <div key={m.id} style={{ marginBottom: 18 }}>
                       <div style={{ color: "#C4B5FD", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 7 }}>
                         {m.phase}
@@ -507,19 +726,18 @@ export function GridView({
                             </div>
                           ))
                         : m.notes
-                          ? (
-                            <div style={{ background: "#1E293B", borderRadius: 6, padding: "8px 12px" }}>
+                          ? <div style={{ background: "#1E293B", borderRadius: 6, padding: "8px 12px" }}>
                               <div style={{ color: "#E5E7EB", fontSize: 12 }}>{m.notes}</div>
                             </div>
-                          )
                           : null}
                     </div>
                   ))
-              )}
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── PO expand slide-out panel ─────────────────────────────────────── */}
       {expandedPo && (
