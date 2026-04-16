@@ -12,9 +12,6 @@ interface ToolbarProps {
   categories: string[];
   filterGender: string;
   setFilterGender: (v: string) => void;
-  filterStatus: string;
-  setFilterStatus: (v: string) => void;
-
   // Store dropdown
   STORES: readonly string[];
   storeFilter: string[];
@@ -54,7 +51,6 @@ interface ToolbarProps {
 export const Toolbar: React.FC<ToolbarProps> = ({
   search, setSearch, filterCategory, setFilterCategory, categories,
   filterGender, setFilterGender,
-  filterStatus, setFilterStatus,
   STORES, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, setSoDropOpen,
   poDropRef, toggleStore,
   minATS, setMinATS, startDate, setStartDate,
@@ -89,13 +85,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <option value="G">Girls</option>
       </select>
     </div>
-    <select style={S.select} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-      <option value="All">All status</option>
-      <option value="InStock">In stock</option>
-      <option value="Low">Low stock</option>
-      <option value="Out">Out of stock</option>
-    </select>
-
     {/* Store filter */}
     <div ref={poDropRef} style={{ position: "relative" }}>
       <button

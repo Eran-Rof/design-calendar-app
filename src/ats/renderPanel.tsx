@@ -159,7 +159,6 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           search={search} setSearch={setSearch}
           filterCategory={filterCategory} setFilterCategory={setFilterCategory} categories={categories}
           filterGender={filterGender} setFilterGender={setFilterGender}
-          filterStatus={filterStatus} setFilterStatus={setFilterStatus}
           STORES={STORES} storeFilter={storeFilter} setStoreFilter={setStoreFilter}
           poDropOpen={poDropOpen} setPoDropOpen={setPoDropOpen} setSoDropOpen={setSoDropOpen}
           poDropRef={poDropRef} toggleStore={toggleStore}
