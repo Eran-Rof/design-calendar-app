@@ -20,11 +20,12 @@ const FIXED_COLS = "32px 32px 130px 160px 140px 110px 90px 72px";
 const PHASE_SUB  = "70px 90px 82px 56px 26px";
 const PHASE_COLS = 5;
 
-// Border constants
-const B_CELL   = "2px solid #1E293B";   // standard cell border (H and V)
-const B_INNER  = "2px solid #0F172A";   // darker inner top-of-row divider
-const B_HDR    = "2px solid #334155";   // header borders
-const B_PHASE  = "4px solid #334155";   // thick divider between phase groups
+// Border constants — all 2px to avoid corner-miter artifacts.
+// Phase boundaries use COLOR (indigo) rather than extra thickness so
+// horizontal lines never "overlap" vertical ones at corners.
+const B_CELL  = "2px solid #374151";   // standard cell border — bright enough to see
+const B_HDR   = "2px solid #475569";   // header borders — slightly brighter
+const B_PHASE = "2px solid #818CF8";   // phase-group divider — indigo, same width as B_CELL
 
 function buildColTpl(phaseCount: number) {
   return phaseCount > 0
@@ -391,11 +392,13 @@ export function GridView({
   };
 
   // ── Cell styles ─────────────────────────────────────────────────────────
+  // Data cells — no borderTop: only borderBottom draws horizontal lines.
+  // Having both borderTop and borderBottom doubles up the lines and creates
+  // ugly overlaps where they cross the thick phase-divider vertical borders.
   const cell: React.CSSProperties = {
     padding: "4px 7px",
     borderRight:  B_CELL,
     borderBottom: B_CELL,
-    borderTop:    B_INNER,
     overflow: "hidden",
     fontSize: 11,
     display: "flex",
@@ -411,7 +414,7 @@ export function GridView({
     fontWeight: 700,
     textTransform: "uppercase",
     letterSpacing: 0.5,
-    borderTop:    B_HDR,
+    borderTop:    B_HDR,   // top frame line — only on header
     borderBottom: B_HDR,
     borderRight:  B_HDR,
     whiteSpace: "normal",
@@ -428,19 +431,18 @@ export function GridView({
     fontWeight: 600,
     textTransform: "uppercase",
     letterSpacing: 0.4,
-    borderTop:    B_INNER,
-    borderBottom: "2px solid #334155",
+    borderBottom: B_HDR,
     borderRight:  B_HDR,
     justifyContent: "center",
     minHeight: 24,
     padding: "3px 4px",
   };
 
+  // Phase sub-cells — same base as cell, just smaller font/padding.
   const sub: React.CSSProperties = {
     ...cell,
     fontSize: 10,
     padding: "2px 4px",
-    borderTop: B_INNER,
   };
 
   // Left border on first column to close the outer frame.
@@ -534,7 +536,7 @@ export function GridView({
                       color: "#C4B5FD",
                       // Double-thick divider between phases; no border on last
                       borderRight: i === phases.length - 1 ? "none" : B_PHASE,
-                      borderBottom: "2px solid #475569",
+                      borderBottom: B_HDR,
                     }}>
                       {p}
                     </span>
