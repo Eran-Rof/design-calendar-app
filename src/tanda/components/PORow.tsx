@@ -51,6 +51,12 @@ export const PORow: React.FC<PORowProps> = ({ po, onClick, detailed, milestones:
           {hasMultipleDeliveryDates(po) && <span style={{ ...S.badge, background: "#F59E0B22", color: "#F59E0B", border: "1px solid #F59E0B44" }} title="This PO has multiple line-level delivery dates">Multiple Dates</span>}
         </div>
         <div style={{ color: "#D1D5DB", fontWeight: 600 }}>{po.VendorName ?? "Unknown Vendor"}</div>
+        {(po.BuyerName || po.BuyerPo) && (
+          <div style={{ display: "flex", gap: 12, marginTop: 2, fontSize: 12 }}>
+            {po.BuyerName && <span style={{ color: "#9CA3AF" }}>Buyer: <span style={{ color: "#D1D5DB", fontWeight: 600 }}>{po.BuyerName}</span></span>}
+            {po.BuyerPo && <span style={{ color: "#9CA3AF" }}>Buyer PO: <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 600 }}>{po.BuyerPo}</span></span>}
+          </div>
+        )}
         {detailed && po.Memo && <div style={{ color: "#6B7280", fontSize: 12, marginTop: 2 }}>{po.Memo}</div>}
       </div>
       {msActive > 0 && (

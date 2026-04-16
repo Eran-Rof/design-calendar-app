@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import { type XoroPO, type Milestone, type WipTemplate, type LocalNote, type User, type DCVendor, type View, type DmConversation,
   STATUS_COLORS, WIP_CATEGORIES, MILESTONE_STATUSES, DEFAULT_WIP_TEMPLATES,
   milestoneUid, itemQty, poTotal, hasMultipleDeliveryDates, fmtDate, fmtCurrency } from "../utils/tandaTypes";
+import { SB_URL, SB_HEADERS } from "../utils/supabase";
+import { useTandaStore } from "./store";
 import { printPODetail } from "./exportHelpers";
 import S from "./styles";
 import type { DetailMode, AttachmentEntry } from "./state/core/coreTypes";
@@ -312,6 +314,22 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
     const total = poTotal(selected);
     const statusColor = STATUS_COLORS[selected.StatusName ?? ""] ?? "#6B7280";
 
+    // Persist buyer_po to Supabase and mirror into the store. Optimistic so the
+    // header reflects the edit immediately even if the network round-trip lags.
+    const persistBuyerPo = async (poNumber: string, value: string) => {
+      const trimmed = value.trim();
+      useTandaStore.getState().updatePo(poNumber, { BuyerPo: trimmed });
+      try {
+        await fetch(`${SB_URL}/rest/v1/tanda_pos?po_number=eq.${encodeURIComponent(poNumber)}`, {
+          method: "PATCH",
+          headers: { ...SB_HEADERS, "Content-Type": "application/json", "Prefer": "return=minimal" },
+          body: JSON.stringify({ buyer_po: trimmed || null }),
+        });
+      } catch (e) {
+        console.error("Failed to update buyer_po:", e);
+      }
+    };
+
     // Lazy-generate milestones on first view
     const poNum = selected.PoNumber ?? "";
     if (poNum && selected.DateExpectedDelivery && !milestones[poNum]) {
@@ -443,6 +461,7 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
                   ...(selected.ShipMethodName ? [["Ship", selected.ShipMethodName] as [string, string]] : []),
                   ...(selected.CarrierName ? [["Carrier", selected.CarrierName] as [string, string]] : []),
                   ...(selected.BuyerName ? [["Buyer", selected.BuyerName] as [string, string]] : []),
+                  ...(selected.BuyerPo ? [["Buyer PO", selected.BuyerPo] as [string, string]] : []),
                   ...(selected.BrandName ? [["Brand", selected.BrandName] as [string, string]] : []),
                   ...(origin ? [["Origin", origin] as [string, string]] : []),
                   ...(selected.Memo ? [["Memo", selected.Memo] as [string, string]] : []),
@@ -455,6 +474,25 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
                   </div>
                 ));
               })()}
+            </div>
+            {/* Editable Buyer PO row — Xoro ReferenceNumber default, user override wins on next sync */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+              <span style={{ fontSize: 11, color: "#6B7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3 }}>Buyer PO:</span>
+              <input
+                key={`${selected.PoNumber}:${selected.BuyerPo ?? ""}`}
+                defaultValue={selected.BuyerPo ?? ""}
+                placeholder="(none)"
+                onBlur={e => {
+                  const v = e.target.value;
+                  if (v.trim() === (selected.BuyerPo ?? "").trim()) return;
+                  persistBuyerPo(selected.PoNumber ?? "", v);
+                }}
+                onKeyDown={e => { if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur(); }}
+                style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: "#D1D5DB", fontSize: 13, padding: "4px 10px", width: 200, outline: "none", fontFamily: "monospace" }}
+              />
+              <span style={{ fontSize: 10, color: "#6B7280" }}>
+                {selected.BuyerPo ? "saved" : "edit to set"}
+              </span>
             </div>
           </div>
 

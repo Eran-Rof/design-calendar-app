@@ -228,7 +228,7 @@ export function useSyncOps(deps: SyncOpsDeps) {
             statusResults.push(...batchResults);
           }
         })(),
-        sb.from("tanda_pos").select("po_number,data"),
+        sb.from("tanda_pos").select("po_number,data,buyer_po"),
       ]);
 
       let all: XoroPO[] = [];
@@ -255,6 +255,11 @@ export function useSyncOps(deps: SyncOpsDeps) {
       const { data: existingRows } = existingRowsRes;
       const existingMap = new Map<string, XoroPO>(
         (existingRows ?? []).map((r: any) => [r.po_number as string, r.data as XoroPO])
+      );
+      // Treat any non-empty buyer_po in the DB as a user override and keep it
+      // on subsequent syncs. Clearing the field reopens it to Xoro's value.
+      const existingBuyerPoMap = new Map<string, string>(
+        (existingRows ?? []).map((r: any) => [r.po_number as string, (r.buyer_po ?? "") as string])
       );
 
       // Active set for DB: user's selection if any, else the "active" defaults.
@@ -288,15 +293,21 @@ export function useSyncOps(deps: SyncOpsDeps) {
       const now = new Date().toISOString();
       if (toUpsert.length > 0) {
         const { error: upsertError } = await sb.from("tanda_pos").upsert(
-          toUpsert.map(po => ({
-            po_number:     po.PoNumber ?? `unknown-${Math.random()}`,
-            vendor:        po.VendorName ?? "",
-            date_order:    po.DateOrder ?? null,
-            date_expected: po.DateExpectedDelivery ?? null,
-            status:        po.StatusName ?? "",
-            data:          po,
-            synced_at:     now,
-          })),
+          toUpsert.map(po => {
+            const poNum = po.PoNumber ?? `unknown-${Math.random()}`;
+            const userBuyerPo = existingBuyerPoMap.get(poNum) || "";
+            const buyerPo = userBuyerPo || po.BuyerPo || "";
+            return {
+              po_number:     poNum,
+              vendor:        po.VendorName ?? "",
+              date_order:    po.DateOrder ?? null,
+              date_expected: po.DateExpectedDelivery ?? null,
+              status:        po.StatusName ?? "",
+              buyer_po:      buyerPo || null,
+              data:          { ...po, BuyerPo: buyerPo },
+              synced_at:     now,
+            };
+          }),
           { onConflict: "po_number" }
         );
         if (upsertError) {

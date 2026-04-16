@@ -20,6 +20,7 @@ export interface CoreSlice extends CoreState {
   setAttachmentsForPo: (poNumber: string, attachments: AttachmentEntry[]) => void;
   updateAttachment: (poNumber: string, attachId: string, entry: AttachmentEntry) => void;
   removePo: (poNumber: string) => void;
+  updatePo: (poNumber: string, patch: Partial<XoroPO>) => void;
 }
 
 export const createCoreSlice: StateCreator<TandaStore, [], [], CoreSlice> = (set) => ({
@@ -61,5 +62,10 @@ export const createCoreSlice: StateCreator<TandaStore, [], [], CoreSlice> = (set
     notes: s.notes.filter((n) => n.po_number !== poNumber),
     milestones: (() => { const next = { ...s.milestones }; delete next[poNumber]; return next; })(),
     attachments: (() => { const next = { ...s.attachments }; delete next[poNumber]; return next; })(),
+  })),
+
+  updatePo: (poNumber, patch) => set((s) => ({
+    pos: s.pos.map((p) => ((p.PoNumber ?? "") === poNumber ? { ...p, ...patch } : p)),
+    selected: s.selected && (s.selected.PoNumber ?? "") === poNumber ? { ...s.selected, ...patch } : s.selected,
   })),
 });

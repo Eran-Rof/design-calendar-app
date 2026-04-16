@@ -23,6 +23,7 @@ export interface XoroPO {
   ShipMethodName?: string;
   CarrierName?: string;
   BuyerName?: string;
+  BuyerPo?: string;
   BrandName?: string;
   TotalAmount?: number;
   Items?: XoroPOItem[];
@@ -255,6 +256,7 @@ export function mapXoroRaw(raw: any[]): XoroPO[] {
       ShipMethodName:        h.ShipMethodName ?? "",
       CarrierName:           h.CarrierName ?? "",
       BuyerName:             h.BuyerName ?? "",
+      BuyerPo:               h.ReferenceNumber ?? h.RefNumber ?? h.BuyerOrderNumber ?? h.BuyerPo ?? "",
       BrandName:             h.BrandName ?? h.Brand ?? "",
       TotalAmount:           h.TotalAmount ?? 0,
       Items: lines.map((l: any) => ({

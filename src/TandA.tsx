@@ -639,7 +639,12 @@ function TandAApp() {
       if (Array.isArray(data) && data.length > 0) {
         // Exclude archived POs from active list
         const active = data.filter((r: any) => !(r.data as XoroPO)?._archived);
-        setPos(active.map((r: any) => r.data as XoroPO));
+        // Fold the buyer_po column into the in-memory PO so loaders that
+        // predate the column or rows synced before the feature still surface it.
+        setPos(active.map((r: any) => ({
+          ...(r.data as XoroPO),
+          BuyerPo: r.buyer_po || (r.data as XoroPO)?.BuyerPo || "",
+        })));
         setLastSync(data[0]?.synced_at ?? "");
       } else {
         setPos([]);
@@ -825,6 +830,7 @@ function TandAApp() {
       || (p.PoNumber ?? "").toLowerCase().includes(s)
       || (p.VendorName ?? "").toLowerCase().includes(s)
       || (p.BuyerName ?? "").toLowerCase().includes(s)
+      || (p.BuyerPo ?? "").toLowerCase().includes(s)
       || (p.Memo ?? "").toLowerCase().includes(s)
       || (p.Tags ?? "").toLowerCase().includes(s)
       || (p.Items ?? []).some((item: any) =>
