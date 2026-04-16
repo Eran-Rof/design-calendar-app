@@ -12,6 +12,7 @@ import { useArchiveOps } from "./tanda/hooks/useArchiveOps";
 import { useEmailData } from "./tanda/hooks/useEmailData";
 import { DashboardView } from "./tanda/views/DashboardView";
 import { ListView } from "./tanda/views/ListView";
+import { GridView } from "./tanda/views/GridView";
 import { TemplatesView } from "./tanda/views/TemplatesView";
 import { ActivityView } from "./tanda/views/ActivityView";
 import { VendorsView } from "./tanda/views/VendorsView";
@@ -824,6 +825,13 @@ function TandAApp() {
     [pos]
   );
 
+  // Distinct, non-empty BuyerName values across loaded POs — used by the Grid
+  // view's buyer filter so the user can isolate a single buyer's milestones.
+  const buyers = useMemo(
+    () => Array.from(new Set(pos.map(p => p.BuyerName ?? "").filter(Boolean))).sort(),
+    [pos]
+  );
+
   const filtered = useMemo(() => pos.filter(p => {
     const s = search.toLowerCase();
     const matchSearch = !s
@@ -1193,6 +1201,7 @@ function TandAApp() {
         <div style={S.navRight}>
           <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("dashboard"); })}>Dashboard</button>
           <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("list"); })}>All POs</button>
+          <button style={view === "grid"      ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("grid"); })}>🗂 Grid</button>
           <button style={view === "templates" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("templates"); })}>Templates</button>
           <button style={view === "teams" ? { ...S.navBtnActive, borderColor: TEAMS_PURPLE, color: TEAMS_PURPLE_LT } : { ...S.navBtn, color: TEAMS_PURPLE_LT }} onClick={() => guardedNav(() => { setSelected(null); setView("teams"); })}>💬 Teams</button>
           <button style={view === "email" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => {
@@ -1267,6 +1276,19 @@ function TandAApp() {
           loading={loading} syncing={syncing} lastSync={lastSync}
           setView={setView} setDetailMode={setDetailMode} setNewNote={setNewNote} setSelected={setSelected}
           setShowSyncModal={setShowSyncModal} loadVendors={loadVendors} milestones={milestones}
+        />}
+
+        {/* ── GRID (cross-PO milestones) ── */}
+        {view === "grid" && <GridView
+          pos={pos}
+          milestones={milestones}
+          buyers={buyers}
+          vendors={vendors.filter(v => v !== "All")}
+          setView={setView}
+          setSelected={setSelected}
+          setDetailMode={setDetailMode}
+          saveMilestone={saveMilestone}
+          user={user}
         />}
 
 
