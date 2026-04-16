@@ -840,6 +840,9 @@ export function GridView({
                     const newTpls = source.map((t: WipTemplate) => ({ ...t, id: milestoneUid() }));
                     await saveVendorTemplates(vendorN, newTpls);
                     const vendorPos = pos.filter(p => p.VendorName === vendorN && p.DateExpectedDelivery);
+                    // Clear ensureAttempted so the effect can retry any POs that were
+                    // blocked waiting for this template to exist.
+                    vendorPos.forEach(vpo => ensureAttemptedRef.current.delete(vpo.PoNumber ?? ""));
                     // Generate fresh milestones for POs with none; regenerate POs with partial milestones.
                     const allMs: Milestone[] = [];
                     for (const vpo of vendorPos) {

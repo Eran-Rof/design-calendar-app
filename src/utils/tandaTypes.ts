@@ -275,7 +275,11 @@ export function mapXoroRaw(raw: any[]): XoroPO[] {
 
 export function fmtDate(d?: string): string {
   if (!d) return "—";
-  const dt = new Date(d);
+  // Bare YYYY-MM-DD strings must be parsed as local midnight, not UTC midnight.
+  // new Date("2026-09-24") → UTC midnight → displays as 09/23 in UTC-4 (EDT).
+  // Appending T00:00:00 forces local-time parsing and keeps the correct calendar day.
+  const str = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d + "T00:00:00" : d;
+  const dt = new Date(str);
   if (isNaN(dt.getTime())) return d;
   return `${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")}/${dt.getFullYear()}`;
 }
