@@ -1,8 +1,8 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import XLSXStyle from "xlsx-js-style";
 import {
-  type XoroPO, type Milestone, type View,
-  MILESTONE_STATUS_COLORS, MILESTONE_STATUSES, fmtDate,
+  type XoroPO, type Milestone, type WipTemplate, type View,
+  MILESTONE_STATUS_COLORS, MILESTONE_STATUSES, fmtDate, milestoneUid,
 } from "../../utils/tandaTypes";
 import S from "../styles";
 import { GridPOPanel } from "./GridPOPanel";
@@ -13,20 +13,62 @@ import { useTandaStore } from "../store/index";
 const PAGE_SIZE = 16;
 const MAX_UNDO  = 30;
 
+/** Normalise any date string Xoro might return into YYYY-MM-DD.
+ *  Handles: "YYYY-MM-DDTHH:mm:ss", "YYYY-MM-DD", "MM/DD/YYYY", etc.
+ *  Returns "" if the string is empty or unparseable. */
+function normDateISO(d?: string): string {
+  if (!d) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(d)) return d.slice(0, 10);
+  const dt = new Date(d);
+  if (!isNaN(dt.getTime())) {
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+  }
+  return "";
+}
+
 // Fixed column widths: expand | notes | PO# | Vendor | Buyer | BuyerPO | DDP | Days from DDP
 const FIXED_COLS = "32px 32px 130px 160px 140px 110px 90px 72px";
 // Per-phase sub-columns sized to fit content + ~2-char breathing room:
-//   Due Date 70 | Status ("Not Started") 90 | Status Date 82 | Days ("365 late") 56 | Phase Notes 26
-const PHASE_SUB  = "70px 90px 82px 56px 26px";
+//   Due Date 88 | Status ("Not Started") 90 | Status Date 82 | Days ("365 late") 56 | Phase Notes 26
+const PHASE_SUB  = "88px 90px 82px 56px 26px";
 const PHASE_COLS = 5;
 
 // Border constants — standard borders 2px, phase divider 4px.
-// Phase dividers are rendered via boxShadow (not borderRight) so they never
-// participate in CSS corner-miter logic — horizontal lines stay clean.
-const B_CELL  = "2px solid #374151";           // standard cell border
-const B_HDR   = "2px solid #475569";           // header borders
-const B_PHASE = "2px solid #818CF8";           // NOT used directly on cells
-const PHASE_SHADOW = "4px 0 0 0 #818CF8";      // box-shadow used instead of borderRight for phase dividers
+const B_CELL = "2px solid #374151";   // standard cell border
+const B_HDR  = "2px solid #475569";  // header borders
+// Phase divider: absolutely-positioned overlay inside the first sub-col of
+// phases[1+]. The overlay extends top: -2px so it paints OVER the 2px
+// borderBottom gap of the row above, and z-index keeps it on top of sibling
+// grid items. overflow: visible on the host cell lets it bleed upward.
+const PHASE_DIV_COLOR = "#818CF8";
+const phaseDividerOverlay: React.CSSProperties = {
+  position: "absolute",
+  top: -2,
+  left: 0,
+  width: 4,
+  height: "calc(100% + 2px)",
+  background: PHASE_DIV_COLOR,
+  pointerEvents: "none",
+  zIndex: 3,
+};
+// Applied to the host cell that carries a divider overlay (left or right)
+const phaseDividerHost: React.CSSProperties = {
+  position: "relative",
+  zIndex: 1,
+  overflow: "visible",
+};
+// Right-side overlay — used on the Notes cell of the LAST phase (closing border)
+const phaseDividerOverlayRight: React.CSSProperties = {
+  position: "absolute",
+  top: -2,
+  right: 0,
+  width: 4,
+  height: "calc(100% + 2px)",
+  background: PHASE_DIV_COLOR,
+  pointerEvents: "none",
+  zIndex: 3,
+};
 
 function buildColTpl(phaseCount: number) {
   return phaseCount > 0
@@ -42,10 +84,13 @@ interface NotesModalProps {
   filterPhase?: string;      // if set, scopes display + add-target to one phase
   onClose: () => void;
   onAddNote: (m: Milestone, text: string) => void;
+  onEditNote: (m: Milestone, index: number, newText: string) => void;
+  onDeleteNote: (m: Milestone, index: number) => void;
 }
-function NotesModal({ po, ms, filterPhase, onClose, onAddNote }: NotesModalProps) {
+function NotesModal({ po, ms, filterPhase, onClose, onAddNote, onEditNote, onDeleteNote }: NotesModalProps) {
   const [noteText, setNoteText] = useState("");
   const [addPhase, setAddPhase] = useState(filterPhase ?? "");
+  const [editing, setEditing] = useState<{ milestoneId: string; index: number; text: string } | null>(null);
 
   // Milestones selectable for adding a note
   const availableMs = filterPhase ? ms.filter(m => m.phase === filterPhase) : ms;
@@ -66,6 +111,12 @@ function NotesModal({ po, ms, filterPhase, onClose, onAddNote }: NotesModalProps
     if (!target) return;
     onAddNote(target, noteText.trim());
     setNoteText("");
+  };
+
+  const handleEditSave = (m: Milestone) => {
+    if (!editing || !editing.text.trim()) return;
+    onEditNote(m, editing.index, editing.text.trim());
+    setEditing(null);
   };
 
   return (
@@ -107,15 +158,55 @@ function NotesModal({ po, ms, filterPhase, onClose, onAddNote }: NotesModalProps
                   </div>
                 )}
                 {m.note_entries && m.note_entries.length > 0
-                  ? m.note_entries.map((ne, i) => (
-                      <div key={i} style={{ background: "#1E293B", borderRadius: 6, padding: "8px 12px", marginBottom: 6 }}>
-                        <div style={{ color: "#E5E7EB", fontSize: 12 }}>{ne.text}</div>
-                        <div style={{ color: "#4B5563", fontSize: 10, marginTop: 4 }}>{ne.user} · {ne.date}</div>
-                      </div>
-                    ))
+                  ? m.note_entries.map((ne, i) => {
+                      const isEditingThis = editing?.milestoneId === m.id && editing?.index === i;
+                      return (
+                        <div key={i} style={{ background: "#1E293B", borderRadius: 6, padding: "8px 12px", marginBottom: 6 }}>
+                          {isEditingThis ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              <textarea
+                                autoFocus
+                                value={editing.text}
+                                onChange={e => setEditing({ ...editing, text: e.target.value })}
+                                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleEditSave(m); } if (e.key === "Escape") setEditing(null); }}
+                                style={{ background: "#0F172A", border: "1px solid #3B82F6", borderRadius: 4, color: "#E5E7EB", fontSize: 12, padding: "6px 8px", resize: "none", height: 56, outline: "none", boxSizing: "border-box", fontFamily: "inherit" }}
+                              />
+                              <div style={{ display: "flex", gap: 6 }}>
+                                <button onClick={() => handleEditSave(m)} style={{ background: "#3B82F6", border: "none", borderRadius: 4, color: "#fff", fontSize: 11, padding: "4px 12px", cursor: "pointer", fontWeight: 600 }}>Save</button>
+                                <button onClick={() => setEditing(null)} style={{ background: "#1A2535", border: "1px solid #334155", borderRadius: 4, color: "#9CA3AF", fontSize: 11, padding: "4px 10px", cursor: "pointer" }}>Cancel</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                                <div style={{ color: "#E5E7EB", fontSize: 12, flex: 1 }}>{ne.text}</div>
+                                <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                                  <button
+                                    onClick={() => setEditing({ milestoneId: m.id, index: i, text: ne.text })}
+                                    title="Edit note"
+                                    style={{ background: "#1A2B40", border: "1px solid #334155", color: "#93C5FD", cursor: "pointer", fontSize: 12, padding: "2px 7px", borderRadius: 4, lineHeight: 1, fontWeight: 600 }}
+                                    onMouseEnter={e => { e.currentTarget.style.background = "#1E3A5F"; e.currentTarget.style.color = "#60A5FA"; }}
+                                    onMouseLeave={e => { e.currentTarget.style.background = "#1A2B40"; e.currentTarget.style.color = "#93C5FD"; }}
+                                  >✏</button>
+                                  <button
+                                    onClick={() => onDeleteNote(m, i)}
+                                    title="Delete note"
+                                    style={{ background: "#2A1A1A", border: "1px solid #4B2020", color: "#F87171", cursor: "pointer", fontSize: 12, padding: "2px 7px", borderRadius: 4, lineHeight: 1, fontWeight: 600 }}
+                                    onMouseEnter={e => { e.currentTarget.style.background = "#3D1515"; e.currentTarget.style.color = "#EF4444"; }}
+                                    onMouseLeave={e => { e.currentTarget.style.background = "#2A1A1A"; e.currentTarget.style.color = "#F87171"; }}
+                                  >✕</button>
+                                </div>
+                              </div>
+                              <div style={{ color: "#4B5563", fontSize: 10, marginTop: 4 }}>{ne.user} · {ne.date}</div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })
                   : m.notes
                     ? <div style={{ background: "#1E293B", borderRadius: 6, padding: "8px 12px" }}>
                         <div style={{ color: "#E5E7EB", fontSize: 12 }}>{m.notes}</div>
+                        <div style={{ color: "#4B5563", fontSize: 10, marginTop: 4 }}>legacy note</div>
                       </div>
                     : null}
               </div>
@@ -167,14 +258,21 @@ interface GridViewProps {
   setSelected: (po: XoroPO | null) => void;
   setDetailMode: (m: any) => void;
   saveMilestone: (m: Milestone, skipHistory?: boolean) => void;
+  saveMilestones: (ms: Milestone[]) => Promise<void>;
   ensureMilestones: (po: XoroPO) => Promise<Milestone[] | "needs_template"> | void;
+  generateMilestones: (poNumber: string, ddpDate: string, vendorName?: string) => Milestone[];
   vendorHasTemplate: (vendorName: string) => boolean;
+  templateVendorList: () => string[];
+  getVendorTemplates: (vendor?: string) => WipTemplate[];
+  saveVendorTemplates: (vendor: string, templates: WipTemplate[]) => void;
   user: { name?: string } | null;
 }
 
 export function GridView({
   pos, milestones, buyers, vendors, setView, setSelected, setDetailMode,
-  saveMilestone, ensureMilestones, vendorHasTemplate, user,
+  saveMilestone, saveMilestones, ensureMilestones, generateMilestones,
+  vendorHasTemplate, templateVendorList, getVendorTemplates, saveVendorTemplates,
+  user,
 }: GridViewProps) {
 
   // Inject scrollbar CSS once — always-visible horizontal bar in dark-theme colors.
@@ -205,6 +303,21 @@ export function GridView({
   const [notesModal, setNotesModal]         = useState<{
     po: XoroPO; ms: Milestone[]; filterPhase?: string;
   } | null>(null);
+  // Queue of vendors that need a template — shown one at a time as a create-template modal.
+  const [tplModalQueue, setTplModalQueue] = useState<string[]>([]);
+  // Track which vendors the user already dismissed (skip for this session).
+  const dismissedTplVendors = useRef<Set<string>>(new Set());
+  // DDP confirmation modal — shown when a phase date change would shift the DDP.
+  const [ddpChangeModal, setDDPChangeModal] = useState<{
+    po: XoroPO;
+    triggerMs: Milestone;
+    newDate: string;
+    newDDP: string;
+    oldDDP: string;
+    poMs: Milestone[];
+  } | null>(null);
+  // POs whose DDP was modified this session — highlighted orange.
+  const [modifiedDDPs, setModifiedDDPs] = useState<Set<string>>(new Set());
 
   const ensureAttemptedRef = useRef<Set<string>>(new Set());
 
@@ -229,20 +342,38 @@ export function GridView({
   const totalPages = Math.ceil(rows.length / PAGE_SIZE);
   const pageRows   = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
-  const hasActiveFilter = search.trim() !== "" || filterVendor !== "All" || filterBuyer !== "All";
+  // Auto-populate milestones for every PO on the current page.
+  // Step 1: check vendor-needs-template for ALL rows (even those without a DDP).
+  // Step 2: generate milestones for rows that have a DDP and a vendor template.
   useEffect(() => {
-    if (!ensureMilestones || !hasActiveFilter) return;
-    for (const po of rows) {
+    for (const po of pageRows) {
+      const vendorN = po.VendorName ?? "";
+      // Always surface vendors that need a template, regardless of DDP.
+      if (vendorN && !vendorHasTemplate(vendorN) && !dismissedTplVendors.current.has(vendorN)) {
+        setTplModalQueue(prev => prev.includes(vendorN) ? prev : [...prev, vendorN]);
+      }
+      if (!ensureMilestones) continue;
       const poNum = po.PoNumber ?? "";
-      if (!poNum) continue;
+      // Normalise DDP — handles "YYYY-MM-DDTHH:mm:ss", "MM/DD/YYYY", etc.
+      const ddp = normDateISO(po.DateExpectedDelivery);
+      if (!poNum || !ddp) continue;
       if ((milestones[poNum] || []).length > 0) continue;
       if (ensureAttemptedRef.current.has(poNum)) continue;
-      if (!po.DateExpectedDelivery) continue;
-      if (po.VendorName && !vendorHasTemplate(po.VendorName)) continue;
       ensureAttemptedRef.current.add(poNum);
-      void ensureMilestones(po);
+      // Use normalised DDP so generateMilestones gets a clean date.
+      const normPo = ddp !== (po.DateExpectedDelivery ?? "") ? { ...po, DateExpectedDelivery: ddp } : po;
+      void (async () => {
+        try {
+          await ensureMilestones(normPo);
+        } catch (e) {
+          // DB save failed — remove from attempted so next render can retry.
+          ensureAttemptedRef.current.delete(poNum);
+          console.error("[Grid] ensureMilestones failed for", poNum, e);
+        }
+      })();
     }
-  }, [rows, milestones, ensureMilestones, vendorHasTemplate, hasActiveFilter]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageRows, milestones, ensureMilestones, vendorHasTemplate]);
 
   const phases = useMemo(() => {
     const order = new Map<string, number>();
@@ -299,12 +430,50 @@ export function GridView({
       updated_by: user?.name || "",
     };
     saveMilestone(updated, true);
-    // Optimistic update so the new note appears immediately without closing the modal.
     setNotesModal(prev => prev ? {
       ...prev,
       ms: prev.ms.map(m => m.id === milestone.id ? updated : m),
     } : prev);
   }, [user, saveMilestone]);
+
+  const editNote = useCallback((milestone: Milestone, index: number, newText: string) => {
+    const entries = [...(milestone.note_entries || [])];
+    entries[index] = { ...entries[index], text: newText };
+    const updated = {
+      ...milestone,
+      note_entries: entries,
+      updated_at: new Date().toISOString(),
+      updated_by: user?.name || "",
+    };
+    saveMilestone(updated, true);
+    setNotesModal(prev => prev ? {
+      ...prev,
+      ms: prev.ms.map(m => m.id === milestone.id ? updated : m),
+    } : prev);
+  }, [user, saveMilestone]);
+
+  const deleteNote = useCallback((milestone: Milestone, index: number) => {
+    const entries = [...(milestone.note_entries || [])];
+    entries.splice(index, 1);
+    const updated = {
+      ...milestone,
+      note_entries: entries.length > 0 ? entries : null,
+      updated_at: new Date().toISOString(),
+      updated_by: user?.name || "",
+    };
+    saveMilestone(updated, true);
+    setNotesModal(prev => prev ? {
+      ...prev,
+      ms: prev.ms.map(m => m.id === milestone.id ? updated : m),
+    } : prev);
+  }, [user, saveMilestone]);
+
+  // ── Buyer dropdown options ────────────────────────────────────────────
+  // All known buyers from POs + fixed stock options; always sorted.
+  const buyerOptions = useMemo(() => {
+    const fixed = ["ROF Stock", "PT Stock"];
+    return [...new Set([...buyers, ...fixed])].sort();
+  }, [buyers]);
 
   // ── Buyer PO ────────────────────────────────────────────────────────────
   const persistBuyerPo = async (poNumber: string, value: string) => {
@@ -318,6 +487,116 @@ export function GridView({
       });
     } catch (e) { console.error("Failed to update buyer_po:", e); }
   };
+
+  const persistBuyerName = async (poNumber: string, value: string) => {
+    useTandaStore.getState().updatePo(poNumber, { BuyerName: value });
+    try {
+      await fetch(`${SB_URL}/rest/v1/tanda_pos?po_number=eq.${encodeURIComponent(poNumber)}`, {
+        method: "PATCH",
+        headers: { ...SB_HEADERS, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify({ buyer_name: value || null }),
+      });
+    } catch (e) { console.error("Failed to update buyer_name:", e); }
+  };
+
+  // ── Shared DDP persist helper ────────────────────────────────────────────
+  const persistDDP = useCallback(async (poNum: string, newDDP: string) => {
+    useTandaStore.getState().updatePo(poNum, { DateExpectedDelivery: newDDP });
+    setModifiedDDPs(prev => new Set([...prev, poNum]));
+    try {
+      await fetch(`${SB_URL}/rest/v1/tanda_pos?po_number=eq.${encodeURIComponent(poNum)}`, {
+        method: "PATCH",
+        headers: { ...SB_HEADERS, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify({ date_expected_delivery: newDDP || null }),
+      });
+    } catch (e) { console.error("Failed to update DDP:", e); }
+  }, []);
+
+  // ── Cascade all milestones from a given DDP (helper used by both paths) ──
+  const cascadeFromDDP = useCallback((poMs: Milestone[], newDDP: string, skipId?: string) => {
+    const ddpDate = new Date(newDDP + "T00:00:00");
+    for (const m of poMs) {
+      if (skipId && m.id === skipId) continue;
+      const shifted = new Date(ddpDate);
+      shifted.setDate(shifted.getDate() - (m.days_before_ddp ?? 0));
+      const newDate = shifted.toISOString().slice(0, 10);
+      if (newDate !== normDateISO(m.expected_date ?? "")) {
+        saveMilestone({
+          ...m, expected_date: newDate,
+          updated_at: new Date().toISOString(),
+          updated_by: user?.name || "",
+        }, true);
+      }
+    }
+  }, [saveMilestone, user]);
+
+  // ── Direct DDP edit (from DDP cell) ─────────────────────────────────────
+  const updateDDP = useCallback(async (po: XoroPO, newDDP: string) => {
+    const poNum = po.PoNumber ?? "";
+    const poMs  = milestones[poNum] || [];
+    const oldDDP = normDateISO(po.DateExpectedDelivery);
+    await persistDDP(poNum, newDDP);
+    if (!newDDP) return;
+    if (poMs.length === 0) {
+      // No milestones yet — generate fresh from new DDP.
+      if (vendorHasTemplate(po.VendorName ?? "")) {
+        const ms = generateMilestones(poNum, newDDP, po.VendorName);
+        if (ms.length > 0) await saveMilestones(ms);
+      }
+      return;
+    }
+    // Cascade all milestones.
+    cascadeFromDDP(poMs, newDDP);
+    // Auto-note on DDP milestone about the direct edit.
+    if (oldDDP && oldDDP !== newDDP) {
+      const ddpMs = poMs.find(m => (m.days_before_ddp ?? 0) === 0) || poMs[poMs.length - 1];
+      if (ddpMs) addNote(ddpMs, `DDP updated from ${fmtDate(oldDDP)} to ${fmtDate(newDDP)} — all phase dates recalculated`);
+    }
+  }, [milestones, persistDDP, cascadeFromDDP, saveMilestones, generateMilestones, vendorHasTemplate, addNote]);
+
+  // ── Phase date change — may imply a new DDP ──────────────────────────────
+  // If the new date implies a different DDP, show a confirmation modal.
+  // On confirm: update all milestones + DDP, mark orange, add auto-note.
+  const updateMilestoneDate = useCallback((po: XoroPO, m: Milestone, newDate: string | null) => {
+    if (!newDate) {
+      updateField(m, { expected_date: null });
+      return;
+    }
+    const poNum  = po.PoNumber ?? "";
+    const poMs   = milestones[poNum] || [];
+    const currentDDP = normDateISO(po.DateExpectedDelivery);
+
+    // Compute the DDP implied by this phase date.
+    const implied = new Date(newDate + "T00:00:00");
+    implied.setDate(implied.getDate() + (m.days_before_ddp ?? 0));
+    const newDDP = implied.toISOString().slice(0, 10);
+
+    if (!currentDDP || newDDP === currentDDP || poMs.length <= 1) {
+      // No DDP conflict — just update the one milestone (and cascade if needed).
+      updateField(m, { expected_date: newDate });
+      if (poMs.length > 1) cascadeFromDDP(poMs, newDDP, m.id);
+      return;
+    }
+    // DDP would change — ask user to confirm before cascading.
+    setDDPChangeModal({ po, triggerMs: m, newDate, newDDP, oldDDP: currentDDP, poMs });
+  }, [milestones, updateField, cascadeFromDDP]);
+
+  // ── Confirm DDP change triggered by phase date edit ──────────────────────
+  const handleDDPConfirm = useCallback(async () => {
+    if (!ddpChangeModal) return;
+    const { po, triggerMs, newDate, newDDP, oldDDP, poMs } = ddpChangeModal;
+    setDDPChangeModal(null);
+    const poNum = po.PoNumber ?? "";
+    // 1. Update the trigger milestone.
+    updateField(triggerMs, { expected_date: newDate });
+    // 2. Cascade all other milestones from new DDP.
+    cascadeFromDDP(poMs, newDDP, triggerMs.id);
+    // 3. Persist new DDP.
+    await persistDDP(poNum, newDDP);
+    // 4. Auto-note on the DDP milestone.
+    const ddpMs = poMs.find(m => (m.days_before_ddp ?? 0) === 0) || poMs[poMs.length - 1];
+    if (ddpMs) addNote(ddpMs, `DDP changed from ${fmtDate(oldDDP)} to ${fmtDate(newDDP)} — triggered by "${triggerMs.phase}" date change`);
+  }, [ddpChangeModal, updateField, cascadeFromDDP, persistDDP, addNote]);
 
   // ── Excel export ────────────────────────────────────────────────────────
   const exportToExcel = () => {
@@ -347,7 +626,7 @@ export function GridView({
       const poMs  = milestones[poNum] || [];
       const phaseMap = new Map<string, Milestone>();
       poMs.forEach(m => phaseMap.set(m.phase, m));
-      const ddp    = po.DateExpectedDelivery;
+      const ddp    = normDateISO(po.DateExpectedDelivery);
       const days   = ddp ? Math.ceil((new Date(ddp).getTime() - today.getTime()) / 86400000) : null;
       const daysTxt = days === null ? "" : days < 0 ? `${Math.abs(days)} late` : days === 0 ? "Today" : `${days}`;
       const fixed = [
@@ -469,7 +748,7 @@ export function GridView({
         </select>
         <select style={{ ...S.select, width: 200 }} value={filterBuyer} onChange={e => setFilterBuyer(e.target.value)}>
           <option value="All">All Buyers</option>
-          {buyers.map(b => <option key={b} value={b}>{b}</option>)}
+          {buyerOptions.map(b => <option key={b} value={b}>{b}</option>)}
         </select>
         <button style={S.btnSecondary} onClick={() => { setSearch(""); setFilterVendor("All"); setFilterBuyer("All"); }}>Clear</button>
 
@@ -490,6 +769,65 @@ export function GridView({
           <span style={{ fontSize: 15 }}>⬇</span> Excel
         </button>
       </div>
+
+      {/* ── Create-template modal (one vendor at a time) ──────────────── */}
+      {tplModalQueue.length > 0 && (() => {
+        const vendorN = tplModalQueue[0];
+        const dismiss = () => {
+          dismissedTplVendors.current.add(vendorN);
+          setTplModalQueue(q => q.slice(1));
+        };
+        return (
+          <div
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={dismiss}
+          >
+            <div
+              style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 10, width: 500, boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div style={{ padding: "16px 20px", borderBottom: "1px solid #1E293B", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <h2 style={{ margin: 0, color: "#F1F5F9", fontSize: 16, fontWeight: 700 }}>Create Production Template</h2>
+                <button onClick={dismiss} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
+              </div>
+              <div style={{ padding: "16px 20px" }}>
+                <p style={{ color: "#D1D5DB", fontSize: 14, marginTop: 0, marginBottom: 16 }}>
+                  No production template exists for <strong style={{ color: "#60A5FA" }}>{vendorN}</strong>. Create one to generate milestones for all their POs.
+                </p>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ color: "#94A3B8", fontSize: 12, display: "block", marginBottom: 6 }}>Copy from</label>
+                  <select style={{ ...S.select, width: "100%" }} id="gridModalCopyFrom">
+                    <option value="__default__">Default Template</option>
+                    {templateVendorList().map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button style={{ ...S.btnSecondary, flex: 1 }} onClick={dismiss}>Cancel</button>
+                  <button style={{ ...S.btnPrimary, flex: 2 }} onClick={async () => {
+                    const copyEl = document.getElementById("gridModalCopyFrom") as HTMLSelectElement;
+                    const copyFrom = copyEl?.value || "__default__";
+                    const source = getVendorTemplates(copyFrom === "__default__" ? undefined : copyFrom) || [];
+                    const newTpls = source.map((t: WipTemplate) => ({ ...t, id: milestoneUid() }));
+                    await saveVendorTemplates(vendorN, newTpls);
+                    // Generate milestones for all POs of this vendor that have a DDP
+                    const vendorPos = pos.filter(p => p.VendorName === vendorN && p.DateExpectedDelivery);
+                    const allMs: Milestone[] = [];
+                    for (const vpo of vendorPos) {
+                      if ((milestones[vpo.PoNumber ?? ""] || []).length > 0) continue;
+                      const ms = generateMilestones(vpo.PoNumber ?? "", vpo.DateExpectedDelivery!, vendorN);
+                      allMs.push(...ms);
+                    }
+                    if (allMs.length > 0) await saveMilestones(allMs);
+                    dismiss();
+                  }}>
+                    Create Template &amp; Generate Milestones
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
 
@@ -528,21 +866,27 @@ export function GridView({
                   <span style={{ ...hdr1, justifyContent: "center" }}>Buyer PO</span>
                   <span style={{ ...hdr1, justifyContent: "center" }}>DDP</span>
                   <span style={{ ...hdr1, justifyContent: "flex-end" }}>Days from DDP</span>
-                  {phases.map((p, i) => (
-                    <span key={p} title={p} style={{
-                      ...hdr1,
-                      gridColumn: `span ${PHASE_COLS}`,
-                      justifyContent: "center",
-                      background: "#1A2535",
-                      color: "#C4B5FD",
-                      // Phase divider via boxShadow — doesn't create corner-miter with borderBottom
-                      borderRight: "none",
-                      boxShadow: i === phases.length - 1 ? "none" : PHASE_SHADOW,
-                      borderBottom: B_HDR,
-                    }}>
-                      {p}
-                    </span>
-                  ))}
+                  {phases.map((p, i) => {
+                    const isLastPhase = i === phases.length - 1;
+                    return (
+                      <span key={p} title={p} style={{
+                        ...hdr1,
+                        gridColumn: `span ${PHASE_COLS}`,
+                        justifyContent: "center",
+                        background: "#1A2535",
+                        color: "#C4B5FD",
+                        borderRight: B_HDR,
+                        borderBottom: B_HDR,
+                        position: "relative", zIndex: 1, overflow: "visible",
+                      }}>
+                        {/* Left divider — all phases; top:0 because this is the topmost row */}
+                        <span style={{ ...phaseDividerOverlay, top: 0, height: "calc(100% + 2px)" }} />
+                        {/* Right closing border on last phase */}
+                        {isLastPhase && <span style={{ ...phaseDividerOverlayRight, top: 0, height: "calc(100% + 2px)" }} />}
+                        {p}
+                      </span>
+                    );
+                  })}
                 </div>
 
                 {/* Row 2 */}
@@ -551,15 +895,22 @@ export function GridView({
                     <span key={i} style={{ ...hdr2, ...(i === 0 ? firstCol : {}) }} />
                   ))}
                   {phases.map((p, pi) => {
-                    const isLast = pi === phases.length - 1;
+                    const isLastPhase = pi === phases.length - 1;
                     return (
                       <React.Fragment key={p}>
-                        <span style={{ ...hdr2 }}>Due Date</span>
+                        {/* Left divider on every Due Date sub-label */}
+                        <span style={{ ...hdr2, ...phaseDividerHost }}>
+                          <span style={phaseDividerOverlay} />
+                          Due Date
+                        </span>
                         <span style={{ ...hdr2 }}>Status</span>
                         <span style={{ ...hdr2 }}>Status Date</span>
                         <span style={{ ...hdr2 }}>Days</span>
-                        {/* Notes sub-label — 4px indigo divider via boxShadow, no miter */}
-                        <span style={{ ...hdr2, borderRight: "none", boxShadow: isLast ? "none" : PHASE_SHADOW }}>📝</span>
+                        {/* Right closing border on last phase Notes sub-label */}
+                        <span style={{ ...hdr2, ...(isLastPhase ? phaseDividerHost : {}) }}>
+                          {isLastPhase && <span style={phaseDividerOverlayRight} />}
+                          📝
+                        </span>
                       </React.Fragment>
                     );
                   })}
@@ -573,13 +924,15 @@ export function GridView({
                 const phaseMap = new Map<string, Milestone>();
                 poMs.forEach(m => phaseMap.set(m.phase, m));
 
-                const ddp     = po.DateExpectedDelivery;
-                const days    = ddp ? Math.ceil((new Date(ddp).getTime() - today.getTime()) / 86400000) : null;
+                const ddpRaw  = po.DateExpectedDelivery;
+                const ddp     = normDateISO(ddpRaw);
+                const days    = ddp ? Math.ceil((new Date(ddp + "T00:00:00").getTime() - today.getTime()) / 86400000) : null;
                 const daysClr = days === null ? "#6B7280" : days < 0 ? "#EF4444" : days <= 7 ? "#F59E0B" : "#10B981";
                 const daysTxt = days === null ? "—" : days < 0 ? `${Math.abs(days)} late` : days === 0 ? "Today" : `${days}`;
-                const isEditing  = buyerPoEditing === poNum;
-                const isExpanded = expandedPo?.PoNumber === poNum;
-                const hasNotes   = poMs.some(m => (m.note_entries && m.note_entries.length > 0) || m.notes);
+                const isEditing      = buyerPoEditing === poNum;
+                const isExpanded    = expandedPo?.PoNumber === poNum;
+                const hasNotes      = poMs.some(m => (m.note_entries && m.note_entries.length > 0) || m.notes);
+                const totalNoteCount = poMs.reduce((acc, m) => acc + (m.note_entries?.length || 0) + (m.notes ? 1 : 0), 0);
 
                 return (
                   <div key={poNum} style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: isExpanded ? "#1E293B44" : undefined }}>
@@ -597,11 +950,12 @@ export function GridView({
 
                     {/* Row-level notes — opens all-PO notes + add form */}
                     <span
-                      style={{ ...cell, justifyContent: "center", cursor: "pointer" }}
+                      style={{ ...cell, justifyContent: "center", cursor: "pointer", flexDirection: "column", gap: 1, padding: "2px 4px" }}
                       onClick={() => setNotesModal({ po, ms: poMs })}
-                      title={hasNotes ? "View / add PO notes" : "Add PO notes"}
+                      title={hasNotes ? `${totalNoteCount} note${totalNoteCount !== 1 ? "s" : ""} — click to view/add` : "Add PO notes"}
                     >
-                      <span style={{ fontSize: 13, color: hasNotes ? "#60A5FA" : "#374151" }}>📝</span>
+                      <span style={{ fontSize: 13, color: hasNotes ? "#60A5FA" : "#374151", lineHeight: 1 }}>📝</span>
+                      {hasNotes && <span style={{ fontSize: 8, fontWeight: 700, color: "#60A5FA", lineHeight: 1 }}>{totalNoteCount}</span>}
                     </span>
 
                     {/* PO # */}
@@ -618,9 +972,16 @@ export function GridView({
                       {po.VendorName || "—"}
                     </span>
 
-                    {/* Buyer */}
-                    <span style={{ ...cell, color: po.BuyerName ? "#D1D5DB" : "#4B5563", whiteSpace: "normal", wordBreak: "break-word" }} title={po.BuyerName || ""}>
-                      {po.BuyerName || "—"}
+                    {/* Buyer — dropdown from all customers + ROF Stock + PT Stock */}
+                    <span style={{ ...cell, padding: 2 }}>
+                      <select
+                        value={po.BuyerName || ""}
+                        onChange={e => persistBuyerName(poNum, e.target.value)}
+                        style={{ background: "transparent", border: "none", color: po.BuyerName ? "#D1D5DB" : "#4B5563", fontSize: 11, padding: "2px 4px", width: "100%", fontWeight: 600, outline: "none", cursor: "pointer" }}
+                      >
+                        <option value="" style={{ background: "#0F172A", color: "#4B5563" }}>— unassigned —</option>
+                        {buyerOptions.map(b => <option key={b} value={b} style={{ background: "#0F172A", color: "#D1D5DB" }}>{b}</option>)}
+                      </select>
                     </span>
 
                     {/* Buyer PO */}
@@ -641,9 +1002,15 @@ export function GridView({
                       ) : (po.BuyerPo || "—")}
                     </span>
 
-                    {/* DDP */}
-                    <span style={{ ...cell, justifyContent: "center", color: "#9CA3AF" }}>
-                      {fmtDate(ddp) || "—"}
+                    {/* DDP — editable; changing cascades all milestone expected_dates.
+                        normDateISO converts any Xoro date format to YYYY-MM-DD
+                        which MilestoneDateInput requires. */}
+                    <span style={{ ...cell, padding: 2, justifyContent: "center" }} title={ddp ? "Click to edit DDP — all phase dates will recalculate" : "Click to set DDP"}>
+                      <MilestoneDateInput
+                        value={ddp}
+                        onCommit={v => { if (v !== ddp) updateDDP(po, v); }}
+                        style={{ background: "transparent", border: `1px solid ${modifiedDDPs.has(poNum) ? "#F97316" : "#334155"}`, borderRadius: 3, color: modifiedDDPs.has(poNum) ? "#F97316" : ddp ? "#9CA3AF" : "#374151", fontSize: 11, fontWeight: modifiedDDPs.has(poNum) ? 700 : 400, padding: "2px 5px", width: "100%", boxSizing: "border-box", cursor: "pointer", textAlign: "center" } as React.CSSProperties}
+                      />
                     </span>
 
                     {/* Days from DDP */}
@@ -653,22 +1020,23 @@ export function GridView({
 
                     {/* Phase sub-cells */}
                     {phases.map((phase, pi) => {
-                      const m      = phaseMap.get(phase);
-                      const isLast = pi === phases.length - 1;
-                      // Phase divider via boxShadow — no borderRight so no corner-miter with borderBottom
-                      const notesBorder: React.CSSProperties = {
-                        borderRight: "none",
-                        boxShadow: isLast ? "none" : PHASE_SHADOW,
-                      };
+                      const m = phaseMap.get(phase);
 
+                      const isLastPhase = pi === phases.length - 1;
                       if (!m) {
                         return (
                           <React.Fragment key={phase}>
+                            <span style={{ ...sub, justifyContent: "center", color: "#1E293B", ...phaseDividerHost }}>
+                              <span style={phaseDividerOverlay} />
+                              —
+                            </span>
                             <span style={{ ...sub, justifyContent: "center", color: "#1E293B" }}>—</span>
                             <span style={{ ...sub, justifyContent: "center", color: "#1E293B" }}>—</span>
                             <span style={{ ...sub, justifyContent: "center", color: "#1E293B" }}>—</span>
-                            <span style={{ ...sub, justifyContent: "center", color: "#1E293B" }}>—</span>
-                            <span style={{ ...sub, justifyContent: "center", color: "#1E293B", ...notesBorder }}>—</span>
+                            <span style={{ ...sub, justifyContent: "center", color: "#1E293B", ...(isLastPhase ? phaseDividerHost : {}) }}>
+                              {isLastPhase && <span style={phaseDividerOverlayRight} />}
+                              —
+                            </span>
                           </React.Fragment>
                         );
                       }
@@ -687,12 +1055,13 @@ export function GridView({
 
                       return (
                         <React.Fragment key={phase}>
-                          {/* Due Date */}
-                          <span style={{ ...sub, padding: 2 }}>
+                          {/* Due Date — left divider on every phase, content centered */}
+                          <span style={{ ...sub, padding: 2, justifyContent: "center", ...phaseDividerHost }}>
+                            <span style={phaseDividerOverlay} />
                             <MilestoneDateInput
-                              value={m.expected_date || ""}
-                              onCommit={v => updateField(m, { expected_date: v || null })}
-                              style={{ background: "transparent", border: "1px solid #334155", borderRadius: 3, color: "#9CA3AF", fontSize: 10, padding: "2px 5px", width: "100%", boxSizing: "border-box", cursor: "pointer" } as React.CSSProperties}
+                              value={normDateISO(m.expected_date ?? "")}
+                              onCommit={v => updateMilestoneDate(po, m, v || null)}
+                              style={{ background: "transparent", border: "1px solid #334155", borderRadius: 3, color: "#9CA3AF", fontSize: 10, padding: "2px 5px", width: "100%", boxSizing: "border-box", cursor: "pointer", textAlign: "center" } as React.CSSProperties}
                             />
                           </span>
 
@@ -728,12 +1097,13 @@ export function GridView({
                             {dTxt}
                           </span>
 
-                          {/* Per-phase notes — double-thick right border separates phases */}
+                          {/* Per-phase notes — right closing border on last phase */}
                           <span
-                            style={{ ...sub, justifyContent: "center", cursor: "pointer", padding: 2, ...notesBorder }}
+                            style={{ ...sub, justifyContent: "center", cursor: "pointer", padding: 2, ...(isLastPhase ? phaseDividerHost : {}) }}
                             onClick={() => setNotesModal({ po, ms: poMs, filterPhase: phase })}
-                            title={phaseHasNotes ? `${noteCount} note${noteCount !== 1 ? "s" : ""} — click to view/add` : `Add note for ${phase}`}
+                            title={phaseHasNotes ? `${noteCount} note${noteCount !== 1 ? "s" : ""} — click to view/add/edit` : `Add note for ${phase}`}
                           >
+                            {isLastPhase && <span style={phaseDividerOverlayRight} />}
                             <span style={{ fontSize: 11, color: phaseHasNotes ? "#60A5FA" : "#374151" }}>
                               {phaseHasNotes ? `📝${noteCount}` : "📝"}
                             </span>
@@ -749,6 +1119,49 @@ export function GridView({
         )}
       </div>
 
+      {/* ── DDP change confirmation modal ────────────────────────────────── */}
+      {ddpChangeModal && (
+        <div
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 1010, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setDDPChangeModal(null)}
+        >
+          <div
+            style={{ background: "#0F172A", border: "1px solid #F97316", borderRadius: 10, width: 460, boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ padding: "14px 20px", borderBottom: "1px solid #1E293B", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h2 style={{ margin: 0, color: "#F97316", fontSize: 15, fontWeight: 700 }}>⚠ DDP Date Will Change</h2>
+              <button onClick={() => setDDPChangeModal(null)} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
+            </div>
+            <div style={{ padding: "16px 20px" }}>
+              <p style={{ color: "#D1D5DB", fontSize: 13, margin: "0 0 12px" }}>
+                Changing <strong style={{ color: "#C4B5FD" }}>{ddpChangeModal.triggerMs.phase}</strong> date
+                will shift the DDP from{" "}
+                <strong style={{ color: "#9CA3AF" }}>{fmtDate(ddpChangeModal.oldDDP)}</strong> to{" "}
+                <strong style={{ color: "#F97316" }}>{fmtDate(ddpChangeModal.newDDP)}</strong>.
+              </p>
+              <p style={{ color: "#6B7280", fontSize: 12, margin: "0 0 16px" }}>
+                All other phase dates will recalculate from the new DDP. A note will be added automatically.
+              </p>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  style={{ ...S.btnSecondary, flex: 1 }}
+                  onClick={() => setDDPChangeModal(null)}
+                >
+                  Cancel — keep original dates
+                </button>
+                <button
+                  style={{ background: "#F97316", border: "none", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 700, padding: "10px 16px", cursor: "pointer", flex: 2 }}
+                  onClick={handleDDPConfirm}
+                >
+                  Accept — update DDP &amp; all phases
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Notes modal ───────────────────────────────────────────────────── */}
       {notesModal && (
         <NotesModal
@@ -757,6 +1170,8 @@ export function GridView({
           filterPhase={notesModal.filterPhase}
           onClose={() => setNotesModal(null)}
           onAddNote={addNote}
+          onEditNote={editNote}
+          onDeleteNote={deleteNote}
         />
       )}
 

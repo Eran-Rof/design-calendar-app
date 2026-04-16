@@ -58,8 +58,15 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
         });
         // Sort each group by sort_order
         Object.values(grouped).forEach(arr => arr.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)));
+        // MERGE with existing in-memory state rather than replace:
+        // DB entries take priority for any PO whose data is in the DB.
+        // POs not yet in DB (save still in-progress) keep their in-memory state.
+        // This prevents the 15-second poll from wiping milestones that are being generated.
+        const current = getState().milestones;
+        const merged: Record<string, Milestone[]> = { ...current };
+        Object.keys(grouped).forEach(poNum => { merged[poNum] = grouped[poNum]; });
         const coreSet = getState().setCoreField;
-        coreSet("milestones", grouped);
+        coreSet("milestones", merged);
       }
     } catch (e) { console.error("[MS] loadAll error:", e); }
   }
@@ -185,10 +192,14 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
 
   async function saveMilestones(ms: Milestone[]) {
     if (!ms.length) return;
-    await sb.from("tanda_milestones").upsert(
+    const { error } = await sb.from("tanda_milestones").upsert(
       ms.map(m => ({ id: m.id, data: m })),
       { onConflict: "id" }
     );
+    if (error) {
+      console.error("[MS] saveMilestones DB error:", error);
+      throw new Error((error as any)?.message || "saveMilestones failed");
+    }
     ms.forEach(m => store.updateMilestone(m.po_number, m.id, m));
   }
 

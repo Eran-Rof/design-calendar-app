@@ -118,16 +118,21 @@ export function TemplatesView({
         {showNewVendor && isAdmin && (
           <div style={{ background: "#0F172A", borderRadius: 8, padding: 16, marginBottom: 16 }}>
             <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10 }}>
-              <span style={{ color: "#94A3B8", fontSize: 12 }}>Vendor:</span>
-              <select style={{ ...S.select, flex: 1 }} id="newTplVendor">
-                {vendorsWithoutTemplate.length > 0
-                  ? vendorsWithoutTemplate.map(v => <option key={v} value={v}>{v}</option>)
-                  : <option value="">All vendors have templates</option>
-                }
-              </select>
+              <span style={{ color: "#94A3B8", fontSize: 12, flexShrink: 0 }}>Vendor:</span>
+              {/* Free-text input so any vendor can be entered, even if not in PO list.
+                  datalist provides autocomplete suggestions from POs without templates. */}
+              <input
+                id="newTplVendor"
+                list="newTplVendorList"
+                placeholder="Type or select vendor name…"
+                style={{ ...S.input, flex: 1, marginBottom: 0, fontSize: 13, padding: "8px 12px" }}
+              />
+              <datalist id="newTplVendorList">
+                {poVendors.map(v => <option key={v} value={v} />)}
+              </datalist>
             </div>
             <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
-              <span style={{ color: "#94A3B8", fontSize: 12 }}>Copy from:</span>
+              <span style={{ color: "#94A3B8", fontSize: 12, flexShrink: 0 }}>Copy from:</span>
               <select style={{ ...S.select, flex: 1 }} id="copyFromVendor">
                 <option value="__default__">Default Template</option>
                 {vendorKeys.map(v => <option key={v} value={v}>{v}</option>)}
@@ -136,9 +141,9 @@ export function TemplatesView({
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button style={S.btnSecondary} onClick={() => setShowNewVendor_(false)}>Cancel</button>
               <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 16px" }} onClick={() => {
-                const vendorEl = document.getElementById("newTplVendor") as HTMLSelectElement;
+                const vendorEl = document.getElementById("newTplVendor") as HTMLInputElement;
                 const copyEl = document.getElementById("copyFromVendor") as HTMLSelectElement;
-                const vendorName = vendorEl?.value;
+                const vendorName = vendorEl?.value?.trim();
                 const copyFrom = copyEl?.value || "__default__";
                 if (!vendorName) return;
                 const source = getVendorTemplates(copyFrom === "__default__" ? undefined : copyFrom);

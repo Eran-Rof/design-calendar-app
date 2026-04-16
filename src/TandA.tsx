@@ -645,6 +645,9 @@ function TandAApp() {
         setPos(active.map((r: any) => ({
           ...(r.data as XoroPO),
           BuyerPo: r.buyer_po || (r.data as XoroPO)?.BuyerPo || "",
+          // Fold user-edited columns on top of Xoro JSONB so grid edits persist across reloads
+          ...(r.buyer_name ? { BuyerName: r.buyer_name } : {}),
+          ...(r.date_expected_delivery ? { DateExpectedDelivery: r.date_expected_delivery } : {}),
         })));
         setLastSync(data[0]?.synced_at ?? "");
       } else {
@@ -1199,10 +1202,10 @@ function TandAApp() {
           <span style={S.navSub}>via XoroERP</span>
         </div>
         <div style={S.navRight}>
-          <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("dashboard"); })}>Dashboard</button>
+          <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("dashboard"); })}>🏠 Dashboard</button>
           <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("list"); })}>All POs</button>
           <button style={view === "grid"      ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("grid"); })}>🗂 Grid</button>
-          <button style={view === "templates" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("templates"); })}>Templates</button>
+          <button style={view === "templates" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("templates"); })}>📐 Templates</button>
           <button style={view === "teams" ? { ...S.navBtnActive, borderColor: TEAMS_PURPLE, color: TEAMS_PURPLE_LT } : { ...S.navBtn, color: TEAMS_PURPLE_LT }} onClick={() => guardedNav(() => { setSelected(null); setView("teams"); })}>💬 Teams</button>
           <button style={view === "email" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => {
             setSelected(null); setView("email");
@@ -1288,8 +1291,13 @@ function TandAApp() {
           setSelected={setSelected}
           setDetailMode={setDetailMode}
           saveMilestone={saveMilestone}
+          saveMilestones={saveMilestones}
           ensureMilestones={ensureMilestones}
+          generateMilestones={generateMilestones}
           vendorHasTemplate={vendorHasTemplate}
+          templateVendorList={templateVendorList}
+          getVendorTemplates={getVendorTemplates}
+          saveVendorTemplates={saveVendorTemplates}
           user={user}
         />}
 
