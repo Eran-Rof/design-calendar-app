@@ -1288,6 +1288,8 @@ function TandAApp() {
           setSelected={setSelected}
           setDetailMode={setDetailMode}
           saveMilestone={saveMilestone}
+          ensureMilestones={ensureMilestones}
+          vendorHasTemplate={vendorHasTemplate}
           user={user}
         />}
 
