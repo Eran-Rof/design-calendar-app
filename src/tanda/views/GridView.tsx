@@ -299,7 +299,8 @@ export function GridView({
   const [buyerPoEditing, setBuyerPoEditing] = useState<string | null>(null);
   const [buyerPoDraft, setBuyerPoDraft]     = useState("");
   const [page, setPage]                     = useState(0);
-  const [undoStack, setUndoStack]           = useState<Milestone[]>([]);
+  // Each entry is a batch of milestones to restore together (supports cascade undo).
+  const [undoStack, setUndoStack]           = useState<Milestone[][]>([]);
   const [notesModal, setNotesModal]         = useState<{
     po: XoroPO; ms: Milestone[]; filterPhase?: string;
   } | null>(null);
@@ -387,8 +388,10 @@ export function GridView({
   }, [rows, milestones]);
 
   // ── Mutations ───────────────────────────────────────────────────────────
-  const pushUndo = useCallback((old: Milestone) => {
-    setUndoStack(s => [old, ...s].slice(0, MAX_UNDO));
+  // pushUndo accepts a batch (array) of milestones — all are restored together on undo.
+  const pushUndo = useCallback((batch: Milestone | Milestone[]) => {
+    const arr = Array.isArray(batch) ? batch : [batch];
+    setUndoStack(s => [arr, ...s].slice(0, MAX_UNDO));
   }, []);
 
   const updateStatus = (po: XoroPO, m: Milestone, newStatus: string) => {
@@ -413,9 +416,12 @@ export function GridView({
 
   const handleUndo = () => {
     if (undoStack.length === 0) return;
-    const [prev, ...rest] = undoStack;
+    const [batch, ...rest] = undoStack;
     setUndoStack(rest);
-    saveMilestone({ ...prev, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
+    // Restore all milestones in the batch (single edit = 1 item, cascade = many).
+    batch.forEach(prev => {
+      saveMilestone({ ...prev, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
+    });
   };
 
   // Add note to a specific milestone; optimistically updates the open modal.
@@ -535,9 +541,9 @@ export function GridView({
     const poNum = po.PoNumber ?? "";
     const poMs  = milestones[poNum] || [];
     const oldDDP = normDateISO(po.DateExpectedDelivery);
-    await persistDDP(poNum, newDDP);
-    if (!newDDP) return;
+    if (!newDDP) { await persistDDP(poNum, newDDP); return; }
     if (poMs.length === 0) {
+      await persistDDP(poNum, newDDP);
       // No milestones yet — generate fresh from new DDP.
       if (vendorHasTemplate(po.VendorName ?? "")) {
         const ms = generateMilestones(poNum, newDDP, po.VendorName);
@@ -545,6 +551,9 @@ export function GridView({
       }
       return;
     }
+    // Snapshot ALL milestones + DDP as one undo batch before cascading.
+    pushUndo(poMs);
+    await persistDDP(poNum, newDDP);
     // Cascade all milestones.
     cascadeFromDDP(poMs, newDDP);
     // Auto-note on DDP milestone about the direct edit.
@@ -552,7 +561,7 @@ export function GridView({
       const ddpMs = poMs.find(m => (m.days_before_ddp ?? 0) === 0) || poMs[poMs.length - 1];
       if (ddpMs) addNote(ddpMs, `DDP updated from ${fmtDate(oldDDP)} to ${fmtDate(newDDP)} — all phase dates recalculated`);
     }
-  }, [milestones, persistDDP, cascadeFromDDP, saveMilestones, generateMilestones, vendorHasTemplate, addNote]);
+  }, [milestones, pushUndo, persistDDP, cascadeFromDDP, saveMilestones, generateMilestones, vendorHasTemplate, addNote]);
 
   // ── Phase date change — may imply a new DDP ──────────────────────────────
   // If the new date implies a different DDP, show a confirmation modal.
@@ -572,14 +581,16 @@ export function GridView({
     const newDDP = implied.toISOString().slice(0, 10);
 
     if (!currentDDP || newDDP === currentDDP || poMs.length <= 1) {
-      // No DDP conflict — just update the one milestone (and cascade if needed).
-      updateField(m, { expected_date: newDate });
+      // No DDP conflict — snapshot all affected milestones before updating.
+      pushUndo(poMs.length > 1 ? poMs : m);
+      saveMilestone({ ...m, expected_date: newDate, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
       if (poMs.length > 1) cascadeFromDDP(poMs, newDDP, m.id);
       return;
     }
     // DDP would change — ask user to confirm before cascading.
+    // Snapshot stored on ddpChangeModal so handleDDPConfirm can push it.
     setDDPChangeModal({ po, triggerMs: m, newDate, newDDP, oldDDP: currentDDP, poMs });
-  }, [milestones, updateField, cascadeFromDDP]);
+  }, [milestones, pushUndo, saveMilestone, user, cascadeFromDDP]);
 
   // ── Confirm DDP change triggered by phase date edit ──────────────────────
   const handleDDPConfirm = useCallback(async () => {
@@ -587,8 +598,10 @@ export function GridView({
     const { po, triggerMs, newDate, newDDP, oldDDP, poMs } = ddpChangeModal;
     setDDPChangeModal(null);
     const poNum = po.PoNumber ?? "";
+    // Snapshot entire PO milestone set as one undo batch before any changes.
+    pushUndo(poMs);
     // 1. Update the trigger milestone.
-    updateField(triggerMs, { expected_date: newDate });
+    saveMilestone({ ...triggerMs, expected_date: newDate, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
     // 2. Cascade all other milestones from new DDP.
     cascadeFromDDP(poMs, newDDP, triggerMs.id);
     // 3. Persist new DDP.
@@ -596,7 +609,7 @@ export function GridView({
     // 4. Auto-note on the DDP milestone.
     const ddpMs = poMs.find(m => (m.days_before_ddp ?? 0) === 0) || poMs[poMs.length - 1];
     if (ddpMs) addNote(ddpMs, `DDP changed from ${fmtDate(oldDDP)} to ${fmtDate(newDDP)} — triggered by "${triggerMs.phase}" date change`);
-  }, [ddpChangeModal, updateField, cascadeFromDDP, persistDDP, addNote]);
+  }, [ddpChangeModal, pushUndo, saveMilestone, user, cascadeFromDDP, persistDDP, addNote]);
 
   // ── Excel export ────────────────────────────────────────────────────────
   const exportToExcel = () => {
