@@ -304,10 +304,8 @@ export function GridView({
   const [notesModal, setNotesModal]         = useState<{
     po: XoroPO; ms: Milestone[]; filterPhase?: string;
   } | null>(null);
-  // Queue of vendors that need a template — shown one at a time as a create-template modal.
-  const [tplModalQueue, setTplModalQueue] = useState<string[]>([]);
-  // Track which vendors the user already dismissed (skip for this session).
-  const dismissedTplVendors = useRef<Set<string>>(new Set());
+  // Vendors the user dismissed this session — state so dismissal triggers re-render.
+  const [dismissedTplVendors, setDismissedTplVendors] = useState<Set<string>>(new Set());
   // DDP confirmation modal — shown when a phase date change would shift the DDP.
   const [ddpChangeModal, setDDPChangeModal] = useState<{
     po: XoroPO;
@@ -343,16 +341,22 @@ export function GridView({
   const totalPages = Math.ceil(rows.length / PAGE_SIZE);
   const pageRows   = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
-  // Auto-populate milestones for every PO on the current page.
-  // Step 1: check vendor-needs-template for ALL rows (even those without a DDP).
-  // Step 2: generate milestones for rows that have a DDP and a vendor template.
-  useEffect(() => {
+  // First vendor on the current page that has no template and hasn't been dismissed.
+  // Computed at render time so it re-evaluates automatically after wipTemplates loads
+  // or after the user dismisses a vendor — no timing/false-positive issues.
+  const tplModalVendor = useMemo(() => {
     for (const po of pageRows) {
       const vendorN = po.VendorName ?? "";
-      // Always surface vendors that need a template, regardless of DDP.
-      if (vendorN && !vendorHasTemplate(vendorN) && !dismissedTplVendors.current.has(vendorN)) {
-        setTplModalQueue(prev => prev.includes(vendorN) ? prev : [...prev, vendorN]);
+      if (vendorN && !vendorHasTemplate(vendorN) && !dismissedTplVendors.has(vendorN)) {
+        return vendorN;
       }
+    }
+    return null;
+  }, [pageRows, vendorHasTemplate, dismissedTplVendors]);
+
+  // Auto-populate milestones for every PO on the current page.
+  useEffect(() => {
+    for (const po of pageRows) {
       if (!ensureMilestones) continue;
       const poNum = po.PoNumber ?? "";
       // Normalise DDP — handles "YYYY-MM-DDTHH:mm:ss", "MM/DD/YYYY", etc.
@@ -374,7 +378,7 @@ export function GridView({
       })();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageRows, milestones, ensureMilestones, vendorHasTemplate]);
+  }, [pageRows, milestones, ensureMilestones]);
 
   const phases = useMemo(() => {
     const order = new Map<string, number>();
@@ -783,13 +787,12 @@ export function GridView({
         </button>
       </div>
 
-      {/* ── Create-template modal (one vendor at a time) ──────────────── */}
-      {tplModalQueue.length > 0 && (() => {
-        const vendorN = tplModalQueue[0];
-        const dismiss = () => {
-          dismissedTplVendors.current.add(vendorN);
-          setTplModalQueue(q => q.slice(1));
-        };
+      {/* ── Create-template modal — shown for the first vendor on the page
+           that has no template. Re-evaluates after wipTemplates loads so
+           there are no false positives from early async timing. ──────── */}
+      {tplModalVendor && (() => {
+        const vendorN = tplModalVendor;
+        const dismiss = () => setDismissedTplVendors(prev => new Set([...prev, vendorN]));
         return (
           <div
             style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}
