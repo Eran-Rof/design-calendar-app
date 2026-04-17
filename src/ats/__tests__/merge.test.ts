@@ -23,8 +23,8 @@ describe("mergeExcelDataSkus", () => {
   it("folds a simple two-sku merge into one entry", () => {
     const data = makeData({
       skus: [
-        { sku: "A-OLD", description: "old name", store: "ROF", onHand: 100, onOrder: 0, avgCost: 10 },
-        { sku: "A",     description: "new name", store: "ROF", onHand:  50, onOrder: 0, avgCost: 20 },
+        { sku: "A-OLD", description: "old name", store: "ROF", onHand: 100, onPO: 0, avgCost: 10 },
+        { sku: "A",     description: "new name", store: "ROF", onHand:  50, onPO: 0, avgCost: 20 },
       ],
       pos: [{ sku: "A-OLD", date: "2026-04-02", qty: 30, poNumber: "P1", vendor: "V", store: "ROF", unitCost: 10 }],
       sos: [{ sku: "A-OLD", date: "2026-04-03", qty: 20, orderNumber: "S1", customerName: "C", unitPrice: 25, totalPrice: 500, store: "ROF" }],
@@ -49,9 +49,9 @@ describe("mergeExcelDataSkus", () => {
     // duplicated row after merge.
     const data = makeData({
       skus: [
-        { sku: "DUP", store: "ROF", description: "", onHand: 100, onOrder: 500, onCommitted: 200 },
-        { sku: "DUP", store: "ROF", description: "", onHand:  50, onOrder: 300, onCommitted: 100 },
-        { sku: "TGT", store: "ROF", description: "", onHand:  10, onOrder:   0, onCommitted:   0 },
+        { sku: "DUP", store: "ROF", description: "", onHand: 100, onPO: 500, onOrder: 200 },
+        { sku: "DUP", store: "ROF", description: "", onHand:  50, onPO: 300, onOrder: 100 },
+        { sku: "TGT", store: "ROF", description: "", onHand:  10, onPO:   0, onOrder:   0 },
       ],
     });
 
@@ -64,20 +64,20 @@ describe("mergeExcelDataSkus", () => {
 
     // sums include both duplicate source rows
     expect(tgtEntries[0].onHand).toBe(160);       // 10 + 100 + 50
-    expect(tgtEntries[0].onOrder).toBe(800);      // 0 + 500 + 300
-    expect(tgtEntries[0].onCommitted).toBe(300);  // 0 + 200 + 100
+    expect(tgtEntries[0].onPO).toBe(800);      // 0 + 500 + 300
+    expect(tgtEntries[0].onOrder).toBe(300);  // 0 + 200 + 100
   });
 
   it("is a no-op when fromSku === toSku", () => {
     const data = makeData({
-      skus: [{ sku: "X", store: "ROF", description: "", onHand: 1, onOrder: 0 }],
+      skus: [{ sku: "X", store: "ROF", description: "", onHand: 1, onPO: 0 }],
     });
     expect(mergeExcelDataSkus(data, "X", "X")).toBe(data);
   });
 
   it("drops events whose sku appears nowhere in skus", () => {
     const data = makeData({
-      skus: [{ sku: "B", store: "ROF", description: "", onHand: 0, onOrder: 0 }],
+      skus: [{ sku: "B", store: "ROF", description: "", onHand: 0, onPO: 0 }],
       pos: [{ sku: "GHOST", date: "2026-04-02", qty: 5, poNumber: "P", vendor: "V", store: "ROF", unitCost: 0 }],
     });
     const merged = mergeExcelDataSkus(data, "GHOST", "B");
@@ -90,9 +90,9 @@ describe("mergeExcelDataSkus", () => {
     // against an already-baked dataset must stay idempotent.
     const base = makeData({
       skus: [
-        { sku: "A", store: "ROF", description: "", onHand: 10, onOrder: 0 },
-        { sku: "B", store: "ROF", description: "", onHand: 20, onOrder: 0 },
-        { sku: "C", store: "ROF", description: "", onHand: 30, onOrder: 0 },
+        { sku: "A", store: "ROF", description: "", onHand: 10, onPO: 0 },
+        { sku: "B", store: "ROF", description: "", onHand: 20, onPO: 0 },
+        { sku: "C", store: "ROF", description: "", onHand: 30, onPO: 0 },
       ],
     });
     const history = [
@@ -117,9 +117,9 @@ describe("mergeExcelDataSkus", () => {
 describe("dedupeSkuEntries", () => {
   it("returns the input unchanged when there are no duplicates", () => {
     const input = [
-      { sku: "A", store: "ROF",      description: "", onHand: 10, onOrder: 0 },
-      { sku: "A", store: "ROF ECOM", description: "", onHand:  5, onOrder: 0 },
-      { sku: "B", store: "ROF",      description: "", onHand: 20, onOrder: 0 },
+      { sku: "A", store: "ROF",      description: "", onHand: 10, onPO: 0 },
+      { sku: "A", store: "ROF ECOM", description: "", onHand:  5, onPO: 0 },
+      { sku: "B", store: "ROF",      description: "", onHand: 20, onPO: 0 },
     ];
     const out = dedupeSkuEntries(input);
     expect(out).toHaveLength(3);
@@ -127,22 +127,22 @@ describe("dedupeSkuEntries", () => {
 
   it("sums duplicate sku+store rows with weighted avg cost", () => {
     const input = [
-      { sku: "X", store: "ROF", description: "", onHand: 10, onOrder: 2, onCommitted: 1, avgCost: 5 },
-      { sku: "X", store: "ROF", description: "", onHand: 20, onOrder: 3, onCommitted: 2, avgCost: 8 },
+      { sku: "X", store: "ROF", description: "", onHand: 10, onPO: 2, onOrder: 1, avgCost: 5 },
+      { sku: "X", store: "ROF", description: "", onHand: 20, onPO: 3, onOrder: 2, avgCost: 8 },
     ];
     const out = dedupeSkuEntries(input);
     expect(out).toHaveLength(1);
     expect(out[0].onHand).toBe(30);
-    expect(out[0].onOrder).toBe(5);
-    expect(out[0].onCommitted).toBe(3);
+    expect(out[0].onPO).toBe(5);
+    expect(out[0].onOrder).toBe(3);
     // (5*10 + 8*20) / 30 = 7
     expect(out[0].avgCost).toBeCloseTo(7, 3);
   });
 
   it("treats null/undefined store as ROF for dedupe key", () => {
     const input = [
-      { sku: "X", store: undefined as any, description: "", onHand: 1, onOrder: 0 },
-      { sku: "X", store: "ROF",             description: "", onHand: 1, onOrder: 0 },
+      { sku: "X", store: undefined as any, description: "", onHand: 1, onPO: 0 },
+      { sku: "X", store: "ROF",             description: "", onHand: 1, onPO: 0 },
     ];
     const out = dedupeSkuEntries(input);
     expect(out).toHaveLength(1);
@@ -152,7 +152,7 @@ describe("dedupeSkuEntries", () => {
   it("dedupeExcelData returns the same reference when nothing changes", () => {
     const data = {
       syncedAt: "",
-      skus: [{ sku: "A", store: "ROF", description: "", onHand: 1, onOrder: 0 }],
+      skus: [{ sku: "A", store: "ROF", description: "", onHand: 1, onPO: 0 }],
       pos: [],
       sos: [],
     };
@@ -165,7 +165,7 @@ describe("dedupeSkuEntries", () => {
 describe("mergeRows", () => {
   it("returns currentRows unchanged if either sku is missing", () => {
     const rows = [
-      { sku: "A", description: "", store: "ROF", onHand: 1, onOrder: 0, onCommitted: 0, dates: {} },
+      { sku: "A", description: "", store: "ROF", onHand: 1, onPO: 0, onOrder: 0, dates: {} },
     ];
     expect(mergeRows(rows, "MISSING", "A")).toBe(rows);
     expect(mergeRows(rows, "A", "MISSING")).toBe(rows);
@@ -173,8 +173,8 @@ describe("mergeRows", () => {
 
   it("sums dates field-by-field on merge", () => {
     const rows = [
-      { sku: "A", description: "", store: "ROF", onHand: 10, onOrder: 0, onCommitted: 0, dates: { "2026-04-01": 10, "2026-04-02": 5 } },
-      { sku: "B", description: "", store: "ROF", onHand: 20, onOrder: 0, onCommitted: 0, dates: { "2026-04-01": 20, "2026-04-03": 8 } },
+      { sku: "A", description: "", store: "ROF", onHand: 10, onPO: 0, onOrder: 0, dates: { "2026-04-01": 10, "2026-04-02": 5 } },
+      { sku: "B", description: "", store: "ROF", onHand: 20, onPO: 0, onOrder: 0, dates: { "2026-04-01": 20, "2026-04-03": 8 } },
     ];
     const merged = mergeRows(rows, "A", "B");
     expect(merged).toHaveLength(1);
@@ -196,9 +196,9 @@ describe("pipeline: merge + recompute + undo", () => {
     // production bug from two sessions ago).
     const data = makeData({
       skus: [
-        { sku: "A", store: "ROF", description: "", onHand: 10, onOrder: 0, onCommitted: 0 },
-        { sku: "A", store: "ROF", description: "", onHand:  5, onOrder: 0, onCommitted: 0 }, // duplicate
-        { sku: "B", store: "ROF", description: "", onHand: 20, onOrder: 0, onCommitted: 0 },
+        { sku: "A", store: "ROF", description: "", onHand: 10, onPO: 0, onOrder: 0 },
+        { sku: "A", store: "ROF", description: "", onHand:  5, onPO: 0, onOrder: 0 }, // duplicate
+        { sku: "B", store: "ROF", description: "", onHand: 20, onPO: 0, onOrder: 0 },
       ],
       pos: [{ sku: "A", date: "2026-04-02", qty: 100, poNumber: "P1", vendor: "V", store: "ROF", unitCost: 5 }],
     });
@@ -217,8 +217,8 @@ describe("pipeline: merge + recompute + undo", () => {
     // reduced history, and expect the earlier merge to be reversed.
     const base = makeData({
       skus: [
-        { sku: "SRC", store: "ROF", description: "", onHand: 10, onOrder: 0, onCommitted: 0 },
-        { sku: "DST", store: "ROF", description: "", onHand: 20, onOrder: 0, onCommitted: 0 },
+        { sku: "SRC", store: "ROF", description: "", onHand: 10, onPO: 0, onOrder: 0 },
+        { sku: "DST", store: "ROF", description: "", onHand: 20, onPO: 0, onOrder: 0 },
       ],
     });
     const history = [{ fromSku: "SRC", toSku: "DST" }];

@@ -16,7 +16,7 @@ export interface PendingMerge {
 }
 
 // Pure: rebuild the post-undo data set from the pre-merge base snapshot.
-// Zeroes onOrder + clears pos so PO WIP can re-seed them (that's the source
+// Zeroes onPO + clears pos so PO WIP can re-seed them (that's the source
 // of truth for POs), then replays the remaining merge ops in original order.
 // Extracted so the replay order can be verified in isolation.
 export async function rebuildAfterUndo(
@@ -26,7 +26,7 @@ export async function rebuildAfterUndo(
 ): Promise<ExcelData> {
   let freshBase = baseData;
   try {
-    const base = { ...baseData, pos: [], skus: baseData.skus.map(s => ({ ...s, onOrder: 0 })) };
+    const base = { ...baseData, pos: [], skus: baseData.skus.map(s => ({ ...s, onPO: 0 })) };
     freshBase = await applyPOWIPData(base);
   } catch { /* PO WIP fetch can fail offline — fall back to bare base */ }
   let rebuilt = freshBase;

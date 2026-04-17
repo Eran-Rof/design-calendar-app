@@ -428,7 +428,7 @@ function ATSReport() {
         // Auto-refresh PO data from PO WIP on every load
         let freshData = data;
         try {
-          const base = { ...data, pos: [], skus: data.skus.map((s: any) => ({ ...s, onOrder: 0 })) };
+          const base = { ...data, pos: [], skus: data.skus.map((s: any) => ({ ...s, onPO: 0 })) };
           freshData = dedupeExcelData(await applyPOWIPData(base));
         } catch (e) {
           console.warn("Auto PO refresh failed, using cached data:", e);
@@ -470,7 +470,7 @@ function ATSReport() {
         const map: Record<string, ATSRow> = {};
         data.forEach(snap => {
           if (!map[snap.sku]) {
-            map[snap.sku] = { sku: snap.sku, description: snap.description, category: snap.category, dates: {}, onHand: snap.qty_on_hand, onOrder: snap.qty_on_order, onCommitted: 0 };
+            map[snap.sku] = { sku: snap.sku, description: snap.description, category: snap.category, dates: {}, onHand: snap.qty_on_hand, onPO: snap.qty_on_order, onOrder: 0 };
           }
           map[snap.sku].dates[snap.date] = snap.qty_available;
         });
@@ -580,8 +580,8 @@ function ATSReport() {
     exportNegInven(rows, displayPeriods, atShip);
   }, [rows, displayPeriods, atShip]);
 
-  const onAgedInven = useCallback((days: number) => {
-    exportAgedInven(rows, days);
+  const onAgedInven = useCallback((days: number, category: string): "ok" | "empty" => {
+    return exportAgedInven(rows, days, category);
   }, [rows]);
 
   async function applyNormReview() {
@@ -661,7 +661,7 @@ function ATSReport() {
 
   // ── Filtering ──────────────────────────────────────────────────────────
   const categories = ["All", ...Array.from(new Set(
-    rows.filter(r => r.onHand > 0 || r.onOrder > 0 || r.onCommitted > 0)
+    rows.filter(r => r.onHand > 0 || r.onPO > 0 || r.onOrder > 0)
         .map(r => r.category).filter(Boolean) as string[]
   )).sort()];
 
@@ -714,8 +714,8 @@ function ATSReport() {
   const zeroStock    = filtered.filter(r => (r.dates[todayKey] ?? r.onHand) <= 0).length;
   const lowStock     = filtered.filter(r => { const q = r.dates[todayKey] ?? r.onHand; return q > 0 && q <= 10; }).length;
   const negATSCount  = filtered.filter(r => displayPeriods.some(p => { const q = r.dates[p.endDate]; return q != null && q < 0; })).length;
-  const totalSoQty   = filtered.reduce((s, r) => s + r.onCommitted, 0);
-  const totalPoQty   = filtered.reduce((s, r) => s + r.onOrder, 0);
+  const totalSoQty   = filtered.reduce((s, r) => s + r.onOrder, 0);
+  const totalPoQty   = filtered.reduce((s, r) => s + r.onPO, 0);
 
   const { totalSoValue, totalPoValue } = useMemo(() => {
     if (!excelData) return { totalSoValue: 0, totalPoValue: 0 };
@@ -766,7 +766,7 @@ function ATSReport() {
   }
 
   // Reset to page 0 whenever filters/search/sort change
-  useEffect(() => { setPage(0); }, [search, filterCategory, filterGender, filterStatus, minATS, poStores, soStores, rows, activeSort, sortCol, sortDir]);
+  useEffect(() => { setPage(0); }, [search, filterCategory, filterGender, filterStatus, minATS, poStores, soStores, rows, activeSort, sortCol, sortDir, customerFilter]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // RENDER — see ats/renderPanel.tsx

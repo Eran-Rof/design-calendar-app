@@ -6,8 +6,8 @@ export interface ATSRow {
   store?: string;
   dates: Record<string, number>;
   freeMap?: Record<string, number>; // free-to-sell qty per date (not needed for uncovered future SOs)
+  onPO: number;
   onOrder: number;
-  onCommitted: number;
   onHand: number;
   avgCost?: number;
   lastReceiptDate?: string;
@@ -27,7 +27,7 @@ export interface ATSSnapshot {
   synced_at: string;
 }
 
-export interface ATSSkuData { sku: string; description: string; category?: string; gender?: string; store?: string; onHand: number; onOrder: number; onCommitted?: number; lastReceiptDate?: string; totalAmount?: number; avgCost?: number; }
+export interface ATSSkuData { sku: string; description: string; category?: string; gender?: string; store?: string; onHand: number; onPO: number; onOrder: number; lastReceiptDate?: string; totalAmount?: number; avgCost?: number; }
 export interface ATSPoEvent { sku: string; date: string; qty: number; poNumber: string; vendor: string; store: string; unitCost: number; }
 export interface ATSSoEvent { sku: string; date: string; qty: number; orderNumber: string; customerName: string; unitPrice: number; totalPrice: number; store: string; }
 export interface UploadWarningItem { sku: string; qty: number; orderNumber?: string; poNumber?: string; customerName?: string; vendor?: string; }

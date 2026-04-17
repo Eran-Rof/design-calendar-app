@@ -26,7 +26,7 @@ afterEach(() => { global.fetch = origFetch; });
 describe("applyPOWIPDataToExcel", () => {
   it("returns input unchanged when fetch fails", async () => {
     global.fetch = vi.fn(async () => ({ ok: false, json: async () => [] }) as any) as any;
-    const data = makeData({ skus: [{ sku: "A", description: "", store: "ROF", onHand: 5, onOrder: 0 }] });
+    const data = makeData({ skus: [{ sku: "A", description: "", store: "ROF", onHand: 5, onPO: 0 }] });
     const out = await applyPOWIPDataToExcel(data);
     expect(out).toBe(data);
   });
@@ -43,7 +43,7 @@ describe("applyPOWIPDataToExcel", () => {
     }]);
 
     const input = makeData({
-      skus: [{ sku: "EXISTING", description: "", store: "ROF", onHand: 5, onOrder: 2 }],
+      skus: [{ sku: "EXISTING", description: "", store: "ROF", onHand: 5, onPO: 2 }],
     });
     const originalSkusRef = input.skus;
     const originalSkuRef  = input.skus[0];
@@ -62,7 +62,7 @@ describe("applyPOWIPDataToExcel", () => {
     expect(out.pos).toHaveLength(1);
   });
 
-  it("sums onOrder when the sku already exists", async () => {
+  it("sums onPO when the sku already exists", async () => {
     // xoroSkuToExcel splits "BASE-COLOR" → "BASE - COLOR", then normalizeSku
     // title-cases → "Base - Color". Input sku must use the normalized form
     // to match (since baked excelData is normalized on upload).
@@ -77,14 +77,14 @@ describe("applyPOWIPDataToExcel", () => {
     }]);
 
     const input = makeData({
-      skus: [{ sku: "BASE - Color", description: "", store: "ROF", onHand: 0, onOrder: 10 }],
+      skus: [{ sku: "BASE - Color", description: "", store: "ROF", onHand: 0, onPO: 10 }],
     });
     const out = await applyPOWIPDataToExcel(input);
 
     expect(out.skus).toHaveLength(1);
-    expect(out.skus[0].onOrder).toBe(17);
+    expect(out.skus[0].onPO).toBe(17);
     // Input entry unchanged
-    expect(input.skus[0].onOrder).toBe(10);
+    expect(input.skus[0].onPO).toBe(10);
   });
 
   it("skips archived POs and zero-qty items", async () => {

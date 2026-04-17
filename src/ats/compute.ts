@@ -79,9 +79,9 @@ export function computeRowsFromExcelData(data: ExcelData, dates: string[], poSto
     const filteredOnOrder = Object.values(poDates).reduce((a, b) => a + b, 0);
     const filteredOnCommitted = Object.values(soDates).reduce((a, b) => a + b, 0);
     // Use pos[] event total if available (has date-level detail for timeline),
-    // otherwise fall back to the inventory API's QtyOnPO stored in s.onOrder.
-    const onOrder = filteredOnOrder > 0 ? filteredOnOrder : (s.onOrder || 0);
-    const onCommitted = filteredOnCommitted > 0 ? filteredOnCommitted : (s.onCommitted || 0);
-    return { sku: s.sku, description: s.description, category: s.category, gender: s.gender, store: s.store, onHand: s.onHand, onOrder, onCommitted, dates: dateMap, freeMap, avgCost: s.avgCost, lastReceiptDate: s.lastReceiptDate, totalAmount: s.totalAmount };
+    // otherwise fall back to the inventory API's QtyOnPO stored in s.onPO.
+    const onPO = filteredOnOrder > 0 ? filteredOnOrder : (s.onPO || 0);
+    const onOrder = filteredOnCommitted > 0 ? filteredOnCommitted : (s.onOrder || 0);
+    return { sku: s.sku, description: s.description, category: s.category, gender: s.gender, store: s.store, onHand: s.onHand, onPO, onOrder, dates: dateMap, freeMap, avgCost: s.avgCost, lastReceiptDate: s.lastReceiptDate, totalAmount: s.totalAmount };
   });
 }

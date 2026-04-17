@@ -2,10 +2,9 @@ import React, { useMemo, useState, useEffect, useRef, useCallback } from "react"
 import XLSXStyle from "xlsx-js-style";
 import {
   type XoroPO, type Milestone, type WipTemplate, type View,
-  MILESTONE_STATUS_COLORS, MILESTONE_STATUSES, fmtDate, milestoneUid,
+  MILESTONE_STATUS_COLORS, MILESTONE_STATUSES, fmtDate, fmtCurrency, milestoneUid, isLineClosed,
 } from "../../utils/tandaTypes";
 import S from "../styles";
-import { GridPOPanel } from "./GridPOPanel";
 import { MilestoneDateInput } from "../detail/MilestoneDateInput";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
 import { useTandaStore } from "../store/index";
@@ -248,6 +247,44 @@ function NotesModal({ po, ms, filterPhase, onClose, onAddNote, onEditNote, onDel
   );
 }
 
+// ── Style/Color grouping helpers ─────────────────────────────────────────
+function isSizeToken(s: string): boolean {
+  const t = s.trim().toLowerCase().replace(/\s+/g, "");
+  if (!t) return false;
+  if (/^(xs|s|sm|sml|small|m|med|medium|l|lg|lrg|large|xl|xlg|xlarge|xxl|2xl|xxxl|3xl|4xl|5xl|6xl)$/.test(t)) return true;
+  if (/^\d{1,3}$/.test(t)) return true;   // numeric sizes (6, 8, 10, 32, 34 …)
+  if (/^\d{1,3}[wlr]$/i.test(t)) return true; // 32W, 34L …
+  return false;
+}
+/** Returns the style+color portion of an item number (strips trailing size segment). */
+function styleColorKey(itemNumber: string, description: string): string {
+  if (!itemNumber) return description || "";
+  const parts = itemNumber.split("-");
+  if (parts.length > 1 && isSizeToken(parts[parts.length - 1])) {
+    return parts.slice(0, -1).join("-");
+  }
+  return itemNumber;
+}
+/** Returns the size label from an item number, or "" if none detected. */
+function itemSizeLabel(itemNumber: string): string {
+  if (!itemNumber) return "";
+  const parts = itemNumber.split("-");
+  if (parts.length > 1 && isSizeToken(parts[parts.length - 1])) return parts[parts.length - 1].trim();
+  return "";
+}
+/** Sort size strings: numeric first (ascending), then alpha sizes in standard order, then lexicographic. */
+function sizeSort(a: string, b: string): number {
+  const na = Number(a), nb = Number(b);
+  if (!isNaN(na) && !isNaN(nb)) return na - nb;
+  const ORDER: Record<string, number> = { XS: 0, S: 1, SM: 1, Small: 1, M: 2, Medium: 2, L: 3, Large: 3, XL: 4, Xlarge: 4, XXL: 5, "2XL": 5, "3XL": 6, "4XL": 7, "5XL": 8, "6XL": 9 };
+  const oa = ORDER[a.toUpperCase()] ?? ORDER[a];
+  const ob = ORDER[b.toUpperCase()] ?? ORDER[b];
+  if (oa !== undefined && ob !== undefined) return oa - ob;
+  if (oa !== undefined) return -1;
+  if (ob !== undefined) return 1;
+  return a.localeCompare(b);
+}
+
 // ── GridView ───────────────────────────────────────────────────────────────
 interface GridViewProps {
   pos: XoroPO[];
@@ -293,11 +330,12 @@ export function GridView({
     document.head.appendChild(el);
   }, []);
 
-  const [search, setSearch]                 = useState("");
-  const [filterVendor, setFilterVendor]     = useState("All");
-  const [filterBuyer, setFilterBuyer]       = useState("All");
-  const [expandedPo, setExpandedPo]         = useState<XoroPO | null>(null);
-  const [buyerPoEditing, setBuyerPoEditing] = useState<string | null>(null);
+  const [search, setSearch]                     = useState("");
+  const [filterVendor, setFilterVendor]         = useState("All");
+  const [filterBuyer, setFilterBuyer]           = useState("All");
+  const [expandedPoNum, setExpandedPoNum]       = useState<string | null>(null);
+  const [expandViewMode, setExpandViewMode]     = useState<"line" | "matrix">("line");
+  const [buyerPoEditing, setBuyerPoEditing]     = useState<string | null>(null);
   const [buyerPoDraft, setBuyerPoDraft]     = useState("");
   const [page, setPage]                     = useState(0);
   // Each entry is a batch of milestones to restore together (supports cascade undo).
@@ -998,17 +1036,18 @@ export function GridView({
                 const daysClr = days === null ? "#6B7280" : days < 0 ? "#EF4444" : days <= 7 ? "#F59E0B" : "#10B981";
                 const daysTxt = days === null ? "—" : days < 0 ? `${Math.abs(days)} late` : days === 0 ? "Today" : `${days}`;
                 const isEditing      = buyerPoEditing === poNum;
-                const isExpanded    = expandedPo?.PoNumber === poNum;
+                const isExpanded    = expandedPoNum === poNum;
                 const hasNotes      = poMs.some(m => (m.note_entries && m.note_entries.length > 0) || m.notes);
                 const totalNoteCount = poMs.reduce((acc, m) => acc + (m.note_entries?.length || 0) + (m.notes ? 1 : 0), 0);
 
                 return (
-                  <div key={poNum} style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: isExpanded ? "#1E293B44" : undefined }}>
+                  <div key={poNum}>
+                  <div style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: isExpanded ? "#0D1929" : undefined }}>
 
                     {/* Expand */}
                     <span
                       style={{ ...cell, ...firstCol, justifyContent: "center", cursor: "pointer" }}
-                      onClick={() => setExpandedPo(isExpanded ? null : po)}
+                      onClick={() => setExpandedPoNum(isExpanded ? null : poNum)}
                       title={isExpanded ? "Collapse" : "Expand line items & milestones"}
                     >
                       <span style={{ fontSize: 16, color: "#F97316", fontWeight: 700, lineHeight: 1 }}>
@@ -1192,6 +1231,348 @@ export function GridView({
                       );
                     })}
                   </div>
+                  {/* ── Inline expanded detail ── grid-aligned so phase
+                       divider lines continue through item rows ─────── */}
+                  {isExpanded && (() => {
+                    const allItems  = po.Items ?? po.PoLineArr ?? [];
+                    const sortedMs  = [...poMs].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+                    const infoBg    = "#06101D";
+                    const infoBg2   = "#080F1A";
+
+                    // Build style/color groups (strip trailing size from ItemNumber)
+                    const groupMap = new Map<string, { key: string; desc: string; items: typeof allItems }>();
+                    allItems.forEach((item, idx) => {
+                      const k = styleColorKey(item.ItemNumber || "", item.Description || "") || `item_${idx}`;
+                      if (!groupMap.has(k)) groupMap.set(k, { key: k, desc: item.Description || "", items: [] });
+                      groupMap.get(k)!.items.push(item);
+                    });
+                    const groups = [...groupMap.values()];
+
+                    // Collect all unique detected sizes (for matrix col headers)
+                    const sizeSet = new Set<string>();
+                    allItems.forEach(it => { const sz = itemSizeLabel(it.ItemNumber || ""); if (sz) sizeSet.add(sz); });
+                    const hasSizes   = sizeSet.size > 0;
+                    const sortedSizes = [...sizeSet].sort(sizeSort);
+
+                    // Total cost of lines still left to receive
+                    // Closed/cancelled lines and fully-received lines contribute $0
+                    const remainingCost = allItems.reduce((s, it) => {
+                      const qty = isLineClosed(it) ? 0 : (it.QtyRemaining ?? Math.max(0, (it.QtyOrder ?? 0) - (it.QtyReceived ?? 0)));
+                      return s + qty * (it.UnitPrice ?? 0);
+                    }, 0);
+                    const currency = po.CurrencyCode || "USD";
+
+                    // Info fields for PO strip
+                    const infoFields = [
+                      { label: "Order Date",  val: fmtDate(po.DateOrder) },
+                      { label: "Brand",       val: po.BrandName },
+                      { label: "Remaining Cost", val: fmtCurrency(remainingCost, currency), highlight: true },
+                      { label: "Ship Method", val: po.ShipMethodName },
+                      { label: "Carrier",     val: po.CarrierName },
+                      { label: "Payment",     val: po.PaymentTermsName },
+                      { label: "Tags",        val: po.Tags },
+                    ].filter(f => f.val) as { label: string; val: string; highlight?: boolean }[];
+
+                    return (
+                      <>
+                        {/* ── PO info strip — phase spacers keep dividers alive ── */}
+                        <div style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
+                          <div style={{ gridColumn: "1 / 9", padding: "8px 14px 10px", display: "flex", gap: 18, alignItems: "center", borderLeft: B_CELL, borderBottom: "1px solid #1E293B", flexWrap: "wrap" }}>
+                            <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, fontSize: 13 }}>{poNum}</span>
+                            <span style={{ color: "#9CA3AF", fontSize: 12, fontWeight: 600 }}>{po.VendorName}</span>
+                            {po.StatusName && <span style={{ background: "#1E293B", color: "#94A3B8", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10 }}>{po.StatusName}</span>}
+                            {infoFields.map(({ label, val, highlight }) => (
+                              <span key={label} style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                                <span style={{ color: "#374151", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</span>
+                                <span style={{ color: highlight ? "#F59E0B" : "#D1D5DB", fontSize: 11, fontWeight: highlight ? 700 : 400 }}>{val}</span>
+                              </span>
+                            ))}
+                            {po.Memo && (
+                              <span style={{ display: "flex", flexDirection: "column", gap: 1, maxWidth: 220 }}>
+                                <span style={{ color: "#374151", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>Memo</span>
+                                <span style={{ color: "#6B7280", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{po.Memo}</span>
+                              </span>
+                            )}
+                            <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+                              {(["line", "matrix"] as const).map(mode => (
+                                <button key={mode} onClick={() => setExpandViewMode(mode)}
+                                  style={{ background: expandViewMode === mode ? "#1E3A5F" : "transparent", border: `1px solid ${expandViewMode === mode ? "#3B82F6" : "#334155"}`, color: expandViewMode === mode ? "#93C5FD" : "#4B5563", borderRadius: 5, padding: "2px 10px", fontSize: 10, cursor: "pointer", fontWeight: expandViewMode === mode ? 700 : 400 }}
+                                >{mode === "line" ? "By Line" : "Matrix"}</button>
+                              ))}
+                              <button onClick={() => setExpandedPoNum(null)} style={{ background: "none", border: "none", color: "#374151", fontSize: 14, cursor: "pointer", paddingLeft: 4 }} title="Collapse">✕</button>
+                            </div>
+                          </div>
+                          {phases.map((phase, pi) => {
+                            const isLast = pi === phases.length - 1;
+                            return (
+                              <React.Fragment key={phase}>
+                                <span style={{ borderBottom: "1px solid #1E293B", background: infoBg, ...phaseDividerHost }}><span style={phaseDividerOverlay} /></span>
+                                <span style={{ borderBottom: "1px solid #1E293B", background: infoBg }} />
+                                <span style={{ borderBottom: "1px solid #1E293B", background: infoBg }} />
+                                <span style={{ borderBottom: "1px solid #1E293B", background: infoBg }} />
+                                <span style={{ borderBottom: "1px solid #1E293B", background: infoBg, ...(isLast ? phaseDividerHost : {}) }}>{isLast && <span style={phaseDividerOverlayRight} />}</span>
+                              </React.Fragment>
+                            );
+                          })}
+                        </div>
+
+                        {expandViewMode === "line" ? (
+                          <>
+                            {/* ── Item sub-header ─────────────────────────────── */}
+                            <div style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg2 }}>
+                              {/* Fixed area: item key | line status | delivery */}
+                              <div style={{ gridColumn: "1 / 9", padding: "3px 14px", borderLeft: B_CELL, borderBottom: B_CELL, display: "grid", gridTemplateColumns: "1fr 90px 80px", alignItems: "center", gap: 8 }}>
+                                <span style={{ color: "#4B5563", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>Style / Color</span>
+                                <span style={{ color: "#4B5563", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Line Status</span>
+                                <span style={{ color: "#4B5563", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Delivery</span>
+                              </div>
+                              {phases.map((phase, pi) => {
+                                const isLast = pi === phases.length - 1;
+                                return (
+                                  <React.Fragment key={phase}>
+                                    <span style={{ ...hdr2, background: infoBg2, ...phaseDividerHost }}><span style={phaseDividerOverlay} />Due Date</span>
+                                    <span style={{ ...hdr2, background: infoBg2 }}>Status</span>
+                                    <span style={{ ...hdr2, background: infoBg2 }}>Status Date</span>
+                                    <span style={{ ...hdr2, background: infoBg2 }}>Days</span>
+                                    <span style={{ ...hdr2, background: infoBg2, ...(isLast ? phaseDividerHost : {}) }}>
+                                      {isLast && <span style={phaseDividerOverlayRight} />}📝
+                                    </span>
+                                  </React.Fragment>
+                                );
+                              })}
+                            </div>
+
+                            {/* ── One row per style/color group ──────────────── */}
+                            {groups.length === 0 ? (
+                              <div style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
+                                <div style={{ gridColumn: "1 / 9", padding: "8px 14px", borderLeft: B_CELL, borderBottom: B_CELL, color: "#374151", fontSize: 11 }}>No line items on this PO.</div>
+                                {phases.map((phase, pi) => { const isLast = pi === phases.length - 1; return (
+                                  <React.Fragment key={phase}>
+                                    <span style={{ borderBottom: B_CELL, background: infoBg, ...phaseDividerHost }}><span style={phaseDividerOverlay} /></span>
+                                    <span style={{ borderBottom: B_CELL, background: infoBg }} /><span style={{ borderBottom: B_CELL, background: infoBg }} /><span style={{ borderBottom: B_CELL, background: infoBg }} />
+                                    <span style={{ borderBottom: B_CELL, background: infoBg, ...(isLast ? phaseDividerHost : {}) }}>{isLast && <span style={phaseDividerOverlayRight} />}</span>
+                                  </React.Fragment>
+                                ); })}
+                              </div>
+                            ) : groups.map((group, gIdx) => {
+                              const groupItems = group.items;
+                              const varKey   = group.key; // used as variant_statuses key
+                              const closed   = groupItems.every(it => isLineClosed(it));
+                              const rowBg    = gIdx % 2 === 0 ? infoBg : infoBg2;
+                              const totalQty = groupItems.reduce((s, it) => s + (it.QtyOrder ?? 0), 0);
+
+                              // Aggregate line status from Xoro items
+                              const lineStatuses = [...new Set(groupItems.map(it => it.StatusName || "").filter(Boolean))];
+                              const lineStatus   = lineStatuses.length === 1 ? lineStatuses[0] : lineStatuses.length > 1 ? "Mixed" : "—";
+                              const lineStColor  = closed ? "#EF4444" : lineStatus === "Mixed" ? "#F59E0B" : lineStatus === "—" ? "#374151" : "#10B981";
+
+                              // Aggregate delivery date from Xoro items
+                              const deliveries = [...new Set(groupItems.map(it => (it.DateExpectedDelivery || "").slice(0, 10)).filter(Boolean))];
+                              const deliveryDisplay = deliveries.length === 0 ? "—" : deliveries.length === 1 ? fmtDate(deliveries[0]) : "Mixed";
+
+                              return (
+                                <div key={gIdx} style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: rowBg }}>
+                                  {/* Style/color + line status + delivery spanning 8 fixed cols */}
+                                  <div style={{ gridColumn: "1 / 9", padding: "3px 14px", borderLeft: B_CELL, borderBottom: B_CELL, display: "grid", gridTemplateColumns: "1fr 90px 80px", alignItems: "center", gap: 8, opacity: closed ? 0.5 : 1 }}>
+                                    <span>
+                                      <span style={{ color: "#60A5FA", fontFamily: "monospace", fontSize: 10 }}>{group.key}</span>
+                                      {group.desc && group.desc !== group.key && <span style={{ color: "#4B5563", fontSize: 10, marginLeft: 6 }}>{group.desc}</span>}
+                                      <span style={{ color: "#2D3748", fontSize: 9, marginLeft: 8 }}>Qty: {totalQty}</span>
+                                    </span>
+                                    <span style={{ textAlign: "center", color: lineStColor, fontSize: 10, fontWeight: 600 }}>{lineStatus}</span>
+                                    <span style={{ textAlign: "center", color: "#9CA3AF", fontSize: 10 }}>{deliveryDisplay}</span>
+                                  </div>
+                                  {/* Phase sub-cells using varKey for variant_statuses */}
+                                  {phases.map((phase, pi) => {
+                                    const m = phaseMap.get(phase);
+                                    const isLast = pi === phases.length - 1;
+                                    if (!m) {
+                                      return (
+                                        <React.Fragment key={phase}>
+                                          <span style={{ ...sub, justifyContent: "center", color: "#1E293B", ...phaseDividerHost }}><span style={phaseDividerOverlay} />—</span>
+                                          <span style={{ ...sub, justifyContent: "center", color: "#1E293B" }}>—</span>
+                                          <span style={{ ...sub, justifyContent: "center", color: "#1E293B" }}>—</span>
+                                          <span style={{ ...sub, justifyContent: "center", color: "#1E293B" }}>—</span>
+                                          <span style={{ ...sub, justifyContent: "center", color: "#1E293B", ...(isLast ? phaseDividerHost : {}) }}>{isLast && <span style={phaseDividerOverlayRight} />}—</span>
+                                        </React.Fragment>
+                                      );
+                                    }
+                                    const vs             = m.variant_statuses?.[varKey];
+                                    const itemStatus     = vs?.status ?? m.status;
+                                    const itemStatusDate = vs?.status_date ?? ((m.status_dates || {})[m.status] || m.status_date || "");
+                                    const itemColor      = MILESTONE_STATUS_COLORS[itemStatus] || "#6B7280";
+                                    const daysRem        = m.expected_date ? Math.ceil((new Date(m.expected_date + "T00:00:00").getTime() - today.getTime()) / 86400000) : null;
+                                    const dClr           = itemStatus === "Complete" ? "#10B981" : itemStatus === "N/A" ? "#6B7280" : daysRem === null ? "#6B7280" : daysRem < 0 ? "#EF4444" : daysRem <= 7 ? "#F59E0B" : "#10B981";
+                                    const dTxt           = itemStatus === "Complete" ? "Done" : itemStatus === "N/A" ? "—" : daysRem === null ? "—" : daysRem < 0 ? `${Math.abs(daysRem)} late` : daysRem === 0 ? "Today" : `${daysRem}`;
+                                    const phaseHasNotes = (m.note_entries && m.note_entries.length > 0) || !!m.notes;
+                                    const noteCount = (m.note_entries?.length || 0) + (m.notes ? 1 : 0);
+                                    return (
+                                      <React.Fragment key={phase}>
+                                        <span style={{ ...sub, padding: 2, justifyContent: "center", ...phaseDividerHost }}>
+                                          <span style={phaseDividerOverlay} />
+                                          <MilestoneDateInput
+                                            value={normDateISO(m.expected_date ?? "")}
+                                            onCommit={v => updateMilestoneDate(po, m, v || null)}
+                                            style={{ background: "transparent", border: "1px solid #334155", borderRadius: 3, color: "#9CA3AF", fontSize: 10, padding: "2px 5px", width: "100%", boxSizing: "border-box", cursor: "pointer", textAlign: "center" } as React.CSSProperties}
+                                          />
+                                        </span>
+                                        <span style={{ ...sub, padding: 2 }}>
+                                          <select
+                                            value={itemStatus}
+                                            onChange={e => {
+                                              if (closed) return;
+                                              const iso = new Date().toISOString().split("T")[0];
+                                              const vsNew = { ...(m.variant_statuses || {}) };
+                                              const prev  = vsNew[varKey];
+                                              vsNew[varKey] = { status: e.target.value, status_date: e.target.value !== "Not Started" ? (prev?.status_date || iso) : null };
+                                              saveMilestone({ ...m, variant_statuses: vsNew, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
+                                            }}
+                                            disabled={closed}
+                                            style={{ background: "transparent", border: "none", color: closed ? "#374151" : itemColor, fontSize: 10, padding: "2px 4px", width: "100%", fontWeight: 600, outline: "none", cursor: closed ? "default" : "pointer" }}
+                                          >
+                                            {MILESTONE_STATUSES.map(s => <option key={s} value={s} style={{ color: MILESTONE_STATUS_COLORS[s], background: "#0F172A" }}>{s}</option>)}
+                                          </select>
+                                        </span>
+                                        <span style={{ ...sub, padding: 2 }}>
+                                          <MilestoneDateInput
+                                            value={itemStatusDate}
+                                            onCommit={v => {
+                                              const val = v || null;
+                                              const vsNew = { ...(m.variant_statuses || {}) };
+                                              const prev  = vsNew[varKey];
+                                              vsNew[varKey] = { status: prev?.status ?? itemStatus, status_date: val };
+                                              saveMilestone({ ...m, variant_statuses: vsNew, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
+                                            }}
+                                            style={{ background: "transparent", border: "1px solid #334155", borderRadius: 3, color: itemStatusDate ? "#60A5FA" : "#334155", fontSize: 10, padding: "2px 5px", width: "100%", boxSizing: "border-box", cursor: "pointer" } as React.CSSProperties}
+                                          />
+                                        </span>
+                                        <span style={{ ...sub, justifyContent: "center", color: dClr, fontWeight: 700 }}>{dTxt}</span>
+                                        <span
+                                          style={{ ...sub, justifyContent: "center", cursor: "pointer", padding: 2, ...(isLast ? phaseDividerHost : {}) }}
+                                          onClick={() => setNotesModal({ po, ms: poMs, filterPhase: phase })}
+                                          title={phaseHasNotes ? `${noteCount} note${noteCount !== 1 ? "s" : ""} — click to view/add/edit` : `Add note for ${phase}`}
+                                        >
+                                          {isLast && <span style={phaseDividerOverlayRight} />}
+                                          <span style={{ fontSize: 10, color: phaseHasNotes ? "#60A5FA" : "#374151" }}>
+                                            {phaseHasNotes ? `📝${noteCount}` : "📝"}
+                                          </span>
+                                        </span>
+                                      </React.Fragment>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })}
+                          </>
+                        ) : (
+                          /* ── MATRIX VIEW — read-only, full size breakdown ── */
+                          <div style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
+                            <div style={{ gridColumn: `1 / ${8 + phases.length * 5 + 1}`, borderLeft: B_CELL, borderBottom: B_CELL, padding: "12px 14px", overflowX: "auto" }}>
+                              {allItems.length === 0 ? (
+                                <div style={{ color: "#374151", fontSize: 12 }}>No line items on this PO.</div>
+                              ) : hasSizes ? (
+                                /* Style/Color × Size matrix */
+                                <table style={{ borderCollapse: "collapse", fontSize: 10 }}>
+                                  <thead>
+                                    <tr style={{ background: "#0F172A" }}>
+                                      <th style={{ padding: "5px 10px", color: "#94A3B8", fontWeight: 700, textAlign: "left", borderBottom: "2px solid #334155", borderRight: "2px solid #334155", position: "sticky", left: 0, background: "#0F172A", zIndex: 2, minWidth: 180, whiteSpace: "nowrap" }}>Style / Color</th>
+                                      {sortedSizes.map(sz => (
+                                        <th key={sz} style={{ padding: "4px 8px", color: "#C4B5FD", fontWeight: 700, textAlign: "center", borderBottom: "2px solid #334155", borderRight: "1px solid #1E293B", minWidth: 90, fontSize: 10, whiteSpace: "nowrap" }}>{sz}</th>
+                                      ))}
+                                      <th style={{ padding: "4px 8px", color: "#10B981", fontWeight: 700, textAlign: "center", borderBottom: "2px solid #334155", borderRight: "1px solid #1E293B", minWidth: 90, whiteSpace: "nowrap" }}>Line Status</th>
+                                      <th style={{ padding: "4px 8px", color: "#94A3B8", fontWeight: 700, textAlign: "center", borderBottom: "2px solid #334155", borderRight: "1px solid #1E293B", minWidth: 60 }}>Total Qty</th>
+                                      <th style={{ padding: "4px 8px", color: "#94A3B8", fontWeight: 700, textAlign: "center", borderBottom: "2px solid #334155", borderRight: "1px solid #1E293B", minWidth: 80, whiteSpace: "nowrap" }}>Delivery</th>
+                                      <th style={{ padding: "4px 8px", color: "#F59E0B", fontWeight: 700, textAlign: "right", borderBottom: "2px solid #334155", borderRight: "1px solid #1E293B", minWidth: 70, whiteSpace: "nowrap" }}>Unit Cost</th>
+                                      <th style={{ padding: "4px 8px", color: "#F59E0B", fontWeight: 700, textAlign: "right", borderBottom: "2px solid #334155", minWidth: 90, whiteSpace: "nowrap" }}>Total Cost</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {groups.map((group, gIdx) => {
+                                      const rowBg = gIdx % 2 === 0 ? "#080F1A" : "#060C16";
+                                      const closed = group.items.every(it => isLineClosed(it));
+                                      const totalQty = group.items.reduce((s, it) => s + (it.QtyOrder ?? 0), 0);
+                                      // Map size → item
+                                      const sizeMap = new Map<string, typeof allItems[0]>();
+                                      group.items.forEach(it => { const sz = itemSizeLabel(it.ItemNumber || ""); if (sz) sizeMap.set(sz, it); });
+                                      // Delivery date
+                                      const delivs = [...new Set(group.items.map(it => (it.DateExpectedDelivery || "").slice(0, 10)).filter(Boolean))];
+                                      const delivDisplay = delivs.length === 0 ? "—" : delivs.length === 1 ? fmtDate(delivs[0]) : "Mixed";
+                                      return (
+                                        <tr key={gIdx} style={{ background: rowBg }}>
+                                          <td style={{ padding: "5px 10px", borderRight: "2px solid #334155", borderBottom: "1px solid #1E293B", position: "sticky", left: 0, background: rowBg, zIndex: 1 }}>
+                                            <div style={{ color: closed ? "#374151" : "#D1D5DB", fontWeight: 600, fontSize: 11 }}>{group.desc || group.key}</div>
+                                            <div style={{ color: "#2D3748", fontSize: 9, fontFamily: "monospace" }}>{group.key !== group.desc ? group.key : ""}</div>
+                                          </td>
+                                          {sortedSizes.map(sz => {
+                                            const it = sizeMap.get(sz);
+                                            if (!it) return <td key={sz} style={{ padding: "4px 8px", borderBottom: "1px solid #1E293B", borderRight: "1px solid #0F172A", textAlign: "center", color: "#1E293B" }}>—</td>;
+                                            return (
+                                              <td key={sz} style={{ padding: "4px 6px", borderBottom: "1px solid #1E293B", borderRight: "1px solid #0F172A", textAlign: "center" }}>
+                                                <div style={{ color: "#9CA3AF", fontWeight: 700, fontSize: 11 }}>{it.QtyOrder ?? "—"}</div>
+                                              </td>
+                                            );
+                                          })}
+                                          {(() => {
+                                            const statuses = [...new Set(group.items.map(it => it.StatusName || "").filter(Boolean))];
+                                            const lineStatus = statuses.length === 0 ? "—" : statuses.length === 1 ? statuses[0] : "Mixed";
+                                            const lineStColor = closed ? "#374151" : lineStatus === "Closed" || lineStatus === "Cancelled" ? "#EF4444" : lineStatus === "Mixed" ? "#F59E0B" : "#10B981";
+                                            const activeItems = group.items.filter(it => !isLineClosed(it));
+                                            const prices = [...new Set(activeItems.map(it => it.UnitPrice ?? 0))];
+                                            const currency = po.CurrencyCode || "USD";
+                                            const unitCostDisplay = activeItems.length === 0 ? "—" : prices.length === 1 ? fmtCurrency(prices[0], currency) : "Mixed";
+                                            const totalCost = activeItems.reduce((s, it) => s + (it.QtyOrder ?? 0) * (it.UnitPrice ?? 0), 0);
+                                            const totalCostDisplay = activeItems.length === 0 ? "—" : fmtCurrency(totalCost, currency);
+                                            return (
+                                              <>
+                                                <td style={{ padding: "4px 8px", borderBottom: "1px solid #1E293B", borderRight: "1px solid #0F172A", textAlign: "center", color: lineStColor, fontWeight: 600, fontSize: 10 }}>{lineStatus}</td>
+                                                <td style={{ padding: "4px 8px", borderBottom: "1px solid #1E293B", borderRight: "1px solid #0F172A", textAlign: "center", color: "#9CA3AF", fontWeight: 700 }}>{totalQty}</td>
+                                                <td style={{ padding: "4px 8px", borderBottom: "1px solid #1E293B", borderRight: "1px solid #0F172A", textAlign: "center", color: "#9CA3AF", fontSize: 10 }}>{delivDisplay}</td>
+                                                <td style={{ padding: "4px 8px", borderBottom: "1px solid #1E293B", borderRight: "1px solid #0F172A", textAlign: "right", color: closed ? "#374151" : "#F59E0B", fontSize: 10 }}>{unitCostDisplay}</td>
+                                                <td style={{ padding: "4px 8px", borderBottom: "1px solid #1E293B", textAlign: "right", color: closed ? "#374151" : "#F59E0B", fontWeight: 700, fontSize: 10 }}>{totalCostDisplay}</td>
+                                              </>
+                                            );
+                                          })()}
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              ) : (
+                                /* No sizes detected — flat item list with status + delivery */
+                                <table style={{ borderCollapse: "collapse", fontSize: 10, width: "100%" }}>
+                                  <thead>
+                                    <tr style={{ background: "#0F172A" }}>
+                                      {["Item #", "Description", "Qty Ordered", "Qty Received", "Qty Remaining", "Line Status", "Delivery Date"].map(h => (
+                                        <th key={h} style={{ padding: "5px 8px", color: "#6B7280", fontWeight: 700, textAlign: "left", borderBottom: "2px solid #1E293B", whiteSpace: "nowrap" }}>{h}</th>
+                                      ))}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {allItems.map((item, idx) => {
+                                      const itClosed = isLineClosed(item);
+                                      const stColor  = itClosed ? "#EF4444" : "#10B981";
+                                      return (
+                                        <tr key={idx} style={{ background: idx % 2 === 0 ? "#080F1A" : "#060C16", borderBottom: "1px solid #0D1929" }}>
+                                          <td style={{ padding: "4px 8px", color: "#60A5FA", fontFamily: "monospace", opacity: itClosed ? 0.4 : 1 }}>{item.ItemNumber || "—"}</td>
+                                          <td style={{ padding: "4px 8px", color: "#D1D5DB", opacity: itClosed ? 0.4 : 1 }}>{item.Description || "—"}</td>
+                                          <td style={{ padding: "4px 8px", color: "#9CA3AF", textAlign: "right" }}>{item.QtyOrder ?? "—"}</td>
+                                          <td style={{ padding: "4px 8px", color: (item.QtyReceived ?? 0) > 0 ? "#10B981" : "#4B5563", textAlign: "right" }}>{item.QtyReceived ?? 0}</td>
+                                          <td style={{ padding: "4px 8px", color: "#9CA3AF", textAlign: "right" }}>{item.QtyRemaining ?? "—"}</td>
+                                          <td style={{ padding: "4px 8px", color: stColor, fontWeight: 600 }}>{item.StatusName || "—"}</td>
+                                          <td style={{ padding: "4px 8px", color: "#9CA3AF" }}>{fmtDate(item.DateExpectedDelivery) || "—"}</td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                  </div>
                 );
               })}
             </div>
@@ -1256,17 +1637,6 @@ export function GridView({
         />
       )}
 
-      {/* ── PO expand slide-out panel ─────────────────────────────────────── */}
-      {expandedPo && (
-        <GridPOPanel
-          po={expandedPo}
-          milestones={milestones[expandedPo.PoNumber ?? ""] || []}
-          onClose={() => setExpandedPo(null)}
-          saveMilestone={saveMilestone}
-          persistBuyerPo={persistBuyerPo}
-          user={user}
-        />
-      )}
     </div>
   );
 }

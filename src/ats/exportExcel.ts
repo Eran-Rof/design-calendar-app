@@ -60,8 +60,8 @@ export function exportToExcel(rows: ATSRow[], periods: Array<{ endDate: string; 
       { v: r.category ?? "",   t: "s", s: base },
       { v: r.store ?? "ROF",   t: "s", s: base },
       { v: r.onHand,           t: "n", s: todayQ <= 0 ? outStyle(numB) : todayQ <= 10 ? lowStyle(numB) : numB },
-      { v: r.onCommitted || 0, t: "n", s: numB },
-      { v: r.onOrder    || 0,  t: "n", s: numB },
+      { v: r.onOrder || 0, t: "n", s: numB },
+      { v: r.onPO    || 0,  t: "n", s: numB },
       ...periods.map(p => {
         const q = atShip ? (r.freeMap?.[p.endDate] ?? r.dates[p.endDate]) : r.dates[p.endDate];
         if (q == null || q === 0) return { v: "", t: "s", s: base };

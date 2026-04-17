@@ -15,9 +15,9 @@ function makeData(overrides: Partial<ExcelData> = {}): ExcelData {
 const passthrough = async (d: ExcelData) => d;
 
 describe("rebuildAfterUndo", () => {
-  it("zeroes onOrder + clears pos before calling applyPOWIPData", async () => {
+  it("zeroes onPO + clears pos before calling applyPOWIPData", async () => {
     const input = makeData({
-      skus: [{ sku: "A", description: "", store: "ROF", onHand: 5, onOrder: 99 }],
+      skus: [{ sku: "A", description: "", store: "ROF", onHand: 5, onPO: 99 }],
       pos: [{ sku: "A", date: "2026-05-01", qty: 10, poNumber: "PO1", vendor: "V", store: "ROF", unitCost: 1 }],
     });
     const spy = vi.fn(passthrough);
@@ -25,7 +25,7 @@ describe("rebuildAfterUndo", () => {
     const seen = spy.mock.calls[0][0];
     // The caller should see a zeroed base, not the merged-state input
     expect(seen.pos).toHaveLength(0);
-    expect(seen.skus[0].onOrder).toBe(0);
+    expect(seen.skus[0].onPO).toBe(0);
     expect(seen.skus[0].onHand).toBe(5);
   });
 
@@ -34,9 +34,9 @@ describe("rebuildAfterUndo", () => {
     // After undoing the last merge (B→C), we should see A merged into B, but B still separate from C.
     const input = makeData({
       skus: [
-        { sku: "A", description: "A", store: "ROF", onHand: 1, onOrder: 0 },
-        { sku: "B", description: "B", store: "ROF", onHand: 2, onOrder: 0 },
-        { sku: "C", description: "C", store: "ROF", onHand: 4, onOrder: 0 },
+        { sku: "A", description: "A", store: "ROF", onHand: 1, onPO: 0 },
+        { sku: "B", description: "B", store: "ROF", onHand: 2, onPO: 0 },
+        { sku: "C", description: "C", store: "ROF", onHand: 4, onPO: 0 },
       ],
     });
     const out = await rebuildAfterUndo(
@@ -50,7 +50,7 @@ describe("rebuildAfterUndo", () => {
 
   it("returns base unchanged when history is empty after undo", async () => {
     const input = makeData({
-      skus: [{ sku: "X", description: "", store: "ROF", onHand: 10, onOrder: 0 }],
+      skus: [{ sku: "X", description: "", store: "ROF", onHand: 10, onPO: 0 }],
     });
     const out = await rebuildAfterUndo([], input, passthrough);
     expect(out.skus).toHaveLength(1);
@@ -59,20 +59,20 @@ describe("rebuildAfterUndo", () => {
 
   it("falls back to bare base when applyPOWIPData throws", async () => {
     const input = makeData({
-      skus: [{ sku: "X", description: "", store: "ROF", onHand: 10, onOrder: 0 }],
+      skus: [{ sku: "X", description: "", store: "ROF", onHand: 10, onPO: 0 }],
     });
     const broken = vi.fn(async () => { throw new Error("tanda_pos fetch failed"); });
     const out = await rebuildAfterUndo([], input, broken);
     // Should still get a result — the bare (zeroed) base, not throw.
     expect(out.skus).toHaveLength(1);
-    expect(out.skus[0].onOrder).toBe(0);
+    expect(out.skus[0].onPO).toBe(0);
   });
 
   it("no-ops merges that reference skus not in base (stale history is harmless)", async () => {
     const input = makeData({
       skus: [
-        { sku: "A", description: "", store: "ROF", onHand: 1, onOrder: 0 },
-        { sku: "B", description: "", store: "ROF", onHand: 2, onOrder: 0 },
+        { sku: "A", description: "", store: "ROF", onHand: 1, onPO: 0 },
+        { sku: "B", description: "", store: "ROF", onHand: 2, onPO: 0 },
       ],
     });
     const out = await rebuildAfterUndo(

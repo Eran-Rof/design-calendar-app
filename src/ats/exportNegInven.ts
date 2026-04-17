@@ -133,8 +133,8 @@ export function exportNegInven(
       { v: row.category ?? "",    t: "s", s: { font: ft(false, 9, MUTED),   fill: fl(rf), alignment: { horizontal: "center", vertical: "center" } } },
       { v: row.store ?? "",       t: "s", s: { font: ft(false, 9, MUTED),   fill: fl(rf), alignment: { horizontal: "center", vertical: "center" } } },
       { v: row.onHand       ?? 0, t: "n", s: { font: ft(false, 9, "000000"), fill: fl(rf), alignment: { horizontal: "right",  vertical: "center" }, numFmt: "#,##0" } },
-      { v: row.onCommitted  ?? 0, t: "n", s: { font: ft(false, 9, "000000"), fill: fl(rf), alignment: { horizontal: "right",  vertical: "center" }, numFmt: "#,##0" } },
-      { v: row.onOrder      ?? 0, t: "n", s: { font: ft(false, 9, "000000"), fill: fl(rf), alignment: { horizontal: "right",  vertical: "center" }, numFmt: "#,##0" } },
+      { v: row.onOrder  ?? 0, t: "n", s: { font: ft(false, 9, "000000"), fill: fl(rf), alignment: { horizontal: "right",  vertical: "center" }, numFmt: "#,##0" } },
+      { v: row.onPO      ?? 0, t: "n", s: { font: ft(false, 9, "000000"), fill: fl(rf), alignment: { horizontal: "right",  vertical: "center" }, numFmt: "#,##0" } },
       ...livePeriodIdxs.map(pi => {
         const val = periodVals[pi];
         const neg = val !== null && val < 0;

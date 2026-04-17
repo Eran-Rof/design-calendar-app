@@ -6,9 +6,9 @@ function makeData(overrides: Partial<ExcelData> = {}): ExcelData {
   return {
     syncedAt: "2026-03-30T00:00:00Z",
     skus: [
-      { sku: "SKU-A", description: "Test A", store: "ROF", onHand: 100, onOrder: 0 },
-      { sku: "SKU-A", description: "Test A", store: "ROF ECOM", onHand: 50, onOrder: 0 },
-      { sku: "SKU-B", description: "Test B", store: "ROF", onHand: 200, onOrder: 0 },
+      { sku: "SKU-A", description: "Test A", store: "ROF", onHand: 100, onPO: 0 },
+      { sku: "SKU-A", description: "Test A", store: "ROF ECOM", onHand: 50, onPO: 0 },
+      { sku: "SKU-B", description: "Test B", store: "ROF", onHand: 200, onPO: 0 },
     ],
     pos: [],
     sos: [],
@@ -41,12 +41,12 @@ describe("computeRowsFromExcelData", () => {
     expect(rofRow.dates["2026-04-01"]).toBe(100);
     expect(rofRow.dates["2026-04-02"]).toBe(600);
     expect(rofRow.dates["2026-04-03"]).toBe(600);
-    expect(rofRow.onOrder).toBe(500);
+    expect(rofRow.onPO).toBe(500);
 
     // ECOM row: unaffected — PO is for ROF only
     expect(ecomRow.dates["2026-04-01"]).toBe(50);
     expect(ecomRow.dates["2026-04-02"]).toBe(50);
-    expect(ecomRow.onOrder).toBe(0);
+    expect(ecomRow.onPO).toBe(0);
   });
 
   it("applies SO events to reduce ATS", () => {
@@ -61,7 +61,7 @@ describe("computeRowsFromExcelData", () => {
     // 200 on-hand - 150 SO = 50
     expect(row.dates["2026-04-01"]).toBe(50);
     expect(row.dates["2026-04-02"]).toBe(50);
-    expect(row.onCommitted).toBe(150);
+    expect(row.onOrder).toBe(150);
   });
 
   it("preserves negative ATS (does not clamp to zero mid-stream)", () => {
@@ -97,8 +97,8 @@ describe("computeRowsFromExcelData", () => {
     const rofRow = rows.find(r => r.sku === "SKU-A" && r.store === "ROF")!;
     const ecomRow = rows.find(r => r.sku === "SKU-A" && r.store === "ROF ECOM")!;
 
-    expect(rofRow.onOrder).toBe(100); // only ROF PO
-    expect(ecomRow.onOrder).toBe(0);  // ECOM PO filtered out
+    expect(rofRow.onPO).toBe(100); // only ROF PO
+    expect(ecomRow.onPO).toBe(0);  // ECOM PO filtered out
   });
 
   it("applies pre-range events to opening balance", () => {

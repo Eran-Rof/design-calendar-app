@@ -24,8 +24,8 @@ export function dedupeSkuEntries(skus: ATSSkuData[]): ATSSkuData[] {
     out[idx] = {
       ...prev,
       onHand:      totalOnHand,
-      onOrder:     (prev.onOrder     || 0) + (s.onOrder     || 0),
-      onCommitted: (prev.onCommitted || 0) + (s.onCommitted || 0),
+      onPO:     (prev.onPO     || 0) + (s.onPO     || 0),
+      onOrder: (prev.onOrder || 0) + (s.onOrder || 0),
       totalAmount: (prev.totalAmount || 0) + (s.totalAmount || 0),
       avgCost: anyCost && totalOnHand > 0 ? costSum / totalOnHand : (prev.avgCost ?? s.avgCost ?? undefined),
     };
@@ -69,8 +69,8 @@ export function mergeExcelDataSkus(data: ExcelData, fromSku: string, toSku: stri
     ...base,
     sku:         toSku,
     onHand:      totalOnHand,
-    onOrder:     all.reduce((a, s) => a + (s.onOrder     || 0), 0),
-    onCommitted: all.reduce((a, s) => a + (s.onCommitted || 0), 0),
+    onPO:     all.reduce((a, s) => a + (s.onPO     || 0), 0),
+    onOrder: all.reduce((a, s) => a + (s.onOrder || 0), 0),
     totalAmount: all.reduce((a, s) => a + (s.totalAmount || 0), 0),
     avgCost: anyCost && totalOnHand > 0 ? costSum / totalOnHand : (base.avgCost ?? undefined),
   };
@@ -96,8 +96,8 @@ export function mergeRows(currentRows: ATSRow[], fromSku: string, toSku: string)
   const merged: ATSRow = {
     ...target,
     onHand:      totalOnHand,
-    onOrder:     target.onOrder     + source.onOrder,
-    onCommitted: (target.onCommitted ?? 0) + (source.onCommitted ?? 0),
+    onPO:     target.onPO     + source.onPO,
+    onOrder: (target.onOrder ?? 0) + (source.onOrder ?? 0),
     totalAmount: (target.totalAmount ?? 0) + (source.totalAmount ?? 0),
     avgCost,
     lastReceiptDate,

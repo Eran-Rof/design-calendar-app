@@ -612,7 +612,7 @@ function App() {
             onBrands={() => setShowBrands(true)}
             onSeasons={() => setShowSeasons(true)}
             onCustomers={() => setShowCustomers(true)}
-            onOrderTypes={() => setShowOrderTypes(true)}
+            onPOTypes={() => setShowOrderTypes(true)}
             onRoles={() => setShowRoles(true)}
             onTasks={() => setShowTaskManager(true)}
             onGenders={() => setShowGenders(true)}

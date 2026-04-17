@@ -85,8 +85,8 @@ describe("runSaveUploadData", () => {
     // The saved data should have a single "Grey" row with combined qty.
     const input = makeData({
       skus: [
-        { sku: "RCB1258 - Lt Grey", description: "", store: "ROF", onHand: 100, onOrder: 0 },
-        { sku: "RCB1258 - Grey",    description: "", store: "ROF", onHand: 50,  onOrder: 0 },
+        { sku: "RCB1258 - Lt Grey", description: "", store: "ROF", onHand: 100, onPO: 0 },
+        { sku: "RCB1258 - Grey",    description: "", store: "ROF", onHand: 50,  onPO: 0 },
       ],
     });
     const { opts, mocks } = buildOpts({
@@ -105,7 +105,7 @@ describe("runSaveUploadData", () => {
 
   it("auto-applies known accepts and skips the modal when no unknowns", async () => {
     const input = makeData({
-      skus: [{ sku: RAW_SKU, description: "", store: "ROF", onHand: 1, onOrder: 0 }],
+      skus: [{ sku: RAW_SKU, description: "", store: "ROF", onHand: 1, onPO: 0 }],
     });
     const { opts, mocks } = buildOpts({
       decisions: { [RAW_SKU]: "accept" },
@@ -122,7 +122,7 @@ describe("runSaveUploadData", () => {
 
   it("leaves known rejects in raw form and skips the modal", async () => {
     const input = makeData({
-      skus: [{ sku: RAW_SKU, description: "", store: "ROF", onHand: 1, onOrder: 0 }],
+      skus: [{ sku: RAW_SKU, description: "", store: "ROF", onHand: 1, onPO: 0 }],
     });
     const { opts, mocks } = buildOpts({
       decisions: { [RAW_SKU]: "reject" },
@@ -137,8 +137,8 @@ describe("runSaveUploadData", () => {
   it("opens the modal only for unknown SKUs — known decisions auto-applied silently", async () => {
     const input = makeData({
       skus: [
-        { sku: RAW_SKU,             description: "", store: "ROF", onHand: 1, onOrder: 0 }, // known accept
-        { sku: "RYB0413 - MOCHA",   description: "", store: "ROF", onHand: 1, onOrder: 0 }, // unknown
+        { sku: RAW_SKU,             description: "", store: "ROF", onHand: 1, onPO: 0 }, // known accept
+        { sku: "RYB0413 - MOCHA",   description: "", store: "ROF", onHand: 1, onPO: 0 }, // unknown
       ],
     });
     const { opts, mocks } = buildOpts({
@@ -164,8 +164,8 @@ describe("runSaveUploadData", () => {
     // replay, only the merged sku remains, and normalization runs on that.
     const input = makeData({
       skus: [
-        { sku: "OLD-BASE - BLUE", description: "", store: "ROF", onHand: 5, onOrder: 0 },
-        { sku: "NEW-BASE - BLUE", description: "", store: "ROF", onHand: 3, onOrder: 0 },
+        { sku: "OLD-BASE - BLUE", description: "", store: "ROF", onHand: 5, onPO: 0 },
+        { sku: "NEW-BASE - BLUE", description: "", store: "ROF", onHand: 3, onPO: 0 },
       ],
     });
     const { opts, mocks } = buildOpts({
@@ -187,8 +187,8 @@ describe("runSaveUploadData", () => {
     // state.
     const input = makeData({
       skus: [
-        { sku: "A - RED",   description: "", store: "ROF", onHand: 1, onOrder: 0 },
-        { sku: "A - BLUE",  description: "", store: "ROF", onHand: 2, onOrder: 0 },
+        { sku: "A - RED",   description: "", store: "ROF", onHand: 1, onPO: 0 },
+        { sku: "A - BLUE",  description: "", store: "ROF", onHand: 2, onPO: 0 },
       ],
     });
     const { opts, mocks } = buildOpts({
@@ -205,7 +205,7 @@ describe("runSaveUploadData", () => {
 
   it("commits normalized data via setExcelData when all decisions are known", async () => {
     const input = makeData({
-      skus: [{ sku: RAW_SKU, description: "", store: "ROF", onHand: 1, onOrder: 0 }],
+      skus: [{ sku: RAW_SKU, description: "", store: "ROF", onHand: 1, onPO: 0 }],
     });
     const { opts, mocks } = buildOpts({
       decisions: { [RAW_SKU]: "accept" },

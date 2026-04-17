@@ -1,6 +1,10 @@
 import XLSXStyle from "xlsx-js-style";
 import type { ATSRow } from "./types";
 import { fmtDate } from "./helpers";
+import {
+  INTEREST_RATE, PALLET_PCS, STORAGE_PER_PALLET_MONTH, DEFAULT_LAST_RECEIVED,
+  calcAgedCosts, calcAgedDays, parseSku,
+} from "./agedInvenMath";
 
 // ── Palette (matches target file) ─────────────────────────────────────────────
 const DARK_NAVY  = "0D2F4F";   // title row
@@ -21,50 +25,6 @@ const al  = (h: "left"|"center"|"right") => ({ horizontal: h, vertical: "center"
 const MED = (rgb: string) => ({ style: "medium" as const, color: { rgb } });
 const THN = (rgb: string) => ({ style: "thin"   as const, color: { rgb } });
 
-const DEFAULT_LAST_RECEIVED = "2024-09-30";
-const INTEREST_RATE = 0.09;
-const PALLET_PCS    = 864;
-const STORAGE_PER_PALLET_MONTH = 20;
-
-// ── Parse SKU into base part + color (strip size) ─────────────────────────────
-function parseSku(sku: string): { base: string; color: string } {
-  // ATS SKUs use " - " (space-dash-space) as separator: "CMO0002 - Black/Red"
-  // Xoro raw SKUs use plain "-": "CMO0002-Black/Red-SM"
-  const spaceDelim = sku.indexOf(" - ");
-  if (spaceDelim !== -1) {
-    // ATS format: everything before first " - " is base, rest is color
-    return {
-      base:  sku.slice(0, spaceDelim).trim(),
-      color: sku.slice(spaceDelim + 3).trim(),
-    };
-  }
-  // Raw Xoro format: split on "-", strip trailing size segment
-  const parts = sku.split("-");
-  if (parts.length < 2) return { base: sku.trim(), color: "" };
-  const sizeIdx = parts.slice(1).findIndex(p => p.includes("("));
-  let colorParts: string[];
-  if (sizeIdx !== -1) {
-    colorParts = parts.slice(1, sizeIdx + 1);
-  } else if (parts.length >= 3) {
-    colorParts = parts.slice(1, -1);
-  } else {
-    colorParts = parts.slice(1);
-  }
-  return { base: parts[0].trim(), color: colorParts.join("-").trim() };
-}
-
-// ── Compute aged days from lastReceiptDate (or fallback) ──────────────────────
-function agedDays(lastReceived: string | undefined, today: Date): number {
-  const src = lastReceived || DEFAULT_LAST_RECEIVED;
-  // normalise to YYYY-MM-DD if it came in as MM/DD/YYYY
-  let iso = src;
-  const mmddyyyy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(src);
-  if (mmddyyyy) iso = `${mmddyyyy[3]}-${mmddyyyy[1].padStart(2,"0")}-${mmddyyyy[2].padStart(2,"0")}`;
-  const d = new Date(iso + "T00:00:00");
-  if (isNaN(d.getTime())) return 0;
-  return Math.floor((today.getTime() - d.getTime()) / 86400000);
-}
-
 function fmtMMDDYYYY(iso: string): string {
   const d = new Date(iso + "T00:00:00");
   if (isNaN(d.getTime())) return iso;
@@ -72,10 +32,12 @@ function fmtMMDDYYYY(iso: string): string {
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
-export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number) {
+export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, category = "All"): "ok" | "empty" {
   const today     = new Date();
   const todayStr  = `${String(today.getMonth()+1).padStart(2,"0")}/${String(today.getDate()).padStart(2,"0")}/${today.getFullYear()}`;
   const todayIso  = fmtDate(today);
+
+  const categoryLabel = category !== "All" ? ` – ${category}` : "";
 
   // ── 1. Explode each ATSRow into a colour-level record, filter by age ────────
   interface Record {
@@ -93,6 +55,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number) {
   const exploded: Record[] = [];
   for (const r of rows) {
     if (!r.onHand || r.onHand <= 0) continue;
+    if (category !== "All" && r.category !== category) continue;
     const { base, color } = parseSku(r.sku);
 
     // normalise lastReceiptDate to ISO
@@ -104,7 +67,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number) {
         : r.lastReceiptDate;
     }
 
-    const aged = agedDays(lrIso, today);
+    const aged = calcAgedDays(lrIso, today);
     if (aged < ageDaysThreshold) continue;
 
     exploded.push({
@@ -120,7 +83,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number) {
     });
   }
 
-  if (exploded.length === 0) return;
+  if (exploded.length === 0) return "empty";
 
   // ── 2. Aggregate to (store, gender, base, color) level ────────────────────
   type GroupKey = string;
@@ -167,7 +130,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number) {
 
     // Row 1 — Title
     aoa.push([
-      { v: `${ageDaysThreshold}+ Day Aged Inventory – Summary by Store & Gender`, t: "s",
+      { v: `${ageDaysThreshold}+ Day Aged Inventory${categoryLabel} – Summary by Store & Gender`, t: "s",
         s: { font: ft(true, 13, WHITE), fill: fl(DARK_NAVY), alignment: al("center") } },
       ...Array(TC-1).fill({ v: "", t: "s", s: { fill: fl(DARK_NAVY) } }),
     ]);
@@ -218,16 +181,8 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number) {
       const totalVal   = items.reduce((s, r) => s + r.ohValue, 0);
       const avgCost    = totalQty > 0 ? totalVal / totalQty : 0;
       const avgAgeDays = totalQty > 0 ? items.reduce((s, r) => s + r.aged * r.qty, 0) / totalQty : 0;
-      const intDaily   = totalVal * INTEREST_RATE / 360;
-      const intMonthly = totalVal * INTEREST_RATE / 12;
-      const intAnnual  = totalVal * INTEREST_RATE;
-      const stoDaily   = totalQty / PALLET_PCS * STORAGE_PER_PALLET_MONTH / 30;
-      const stoMonthly = totalQty / PALLET_PCS * STORAGE_PER_PALLET_MONTH;
-      const stoAnnual  = totalQty / PALLET_PCS * STORAGE_PER_PALLET_MONTH * 12;
-      const pctCost    = totalVal > 0 ? (intAnnual + stoAnnual) / totalVal : 0;
-      const dolCost    = totalQty > 0 ? (intAnnual + stoAnnual) / totalQty : 0;
-      return { store, gender, totalQty, avgCost, avgAgeDays, totalVal,
-               intDaily, intMonthly, intAnnual, stoDaily, stoMonthly, stoAnnual, pctCost, dolCost };
+      const costs = calcAgedCosts(totalQty, totalVal);
+      return { store, gender, totalQty, avgCost, avgAgeDays, totalVal, ...costs };
     });
 
     summaryRows.forEach((row, ri) => {
@@ -475,7 +430,9 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number) {
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement("a");
   a.href     = url;
-  a.download = `Aged_Inventory_${ageDaysThreshold}days_${fmtDate(today)}.xlsx`;
+  const catSlug = category !== "All" ? `_${category.replace(/[^a-zA-Z0-9]/g, "_")}` : "";
+  a.download = `Aged_Inventory_${ageDaysThreshold}days${catSlug}_${fmtDate(today)}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
+  return "ok";
 }

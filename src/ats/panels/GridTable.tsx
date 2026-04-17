@@ -192,20 +192,20 @@ export const GridTable: React.FC<GridTableProps> = ({
                 </td>
                 {/* On Order (committed SOs) */}
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: 410, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center", cursor: row.onCommitted > 0 ? "context-menu" : "default" }}
-                  onContextMenu={e => { if (row.onCommitted > 0) openSummaryCtx(e, "onOrder", row); }}
+                  style={{ ...S.td, ...S.stickyCol, left: 410, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center", cursor: row.onOrder > 0 ? "context-menu" : "default" }}
+                  onContextMenu={e => { if (row.onOrder > 0) openSummaryCtx(e, "onOrder", row); }}
                 >
                   <span style={{ color: "#F59E0B", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
-                    {row.onCommitted > 0 ? row.onCommitted.toLocaleString() : "—"}
+                    {row.onOrder > 0 ? row.onOrder.toLocaleString() : "—"}
                   </span>
                 </td>
                 {/* On PO (open purchase orders) */}
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: 490, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center", cursor: row.onOrder > 0 ? "context-menu" : "default" }}
-                  onContextMenu={e => { if (row.onOrder > 0) openSummaryCtx(e, "onPO", row); }}
+                  style={{ ...S.td, ...S.stickyCol, left: 490, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center", cursor: row.onPO > 0 ? "context-menu" : "default" }}
+                  onContextMenu={e => { if (row.onPO > 0) openSummaryCtx(e, "onPO", row); }}
                 >
                   <span style={{ color: "#10B981", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
-                    {row.onOrder > 0 ? `+${row.onOrder.toLocaleString()}` : "—"}
+                    {row.onPO > 0 ? `+${row.onPO.toLocaleString()}` : "—"}
                   </span>
                 </td>
                 {/* Period cells */}

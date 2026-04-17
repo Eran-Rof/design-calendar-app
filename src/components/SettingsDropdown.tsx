@@ -11,7 +11,7 @@ function SettingsDropdown({
   onBrands,
   onSeasons,
   onCustomers,
-  onOrderTypes,
+  onPOTypes,
   onRoles,
   onTasks,
   onGenders,
@@ -25,7 +25,7 @@ function SettingsDropdown({
   onBrands: () => void;
   onSeasons: () => void;
   onCustomers: () => void;
-  onOrderTypes: () => void;
+  onPOTypes: () => void;
   onRoles: () => void;
   onTasks: () => void;
   onGenders: () => void;
@@ -48,7 +48,7 @@ function SettingsDropdown({
     { icon: "📐", label: "Sizes", onClick: onSizes, always: false },
     { icon: "🗂️", label: "Categories", onClick: onCategories, always: false },
     { icon: "⚧", label: "Genders", onClick: onGenders, always: false },
-    { icon: "📋", label: "Order Types", onClick: onOrderTypes, always: false },
+    { icon: "📋", label: "Order Types", onClick: onPOTypes, always: false },
     { icon: "📋", label: "Tasks", onClick: onTasks, always: false },
     { icon: "🎭", label: "Roles", onClick: onRoles, always: false },
     { icon: "👤", label: "Users", onClick: onUsers, always: false },

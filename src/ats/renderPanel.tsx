@@ -13,6 +13,7 @@ import { Pagination } from "./panels/Pagination";
 import { NavBar, SyncProgressBanner } from "./panels/NavBar";
 import { Toolbar } from "./panels/Toolbar";
 import { GridTable } from "./panels/GridTable";
+import { GridErrorBoundary } from "./panels/GridErrorBoundary";
 import type { ATSState } from "./state/atsTypes";
 import type { ATSRow, ExcelData, ATSPoEvent, ATSSoEvent, UploadWarning } from "./types";
 import type { NormChange } from "./normalize";
@@ -100,7 +101,7 @@ interface ATSDerivedCtx {
   clearMergeAndNavigate: () => Promise<void>;
   saveMergeHistory: (history: Array<{ fromSku: string; toSku: string }>) => Promise<void>;
   onNegInven: () => void;
-  onAgedInven: (days: number) => void;
+  onAgedInven: (days: number, category: string) => "ok" | "empty";
 }
 
 export type ATSRenderCtx = ATSState & ATSStateSetters & ATSDerivedCtx;
@@ -141,6 +142,8 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         atShip={atShip}
         onNegInven={onNegInven}
         onAgedInven={onAgedInven}
+        categories={categories}
+        filterCategory={filterCategory}
       />
       <SyncProgressBanner syncProgress={syncProgress} />
 
@@ -190,19 +193,21 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         </div>
 
         {/* GRID TABLE */}
-        <GridTable
-          loading={loading} filtered={filtered} pageRows={pageRows}
-          displayPeriods={displayPeriods} tableRef={tableRef}
-          sortCol={sortCol} sortDir={sortDir} handleThClick={handleThClick} rangeUnit={rangeUnit}
-          pinnedSku={pinnedSku} setPinnedSku={setPinnedSku}
-          dragSku={dragSku} setDragSku={setDragSku}
-          dragOverSku={dragOverSku} setDragOverSku={setDragOverSku}
-          hoveredCell={hoveredCell} setHoveredCell={setHoveredCell}
-          todayKey={todayKey} atShip={atShip}
-          eventIndex={eventIndex} getEventsInPeriod={getEventsInPeriod}
-          ctxMenu={ctxMenu} setCtxMenu={setCtxMenu} setSummaryCtx={setSummaryCtx}
-          openSummaryCtx={openSummaryCtx} handleSkuDrop={handleSkuDrop}
-        />
+        <GridErrorBoundary>
+          <GridTable
+            loading={loading} filtered={filtered} pageRows={pageRows}
+            displayPeriods={displayPeriods} tableRef={tableRef}
+            sortCol={sortCol} sortDir={sortDir} handleThClick={handleThClick} rangeUnit={rangeUnit}
+            pinnedSku={pinnedSku} setPinnedSku={setPinnedSku}
+            dragSku={dragSku} setDragSku={setDragSku}
+            dragOverSku={dragOverSku} setDragOverSku={setDragOverSku}
+            hoveredCell={hoveredCell} setHoveredCell={setHoveredCell}
+            todayKey={todayKey} atShip={atShip}
+            eventIndex={eventIndex} getEventsInPeriod={getEventsInPeriod}
+            ctxMenu={ctxMenu} setCtxMenu={setCtxMenu} setSummaryCtx={setSummaryCtx}
+            openSummaryCtx={openSummaryCtx} handleSkuDrop={handleSkuDrop}
+          />
+        </GridErrorBoundary>
 
         <Pagination page={page} totalPages={totalPages} setPage={setPage} filteredCount={filtered.length} />
       </div>

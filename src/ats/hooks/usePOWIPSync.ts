@@ -50,7 +50,7 @@ export async function applyPOWIPDataToExcel(data: ExcelData): Promise<ExcelData>
     for (const item of items) {
       const rawItemSku = item.ItemNumber ?? "";
       if (!rawItemSku) continue;
-      // Closed lines won't be received — exclude from onOrder rollup even if
+      // Closed lines won't be received — exclude from onPO rollup even if
       // QtyRemaining is still nonzero on the Xoro payload.
       if (isLineClosed(item)) continue;
       // Normalize so case/spacing/abbreviation differences between PO WIP
@@ -85,15 +85,15 @@ export async function applyPOWIPDataToExcel(data: ExcelData): Promise<ExcelData>
           category: brandName || undefined,
           store,
           onHand: 0,
-          onOrder: qty,
-          onCommitted: 0,
+          onPO: qty,
+          onOrder: 0,
         });
       } else {
         const prev = nextSkus[existingIdx];
         // Backfill description when the existing row is blank — Excel inventory
         // may not have had this SKU yet, so the PO WIP name is the best we have.
         const nextDesc = prev.description || itemDesc;
-        nextSkus[existingIdx] = { ...prev, onOrder: (prev.onOrder || 0) + qty, description: nextDesc };
+        nextSkus[existingIdx] = { ...prev, onPO: (prev.onPO || 0) + qty, description: nextDesc };
       }
       if (date) nextPos.push({ sku, date, qty, poNumber: poNum, vendor, store, unitCost });
     }
@@ -116,7 +116,7 @@ export function usePOWIPSync(opts: UsePOWIPSyncOpts) {
       const base: ExcelData = {
         ...excelData,
         pos: [],
-        skus: excelData.skus.map(s => ({ ...s, onOrder: 0 })),
+        skus: excelData.skus.map(s => ({ ...s, onPO: 0 })),
       };
       const updated = await applyPOWIPData(base);
       setExcelData(updated);

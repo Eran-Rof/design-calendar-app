@@ -88,8 +88,8 @@ export function sortRows(
     if      (sortCol === "sku")         { av = a.sku;         bv = b.sku; }
     else if (sortCol === "description") { av = a.description; bv = b.description; }
     else if (sortCol === "onHand")      { av = a.onHand;      bv = b.onHand; }
-    else if (sortCol === "onOrder")     { av = a.onCommitted; bv = b.onCommitted; }
-    else if (sortCol === "onPO")        { av = a.onOrder;     bv = b.onOrder; }
+    else if (sortCol === "onOrder")  { av = a.onOrder; bv = b.onOrder; }
+    else if (sortCol === "onPO")     { av = a.onPO;    bv = b.onPO;   }
     else                                { av = a.dates[sortCol] ?? 0; bv = b.dates[sortCol] ?? 0; }
     if (typeof av === "string") {
       return sortDir === "asc"

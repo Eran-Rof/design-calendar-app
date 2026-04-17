@@ -7,8 +7,8 @@ function row(partial: Partial<ATSRow> & { sku: string }): ATSRow {
     description: "",
     store: "ROF",
     dates: {},
+    onPO: 0,
     onOrder: 0,
-    onCommitted: 0,
     onHand: 0,
     ...partial,
   } as ATSRow;
@@ -55,7 +55,7 @@ describe("filterRows", () => {
     row({ sku: "C", category: "red",  store: "PT",       dates: { "2026-04-10": 50 }, onHand: 50 }),
   ];
   const defaults = {
-    search: "", filterCategory: "All", filterStatus: "All", minATS: "" as const,
+    search: "", filterCategory: "All", filterGender: "All", filterStatus: "All", minATS: "" as const,
     storeFilter: ["All"], customerSkuSet: null, today: TODAY,
   };
 
@@ -161,5 +161,34 @@ describe("sortRows", () => {
     const copy = [...rows];
     sortRows(rows, "sku", "asc");
     expect(rows).toEqual(copy);
+  });
+
+  it("sorts by onOrder (committed SO qty) — UI column 'On Order'", () => {
+    const r = [
+      row({ sku: "A", onOrder: 10 }),
+      row({ sku: "B", onOrder: 30 }),
+      row({ sku: "C", onOrder: 20 }),
+    ];
+    expect(sortRows(r, "onOrder", "asc").map(x => x.sku)).toEqual(["A", "C", "B"]);
+    expect(sortRows(r, "onOrder", "desc").map(x => x.sku)).toEqual(["B", "C", "A"]);
+  });
+
+  it("sorts by onPO (purchase order qty) — UI column 'On PO'", () => {
+    const r = [
+      row({ sku: "A", onPO: 100 }),
+      row({ sku: "B", onPO: 300 }),
+      row({ sku: "C", onPO: 200 }),
+    ];
+    expect(sortRows(r, "onPO", "asc").map(x => x.sku)).toEqual(["A", "C", "B"]);
+    expect(sortRows(r, "onPO", "desc").map(x => x.sku)).toEqual(["B", "C", "A"]);
+  });
+
+  it("onOrder sort is independent of onPO values", () => {
+    const r = [
+      row({ sku: "A", onOrder: 5,  onPO: 999 }),
+      row({ sku: "B", onOrder: 1,  onPO: 1   }),
+      row({ sku: "C", onOrder: 50, onPO: 500 }),
+    ];
+    expect(sortRows(r, "onOrder", "asc").map(x => x.sku)).toEqual(["B", "A", "C"]);
   });
 });

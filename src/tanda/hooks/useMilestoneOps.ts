@@ -68,6 +68,38 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
         Object.keys(grouped).forEach(poNum => { merged[poNum] = grouped[poNum]; });
         const coreSet = getState().setCoreField;
         coreSet("milestones", merged);
+
+        // Auto-mark overdue milestones as Delayed
+        const today = new Date().toISOString().split("T")[0];
+        const toAutoDelay: Milestone[] = [];
+        Object.values(merged).forEach(msArr => {
+          msArr.forEach(m => {
+            if (
+              m.expected_date &&
+              m.expected_date.slice(0, 10) < today &&
+              !["Complete", "N/A", "Delayed"].includes(m.status)
+            ) {
+              toAutoDelay.push({
+                ...m,
+                status: "Delayed",
+                status_date: today,
+                status_dates: {
+                  ...(m.status_dates || {}),
+                  Delayed: (m.status_dates?.["Delayed"]) || today,
+                },
+                updated_at: new Date().toISOString(),
+                updated_by: "auto",
+              });
+            }
+          });
+        });
+        if (toAutoDelay.length > 0) {
+          await sb.from("tanda_milestones").upsert(
+            toAutoDelay.map(m => ({ id: m.id, data: m })),
+            { onConflict: "id" }
+          );
+          toAutoDelay.forEach(m => store.updateMilestone(m.po_number, m.id, m));
+        }
       }
     } catch (e) { console.error("[MS] loadAll error:", e); }
   }

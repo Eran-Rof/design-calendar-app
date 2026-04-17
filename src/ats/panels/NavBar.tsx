@@ -16,16 +16,21 @@ interface NavBarProps {
   displayPeriods: Array<{ endDate: string; label: string }>;
   atShip: boolean;
   onNegInven: () => void;
-  onAgedInven: (days: number) => void;
+  onAgedInven: (days: number, category: string) => "ok" | "empty";
+  categories: string[];
+  filterCategory: string;
 }
 
 export const NavBar: React.FC<NavBarProps> = ({
   mergeHistory, undoLastMerge, onNavigateHome, setShowUpload,
   uploadingFile, invFile, purFile, ordFile,
   exportToExcel, filtered, displayPeriods, atShip, onNegInven, onAgedInven,
+  categories, filterCategory,
 }) => {
   const [agedOpen, setAgedOpen] = useState(false);
   const [agedDays, setAgedDays] = useState("365");
+  const [agedCategory, setAgedCategory] = useState(filterCategory);
+  const [agedEmpty, setAgedEmpty] = useState(false);
 
   return (
   <nav style={S.nav}>
@@ -75,7 +80,7 @@ export const NavBar: React.FC<NavBarProps> = ({
       </button>
       <button
         style={{ ...S.navBtn, background: "#1D6F42", border: "1px solid #155734", color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 7px" }}
-        onClick={() => setAgedOpen(true)}
+        onClick={() => { setAgedCategory(filterCategory); setAgedEmpty(false); setAgedOpen(true); }}
         title="Download Aged Inventory report"
       >
         <svg width="13" height="13" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -106,17 +111,30 @@ export const NavBar: React.FC<NavBarProps> = ({
             min={1}
             value={agedDays}
             onChange={e => setAgedDays(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") { const d = parseInt(agedDays); if (d > 0) { onAgedInven(d); setAgedOpen(false); } } }}
+            onKeyDown={e => { if (e.key === "Enter") { const d = parseInt(agedDays); if (d > 0) { const r = onAgedInven(d, agedCategory); if (r === "ok") setAgedOpen(false); else setAgedEmpty(true); } } }}
             autoFocus
-            style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 8, color: "#F1F5F9", fontSize: 15, padding: "8px 12px", outline: "none", boxSizing: "border-box" as const, marginBottom: 20 }}
+            style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 8, color: "#F1F5F9", fontSize: 15, padding: "8px 12px", outline: "none", boxSizing: "border-box" as const, marginBottom: 16 }}
           />
+          <label style={{ fontSize: 12, color: "#94A3B8", display: "block", marginBottom: 6 }}>Category</label>
+          <select
+            value={agedCategory}
+            onChange={e => setAgedCategory(e.target.value)}
+            style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 8, color: "#F1F5F9", fontSize: 14, padding: "8px 12px", outline: "none", boxSizing: "border-box" as const, marginBottom: 20, cursor: "pointer" }}
+          >
+            {categories.map(c => <option key={c} value={c}>{c === "All" ? "All Categories" : c}</option>)}
+          </select>
+          {agedEmpty && (
+            <div style={{ color: "#F87171", fontSize: 12, marginBottom: 14, padding: "8px 12px", background: "rgba(248,113,113,0.08)", borderRadius: 6, border: "1px solid rgba(248,113,113,0.2)" }}>
+              No aged inventory found for {agedCategory !== "All" ? `${agedCategory} – ` : ""}{agedDays}+ days.
+            </div>
+          )}
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
             <button onClick={() => setAgedOpen(false)}
               style={{ background: "none", border: "1px solid #334155", color: "#94A3B8", borderRadius: 6, padding: "7px 16px", fontSize: 13, cursor: "pointer" }}>
               Cancel
             </button>
             <button
-              onClick={() => { const d = parseInt(agedDays); if (d > 0) { onAgedInven(d); setAgedOpen(false); } }}
+              onClick={() => { const d = parseInt(agedDays); if (d > 0) { const r = onAgedInven(d, agedCategory); if (r === "ok") setAgedOpen(false); else setAgedEmpty(true); } }}
               style={{ background: "#1D6F42", border: "1px solid #155734", color: "#fff", borderRadius: 6, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
               Download Report
             </button>
