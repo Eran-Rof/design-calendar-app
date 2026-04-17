@@ -27,6 +27,7 @@ export function generateMilestones(
       notes: "",
       note_entries: null,
       variant_statuses: null,
+      variant_notes: null,
       updated_at: new Date().toISOString(),
       updated_by: updatedBy,
     };

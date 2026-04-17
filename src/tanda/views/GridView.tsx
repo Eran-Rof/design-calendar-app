@@ -562,7 +562,8 @@ export function GridView({
     });
   };
 
-  // Add note to a specific milestone; optimistically updates the open modal.
+  // Add note to a specific milestone; optimistic store update so the UI
+  // reflects the change immediately without waiting for the DB round-trip.
   const addNote = useCallback((milestone: Milestone, text: string) => {
     const now      = new Date();
     const dateStr  = now.toISOString().slice(0, 10);
@@ -573,11 +574,8 @@ export function GridView({
       updated_at: now.toISOString(),
       updated_by: user?.name || "",
     };
+    useTandaStore.getState().updateMilestone(milestone.po_number, milestone.id, updated);
     saveMilestone(updated, true);
-    setNotesModal(prev => prev ? {
-      ...prev,
-      ms: prev.ms.map(m => m.id === milestone.id ? updated : m),
-    } : prev);
   }, [user, saveMilestone]);
 
   const editNote = useCallback((milestone: Milestone, index: number, newText: string) => {
@@ -589,11 +587,8 @@ export function GridView({
       updated_at: new Date().toISOString(),
       updated_by: user?.name || "",
     };
+    useTandaStore.getState().updateMilestone(milestone.po_number, milestone.id, updated);
     saveMilestone(updated, true);
-    setNotesModal(prev => prev ? {
-      ...prev,
-      ms: prev.ms.map(m => m.id === milestone.id ? updated : m),
-    } : prev);
   }, [user, saveMilestone]);
 
   const deleteNote = useCallback((milestone: Milestone, index: number) => {
@@ -605,11 +600,8 @@ export function GridView({
       updated_at: new Date().toISOString(),
       updated_by: user?.name || "",
     };
+    useTandaStore.getState().updateMilestone(milestone.po_number, milestone.id, updated);
     saveMilestone(updated, true);
-    setNotesModal(prev => prev ? {
-      ...prev,
-      ms: prev.ms.map(m => m.id === milestone.id ? updated : m),
-    } : prev);
   }, [user, saveMilestone]);
 
   // ── Per-line-item (variant) notes ───────────────────────────────────────
@@ -621,8 +613,8 @@ export function GridView({
     const vn = { ...(milestone.variant_notes || {}) };
     vn[varKey] = [...(vn[varKey] || []), entry];
     const updated = { ...milestone, variant_notes: vn, updated_at: now.toISOString(), updated_by: user?.name || "" };
+    useTandaStore.getState().updateMilestone(milestone.po_number, milestone.id, updated);
     saveMilestone(updated, true);
-    setNotesModal(prev => prev ? { ...prev, ms: prev.ms.map(m => m.id === milestone.id ? updated : m) } : prev);
   }, [user, saveMilestone]);
 
   const editVariantNote = useCallback((milestone: Milestone, varKey: string, index: number, newText: string) => {
@@ -631,8 +623,8 @@ export function GridView({
     entries[index] = { ...entries[index], text: newText };
     vn[varKey] = entries;
     const updated = { ...milestone, variant_notes: vn, updated_at: new Date().toISOString(), updated_by: user?.name || "" };
+    useTandaStore.getState().updateMilestone(milestone.po_number, milestone.id, updated);
     saveMilestone(updated, true);
-    setNotesModal(prev => prev ? { ...prev, ms: prev.ms.map(m => m.id === milestone.id ? updated : m) } : prev);
   }, [user, saveMilestone]);
 
   const deleteVariantNote = useCallback((milestone: Milestone, varKey: string, index: number) => {
@@ -642,8 +634,8 @@ export function GridView({
     vn[varKey] = entries.length > 0 ? entries : [];
     const cleanVn = Object.fromEntries(Object.entries(vn).filter(([, v]) => v.length > 0));
     const updated = { ...milestone, variant_notes: Object.keys(cleanVn).length > 0 ? cleanVn : null, updated_at: new Date().toISOString(), updated_by: user?.name || "" };
+    useTandaStore.getState().updateMilestone(milestone.po_number, milestone.id, updated);
     saveMilestone(updated, true);
-    setNotesModal(prev => prev ? { ...prev, ms: prev.ms.map(m => m.id === milestone.id ? updated : m) } : prev);
   }, [user, saveMilestone]);
 
   // ── Buyer dropdown options ────────────────────────────────────────────

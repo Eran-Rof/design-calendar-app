@@ -152,7 +152,7 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
     if (existing) {
       const { data: currentRow } = await sb.from("tanda_milestones").single("id,data", `id=eq.${encodeURIComponent(m.id)}`);
       const serverData = (currentRow as any)?.data as Milestone | undefined;
-      if (serverData && serverData.updated_at && serverData.updated_at !== existing.updated_at && serverData.updated_by !== (user?.name || "")) {
+      if (serverData && serverData.updated_at && serverData.updated_at !== existing.updated_at && serverData.updated_by !== (user?.name || "") && serverData.updated_by !== "auto") {
         // Conflict detected — let user decide (skip if we're the one who made the change)
         conflictPendingRef.current.add(m.id);
         setConfirmModal({
