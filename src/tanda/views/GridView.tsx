@@ -1450,8 +1450,9 @@ export function GridView({
                               const lineStatus   = lineStatuses.length === 1 ? lineStatuses[0] : lineStatuses.length > 1 ? "Mixed" : "—";
                               const lineStColor  = closed ? "#EF4444" : lineStatus === "Mixed" ? "#F59E0B" : lineStatus === "—" ? "#374151" : "#10B981";
 
-                              // Aggregate delivery date from Xoro items
-                              const deliveries = [...new Set(groupItems.map(it => (it.DateExpectedDelivery || "").slice(0, 10)).filter(Boolean))];
+                              // Aggregate delivery date from Xoro items — normalize
+                              // to YYYY-MM-DD so comparisons against ddp work.
+                              const deliveries = [...new Set(groupItems.map(it => normDateISO(it.DateExpectedDelivery)).filter(Boolean))];
                               const deliveryDisplay = deliveries.length === 0 ? "—" : deliveries.length === 1 ? fmtDate(deliveries[0]) : "Mixed";
 
                               return (
@@ -1596,7 +1597,7 @@ export function GridView({
                                       const sizeMap = new Map<string, typeof allItems[0]>();
                                       group.items.forEach(it => { const sz = itemSizeLabel(it.ItemNumber || ""); if (sz) sizeMap.set(sz, it); });
                                       // Delivery date
-                                      const delivs = [...new Set(group.items.map(it => (it.DateExpectedDelivery || "").slice(0, 10)).filter(Boolean))];
+                                      const delivs = [...new Set(group.items.map(it => normDateISO(it.DateExpectedDelivery)).filter(Boolean))];
                                       const delivDisplay = delivs.length === 0 ? "—" : delivs.length === 1 ? fmtDate(delivs[0]) : "Mixed";
                                       return (
                                         <tr key={gIdx} style={{ background: rowBg }}>
