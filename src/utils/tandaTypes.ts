@@ -90,6 +90,7 @@ export interface Milestone {
   updated_at: string;
   updated_by: string;
   variant_statuses: Record<string, { status: string; status_date: string | null }> | null;
+  variant_notes: Record<string, { text: string; user: string; date: string }[]> | null;
 }
 
 export interface DCVendor {

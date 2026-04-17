@@ -81,15 +81,21 @@ interface NotesModalProps {
   po: XoroPO;
   ms: Milestone[];           // live milestone list (optimistically updated)
   filterPhase?: string;      // if set, scopes display + add-target to one phase
+  filterVariant?: string;    // if set, reads/writes variant_notes[varKey] instead of note_entries
   onClose: () => void;
   onAddNote: (m: Milestone, text: string) => void;
   onEditNote: (m: Milestone, index: number, newText: string) => void;
   onDeleteNote: (m: Milestone, index: number) => void;
+  onAddVariantNote?: (m: Milestone, varKey: string, text: string) => void;
+  onEditVariantNote?: (m: Milestone, varKey: string, index: number, newText: string) => void;
+  onDeleteVariantNote?: (m: Milestone, varKey: string, index: number) => void;
 }
-function NotesModal({ po, ms, filterPhase, onClose, onAddNote, onEditNote, onDeleteNote }: NotesModalProps) {
+function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddNote, onEditNote, onDeleteNote, onAddVariantNote, onEditVariantNote, onDeleteVariantNote }: NotesModalProps) {
   const [noteText, setNoteText] = useState("");
   const [addPhase, setAddPhase] = useState(filterPhase ?? "");
   const [editing, setEditing] = useState<{ milestoneId: string; index: number; text: string } | null>(null);
+
+  const isVariantMode = !!filterVariant;
 
   // Milestones selectable for adding a note
   const availableMs = filterPhase ? ms.filter(m => m.phase === filterPhase) : ms;
@@ -99,22 +105,36 @@ function NotesModal({ po, ms, filterPhase, onClose, onAddNote, onEditNote, onDel
     if (!addPhase && availableMs.length > 0) setAddPhase(availableMs[0].phase);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Notes to display
-  const shown = filterPhase
-    ? ms.filter(m => m.phase === filterPhase && ((m.note_entries && m.note_entries.length > 0) || m.notes))
-    : ms.filter(m => (m.note_entries && m.note_entries.length > 0) || m.notes);
+  // Notes to display — variant mode reads from variant_notes[varKey]
+  const shown = (() => {
+    if (isVariantMode) {
+      return (filterPhase ? ms.filter(m => m.phase === filterPhase) : ms)
+        .filter(m => (m.variant_notes?.[filterVariant!] || []).length > 0);
+    }
+    return filterPhase
+      ? ms.filter(m => m.phase === filterPhase && ((m.note_entries && m.note_entries.length > 0) || m.notes))
+      : ms.filter(m => (m.note_entries && m.note_entries.length > 0) || m.notes);
+  })();
 
   const handleAdd = () => {
     if (!noteText.trim()) return;
     const target = availableMs.find(m => m.phase === addPhase) ?? availableMs[0];
     if (!target) return;
-    onAddNote(target, noteText.trim());
+    if (isVariantMode && onAddVariantNote) {
+      onAddVariantNote(target, filterVariant!, noteText.trim());
+    } else {
+      onAddNote(target, noteText.trim());
+    }
     setNoteText("");
   };
 
   const handleEditSave = (m: Milestone) => {
     if (!editing || !editing.text.trim()) return;
-    onEditNote(m, editing.index, editing.text.trim());
+    if (isVariantMode && onEditVariantNote) {
+      onEditVariantNote(m, filterVariant!, editing.index, editing.text.trim());
+    } else {
+      onEditNote(m, editing.index, editing.text.trim());
+    }
     setEditing(null);
   };
 
@@ -135,7 +155,7 @@ function NotesModal({ po, ms, filterPhase, onClose, onAddNote, onEditNote, onDel
               {filterPhase && <span style={{ marginLeft: 10, color: "#C4B5FD", fontFamily: "sans-serif", fontSize: 12, fontWeight: 400 }}>· {filterPhase}</span>}
             </div>
             <div style={{ color: "#6B7280", fontSize: 12, marginTop: 2 }}>
-              {filterPhase ? "Phase Notes" : "All Milestone Notes"}
+              {isVariantMode ? `Line Item Notes — ${filterVariant}` : filterPhase ? "Phase Notes" : "All Milestone Notes"}
             </div>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
@@ -148,7 +168,13 @@ function NotesModal({ po, ms, filterPhase, onClose, onAddNote, onEditNote, onDel
               No notes yet — add one below.
             </div>
           ) : (
-            shown.map(m => (
+            shown.map(m => {
+              const entries = isVariantMode ? (m.variant_notes?.[filterVariant!] || []) : (m.note_entries || []);
+              const handleDelete = (i: number) => {
+                if (isVariantMode && onDeleteVariantNote) onDeleteVariantNote(m, filterVariant!, i);
+                else onDeleteNote(m, i);
+              };
+              return (
               <div key={m.id} style={{ marginBottom: 18 }}>
                 {!filterPhase && (
                   <div style={{ color: "#C4B5FD", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 7 }}>
@@ -156,8 +182,8 @@ function NotesModal({ po, ms, filterPhase, onClose, onAddNote, onEditNote, onDel
                     <span style={{ marginLeft: 8, color: "#6B7280", fontWeight: 400, textTransform: "none", fontSize: 10 }}>{m.category}</span>
                   </div>
                 )}
-                {m.note_entries && m.note_entries.length > 0
-                  ? m.note_entries.map((ne, i) => {
+                {entries.length > 0
+                  ? entries.map((ne, i) => {
                       const isEditingThis = editing?.milestoneId === m.id && editing?.index === i;
                       return (
                         <div key={i} style={{ background: "#1E293B", borderRadius: 6, padding: "8px 12px", marginBottom: 6 }}>
@@ -188,7 +214,7 @@ function NotesModal({ po, ms, filterPhase, onClose, onAddNote, onEditNote, onDel
                                     onMouseLeave={e => { e.currentTarget.style.background = "#1A2B40"; e.currentTarget.style.color = "#93C5FD"; }}
                                   >✏</button>
                                   <button
-                                    onClick={() => onDeleteNote(m, i)}
+                                    onClick={() => handleDelete(i)}
                                     title="Delete note"
                                     style={{ background: "#2A1A1A", border: "1px solid #4B2020", color: "#F87171", cursor: "pointer", fontSize: 12, padding: "2px 7px", borderRadius: 4, lineHeight: 1, fontWeight: 600 }}
                                     onMouseEnter={e => { e.currentTarget.style.background = "#3D1515"; e.currentTarget.style.color = "#EF4444"; }}
@@ -202,14 +228,15 @@ function NotesModal({ po, ms, filterPhase, onClose, onAddNote, onEditNote, onDel
                         </div>
                       );
                     })
-                  : m.notes
+                  : !isVariantMode && m.notes
                     ? <div style={{ background: "#1E293B", borderRadius: 6, padding: "8px 12px" }}>
                         <div style={{ color: "#E5E7EB", fontSize: 12 }}>{m.notes}</div>
                         <div style={{ color: "#4B5563", fontSize: 10, marginTop: 4 }}>legacy note</div>
                       </div>
                     : null}
               </div>
-            ))
+              );
+            })
           )}
         </div>
 
@@ -341,7 +368,7 @@ export function GridView({
   // Each entry is a batch of milestones to restore together (supports cascade undo).
   const [undoStack, setUndoStack]           = useState<Milestone[][]>([]);
   const [notesModal, setNotesModal]         = useState<{
-    po: XoroPO; ms: Milestone[]; filterPhase?: string;
+    po: XoroPO; ms: Milestone[]; filterPhase?: string; filterVariant?: string;
   } | null>(null);
   // Vendors the user dismissed this session — state so dismissal triggers re-render.
   const [dismissedTplVendors, setDismissedTplVendors] = useState<Set<string>>(new Set());
@@ -558,6 +585,40 @@ export function GridView({
       ...prev,
       ms: prev.ms.map(m => m.id === milestone.id ? updated : m),
     } : prev);
+  }, [user, saveMilestone]);
+
+  // ── Per-line-item (variant) notes ───────────────────────────────────────
+  // Stored in milestone.variant_notes[varKey] so each SKU group gets its
+  // own note thread, independent of the PO-level note_entries.
+  const addVariantNote = useCallback((milestone: Milestone, varKey: string, text: string) => {
+    const now = new Date();
+    const entry = { text, user: user?.name || "Unknown", date: now.toISOString().slice(0, 10) };
+    const vn = { ...(milestone.variant_notes || {}) };
+    vn[varKey] = [...(vn[varKey] || []), entry];
+    const updated = { ...milestone, variant_notes: vn, updated_at: now.toISOString(), updated_by: user?.name || "" };
+    saveMilestone(updated, true);
+    setNotesModal(prev => prev ? { ...prev, ms: prev.ms.map(m => m.id === milestone.id ? updated : m) } : prev);
+  }, [user, saveMilestone]);
+
+  const editVariantNote = useCallback((milestone: Milestone, varKey: string, index: number, newText: string) => {
+    const vn = { ...(milestone.variant_notes || {}) };
+    const entries = [...(vn[varKey] || [])];
+    entries[index] = { ...entries[index], text: newText };
+    vn[varKey] = entries;
+    const updated = { ...milestone, variant_notes: vn, updated_at: new Date().toISOString(), updated_by: user?.name || "" };
+    saveMilestone(updated, true);
+    setNotesModal(prev => prev ? { ...prev, ms: prev.ms.map(m => m.id === milestone.id ? updated : m) } : prev);
+  }, [user, saveMilestone]);
+
+  const deleteVariantNote = useCallback((milestone: Milestone, varKey: string, index: number) => {
+    const vn = { ...(milestone.variant_notes || {}) };
+    const entries = [...(vn[varKey] || [])];
+    entries.splice(index, 1);
+    vn[varKey] = entries.length > 0 ? entries : [];
+    const cleanVn = Object.fromEntries(Object.entries(vn).filter(([, v]) => v.length > 0));
+    const updated = { ...milestone, variant_notes: Object.keys(cleanVn).length > 0 ? cleanVn : null, updated_at: new Date().toISOString(), updated_by: user?.name || "" };
+    saveMilestone(updated, true);
+    setNotesModal(prev => prev ? { ...prev, ms: prev.ms.map(m => m.id === milestone.id ? updated : m) } : prev);
   }, [user, saveMilestone]);
 
   // ── Buyer dropdown options ────────────────────────────────────────────
@@ -1445,10 +1506,24 @@ export function GridView({
                                           />
                                         </span>
                                         <span style={{ ...sub, justifyContent: "center", color: dClr, fontWeight: 700 }}>{dTxt}</span>
-                                        {/* Notes live on the PO summary row, not per line item */}
-                                        <span style={{ ...sub, justifyContent: "center", ...(isLast ? phaseDividerHost : {}) }}>
-                                          {isLast && <span style={phaseDividerOverlayRight} />}
-                                        </span>
+                                        {/* Per-line-item notes — stored in variant_notes[varKey] */}
+                                        {(() => {
+                                          const vnEntries = m.variant_notes?.[varKey] || [];
+                                          const vnCount = vnEntries.length;
+                                          const vnHas = vnCount > 0;
+                                          return (
+                                            <span
+                                              style={{ ...sub, justifyContent: "center", cursor: "pointer", padding: 2, ...(isLast ? phaseDividerHost : {}) }}
+                                              onClick={() => setNotesModal({ po, ms: poMs, filterPhase: phase, filterVariant: varKey })}
+                                              title={vnHas ? `${vnCount} note${vnCount !== 1 ? "s" : ""} for ${varKey} — click to view/add` : `Add note for ${varKey} · ${phase}`}
+                                            >
+                                              {isLast && <span style={phaseDividerOverlayRight} />}
+                                              <span style={{ fontSize: 10, color: vnHas ? "#60A5FA" : "#374151" }}>
+                                                {vnHas ? `📝${vnCount}` : "📝"}
+                                              </span>
+                                            </span>
+                                          );
+                                        })()}
                                       </React.Fragment>
                                     );
                                   })}
@@ -1618,14 +1693,18 @@ export function GridView({
       {/* ── Notes modal ───────────────────────────────────────────────────── */}
       {notesModal && (
         <NotesModal
-          key={`${notesModal.po.PoNumber ?? ""}::${notesModal.filterPhase ?? "_all"}`}
+          key={`${notesModal.po.PoNumber ?? ""}::${notesModal.filterPhase ?? "_all"}::${notesModal.filterVariant ?? "_po"}`}
           po={notesModal.po}
           ms={milestones[notesModal.po.PoNumber ?? ""] || []}
           filterPhase={notesModal.filterPhase}
+          filterVariant={notesModal.filterVariant}
           onClose={() => setNotesModal(null)}
           onAddNote={addNote}
           onEditNote={editNote}
           onDeleteNote={deleteNote}
+          onAddVariantNote={addVariantNote}
+          onEditVariantNote={editVariantNote}
+          onDeleteVariantNote={deleteVariantNote}
         />
       )}
 
