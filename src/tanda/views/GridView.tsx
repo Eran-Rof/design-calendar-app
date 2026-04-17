@@ -1177,7 +1177,7 @@ export function GridView({
 
                     {/* PO # */}
                     <span
-                      onClick={() => { setSelected(po); setDetailMode("grid"); setView("list"); }}
+                      onClick={() => { setSelected(po); setDetailMode("milestones"); setView("list"); }}
                       style={{ ...cell, color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, fontSize: 12, cursor: "pointer", textDecoration: "underline", whiteSpace: "normal", wordBreak: "break-all" }}
                       title="Open full PO detail"
                     >

@@ -1,6 +1,6 @@
 import type { XoroPO, Milestone, WipTemplate, LocalNote, User, DCVendor, View } from "../../../utils/tandaTypes";
 
-export type DetailMode = "header" | "po" | "milestones" | "grid" | "notes" | "history" | "matrix" | "email" | "attachments" | "all";
+export type DetailMode = "header" | "po" | "milestones" | "notes" | "history" | "matrix" | "email" | "attachments" | "all";
 
 export interface AttachmentEntry {
   id: string;
