@@ -307,6 +307,27 @@ export function GridView({
   } | null>(null);
   // Vendors the user dismissed this session — state so dismissal triggers re-render.
   const [dismissedTplVendors, setDismissedTplVendors] = useState<Set<string>>(new Set());
+  // When the set of available vendor templates grows (user or background load),
+  // un-dismiss those vendors so they don't get permanently hidden if they were
+  // dismissed before wipTemplates finished loading.
+  const prevTemplateVendorCountRef = useRef<number>(0);
+  useEffect(() => {
+    const currentCount = templateVendorList().length;
+    if (currentCount > prevTemplateVendorCountRef.current) {
+      prevTemplateVendorCountRef.current = currentCount;
+      // Remove any dismissed vendors that now have a template — they no longer
+      // need re-prompting. Also remove those that still don't have one so they
+      // can be re-surfaced (they may have been dismissed due to timing).
+      setDismissedTplVendors(prev => {
+        const next = new Set<string>();
+        prev.forEach(v => {
+          // Keep dismissed only if vendor now has a template (no need to re-show).
+          if (templateVendorList().includes(v)) next.add(v);
+        });
+        return next;
+      });
+    }
+  }, [templateVendorList]);
   // DDP confirmation modal — shown when a phase date change would shift the DDP.
   const [ddpChangeModal, setDDPChangeModal] = useState<{
     po: XoroPO;
@@ -370,12 +391,21 @@ export function GridView({
 
       if (existing.length === 0) {
         // No milestones yet — try to generate.
+        // We only block retries on SUCCESS (milestones saved) or hard error.
+        // "needs_template" clears the ref so the effect retries automatically
+        // once wipTemplates loads or the user creates a template.
         if (ensureAttemptedRef.current.has(poNum)) continue;
         ensureAttemptedRef.current.add(poNum);
         const normPo = ddp !== (po.DateExpectedDelivery ?? "") ? { ...po, DateExpectedDelivery: ddp } : po;
         void (async () => {
-          try { await ensureMilestones(normPo); }
-          catch (e) { ensureAttemptedRef.current.delete(poNum); console.error("[Grid] ensureMilestones failed for", poNum, e); }
+          try {
+            const result = await ensureMilestones(normPo);
+            // No template yet — clear so we retry when templates become available.
+            if (result === "needs_template") ensureAttemptedRef.current.delete(poNum);
+          } catch (e) {
+            ensureAttemptedRef.current.delete(poNum);
+            console.error("[Grid] ensureMilestones failed for", poNum, e);
+          }
         })();
       } else if (vendorN && vendorHasTemplate(vendorN)) {
         // PO has milestones — check if they're partial (fewer phases than current template).
