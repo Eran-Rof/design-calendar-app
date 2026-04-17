@@ -347,6 +347,7 @@ export function useSyncOps(deps: SyncOpsDeps) {
             }
             if (msToUpdate.length > 0) {
               await sb.from("tanda_milestones").upsert(msToUpdate, { onConflict: "id" });
+              msToUpdate.forEach(item => useTandaStore.getState().updateMilestone(item.data.po_number, item.data.id, item.data));
             }
           }
         }

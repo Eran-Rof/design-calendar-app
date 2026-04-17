@@ -183,7 +183,7 @@ export function GridPOPanel({
                   }}
                   onKeyDown={e => {
                     if (e.key === "Enter") { (e.target as HTMLInputElement).blur(); }
-                    else if (e.key === "Escape") { setBuyerPoEdit(null); }
+                    else if (e.key === "Escape") { setBuyerPoEdit(po.BuyerPo || ""); setTimeout(() => setBuyerPoEdit(null)); }
                   }}
                   style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, color: "#F1F5F9", fontSize: 14, padding: "6px 8px", fontFamily: "monospace", boxSizing: "border-box", outline: "none" }}
                 />

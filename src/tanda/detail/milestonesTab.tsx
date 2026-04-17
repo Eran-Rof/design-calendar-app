@@ -109,7 +109,7 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
               info.blocked = true;
               const maxLate = prevMs.reduce((max, m) => {
                 if (m.status === "Complete" || m.status === "N/A" || !m.expected_date) return max;
-                const daysLate = Math.ceil((Date.now() - new Date(m.expected_date).getTime()) / 86400000);
+                const daysLate = Math.ceil((Date.now() - new Date(m.expected_date + "T00:00:00").getTime()) / 86400000);
                 return daysLate > 0 ? Math.max(max, daysLate) : max;
               }, 0);
               if (maxLate > info.upstreamDelay) { info.upstreamDelay = maxLate; info.delayedCat = prevCat; }
@@ -153,13 +153,13 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
                   <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>📝</span>
                 </div>
                 {catMs.map(m => {
-                  const daysRem = m.expected_date ? Math.ceil((new Date(m.expected_date).getTime() - Date.now()) / 86400000) : null;
+                  const daysRem = m.expected_date ? Math.ceil((new Date(m.expected_date + "T00:00:00").getTime() - Date.now()) / 86400000) : null;
                   const daysColor = m.status === "Complete" ? "#10B981" : m.status === "N/A" ? "#6B7280" : daysRem === null ? "#6B7280" : daysRem < 0 ? "#EF4444" : daysRem <= 7 ? "#F59E0B" : "#10B981";
                   const projectedDate = cascade.upstreamDelay > 0 && m.expected_date && m.status !== "Complete" && m.status !== "N/A"
-                    ? new Date(new Date(m.expected_date).getTime() + cascade.upstreamDelay * 86400000).toISOString().slice(0, 10) : null;
+                    ? new Date(new Date(m.expected_date + "T00:00:00").getTime() + cascade.upstreamDelay * 86400000).toISOString().slice(0, 10) : null;
                   const statusDateVal = (m.status_dates || {})[m.status] || m.status_date || null;
                   const delayDays = statusDateVal && m.expected_date
-                    ? Math.ceil((new Date(statusDateVal).getTime() - new Date(m.expected_date).getTime()) / 86400000)
+                    ? Math.ceil((new Date(statusDateVal + "T00:00:00").getTime() - new Date(m.expected_date + "T00:00:00").getTime()) / 86400000)
                     : 0;
                   const variantOpen = expandedVariants.has(m.id);
                   const variantStatuses = m.variant_statuses || {};
@@ -470,7 +470,7 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
                     sortOrder = allCatMs.length > 0 ? allCatMs[allCatMs.length - 1].sort_order + 100 : 0;
                   }
 
-                  const newM: Milestone = { id: milestoneUid(), po_number: poNum, phase: newPhaseForm.name.trim(), category: newPhaseForm.category, sort_order: sortOrder, days_before_ddp: 0, expected_date: autoDueDate || null, actual_date: null, status: "Not Started", status_date: null, status_dates: null, notes: "", note_entries: null, updated_at: new Date().toISOString(), updated_by: user?.name || "", variant_statuses: null };
+                  const newM: Milestone = { id: milestoneUid(), po_number: poNum, phase: newPhaseForm.name.trim(), category: newPhaseForm.category, sort_order: sortOrder, days_before_ddp: 0, expected_date: autoDueDate || null, actual_date: null, status: "Not Started", status_date: null, status_dates: null, notes: "", note_entries: null, updated_at: new Date().toISOString(), updated_by: user?.name || "", variant_statuses: null, variant_notes: null };
                   saveMilestone(newM, true);
                   addHistory(poNum, `Custom phase added: "${newPhaseForm.name.trim()}" in ${newPhaseForm.category}${insertRef}`);
                   setNewPhaseForm({ name: "", category: "Pre-Production", dueDate: "", afterPhase: "" });

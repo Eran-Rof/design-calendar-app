@@ -645,27 +645,45 @@ export function GridView({
     return [...new Set([...buyers, ...fixed])].sort();
   }, [buyers]);
 
-  // ── Buyer PO ────────────────────────────────────────────────────────────
+  // ── PO field persist helpers ─────────────────────────────────────────────
+  // Each helper: optimistic store update, then PATCH the dedicated column
+  // AND the data JSONB blob so both stay in sync and survive page reload.
+  const patchPO = async (poNumber: string, colPatch: Record<string, any>, dataPatch: Record<string, any>) => {
+    const enc = encodeURIComponent(poNumber);
+    // Read current data blob, merge, write back
+    const res = await fetch(`${SB_URL}/rest/v1/tanda_pos?po_number=eq.${enc}&select=data`, { headers: SB_HEADERS });
+    if (res.ok) {
+      const rows = await res.json();
+      if (rows?.[0]?.data) {
+        const merged = { ...rows[0].data, ...dataPatch };
+        await fetch(`${SB_URL}/rest/v1/tanda_pos?po_number=eq.${enc}`, {
+          method: "PATCH",
+          headers: { ...SB_HEADERS, "Content-Type": "application/json", Prefer: "return=minimal" },
+          body: JSON.stringify({ ...colPatch, data: merged }),
+        });
+        return;
+      }
+    }
+    // Fallback: just patch columns
+    await fetch(`${SB_URL}/rest/v1/tanda_pos?po_number=eq.${enc}`, {
+      method: "PATCH",
+      headers: { ...SB_HEADERS, "Content-Type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify(colPatch),
+    });
+  };
+
   const persistBuyerPo = async (poNumber: string, value: string) => {
     const trimmed = value.trim();
     useTandaStore.getState().updatePo(poNumber, { BuyerPo: trimmed });
     try {
-      await fetch(`${SB_URL}/rest/v1/tanda_pos?po_number=eq.${encodeURIComponent(poNumber)}`, {
-        method: "PATCH",
-        headers: { ...SB_HEADERS, "Content-Type": "application/json", Prefer: "return=minimal" },
-        body: JSON.stringify({ buyer_po: trimmed || null }),
-      });
+      await patchPO(poNumber, { buyer_po: trimmed || null }, { BuyerPo: trimmed });
     } catch (e) { console.error("Failed to update buyer_po:", e); }
   };
 
   const persistBuyerName = async (poNumber: string, value: string) => {
     useTandaStore.getState().updatePo(poNumber, { BuyerName: value });
     try {
-      await fetch(`${SB_URL}/rest/v1/tanda_pos?po_number=eq.${encodeURIComponent(poNumber)}`, {
-        method: "PATCH",
-        headers: { ...SB_HEADERS, "Content-Type": "application/json", Prefer: "return=minimal" },
-        body: JSON.stringify({ buyer_name: value || null }),
-      });
+      await patchPO(poNumber, { buyer_name: value || null }, { BuyerName: value });
     } catch (e) { console.error("Failed to update buyer_name:", e); }
   };
 
@@ -674,11 +692,7 @@ export function GridView({
     useTandaStore.getState().updatePo(poNum, { DateExpectedDelivery: newDDP });
     setModifiedDDPs(prev => new Set([...prev, poNum]));
     try {
-      await fetch(`${SB_URL}/rest/v1/tanda_pos?po_number=eq.${encodeURIComponent(poNum)}`, {
-        method: "PATCH",
-        headers: { ...SB_HEADERS, "Content-Type": "application/json", Prefer: "return=minimal" },
-        body: JSON.stringify({ date_expected_delivery: newDDP || null }),
-      });
+      await patchPO(poNum, { date_expected: newDDP || null }, { DateExpectedDelivery: newDDP });
     } catch (e) { console.error("Failed to update DDP:", e); }
   }, []);
 
@@ -1198,8 +1212,8 @@ export function GridView({
                           autoFocus
                           value={buyerPoDraft}
                           onChange={e => setBuyerPoDraft(e.target.value)}
-                          onBlur={() => { if (buyerPoDraft !== (po.BuyerPo || "")) persistBuyerPo(poNum, buyerPoDraft); setBuyerPoEditing(null); }}
-                          onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); else if (e.key === "Escape") setBuyerPoEditing(null); }}
+                          onBlur={() => { if (buyerPoEditing === poNum && buyerPoDraft !== (po.BuyerPo || "")) persistBuyerPo(poNum, buyerPoDraft); setBuyerPoEditing(null); }}
+                          onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); else if (e.key === "Escape") { setBuyerPoDraft(po.BuyerPo || ""); setBuyerPoEditing(null); } }}
                           style={{ width: "100%", height: "100%", background: "#0F172A", border: "1px solid #3B82F6", borderRadius: 0, color: "#F1F5F9", fontSize: 11, padding: "3px 6px", fontFamily: "monospace", boxSizing: "border-box", outline: "none", textAlign: "center" }}
                         />
                       ) : (po.BuyerPo || "—")}
