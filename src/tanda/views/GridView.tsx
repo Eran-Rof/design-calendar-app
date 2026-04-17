@@ -1485,18 +1485,29 @@ export function GridView({
                                     const itemStatus     = vs?.status ?? m.status;
                                     const itemStatusDate = vs?.status_date ?? ((m.status_dates || {})[m.status] || m.status_date || "");
                                     const itemColor      = MILESTONE_STATUS_COLORS[itemStatus] || "#6B7280";
-                                    const daysRem        = m.expected_date ? Math.ceil((new Date(m.expected_date + "T00:00:00").getTime() - today.getTime()) / 86400000) : null;
+                                    // When a line item has its own delivery date, compute
+                                    // phase dates from THAT date instead of the PO header DDP.
+                                    const lineDDP = deliveries.length === 1 ? deliveries[0] : "";
+                                    const lineExpected = (() => {
+                                      if (!lineDDP || lineDDP === ddp) return m.expected_date;
+                                      const d = new Date(lineDDP + "T00:00:00");
+                                      if (isNaN(d.getTime())) return m.expected_date;
+                                      d.setDate(d.getDate() - (m.days_before_ddp ?? 0));
+                                      return d.toISOString().slice(0, 10);
+                                    })();
+                                    const daysRem        = lineExpected ? Math.ceil((new Date(lineExpected + "T00:00:00").getTime() - today.getTime()) / 86400000) : null;
                                     const dClr           = itemStatus === "Complete" ? "#10B981" : itemStatus === "N/A" ? "#6B7280" : daysRem === null ? "#6B7280" : daysRem < 0 ? "#EF4444" : daysRem <= 7 ? "#F59E0B" : "#10B981";
                                     const dTxt           = itemStatus === "Complete" ? "Done" : itemStatus === "N/A" ? "—" : daysRem === null ? "—" : daysRem < 0 ? `${Math.abs(daysRem)} late` : daysRem === 0 ? "Today" : `${daysRem}`;
                                     return (
                                       <React.Fragment key={phase}>
                                         <span style={{ ...sub, padding: 2, justifyContent: "center", ...phaseDividerHost }}>
                                           <span style={phaseDividerOverlay} />
-                                          <MilestoneDateInput
-                                            value={normDateISO(m.expected_date ?? "")}
-                                            onCommit={v => updateMilestoneDate(po, m, v || null)}
-                                            style={{ background: "transparent", border: "1px solid #334155", borderRadius: 3, color: "#9CA3AF", fontSize: 10, padding: "2px 5px", width: "100%", boxSizing: "border-box", cursor: "pointer", textAlign: "center" } as React.CSSProperties}
-                                          />
+                                          <span
+                                            style={{ color: lineExpected !== m.expected_date ? "#F59E0B" : "#9CA3AF", fontSize: 10, fontFamily: "monospace", textAlign: "center", width: "100%" }}
+                                            title={lineExpected !== m.expected_date ? `Based on line delivery ${fmtDate(lineDDP)} (PO DDP: ${fmtDate(ddp)})` : ""}
+                                          >
+                                            {lineExpected ? fmtDate(lineExpected) : "—"}
+                                          </span>
                                         </span>
                                         <span style={{ ...sub, padding: 2 }}>
                                           <select
