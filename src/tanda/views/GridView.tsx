@@ -116,6 +116,14 @@ function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddNote, on
       : ms.filter(m => (m.note_entries && m.note_entries.length > 0) || m.notes);
   })();
 
+  // Variant notes aggregated across all milestones — shown in the "all notes"
+  // modal (no filterPhase, no filterVariant) so the row-level 📝 includes them.
+  const variantNotesFlat = (!isVariantMode && !filterPhase) ? ms.flatMap(m =>
+    Object.entries(m.variant_notes || {}).flatMap(([vk, arr]) =>
+      arr.map(ne => ({ ...ne, phase: m.phase, variant: vk, milestoneId: m.id }))
+    )
+  ) : [];
+
   const handleAdd = () => {
     if (!noteText.trim()) return;
     const target = availableMs.find(m => m.phase === addPhase) ?? availableMs[0];
@@ -163,11 +171,12 @@ function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddNote, on
 
         {/* Existing notes — scrollable */}
         <div style={{ padding: "16px 20px", overflowY: "auto", flex: 1 }}>
-          {shown.length === 0 ? (
+          {shown.length === 0 && variantNotesFlat.length === 0 ? (
             <div style={{ color: "#6B7280", fontSize: 13, textAlign: "center", padding: "20px 0" }}>
               No notes yet — add one below.
             </div>
-          ) : (
+          ) : (<>
+
             shown.map(m => {
               const entries = isVariantMode ? (m.variant_notes?.[filterVariant!] || []) : (m.note_entries || []);
               const handleDelete = (i: number) => {
@@ -237,7 +246,23 @@ function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddNote, on
               </div>
               );
             })
+          {/* Variant (line item) notes — shown in the "all notes" view */}
+          {variantNotesFlat.length > 0 && (
+            <div style={{ marginTop: shown.length > 0 ? 16 : 0 }}>
+              <div style={{ color: "#F59E0B", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Line Item Notes</div>
+              {variantNotesFlat.map((vn, i) => (
+                <div key={i} style={{ background: "#1E293B", borderRadius: 6, padding: "8px 12px", marginBottom: 6 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                    <div style={{ color: "#E5E7EB", fontSize: 12, flex: 1 }}>{vn.text}</div>
+                  </div>
+                  <div style={{ color: "#4B5563", fontSize: 10, marginTop: 4 }}>
+                    <span style={{ color: "#60A5FA" }}>{vn.variant}</span> · {vn.phase} · {vn.user} · {vn.date}
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
+          </>)}
         </div>
 
         {/* Add note footer */}
@@ -1098,8 +1123,10 @@ export function GridView({
                 const daysTxt = days === null ? "—" : days < 0 ? `${Math.abs(days)} late` : days === 0 ? "Today" : `${days}`;
                 const isEditing      = buyerPoEditing === poNum;
                 const isExpanded    = expandedPoNum === poNum;
-                const hasNotes      = poMs.some(m => (m.note_entries && m.note_entries.length > 0) || m.notes);
-                const totalNoteCount = poMs.reduce((acc, m) => acc + (m.note_entries?.length || 0) + (m.notes ? 1 : 0), 0);
+                const variantNoteCount = poMs.reduce((acc, m) => acc + Object.values(m.variant_notes || {}).reduce((s, arr) => s + arr.length, 0), 0);
+                const poNoteCount = poMs.reduce((acc, m) => acc + (m.note_entries?.length || 0) + (m.notes ? 1 : 0), 0);
+                const totalNoteCount = poNoteCount + variantNoteCount;
+                const hasNotes = totalNoteCount > 0;
 
                 return (
                   <div key={poNum}>
@@ -1119,9 +1146,13 @@ export function GridView({
                     {/* Row-level notes — opens all-PO notes + add form.
                          Tooltip preview: latest note text truncated. */}
                     {(() => {
-                      const allEntries = poMs.flatMap(m => (m.note_entries || []).map(ne => ({ ...ne, phase: m.phase })));
-                      const latestText = allEntries.length > 0
-                        ? `[${allEntries[allEntries.length - 1].phase}] ${allEntries[allEntries.length - 1].text}`
+                      const allEntries = [
+                        ...poMs.flatMap(m => (m.note_entries || []).map(ne => ({ ...ne, phase: m.phase, variant: "" }))),
+                        ...poMs.flatMap(m => Object.entries(m.variant_notes || {}).flatMap(([vk, arr]) => arr.map(ne => ({ ...ne, phase: m.phase, variant: vk })))),
+                      ];
+                      const latest = allEntries.length > 0 ? allEntries[allEntries.length - 1] : null;
+                      const latestText = latest
+                        ? `[${latest.phase}${latest.variant ? ` · ${latest.variant}` : ""}] ${latest.text}`
                         : "";
                       const tip = hasNotes
                         ? `${totalNoteCount} note${totalNoteCount !== 1 ? "s" : ""}${latestText ? `\nLatest: ${latestText.slice(0, 120)}` : ""}\n\nClick to view/add`
