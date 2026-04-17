@@ -316,11 +316,12 @@ export function useSyncOps(deps: SyncOpsDeps) {
         }
       }
 
-      // ── Cascade milestone dates when DDP changed from Xoro ──────────────
-      // Compare old vs new DateExpectedDelivery for synced POs. If different,
-      // recalculate every milestone's expected_date from the new DDP using
-      // its days_before_ddp offset. Best-effort: failures here don't block
-      // the rest of the sync.
+      // ── Cascade milestone dates to match current DDP ─────────────────────
+      // For every synced PO that has milestones, check if the milestone
+      // expected dates are aligned with the PO's DDP. If any milestone's
+      // expected_date differs from DDP - days_before_ddp, recalculate it.
+      // This catches both DDP changes from this sync AND stale milestones
+      // from before the cascade logic existed.
       try {
         if (toUpsert.length > 0) {
           const { data: msRows } = await sb.from("tanda_milestones").select("id,data");
@@ -329,10 +330,9 @@ export function useSyncOps(deps: SyncOpsDeps) {
             const msToUpdate: any[] = [];
             for (const po of toUpsert) {
               const poNum = po.PoNumber ?? "";
-              const newDDP = (po.DateExpectedDelivery ?? "").slice(0, 10);
-              const oldDDP = (existingMap.get(poNum)?.DateExpectedDelivery ?? "").slice(0, 10);
-              if (!newDDP || !oldDDP || newDDP === oldDDP) continue;
-              const ddpDate = new Date(newDDP + "T00:00:00");
+              const ddpStr = (po.DateExpectedDelivery ?? "").slice(0, 10);
+              if (!ddpStr) continue;
+              const ddpDate = new Date(ddpStr + "T00:00:00");
               if (isNaN(ddpDate.getTime())) continue;
               const poMs = allMs.filter((m: any) => m.po_number === poNum);
               for (const m of poMs) {
