@@ -1404,8 +1404,6 @@ export function GridView({
                                     const daysRem        = m.expected_date ? Math.ceil((new Date(m.expected_date + "T00:00:00").getTime() - today.getTime()) / 86400000) : null;
                                     const dClr           = itemStatus === "Complete" ? "#10B981" : itemStatus === "N/A" ? "#6B7280" : daysRem === null ? "#6B7280" : daysRem < 0 ? "#EF4444" : daysRem <= 7 ? "#F59E0B" : "#10B981";
                                     const dTxt           = itemStatus === "Complete" ? "Done" : itemStatus === "N/A" ? "—" : daysRem === null ? "—" : daysRem < 0 ? `${Math.abs(daysRem)} late` : daysRem === 0 ? "Today" : `${daysRem}`;
-                                    const phaseHasNotes = (m.note_entries && m.note_entries.length > 0) || !!m.notes;
-                                    const noteCount = (m.note_entries?.length || 0) + (m.notes ? 1 : 0);
                                     return (
                                       <React.Fragment key={phase}>
                                         <span style={{ ...sub, padding: 2, justifyContent: "center", ...phaseDividerHost }}>
@@ -1447,15 +1445,9 @@ export function GridView({
                                           />
                                         </span>
                                         <span style={{ ...sub, justifyContent: "center", color: dClr, fontWeight: 700 }}>{dTxt}</span>
-                                        <span
-                                          style={{ ...sub, justifyContent: "center", cursor: "pointer", padding: 2, ...(isLast ? phaseDividerHost : {}) }}
-                                          onClick={() => setNotesModal({ po, ms: poMs, filterPhase: phase })}
-                                          title={phaseHasNotes ? `${noteCount} note${noteCount !== 1 ? "s" : ""} — click to view/add/edit` : `Add note for ${phase}`}
-                                        >
+                                        {/* Notes live on the PO summary row, not per line item */}
+                                        <span style={{ ...sub, justifyContent: "center", ...(isLast ? phaseDividerHost : {}) }}>
                                           {isLast && <span style={phaseDividerOverlayRight} />}
-                                          <span style={{ fontSize: 10, color: phaseHasNotes ? "#60A5FA" : "#374151" }}>
-                                            {phaseHasNotes ? `📝${noteCount}` : "📝"}
-                                          </span>
                                         </span>
                                       </React.Fragment>
                                     );
