@@ -316,6 +316,44 @@ export function useSyncOps(deps: SyncOpsDeps) {
         }
       }
 
+      // ── Cascade milestone dates when DDP changed from Xoro ──────────────
+      // Compare old vs new DateExpectedDelivery for synced POs. If different,
+      // recalculate every milestone's expected_date from the new DDP using
+      // its days_before_ddp offset. Best-effort: failures here don't block
+      // the rest of the sync.
+      try {
+        if (toUpsert.length > 0) {
+          const { data: msRows } = await sb.from("tanda_milestones").select("id,data");
+          if (Array.isArray(msRows)) {
+            const allMs = msRows.map((r: any) => r.data as any).filter(Boolean);
+            const msToUpdate: any[] = [];
+            for (const po of toUpsert) {
+              const poNum = po.PoNumber ?? "";
+              const newDDP = (po.DateExpectedDelivery ?? "").slice(0, 10);
+              const oldDDP = (existingMap.get(poNum)?.DateExpectedDelivery ?? "").slice(0, 10);
+              if (!newDDP || !oldDDP || newDDP === oldDDP) continue;
+              const ddpDate = new Date(newDDP + "T00:00:00");
+              if (isNaN(ddpDate.getTime())) continue;
+              const poMs = allMs.filter((m: any) => m.po_number === poNum);
+              for (const m of poMs) {
+                const shifted = new Date(ddpDate);
+                shifted.setDate(shifted.getDate() - (m.days_before_ddp ?? 0));
+                const newExpected = shifted.toISOString().slice(0, 10);
+                if (newExpected !== (m.expected_date ?? "").slice(0, 10)) {
+                  const updated = { ...m, expected_date: newExpected, updated_at: now, updated_by: "sync" };
+                  msToUpdate.push({ id: m.id, data: updated });
+                }
+              }
+            }
+            if (msToUpdate.length > 0) {
+              await sb.from("tanda_milestones").upsert(msToUpdate, { onConflict: "id" });
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("[Sync] DDP cascade skipped:", e);
+      }
+
       setSyncField("syncProgress", 88);
       setSyncField("syncProgressMsg", "Archiving closed/received/deleted POs\u2026");
 
