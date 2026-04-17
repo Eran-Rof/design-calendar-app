@@ -36,7 +36,7 @@ export function generateMilestones(
 export function mergeMilestones(existing: Milestone[], fresh: Milestone[]): Milestone[] {
   return fresh.map(f => {
     const old = existing.find(e => e.phase === f.phase);
-    if (old && (old.actual_date || old.status !== "Not Started" || old.notes)) {
+    if (old && (old.actual_date || old.status !== "Not Started" || old.notes || (old.note_entries && old.note_entries.length > 0) || (old.variant_notes && Object.keys(old.variant_notes).length > 0))) {
       return {
         ...f,
         id: old.id,
@@ -47,6 +47,7 @@ export function mergeMilestones(existing: Milestone[], fresh: Milestone[]): Mile
         notes: old.notes,
         note_entries: old.note_entries,
         variant_statuses: old.variant_statuses,
+        variant_notes: old.variant_notes,
       };
     }
     return f;

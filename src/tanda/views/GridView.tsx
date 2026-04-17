@@ -177,7 +177,7 @@ function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddNote, on
             </div>
           ) : (<>
 
-            shown.map(m => {
+            {shown.map(m => {
               const entries = isVariantMode ? (m.variant_notes?.[filterVariant!] || []) : (m.note_entries || []);
               const handleDelete = (i: number) => {
                 if (isVariantMode && onDeleteVariantNote) onDeleteVariantNote(m, filterVariant!, i);
@@ -245,7 +245,7 @@ function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddNote, on
                     : null}
               </div>
               );
-            })
+            })}
           {/* Variant (line item) notes — shown in the "all notes" view */}
           {variantNotesFlat.length > 0 && (
             <div style={{ marginTop: shown.length > 0 ? 16 : 0 }}>
