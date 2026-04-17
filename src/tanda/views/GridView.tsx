@@ -1016,15 +1016,27 @@ export function GridView({
                       </span>
                     </span>
 
-                    {/* Row-level notes — opens all-PO notes + add form */}
-                    <span
-                      style={{ ...cell, justifyContent: "center", cursor: "pointer", flexDirection: "column", gap: 1, padding: "2px 4px" }}
-                      onClick={() => setNotesModal({ po, ms: poMs })}
-                      title={hasNotes ? `${totalNoteCount} note${totalNoteCount !== 1 ? "s" : ""} — click to view/add` : "Add PO notes"}
-                    >
-                      <span style={{ fontSize: 13, color: hasNotes ? "#60A5FA" : "#374151", lineHeight: 1 }}>📝</span>
-                      {hasNotes && <span style={{ fontSize: 8, fontWeight: 700, color: "#60A5FA", lineHeight: 1 }}>{totalNoteCount}</span>}
-                    </span>
+                    {/* Row-level notes — opens all-PO notes + add form.
+                         Tooltip preview: latest note text truncated. */}
+                    {(() => {
+                      const allEntries = poMs.flatMap(m => (m.note_entries || []).map(ne => ({ ...ne, phase: m.phase })));
+                      const latestText = allEntries.length > 0
+                        ? `[${allEntries[allEntries.length - 1].phase}] ${allEntries[allEntries.length - 1].text}`
+                        : "";
+                      const tip = hasNotes
+                        ? `${totalNoteCount} note${totalNoteCount !== 1 ? "s" : ""}${latestText ? `\nLatest: ${latestText.slice(0, 120)}` : ""}\n\nClick to view/add`
+                        : "Add PO notes";
+                      return (
+                        <span
+                          style={{ ...cell, justifyContent: "center", cursor: "pointer", flexDirection: "column", gap: 1, padding: "2px 4px" }}
+                          onClick={() => setNotesModal({ po, ms: poMs })}
+                          title={tip}
+                        >
+                          <span style={{ fontSize: 13, color: hasNotes ? "#60A5FA" : "#374151", lineHeight: 1 }}>📝</span>
+                          {hasNotes && <span style={{ fontSize: 8, fontWeight: 700, color: "#60A5FA", lineHeight: 1 }}>{totalNoteCount}</span>}
+                        </span>
+                      );
+                    })()}
 
                     {/* PO # */}
                     <span
@@ -1233,8 +1245,9 @@ export function GridView({
       {/* ── Notes modal ───────────────────────────────────────────────────── */}
       {notesModal && (
         <NotesModal
+          key={`${notesModal.po.PoNumber ?? ""}::${notesModal.filterPhase ?? "_all"}`}
           po={notesModal.po}
-          ms={notesModal.ms}
+          ms={milestones[notesModal.po.PoNumber ?? ""] || []}
           filterPhase={notesModal.filterPhase}
           onClose={() => setNotesModal(null)}
           onAddNote={addNote}
