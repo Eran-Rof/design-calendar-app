@@ -51,20 +51,20 @@ function VendorShell({ children }: { children: ReactNode }) {
   const nav = useNavigate();
   return (
     <div style={{ minHeight: "100vh", background: TH.surfaceHi, fontFamily: "system-ui, -apple-system, sans-serif" }}>
-      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 24px", background: TH.header, borderBottom: `1px solid ${TH.border}` }}>
+      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 24px", background: TH.surface, borderBottom: `1px solid ${TH.border}`, boxShadow: `0 1px 2px ${TH.shadow}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <ROFLogoFull height={44} />
-          <div style={{ fontWeight: 700, fontSize: 16, color: "#FFFFFF", letterSpacing: 0.2 }}>Vendor Portal</div>
+          <ROFLogoFull height={66} />
+          <div style={{ fontWeight: 700, fontSize: 16, color: TH.header, letterSpacing: 0.2 }}>Vendor Portal</div>
         </div>
         {session && (
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 13, color: "#CBD5E0" }}>{session.user.email}</span>
+            <span style={{ fontSize: 13, color: TH.textSub2 }}>{session.user.email}</span>
             <button
               onClick={async () => {
                 await supabaseVendor.auth.signOut();
                 nav("/vendor/login", { replace: true });
               }}
-              style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.3)", background: "transparent", color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}
+              style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${TH.border}`, background: TH.surface, color: TH.textSub, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}
             >
               Sign out
             </button>
