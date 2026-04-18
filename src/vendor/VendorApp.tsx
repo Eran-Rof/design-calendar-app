@@ -53,7 +53,7 @@ function VendorShell({ children }: { children: ReactNode }) {
     <div style={{ minHeight: "100vh", background: TH.surfaceHi, fontFamily: "system-ui, -apple-system, sans-serif" }}>
       <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 24px", background: TH.header, borderBottom: `1px solid ${TH.border}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <ROFLogoFull height={34} />
+          <ROFLogoFull height={44} />
           <div style={{ fontWeight: 700, fontSize: 16, color: "#FFFFFF", letterSpacing: 0.2 }}>Vendor Portal</div>
         </div>
         {session && (
