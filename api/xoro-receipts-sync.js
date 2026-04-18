@@ -16,7 +16,20 @@ import { createClient } from "@supabase/supabase-js";
 
 export const config = { maxDuration: 120 };
 
-const RECEIPT_PATH = "itemreceipt/getitemreceipt"; // TODO: confirm
+// We don't know the exact Xoro receipt path yet. Probe several candidates
+// based on their naming convention — the first one that returns Result:true
+// wins. Override with ?path= in the query to try a specific one.
+const RECEIPT_PATH_CANDIDATES = [
+  "itemreceipt/getitemreceipt",
+  "purchasereceipt/getpurchasereceipt",
+  "receipt/getreceipt",
+  "receiving/getreceiving",
+  "asn/getasn",                 // ASN lines carry QtyReceived once closed
+  "purchaseorder/getreceipt",
+  "purchaseorder/getreceipts",
+  "inventoryreceipt/getinventoryreceipt",
+  "goodsreceipt/getgoodsreceipt",
+];
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -48,32 +61,44 @@ export default async function handler(req, res) {
   if (poNumber) xoroParams.set("po_number", poNumber);
 
   const creds = Buffer.from(`${XORO_KEY}:${XORO_SECRET}`).toString("base64");
-  const xoroUrl = `https://res.xorosoft.io/api/xerp/${RECEIPT_PATH}?${xoroParams.toString()}`;
+  const overridePath = url.searchParams.get("path");
+  const pathsToTry = overridePath ? [overridePath] : RECEIPT_PATH_CANDIDATES;
 
   let xoroBody = null;
   let xoroStatus = 0;
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 60000);
-    const r = await fetch(xoroUrl, {
-      headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/json" },
-      signal: ctrl.signal,
-    });
-    clearTimeout(timer);
-    xoroStatus = r.status;
-    const text = await r.text();
-    try { xoroBody = JSON.parse(text); } catch { xoroBody = { raw: text.slice(0, 1000) }; }
-  } catch (err) {
-    return res.status(500).json({ error: "Xoro fetch failed: " + (err?.message || err), path: RECEIPT_PATH });
+  let successPath = null;
+  const probeResults = [];
+
+  for (const candidate of pathsToTry) {
+    const xoroUrl = `https://res.xorosoft.io/api/xerp/${candidate}?${xoroParams.toString()}`;
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 30000);
+      const r = await fetch(xoroUrl, {
+        headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/json" },
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      const status = r.status;
+      const text = await r.text();
+      let parsed = null;
+      try { parsed = JSON.parse(text); } catch { parsed = { raw: text.slice(0, 200) }; }
+      probeResults.push({ path: candidate, status, message: parsed?.Message || null });
+      if (status === 200 && parsed?.Result) {
+        xoroBody = parsed;
+        xoroStatus = status;
+        successPath = candidate;
+        break;
+      }
+    } catch (err) {
+      probeResults.push({ path: candidate, status: 0, message: err?.message || String(err) });
+    }
   }
 
-  if (xoroStatus < 200 || xoroStatus >= 300 || !xoroBody?.Result) {
+  if (!successPath) {
     return res.status(200).json({
-      error: "Xoro returned an error or empty dataset",
-      xoro_status: xoroStatus,
-      xoro_message: xoroBody?.Message || null,
-      path: RECEIPT_PATH,
-      debug: xoroBody,
+      error: "No receipt endpoint returned data. Pick one of the probed paths that looked promising and call again with ?path=<path>",
+      probes: probeResults,
     });
   }
 
