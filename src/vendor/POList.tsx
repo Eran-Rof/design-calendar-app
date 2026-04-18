@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
+import { fmtDate, fmtMoney, daysUntil, parseLocalDate } from "./utils";
 
 // tanda_pos row shape (subset we care about in the portal). RLS scopes the
 // SELECT to rows where vendor_id matches the logged-in vendor_user, so we
@@ -26,25 +27,6 @@ type PORow = {
 };
 
 type Filter = "all" | "action" | "ack";
-
-function fmtDate(d?: string | null) {
-  if (!d) return "—";
-  const t = new Date(d);
-  if (Number.isNaN(t.getTime())) return d;
-  return t.toLocaleDateString();
-}
-
-function fmtMoney(n?: number) {
-  if (n == null || Number.isNaN(n)) return "—";
-  return n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-}
-
-function daysUntil(d?: string | null): number | null {
-  if (!d) return null;
-  const t = new Date(d).getTime();
-  if (Number.isNaN(t)) return null;
-  return Math.ceil((t - Date.now()) / 86_400_000);
-}
 
 export default function POList() {
   const [rows, setRows] = useState<PORow[]>([]);
@@ -110,11 +92,13 @@ export default function POList() {
       list.reduce((acc, r) => acc + (Number(r.data?.TotalAmount) || 0), 0);
     const pendingAmount = sumAmount(pending);
     const ackedAmount = sumAmount(acked);
+    const todayMidnight = new Date();
+    todayMidnight.setHours(0, 0, 0, 0);
     const ddps = rows
       .map((r) => r.date_expected_delivery || r.data?.DateExpectedDelivery)
-      .filter((d): d is string => !!d)
-      .map((d) => new Date(d).getTime())
-      .filter((t) => !Number.isNaN(t) && t >= Date.now())
+      .map((d) => parseLocalDate(d))
+      .filter((dt): dt is Date => dt != null && dt.getTime() >= todayMidnight.getTime())
+      .map((dt) => dt.getTime())
       .sort((a, b) => a - b);
     const next = ddps[0] ? new Date(ddps[0]).toLocaleDateString() : "—";
     return {
