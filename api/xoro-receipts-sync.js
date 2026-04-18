@@ -1,61 +1,23 @@
 // api/xoro-receipts-sync.js — Vercel Node.js Serverless Function
 //
-// Phase 2.3 (finisher) — pulls item receipts from Xoro and upserts into
-// our receipts + receipt_line_items. Called on-demand.
+// Phase 2.3 finisher — pulls item receipts from Xoro and upserts into
+// receipts + receipt_line_items.
 //
-// Matching strategy:
-//   • receipts.xoro_receipt_id (unique) dedupes across runs
-//   • receipts.po_id resolved via tanda_pos.po_number -> tanda_pos.uuid_id
-//   • receipts.vendor_id inherited from the matched PO
-//   • receipt_line_items.po_line_item_id resolved via po_id + item_number
+// STATUS: path TBD. The Xoro "Item Receipt" endpoint path is not
+// discoverable by trial; probed 27 candidates, all returned 500
+// "An error has occurred" or timed out. Need the exact URL from
+// Xoro support / their in-app API docs / network tab on the Item
+// Receipts screen. Once known, set RECEIPT_PATH and this endpoint
+// works.
 //
-// Xoro endpoint path is a guess; tweak RECEIPT_PATH if the first call
-// 404s.
+// Override at call time with ?path=xerp/module/action to try a specific
+// path without redeploying.
 
 import { createClient } from "@supabase/supabase-js";
 
 export const config = { maxDuration: 120 };
 
-// We don't know the exact Xoro receipt path yet. Probe several candidates
-// based on their naming convention — the first one that returns Result:true
-// wins. Override with ?path= in the query to try a specific one.
-// "Bill & Item Receipt Management" is the Xoro scope name and bill/getbill
-// works, so item-receipt naming likely mirrors it closely. Try a broader set.
-const RECEIPT_PATH_CANDIDATES = [
-  // bill-prefixed (since the scope groups them)
-  "bill/getitemreceipt",
-  "bill/getitemreceipts",
-  "bills/getitemreceipt",
-  "bills/getitemreceipts",
-  // plain itemreceipt variants
-  "itemreceipt/getitemreceipt",
-  "itemreceipts/getitemreceipts",
-  "itemreceipt/get",
-  "itemreceipt/getall",
-  "itemreceipt/getlist",
-  "itemreceipts/get",
-  // alt module names
-  "purchasereceipt/getpurchasereceipt",
-  "purchaseorderreceipt/getpurchaseorderreceipt",
-  "billreceipt/getbillreceipt",
-  "receipt/getreceipt",
-  "receipts/getreceipts",
-  // receiving / goods receipt
-  "receiving/getreceiving",
-  "goodsreceipt/getgoodsreceipt",
-  "goodsreceiptnote/getgoodsreceiptnote",
-  "grn/getgrn",
-  // via ASN (receipts often derive from ASN close)
-  "asn/getasn",
-  "asn/getasns",
-  // via PO module
-  "purchaseorder/getreceipt",
-  "purchaseorder/getreceipts",
-  "purchaseorder/getitemreceipt",
-  // inventory module
-  "inventoryreceipt/getinventoryreceipt",
-  "inventory/getitemreceipt",
-];
+const RECEIPT_PATH = "itemreceipt/getitemreceipt"; // TODO replace with real path
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -76,6 +38,7 @@ export default async function handler(req, res) {
   const admin = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
   const url = new URL(req.url, `https://${req.headers.host}`);
+  const path = url.searchParams.get("path") || RECEIPT_PATH;
   const dateFrom = url.searchParams.get("date_from") || "";
   const dateTo = url.searchParams.get("date_to") || "";
   const poNumber = url.searchParams.get("po_number") || "";
@@ -87,65 +50,38 @@ export default async function handler(req, res) {
   if (poNumber) xoroParams.set("po_number", poNumber);
 
   const creds = Buffer.from(`${XORO_KEY}:${XORO_SECRET}`).toString("base64");
-  const overridePath = url.searchParams.get("path");
-  const pathsToTry = overridePath ? [overridePath] : RECEIPT_PATH_CANDIDATES;
-  // If the caller pinned a specific path, give Xoro 60s rather than the
-  // 4s probe budget — they're likely retrying a slow endpoint.
-  const perRequestTimeoutMs = overridePath ? 60_000 : 4_000;
+  const xoroUrl = `https://res.xorosoft.io/api/xerp/${path}?${xoroParams.toString()}`;
 
   let xoroBody = null;
   let xoroStatus = 0;
-  let successPath = null;
-  const probeResults = [];
-
-  // Respect Xoro's 2 req/sec rate limit (600ms gap). Tight per-request
-  // timeout (4s) — invalid paths return 500 nearly instantly; this
-  // only budgets 26 * 1s worst case if Xoro responds fast.
-  const startedAt = Date.now();
-  const budgetMs = 100_000; // leave headroom under the 120s function cap
-  for (let i = 0; i < pathsToTry.length; i++) {
-    if (Date.now() - startedAt > budgetMs) {
-      probeResults.push({ path: pathsToTry[i], status: -1, message: "skipped: budget exhausted" });
-      continue;
-    }
-    const candidate = pathsToTry[i];
-    const xoroUrl = `https://res.xorosoft.io/api/xerp/${candidate}?${xoroParams.toString()}`;
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), perRequestTimeoutMs);
-      const r = await fetch(xoroUrl, {
-        headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/json" },
-        signal: ctrl.signal,
-      });
-      clearTimeout(timer);
-      const status = r.status;
-      const text = await r.text();
-      let parsed = null;
-      try { parsed = JSON.parse(text); } catch { parsed = { raw: text.slice(0, 200) }; }
-      probeResults.push({ path: candidate, status, message: parsed?.Message || null });
-      if (status === 200 && parsed?.Result) {
-        xoroBody = parsed;
-        xoroStatus = status;
-        successPath = candidate;
-        break;
-      }
-    } catch (err) {
-      probeResults.push({ path: candidate, status: 0, message: err?.name === "AbortError" ? `timeout (${Math.round(perRequestTimeoutMs/1000)}s)` : (err?.message || String(err)) });
-    }
-    // Rate-limit gap (2 req/sec ceiling)
-    if (i < pathsToTry.length - 1) await new Promise((r) => setTimeout(r, 550));
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 30_000);
+    const r = await fetch(xoroUrl, {
+      headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/json" },
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    xoroStatus = r.status;
+    const text = await r.text();
+    try { xoroBody = JSON.parse(text); } catch { xoroBody = { raw: text.slice(0, 500) }; }
+  } catch (err) {
+    return res.status(500).json({ error: "Xoro fetch failed: " + (err?.message || err), path });
   }
 
-  if (!successPath) {
+  if (xoroStatus < 200 || xoroStatus >= 300 || !xoroBody?.Result) {
     return res.status(200).json({
-      error: "No receipt endpoint returned data. Pick one of the probed paths that looked promising and call again with ?path=<path>",
-      probes: probeResults,
+      error: "Xoro returned an error — probably the wrong path or missing required params",
+      xoro_status: xoroStatus,
+      xoro_message: xoroBody?.Message || null,
+      path,
+      debug: xoroBody,
     });
   }
 
   const receipts = Array.isArray(xoroBody.Data) ? xoroBody.Data : [];
   const result = {
-    path: RECEIPT_PATH,
+    path,
     xoro_receipts_fetched: receipts.length,
     upserted: 0,
     skipped_no_po_match: 0,
@@ -162,7 +98,6 @@ export default async function handler(req, res) {
       const warehouse = rc.LocationName || rc.WarehouseName || rc.StoreName || null;
       if (!xoroReceiptId) { result.errors.push({ receipt: receiptNumber, error: "no xoro id" }); continue; }
 
-      // Resolve PO
       let poId = null;
       let vendorId = null;
       if (rcPoNumber) {
@@ -175,7 +110,6 @@ export default async function handler(req, res) {
       }
       if (!poId) { result.skipped_no_po_match++; continue; }
 
-      // Upsert the receipt
       const { data: rcRow, error: rcErr } = await admin
         .from("receipts")
         .upsert({
@@ -194,20 +128,17 @@ export default async function handler(req, res) {
         .single();
       if (rcErr) { result.errors.push({ receipt: receiptNumber, error: rcErr.message }); continue; }
 
-      // Flatten lines
       const lines = Array.isArray(rc.Items) ? rc.Items
                  : Array.isArray(rc.LineItems) ? rc.LineItems
                  : Array.isArray(rc.Lines) ? rc.Lines
                  : [];
       if (lines.length === 0) { result.skipped_no_line_items++; result.upserted++; continue; }
 
-      // Replace line items for this receipt (idempotent on re-sync)
       await admin.from("receipt_line_items").delete().eq("receipt_id", rcRow.id);
 
-      // Lookup po_line_items for this PO for item_number -> id resolution
       const { data: poLines } = await admin
         .from("po_line_items")
-        .select("id, item_number, line_index")
+        .select("id, item_number")
         .eq("po_id", poId);
       const poLineByItem = new Map();
       for (const pl of poLines ?? []) {
