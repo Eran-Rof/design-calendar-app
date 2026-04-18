@@ -17,6 +17,9 @@ import VendorSetup from "./VendorSetup";
 import POList from "./POList";
 import ShipmentsList from "./ShipmentsList";
 import ShipmentDetail from "./ShipmentDetail";
+import InvoicesList from "./InvoicesList";
+import InvoiceSubmit from "./InvoiceSubmit";
+import InvoiceDetail from "./InvoiceDetail";
 
 function useVendorSession(): { session: Session | null; ready: boolean } {
   const [session, setSession] = useState<Session | null>(null);
@@ -53,10 +56,12 @@ function TabNav() {
   const loc = useLocation();
   const isPOs = loc.pathname === "/vendor";
   const isShipments = loc.pathname.startsWith("/vendor/shipments");
+  const isInvoices = loc.pathname.startsWith("/vendor/invoices");
   return (
     <nav style={{ display: "flex", gap: 2, padding: "0 24px", background: "rgba(255,255,255,0.05)", borderBottom: `1px solid rgba(255,255,255,0.12)` }}>
       <TabLink to="/vendor" active={isPOs}>Purchase Orders</TabLink>
       <TabLink to="/vendor/shipments" active={isShipments}>Shipments</TabLink>
+      <TabLink to="/vendor/invoices" active={isInvoices}>Invoices</TabLink>
     </nav>
   );
 }
@@ -155,6 +160,30 @@ export default function VendorApp() {
           element={
             <Protected>
               <VendorShell withTabs><ShipmentDetail /></VendorShell>
+            </Protected>
+          }
+        />
+        <Route
+          path="/vendor/invoices"
+          element={
+            <Protected>
+              <VendorShell withTabs><InvoicesList /></VendorShell>
+            </Protected>
+          }
+        />
+        <Route
+          path="/vendor/invoices/new"
+          element={
+            <Protected>
+              <VendorShell withTabs><InvoiceSubmit /></VendorShell>
+            </Protected>
+          }
+        />
+        <Route
+          path="/vendor/invoices/:id"
+          element={
+            <Protected>
+              <VendorShell withTabs><InvoiceDetail /></VendorShell>
             </Protected>
           }
         />
