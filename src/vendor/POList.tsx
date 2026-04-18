@@ -103,7 +103,12 @@ export default function POList() {
 
   const stats = useMemo(() => {
     const open = rows.length;
-    const pending = rows.filter((r) => !ackIds.has(r.po_number)).length;
+    const pending = rows.filter((r) => !ackIds.has(r.po_number));
+    const acked = rows.filter((r) => ackIds.has(r.po_number));
+    const sumAmount = (list: PORow[]) =>
+      list.reduce((acc, r) => acc + (Number(r.data?.TotalAmount) || 0), 0);
+    const pendingAmount = sumAmount(pending);
+    const ackedAmount = sumAmount(acked);
     const ddps = rows
       .map((r) => r.date_expected_delivery || r.data?.DateExpectedDelivery)
       .filter((d): d is string => !!d)
@@ -111,7 +116,14 @@ export default function POList() {
       .filter((t) => !Number.isNaN(t) && t >= Date.now())
       .sort((a, b) => a - b);
     const next = ddps[0] ? new Date(ddps[0]).toLocaleDateString() : "—";
-    return { open, pending, next };
+    return {
+      open,
+      pendingCount: pending.length,
+      ackedCount: acked.length,
+      pendingAmount,
+      ackedAmount,
+      next,
+    };
   }, [rows, ackIds]);
 
   async function acknowledge(poNumber: string) {
@@ -134,9 +146,20 @@ export default function POList() {
 
   return (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
         <StatCard label="Open POs" value={String(stats.open)} />
-        <StatCard label="Pending acknowledgment" value={String(stats.pending)} tone={stats.pending > 0 ? "warn" : "ok"} />
+        <StatCard
+          label="Pending acknowledgment"
+          value={fmtMoney(stats.pendingAmount)}
+          sub={`${stats.pendingCount} PO${stats.pendingCount === 1 ? "" : "s"}`}
+          tone={stats.pendingCount > 0 ? "warn" : "ok"}
+        />
+        <StatCard
+          label="Acknowledged"
+          value={fmtMoney(stats.ackedAmount)}
+          sub={`${stats.ackedCount} PO${stats.ackedCount === 1 ? "" : "s"}`}
+          tone="ok"
+        />
         <StatCard label="Next shipment ETA" value={stats.next} />
       </div>
 
@@ -151,7 +174,7 @@ export default function POList() {
       </div>
 
       <div style={{ background: "#FFFFFF", border: "1px solid #E5E7EB", borderRadius: 8, overflow: "hidden" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "140px 110px 110px 120px 130px 1fr", padding: "10px 14px", background: "#F9FAFB", borderBottom: "1px solid #E5E7EB", fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.05 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "140px 110px 150px 120px 130px 1fr", padding: "10px 14px", background: "#F9FAFB", borderBottom: "1px solid #E5E7EB", fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.05 }}>
           <div>PO #</div>
           <div>Issued</div>
           <div>Required</div>
@@ -169,16 +192,16 @@ export default function POList() {
           const days = daysUntil(ddp);
           const acked = ackIds.has(r.po_number);
           return (
-            <div key={r.id} style={{ display: "grid", gridTemplateColumns: "140px 110px 110px 120px 130px 1fr", padding: "12px 14px", borderBottom: "1px solid #F3F4F6", fontSize: 13, alignItems: "center" }}>
+            <div key={r.id} style={{ display: "grid", gridTemplateColumns: "140px 110px 150px 120px 130px 1fr", padding: "12px 14px", borderBottom: "1px solid #F3F4F6", fontSize: 13, alignItems: "center" }}>
               <div style={{ fontWeight: 600, color: "#111827" }}>{r.po_number}</div>
               <div style={{ color: "#4B5563" }}>{fmtDate(p.DateOrder)}</div>
-              <div style={{ color: "#4B5563" }}>
-                {fmtDate(ddp)}
+              <div style={{ color: "#4B5563", display: "flex", flexDirection: "column", lineHeight: 1.25 }}>
+                <span>{fmtDate(ddp)}</span>
                 {days != null && days <= 14 && days >= 0 && (
-                  <span style={{ marginLeft: 6, fontSize: 11, color: "#B45309" }}>({days}d)</span>
+                  <span style={{ fontSize: 11, color: "#B45309" }}>({days}d)</span>
                 )}
                 {days != null && days < 0 && (
-                  <span style={{ marginLeft: 6, fontSize: 11, color: "#B91C1C" }}>(overdue)</span>
+                  <span style={{ fontSize: 11, color: "#B91C1C" }}>overdue</span>
                 )}
               </div>
               <div style={{ color: "#4B5563" }}>{fmtMoney(p.TotalAmount)}</div>
@@ -204,12 +227,13 @@ export default function POList() {
   );
 }
 
-function StatCard({ label, value, tone }: { label: string; value: string; tone?: "warn" | "ok" }) {
+function StatCard({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: "warn" | "ok" }) {
   const color = tone === "warn" ? "#B45309" : tone === "ok" ? "#047857" : "#111827";
   return (
     <div style={{ background: "#FFFFFF", border: "1px solid #E5E7EB", borderRadius: 8, padding: "14px 16px" }}>
       <div style={{ fontSize: 11, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.05, fontWeight: 600, marginBottom: 6 }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
+      {sub && <div style={{ fontSize: 12, color: "#6B7280", marginTop: 2 }}>{sub}</div>}
     </div>
   );
 }
