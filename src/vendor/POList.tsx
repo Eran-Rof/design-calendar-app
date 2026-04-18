@@ -77,7 +77,7 @@ export default function POList() {
         const vuId = vu.id as string;
         const { data: acks, error: acksErr } = await supabaseVendor
           .from("po_acknowledgments")
-          .select("po_id")
+          .select("po_number")
           .eq("vendor_user_id", vuId);
         if (acksErr) throw acksErr;
 
@@ -85,7 +85,7 @@ export default function POList() {
         setVendorUserId(vuId);
         const active = ((pos ?? []) as PORow[]).filter((r) => !r.data?._archived);
         setRows(active);
-        setAckIds(new Set((acks ?? []).map((a: { po_id: string }) => a.po_id)));
+        setAckIds(new Set((acks ?? []).map((a: { po_number: string }) => a.po_number)));
       } catch (e: unknown) {
         if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
       } finally {
@@ -96,14 +96,14 @@ export default function POList() {
   }, []);
 
   const visible = useMemo(() => {
-    if (filter === "ack") return rows.filter((r) => ackIds.has(r.id));
-    if (filter === "action") return rows.filter((r) => !ackIds.has(r.id));
+    if (filter === "ack") return rows.filter((r) => ackIds.has(r.po_number));
+    if (filter === "action") return rows.filter((r) => !ackIds.has(r.po_number));
     return rows;
   }, [rows, ackIds, filter]);
 
   const stats = useMemo(() => {
     const open = rows.length;
-    const pending = rows.filter((r) => !ackIds.has(r.id)).length;
+    const pending = rows.filter((r) => !ackIds.has(r.po_number)).length;
     const ddps = rows
       .map((r) => r.date_expected_delivery || r.data?.DateExpectedDelivery)
       .filter((d): d is string => !!d)
@@ -114,19 +114,19 @@ export default function POList() {
     return { open, pending, next };
   }, [rows, ackIds]);
 
-  async function acknowledge(poId: string) {
+  async function acknowledge(poNumber: string) {
     if (!vendorUserId) return;
     const { error } = await supabaseVendor
       .from("po_acknowledgments")
       .upsert(
-        { po_id: poId, vendor_user_id: vendorUserId },
-        { onConflict: "po_id,vendor_user_id" },
+        { po_number: poNumber, vendor_user_id: vendorUserId },
+        { onConflict: "po_number,vendor_user_id" },
       );
     if (error) {
       alert("Could not acknowledge: " + error.message);
       return;
     }
-    setAckIds((prev) => new Set(prev).add(poId));
+    setAckIds((prev) => new Set(prev).add(poNumber));
   }
 
   if (loading) return <div style={{ color: "#6B7280" }}>Loading POs…</div>;
@@ -143,10 +143,10 @@ export default function POList() {
       <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
         <Pill active={filter === "all"} onClick={() => setFilter("all")}>All ({rows.length})</Pill>
         <Pill active={filter === "action"} onClick={() => setFilter("action")}>
-          Action needed ({rows.filter((r) => !ackIds.has(r.id)).length})
+          Action needed ({rows.filter((r) => !ackIds.has(r.po_number)).length})
         </Pill>
         <Pill active={filter === "ack"} onClick={() => setFilter("ack")}>
-          Acknowledged ({rows.filter((r) => ackIds.has(r.id)).length})
+          Acknowledged ({rows.filter((r) => ackIds.has(r.po_number)).length})
         </Pill>
       </div>
 
@@ -167,7 +167,7 @@ export default function POList() {
           const p = r.data ?? {};
           const ddp = r.date_expected_delivery || p.DateExpectedDelivery;
           const days = daysUntil(ddp);
-          const acked = ackIds.has(r.id);
+          const acked = ackIds.has(r.po_number);
           return (
             <div key={r.id} style={{ display: "grid", gridTemplateColumns: "140px 110px 110px 120px 130px 1fr", padding: "12px 14px", borderBottom: "1px solid #F3F4F6", fontSize: 13, alignItems: "center" }}>
               <div style={{ fontWeight: 600, color: "#111827" }}>{r.po_number}</div>
@@ -191,7 +191,7 @@ export default function POList() {
                 {acked ? (
                   <span style={{ fontSize: 12, color: "#047857" }}>✓ Acknowledged</span>
                 ) : (
-                  <button onClick={() => acknowledge(r.id)} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #111827", background: "#111827", color: "#FFFFFF", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                  <button onClick={() => acknowledge(r.po_number)} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #111827", background: "#111827", color: "#FFFFFF", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
                     Acknowledge
                   </button>
                 )}
