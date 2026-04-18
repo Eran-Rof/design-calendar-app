@@ -9,6 +9,9 @@ export default function VendorSetup() {
   const [confirm, setConfirm] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const loginUrl = `${window.location.origin}/vendor/login`;
 
   // The invite link carries an access/refresh token in the URL hash. Supabase
   // JS picks it up automatically (detectSessionInUrl: true); we just wait for
@@ -32,10 +35,45 @@ export default function VendorSetup() {
     try {
       const { error } = await supabaseVendor.auth.updateUser({ password });
       if (error) { setErr(error.message); return; }
-      nav("/vendor", { replace: true });
+      setDone(true);
     } finally {
       setBusy(false);
     }
+  }
+
+  async function copyLoginUrl() {
+    try {
+      await navigator.clipboard.writeText(loginUrl);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard API blocked — fall back silently
+    }
+  }
+
+  if (done) {
+    return (
+      <div style={{ maxWidth: 460, margin: "48px auto", background: "#FFFFFF", borderRadius: 12, padding: 28, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+        <h1 style={{ margin: 0, marginBottom: 6, fontSize: 20, color: "#111827" }}>You're all set</h1>
+        <p style={{ margin: 0, marginBottom: 18, color: "#6B7280", fontSize: 13 }}>
+          Your password has been saved. Bookmark this URL to sign in later — you'll also receive an email confirmation.
+        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
+          <code style={{ flex: 1, padding: "9px 10px", background: "#F3F4F6", borderRadius: 6, fontSize: 13, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {loginUrl}
+          </code>
+          <button
+            onClick={copyLoginUrl}
+            style={{ padding: "9px 12px", borderRadius: 6, border: "1px solid #D1D5DB", background: "#FFFFFF", color: "#374151", cursor: "pointer", fontSize: 13, whiteSpace: "nowrap" }}
+          >
+            {copied ? "Copied!" : "Copy"}
+          </button>
+        </div>
+        <button onClick={() => nav("/vendor", { replace: true })} style={buttonStyle(false)}>
+          Continue to dashboard
+        </button>
+      </div>
+    );
   }
 
   return (
