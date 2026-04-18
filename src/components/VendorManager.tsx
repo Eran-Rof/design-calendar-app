@@ -352,6 +352,7 @@ function VendorManager({ vendors, setVendors, isAdmin = false, taskTemplates }) 
   );
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState("");
+  const [inviting, setInviting] = useState<any | null>(null);
 
   function handleFile(e) {
     const file = e.target.files[0];
@@ -681,6 +682,23 @@ function VendorManager({ vendors, setVendors, isAdmin = false, taskTemplates }) 
             </div>
             <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
               <button
+                onClick={() => setInviting(v)}
+                title="Send portal invite to a user at this vendor"
+                style={{
+                  padding: "5px 12px",
+                  borderRadius: 7,
+                  border: `1px solid ${TH.primary}`,
+                  background: TH.primary + "10",
+                  color: TH.primary,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                Invite to portal
+              </button>
+              <button
                 onClick={() => setEditing(v.id)}
                 style={{
                   padding: "5px 12px",
@@ -727,6 +745,105 @@ function VendorManager({ vendors, setVendors, isAdmin = false, taskTemplates }) 
             No vendors found.
           </div>
         )}
+      </div>
+      {inviting && <InviteVendorModal vendor={inviting} onClose={() => setInviting(null)} />}
+    </div>
+  );
+}
+
+function InviteVendorModal({ vendor, onClose }: { vendor: any; onClose: () => void }) {
+  const [email, setEmail] = useState(vendor?.email || "");
+  const [displayName, setDisplayName] = useState(vendor?.contact || "");
+  const [status, setStatus] = useState<{ kind: "idle" | "busy" | "ok" | "err"; msg?: string }>({ kind: "idle" });
+
+  async function submit() {
+    if (!email.trim()) { setStatus({ kind: "err", msg: "Email is required." }); return; }
+    setStatus({ kind: "busy" });
+    try {
+      const res = await fetch("/api/vendor-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          display_name: displayName.trim(),
+          legacy_blob_id: vendor.id,
+          site_url: window.location.origin,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json?.error) {
+        setStatus({ kind: "err", msg: json?.error || `Request failed (${res.status})` });
+        return;
+      }
+      setStatus({ kind: "ok", msg: `Invite sent to ${email}.` });
+    } catch (err: any) {
+      setStatus({ kind: "err", msg: err?.message || String(err) });
+    }
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(17,24,39,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: "#FFFFFF", borderRadius: 12, padding: 24, width: 420, boxShadow: "0 10px 25px rgba(0,0,0,0.15)" }}
+      >
+        <div style={{ fontSize: 16, fontWeight: 700, color: TH.text, marginBottom: 4 }}>Invite {vendor.name} to portal</div>
+        <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 18 }}>
+          Sends a Supabase Auth invite email. The link lands on <code>/vendor/setup</code>,
+          expires in 24 hours, and is tied to this vendor.
+        </div>
+
+        <label style={S.lbl}>Email</label>
+        <input
+          type="email"
+          style={{ ...S.inp, marginBottom: 14 }}
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          disabled={status.kind === "busy" || status.kind === "ok"}
+          placeholder="vendor.user@factory.example"
+        />
+
+        <label style={S.lbl}>Display name (optional)</label>
+        <input
+          type="text"
+          style={{ ...S.inp, marginBottom: 4 }}
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          disabled={status.kind === "busy" || status.kind === "ok"}
+          placeholder="e.g. Wei Chen"
+        />
+
+        {status.kind === "err" && (
+          <div style={{ marginTop: 12, padding: "8px 12px", borderRadius: 6, background: "#FEF2F2", color: "#B91C1C", fontSize: 13 }}>
+            {status.msg}
+          </div>
+        )}
+        {status.kind === "ok" && (
+          <div style={{ marginTop: 12, padding: "8px 12px", borderRadius: 6, background: "#ECFDF5", color: "#047857", fontSize: 13 }}>
+            {status.msg}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
+          <button
+            onClick={onClose}
+            style={{ padding: "8px 14px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}
+          >
+            {status.kind === "ok" ? "Done" : "Cancel"}
+          </button>
+          {status.kind !== "ok" && (
+            <button
+              onClick={submit}
+              disabled={status.kind === "busy" || !email.trim()}
+              style={{ ...S.btn, opacity: status.kind === "busy" || !email.trim() ? 0.5 : 1 }}
+            >
+              {status.kind === "busy" ? "Sending…" : "Send invite"}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

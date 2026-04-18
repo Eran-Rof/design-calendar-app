@@ -8,7 +8,12 @@ const path = window.location.pathname;
 async function mount() {
   const root = createRoot(document.getElementById("root")!);
 
-  if (path.startsWith("/design")) {
+  if (path.startsWith("/vendor")) {
+    // External vendor portal — Supabase Auth, isolated from internal apps.
+    // Sub-routing (/vendor/login, /vendor/setup, /vendor) lives inside VendorApp via react-router-dom.
+    const { default: VendorApp } = await import("./vendor/VendorApp");
+    root.render(<StrictMode><ErrorBoundary appName="Vendor Portal"><VendorApp /></ErrorBoundary></StrictMode>);
+  } else if (path.startsWith("/design")) {
     const { default: App } = await import("./App");
     root.render(<StrictMode><ErrorBoundary appName="Design Calendar"><App /></ErrorBoundary></StrictMode>);
   } else if (path.startsWith("/tanda")) {
