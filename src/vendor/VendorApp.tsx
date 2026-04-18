@@ -50,7 +50,7 @@ function VendorShell({ children }: { children: ReactNode }) {
   const { session } = useVendorSession();
   const nav = useNavigate();
   return (
-    <div style={{ minHeight: "100vh", background: TH.surfaceHi, fontFamily: "system-ui, -apple-system, sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: TH.bg, fontFamily: "system-ui, -apple-system, sans-serif" }}>
       <header style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 24px", background: TH.surface, borderBottom: `1px solid ${TH.border}`, boxShadow: `0 1px 2px ${TH.shadow}` }}>
         <div style={{ display: "flex", alignItems: "center" }}>
           <ROFLogoFull height={66} />
