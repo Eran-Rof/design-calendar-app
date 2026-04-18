@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 
 export default function VendorSetup() {
@@ -53,18 +54,18 @@ export default function VendorSetup() {
 
   if (done) {
     return (
-      <div style={{ maxWidth: 460, margin: "48px auto", background: "#FFFFFF", borderRadius: 12, padding: 28, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-        <h1 style={{ margin: 0, marginBottom: 6, fontSize: 20, color: "#111827" }}>You're all set</h1>
-        <p style={{ margin: 0, marginBottom: 18, color: "#6B7280", fontSize: 13 }}>
+      <div style={{ maxWidth: 460, margin: "48px auto", background: TH.surface, borderRadius: 12, padding: 28, boxShadow: `0 1px 3px ${TH.shadow}`, border: `1px solid ${TH.border}` }}>
+        <h1 style={{ margin: 0, marginBottom: 6, fontSize: 20, color: TH.text }}>You're all set</h1>
+        <p style={{ margin: 0, marginBottom: 18, color: TH.textMuted, fontSize: 13 }}>
           Your password has been saved. Bookmark this URL to sign in later — you'll also receive an email confirmation.
         </p>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
-          <code style={{ flex: 1, padding: "9px 10px", background: "#F3F4F6", borderRadius: 6, fontSize: 13, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <code style={{ flex: 1, padding: "9px 10px", background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13, color: TH.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {loginUrl}
           </code>
           <button
             onClick={copyLoginUrl}
-            style={{ padding: "9px 12px", borderRadius: 6, border: "1px solid #D1D5DB", background: "#FFFFFF", color: "#374151", cursor: "pointer", fontSize: 13, whiteSpace: "nowrap" }}
+            style={{ padding: "9px 12px", borderRadius: 6, border: `1px solid ${TH.border}`, background: TH.surface, color: TH.textSub, cursor: "pointer", fontSize: 13, whiteSpace: "nowrap", fontFamily: "inherit" }}
           >
             {copied ? "Copied!" : "Copy"}
           </button>
@@ -77,13 +78,13 @@ export default function VendorSetup() {
   }
 
   return (
-    <div style={{ maxWidth: 400, margin: "48px auto", background: "#FFFFFF", borderRadius: 12, padding: 28, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-      <h1 style={{ margin: 0, marginBottom: 6, fontSize: 20, color: "#111827" }}>Set your password</h1>
-      <p style={{ margin: 0, marginBottom: 20, color: "#6B7280", fontSize: 13 }}>
+    <div style={{ maxWidth: 400, margin: "48px auto", background: TH.surface, borderRadius: 12, padding: 28, boxShadow: `0 1px 3px ${TH.shadow}`, border: `1px solid ${TH.border}` }}>
+      <h1 style={{ margin: 0, marginBottom: 6, fontSize: 20, color: TH.text }}>Set your password</h1>
+      <p style={{ margin: 0, marginBottom: 20, color: TH.textMuted, fontSize: 13 }}>
         Choose a password for your vendor portal account.
       </p>
-      {!ready && !err && <div style={{ color: "#6B7280", fontSize: 13 }}>Validating invite…</div>}
-      {err && !ready && <div style={{ color: "#B91C1C", fontSize: 13 }}>{err}</div>}
+      {!ready && !err && <div style={{ color: TH.textMuted, fontSize: 13 }}>Validating invite…</div>}
+      {err && !ready && <div style={{ color: TH.primary, fontSize: 13, padding: "8px 10px", background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6 }}>{err}</div>}
       {ready && (
         <form onSubmit={onSubmit}>
           <label style={labelStyle}>New password</label>
@@ -106,7 +107,7 @@ export default function VendorSetup() {
             onChange={(e) => setConfirm(e.target.value)}
             style={inputStyle}
           />
-          {err && <div style={{ color: "#B91C1C", fontSize: 13, marginTop: 10 }}>{err}</div>}
+          {err && <div style={{ color: TH.primary, fontSize: 13, marginTop: 10, padding: "8px 10px", background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6 }}>{err}</div>}
           <button type="submit" disabled={busy} style={buttonStyle(busy)}>
             {busy ? "Saving…" : "Set password and continue"}
           </button>
@@ -116,11 +117,11 @@ export default function VendorSetup() {
   );
 }
 
-const labelStyle = { display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6, marginTop: 12 };
-const inputStyle = { width: "100%", padding: "9px 10px", borderRadius: 6, border: "1px solid #D1D5DB", fontSize: 14, boxSizing: "border-box" as const };
+const labelStyle = { display: "block", fontSize: 12, fontWeight: 600, color: TH.textSub, marginBottom: 6, marginTop: 12 };
+const inputStyle = { width: "100%", padding: "9px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 14, boxSizing: "border-box" as const, fontFamily: "inherit" };
 const buttonStyle = (disabled: boolean) => ({
   width: "100%", marginTop: 18, padding: "10px 14px", borderRadius: 6,
-  border: "none", background: disabled ? "#9CA3AF" : "#111827",
+  border: "none", background: disabled ? TH.textMuted : TH.primary,
   color: "#FFFFFF", cursor: disabled ? "not-allowed" : "pointer",
-  fontWeight: 600, fontSize: 14,
+  fontWeight: 600, fontSize: 14, fontFamily: "inherit",
 });

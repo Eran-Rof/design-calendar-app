@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 
 // tanda_pos row shape (subset we care about in the portal). RLS scopes the
@@ -141,8 +142,8 @@ export default function POList() {
     setAckIds((prev) => new Set(prev).add(poNumber));
   }
 
-  if (loading) return <div style={{ color: "#6B7280" }}>Loading POs…</div>;
-  if (err) return <div style={{ color: "#B91C1C" }}>Error: {err}</div>;
+  if (loading) return <div style={{ color: TH.textMuted }}>Loading POs…</div>;
+  if (err) return <div style={{ color: TH.primary, padding: "10px 12px", background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6 }}>Error: {err}</div>;
 
   return (
     <div>
@@ -173,8 +174,8 @@ export default function POList() {
         </Pill>
       </div>
 
-      <div style={{ background: "#FFFFFF", border: "1px solid #E5E7EB", borderRadius: 8, overflow: "hidden" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "140px 110px 150px 120px 130px 1fr", padding: "10px 14px", background: "#F9FAFB", borderBottom: "1px solid #E5E7EB", fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.05 }}>
+      <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden", boxShadow: `0 1px 2px ${TH.shadow}` }}>
+        <div style={{ display: "grid", gridTemplateColumns: "140px 110px 150px 120px 130px 1fr", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
           <div>PO #</div>
           <div>Issued</div>
           <div>Required</div>
@@ -183,7 +184,7 @@ export default function POList() {
           <div style={{ textAlign: "right" }}>Action</div>
         </div>
         {visible.length === 0 ? (
-          <div style={{ padding: 20, textAlign: "center", color: "#6B7280", fontSize: 13 }}>
+          <div style={{ padding: 20, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
             No POs in this view.
           </div>
         ) : visible.map((r) => {
@@ -192,29 +193,29 @@ export default function POList() {
           const days = daysUntil(ddp);
           const acked = ackIds.has(r.po_number);
           return (
-            <div key={r.id} style={{ display: "grid", gridTemplateColumns: "140px 110px 150px 120px 130px 1fr", padding: "12px 14px", borderBottom: "1px solid #F3F4F6", fontSize: 13, alignItems: "center" }}>
-              <div style={{ fontWeight: 600, color: "#111827" }}>{r.po_number}</div>
-              <div style={{ color: "#4B5563" }}>{fmtDate(p.DateOrder)}</div>
-              <div style={{ color: "#4B5563", display: "flex", flexDirection: "column", lineHeight: 1.25 }}>
+            <div key={r.id} style={{ display: "grid", gridTemplateColumns: "140px 110px 150px 120px 130px 1fr", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
+              <div style={{ fontWeight: 600, color: TH.text }}>{r.po_number}</div>
+              <div style={{ color: TH.textSub2 }}>{fmtDate(p.DateOrder)}</div>
+              <div style={{ color: TH.textSub2, display: "flex", flexDirection: "column", lineHeight: 1.25 }}>
                 <span>{fmtDate(ddp)}</span>
                 {days != null && days <= 14 && days >= 0 && (
-                  <span style={{ fontSize: 11, color: "#B45309" }}>({days}d)</span>
+                  <span style={{ fontSize: 11, color: TH.primaryLt, fontWeight: 600 }}>({days}d)</span>
                 )}
                 {days != null && days < 0 && (
-                  <span style={{ fontSize: 11, color: "#B91C1C" }}>overdue</span>
+                  <span style={{ fontSize: 11, color: TH.primary, fontWeight: 600 }}>overdue</span>
                 )}
               </div>
-              <div style={{ color: "#4B5563" }}>{fmtMoney(p.TotalAmount)}</div>
+              <div style={{ color: TH.textSub2 }}>{fmtMoney(p.TotalAmount)}</div>
               <div>
-                <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "#F3F4F6", color: "#374151" }}>
+                <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: TH.surfaceHi, border: `1px solid ${TH.border}`, color: TH.textSub }}>
                   {p.StatusName || "—"}
                 </span>
               </div>
               <div style={{ textAlign: "right" }}>
                 {acked ? (
-                  <span style={{ fontSize: 12, color: "#047857" }}>✓ Acknowledged</span>
+                  <span style={{ fontSize: 12, color: "#047857", fontWeight: 600 }}>✓ Acknowledged</span>
                 ) : (
-                  <button onClick={() => acknowledge(r.po_number)} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #111827", background: "#111827", color: "#FFFFFF", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                  <button onClick={() => acknowledge(r.po_number)} style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}>
                     Acknowledge
                   </button>
                 )}
@@ -228,12 +229,12 @@ export default function POList() {
 }
 
 function StatCard({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: "warn" | "ok" }) {
-  const color = tone === "warn" ? "#B45309" : tone === "ok" ? "#047857" : "#111827";
+  const color = tone === "warn" ? TH.primary : tone === "ok" ? "#047857" : TH.text;
   return (
-    <div style={{ background: "#FFFFFF", border: "1px solid #E5E7EB", borderRadius: 8, padding: "14px 16px" }}>
-      <div style={{ fontSize: 11, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.05, fontWeight: 600, marginBottom: 6 }}>{label}</div>
+    <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "14px 16px", boxShadow: `0 1px 2px ${TH.shadow}` }}>
+      <div style={{ fontSize: 11, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05, fontWeight: 600, marginBottom: 6 }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
-      {sub && <div style={{ fontSize: 12, color: "#6B7280", marginTop: 2 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 12, color: TH.textMuted, marginTop: 2 }}>{sub}</div>}
     </div>
   );
 }
@@ -245,12 +246,13 @@ function Pill({ active, onClick, children }: { active: boolean; onClick: () => v
       style={{
         padding: "6px 12px",
         borderRadius: 999,
-        border: `1px solid ${active ? "#111827" : "#D1D5DB"}`,
-        background: active ? "#111827" : "#FFFFFF",
-        color: active ? "#FFFFFF" : "#374151",
+        border: `1px solid ${active ? TH.primary : TH.border}`,
+        background: active ? TH.primary : TH.surface,
+        color: active ? "#FFFFFF" : TH.textSub,
         cursor: "pointer",
         fontSize: 12,
         fontWeight: 600,
+        fontFamily: "inherit",
       }}
     >
       {children}

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 
 export default function VendorLogin() {
@@ -42,9 +43,9 @@ export default function VendorLogin() {
   }
 
   return (
-    <div style={{ maxWidth: 400, margin: "48px auto", background: "#FFFFFF", borderRadius: 12, padding: 28, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-      <h1 style={{ margin: 0, marginBottom: 6, fontSize: 20, color: "#111827" }}>Sign in</h1>
-      <p style={{ margin: 0, marginBottom: 20, color: "#6B7280", fontSize: 13 }}>
+    <div style={{ maxWidth: 400, margin: "48px auto", background: TH.surface, borderRadius: 12, padding: 28, boxShadow: `0 1px 3px ${TH.shadow}`, border: `1px solid ${TH.border}` }}>
+      <h1 style={{ margin: 0, marginBottom: 6, fontSize: 20, color: TH.text }}>Sign in</h1>
+      <p style={{ margin: 0, marginBottom: 20, color: TH.textMuted, fontSize: 13 }}>
         Use the email address that received your invite.
       </p>
       <form onSubmit={onSubmit}>
@@ -67,7 +68,7 @@ export default function VendorLogin() {
           style={inputStyle}
         />
         {err && (
-          <div style={{ color: "#B91C1C", fontSize: 13, marginBottom: 12 }}>{err}</div>
+          <div style={{ color: TH.primary, fontSize: 13, marginBottom: 12, padding: "8px 10px", background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6 }}>{err}</div>
         )}
         <button type="submit" disabled={busy} style={buttonStyle(busy)}>
           {busy ? "Signing in…" : "Sign in"}
@@ -77,11 +78,11 @@ export default function VendorLogin() {
   );
 }
 
-const labelStyle = { display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6, marginTop: 12 };
-const inputStyle = { width: "100%", padding: "9px 10px", borderRadius: 6, border: "1px solid #D1D5DB", fontSize: 14, boxSizing: "border-box" as const };
+const labelStyle = { display: "block", fontSize: 12, fontWeight: 600, color: TH.textSub, marginBottom: 6, marginTop: 12 };
+const inputStyle = { width: "100%", padding: "9px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 14, boxSizing: "border-box" as const, fontFamily: "inherit" };
 const buttonStyle = (disabled: boolean) => ({
   width: "100%", marginTop: 18, padding: "10px 14px", borderRadius: 6,
-  border: "none", background: disabled ? "#9CA3AF" : "#111827",
+  border: "none", background: disabled ? TH.textMuted : TH.primary,
   color: "#FFFFFF", cursor: disabled ? "not-allowed" : "pointer",
-  fontWeight: 600, fontSize: 14,
+  fontWeight: 600, fontSize: 14, fontFamily: "inherit",
 });
