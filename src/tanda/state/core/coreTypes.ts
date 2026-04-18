@@ -41,7 +41,7 @@ export type CoreAction =
 
 function loadView(): View {
   const saved = localStorage.getItem("tanda_view");
-  const valid: View[] = ["dashboard", "list", "detail", "templates", "email", "teams", "activity", "vendors", "timeline", "archive", "shipments"];
+  const valid: View[] = ["dashboard", "list", "detail", "templates", "email", "teams", "activity", "vendors", "timeline", "archive", "shipments", "match"];
   return valid.includes(saved as View) ? (saved as View) : "dashboard";
 }
 

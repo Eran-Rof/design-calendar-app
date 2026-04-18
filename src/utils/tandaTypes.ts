@@ -106,7 +106,7 @@ export interface DmConversation {
   messages: any[];
 }
 
-export type View = "dashboard" | "list" | "detail" | "grid" | "templates" | "email" | "teams" | "activity" | "vendors" | "timeline" | "archive" | "shipments";
+export type View = "dashboard" | "list" | "detail" | "grid" | "templates" | "email" | "teams" | "activity" | "vendors" | "timeline" | "archive" | "shipments" | "match";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
