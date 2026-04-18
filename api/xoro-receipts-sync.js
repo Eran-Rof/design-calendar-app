@@ -89,6 +89,9 @@ export default async function handler(req, res) {
   const creds = Buffer.from(`${XORO_KEY}:${XORO_SECRET}`).toString("base64");
   const overridePath = url.searchParams.get("path");
   const pathsToTry = overridePath ? [overridePath] : RECEIPT_PATH_CANDIDATES;
+  // If the caller pinned a specific path, give Xoro 60s rather than the
+  // 4s probe budget — they're likely retrying a slow endpoint.
+  const perRequestTimeoutMs = overridePath ? 60_000 : 4_000;
 
   let xoroBody = null;
   let xoroStatus = 0;
@@ -109,7 +112,7 @@ export default async function handler(req, res) {
     const xoroUrl = `https://res.xorosoft.io/api/xerp/${candidate}?${xoroParams.toString()}`;
     try {
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 4000);
+      const timer = setTimeout(() => ctrl.abort(), perRequestTimeoutMs);
       const r = await fetch(xoroUrl, {
         headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/json" },
         signal: ctrl.signal,
@@ -127,7 +130,7 @@ export default async function handler(req, res) {
         break;
       }
     } catch (err) {
-      probeResults.push({ path: candidate, status: 0, message: err?.name === "AbortError" ? "timeout (4s)" : (err?.message || String(err)) });
+      probeResults.push({ path: candidate, status: 0, message: err?.name === "AbortError" ? `timeout (${Math.round(perRequestTimeoutMs/1000)}s)` : (err?.message || String(err)) });
     }
     // Rate-limit gap (2 req/sec ceiling)
     if (i < pathsToTry.length - 1) await new Promise((r) => setTimeout(r, 550));
