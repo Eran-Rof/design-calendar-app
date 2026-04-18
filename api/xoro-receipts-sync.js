@@ -19,16 +19,42 @@ export const config = { maxDuration: 120 };
 // We don't know the exact Xoro receipt path yet. Probe several candidates
 // based on their naming convention — the first one that returns Result:true
 // wins. Override with ?path= in the query to try a specific one.
+// "Bill & Item Receipt Management" is the Xoro scope name and bill/getbill
+// works, so item-receipt naming likely mirrors it closely. Try a broader set.
 const RECEIPT_PATH_CANDIDATES = [
+  // bill-prefixed (since the scope groups them)
+  "bill/getitemreceipt",
+  "bill/getitemreceipts",
+  "bills/getitemreceipt",
+  "bills/getitemreceipts",
+  // plain itemreceipt variants
   "itemreceipt/getitemreceipt",
+  "itemreceipts/getitemreceipts",
+  "itemreceipt/get",
+  "itemreceipt/getall",
+  "itemreceipt/getlist",
+  "itemreceipts/get",
+  // alt module names
   "purchasereceipt/getpurchasereceipt",
+  "purchaseorderreceipt/getpurchaseorderreceipt",
+  "billreceipt/getbillreceipt",
   "receipt/getreceipt",
+  "receipts/getreceipts",
+  // receiving / goods receipt
   "receiving/getreceiving",
-  "asn/getasn",                 // ASN lines carry QtyReceived once closed
+  "goodsreceipt/getgoodsreceipt",
+  "goodsreceiptnote/getgoodsreceiptnote",
+  "grn/getgrn",
+  // via ASN (receipts often derive from ASN close)
+  "asn/getasn",
+  "asn/getasns",
+  // via PO module
   "purchaseorder/getreceipt",
   "purchaseorder/getreceipts",
+  "purchaseorder/getitemreceipt",
+  // inventory module
   "inventoryreceipt/getinventoryreceipt",
-  "goodsreceipt/getgoodsreceipt",
+  "inventory/getitemreceipt",
 ];
 
 export default async function handler(req, res) {
