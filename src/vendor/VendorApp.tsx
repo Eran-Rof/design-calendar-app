@@ -17,6 +17,7 @@ import VendorSetup from "./VendorSetup";
 import POList from "./POList";
 import ShipmentsList from "./ShipmentsList";
 import ShipmentDetail from "./ShipmentDetail";
+import ShipmentSubmit from "./ShipmentSubmit";
 import InvoicesList from "./InvoicesList";
 import InvoiceSubmit from "./InvoiceSubmit";
 import InvoiceDetail from "./InvoiceDetail";
@@ -152,6 +153,14 @@ export default function VendorApp() {
           element={
             <Protected>
               <VendorShell withTabs><ShipmentsList /></VendorShell>
+            </Protected>
+          }
+        />
+        <Route
+          path="/vendor/shipments/new"
+          element={
+            <Protected>
+              <VendorShell withTabs><ShipmentSubmit /></VendorShell>
             </Protected>
           }
         />

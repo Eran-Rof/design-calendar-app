@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate } from "./utils";
@@ -22,6 +22,7 @@ export interface ShipmentRow {
 }
 
 export default function ShipmentsList() {
+  const nav = useNavigate();
   const [rows, setRows] = useState<ShipmentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -74,10 +75,16 @@ export default function ShipmentsList() {
           style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 14, fontFamily: "inherit", background: TH.surface, color: TH.text }}
         />
         <button
-          onClick={() => setShowAdd(true)}
+          onClick={() => nav("/vendor/shipments/new")}
           style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontWeight: 600, fontSize: 13, fontFamily: "inherit", whiteSpace: "nowrap" }}
         >
-          + Add shipment
+          + Submit ASN
+        </button>
+        <button
+          onClick={() => setShowAdd(true)}
+          style={{ padding: "8px 14px", borderRadius: 6, border: `1px solid ${TH.border}`, background: TH.surface, color: TH.textSub, cursor: "pointer", fontWeight: 600, fontSize: 13, fontFamily: "inherit", whiteSpace: "nowrap" }}
+        >
+          Track carrier
         </button>
       </div>
 
