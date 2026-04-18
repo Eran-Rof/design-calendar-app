@@ -40,12 +40,9 @@ describe("isValidContainerNumber (ISO 6346)", () => {
   });
 
   it("rejects non-string input gracefully", () => {
-    // @ts-expect-error runtime check
-    expect(isValidContainerNumber(null)).toBe(false);
-    // @ts-expect-error runtime check
-    expect(isValidContainerNumber(undefined)).toBe(false);
-    // @ts-expect-error runtime check
-    expect(isValidContainerNumber(12345)).toBe(false);
+    expect(isValidContainerNumber(null as unknown as string)).toBe(false);
+    expect(isValidContainerNumber(undefined as unknown as string)).toBe(false);
+    expect(isValidContainerNumber(12345 as unknown as string)).toBe(false);
   });
 });
 

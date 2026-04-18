@@ -4,6 +4,7 @@ import {
   Routes,
   Route,
   Navigate,
+  Link,
   useNavigate,
   useLocation,
 } from "react-router-dom";
@@ -14,6 +15,8 @@ import { supabaseVendor } from "./supabaseVendor";
 import VendorLogin from "./VendorLogin";
 import VendorSetup from "./VendorSetup";
 import POList from "./POList";
+import ShipmentsList from "./ShipmentsList";
+import ShipmentDetail from "./ShipmentDetail";
 
 function useVendorSession(): { session: Session | null; ready: boolean } {
   const [session, setSession] = useState<Session | null>(null);
@@ -46,7 +49,38 @@ function Protected({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-function VendorShell({ children }: { children: ReactNode }) {
+function TabNav() {
+  const loc = useLocation();
+  const isPOs = loc.pathname === "/vendor";
+  const isShipments = loc.pathname.startsWith("/vendor/shipments");
+  return (
+    <nav style={{ display: "flex", gap: 2, padding: "0 24px", background: "rgba(255,255,255,0.05)", borderBottom: `1px solid rgba(255,255,255,0.12)` }}>
+      <TabLink to="/vendor" active={isPOs}>Purchase Orders</TabLink>
+      <TabLink to="/vendor/shipments" active={isShipments}>Shipments</TabLink>
+    </nav>
+  );
+}
+
+function TabLink({ to, active, children }: { to: string; active: boolean; children: ReactNode }) {
+  return (
+    <Link
+      to={to}
+      style={{
+        padding: "10px 18px",
+        fontSize: 13,
+        fontWeight: 600,
+        color: active ? "#FFFFFF" : "rgba(255,255,255,0.65)",
+        textDecoration: "none",
+        borderBottom: `3px solid ${active ? TH.primary : "transparent"}`,
+        marginBottom: -1,
+      }}
+    >
+      {children}
+    </Link>
+  );
+}
+
+function VendorShell({ children, withTabs = false }: { children: ReactNode; withTabs?: boolean }) {
   const { session } = useVendorSession();
   const nav = useNavigate();
   return (
@@ -73,6 +107,7 @@ function VendorShell({ children }: { children: ReactNode }) {
           </div>
         )}
       </header>
+      {withTabs && session && <TabNav />}
       <main style={{ padding: "24px" }}>{children}</main>
     </div>
   );
@@ -103,7 +138,23 @@ export default function VendorApp() {
           path="/vendor"
           element={
             <Protected>
-              <VendorShell><POList /></VendorShell>
+              <VendorShell withTabs><POList /></VendorShell>
+            </Protected>
+          }
+        />
+        <Route
+          path="/vendor/shipments"
+          element={
+            <Protected>
+              <VendorShell withTabs><ShipmentsList /></VendorShell>
+            </Protected>
+          }
+        />
+        <Route
+          path="/vendor/shipments/:id"
+          element={
+            <Protected>
+              <VendorShell withTabs><ShipmentDetail /></VendorShell>
             </Protected>
           }
         />

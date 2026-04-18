@@ -17,6 +17,7 @@ import { TemplatesView } from "./tanda/views/TemplatesView";
 import { ActivityView } from "./tanda/views/ActivityView";
 import { VendorsView } from "./tanda/views/VendorsView";
 import { ArchiveView } from "./tanda/views/ArchiveView";
+import ShipmentsView from "./tanda/ShipmentsView";
 import { SyncModals } from "./tanda/views/SyncModal";
 import { SettingsModal } from "./tanda/views/SettingsModal";
 
@@ -1225,6 +1226,7 @@ function TandAApp() {
           <button style={view === "vendors" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("vendors"); loadArchivedPOs(); })}>🏆 Vendors</button>
           <button style={view === "timeline" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { if (selected) setSearch(selected.PoNumber ?? ""); setView("timeline"); })}>📊 Timeline</button>
           <button style={view === "archive" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("archive"); loadArchivedPOs(); })}>📦 Archive{archivedPos.length > 0 ? ` (${archivedPos.length})` : ""}</button>
+          <button style={view === "shipments" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("shipments"); })}>🚢 Shipments</button>
           <button style={S.navBtn} onClick={() => { setShowBulkUpdate(true); setBulkVendor(""); setBulkPhase(""); setBulkPhases([]); setBulkCategory(""); setBulkStatus(""); setBulkPOs([]); setBulkPOSearch(""); }}>⚡ Bulk Update</button>
           <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing} title="Sync POs from Xoro">
             {syncing ? "⏳ Syncing…" : "🔄 Sync"}
@@ -1341,6 +1343,9 @@ function TandAApp() {
           pos, milestones, search, setSearch, selected, setSelected,
           setDetailMode: setDetailMode as any, setView, setNewNote, openCategoryWithCheck,
         })}
+
+        {/* ── SHIPMENTS VIEW ── */}
+        {view === "shipments" && <ShipmentsView />}
 
         {/* ── ARCHIVE VIEW ── */}
         {view === "archive" && <ArchiveView
