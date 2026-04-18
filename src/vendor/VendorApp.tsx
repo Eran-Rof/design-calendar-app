@@ -9,6 +9,7 @@ import {
 } from "react-router-dom";
 import type { Session } from "@supabase/supabase-js";
 import { TH } from "../utils/theme";
+import { ROFLogoFull } from "../utils/styles";
 import { supabaseVendor } from "./supabaseVendor";
 import VendorLogin from "./VendorLogin";
 import VendorSetup from "./VendorSetup";
@@ -50,8 +51,11 @@ function VendorShell({ children }: { children: ReactNode }) {
   const nav = useNavigate();
   return (
     <div style={{ minHeight: "100vh", background: TH.surfaceHi, fontFamily: "system-ui, -apple-system, sans-serif" }}>
-      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 24px", background: TH.header, borderBottom: `1px solid ${TH.border}` }}>
-        <div style={{ fontWeight: 700, fontSize: 16, color: "#FFFFFF", letterSpacing: 0.2 }}>Ring of Fire — Vendor Portal</div>
+      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 24px", background: TH.header, borderBottom: `1px solid ${TH.border}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <ROFLogoFull height={34} />
+          <div style={{ fontWeight: 700, fontSize: 16, color: "#FFFFFF", letterSpacing: 0.2 }}>Vendor Portal</div>
+        </div>
         {session && (
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ fontSize: 13, color: "#CBD5E0" }}>{session.user.email}</span>
