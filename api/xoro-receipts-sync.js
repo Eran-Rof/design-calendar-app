@@ -95,11 +95,21 @@ export default async function handler(req, res) {
   let successPath = null;
   const probeResults = [];
 
-  for (const candidate of pathsToTry) {
+  // Respect Xoro's 2 req/sec rate limit (600ms gap). Tight per-request
+  // timeout (4s) — invalid paths return 500 nearly instantly; this
+  // only budgets 26 * 1s worst case if Xoro responds fast.
+  const startedAt = Date.now();
+  const budgetMs = 100_000; // leave headroom under the 120s function cap
+  for (let i = 0; i < pathsToTry.length; i++) {
+    if (Date.now() - startedAt > budgetMs) {
+      probeResults.push({ path: pathsToTry[i], status: -1, message: "skipped: budget exhausted" });
+      continue;
+    }
+    const candidate = pathsToTry[i];
     const xoroUrl = `https://res.xorosoft.io/api/xerp/${candidate}?${xoroParams.toString()}`;
     try {
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 30000);
+      const timer = setTimeout(() => ctrl.abort(), 4000);
       const r = await fetch(xoroUrl, {
         headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/json" },
         signal: ctrl.signal,
@@ -117,8 +127,10 @@ export default async function handler(req, res) {
         break;
       }
     } catch (err) {
-      probeResults.push({ path: candidate, status: 0, message: err?.message || String(err) });
+      probeResults.push({ path: candidate, status: 0, message: err?.name === "AbortError" ? "timeout (4s)" : (err?.message || String(err)) });
     }
+    // Rate-limit gap (2 req/sec ceiling)
+    if (i < pathsToTry.length - 1) await new Promise((r) => setTimeout(r, 550));
   }
 
   if (!successPath) {
