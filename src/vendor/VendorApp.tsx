@@ -51,22 +51,22 @@ function VendorShell({ children }: { children: ReactNode }) {
   const nav = useNavigate();
   return (
     <div style={{ minHeight: "100vh", background: TH.bg, fontFamily: "system-ui, -apple-system, sans-serif" }}>
-      <header style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 24px", background: TH.surface, borderBottom: `1px solid ${TH.border}`, boxShadow: `0 1px 2px ${TH.shadow}` }}>
+      <header style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 24px", background: "#808895", borderBottom: `1px solid ${TH.header}`, boxShadow: `0 1px 2px ${TH.shadowMd}` }}>
         <div style={{ display: "flex", alignItems: "center" }}>
           <ROFLogoFull height={66} />
         </div>
-        <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", fontWeight: 700, fontSize: 20, color: TH.primary, letterSpacing: 0.3 }}>
+        <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", fontWeight: 700, fontSize: 20, color: "#FFFFFF", letterSpacing: 0.3, textShadow: "0 1px 1px rgba(0,0,0,0.2)" }}>
           Vendor Portal
         </div>
         {session && (
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 13, color: TH.textSub2 }}>{session.user.email}</span>
+            <span style={{ fontSize: 13, color: "#FFFFFF" }}>{session.user.email}</span>
             <button
               onClick={async () => {
                 await supabaseVendor.auth.signOut();
                 nav("/vendor/login", { replace: true });
               }}
-              style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${TH.border}`, background: TH.surface, color: TH.textSub, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}
+              style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.4)", background: "rgba(255,255,255,0.12)", color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}
             >
               Sign out
             </button>
