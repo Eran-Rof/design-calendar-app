@@ -21,6 +21,7 @@ import ShipmentSubmit from "./ShipmentSubmit";
 import InvoicesList from "./InvoicesList";
 import InvoiceSubmit from "./InvoiceSubmit";
 import InvoiceDetail from "./InvoiceDetail";
+import NotificationBell from "./NotificationBell";
 
 function useVendorSession(): { session: Session | null; ready: boolean } {
   const [session, setSession] = useState<Session | null>(null);
@@ -99,7 +100,8 @@ function VendorShell({ children, withTabs = false }: { children: ReactNode; with
           Vendor Portal
         </div>
         {session && (
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <NotificationBell />
             <span style={{ fontSize: 13, color: "#FFFFFF" }}>{session.user.email}</span>
             <button
               onClick={async () => {
