@@ -25,6 +25,9 @@ async function mount() {
   } else if (path.startsWith("/ats")) {
     const { default: ATS } = await import("./ATS");
     root.render(<StrictMode><ErrorBoundary appName="ATS"><ATS /></ErrorBoundary></StrictMode>);
+  } else if (path.startsWith("/planning/data-quality")) {
+    const { default: DataQualityReport } = await import("./inventory-planning/admin/DataQualityReport");
+    root.render(<StrictMode><ErrorBoundary appName="Planning DQ"><DataQualityReport /></ErrorBoundary></StrictMode>);
   } else {
     // Root "/" — PLM Launcher
     const { default: PLMApp } = await import("./PLM");
