@@ -6,7 +6,7 @@ import { fmtDate, fmtMoney } from "./utils";
 interface Summary {
   period: { from: string; to: string };
   pos_this_year: number;
-  pos_by_status: { issued: number; acknowledged: number; fulfilled: number; closed: number };
+  pos_by_status: { issued: number; acknowledged: number; partially_received: number; fulfilled: number; closed: number };
   invoices_this_year: number;
   invoices_by_status: { submitted: number; under_review: number; approved: number; paid: number };
   total_invoiced_ytd: number;
@@ -25,6 +25,7 @@ interface POHistoryRow {
   required_by: string | null;
   total_amount: number | null;
   status: string;
+  pct_received: number | null;
   on_time: boolean | null;
 }
 
@@ -48,10 +49,11 @@ const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
   paid:         { bg: "#A7F3D0", fg: "#064E3B" },
   rejected:     { bg: "#FECACA", fg: "#991B1B" },
   disputed:     { bg: "#FED7AA", fg: "#9A3412" },
-  issued:       { bg: "#E5E7EB", fg: "#374151" },
-  acknowledged: { bg: "#DBEAFE", fg: "#1E40AF" },
-  fulfilled:    { bg: "#D1FAE5", fg: "#065F46" },
-  closed:       { bg: "#A7F3D0", fg: "#064E3B" },
+  issued:             { bg: "#E5E7EB", fg: "#374151" },
+  acknowledged:       { bg: "#DBEAFE", fg: "#1E40AF" },
+  partially_received: { bg: "#FEF3C7", fg: "#92400E" },
+  fulfilled:          { bg: "#D1FAE5", fg: "#065F46" },
+  closed:             { bg: "#A7F3D0", fg: "#064E3B" },
   matched:      { bg: "#D1FAE5", fg: "#065F46" },
   discrepancy:  { bg: "#FECACA", fg: "#991B1B" },
   pending:      { bg: "#E5E7EB", fg: "#374151" },
@@ -69,7 +71,11 @@ export default function VendorReports() {
   const [invoices, setInvoices] = useState<InvHistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [fromDate, setFromDate] = useState(`${new Date().getFullYear()}-01-01`);
+  // Default to rolling last 12 months
+  const [fromDate, setFromDate] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth() - 12, d.getDate()).toISOString().slice(0, 10);
+  });
   const [toDate, setToDate] = useState(new Date().toISOString().slice(0, 10));
   const [poStatus, setPoStatus] = useState("");
   const [invStatus, setInvStatus] = useState("");
@@ -140,6 +146,7 @@ export default function VendorReports() {
             <Breakdown title="POs by status" items={[
               { label: "Issued", count: summary.pos_by_status.issued },
               { label: "Acknowledged", count: summary.pos_by_status.acknowledged },
+              { label: "Partially received", count: summary.pos_by_status.partially_received },
               { label: "Fulfilled", count: summary.pos_by_status.fulfilled },
               { label: "Closed", count: summary.pos_by_status.closed },
             ]} />
@@ -159,27 +166,33 @@ export default function VendorReports() {
           <option value="">All statuses</option>
           <option value="issued">Issued</option>
           <option value="acknowledged">Acknowledged</option>
+          <option value="partially_received">Partially received</option>
           <option value="fulfilled">Fulfilled</option>
           <option value="closed">Closed</option>
         </select>
       </div>
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden", marginBottom: 24 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "140px 120px 120px 120px 120px 120px 110px 80px", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
-          <div>PO #</div><div>Issued</div><div>Acknowledged</div><div>Fulfilled</div><div>Required by</div><div>Amount</div><div>Status</div><div style={{ textAlign: "right" }}>On-time</div>
+        <div style={{ display: "grid", gridTemplateColumns: "140px 110px 110px 110px 110px 110px 140px 90px 80px", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
+          <div>PO #</div><div>Issued</div><div>Acknowledged</div><div>Fulfilled</div><div>Required by</div><div>Amount</div><div>Status</div><div>% recv</div><div style={{ textAlign: "right" }}>On-time</div>
         </div>
         {pos.length === 0 ? (
           <div style={{ padding: 20, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>No POs in this period.</div>
         ) : pos.map((r) => {
           const c = STATUS_COLORS[r.status] ?? STATUS_COLORS.pending;
+          const pct = r.pct_received;
+          const pctColor = pct == null ? TH.textMuted : pct >= 100 ? "#047857" : pct >= 50 ? "#B45309" : TH.primary;
           return (
-            <div key={r.po_number} style={{ display: "grid", gridTemplateColumns: "140px 120px 120px 120px 120px 120px 110px 80px", padding: "10px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
+            <div key={r.po_number} style={{ display: "grid", gridTemplateColumns: "140px 110px 110px 110px 110px 110px 140px 90px 80px", padding: "10px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
               <div style={{ fontWeight: 600, color: TH.text, fontFamily: "Menlo, monospace" }}>{r.po_number}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.issued_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.acknowledged_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.fulfilled_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.required_by)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtMoney(r.total_amount)}</div>
-              <div><span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: c.bg, color: c.fg, fontWeight: 600, textTransform: "capitalize" }}>{r.status}</span></div>
+              <div><span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: c.bg, color: c.fg, fontWeight: 600, textTransform: "capitalize", whiteSpace: "nowrap" }}>{r.status.replace(/_/g, " ")}</span></div>
+              <div style={{ color: pctColor, fontWeight: 600 }}>
+                {pct != null ? `${pct}%` : "—"}
+              </div>
               <div style={{ textAlign: "right", color: r.on_time === false ? TH.primary : r.on_time === true ? "#047857" : TH.textMuted }}>
                 {r.on_time == null ? "—" : r.on_time ? "Yes" : "No"}
               </div>

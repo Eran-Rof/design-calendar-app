@@ -27,9 +27,24 @@ async function resolveVendor(admin, authHeader) {
 function bucketPo(po, ackSet) {
   const statusName = ((po.data && po.data.StatusName) || "").toLowerCase();
   if (statusName.includes("closed")) return "closed";
+  if (statusName.includes("partial")) return "partially_received";
   if (statusName.includes("received") || statusName.includes("shipped") || statusName.includes("fulfilled")) return "fulfilled";
   if (ackSet.has(po.po_number)) return "acknowledged";
   return "issued";
+}
+
+function pctReceived(po) {
+  const items = Array.isArray(po.data?.Items) ? po.data.Items
+              : Array.isArray(po.data?.PoLineArr) ? po.data.PoLineArr
+              : [];
+  if (items.length === 0) return null;
+  let ordered = 0, received = 0;
+  for (const it of items) {
+    ordered += Number(it?.QtyOrder) || 0;
+    received += Number(it?.QtyReceived) || 0;
+  }
+  if (ordered <= 0) return null;
+  return Math.round((received / ordered) * 100);
 }
 
 export default async function handler(req, res) {
@@ -49,6 +64,7 @@ export default async function handler(req, res) {
 
   const url = new URL(req.url, `https://${req.headers.host}`);
   const status = url.searchParams.get("status");
+  // If from/to are omitted, return all — the report dashboard passes them.
   const fromDate = url.searchParams.get("from");
   const toDate = url.searchParams.get("to");
   const limit = Math.min(Number(url.searchParams.get("limit")) || 50, 200);
@@ -88,7 +104,7 @@ export default async function handler(req, res) {
       let fulfilled_at = null;
       if ((p.data?.StatusName || "").toLowerCase().includes("closed")) {
         fulfilled_at = p.data?.DateClosed || p.data?.DateModified || null;
-      } else if (["fulfilled"].includes(bucket)) {
+      } else if (bucket === "fulfilled" || bucket === "partially_received") {
         fulfilled_at = p.data?.LastShippedDate || p.data?.DateModified || null;
       }
       const on_time = requiredMs == null ? null : requiredMs >= nowMs;
@@ -101,6 +117,7 @@ export default async function handler(req, res) {
         required_by: ddp,
         total_amount: Number(p.data?.TotalAmount) || null,
         status: bucket,
+        pct_received: pctReceived(p),
         on_time,
       };
     })

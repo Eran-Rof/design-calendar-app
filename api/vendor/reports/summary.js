@@ -34,6 +34,9 @@ async function resolveVendor(admin, authHeader) {
 function bucketPo(po, ackSet) {
   const statusName = ((po.data && po.data.StatusName) || "").toLowerCase();
   if (statusName.includes("closed")) return "closed";
+  // 'Partially Received' / 'Partial Receive' must be checked BEFORE the
+  // generic 'received' match because it contains 'received' as a substring.
+  if (statusName.includes("partial")) return "partially_received";
   if (statusName.includes("received") || statusName.includes("shipped") || statusName.includes("fulfilled")) return "fulfilled";
   if (ackSet.has(po.po_number)) return "acknowledged";
   return "issued";
@@ -55,9 +58,11 @@ export default async function handler(req, res) {
   if (!caller) return res.status(401).json({ error: "Authentication required" });
 
   const url = new URL(req.url, `https://${req.headers.host}`);
-  const year = new Date().getFullYear();
-  const fromDate = url.searchParams.get("from") || `${year}-01-01`;
-  const toDate = url.searchParams.get("to") || new Date().toISOString().slice(0, 10);
+  // Default to rolling last 12 months.
+  const today = new Date();
+  const defaultFrom = new Date(today.getFullYear(), today.getMonth() - 12, today.getDate());
+  const fromDate = url.searchParams.get("from") || defaultFrom.toISOString().slice(0, 10);
+  const toDate = url.searchParams.get("to") || today.toISOString().slice(0, 10);
   const fromMs = new Date(fromDate + "T00:00:00").getTime();
   const toMs = new Date(toDate + "T23:59:59").getTime();
 
@@ -89,7 +94,7 @@ export default async function handler(req, res) {
     return d >= fromMs && d <= toMs && !p.data?._archived;
   });
 
-  const pos_by_status = { issued: 0, acknowledged: 0, fulfilled: 0, closed: 0 };
+  const pos_by_status = { issued: 0, acknowledged: 0, partially_received: 0, fulfilled: 0, closed: 0 };
   let onTimeCount = 0;
   const nowMs = Date.now();
   for (const p of posInRange) {
