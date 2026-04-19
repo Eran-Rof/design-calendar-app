@@ -19,29 +19,14 @@
 //     '{vendor name} submitted ASN {asn_number}'
 
 import { createClient } from "@supabase/supabase-js";
+import { authenticateVendor } from "../_lib/vendor-auth.js";
 
 export const config = { maxDuration: 30 };
-
-async function resolveVendor(admin, authHeader) {
-  const jwt = authHeader && authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  if (!jwt) return null;
-  try {
-    const { data, error } = await admin.auth.getUser(jwt);
-    if (error || !data?.user) return null;
-    const { data: vu } = await admin
-      .from("vendor_users")
-      .select("id, vendor_id, display_name")
-      .eq("auth_id", data.user.id)
-      .maybeSingle();
-    if (!vu) return null;
-    return { ...vu, auth_id: data.user.id, email: data.user.email };
-  } catch { return null; }
-}
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key");
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -50,26 +35,29 @@ export default async function handler(req, res) {
   if (!SB_URL || !SERVICE_KEY) return res.status(500).json({ error: "Server not configured" });
   const admin = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
-  const caller = await resolveVendor(admin, req.headers.authorization);
-  if (!caller) return res.status(401).json({ error: "Authentication required" });
+  const authResult = await authenticateVendor(admin, req, { requiredScope: "shipments:write" });
+  if (!authResult.ok) return res.status(authResult.status).json({ error: authResult.error });
+  const { auth, finish } = authResult;
+  const caller = { vendor_id: auth.vendor_id, id: auth.vendor_user_id || null };
+  const send = (code, body) => { finish?.(code); return res.status(code).json(body); };
 
   let body = req.body;
-  if (typeof body === "string") { try { body = JSON.parse(body); } catch { return res.status(400).json({ error: "Invalid JSON" }); } }
+  if (typeof body === "string") { try { body = JSON.parse(body); } catch { return send(400, { error: "Invalid JSON" }); } }
 
   const {
     po_id, asn_number, carrier, ship_date, estimated_delivery,
     number, number_type, notes, line_items,
   } = body || {};
 
-  if (!po_id) return res.status(400).json({ error: "po_id is required" });
-  if (!asn_number || typeof asn_number !== "string" || !asn_number.trim()) return res.status(400).json({ error: "asn_number is required" });
-  if (!Array.isArray(line_items) || line_items.length === 0) return res.status(400).json({ error: "At least one line_item is required" });
-  if (number_type && !["CT", "BL", "BK"].includes(number_type)) return res.status(400).json({ error: "number_type must be CT, BL, or BK" });
+  if (!po_id) return send(400, { error: "po_id is required" });
+  if (!asn_number || typeof asn_number !== "string" || !asn_number.trim()) return send(400, { error: "asn_number is required" });
+  if (!Array.isArray(line_items) || line_items.length === 0) return send(400, { error: "At least one line_item is required" });
+  if (number_type && !["CT", "BL", "BK"].includes(number_type)) return send(400, { error: "number_type must be CT, BL, or BK" });
 
   const { data: po } = await admin
     .from("tanda_pos").select("uuid_id, po_number, vendor_id")
     .eq("uuid_id", po_id).eq("vendor_id", caller.vendor_id).maybeSingle();
-  if (!po) return res.status(403).json({ error: "PO not found or not yours" });
+  if (!po) return send(403, { error: "PO not found or not yours" });
 
   const { data: ship, error: shipErr } = await admin.from("shipments").insert({
     vendor_id: caller.vendor_id,
@@ -86,8 +74,8 @@ export default async function handler(req, res) {
     notes: notes ? String(notes).trim() : null,
   }).select("*").single();
   if (shipErr) {
-    if (shipErr.code === "23505") return res.status(409).json({ error: "An ASN with this reference already exists for your vendor" });
-    return res.status(500).json({ error: shipErr.message });
+    if (shipErr.code === "23505") return send(409, { error: "An ASN with this reference already exists for your vendor" });
+    return send(500, { error: shipErr.message });
   }
 
   const lineRows = line_items.map((l) => ({
@@ -98,7 +86,7 @@ export default async function handler(req, res) {
   })).filter((l) => l.quantity_shipped > 0);
   if (lineRows.length > 0) {
     const { error: liErr } = await admin.from("shipment_lines").insert(lineRows);
-    if (liErr) return res.status(201).json({ ...ship, line_items_error: liErr.message });
+    if (liErr) return send(201, { ...ship, line_items_error: liErr.message });
   }
 
   // Internal notification
@@ -128,5 +116,5 @@ export default async function handler(req, res) {
     }
   } catch { /* non-blocking */ }
 
-  return res.status(201).json(ship);
+  return send(201, ship);
 }

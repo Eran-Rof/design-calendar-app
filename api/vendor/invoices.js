@@ -21,29 +21,14 @@
 //     '{vendor name} submitted invoice {invoice_number}'
 
 import { createClient } from "@supabase/supabase-js";
+import { authenticateVendor } from "../_lib/vendor-auth.js";
 
 export const config = { maxDuration: 30 };
-
-async function resolveVendor(admin, authHeader) {
-  const jwt = authHeader && authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  if (!jwt) return null;
-  try {
-    const { data, error } = await admin.auth.getUser(jwt);
-    if (error || !data?.user) return null;
-    const { data: vu } = await admin
-      .from("vendor_users")
-      .select("id, vendor_id, display_name")
-      .eq("auth_id", data.user.id)
-      .maybeSingle();
-    if (!vu) return null;
-    return { ...vu, auth_id: data.user.id, email: data.user.email };
-  } catch { return null; }
-}
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key");
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -52,11 +37,14 @@ export default async function handler(req, res) {
   if (!SB_URL || !SERVICE_KEY) return res.status(500).json({ error: "Server not configured" });
   const admin = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
-  const caller = await resolveVendor(admin, req.headers.authorization);
-  if (!caller) return res.status(401).json({ error: "Authentication required" });
+  const authResult = await authenticateVendor(admin, req, { requiredScope: "invoices:write" });
+  if (!authResult.ok) return res.status(authResult.status).json({ error: authResult.error });
+  const { auth, finish } = authResult;
+  const caller = { vendor_id: auth.vendor_id, id: auth.vendor_user_id || null };
+  const send = (code, body) => { finish?.(code); return res.status(code).json(body); };
 
   let body = req.body;
-  if (typeof body === "string") { try { body = JSON.parse(body); } catch { return res.status(400).json({ error: "Invalid JSON" }); } }
+  if (typeof body === "string") { try { body = JSON.parse(body); } catch { return send(400, { error: "Invalid JSON" }); } }
 
   const {
     po_id, invoice_number, invoice_date, due_date, currency,
@@ -64,15 +52,15 @@ export default async function handler(req, res) {
     line_items,
   } = body || {};
 
-  if (!po_id) return res.status(400).json({ error: "po_id is required" });
-  if (!invoice_number || typeof invoice_number !== "string" || !invoice_number.trim()) return res.status(400).json({ error: "invoice_number is required" });
-  if (!Array.isArray(line_items) || line_items.length === 0) return res.status(400).json({ error: "At least one line_item is required" });
+  if (!po_id) return send(400, { error: "po_id is required" });
+  if (!invoice_number || typeof invoice_number !== "string" || !invoice_number.trim()) return send(400, { error: "invoice_number is required" });
+  if (!Array.isArray(line_items) || line_items.length === 0) return send(400, { error: "At least one line_item is required" });
 
   // Verify the PO belongs to the caller's vendor
   const { data: po } = await admin
     .from("tanda_pos").select("uuid_id, po_number, vendor_id")
     .eq("uuid_id", po_id).eq("vendor_id", caller.vendor_id).maybeSingle();
-  if (!po) return res.status(403).json({ error: "PO not found or not yours" });
+  if (!po) return send(403, { error: "PO not found or not yours" });
 
   // Insert invoice header
   const { data: inv, error: invErr } = await admin.from("invoices").insert({
@@ -91,8 +79,8 @@ export default async function handler(req, res) {
     notes: notes ? String(notes).trim() : null,
   }).select("*").single();
   if (invErr) {
-    if (invErr.code === "23505") return res.status(409).json({ error: `Invoice ${invoice_number} already exists for this vendor` });
-    return res.status(500).json({ error: invErr.message });
+    if (invErr.code === "23505") return send(409, { error: `Invoice ${invoice_number} already exists for this vendor` });
+    return send(500, { error: invErr.message });
   }
 
   // Insert line items
@@ -110,7 +98,7 @@ export default async function handler(req, res) {
   const { error: liErr } = await admin.from("invoice_line_items").insert(lineRows);
   if (liErr) {
     // Non-fatal: header exists. Return with warning so caller knows.
-    return res.status(201).json({ ...inv, line_items_error: liErr.message });
+    return send(201, { ...inv, line_items_error: liErr.message });
   }
 
   // Fire internal notifications
@@ -140,5 +128,5 @@ export default async function handler(req, res) {
     }
   } catch { /* non-blocking */ }
 
-  return res.status(201).json(inv);
+  return send(201, inv);
 }
