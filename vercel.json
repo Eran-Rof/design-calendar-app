@@ -5,6 +5,7 @@
   "crons": [
     { "path": "/api/cron/compliance-daily", "schedule": "0 14 * * *" },
     { "path": "/api/cron/contracts-daily", "schedule": "0 15 * * *" },
-    { "path": "/api/cron/scorecards-monthly", "schedule": "0 6 1 * *" }
+    { "path": "/api/cron/scorecards-monthly", "schedule": "0 6 1 * *" },
+    { "path": "/api/cron/anomalies-nightly", "schedule": "0 8 * * *" }
   ]
 }
