@@ -37,8 +37,11 @@ export const S: Record<string, React.CSSProperties> = {
   statsRow:   { display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12, marginBottom: 16 },
   statCard:   { background: PAL.panel, borderRadius: 10, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 4 },
   toolbar:    { display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap" },
-  input:      { background: PAL.bg, border: `1px solid ${PAL.border}`, borderRadius: 8, padding: "8px 12px", color: PAL.text, fontSize: 13, outline: "none", boxSizing: "border-box" },
-  select:     { background: PAL.bg, border: `1px solid ${PAL.border}`, borderRadius: 8, padding: "8px 12px", color: PAL.text, fontSize: 13, outline: "none" },
+  // colorScheme: "dark" makes the browser render its native widgets
+  // (date/month picker icon + popup, scrollbars) in dark mode so the
+  // calendar glyph is actually visible on our PAL.bg inputs.
+  input:      { background: PAL.bg, border: `1px solid ${PAL.border}`, borderRadius: 8, padding: "8px 12px", color: PAL.text, fontSize: 13, outline: "none", boxSizing: "border-box", colorScheme: "dark" },
+  select:     { background: PAL.bg, border: `1px solid ${PAL.border}`, borderRadius: 8, padding: "8px 12px", color: PAL.text, fontSize: 13, outline: "none", colorScheme: "dark" },
   label:      { color: PAL.textDim, fontSize: 12, display: "block", marginBottom: 4 },
   tableWrap:  { overflow: "auto", maxHeight: "calc(100vh - 260px)", borderRadius: 10, border: `1px solid ${PAL.border}`, background: PAL.bg },
   table:      { borderCollapse: "separate" as const, borderSpacing: 0, width: "100%", fontSize: 12 },
