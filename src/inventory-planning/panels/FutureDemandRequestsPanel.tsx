@@ -14,7 +14,9 @@ import type {
 } from "../types/wholesale";
 import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { monthOf } from "../compute/periods";
-import { S, PAL, formatQty, formatDate, formatPeriodCode } from "../components/styles";
+import { S, PAL, formatQty, formatPeriodCode } from "../components/styles";
+import ConfirmModal from "../components/ConfirmModal";
+import type { ToastMessage } from "../components/Toast";
 
 const REQUEST_TYPES: IpRequestType[] = [
   "buyer_request", "expected_reorder", "program_fill_in",
@@ -29,16 +31,18 @@ export interface FutureDemandRequestsPanelProps {
   items: IpItem[];
   requests: IpFutureDemandRequest[];
   onChange: () => Promise<void> | void;
+  onToast: (t: ToastMessage) => void;
   currentUser?: string | null;
 }
 
 export default function FutureDemandRequestsPanel({
-  customers, categories, items, requests, onChange, currentUser,
+  customers, categories, items, requests, onChange, onToast, currentUser,
 }: FutureDemandRequestsPanelProps) {
   const [filterStatus, setFilterStatus] = useState<IpRequestStatus | "all">("open");
   const [filterCustomer, setFilterCustomer] = useState<string>("all");
   const [showForm, setShowForm] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<IpFutureDemandRequest | null>(null);
 
   const visible = useMemo(() => {
     return requests.filter((r) => {
@@ -56,17 +60,25 @@ export default function FutureDemandRequestsPanel({
     try {
       await wholesaleRepo.updateRequest(id, { request_status: "archived" });
       await onChange();
+      onToast({ text: "Request archived", kind: "success" });
+    } catch (e) {
+      onToast({ text: "Archive failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
     } finally {
       setBusyId(null);
     }
   }
 
-  async function remove(id: string) {
-    if (!window.confirm("Delete this request? This cannot be undone.")) return;
-    setBusyId(id);
+  async function confirmDelete() {
+    const target = deleteTarget;
+    if (!target) return;
+    setDeleteTarget(null);
+    setBusyId(target.id);
     try {
-      await wholesaleRepo.deleteRequest(id);
+      await wholesaleRepo.deleteRequest(target.id);
       await onChange();
+      onToast({ text: "Request deleted", kind: "success" });
+    } catch (e) {
+      onToast({ text: "Delete failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
     } finally {
       setBusyId(null);
     }
@@ -130,7 +142,7 @@ export default function FutureDemandRequestsPanel({
                         Archive
                       </button>
                     )}
-                    <button style={{ ...S.btnGhost, color: PAL.red }} onClick={() => remove(r.id)} disabled={busyId === r.id}>
+                    <button style={{ ...S.btnGhost, color: PAL.red }} onClick={() => setDeleteTarget(r)} disabled={busyId === r.id}>
                       Delete
                     </button>
                   </td>
@@ -138,7 +150,11 @@ export default function FutureDemandRequestsPanel({
               );
             })}
             {visible.length === 0 && (
-              <tr><td colSpan={9} style={{ ...S.td, color: PAL.textMuted, textAlign: "center" }}>No requests match the filter.</td></tr>
+              <tr><td colSpan={9} style={{ ...S.td, color: PAL.textMuted, textAlign: "center", padding: 32 }}>
+                {requests.length === 0
+                  ? "No future demand requests yet. Click \"New request\" to add the first one."
+                  : "No requests match your filters."}
+              </td></tr>
             )}
           </tbody>
         </table>
@@ -151,7 +167,23 @@ export default function FutureDemandRequestsPanel({
           items={items}
           currentUser={currentUser}
           onClose={() => setShowForm(false)}
-          onSaved={async () => { setShowForm(false); await onChange(); }}
+          onToast={onToast}
+          onSaved={async () => {
+            setShowForm(false);
+            onToast({ text: "Request created", kind: "success" });
+            await onChange();
+          }}
+        />
+      )}
+      {deleteTarget && (
+        <ConfirmModal
+          icon="🗑"
+          title="Delete request?"
+          message="This removes the request entirely. Archive it instead if you want to keep the record."
+          confirmText="Delete"
+          confirmColor={PAL.red}
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteTarget(null)}
         />
       )}
     </div>
@@ -159,7 +191,7 @@ export default function FutureDemandRequestsPanel({
 }
 
 function RequestForm({
-  customers, categories, items, currentUser, onClose, onSaved,
+  customers, categories, items, currentUser, onClose, onSaved, onToast,
 }: {
   customers: IpCustomer[];
   categories: IpCategory[];
@@ -167,6 +199,7 @@ function RequestForm({
   currentUser?: string | null;
   onClose: () => void;
   onSaved: () => Promise<void>;
+  onToast: (t: ToastMessage) => void;
 }) {
   const [customerId, setCustomerId] = useState<string>(customers[0]?.id ?? "");
   const [skuId, setSkuId] = useState<string>("");
@@ -180,7 +213,6 @@ function RequestForm({
   const [type, setType] = useState<IpRequestType>("buyer_request");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const filteredItems = useMemo(() => {
     const q = skuSearch.trim().toUpperCase();
@@ -191,12 +223,11 @@ function RequestForm({
   }, [items, skuSearch]);
 
   async function save() {
-    setError(null);
     const qn = Number(qty);
-    if (!customerId) { setError("Pick a customer"); return; }
-    if (!skuId)      { setError("Pick a SKU"); return; }
-    if (!/^\d{4}-\d{2}$/.test(periodCode)) { setError("Period must be YYYY-MM"); return; }
-    if (!Number.isFinite(qn) || qn <= 0)   { setError("Qty must be a positive number"); return; }
+    if (!customerId) { onToast({ text: "Pick a customer", kind: "error" }); return; }
+    if (!skuId)      { onToast({ text: "Pick a SKU", kind: "error" }); return; }
+    if (!/^\d{4}-\d{2}$/.test(periodCode)) { onToast({ text: "Pick a target month", kind: "error" }); return; }
+    if (!Number.isFinite(qn) || qn <= 0)   { onToast({ text: "Qty must be a positive number", kind: "error" }); return; }
 
     const period = monthOf(`${periodCode}-01`);
     const item = items.find((i) => i.id === skuId);
@@ -217,7 +248,7 @@ function RequestForm({
       });
       await onSaved();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      onToast({ text: "Couldn't create request — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
     } finally {
       setSaving(false);
     }
@@ -256,8 +287,8 @@ function RequestForm({
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <div>
-                <label style={S.label}>Target month (YYYY-MM)</label>
-                <input style={{ ...S.input, width: "100%" }} value={periodCode}
+                <label style={S.label}>Target month</label>
+                <input type="month" style={{ ...S.input, width: "100%" }} value={periodCode}
                        onChange={(e) => setPeriodCode(e.target.value)} />
               </div>
               <div>
@@ -286,7 +317,6 @@ function RequestForm({
               <input style={{ ...S.input, width: "100%" }} value={note}
                      onChange={(e) => setNote(e.target.value)} />
             </div>
-            {error && <div style={{ color: PAL.red, fontSize: 12 }}>{error}</div>}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <button style={S.btnSecondary} onClick={onClose}>Cancel</button>
               <button style={S.btnPrimary} onClick={save} disabled={saving}>

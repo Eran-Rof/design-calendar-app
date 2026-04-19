@@ -27,6 +27,7 @@ import PlanningRunControls from "./PlanningRunControls";
 import WholesalePlanningGrid from "./WholesalePlanningGrid";
 import FutureDemandRequestsPanel from "./FutureDemandRequestsPanel";
 import ForecastDetailDrawer from "../components/ForecastDetailDrawer";
+import Toast, { type ToastMessage } from "../components/Toast";
 
 async function fetchForecast(id: string): Promise<IpWholesaleForecast | null> {
   if (!SB_URL) return null;
@@ -49,8 +50,8 @@ export default function WholesalePlanningWorkbench() {
   const [overrides, setOverrides] = useState<IpPlannerOverride[]>([]);
   const [tab, setTab] = useState<TabKey>("grid");
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selectedRow, setSelectedRow] = useState<IpPlanningGridRow | null>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
 
   const selectedRun = useMemo(() => runs.find((r) => r.id === selectedRunId) ?? null, [runs, selectedRunId]);
 
@@ -85,12 +86,11 @@ export default function WholesalePlanningWorkbench() {
 
   const refreshAll = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
       await loadMasters();
       await loadRunData();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setToast({ text: "Load failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
     } finally {
       setLoading(false);
     }
@@ -132,6 +132,7 @@ export default function WholesalePlanningWorkbench() {
     const refreshed = await buildGridRows(selectedRun!);
     const row = refreshed.find((r) => r.forecast_id === selectedRow.forecast_id) ?? null;
     setSelectedRow(row);
+    setToast({ text: "Override saved", kind: "success" });
   }
 
   return (
@@ -156,6 +157,7 @@ export default function WholesalePlanningWorkbench() {
           selectedRunId={selectedRunId}
           onSelect={(id) => setSelectedRunId(id)}
           onChange={refreshAll}
+          onToast={(t) => setToast(t)}
         />
 
         <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
@@ -164,8 +166,6 @@ export default function WholesalePlanningWorkbench() {
             Future demand requests ({requests.length})
           </TabButton>
         </div>
-
-        {error && <div style={{ color: PAL.red, marginBottom: 8 }}>Error: {error}</div>}
 
         {tab === "grid" && (
           <WholesalePlanningGrid
@@ -182,6 +182,7 @@ export default function WholesalePlanningWorkbench() {
             items={items}
             requests={requests}
             onChange={refreshAll}
+            onToast={(t) => setToast(t)}
           />
         )}
       </div>
@@ -194,6 +195,8 @@ export default function WholesalePlanningWorkbench() {
           onSaveOverride={saveOverride}
         />
       )}
+
+      <Toast toast={toast} onDismiss={() => setToast(null)} />
     </div>
   );
 }

@@ -58,7 +58,9 @@ export default function ForecastDetailDrawer({
         reason_code: reason,
         note: note.trim() || null,
       });
+      setNote("");
     } catch (e) {
+      // Surface errors inline since the drawer may sit above the toast.
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);

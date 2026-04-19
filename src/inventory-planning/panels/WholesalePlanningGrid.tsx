@@ -170,7 +170,9 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
             ))}
             {!loading && filtered.length === 0 && (
               <tr><td colSpan={17} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
-                No forecast rows yet. Build a forecast for this run to populate the grid.
+                {rows.length === 0
+                  ? "No forecast rows yet. Click \"Build forecast\" above to populate the grid."
+                  : "No rows match your filters."}
               </td></tr>
             )}
             {loading && (

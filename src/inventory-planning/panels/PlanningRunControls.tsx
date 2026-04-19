@@ -8,33 +8,37 @@ import type { IpPlanningRun, IpPlanningRunStatus } from "../types/wholesale";
 import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { runForecastPass } from "../services/wholesaleForecastService";
 import { S, PAL, formatDate } from "../components/styles";
+import type { ToastMessage } from "../components/Toast";
 
 export interface PlanningRunControlsProps {
   runs: IpPlanningRun[];
   selectedRunId: string | null;
   onSelect: (runId: string) => void;
   onChange: () => Promise<void> | void;
+  onToast: (t: ToastMessage) => void;
 }
 
-export default function PlanningRunControls({ runs, selectedRunId, onSelect, onChange }: PlanningRunControlsProps) {
+export default function PlanningRunControls({ runs, selectedRunId, onSelect, onChange, onToast }: PlanningRunControlsProps) {
   const [showNew, setShowNew] = useState(false);
   const [building, setBuilding] = useState(false);
-  const [buildMsg, setBuildMsg] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const selected = runs.find((r) => r.id === selectedRunId) ?? null;
 
   async function buildForecast() {
-    if (!selected) { setError("Pick a run first"); return; }
-    setBuilding(true); setBuildMsg(null); setError(null);
+    if (!selected) { onToast({ text: "Pick a run first", kind: "error" }); return; }
+    setBuilding(true);
     try {
       const result = await runForecastPass(selected);
-      setBuildMsg(
-        `Wrote ${result.forecast_rows_written} forecast rows · ${result.recommendations_written} recommendations · ${result.pairs_considered} pairs.`,
-      );
+      onToast({
+        text: `Forecast built — ${result.forecast_rows_written} rows, ${result.recommendations_written} recs`,
+        kind: "success",
+      });
       await onChange();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      onToast({
+        text: "Forecast build failed — " + (e instanceof Error ? e.message : String(e)),
+        kind: "error",
+      });
     } finally {
       setBuilding(false);
     }
@@ -74,8 +78,6 @@ export default function PlanningRunControls({ runs, selectedRunId, onSelect, onC
             )}
           </>
         )}
-        {buildMsg && <span style={{ color: PAL.green, fontSize: 12 }}>{buildMsg}</span>}
-        {error && <span style={{ color: PAL.red, fontSize: 12 }}>{error}</span>}
       </div>
       {selected && (
         <div style={{ color: PAL.textMuted, fontSize: 12 }}>
@@ -85,13 +87,23 @@ export default function PlanningRunControls({ runs, selectedRunId, onSelect, onC
       )}
       {showNew && (
         <NewRunModal onClose={() => setShowNew(false)}
-                     onCreated={async (id) => { setShowNew(false); onSelect(id); await onChange(); }} />
+                     onToast={onToast}
+                     onCreated={async (id) => {
+                       setShowNew(false);
+                       onSelect(id);
+                       onToast({ text: "Planning run created", kind: "success" });
+                       await onChange();
+                     }} />
       )}
     </div>
   );
 }
 
-function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => Promise<void> }) {
+function NewRunModal({ onClose, onCreated, onToast }: {
+  onClose: () => void;
+  onCreated: (id: string) => Promise<void>;
+  onToast: (t: ToastMessage) => void;
+}) {
   const today = new Date();
   const yyyy = today.getUTCFullYear();
   const mm = String(today.getUTCMonth() + 1).padStart(2, "0");
@@ -105,13 +117,14 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
   const [snapshot, setSnapshot] = useState(today.toISOString().slice(0, 10));
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   async function save() {
-    setSaving(true); setError(null);
+    if (!name.trim()) { onToast({ text: "Name is required", kind: "error" }); return; }
+    if (horizonEnd < horizonStart) { onToast({ text: "Horizon end is before start", kind: "error" }); return; }
+    setSaving(true);
     try {
       const r = await wholesaleRepo.createPlanningRun({
-        name: name.trim() || "Wholesale plan",
+        name: name.trim(),
         planning_scope: "wholesale",
         status: "draft",
         source_snapshot_date: snapshot,
@@ -122,7 +135,7 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
       });
       await onCreated(r.id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      onToast({ text: "Couldn't create run — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
     } finally {
       setSaving(false);
     }
@@ -162,7 +175,6 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
               <label style={S.label}>Note</label>
               <input style={{ ...S.input, width: "100%" }} value={note} onChange={(e) => setNote(e.target.value)} />
             </div>
-            {error && <div style={{ color: PAL.red, fontSize: 12 }}>{error}</div>}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
               <button style={S.btnSecondary} onClick={onClose}>Cancel</button>
               <button style={S.btnPrimary} onClick={save} disabled={saving}>
