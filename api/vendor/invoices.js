@@ -43,6 +43,12 @@ export default async function handler(req, res) {
   const caller = { vendor_id: auth.vendor_id, id: auth.vendor_user_id || null };
   const send = (code, body) => { finish?.(code); return res.status(code).json(body); };
 
+  // Onboarding gate: block invoice submission until workflow approved.
+  const { data: wf } = await admin.from("onboarding_workflows").select("status").eq("vendor_id", caller.vendor_id).maybeSingle();
+  if (wf && wf.status !== "approved") {
+    return send(403, { error: `Onboarding must be approved before submitting invoices (current status: ${wf.status}). Complete onboarding at /vendor/onboarding.` });
+  }
+
   let body = req.body;
   if (typeof body === "string") { try { body = JSON.parse(body); } catch { return send(400, { error: "Invalid JSON" }); } }
 
