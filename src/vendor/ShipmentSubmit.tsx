@@ -134,45 +134,35 @@ export default function ShipmentSubmit() {
       return;
     }
 
-    const vendorIdRes = await supabaseVendor.from("vendor_users")
-      .select("vendor_id").eq("id", vendorUserId!).maybeSingle();
-    const vendor_id = vendorIdRes.data?.vendor_id;
-    if (!vendor_id) { setErr("Could not resolve vendor id."); return; }
-
-    const selectedPO = pos.find((p) => p.uuid_id === selectedPoId);
-
     setBusy(true);
     try {
-      const { data: sh, error: shErr } = await supabaseVendor
-        .from("shipments")
-        .insert({
-          vendor_id,
-          vendor_user_id: vendorUserId,
+      const { data: session } = await supabaseVendor.auth.getSession();
+      const accessToken = session?.session?.access_token;
+      if (!accessToken) { setErr("Not signed in."); setBusy(false); return; }
+
+      const lineItems = includedLines.map((l) => ({
+        po_line_item_id: l.line_id,
+        quantity_shipped: Number(l.qty_shipped) || 0,
+      }));
+
+      const r = await fetch("/api/vendor/shipments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({
           po_id: selectedPoId,
-          po_number: selectedPO?.po_number ?? null,
           asn_number: asnNumber.trim(),
-          number: trackingNumber.trim() ? trackingNumber.trim().toUpperCase() : null,
-          number_type: trackingNumber.trim() && trackingType ? trackingType : null,
           carrier,
           ship_date: shipDate || null,
           estimated_delivery: estimatedDelivery || null,
-          workflow_status: "submitted",
+          number: trackingNumber.trim() || undefined,
+          number_type: trackingNumber.trim() && trackingType ? trackingType : undefined,
           notes: notes.trim() || null,
-        })
-        .select("id")
-        .single();
-      if (shErr) throw shErr;
-
-      const lineRows = includedLines.map((l) => ({
-        shipment_id: sh!.id,
-        po_line_item_id: l.line_id,
-        quantity_shipped: Number(l.qty_shipped) || 0,
-        notes: null,
-      }));
-      const { error: lineErr } = await supabaseVendor.from("shipment_lines").insert(lineRows);
-      if (lineErr) throw lineErr;
-
-      nav(`/vendor/shipments/${sh!.id}`, { replace: true });
+          line_items: lineItems,
+        }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error || `Request failed (${r.status})`);
+      nav(`/vendor/shipments/${body.id}`, { replace: true });
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {

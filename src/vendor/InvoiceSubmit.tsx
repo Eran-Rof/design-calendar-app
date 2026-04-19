@@ -119,38 +119,16 @@ export default function InvoiceSubmit() {
     const includedLines = lineInputs.filter((l) => l.include && (Number(l.qty) || 0) > 0);
     if (includedLines.length === 0) { setErr("Add at least one line with quantity > 0."); return; }
 
-    const vendorIdRes = await supabaseVendor.from("vendor_users")
-      .select("vendor_id").eq("id", vendorUserId!).maybeSingle();
-    const vendor_id = vendorIdRes.data?.vendor_id;
-    if (!vendor_id) { setErr("Could not resolve vendor id."); return; }
-
     setBusy(true);
     try {
-      const { data: inv, error: invErr } = await supabaseVendor
-        .from("invoices")
-        .insert({
-          vendor_id,
-          po_id: selectedPoId,
-          invoice_number: invoiceNumber.trim(),
-          invoice_date: invoiceDate || null,
-          due_date: dueDate || null,
-          subtotal,
-          tax: Number(tax) || 0,
-          total,
-          currency,
-          status: "submitted",
-          submitted_by: vendorUserId,
-          notes: notes.trim() || null,
-        })
-        .select("id")
-        .single();
-      if (invErr) throw invErr;
+      const { data: session } = await supabaseVendor.auth.getSession();
+      const accessToken = session?.session?.access_token;
+      if (!accessToken) { setErr("Not signed in."); setBusy(false); return; }
 
-      const lineRows = includedLines.map((l, idx) => {
+      const lineItems = includedLines.map((l, idx) => {
         const q = Number(l.qty) || 0;
         const p = Number(l.unit_price) || 0;
         return {
-          invoice_id: inv!.id,
           po_line_item_id: l.line_id,
           line_index: idx + 1,
           description: l.description || null,
@@ -159,10 +137,26 @@ export default function InvoiceSubmit() {
           line_total: q * p,
         };
       });
-      const { error: lineErr } = await supabaseVendor.from("invoice_line_items").insert(lineRows);
-      if (lineErr) throw lineErr;
 
-      nav(`/vendor/invoices/${inv!.id}`, { replace: true });
+      const r = await fetch("/api/vendor/invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({
+          po_id: selectedPoId,
+          invoice_number: invoiceNumber.trim(),
+          invoice_date: invoiceDate || null,
+          due_date: dueDate || null,
+          currency,
+          subtotal,
+          tax: Number(tax) || 0,
+          total,
+          notes: notes.trim() || null,
+          line_items: lineItems,
+        }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error || `Request failed (${r.status})`);
+      nav(`/vendor/invoices/${body.id}`, { replace: true });
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
