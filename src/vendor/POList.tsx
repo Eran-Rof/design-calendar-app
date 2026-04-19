@@ -68,6 +68,7 @@ type Filter = "all" | "action" | "ack";
 export default function POList() {
   const [rows, setRows] = useState<PORow[]>([]);
   const [ackIds, setAckIds] = useState<Set<string>>(new Set());
+  const [ackAtByPo, setAckAtByPo] = useState<Map<string, string>>(new Map());
   const [vendorUserId, setVendorUserId] = useState<string | null>(null);
   const [lastReceivedByPo, setLastReceivedByPo] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -98,7 +99,7 @@ export default function POList() {
         const vuId = vu.id as string;
         const { data: acks, error: acksErr } = await supabaseVendor
           .from("po_acknowledgments")
-          .select("po_number")
+          .select("po_number, acknowledged_at")
           .eq("vendor_user_id", vuId);
         if (acksErr) throw acksErr;
 
@@ -107,6 +108,11 @@ export default function POList() {
         const active = ((pos ?? []) as PORow[]).filter((r) => !r.data?._archived);
         setRows(active);
         setAckIds(new Set((acks ?? []).map((a: { po_number: string }) => a.po_number)));
+        const ackMap = new Map<string, string>();
+        for (const a of (acks ?? []) as { po_number: string; acknowledged_at: string | null }[]) {
+          if (a.acknowledged_at) ackMap.set(a.po_number, a.acknowledged_at);
+        }
+        setAckAtByPo(ackMap);
 
         // Pull the most recent received_date per PO for the "Received" column.
         const poIds = active.map((r) => r.uuid_id).filter(Boolean);
@@ -213,16 +219,17 @@ export default function POList() {
       </div>
 
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "auto", boxShadow: `0 1px 2px ${TH.shadow}` }}>
-        <div style={{ display: "grid", gridTemplateColumns: "120px 100px 110px 110px 110px 120px 110px 120px 100px 110px 150px", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05, minWidth: 1320 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "120px 100px 110px 110px 120px 130px 110px 120px 120px 120px 140px 150px", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05, minWidth: 1450 }}>
           <div>PO #</div>
           <div>Issued</div>
           <div>Required</div>
           <div style={{ textAlign: "right" }}>Amount</div>
-          <div>Received</div>
+          <div>Date Received</div>
           <div style={{ textAlign: "right" }}>Qty Rcv / Ord</div>
           <div style={{ textAlign: "right" }}>Qty Remain</div>
           <div style={{ textAlign: "right" }}>Amt Received</div>
           <div style={{ textAlign: "right" }}>Amt Remain</div>
+          <div>Ack Date</div>
           <div>Status</div>
           <div style={{ textAlign: "right" }}>Action</div>
         </div>
@@ -235,13 +242,14 @@ export default function POList() {
           const ddp = r.date_expected_delivery || p.DateExpectedDelivery;
           const days = daysUntil(ddp);
           const acked = ackIds.has(r.po_number);
+          const ackedAt = ackAtByPo.get(r.po_number);
           const totals = poReceivedTotals(p);
           const receivedOn = lastReceivedByPo.get(r.uuid_id);
           return (
             <Link
               key={r.id}
               to={`/vendor/pos/${r.uuid_id}`}
-              style={{ display: "grid", gridTemplateColumns: "120px 100px 110px 110px 110px 120px 110px 120px 100px 110px 150px", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", textDecoration: "none", color: "inherit", minWidth: 1320 }}
+              style={{ display: "grid", gridTemplateColumns: "120px 100px 110px 110px 120px 130px 110px 120px 120px 120px 140px 150px", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", textDecoration: "none", color: "inherit", minWidth: 1450 }}
             >
               <div style={{ fontWeight: 600, color: TH.primary }}>{r.po_number}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(p.DateOrder)}</div>
@@ -266,8 +274,9 @@ export default function POList() {
               <div style={{ color: totals.amountRemaining === 0 ? "#047857" : TH.textSub2, textAlign: "right", fontWeight: totals.amountRemaining === 0 ? 600 : 400 }}>
                 {totals.qtyOrdered > 0 ? fmtMoney(totals.amountRemaining) : "—"}
               </div>
+              <div style={{ color: TH.textSub2 }}>{ackedAt ? fmtDate(ackedAt) : "—"}</div>
               <div>
-                <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: TH.surfaceHi, border: `1px solid ${TH.border}`, color: TH.textSub }}>
+                <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: TH.surfaceHi, border: `1px solid ${TH.border}`, color: TH.textSub, whiteSpace: "nowrap" }}>
                   {p.StatusName || "—"}
                 </span>
               </div>
