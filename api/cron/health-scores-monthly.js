@@ -132,28 +132,65 @@ export default async function handler(req, res) {
     if (!flag) continue;
     flagged++;
 
-    // Alert team leads on new high/critical
+    // Dual fanout:
+    //   - vendor_flagged to internal ops (alerts the flag was raised)
+    //   - health_score_low to internal team + vendor admin users
+    //     (explains *why* and gives the vendor visibility)
     try {
-      const emails = (process.env.INTERNAL_VENDOR_ALERT_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "")
+      const internalEmails = (process.env.INTERNAL_VENDOR_ALERT_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "")
         .split(",").map((e) => e.trim()).filter(Boolean);
-      if (emails.length > 0) {
-        await Promise.all(emails.map((email) =>
-          fetch(`${origin}/api/send-notification`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              event_type: "vendor_flagged",
-              title: `Vendor flagged [${flag.severity}]: ${vendor.name} — health ${score}`,
-              body: `Monthly health score snapshot placed ${vendor.name} at ${score}/100 for ${period_start} to ${period_end}. Review their scorecard detail.`,
-              link: "/",
-              metadata: { vendor_id: vendor.id, score, period_start, period_end },
-              recipient: { internal_id: "vendor_ops", email },
-              dedupe_key: `health_flag_${vendor.id}_${period_start}_${email}`,
-              email: true,
-            }),
-          }).catch(() => {})
-        ));
-      }
+      await Promise.all(internalEmails.map((email) =>
+        fetch(`${origin}/api/send-notification`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            event_type: "vendor_flagged",
+            title: `Vendor flagged [${flag.severity}]: ${vendor.name} — health ${score}`,
+            body: `Monthly health score snapshot placed ${vendor.name} at ${score}/100 for ${period_start} to ${period_end}. Review their scorecard detail.`,
+            link: "/",
+            metadata: { vendor_id: vendor.id, score, period_start, period_end },
+            recipient: { internal_id: "vendor_ops", email },
+            dedupe_key: `health_flag_${vendor.id}_${period_start}_${email}`,
+            email: true,
+          }),
+        }).catch(() => {})
+      ));
+
+      // health_score_low → internal team (same pool) + vendor admins
+      const lowTitle = `Vendor health score alert: ${vendor.name} scored ${score}/100`;
+      const lowBody = `Health score for ${period_start}..${period_end} dropped below the 60 threshold. Sub-scores and breakdown are available on the vendor profile. Please review what's driving the drop and follow up.`;
+      await Promise.all(internalEmails.map((email) =>
+        fetch(`${origin}/api/send-notification`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            event_type: "health_score_low",
+            title: lowTitle,
+            body: lowBody,
+            link: "/",
+            metadata: { vendor_id: vendor.id, score, period_start, period_end },
+            recipient: { internal_id: "vendor_ops", email },
+            dedupe_key: `health_score_low_${vendor.id}_${period_start}_${email}`,
+            email: true,
+          }),
+        }).catch(() => {})
+      ));
+      // Vendor admins — routed by vendor_id, recipient resolution on the
+      // send-notification side picks up the primary vendor_user.
+      await fetch(`${origin}/api/send-notification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_type: "health_score_low",
+          title: lowTitle,
+          body: `${lowBody}\n\nWe'll work with your account team on a path to recovery — please check the scorecard page for the sub-score breakdown.`,
+          link: "/vendor/scorecard",
+          metadata: { vendor_id: vendor.id, score, period_start, period_end },
+          recipient: { vendor_id: vendor.id },
+          dedupe_key: `health_score_low_${vendor.id}_${period_start}_vendor`,
+          email: true,
+        }),
+      }).catch(() => {});
     } catch { /* non-blocking */ }
   }
 

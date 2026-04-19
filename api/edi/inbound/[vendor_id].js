@@ -49,11 +49,13 @@ export default async function handler(req, res) {
   let interchangeIdOverride = null;
   if (req.body && typeof req.body === "object" && req.body.interchange_id) interchangeIdOverride = req.body.interchange_id;
 
+  const origin = `https://${req.headers.host}`;
   const result = await processInboundEdi({
     admin, raw,
     pinnedVendorId: vendorId,
     interchangeIdOverride,
     strictSenderCheck: true,
+    origin,
   });
   if (result.status !== 200) return res.status(result.status).json({ error: result.error });
 

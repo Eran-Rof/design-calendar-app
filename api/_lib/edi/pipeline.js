@@ -62,7 +62,84 @@ export async function readRawBody(req) {
   });
 }
 
-export async function processInboundEdi({ admin, raw, pinnedVendorId = null, interchangeIdOverride = null, strictSenderCheck = false }) {
+async function fireEdiProcessingError({ admin, origin, vendor, transactionSet, errorMessage, interchangeId }) {
+  if (!origin) return;
+  try {
+    const vendorEmails = (process.env.INTERNAL_EDI_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "")
+      .split(",").map((e) => e.trim()).filter(Boolean);
+    const title = `EDI processing error: ${transactionSet} from ${vendor.name}`;
+    const body = `Transaction ${transactionSet} (interchange ${interchangeId || "?"}) failed mapping.\n\nError: ${errorMessage}\n\nCheck the raw envelope in the internal EDI history view.`;
+    // Internal
+    await Promise.all(vendorEmails.map((email) =>
+      fetch(`${origin}/api/send-notification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_type: "edi_processing_error",
+          title, body,
+          link: "/",
+          metadata: { vendor_id: vendor.id, transaction_set: transactionSet, interchange_id: interchangeId, error: errorMessage },
+          recipient: { internal_id: "edi_ops", email },
+          dedupe_key: `edi_error_${vendor.id}_${transactionSet}_${interchangeId}_${email}`,
+          email: true,
+        }),
+      }).catch(() => {})
+    ));
+    // Vendor admin
+    await fetch(`${origin}/api/send-notification`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event_type: "edi_processing_error",
+        title: `EDI processing error: ${transactionSet}`,
+        body: `Your ${transactionSet} transaction could not be processed.\n\nError: ${errorMessage}\n\nPlease check the data and resubmit.`,
+        link: "/vendor/edi/status",
+        metadata: { vendor_id: vendor.id, transaction_set: transactionSet, interchange_id: interchangeId, error: errorMessage },
+        recipient: { vendor_id: vendor.id },
+        dedupe_key: `edi_error_${vendor.id}_${transactionSet}_${interchangeId}_vendor`,
+        email: true,
+      }),
+    }).catch(() => {});
+  } catch { /* non-blocking */ }
+}
+
+async function checkAndFireErpSyncError({ admin, origin, integrationId, vendor }) {
+  if (!origin || !integrationId || !vendor) return;
+  try {
+    const { data: recent } = await admin
+      .from("erp_sync_logs")
+      .select("status")
+      .eq("integration_id", integrationId)
+      .order("created_at", { ascending: false })
+      .limit(3);
+    if (!recent || recent.length < 3) return;
+    if (recent.some((r) => r.status !== "error")) return;
+
+    const emails = (process.env.INTERNAL_EDI_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "")
+      .split(",").map((e) => e.trim()).filter(Boolean);
+    if (emails.length === 0) return;
+
+    const dayKey = new Date().toISOString().slice(0, 10);
+    await Promise.all(emails.map((email) =>
+      fetch(`${origin}/api/send-notification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_type: "erp_sync_error",
+          title: `ERP sync failing for ${vendor.name}`,
+          body: `Three consecutive ERP sync attempts failed for ${vendor.name}. Check the integration config and the most recent error messages in erp_sync_logs.`,
+          link: "/",
+          metadata: { vendor_id: vendor.id, integration_id: integrationId },
+          recipient: { internal_id: "edi_ops", email },
+          dedupe_key: `erp_sync_error_${integrationId}_${dayKey}_${email}`,
+          email: true,
+        }),
+      }).catch(() => {})
+    ));
+  } catch { /* non-blocking */ }
+}
+
+export async function processInboundEdi({ admin, raw, pinnedVendorId = null, interchangeIdOverride = null, strictSenderCheck = false, origin = null }) {
   if (!raw || !raw.trim()) return { status: 400, error: "Empty EDI body", results: [], ack: "" };
 
   const envelope = parseEnvelope(raw);
@@ -118,13 +195,14 @@ export async function processInboundEdi({ admin, raw, pinnedVendorId = null, int
       else mapped = { ok: false, error: `Unsupported inbound transaction set: ${set}` };
 
       const { data: integration } = await admin.from("erp_integrations").select("id").eq("vendor_id", vendor.id).eq("status", "active").maybeSingle();
+      const logStatus = mapped?.ok ? "success" : (mapped?.duplicate ? "skipped" : "error");
       if (integration) {
         await admin.from("erp_sync_logs").insert({
           integration_id: integration.id,
           direction: "inbound",
           entity_type: ["po", "shipment", "invoice"].includes(mapped?.entity_type) ? mapped.entity_type : "po",
           entity_id: mapped?.entity_id || null,
-          status: mapped?.ok ? "success" : (mapped?.duplicate ? "skipped" : "error"),
+          status: logStatus,
           payload_hash: `${interchangeId}-${gsCtl.controlNumber}-${stCtl.controlNumber}`,
           error_message: mapped?.ok ? null : (mapped?.error || null),
         });
@@ -135,6 +213,19 @@ export async function processInboundEdi({ admin, raw, pinnedVendorId = null, int
         error_message: mapped?.ok ? null : (mapped?.error || null),
         updated_at: new Date().toISOString(),
       }).eq("id", msg.id);
+
+      // Notifications on mapper failure
+      if (!mapped?.ok && !mapped?.duplicate) {
+        await fireEdiProcessingError({
+          admin, origin, vendor,
+          transactionSet: set,
+          errorMessage: mapped?.error || "Unknown mapper error",
+          interchangeId,
+        });
+        if (integration) {
+          await checkAndFireErpSyncError({ admin, origin, integrationId: integration.id, vendor });
+        }
+      }
 
       results.push({ group: gsCtl, transaction: stCtl, mapped, accepted: !!mapped?.ok });
     }

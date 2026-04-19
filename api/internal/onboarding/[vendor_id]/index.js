@@ -97,7 +97,7 @@ export default async function handler(req, res) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             event_type: "onboarding_approved",
-            title: "Onboarding approved",
+            title: "Your vendor account is approved — you can now transact",
             body: `${vendor?.name || "Your account"} has been approved. You can now submit invoices and access all portal features.`,
             link: "/vendor",
             metadata: { workflow_id: workflow.id, vendor_id: vendorId },
@@ -146,7 +146,7 @@ export default async function handler(req, res) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           event_type: "onboarding_rejected",
-          title: "Onboarding needs changes",
+          title: "Action needed: onboarding review requires updates",
           body: `${vendor?.name || "Your account"} onboarding was reviewed and needs updates.\n\nReason: ${rejection_reason}${failed.length > 0 ? `\n\nSteps to revisit: ${failed.join(", ")}` : ""}`,
           link: "/vendor/onboarding",
           metadata: { workflow_id: workflow.id, vendor_id: vendorId, failed_steps: failed },

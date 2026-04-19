@@ -40,7 +40,8 @@ export default async function handler(req, res) {
     if (req.body.interchange_id) interchangeIdOverride = req.body.interchange_id;
   }
 
-  const result = await processInboundEdi({ admin, raw, pinnedVendorId, interchangeIdOverride, strictSenderCheck: false });
+  const origin = `https://${req.headers.host}`;
+  const result = await processInboundEdi({ admin, raw, pinnedVendorId, interchangeIdOverride, strictSenderCheck: false, origin });
   if (result.status !== 200) return res.status(result.status).json({ error: result.error });
 
   res.setHeader("Content-Type", "application/edi-x12");

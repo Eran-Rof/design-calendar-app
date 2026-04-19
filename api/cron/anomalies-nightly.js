@@ -37,16 +37,31 @@ function monthKey(d) { const x = new Date(d); return `${x.getUTCFullYear()}-${St
 
 async function fireHighSeverityAlert(admin, origin, vendor, flag) {
   try {
-    const emails = (process.env.INTERNAL_VENDOR_ALERT_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "")
-      .split(",").map((e) => e.trim()).filter(Boolean);
-    if (emails.length === 0) return;
+    // Procurement + finance team — procurement sees vendor issues,
+    // finance sees the ones that touch payment/invoice risk.
+    const pool = new Set();
+    for (const raw of [
+      process.env.INTERNAL_PROCUREMENT_EMAILS,
+      process.env.INTERNAL_FINANCE_EMAILS,
+      process.env.INTERNAL_VENDOR_ALERT_EMAILS,
+      process.env.INTERNAL_COMPLIANCE_EMAILS,
+    ]) {
+      if (!raw) continue;
+      for (const e of raw.split(",")) {
+        const v = e.trim();
+        if (v) pool.add(v);
+      }
+      if (pool.size > 0) break; // first source with any entries wins
+    }
+    if (pool.size === 0) return;
+    const emails = [...pool];
     await Promise.all(emails.map((email) =>
       fetch(`${origin}/api/send-notification`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           event_type: "anomaly_detected",
-          title: `Anomaly [${flag.severity}] ${vendor.name}: ${flag.type}`,
+          title: `[${flag.severity}] Anomaly detected: ${flag.type} for ${vendor.name}`,
           body: flag.description,
           link: "/",
           metadata: { anomaly_id: flag.id, vendor_id: vendor.id, type: flag.type, severity: flag.severity },
