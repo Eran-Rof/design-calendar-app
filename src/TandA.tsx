@@ -22,6 +22,7 @@ import MatchView from "./tanda/MatchView";
 import ComplianceReview from "./tanda/ComplianceReview";
 import MessagesView from "./tanda/MessagesView";
 import VendorLeaderboard from "./tanda/VendorLeaderboard";
+import SpendReport from "./tanda/SpendReport";
 import { SyncModals } from "./tanda/views/SyncModal";
 import { SettingsModal } from "./tanda/views/SettingsModal";
 
@@ -1235,6 +1236,7 @@ function TandAApp() {
           <button style={view === "compliance" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("compliance"); })}>📋 Compliance</button>
           <button style={view === "messages" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("messages"); })}>💬 Messages</button>
           <button style={view === "scorecards" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("scorecards"); })}>🏆 Scorecards</button>
+          <button style={view === "spend" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("spend"); })}>💰 Spend</button>
           <button style={S.navBtn} onClick={() => { setShowBulkUpdate(true); setBulkVendor(""); setBulkPhase(""); setBulkPhases([]); setBulkCategory(""); setBulkStatus(""); setBulkPOs([]); setBulkPOSearch(""); }}>⚡ Bulk Update</button>
           <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing} title="Sync POs from Xoro">
             {syncing ? "⏳ Syncing…" : "🔄 Sync"}
@@ -1363,6 +1365,9 @@ function TandAApp() {
 
         {/* ── VENDOR LEADERBOARD ── */}
         {view === "scorecards" && <VendorLeaderboard />}
+
+        {/* ── SPEND REPORT ── */}
+        {view === "spend" && <SpendReport />}
 
         {/* ── SHIPMENTS VIEW ── */}
         {view === "shipments" && <ShipmentsView />}

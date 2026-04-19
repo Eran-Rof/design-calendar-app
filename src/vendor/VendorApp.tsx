@@ -26,6 +26,7 @@ import ComplianceList from "./ComplianceList";
 import POMessages from "./POMessages";
 import VendorScorecard from "./VendorScorecard";
 import VendorReports from "./VendorReports";
+import VendorPODetail from "./VendorPODetail";
 
 function useVendorSession(): { session: Session | null; ready: boolean } {
   const [session, setSession] = useState<Session | null>(null);
@@ -243,6 +244,14 @@ export default function VendorApp() {
           element={
             <Protected>
               <VendorShell withTabs><VendorReports /></VendorShell>
+            </Protected>
+          }
+        />
+        <Route
+          path="/vendor/pos/:id"
+          element={
+            <Protected>
+              <VendorShell withTabs><VendorPODetail /></VendorShell>
             </Protected>
           }
         />

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { TH } from "../utils/theme";
 import { SB_URL, SB_HEADERS } from "../utils/supabase";
 import { S } from "../utils/styles";
+import VendorScorecardDetail from "./VendorScorecardDetail";
 
 interface LiveKPI {
   vendor_id: string;
@@ -50,6 +51,7 @@ export default function VendorLeaderboard() {
   const [err, setErr] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortKey>("score");
   const [search, setSearch] = useState("");
+  const [detailFor, setDetailFor] = useState<LiveKPI | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -141,7 +143,7 @@ export default function VendorLeaderboard() {
           ) : sorted.map((r, idx) => {
             const score = compositeOf(r);
             return (
-              <div key={r.vendor_id} style={{ display: "grid", gridTemplateColumns: "60px 1fr 110px 110px 110px 90px 90px 100px", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
+              <div key={r.vendor_id} onClick={() => setDetailFor(r)} style={{ display: "grid", gridTemplateColumns: "60px 1fr 110px 110px 110px 90px 90px 100px", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", cursor: "pointer" }}>
                 <div style={{ color: TH.textMuted, fontWeight: 600 }}>{idx + 1}</div>
                 <div style={{ color: TH.text, fontWeight: 600 }}>{r.vendor_name}</div>
                 <div style={{ color: scoreColor(r.on_time_delivery_pct), fontWeight: 600 }}>{fmtPct(r.on_time_delivery_pct)}</div>
@@ -156,6 +158,14 @@ export default function VendorLeaderboard() {
             );
           })}
         </div>
+      )}
+
+      {detailFor && (
+        <VendorScorecardDetail
+          vendorId={detailFor.vendor_id}
+          vendorName={detailFor.vendor_name}
+          onClose={() => setDetailFor(null)}
+        />
       )}
     </div>
   );

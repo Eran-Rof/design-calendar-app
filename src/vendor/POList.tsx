@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate, fmtMoney, daysUntil, parseLocalDate } from "./utils";
@@ -19,6 +20,7 @@ type POPayload = {
 
 type PORow = {
   id: string;
+  uuid_id: string;
   po_number: string;
   data: POPayload | null;
   buyer_name: string | null;
@@ -50,7 +52,7 @@ export default function POList() {
           supabaseVendor.from("vendor_users").select("id").eq("auth_id", uid).maybeSingle(),
           supabaseVendor
             .from("tanda_pos")
-            .select("id, po_number, data, buyer_name, date_expected_delivery, vendor_id")
+            .select("id, uuid_id, po_number, data, buyer_name, date_expected_delivery, vendor_id")
             .order("date_order", { ascending: false }),
         ]);
         if (vuErr) throw vuErr;
@@ -177,8 +179,12 @@ export default function POList() {
           const days = daysUntil(ddp);
           const acked = ackIds.has(r.po_number);
           return (
-            <div key={r.id} style={{ display: "grid", gridTemplateColumns: "140px 110px 150px 120px 130px 1fr", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
-              <div style={{ fontWeight: 600, color: TH.text }}>{r.po_number}</div>
+            <Link
+              key={r.id}
+              to={`/vendor/pos/${r.uuid_id}`}
+              style={{ display: "grid", gridTemplateColumns: "140px 110px 150px 120px 130px 1fr", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", textDecoration: "none", color: "inherit" }}
+            >
+              <div style={{ fontWeight: 600, color: TH.primary }}>{r.po_number}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(p.DateOrder)}</div>
               <div style={{ color: TH.textSub2, display: "flex", flexDirection: "column", lineHeight: 1.25 }}>
                 <span>{fmtDate(ddp)}</span>
@@ -199,12 +205,12 @@ export default function POList() {
                 {acked ? (
                   <span style={{ fontSize: 12, color: "#047857", fontWeight: 600 }}>✓ Acknowledged</span>
                 ) : (
-                  <button onClick={() => acknowledge(r.po_number)} style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}>
+                  <button onClick={(e) => { e.preventDefault(); void acknowledge(r.po_number); }} style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}>
                     Acknowledge
                   </button>
                 )}
               </div>
-            </div>
+            </Link>
           );
         })}
       </div>
