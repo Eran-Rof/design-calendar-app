@@ -38,6 +38,11 @@ import VendorOnboarding from "./VendorOnboarding";
 import VendorEdi from "./VendorEdi";
 import VendorErp from "./VendorErp";
 import VendorHealth from "./VendorHealth";
+import VendorRfqs from "./VendorRfqs";
+import VendorRfqDetail from "./VendorRfqDetail";
+import VendorEntitySwitcher from "./VendorEntitySwitcher";
+import VendorMobileFeed from "./VendorMobileFeed";
+import PortalLogin from "./PortalLogin";
 
 function useVendorSession(): { session: Session | null; ready: boolean } {
   const [session, setSession] = useState<Session | null>(null);
@@ -319,6 +324,11 @@ export default function VendorApp() {
         <Route path="/vendor/erp"           element={<Protected><VendorShell withTabs><VendorErp /></VendorShell></Protected>} />
         <Route path="/vendor/edi"           element={<Protected><VendorShell withTabs><VendorEdi /></VendorShell></Protected>} />
         <Route path="/vendor/health"        element={<Protected><VendorShell withTabs><VendorHealth /></VendorShell></Protected>} />
+        <Route path="/vendor/rfqs"           element={<Protected><VendorShell withTabs><VendorRfqs /></VendorShell></Protected>} />
+        <Route path="/vendor/rfqs/:id"       element={<Protected><VendorShell withTabs><VendorRfqDetail /></VendorShell></Protected>} />
+        <Route path="/vendor/entity-switcher" element={<Protected><VendorShell withTabs><VendorEntitySwitcher /></VendorShell></Protected>} />
+        <Route path="/vendor/mobile/feed"    element={<Protected><VendorShell><VendorMobileFeed /></VendorShell></Protected>} />
+        <Route path="/portal/:slug/login"    element={<PortalLogin />} />
         <Route path="/vendor/*" element={<Navigate to="/vendor" replace />} />
       </Routes>
     </BrowserRouter>
