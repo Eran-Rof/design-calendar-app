@@ -3,13 +3,12 @@
 // and a place to save a new override.
 
 import { useEffect, useState } from "react";
-import type { IpIsoDate } from "../types/entities";
 import type {
   IpOverrideReasonCode,
   IpPlannerOverride,
   IpPlanningGridRow,
 } from "../types/wholesale";
-import { S, ACTION_COLOR, CONFIDENCE_COLOR, PAL, formatQty } from "./styles";
+import { S, ACTION_COLOR, CONFIDENCE_COLOR, PAL, formatQty, formatDate, formatDateTime, formatPeriodCode } from "./styles";
 
 const REASON_CODES: IpOverrideReasonCode[] = [
   "buyer_request",
@@ -81,7 +80,7 @@ export default function ForecastDetailDrawer({
               {row.sku_code}
             </div>
             <div style={{ fontSize: 12, color: PAL.textDim, marginTop: 2 }}>
-              {row.sku_description ?? ""} · {row.period_code}
+              {row.sku_description ?? ""} · {formatPeriodCode(row.period_code)}
             </div>
           </div>
           <button style={S.btnGhost} onClick={onClose}>✕</button>
@@ -190,7 +189,7 @@ export default function ForecastDetailDrawer({
                         {o.override_qty >= 0 ? "+" : ""}{formatQty(o.override_qty)}
                       </span>
                       <span style={{ fontSize: 11, color: PAL.textMuted }}>
-                        {new Date(o.created_at).toLocaleString()}
+                        {formatDateTime(o.created_at)}
                       </span>
                     </div>
                     <div style={{ fontSize: 12, color: PAL.textDim, marginTop: 4 }}>
@@ -227,8 +226,3 @@ function MiniCell({ label, value, accent }: { label: string; value: string; acce
   );
 }
 
-// Shared date formatter kept co-located — internal to the drawer for now,
-// so we don't pollute the shared styles module.
-export function formatIsoDate(iso: IpIsoDate | null): string {
-  return iso ?? "";
-}

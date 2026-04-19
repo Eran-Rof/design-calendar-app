@@ -7,7 +7,7 @@ import { useState } from "react";
 import type { IpPlanningRun, IpPlanningRunStatus } from "../types/wholesale";
 import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { runForecastPass } from "../services/wholesaleForecastService";
-import { S, PAL } from "../components/styles";
+import { S, PAL, formatDate } from "../components/styles";
 
 export interface PlanningRunControlsProps {
   runs: IpPlanningRun[];
@@ -56,7 +56,7 @@ export default function PlanningRunControls({ runs, selectedRunId, onSelect, onC
           <option value="">— pick —</option>
           {runs.map((r) => (
             <option key={r.id} value={r.id}>
-              {r.name} · {r.status} · {r.horizon_start ?? "?"}–{r.horizon_end ?? "?"}
+              {r.name} · {r.status} · {formatDate(r.horizon_start)}–{formatDate(r.horizon_end)}
             </option>
           ))}
         </select>
@@ -79,7 +79,7 @@ export default function PlanningRunControls({ runs, selectedRunId, onSelect, onC
       </div>
       {selected && (
         <div style={{ color: PAL.textMuted, fontSize: 12 }}>
-          Snapshot {selected.source_snapshot_date}
+          Snapshot {formatDate(selected.source_snapshot_date)}
           {selected.note ? ` · ${selected.note}` : ""}
         </div>
       )}

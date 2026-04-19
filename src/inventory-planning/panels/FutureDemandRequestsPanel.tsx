@@ -14,7 +14,7 @@ import type {
 } from "../types/wholesale";
 import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { monthOf } from "../compute/periods";
-import { S, PAL, formatQty } from "../components/styles";
+import { S, PAL, formatQty, formatDate, formatPeriodCode } from "../components/styles";
 
 const REQUEST_TYPES: IpRequestType[] = [
   "buyer_request", "expected_reorder", "program_fill_in",
@@ -114,7 +114,7 @@ export default function FutureDemandRequestsPanel({
               const item = itemById.get(r.sku_id);
               return (
                 <tr key={r.id}>
-                  <td style={S.td}>{monthOf(r.target_period_start).period_code}</td>
+                  <td style={S.td}>{formatPeriodCode(monthOf(r.target_period_start).period_code)}</td>
                   <td style={S.td}>{customer?.name ?? r.customer_id.slice(0, 8)}</td>
                   <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>
                     {item?.sku_code ?? r.sku_id.slice(0, 8)}

@@ -4,7 +4,7 @@
 
 import { useMemo, useState } from "react";
 import type { IpPlanningGridRow } from "../types/wholesale";
-import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, formatQty } from "../components/styles";
+import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, formatQty, formatPeriodCode } from "../components/styles";
 
 export interface WholesalePlanningGridProps {
   rows: IpPlanningGridRow[];
@@ -134,7 +134,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
                 <td style={S.td}>{r.customer_name}</td>
                 <td style={{ ...S.td, color: PAL.textDim }}>{r.category_name ?? "–"}</td>
                 <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>{r.sku_code}</td>
-                <td style={S.td}>{r.period_code}</td>
+                <td style={S.td}>{formatPeriodCode(r.period_code)}</td>
                 <td style={S.tdNum}>{formatQty(r.historical_trailing_qty)}</td>
                 <td style={S.tdNum}>{formatQty(r.system_forecast_qty)}</td>
                 <td style={{ ...S.tdNum, color: r.buyer_request_qty > 0 ? PAL.accent : PAL.textMuted }}>

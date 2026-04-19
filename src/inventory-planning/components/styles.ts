@@ -75,3 +75,46 @@ export function formatQty(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return "–";
   return Math.round(n).toLocaleString();
 }
+
+// ── Date formatting ────────────────────────────────────────────────────────
+// House format is MMM/DD/YYYY (e.g. Apr/19/2026) everywhere planning data
+// is shown. ISO strings are parsed as UTC to keep month boundaries stable.
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// "2026-04-19" or "2026-04-19T12:34:56Z" → "Apr/19/2026". Returns "–" on null/invalid.
+export function formatDate(iso: string | null | undefined): string {
+  if (!iso) return "–";
+  // Fast path for YYYY-MM-DD — avoids TZ foot-guns.
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (m) {
+    const [, y, mm, dd] = m;
+    const mi = Number(mm) - 1;
+    if (mi < 0 || mi > 11) return "–";
+    return `${MONTHS[mi]}/${dd}/${y}`;
+  }
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "–";
+  return `${MONTHS[d.getUTCMonth()]}/${String(d.getUTCDate()).padStart(2, "0")}/${d.getUTCFullYear()}`;
+}
+
+// Timestamp with local time for audit trails. Returns e.g. "Apr/19/2026 14:32".
+export function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return "–";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "–";
+  const date = `${MONTHS[d.getMonth()]}/${String(d.getDate()).padStart(2, "0")}/${d.getFullYear()}`;
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${date} ${hh}:${mi}`;
+}
+
+// "2026-04" period code → "Apr 2026".
+export function formatPeriodCode(code: string | null | undefined): string {
+  if (!code) return "–";
+  const m = /^(\d{4})-(\d{2})$/.exec(code);
+  if (!m) return code;
+  const mi = Number(m[2]) - 1;
+  if (mi < 0 || mi > 11) return code;
+  return `${MONTHS[mi]} ${m[1]}`;
+}
