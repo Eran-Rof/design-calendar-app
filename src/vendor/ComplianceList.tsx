@@ -8,19 +8,19 @@ interface DocType {
   code: string;
   name: string;
   description: string | null;
-  requires_expiry: boolean;
+  expiry_required: boolean;
   sort_order: number;
 }
 
 interface DocRow {
   id: string;
-  type_id: string;
-  file_path: string;
+  document_type_id: string;
+  file_url: string;
   file_name: string | null;
   file_size_bytes: number | null;
   file_mime_type: string | null;
   issued_at: string | null;
-  expires_at: string | null;
+  expiry_date: string | null;
   status: string;
   rejection_reason: string | null;
   reviewed_at: string | null;
@@ -68,10 +68,10 @@ export default function ComplianceList() {
 
       const [typeRes, docRes] = await Promise.all([
         supabaseVendor.from("compliance_document_types")
-          .select("id, code, name, description, requires_expiry, sort_order")
+          .select("id, code, name, description, expiry_required, sort_order")
           .eq("active", true).order("sort_order"),
         supabaseVendor.from("compliance_documents")
-          .select("id, type_id, file_path, file_name, file_size_bytes, file_mime_type, issued_at, expires_at, status, rejection_reason, reviewed_at, uploaded_at, notes")
+          .select("id, document_type_id, file_url, file_name, file_size_bytes, file_mime_type, issued_at, expiry_date, status, rejection_reason, reviewed_at, uploaded_at, notes")
           .eq("vendor_id", vu.vendor_id).order("uploaded_at", { ascending: false }),
       ]);
       if (typeRes.error) throw typeRes.error;
@@ -100,8 +100,8 @@ export default function ComplianceList() {
       pending: docs.filter((d) => d.status === "pending_review").length,
       rejected: docs.filter((d) => d.status === "rejected").length,
       expiring_soon: docs.filter((d) => {
-        if (d.status !== "approved" || !d.expires_at) return false;
-        const n = daysUntilExpiry(d.expires_at);
+        if (d.status !== "approved" || !d.expiry_date) return false;
+        const n = daysUntilExpiry(d.expiry_date);
         return n != null && n <= 30 && n >= 0;
       }).length,
       expired: docs.filter((d) => d.status === "expired").length,
@@ -158,9 +158,9 @@ export default function ComplianceList() {
         {docs.length === 0 ? (
           <div style={{ padding: 24, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>No documents uploaded yet.</div>
         ) : docs.map((d) => {
-          const t = typeById.get(d.type_id);
+          const t = typeById.get(d.document_type_id);
           const c = STATUS_COLORS[d.status] ?? STATUS_COLORS.pending_review;
-          const daysLeft = daysUntilExpiry(d.expires_at);
+          const daysLeft = daysUntilExpiry(d.expiry_date);
           const expiryWarn = d.status === "approved" && daysLeft != null && daysLeft >= 0 && daysLeft <= 30;
           return (
             <div key={d.id} style={{ display: "grid", gridTemplateColumns: "260px 1fr 120px 120px 130px 130px", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
@@ -170,15 +170,15 @@ export default function ComplianceList() {
               </div>
               <div>
                 <button
-                  onClick={() => downloadFile(d.file_path, d.file_name)}
+                  onClick={() => downloadFile(d.file_url, d.file_name)}
                   style={{ background: "none", border: "none", padding: 0, color: TH.primary, cursor: "pointer", fontFamily: "inherit", fontSize: 13, textAlign: "left" }}
                 >
-                  {d.file_name ?? d.file_path.split("/").pop()}
+                  {d.file_name ?? d.file_url.split("/").pop()}
                 </button>
               </div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(d.issued_at)}</div>
               <div style={{ color: expiryWarn ? "#B45309" : TH.textSub2, fontWeight: expiryWarn ? 600 : 400 }}>
-                {fmtDate(d.expires_at)}
+                {fmtDate(d.expiry_date)}
                 {expiryWarn && <div style={{ fontSize: 11 }}>in {daysLeft}d</div>}
               </div>
               <div>
@@ -219,7 +219,7 @@ function UploadModal({ types, vendorId, vendorUserId, onClose, onUploaded }: {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const selectedType = types.find((t) => t.id === typeId);
-  const requiresExpiry = selectedType?.requires_expiry ?? false;
+  const requiresExpiry = selectedType?.expiry_required ?? false;
 
   function onFileChange(e: ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0] ?? null;
@@ -248,13 +248,13 @@ function UploadModal({ types, vendorId, vendorUserId, onClose, onUploaded }: {
       const { error: insErr } = await supabaseVendor.from("compliance_documents").insert({
         id: docId,
         vendor_id: vendorId,
-        type_id: typeId,
-        file_path: path,
+        document_type_id: typeId,
+        file_url: path,
         file_name: file.name,
         file_size_bytes: file.size,
         file_mime_type: file.type,
         issued_at: issuedAt || null,
-        expires_at: expiresAt || null,
+        expiry_date: expiresAt || null,
         status: "pending_review",
         uploaded_by: vendorUserId,
         notes: notes.trim() || null,
@@ -284,7 +284,7 @@ function UploadModal({ types, vendorId, vendorUserId, onClose, onUploaded }: {
         <select value={typeId} onChange={(e) => setTypeId(e.target.value)} style={inputStyle}>
           <option value="">— Select —</option>
           {types.map((t) => (
-            <option key={t.id} value={t.id}>{t.name}{t.requires_expiry ? "" : " (no expiry)"}</option>
+            <option key={t.id} value={t.id}>{t.name}{t.expiry_required ? "" : " (no expiry)"}</option>
           ))}
         </select>
         {selectedType?.description && <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>{selectedType.description}</div>}
