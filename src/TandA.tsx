@@ -19,6 +19,9 @@ import { VendorsView } from "./tanda/views/VendorsView";
 import { ArchiveView } from "./tanda/views/ArchiveView";
 import ShipmentsView from "./tanda/ShipmentsView";
 import MatchView from "./tanda/MatchView";
+import ComplianceReview from "./tanda/ComplianceReview";
+import MessagesView from "./tanda/MessagesView";
+import VendorLeaderboard from "./tanda/VendorLeaderboard";
 import { SyncModals } from "./tanda/views/SyncModal";
 import { SettingsModal } from "./tanda/views/SettingsModal";
 
@@ -1229,6 +1232,9 @@ function TandAApp() {
           <button style={view === "archive" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("archive"); loadArchivedPOs(); })}>📦 Archive{archivedPos.length > 0 ? ` (${archivedPos.length})` : ""}</button>
           <button style={view === "shipments" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("shipments"); })}>🚢 Shipments</button>
           <button style={view === "match" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("match"); })}>🔍 3-Way Match</button>
+          <button style={view === "compliance" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("compliance"); })}>📋 Compliance</button>
+          <button style={view === "messages" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("messages"); })}>💬 Messages</button>
+          <button style={view === "scorecards" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("scorecards"); })}>🏆 Scorecards</button>
           <button style={S.navBtn} onClick={() => { setShowBulkUpdate(true); setBulkVendor(""); setBulkPhase(""); setBulkPhases([]); setBulkCategory(""); setBulkStatus(""); setBulkPOs([]); setBulkPOSearch(""); }}>⚡ Bulk Update</button>
           <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing} title="Sync POs from Xoro">
             {syncing ? "⏳ Syncing…" : "🔄 Sync"}
@@ -1348,6 +1354,15 @@ function TandAApp() {
 
         {/* ── 3-WAY MATCH VIEW ── */}
         {view === "match" && <MatchView />}
+
+        {/* ── COMPLIANCE REVIEW ── */}
+        {view === "compliance" && <ComplianceReview />}
+
+        {/* ── MESSAGES ── */}
+        {view === "messages" && <MessagesView />}
+
+        {/* ── VENDOR LEADERBOARD ── */}
+        {view === "scorecards" && <VendorLeaderboard />}
 
         {/* ── SHIPMENTS VIEW ── */}
         {view === "shipments" && <ShipmentsView />}
