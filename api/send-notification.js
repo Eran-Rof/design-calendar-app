@@ -22,6 +22,44 @@ export const config = { maxDuration: 30 };
 const RESEND_API = "https://api.resend.com/emails";
 const DEFAULT_FROM = process.env.RESEND_FROM || "Ring of Fire <noreply@ringoffireclothing.com>";
 
+// Event types that should also queue mobile push notifications.
+const PUSH_EVENT_TYPES = new Set([
+  "po_issued", "invoice_approved", "invoice_discrepancy", "payment_sent",
+  "new_message", "new_dispute_message", "rfq_invited", "rfq_awarded",
+  "compliance_expiring_soon", "onboarding_approved", "dispute_resolved",
+]);
+
+function deepLinkFor(eventType, metadata = {}) {
+  if (metadata?.po_id)       return `vendor://pos/${metadata.po_id}`;
+  if (metadata?.po_number)   return `vendor://pos/${metadata.po_number}`;
+  if (metadata?.rfq_id)      return `vendor://rfqs/${metadata.rfq_id}`;
+  if (metadata?.invoice_id)  return `vendor://invoices/${metadata.invoice_id}`;
+  if (metadata?.dispute_id)  return `vendor://disputes/${metadata.dispute_id}`;
+  if (metadata?.contract_id) return `vendor://contracts/${metadata.contract_id}`;
+  return "vendor://home";
+}
+
+async function queuePushesForVendor(admin, { vendor_id, event_type, title, body, metadata }) {
+  if (!vendor_id) return 0;
+  if (!PUSH_EVENT_TYPES.has(event_type)) return 0;
+  const { data: sessions } = await admin
+    .from("mobile_sessions")
+    .select("id, vendor_user_id")
+    .in("vendor_user_id", (await admin.from("vendor_users").select("id").eq("vendor_id", vendor_id)).data?.map((r) => r.id) || []);
+  if (!sessions || sessions.length === 0) return 0;
+  const entityId = metadata?.po_id || metadata?.invoice_id || metadata?.rfq_id || metadata?.dispute_id || metadata?.contract_id || null;
+  const rows = sessions.map((s) => ({
+    vendor_user_id: s.vendor_user_id,
+    mobile_session_id: s.id,
+    title,
+    body: body || null,
+    data: { type: event_type, entity_id: entityId, deep_link: deepLinkFor(event_type, metadata) },
+    status: "queued",
+  }));
+  try { await admin.from("push_notifications").insert(rows); } catch { /* ignore */ }
+  return rows.length;
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -146,7 +184,22 @@ export default async function handler(req, res) {
     }
   }
 
-  return res.status(200).json({ ok: true, id: inserted.id, email: emailResult, email_status });
+  // Fan out to push queue for mobile devices (best-effort; non-blocking).
+  let pushQueued = 0;
+  if (recipient.vendor_id || recipientAuthId) {
+    try {
+      let vendorIdForPush = recipient.vendor_id;
+      if (!vendorIdForPush && recipientAuthId) {
+        const { data: vu } = await admin.from("vendor_users").select("vendor_id").eq("auth_id", recipientAuthId).maybeSingle();
+        vendorIdForPush = vu?.vendor_id || null;
+      }
+      if (vendorIdForPush) {
+        pushQueued = await queuePushesForVendor(admin, { vendor_id: vendorIdForPush, event_type, title, body: bodyText, metadata });
+      }
+    } catch { /* swallow */ }
+  }
+
+  return res.status(200).json({ ok: true, id: inserted.id, email: emailResult, email_status, push_queued: pushQueued });
 }
 
 function renderEmailHtml({ title, body, link }) {
