@@ -76,10 +76,10 @@ export default async function handler(req, res) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         event_type: "rfq_awarded",
-        title: `RFQ awarded: ${rfq.title}`,
+        title: `You've been awarded the contract for ${rfq.title}`,
         body: `Congratulations — your quote on "${rfq.title}" has been awarded. We'll follow up with the next steps shortly.`,
         link: "/vendor/rfqs",
-        metadata: { rfq_id, vendor_id, won: true },
+        metadata: { rfq_id, vendor_id, rfq_title: rfq.title, won: true },
         recipient: { vendor_id },
         dedupe_key: `rfq_awarded_${rfq_id}_${vendor_id}`,
         email: true,
@@ -87,8 +87,13 @@ export default async function handler(req, res) {
     }).catch(() => {});
   } catch { /* swallow */ }
 
-  // 5. Loser notifications
-  const losingVendors = [...new Set((allQuotes || []).filter((q) => q.vendor_id !== vendor_id).map((q) => q.vendor_id))];
+  // 5. Loser notifications — only to vendors who actually submitted a
+  // quote (not declined / still-draft), per spec.
+  const losingVendors = [...new Set(
+    (allQuotes || [])
+      .filter((q) => q.vendor_id !== vendor_id && ["submitted", "under_review", "rejected"].includes(q.status))
+      .map((q) => q.vendor_id)
+  )];
   for (const vid of losingVendors) {
     try {
       await fetch(`${origin}/api/send-notification`, {
@@ -96,10 +101,10 @@ export default async function handler(req, res) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           event_type: "rfq_not_awarded",
-          title: `RFQ not awarded: ${rfq.title}`,
+          title: `Quote outcome: ${rfq.title}`,
           body: `Thank you for quoting on "${rfq.title}". The award went to another vendor this time — we appreciate your participation.`,
           link: "/vendor/rfqs",
-          metadata: { rfq_id, vendor_id: vid, won: false },
+          metadata: { rfq_id, vendor_id: vid, rfq_title: rfq.title, won: false },
           recipient: { vendor_id: vid },
           dedupe_key: `rfq_not_awarded_${rfq_id}_${vid}`,
           email: true,

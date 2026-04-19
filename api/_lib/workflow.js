@@ -115,10 +115,22 @@ async function executeAction(action, context, { admin, origin, rule, event, enti
       current_approver: approverEmail || approverRole,
       metadata: { approver_role: approverRole, rule_name: rule.name, context },
     });
+    // Include vendor name in the subject when we can resolve it so
+    // ops can eyeball approvals without drilling into the execution.
+    let vendorName = context?.vendor_name;
+    if (!vendorName && context?.vendor_id) {
+      try {
+        const { data: v } = await admin.from("vendors").select("name").eq("id", context.vendor_id).maybeSingle();
+        vendorName = v?.name || null;
+      } catch { /* ignore */ }
+    }
+    const title = vendorName
+      ? `Approval required: ${rule.name} triggered by ${vendorName}`
+      : `Approval required: ${rule.name}`;
     for (const email of roleEmails(approverRole)) {
       await sendNotification(origin, email, {
         event_type: "workflow_approval_required",
-        title: `Approval required: ${rule.name}`,
+        title,
         body: `Rule '${rule.name}' triggered on event '${event}'. Open the workflow executions view to approve or reject.`,
         metadata: { execution_id: execId, rule_id: rule.id, event, ...context },
       });

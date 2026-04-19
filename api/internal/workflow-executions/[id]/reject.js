@@ -59,7 +59,7 @@ export default async function handler(req, res) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           event_type: "workflow_rejected",
-          title: `Rejected: ${exec.metadata?.rule_name || "Workflow approval"}`,
+          title: `Not approved: ${exec.metadata?.rule_name || "Workflow approval"} — ${String(rejection_reason).slice(0, 100)}`,
           body: `Your ${ctx.entity_type || "submission"} was rejected by ${reviewer}.\n\nReason: ${rejection_reason}`,
           link: "/vendor",
           metadata: { execution_id: id, rule_id: exec.rule_id, reason: rejection_reason, ...ctx },

@@ -83,7 +83,7 @@ export default async function handler(req, res) {
             metadata: { rfq_id: rfqId, vendor_id: caller.vendor_id, reason },
             recipient: { internal_id: "procurement", email },
             dedupe_key: `rfq_declined_${rfqId}_${caller.vendor_id}_${email}`,
-            email: true,
+            email: false,
           }),
         }).catch(() => {})
       ));
