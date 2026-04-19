@@ -27,6 +27,13 @@ import POMessages from "./POMessages";
 import VendorScorecard from "./VendorScorecard";
 import VendorReports from "./VendorReports";
 import VendorPODetail from "./VendorPODetail";
+import VendorContracts from "./VendorContracts";
+import VendorContractDetail from "./VendorContractDetail";
+import VendorDisputes from "./VendorDisputes";
+import VendorDisputeDetail from "./VendorDisputeDetail";
+import VendorCatalog from "./VendorCatalog";
+import VendorBulk from "./VendorBulk";
+import VendorApiKeys from "./VendorApiKeys";
 
 function useVendorSession(): { session: Session | null; ready: boolean } {
   const [session, setSession] = useState<Session | null>(null);
@@ -61,22 +68,21 @@ function Protected({ children }: { children: ReactNode }) {
 
 function TabNav() {
   const loc = useLocation();
-  const isPOs = loc.pathname === "/vendor";
-  const isShipments = loc.pathname.startsWith("/vendor/shipments");
-  const isInvoices = loc.pathname.startsWith("/vendor/invoices");
-  const isCompliance = loc.pathname.startsWith("/vendor/compliance");
-  const isMessages = loc.pathname.startsWith("/vendor/messages");
-  const isScorecard = loc.pathname.startsWith("/vendor/scorecard") || loc.pathname.startsWith("/vendor/performance");
-  const isReports = loc.pathname.startsWith("/vendor/reports");
+  const p = loc.pathname;
   return (
-    <nav style={{ display: "flex", gap: 2, padding: "0 24px", background: "rgba(255,255,255,0.05)", borderBottom: `1px solid rgba(255,255,255,0.12)` }}>
-      <TabLink to="/vendor" active={isPOs}>Purchase Orders</TabLink>
-      <TabLink to="/vendor/shipments" active={isShipments}>Shipments</TabLink>
-      <TabLink to="/vendor/invoices" active={isInvoices}>Invoices</TabLink>
-      <TabLink to="/vendor/compliance" active={isCompliance}>Compliance</TabLink>
-      <TabLink to="/vendor/messages" active={isMessages}>Messages</TabLink>
-      <TabLink to="/vendor/reports" active={isReports}>Reports</TabLink>
-      <TabLink to="/vendor/scorecard" active={isScorecard}>Scorecard</TabLink>
+    <nav style={{ display: "flex", gap: 2, padding: "0 24px", background: "rgba(255,255,255,0.05)", borderBottom: `1px solid rgba(255,255,255,0.12)`, flexWrap: "wrap" }}>
+      <TabLink to="/vendor" active={p === "/vendor"}>Purchase Orders</TabLink>
+      <TabLink to="/vendor/shipments" active={p.startsWith("/vendor/shipments")}>Shipments</TabLink>
+      <TabLink to="/vendor/invoices" active={p.startsWith("/vendor/invoices")}>Invoices</TabLink>
+      <TabLink to="/vendor/contracts" active={p.startsWith("/vendor/contracts")}>Contracts</TabLink>
+      <TabLink to="/vendor/catalog" active={p.startsWith("/vendor/catalog")}>Catalog</TabLink>
+      <TabLink to="/vendor/compliance" active={p.startsWith("/vendor/compliance")}>Compliance</TabLink>
+      <TabLink to="/vendor/messages" active={p.startsWith("/vendor/messages")}>Messages</TabLink>
+      <TabLink to="/vendor/disputes" active={p.startsWith("/vendor/disputes")}>Disputes</TabLink>
+      <TabLink to="/vendor/reports" active={p.startsWith("/vendor/reports")}>Reports</TabLink>
+      <TabLink to="/vendor/scorecard" active={p.startsWith("/vendor/scorecard") || p.startsWith("/vendor/performance")}>Scorecard</TabLink>
+      <TabLink to="/vendor/bulk" active={p.startsWith("/vendor/bulk")}>Bulk</TabLink>
+      <TabLink to="/vendor/settings/api-keys" active={p.startsWith("/vendor/settings")}>Settings</TabLink>
     </nav>
   );
 }
@@ -255,6 +261,14 @@ export default function VendorApp() {
             </Protected>
           }
         />
+        <Route path="/vendor/contracts"     element={<Protected><VendorShell withTabs><VendorContracts /></VendorShell></Protected>} />
+        <Route path="/vendor/contracts/:id" element={<Protected><VendorShell withTabs><VendorContractDetail /></VendorShell></Protected>} />
+        <Route path="/vendor/disputes"      element={<Protected><VendorShell withTabs><VendorDisputes /></VendorShell></Protected>} />
+        <Route path="/vendor/disputes/:id"  element={<Protected><VendorShell withTabs><VendorDisputeDetail /></VendorShell></Protected>} />
+        <Route path="/vendor/catalog"       element={<Protected><VendorShell withTabs><VendorCatalog /></VendorShell></Protected>} />
+        <Route path="/vendor/bulk"          element={<Protected><VendorShell withTabs><VendorBulk /></VendorShell></Protected>} />
+        <Route path="/vendor/settings/api-keys" element={<Protected><VendorShell withTabs><VendorApiKeys /></VendorShell></Protected>} />
+        <Route path="/vendor/settings"      element={<Navigate to="/vendor/settings/api-keys" replace />} />
         <Route path="/vendor/*" element={<Navigate to="/vendor" replace />} />
       </Routes>
     </BrowserRouter>
