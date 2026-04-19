@@ -7,6 +7,13 @@ import { fmtDate, fmtMoney, daysUntil, parseLocalDate } from "./utils";
 // tanda_pos row shape (subset we care about in the portal). RLS scopes the
 // SELECT to rows where vendor_id matches the logged-in vendor_user, so we
 // don't need a vendor_id filter in the query.
+type POItem = {
+  QtyOrder?: number;
+  QtyReceived?: number;
+  QtyRemaining?: number;
+  UnitPrice?: number;
+};
+
 type POPayload = {
   PoNumber?: string;
   DateOrder?: string;
@@ -15,6 +22,8 @@ type POPayload = {
   TotalAmount?: number;
   BuyerName?: string;
   BuyerPo?: string;
+  Items?: POItem[];
+  PoLineArr?: POItem[];
   _archived?: boolean;
 };
 
@@ -28,12 +37,39 @@ type PORow = {
   vendor_id: string | null;
 };
 
+function poItems(p: POPayload | null | undefined): POItem[] {
+  return (p?.Items || p?.PoLineArr || []) as POItem[];
+}
+
+function poReceivedTotals(p: POPayload | null | undefined) {
+  const items = poItems(p);
+  let qtyOrd = 0, qtyRcv = 0, amtRcv = 0, amtOrd = 0;
+  for (const it of items) {
+    const qo = Number(it.QtyOrder) || 0;
+    const qr = Number(it.QtyReceived) || 0;
+    const up = Number(it.UnitPrice) || 0;
+    qtyOrd += qo;
+    qtyRcv += qr;
+    amtOrd += qo * up;
+    amtRcv += qr * up;
+  }
+  const totalAmount = Number(p?.TotalAmount) || amtOrd;
+  return {
+    qtyOrdered: qtyOrd,
+    qtyReceived: qtyRcv,
+    qtyRemaining: Math.max(qtyOrd - qtyRcv, 0),
+    amountReceived: amtRcv,
+    amountRemaining: Math.max(totalAmount - amtRcv, 0),
+  };
+}
+
 type Filter = "all" | "action" | "ack";
 
 export default function POList() {
   const [rows, setRows] = useState<PORow[]>([]);
   const [ackIds, setAckIds] = useState<Set<string>>(new Set());
   const [vendorUserId, setVendorUserId] = useState<string | null>(null);
+  const [lastReceivedByPo, setLastReceivedByPo] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
@@ -71,6 +107,22 @@ export default function POList() {
         const active = ((pos ?? []) as PORow[]).filter((r) => !r.data?._archived);
         setRows(active);
         setAckIds(new Set((acks ?? []).map((a: { po_number: string }) => a.po_number)));
+
+        // Pull the most recent received_date per PO for the "Received" column.
+        const poIds = active.map((r) => r.uuid_id).filter(Boolean);
+        if (poIds.length > 0) {
+          const { data: receipts } = await supabaseVendor
+            .from("receipts")
+            .select("po_id, received_date")
+            .in("po_id", poIds);
+          const map = new Map<string, string>();
+          for (const r of (receipts || []) as { po_id: string; received_date: string | null }[]) {
+            if (!r.po_id || !r.received_date) continue;
+            const prev = map.get(r.po_id);
+            if (!prev || new Date(r.received_date) > new Date(prev)) map.set(r.po_id, r.received_date);
+          }
+          if (!cancelled) setLastReceivedByPo(map);
+        }
       } catch (e: unknown) {
         if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
       } finally {
@@ -160,12 +212,17 @@ export default function POList() {
         </Pill>
       </div>
 
-      <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden", boxShadow: `0 1px 2px ${TH.shadow}` }}>
-        <div style={{ display: "grid", gridTemplateColumns: "140px 110px 150px 120px 130px 1fr", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
+      <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "auto", boxShadow: `0 1px 2px ${TH.shadow}` }}>
+        <div style={{ display: "grid", gridTemplateColumns: "120px 100px 110px 110px 110px 120px 110px 120px 100px 110px 150px", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05, minWidth: 1320 }}>
           <div>PO #</div>
           <div>Issued</div>
           <div>Required</div>
-          <div>Amount</div>
+          <div style={{ textAlign: "right" }}>Amount</div>
+          <div>Received</div>
+          <div style={{ textAlign: "right" }}>Qty Rcv / Ord</div>
+          <div style={{ textAlign: "right" }}>Qty Remain</div>
+          <div style={{ textAlign: "right" }}>Amt Received</div>
+          <div style={{ textAlign: "right" }}>Amt Remain</div>
           <div>Status</div>
           <div style={{ textAlign: "right" }}>Action</div>
         </div>
@@ -178,11 +235,13 @@ export default function POList() {
           const ddp = r.date_expected_delivery || p.DateExpectedDelivery;
           const days = daysUntil(ddp);
           const acked = ackIds.has(r.po_number);
+          const totals = poReceivedTotals(p);
+          const receivedOn = lastReceivedByPo.get(r.uuid_id);
           return (
             <Link
               key={r.id}
               to={`/vendor/pos/${r.uuid_id}`}
-              style={{ display: "grid", gridTemplateColumns: "140px 110px 150px 120px 130px 1fr", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", textDecoration: "none", color: "inherit" }}
+              style={{ display: "grid", gridTemplateColumns: "120px 100px 110px 110px 110px 120px 110px 120px 100px 110px 150px", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", textDecoration: "none", color: "inherit", minWidth: 1320 }}
             >
               <div style={{ fontWeight: 600, color: TH.primary }}>{r.po_number}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(p.DateOrder)}</div>
@@ -195,7 +254,18 @@ export default function POList() {
                   <span style={{ fontSize: 11, color: TH.primary, fontWeight: 600 }}>overdue</span>
                 )}
               </div>
-              <div style={{ color: TH.textSub2 }}>{fmtMoney(p.TotalAmount)}</div>
+              <div style={{ color: TH.textSub2, textAlign: "right" }}>{fmtMoney(p.TotalAmount)}</div>
+              <div style={{ color: TH.textSub2 }}>{receivedOn ? fmtDate(receivedOn) : "—"}</div>
+              <div style={{ color: TH.textSub2, textAlign: "right" }}>
+                {totals.qtyOrdered > 0 ? `${totals.qtyReceived} / ${totals.qtyOrdered}` : "—"}
+              </div>
+              <div style={{ color: totals.qtyRemaining === 0 ? "#047857" : TH.textSub2, textAlign: "right", fontWeight: totals.qtyRemaining === 0 ? 600 : 400 }}>
+                {totals.qtyOrdered > 0 ? totals.qtyRemaining : "—"}
+              </div>
+              <div style={{ color: TH.textSub2, textAlign: "right" }}>{totals.qtyOrdered > 0 ? fmtMoney(totals.amountReceived) : "—"}</div>
+              <div style={{ color: totals.amountRemaining === 0 ? "#047857" : TH.textSub2, textAlign: "right", fontWeight: totals.amountRemaining === 0 ? 600 : 400 }}>
+                {totals.qtyOrdered > 0 ? fmtMoney(totals.amountRemaining) : "—"}
+              </div>
               <div>
                 <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: TH.surfaceHi, border: `1px solid ${TH.border}`, color: TH.textSub }}>
                   {p.StatusName || "—"}
