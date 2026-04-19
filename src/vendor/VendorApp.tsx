@@ -22,6 +22,7 @@ import InvoicesList from "./InvoicesList";
 import InvoiceSubmit from "./InvoiceSubmit";
 import InvoiceDetail from "./InvoiceDetail";
 import NotificationBell from "./NotificationBell";
+import ComplianceList from "./ComplianceList";
 
 function useVendorSession(): { session: Session | null; ready: boolean } {
   const [session, setSession] = useState<Session | null>(null);
@@ -59,11 +60,13 @@ function TabNav() {
   const isPOs = loc.pathname === "/vendor";
   const isShipments = loc.pathname.startsWith("/vendor/shipments");
   const isInvoices = loc.pathname.startsWith("/vendor/invoices");
+  const isCompliance = loc.pathname.startsWith("/vendor/compliance");
   return (
     <nav style={{ display: "flex", gap: 2, padding: "0 24px", background: "rgba(255,255,255,0.05)", borderBottom: `1px solid rgba(255,255,255,0.12)` }}>
       <TabLink to="/vendor" active={isPOs}>Purchase Orders</TabLink>
       <TabLink to="/vendor/shipments" active={isShipments}>Shipments</TabLink>
       <TabLink to="/vendor/invoices" active={isInvoices}>Invoices</TabLink>
+      <TabLink to="/vendor/compliance" active={isCompliance}>Compliance</TabLink>
     </nav>
   );
 }
@@ -195,6 +198,14 @@ export default function VendorApp() {
           element={
             <Protected>
               <VendorShell withTabs><InvoiceDetail /></VendorShell>
+            </Protected>
+          }
+        />
+        <Route
+          path="/vendor/compliance"
+          element={
+            <Protected>
+              <VendorShell withTabs><ComplianceList /></VendorShell>
             </Protected>
           }
         />
