@@ -28,6 +28,10 @@ import InternalAnomalies from "./tanda/InternalAnomalies";
 import InternalAnalytics from "./tanda/InternalAnalytics";
 import InternalHealthScores from "./tanda/InternalHealthScores";
 import InternalPreferred from "./tanda/InternalPreferred";
+import InternalRfqs from "./tanda/InternalRfqs";
+import InternalWorkflowRules from "./tanda/InternalWorkflowRules";
+import InternalWorkflowExecutions from "./tanda/InternalWorkflowExecutions";
+import InternalEntities from "./tanda/InternalEntities";
 import { SyncModals } from "./tanda/views/SyncModal";
 import { SettingsModal } from "./tanda/views/SettingsModal";
 
@@ -108,6 +112,10 @@ const VENDOR_MENU: { view: View; label: string; emoji: string }[] = [
   { view: "preferred_vendors",  label: "Preferred",       emoji: "⭐" },
   { view: "analytics",          label: "Analytics",       emoji: "📊" },
   { view: "spend",              label: "Spend",           emoji: "💰" },
+  { view: "rfqs",               label: "RFQs",            emoji: "📨" },
+  { view: "workflow_rules",     label: "Workflow Rules",  emoji: "⚙️" },
+  { view: "workflow_executions",label: "Approvals",       emoji: "✅" },
+  { view: "entities",           label: "Entities",        emoji: "🏛️" },
 ];
 
 function VendorsMenu({ view, onSelect }: { view: View; onSelect: (v: View) => void }) {
@@ -1458,6 +1466,18 @@ function TandAApp() {
 
         {/* ── PREFERRED VENDORS ── */}
         {view === "preferred_vendors" && <InternalPreferred />}
+
+        {/* ── RFQs ── */}
+        {view === "rfqs" && <InternalRfqs />}
+
+        {/* ── WORKFLOW RULES ── */}
+        {view === "workflow_rules" && <InternalWorkflowRules />}
+
+        {/* ── WORKFLOW EXECUTIONS (APPROVALS) ── */}
+        {view === "workflow_executions" && <InternalWorkflowExecutions />}
+
+        {/* ── ENTITIES ── */}
+        {view === "entities" && <InternalEntities />}
 
         {/* ── ARCHIVE VIEW ── */}
         {view === "archive" && <ArchiveView
