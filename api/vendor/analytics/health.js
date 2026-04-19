@@ -46,11 +46,10 @@ export default async function handler(req, res) {
   const periodStart = new Date(now.getTime() - 180 * 86_400_000).toISOString().slice(0, 10);
   const periodEnd = now.toISOString().slice(0, 10);
 
-  const [kpiRes, docTypesRes, docsRes, flagsRes, invRes, trendRes] = await Promise.all([
+  const [kpiRes, docTypesRes, docsRes, invRes, trendRes] = await Promise.all([
     admin.from("vendor_kpi_live").select("*").eq("vendor_id", caller.vendor_id).maybeSingle(),
     admin.from("compliance_document_types").select("id").eq("active", true).eq("required", true),
     admin.from("compliance_documents").select("document_type_id, status, expiry_date, uploaded_at").eq("vendor_id", caller.vendor_id),
-    admin.from("vendor_flags").select("status").eq("vendor_id", caller.vendor_id).eq("status", "open"),
     admin.from("invoices").select("status, due_date, paid_at").eq("vendor_id", caller.vendor_id),
     admin.from("vendor_health_scores").select("*").eq("vendor_id", caller.vendor_id).order("period_start", { ascending: false }).limit(4),
   ]);
@@ -62,26 +61,27 @@ export default async function handler(req, res) {
     const p = latestByType.get(d.document_type_id);
     if (!p || new Date(d.uploaded_at) > new Date(p.uploaded_at)) latestByType.set(d.document_type_id, d);
   }
-  let complianceOk = 0;
+  let approvedDocs = 0;
   for (const tid of requiredIds) {
     const d = latestByType.get(tid);
     if (!d || d.status !== "approved") continue;
     if (d.expiry_date && new Date(d.expiry_date).getTime() < now.getTime()) continue;
-    complianceOk++;
+    approvedDocs++;
   }
-  const complianceRatio = requiredIds.length > 0 ? complianceOk / requiredIds.length : 1;
 
-  const paid = (invRes.data || []).filter((i) => i.status === "paid" && i.paid_at);
-  const paidOnTime = paid.filter((i) => !i.due_date || new Date(i.paid_at) <= new Date(i.due_date)).length;
-  const paidRatio = paid.length > 0 ? paidOnTime / paid.length : 0.8;
+  const overdueInvoices = (invRes.data || []).filter((i) =>
+    i.status !== "paid" && i.status !== "rejected" &&
+    i.due_date && new Date(i.due_date) < now
+  ).length;
 
   const comp = composeHealth({
     on_time_delivery_pct: kpi?.on_time_delivery_pct,
-    invoice_accuracy_pct: kpi?.invoice_accuracy_pct,
+    invoice_count: kpi?.invoice_count,
+    discrepancy_count: kpi?.discrepancy_count,
+    approved_docs: approvedDocs,
+    required_docs: requiredIds.length,
+    overdue_invoices: overdueInvoices,
     avg_acknowledgment_hours: kpi?.avg_acknowledgment_hours,
-    compliance_complete_ratio: complianceRatio,
-    open_flags_count: (flagsRes.data || []).length,
-    paid_on_time_ratio: paidRatio,
   });
 
   const trend = (trendRes.data || [])

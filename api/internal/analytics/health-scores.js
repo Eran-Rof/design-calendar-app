@@ -66,15 +66,14 @@ async function computeLiveHealthForAllVendors(admin, vendorFilter) {
   const periodStart = new Date(now.getTime() - 180 * 86_400_000).toISOString().slice(0, 10);
   const periodEnd = now.toISOString().slice(0, 10);
 
-  const [vRes, kpiRes, docTypesRes, docsRes, flagsRes, invRes] = await Promise.all([
+  const [vRes, kpiRes, docTypesRes, docsRes, invRes] = await Promise.all([
     admin.from("vendors").select("id, name").is("deleted_at", null),
-    admin.from("vendor_kpi_live").select("vendor_id, on_time_delivery_pct, invoice_accuracy_pct, avg_acknowledgment_hours"),
-    admin.from("compliance_document_types").select("id, required").eq("active", true).eq("required", true),
+    admin.from("vendor_kpi_live").select("vendor_id, on_time_delivery_pct, invoice_count, discrepancy_count, avg_acknowledgment_hours"),
+    admin.from("compliance_document_types").select("id").eq("active", true).eq("required", true),
     admin.from("compliance_documents").select("vendor_id, document_type_id, status, expiry_date, uploaded_at"),
-    admin.from("vendor_flags").select("vendor_id, status").eq("status", "open"),
     admin.from("invoices").select("vendor_id, status, due_date, paid_at"),
   ]);
-  const errs = [vRes, kpiRes, docTypesRes, docsRes, flagsRes, invRes].filter((r) => r.error);
+  const errs = [vRes, kpiRes, docTypesRes, docsRes, invRes].filter((r) => r.error);
   if (errs.length) throw new Error(errs[0].error.message);
 
   const kpiByVendor = new Map((kpiRes.data || []).map((k) => [k.vendor_id, k]));
@@ -88,12 +87,6 @@ async function computeLiveHealthForAllVendors(admin, vendorFilter) {
     if (!prev || new Date(d.uploaded_at) > new Date(prev.uploaded_at)) latestByVendor.set(key, d);
   }
 
-  const flagsByVendor = new Map();
-  for (const f of flagsRes.data || []) {
-    flagsByVendor.set(f.vendor_id, (flagsByVendor.get(f.vendor_id) || 0) + 1);
-  }
-
-  // Paid-on-time ratio: invoices.status='paid' with paid_at <= due_date
   const invByVendor = new Map();
   for (const i of invRes.data || []) {
     const arr = invByVendor.get(i.vendor_id) || [];
@@ -106,32 +99,28 @@ async function computeLiveHealthForAllVendors(admin, vendorFilter) {
     if (vendorFilter && v.id !== vendorFilter) continue;
 
     const kpi = kpiByVendor.get(v.id);
-    // Compliance ratio
-    let complianceOk = 0;
+    let approvedDocs = 0;
     for (const tid of requiredIds) {
       const d = latestByVendor.get(`${v.id}|${tid}`);
-      if (!d) continue;
-      if (d.status !== "approved") continue;
+      if (!d || d.status !== "approved") continue;
       if (d.expiry_date && new Date(d.expiry_date).getTime() < now.getTime()) continue;
-      complianceOk++;
+      approvedDocs++;
     }
-    const complianceRatio = requiredIds.length > 0 ? complianceOk / requiredIds.length : 1;
 
-    // Financial: paid on time ratio (paid invoices only; undefined if none)
     const vInv = invByVendor.get(v.id) || [];
-    const paid = vInv.filter((i) => i.status === "paid" && i.paid_at);
-    const paidOnTime = paid.filter((i) => !i.due_date || new Date(i.paid_at) <= new Date(i.due_date)).length;
-    const paidRatio = paid.length > 0 ? paidOnTime / paid.length : 0.8; // default-ish when no data
-
-    const openFlags = flagsByVendor.get(v.id) || 0;
+    const overdueInvoices = vInv.filter((i) =>
+      i.status !== "paid" && i.status !== "rejected" &&
+      i.due_date && new Date(i.due_date) < now
+    ).length;
 
     const comp = composeHealth({
       on_time_delivery_pct: kpi?.on_time_delivery_pct,
-      invoice_accuracy_pct: kpi?.invoice_accuracy_pct,
+      invoice_count: kpi?.invoice_count,
+      discrepancy_count: kpi?.discrepancy_count,
+      approved_docs: approvedDocs,
+      required_docs: requiredIds.length,
+      overdue_invoices: overdueInvoices,
       avg_acknowledgment_hours: kpi?.avg_acknowledgment_hours,
-      compliance_complete_ratio: complianceRatio,
-      open_flags_count: openFlags,
-      paid_on_time_ratio: paidRatio,
     });
 
     rows.push({
@@ -143,7 +132,7 @@ async function computeLiveHealthForAllVendors(admin, vendorFilter) {
       compliance_score: comp.compliance,
       financial_score: comp.financial,
       responsiveness_score: comp.responsiveness,
-      score_breakdown: comp,
+      score_breakdown: comp.breakdown,
       period_start: periodStart,
       period_end: periodEnd,
     });

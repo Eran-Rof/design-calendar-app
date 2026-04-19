@@ -77,43 +77,79 @@ export function linearForecast(series, stepsAhead = 3) {
 }
 
 // ─── Health score composition ─────────────────────────────────────────
-// Weighted mix of the signals we have available. Returns overall + per-
-// dimension sub-scores in 0-100.
+// Follows the agreed formula:
+//   delivery       = on_time_delivery_pct (0-100)
+//   quality        = 100 - (discrepancy_count / invoice_count) * 100
+//   compliance     = (approved_docs / required_docs) * 100
+//   financial      = 100 - overdue_invoices * 10 (floor 0)
+//   responsiveness = step on avg_acknowledgment_hours
+//                      ≤4h → 100, ≤24h → 80, ≤48h → 60, >48h → 40
+//   overall        = 0.30·delivery + 0.25·quality + 0.20·compliance
+//                  + 0.15·financial + 0.10·responsiveness
+//
+// Dimensions default to a neutral "100" when the underlying signal is
+// unavailable (e.g. a vendor with no invoices gets quality=100 rather
+// than penalising them for having nothing to measure yet).
+//
+// Returns { overall, delivery, quality, compliance, financial,
+//           responsiveness, breakdown: {...raw signals} }.
 export function composeHealth({
   on_time_delivery_pct,
-  invoice_accuracy_pct,
+  invoice_count,
+  discrepancy_count,
+  approved_docs,
+  required_docs,
+  overdue_invoices,
   avg_acknowledgment_hours,
-  compliance_complete_ratio,       // 0..1 — share of required docs approved + not expiring
-  open_flags_count,                // vendor_flags.status='open'
-  paid_on_time_ratio,              // 0..1 — invoices paid by due_date
 }) {
-  const delivery    = clamp01(num(on_time_delivery_pct));
-  const quality     = clamp01(num(invoice_accuracy_pct));
-  const compliance  = clamp01(num(compliance_complete_ratio) * 100);
-  const responsiveness = clamp01(
-    avg_acknowledgment_hours == null ? 50 :
-    Math.max(0, Math.min(100, 100 - (Number(avg_acknowledgment_hours) - 24) * 100 / 48))
+  const delivery = on_time_delivery_pct == null
+    ? 100
+    : clamp01(Number(on_time_delivery_pct));
+
+  const quality = invoice_count == null || Number(invoice_count) === 0
+    ? 100
+    : clamp01(100 - (Number(discrepancy_count) || 0) / Number(invoice_count) * 100);
+
+  const compliance = required_docs == null || Number(required_docs) === 0
+    ? 100
+    : clamp01((Number(approved_docs) || 0) / Number(required_docs) * 100);
+
+  const financial = overdue_invoices == null
+    ? 100
+    : clamp01(100 - Number(overdue_invoices) * 10);
+
+  const responsiveness = avg_acknowledgment_hours == null
+    ? 80
+    : (() => {
+        const h = Number(avg_acknowledgment_hours);
+        if (h <= 4)  return 100;
+        if (h <= 24) return 80;
+        if (h <= 48) return 60;
+        return 40;
+      })();
+
+  const overall = Math.round(
+    delivery * 0.30 + quality * 0.25 + compliance * 0.20 +
+    financial * 0.15 + responsiveness * 0.10
   );
-  const financial = clamp01(num(paid_on_time_ratio) * 100);
-
-  // Flag penalty: up to −20 pts based on open flags
-  const flagPenalty = Math.min(20, (Number(open_flags_count) || 0) * 5);
-
-  const overall = Math.max(0, Math.round(
-    (delivery * 0.30 + quality * 0.20 + compliance * 0.20 +
-     financial * 0.15 + responsiveness * 0.15) - flagPenalty
-  ));
 
   return {
     overall,
-    delivery:       Math.round(delivery),
-    quality:        Math.round(quality),
-    compliance:     Math.round(compliance),
-    financial:      Math.round(financial),
+    delivery: Math.round(delivery),
+    quality: Math.round(quality),
+    compliance: Math.round(compliance),
+    financial: Math.round(financial),
     responsiveness: Math.round(responsiveness),
-    flag_penalty:   flagPenalty,
+    breakdown: {
+      on_time_delivery_pct: on_time_delivery_pct ?? null,
+      invoice_count: invoice_count ?? null,
+      discrepancy_count: discrepancy_count ?? null,
+      approved_docs: approved_docs ?? null,
+      required_docs: required_docs ?? null,
+      overdue_invoices: overdue_invoices ?? null,
+      avg_acknowledgment_hours: avg_acknowledgment_hours ?? null,
+    },
   };
 }
 
-function num(v) { return v == null || isNaN(Number(v)) ? 0 : Number(v); }
 function clamp01(v) { return Math.max(0, Math.min(100, v)); }
