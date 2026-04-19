@@ -95,7 +95,7 @@ export default function VendorScorecard() {
           <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 10, padding: "18px 20px", boxShadow: `0 1px 2px ${TH.shadow}` }}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20 }}>
               <MiniMetric label="On-time delivery" value={live.on_time_delivery_pct != null ? `${live.on_time_delivery_pct}%` : "—"} color={thresholdColor(live.on_time_delivery_pct, ON_TIME_THRESHOLD)} />
-              <MiniMetric label="Invoice accuracy" value={live.invoice_accuracy_pct != null ? `${live.invoice_accuracy_pct}%` : "—"} color={thresholdColor(live.invoice_accuracy_pct, ACCURACY_THRESHOLD)} />
+              <MiniMetric label="Invoice accuracy" value={live.invoice_count === 0 ? "No invoices" : (live.invoice_accuracy_pct != null ? `${live.invoice_accuracy_pct}%` : "—")} color={live.invoice_count === 0 ? TH.textMuted : thresholdColor(live.invoice_accuracy_pct, ACCURACY_THRESHOLD)} />
               <MiniMetric label="Avg ack time" value={live.avg_acknowledgment_hours != null ? (live.avg_acknowledgment_hours < 24 ? `${live.avg_acknowledgment_hours}h` : `${(live.avg_acknowledgment_hours / 24).toFixed(1)}d`) : "—"} color={live.avg_acknowledgment_hours == null || live.avg_acknowledgment_hours > 48 ? TH.primary : "#047857"} />
             </div>
           </div>
@@ -139,7 +139,7 @@ function PeriodCard({ row }: { row: ScorecardRow }) {
       </div>
 
       <Row label="On-time delivery" value={row.on_time_delivery_pct != null ? `${row.on_time_delivery_pct}%` : "—"} color={thresholdColor(row.on_time_delivery_pct, ON_TIME_THRESHOLD)} />
-      <Row label="Invoice accuracy" value={row.invoice_accuracy_pct != null ? `${row.invoice_accuracy_pct}%` : "—"} color={thresholdColor(row.invoice_accuracy_pct, ACCURACY_THRESHOLD)} />
+      <Row label="Invoice accuracy" value={row.invoice_count === 0 ? "No invoices" : (row.invoice_accuracy_pct != null ? `${row.invoice_accuracy_pct}%` : "—")} color={row.invoice_count === 0 ? TH.textMuted : thresholdColor(row.invoice_accuracy_pct, ACCURACY_THRESHOLD)} />
       <Row label="Avg ack time" value={ackDisplay} color={row.avg_acknowledgment_hours == null || row.avg_acknowledgment_hours > 48 ? TH.primary : "#047857"} />
 
       <div style={{ borderTop: `1px solid ${TH.border}`, marginTop: 10, paddingTop: 10, fontSize: 11, color: TH.textMuted }}>
