@@ -31,9 +31,11 @@ CREATE TABLE IF NOT EXISTS vendor_api_keys (
 );
 
 CREATE INDEX IF NOT EXISTS idx_vendor_api_keys_vendor_id ON vendor_api_keys (vendor_id);
+-- Partial index for un-revoked keys. expires_at is filtered at query time
+-- (can't use now() in a partial-index predicate — it's not IMMUTABLE).
 CREATE INDEX IF NOT EXISTS idx_vendor_api_keys_active
   ON vendor_api_keys (vendor_id)
-  WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now());
+  WHERE revoked_at IS NULL;
 
 -- ══════════════════════════════════════════════════════════════════════════
 -- 2. vendor_api_logs
