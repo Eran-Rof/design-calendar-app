@@ -22,6 +22,7 @@
 // INTERNAL_VENDOR_ALERT_EMAILS (falls back to INTERNAL_COMPLIANCE_EMAILS).
 
 import { createClient } from "@supabase/supabase-js";
+import { fireWorkflowEvent } from "../_lib/workflow.js";
 
 export const config = { maxDuration: 60 };
 
@@ -316,6 +317,23 @@ export default async function handler(req, res) {
         await fireHighSeverityAlert(admin, origin, vendor, flag);
         alerted++;
       }
+      // Fire workflow event (enables webhook to Slack etc. per the spec
+      // "critical anomaly → webhook" example)
+      try {
+        await fireWorkflowEvent({
+          admin, origin,
+          event: "anomaly_detected",
+          entity_id: null, // falls back to default entity in helper
+          context: {
+            entity_type: "anomaly",
+            entity_id: flag.id,
+            vendor_id: vendor.id,
+            anomaly_severity: flag.severity,
+            anomaly_type: flag.type,
+            description: flag.description,
+          },
+        });
+      } catch { /* non-blocking */ }
     }
   }
 

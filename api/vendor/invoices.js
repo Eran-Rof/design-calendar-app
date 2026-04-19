@@ -22,6 +22,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateVendor } from "../_lib/vendor-auth.js";
+import { fireWorkflowEvent } from "../_lib/workflow.js";
 
 export const config = { maxDuration: 30 };
 
@@ -134,5 +135,29 @@ export default async function handler(req, res) {
     }
   } catch { /* non-blocking */ }
 
-  return send(201, inv);
+  // Fire invoice_submitted workflow event. Rules can require approval,
+  // notify finance, auto-approve, or webhook out. The engine returns
+  // the results list so the caller can see what happened.
+  let workflow = null;
+  try {
+    const origin = `https://${req.headers.host}`;
+    workflow = await fireWorkflowEvent({
+      admin,
+      event: "invoice_submitted",
+      entity_id: inv.entity_id,
+      origin,
+      context: {
+        entity_type: "invoice",
+        entity_id: inv.id,
+        vendor_id: caller.vendor_id,
+        amount: Number(inv.total) || 0,
+        invoice_status: inv.status,
+        po_id: inv.po_id,
+        po_number: po.po_number,
+        invoice_number: inv.invoice_number,
+      },
+    });
+  } catch { /* non-blocking */ }
+
+  return send(201, workflow ? { ...inv, workflow } : inv);
 }

@@ -11,6 +11,7 @@
 // INTERNAL_DISPUTE_EMAILS (falls back to INTERNAL_COMPLIANCE_EMAILS).
 
 import { createClient } from "@supabase/supabase-js";
+import { fireWorkflowEvent } from "../../_lib/workflow.js";
 
 export const config = { maxDuration: 30 };
 
@@ -145,7 +146,33 @@ export default async function handler(req, res) {
       }
     } catch { /* non-blocking */ }
 
-    return res.status(201).json(dispute);
+    // Fire dispute_opened workflow event
+    let workflow = null;
+    try {
+      // Derive entity_id from the PO or invoice if linked, else default
+      let entityId = null;
+      if (po_id) {
+        const { data: po } = await admin.from("tanda_pos").select("entity_id").eq("uuid_id", po_id).maybeSingle();
+        entityId = po?.entity_id || null;
+      }
+      const origin = `https://${req.headers.host}`;
+      workflow = await fireWorkflowEvent({
+        admin,
+        event: "dispute_opened",
+        entity_id: entityId,
+        origin,
+        context: {
+          entity_type: "dispute",
+          entity_id: dispute.id,
+          vendor_id: caller.vendor_id,
+          dispute_priority: dispute.priority,
+          dispute_type: type,
+          subject: dispute.subject,
+        },
+      });
+    } catch { /* non-blocking */ }
+
+    return res.status(201).json(workflow ? { ...dispute, workflow } : dispute);
   }
 
   return res.status(405).json({ error: "Method not allowed" });
