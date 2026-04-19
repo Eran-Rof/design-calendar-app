@@ -59,10 +59,12 @@ export default async function handler(req, res) {
 
   // Fire notification to the vendor (fire-and-forget)
   const typeName = doc.document_type?.name || "Document";
-  const title = status === "approved" ? `${typeName} approved` : `${typeName} needs attention`;
+  const title = status === "approved"
+    ? `Document approved: ${typeName}`
+    : `Action needed: ${typeName} was not accepted`;
   const bodyText = status === "approved"
-    ? `Your ${typeName} has been approved.`
-    : `Your ${typeName} was not approved. Reason: ${String(notes).trim()}`;
+    ? `Your ${typeName} has been approved. No further action needed.`
+    : `Your ${typeName} was not approved. Reason: ${String(notes).trim()}. Please re-upload a corrected document in the vendor portal.`;
   try {
     const origin = `https://${req.headers.host}`;
     await fetch(`${origin}/api/send-notification`, {

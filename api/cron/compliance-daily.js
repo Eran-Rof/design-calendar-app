@@ -8,8 +8,13 @@
 //         expiry_date < today (via mark_expired_compliance_docs()).
 // Pass 2: for each approved document expiring within the doc-type's
 //         reminder_days_before window, emit one
-//         compliance_expiring_soon notification — deduped so we don't
-//         spam the vendor every day of the window.
+//         compliance_expiring_soon notification — deduped per document
+//         per expiry_date so we don't spam the vendor every day of the
+//         window.
+// Pass 3: for each newly-expired document (status='expired' with no
+//         prior compliance_expired notification for this expiry_date),
+//         notify the vendor primary user AND the internal compliance
+//         team (INTERNAL_COMPLIANCE_EMAILS). One-shot per expiry.
 //
 // Auth: Vercel cron includes `Authorization: Bearer ${CRON_SECRET}`
 // automatically. If CRON_SECRET is unset, the endpoint is open (useful
@@ -40,9 +45,11 @@ export default async function handler(req, res) {
     started_at: new Date().toISOString(),
     expired_count: 0,
     expiring_candidates: 0,
-    notifications_sent: 0,
-    notifications_skipped_dedup: 0,
-    notifications_skipped_no_recipient: 0,
+    expiring_notifications_sent: 0,
+    expiring_notifications_skipped_dedup: 0,
+    expiring_notifications_skipped_no_recipient: 0,
+    expired_notifications_sent: 0,
+    expired_notifications_skipped_dedup: 0,
     errors: [],
   };
 
@@ -103,8 +110,8 @@ export default async function handler(req, res) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           event_type: "compliance_expiring_soon",
-          title: `${typeName} expires in ${daysUntil} day${daysUntil === 1 ? "" : "s"}`,
-          body: `Your ${typeName} expires on ${doc.expiry_date}. Upload a renewed copy in the vendor portal before that date to stay compliant.`,
+          title: `Action needed: ${typeName} expires on ${doc.expiry_date}`,
+          body: `Your ${typeName} expires on ${doc.expiry_date} (in ${daysUntil} day${daysUntil === 1 ? "" : "s"}). Upload a renewed copy in the vendor portal before that date to stay compliant.`,
           link: "/vendor/compliance",
           metadata: {
             document_id: doc.id,
@@ -117,17 +124,104 @@ export default async function handler(req, res) {
         }),
       });
       if (r.ok) {
-        result.notifications_sent++;
+        result.expiring_notifications_sent++;
       } else {
         const body = await r.text().catch(() => "");
         if (r.status === 400 && body.includes("Could not resolve a recipient")) {
-          result.notifications_skipped_no_recipient++;
+          result.expiring_notifications_skipped_no_recipient++;
         } else {
           result.errors.push({ doc_id: doc.id, status: r.status, body: body.slice(0, 200) });
         }
       }
     } catch (err) {
       result.errors.push({ doc_id: doc.id, error: err?.message || String(err) });
+    }
+  }
+
+  // ── Pass 3: compliance_expired notifications ──────────────────────────
+  let expiredDocs = [];
+  try {
+    const r = await admin
+      .from("compliance_documents")
+      .select("id, vendor_id, expiry_date, document_type_id, document_type:compliance_document_types(name), vendor:vendors(name)")
+      .eq("status", "expired")
+      .not("expiry_date", "is", null);
+    if (r.error) throw r.error;
+    expiredDocs = r.data || [];
+  } catch (err) {
+    result.errors.push({ pass: "expired_scan", error: err?.message || String(err) });
+  }
+
+  const internalEmails = (process.env.INTERNAL_COMPLIANCE_EMAILS || "")
+    .split(",").map((e) => e.trim()).filter(Boolean);
+
+  for (const doc of expiredDocs) {
+    const typeName = doc.document_type?.name || "Document";
+    const vendorName = doc.vendor?.name || "Vendor";
+
+    // Dedup: one compliance_expired per document per expiry_date
+    const { data: existing } = await admin
+      .from("notifications")
+      .select("id")
+      .eq("event_type", "compliance_expired")
+      .eq("metadata->>document_id", doc.id)
+      .eq("metadata->>expiry_date", doc.expiry_date)
+      .limit(1);
+    if (existing && existing.length > 0) {
+      result.expired_notifications_skipped_dedup++;
+      continue;
+    }
+
+    const title = `Expired document: ${typeName} for ${vendorName}`;
+    const body = `The ${typeName} for ${vendorName} expired on ${doc.expiry_date}. Please upload a renewed copy as soon as possible.`;
+    const metadata = {
+      document_id: doc.id,
+      document_type: typeName,
+      vendor_id: doc.vendor_id,
+      vendor_name: vendorName,
+      expiry_date: doc.expiry_date,
+    };
+
+    // Vendor primary user
+    try {
+      const r = await fetch(`${origin}/api/send-notification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_type: "compliance_expired",
+          title,
+          body,
+          link: "/vendor/compliance",
+          metadata,
+          recipient: { vendor_id: doc.vendor_id },
+          dedupe_key: `compliance_expired_${doc.id}_${doc.expiry_date}_vendor`,
+        }),
+      });
+      if (r.ok) result.expired_notifications_sent++;
+    } catch (err) {
+      result.errors.push({ doc_id: doc.id, error: `vendor notify: ${err?.message || err}` });
+    }
+
+    // Internal compliance team (per-email fan-out)
+    for (const email of internalEmails) {
+      try {
+        const r = await fetch(`${origin}/api/send-notification`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            event_type: "compliance_expired",
+            title,
+            body,
+            link: "/",
+            metadata,
+            recipient: { internal_id: "compliance_team", email },
+            dedupe_key: `compliance_expired_${doc.id}_${doc.expiry_date}_${email}`,
+          }),
+        });
+        if (r.ok) result.expired_notifications_sent++;
+      } catch (err) {
+        result.errors.push({ doc_id: doc.id, error: `internal notify: ${err?.message || err}` });
+      }
     }
   }
 

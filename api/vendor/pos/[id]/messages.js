@@ -123,20 +123,38 @@ export default async function handler(req, res) {
       if (attErr) return res.status(200).json({ ...msg, attachment_error: attErr.message });
     }
 
+    // Notify each internal messaging team member. Digest behaviour:
+    // if 3+ new_message emails have already fired to this address in
+    // the past hour, drop email on this one (in-app still posts).
     try {
+      const emails = (process.env.INTERNAL_MESSAGE_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "")
+        .split(",").map((e) => e.trim()).filter(Boolean);
       const origin = `https://${req.headers.host}`;
-      await fetch(`${origin}/api/send-notification`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event_type: "new_message",
-          title: `New message on PO ${po.po_number}`,
-          body: messageBody.trim().slice(0, 200),
-          link: "/",
-          recipient: { internal_id: "po_messages_inbox" },
-          email: false,
-        }),
-      }).catch(() => {});
+      const oneHourAgo = new Date(Date.now() - 3_600_000).toISOString();
+      await Promise.all(emails.map(async (email) => {
+        const { count } = await admin
+          .from("notifications")
+          .select("*", { count: "exact", head: true })
+          .eq("event_type", "new_message")
+          .eq("recipient_email", email)
+          .eq("email_status", "sent")
+          .gte("created_at", oneHourAgo);
+        const wantEmail = (count ?? 0) < 3;
+        await fetch(`${origin}/api/send-notification`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            event_type: "new_message",
+            title: `New message on PO ${po.po_number}`,
+            body: messageBody.trim().slice(0, 200),
+            link: "/",
+            metadata: { po_id: poId, po_number: po.po_number },
+            recipient: { internal_id: "po_messages_inbox", email },
+            dedupe_key: `new_message_${msg.id}_${email}`,
+            email: wantEmail,
+          }),
+        }).catch(() => {});
+      }));
     } catch { /* non-blocking */ }
 
     return res.status(201).json(msg);

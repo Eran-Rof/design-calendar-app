@@ -143,23 +143,32 @@ export default async function handler(req, res) {
     }).select("*").single();
     if (insErr) return res.status(500).json({ error: insErr.message });
 
-    // Internal notification (fire-and-forget). We don't have per-role internal
-    // recipient routing yet — for now, notify all vendor_users with role 'admin'
-    // if any, else skip. Adjust when internal recipient resolution is wired up.
+    // Notify each internal compliance team member (email-only).
+    // INTERNAL_COMPLIANCE_EMAILS is a comma-separated list of addresses
+    // set in Vercel env vars.
     try {
-      const origin = `https://${req.headers.host}`;
-      await fetch(`${origin}/api/send-notification`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event_type: "compliance_doc_submitted",
-          title: `New ${type.name} submitted`,
-          body: `A vendor uploaded a ${type.name} for compliance review.`,
-          link: "/",
-          recipient: { internal_id: "compliance_team" },
-          email: false,
-        }),
-      }).catch(() => {});
+      const emails = (process.env.INTERNAL_COMPLIANCE_EMAILS || "")
+        .split(",").map((e) => e.trim()).filter(Boolean);
+      if (emails.length > 0) {
+        const { data: vendor } = await admin.from("vendors").select("name").eq("id", caller.vendor_id).maybeSingle();
+        const vendorName = vendor?.name || "A vendor";
+        const origin = `https://${req.headers.host}`;
+        await Promise.all(emails.map((email) =>
+          fetch(`${origin}/api/send-notification`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              event_type: "compliance_doc_submitted",
+              title: `${vendorName} submitted ${type.name}`,
+              body: `${vendorName} has uploaded a ${type.name} for compliance review. Open the internal TandA Compliance tab to review.`,
+              link: "/",
+              recipient: { internal_id: "compliance_team", email },
+              dedupe_key: `compliance_doc_submitted_${doc.id}_${email}`,
+              email: true,
+            }),
+          }).catch(() => {})
+        ));
+      }
     } catch { /* non-blocking */ }
 
     return res.status(201).json(doc);

@@ -96,9 +96,30 @@ export default async function handler(req, res) {
       if (attErr) return res.status(200).json({ ...msg, attachment_error: attErr.message });
     }
 
+    // Notify the vendor primary user. Digest: if 3+ new_message emails
+    // have already fired to this vendor's primary user in the past
+    // hour, drop email on this one.
     if (po.vendor_id) {
       try {
         const origin = `https://${req.headers.host}`;
+
+        // Find primary vendor_user's auth_id to count their prior emails
+        const { data: primary } = await admin
+          .from("vendor_users").select("auth_id")
+          .eq("vendor_id", po.vendor_id).eq("role", "primary").maybeSingle();
+        let wantEmail = true;
+        if (primary?.auth_id) {
+          const oneHourAgo = new Date(Date.now() - 3_600_000).toISOString();
+          const { count } = await admin
+            .from("notifications")
+            .select("*", { count: "exact", head: true })
+            .eq("event_type", "new_message")
+            .eq("recipient_auth_id", primary.auth_id)
+            .eq("email_status", "sent")
+            .gte("created_at", oneHourAgo);
+          if ((count ?? 0) >= 3) wantEmail = false;
+        }
+
         await fetch(`${origin}/api/send-notification`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -107,7 +128,10 @@ export default async function handler(req, res) {
             title: `New message on PO ${po.po_number}`,
             body: messageBody.trim().slice(0, 200),
             link: "/vendor/messages",
+            metadata: { po_id: poId, po_number: po.po_number },
             recipient: { vendor_id: po.vendor_id },
+            dedupe_key: `new_message_${msg.id}_vendor`,
+            email: wantEmail,
           }),
         }).catch(() => {});
       } catch { /* non-blocking */ }
