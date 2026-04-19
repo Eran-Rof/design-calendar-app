@@ -137,7 +137,7 @@ export default async function handler(req, res) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           event_type: "contract_sent",
-          title: `New contract to review: ${contract.title}`,
+          title: `New contract ready for review: ${contract.title}`,
           body: `${vendor.name}, a new ${contract_type.replace(/_/g, " ")} is ready for your review and signature.`,
           link: "/vendor/contracts",
           metadata: { contract_id: contract.id, vendor_id },

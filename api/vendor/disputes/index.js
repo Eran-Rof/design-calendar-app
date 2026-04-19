@@ -132,8 +132,8 @@ export default async function handler(req, res) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               event_type: "dispute_opened",
-              title: `${vendorName} opened a ${type.replace(/_/g, " ")} dispute`,
-              body: `${dispute.subject}\n\n${String(messageBody).trim().slice(0, 300)}`,
+              title: `New dispute from ${vendorName}: ${dispute.subject}`,
+              body: `${type.replace(/_/g, " ")} · priority ${dispute.priority}\n\n${String(messageBody).trim().slice(0, 300)}`,
               link: "/",
               metadata: { dispute_id: dispute.id, vendor_id: caller.vendor_id, type, priority: dispute.priority },
               recipient: { internal_id: "disputes_team", email },

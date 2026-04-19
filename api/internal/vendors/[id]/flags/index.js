@@ -42,10 +42,11 @@ export default async function handler(req, res) {
   const { data: vendor } = await admin.from("vendors").select("id").eq("id", vendorId).maybeSingle();
   if (!vendor) return res.status(404).json({ error: "Vendor not found" });
 
+  const finalSeverity = severity || "medium";
   const { data: flag, error } = await admin.from("vendor_flags").insert({
     vendor_id: vendorId,
     type,
-    severity: severity || "medium",
+    severity: finalSeverity,
     reason: String(reason).trim(),
     status: "open",
     raised_by: raised_by || null,
@@ -53,6 +54,35 @@ export default async function handler(req, res) {
     metadata: metadata || null,
   }).select("*").single();
   if (error) return res.status(500).json({ error: error.message });
+
+  // Alert internal team leads on high/critical flags only.
+  if (finalSeverity === "high" || finalSeverity === "critical") {
+    try {
+      const emails = (process.env.INTERNAL_VENDOR_ALERT_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "")
+        .split(",").map((e) => e.trim()).filter(Boolean);
+      if (emails.length > 0) {
+        const { data: v } = await admin.from("vendors").select("name").eq("id", vendorId).maybeSingle();
+        const vendorName = v?.name || "Vendor";
+        const origin = `https://${req.headers.host}`;
+        await Promise.all(emails.map((email) =>
+          fetch(`${origin}/api/send-notification`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              event_type: "vendor_flagged",
+              title: `Vendor flagged [${finalSeverity}]: ${vendorName} — ${String(reason).trim().slice(0, 120)}`,
+              body: `Type: ${type}\nSeverity: ${finalSeverity}\nSource: ${source || "manual"}\n\n${String(reason).trim().slice(0, 400)}`,
+              link: "/",
+              metadata: { flag_id: flag.id, vendor_id: vendorId, type, severity: finalSeverity },
+              recipient: { internal_id: "vendor_ops", email },
+              dedupe_key: `vendor_flagged_${flag.id}_${email}`,
+              email: true,
+            }),
+          }).catch(() => {})
+        ));
+      }
+    } catch { /* non-blocking */ }
+  }
 
   return res.status(201).json(flag);
 }

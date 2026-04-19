@@ -4,8 +4,10 @@
 //   body: { status?, internal_owner?, title?, description?, start_date?,
 //           end_date?, value?, currency?, notes? }
 // Allowed statuses: draft|sent|under_review|signed|expired|terminated
-// Fires contract_updated notification to vendor when status changes to
-// 'sent', 'expired', or 'terminated'.
+// Fires the matching notification to vendor when status changes:
+//   status → sent        → contract_sent
+//   status → expired     → contract_expired
+//   status → terminated  → contract_terminated
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -57,12 +59,16 @@ export default async function handler(req, res) {
   if (updErr) return res.status(500).json({ error: updErr.message });
 
   // Notify on state changes that affect the vendor
-  const notifiableStatus = ["sent", "expired", "terminated"];
-  if (updates.status && notifiableStatus.includes(updates.status) && updates.status !== existing.status) {
+  const eventTypeByStatus = {
+    sent: "contract_sent",
+    expired: "contract_expired",
+    terminated: "contract_terminated",
+  };
+  if (updates.status && eventTypeByStatus[updates.status] && updates.status !== existing.status) {
     try {
       const origin = `https://${req.headers.host}`;
       const titles = {
-        sent: `Contract needs your review: ${existing.title}`,
+        sent: `New contract ready for review: ${existing.title}`,
         expired: `Contract expired: ${existing.title}`,
         terminated: `Contract terminated: ${existing.title}`,
       };
@@ -75,13 +81,13 @@ export default async function handler(req, res) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          event_type: "contract_updated",
+          event_type: eventTypeByStatus[updates.status],
           title: titles[updates.status],
           body: bodies[updates.status],
           link: "/vendor/contracts",
           metadata: { contract_id: id, vendor_id: existing.vendor_id, new_status: updates.status },
           recipient: { vendor_id: existing.vendor_id },
-          dedupe_key: `contract_updated_${id}_${updates.status}_${new Date().toISOString().slice(0, 10)}`,
+          dedupe_key: `${eventTypeByStatus[updates.status]}_${id}_${new Date().toISOString().slice(0, 10)}`,
           email: true,
         }),
       }).catch(() => {});

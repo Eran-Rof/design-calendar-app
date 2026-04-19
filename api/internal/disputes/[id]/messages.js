@@ -78,7 +78,7 @@ export default async function handler(req, res) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         event_type: "new_dispute_message",
-        title: `Update on your dispute: ${dispute.subject}`,
+        title: `New message on dispute: ${dispute.subject}`,
         body: String(messageBody).trim().slice(0, 300),
         link: "/vendor/disputes",
         metadata: { dispute_id: disputeId, vendor_id: dispute.vendor_id },
