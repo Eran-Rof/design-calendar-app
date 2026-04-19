@@ -25,6 +25,7 @@ import NotificationBell from "./NotificationBell";
 import ComplianceList from "./ComplianceList";
 import POMessages from "./POMessages";
 import VendorScorecard from "./VendorScorecard";
+import VendorReports from "./VendorReports";
 
 function useVendorSession(): { session: Session | null; ready: boolean } {
   const [session, setSession] = useState<Session | null>(null);
@@ -64,7 +65,8 @@ function TabNav() {
   const isInvoices = loc.pathname.startsWith("/vendor/invoices");
   const isCompliance = loc.pathname.startsWith("/vendor/compliance");
   const isMessages = loc.pathname.startsWith("/vendor/messages");
-  const isPerformance = loc.pathname.startsWith("/vendor/performance");
+  const isScorecard = loc.pathname.startsWith("/vendor/scorecard") || loc.pathname.startsWith("/vendor/performance");
+  const isReports = loc.pathname.startsWith("/vendor/reports");
   return (
     <nav style={{ display: "flex", gap: 2, padding: "0 24px", background: "rgba(255,255,255,0.05)", borderBottom: `1px solid rgba(255,255,255,0.12)` }}>
       <TabLink to="/vendor" active={isPOs}>Purchase Orders</TabLink>
@@ -72,7 +74,8 @@ function TabNav() {
       <TabLink to="/vendor/invoices" active={isInvoices}>Invoices</TabLink>
       <TabLink to="/vendor/compliance" active={isCompliance}>Compliance</TabLink>
       <TabLink to="/vendor/messages" active={isMessages}>Messages</TabLink>
-      <TabLink to="/vendor/performance" active={isPerformance}>Performance</TabLink>
+      <TabLink to="/vendor/reports" active={isReports}>Reports</TabLink>
+      <TabLink to="/vendor/scorecard" active={isScorecard}>Scorecard</TabLink>
     </nav>
   );
 }
@@ -225,9 +228,21 @@ export default function VendorApp() {
         />
         <Route
           path="/vendor/performance"
+          element={<Navigate to="/vendor/scorecard" replace />}
+        />
+        <Route
+          path="/vendor/scorecard"
           element={
             <Protected>
               <VendorShell withTabs><VendorScorecard /></VendorShell>
+            </Protected>
+          }
+        />
+        <Route
+          path="/vendor/reports"
+          element={
+            <Protected>
+              <VendorShell withTabs><VendorReports /></VendorShell>
             </Protected>
           }
         />

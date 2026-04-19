@@ -3,21 +3,7 @@ import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate } from "./utils";
 
-interface LiveKPI {
-  vendor_id: string;
-  vendor_name: string;
-  period_start: string;
-  period_end: string;
-  po_count: number;
-  invoice_count: number;
-  discrepancy_count: number;
-  avg_acknowledgment_hours: number | null;
-  on_time_delivery_pct: number | null;
-  invoice_accuracy_pct: number | null;
-}
-
 interface ScorecardRow {
-  id: string;
   period_start: string;
   period_end: string;
   on_time_delivery_pct: number | null;
@@ -27,30 +13,27 @@ interface ScorecardRow {
   invoice_count: number;
   discrepancy_count: number;
   composite_score: number | null;
-  generated_at: string;
 }
 
-function scoreColor(pct: number | null): string {
+const ON_TIME_THRESHOLD = 80;
+const ACCURACY_THRESHOLD = 85;
+
+function thresholdColor(pct: number | null, threshold: number): string {
   if (pct == null) return TH.textMuted;
-  if (pct >= 95) return "#047857";
-  if (pct >= 80) return "#B45309";
+  if (pct >= threshold + 10) return "#047857";
+  if (pct >= threshold) return "#B45309";
   return TH.primary;
 }
 
-function fmtPct(n: number | null | undefined): string {
-  if (n == null) return "—";
-  return `${Number(n).toFixed(1)}%`;
-}
-
-function fmtHours(n: number | null | undefined): string {
-  if (n == null) return "—";
-  if (n < 24) return `${Number(n).toFixed(1)}h`;
-  return `${(n / 24).toFixed(1)}d`;
+async function authedFetch(path: string) {
+  const { data } = await supabaseVendor.auth.getSession();
+  const token = data?.session?.access_token;
+  return fetch(path, { headers: { Authorization: `Bearer ${token}` } });
 }
 
 export default function VendorScorecard() {
-  const [live, setLive] = useState<LiveKPI | null>(null);
-  const [history, setHistory] = useState<ScorecardRow[]>([]);
+  const [periods, setPeriods] = useState<ScorecardRow[]>([]);
+  const [live, setLive] = useState<ScorecardRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -59,25 +42,31 @@ export default function VendorScorecard() {
       setLoading(true);
       setErr(null);
       try {
+        // Last 4 snapshotted periods via the API
+        const r = await authedFetch("/api/vendor/scorecard");
+        if (!r.ok) throw new Error(`scorecard: ${r.status}`);
+        const data = await r.json() as ScorecardRow[];
+        setPeriods(data || []);
+
+        // Rolling live KPI — direct query (no matching API yet, vendor_kpi_live
+        // is RLS-scoped so the authed client works)
         const { data: userRes } = await supabaseVendor.auth.getUser();
         const uid = userRes.user?.id;
-        if (!uid) throw new Error("Not signed in.");
-        const { data: vu } = await supabaseVendor
-          .from("vendor_users").select("vendor_id").eq("auth_id", uid).maybeSingle();
-        if (!vu) throw new Error("Not linked to a vendor.");
-
-        const [liveRes, histRes] = await Promise.all([
-          supabaseVendor.from("vendor_kpi_live").select("*").eq("vendor_id", vu.vendor_id).maybeSingle(),
-          supabaseVendor.from("vendor_scorecards")
-            .select("id, period_start, period_end, on_time_delivery_pct, invoice_accuracy_pct, avg_acknowledgment_hours, po_count, invoice_count, discrepancy_count, composite_score, generated_at")
-            .eq("vendor_id", vu.vendor_id)
-            .order("period_start", { ascending: false })
-            .limit(12),
-        ]);
-        if (liveRes.error) throw liveRes.error;
-        if (histRes.error) throw histRes.error;
-        setLive(liveRes.data as LiveKPI);
-        setHistory((histRes.data ?? []) as ScorecardRow[]);
+        if (uid) {
+          const { data: vu } = await supabaseVendor.from("vendor_users").select("vendor_id").eq("auth_id", uid).maybeSingle();
+          if (vu) {
+            const { data: k } = await supabaseVendor.from("vendor_kpi_live").select("*").eq("vendor_id", vu.vendor_id).maybeSingle();
+            if (k) setLive({
+              period_start: k.period_start, period_end: k.period_end,
+              on_time_delivery_pct: k.on_time_delivery_pct,
+              invoice_accuracy_pct: k.invoice_accuracy_pct,
+              avg_acknowledgment_hours: k.avg_acknowledgment_hours,
+              po_count: k.po_count, invoice_count: k.invoice_count,
+              discrepancy_count: k.discrepancy_count,
+              composite_score: null,
+            });
+          }
+        }
       } catch (e: unknown) {
         setErr(e instanceof Error ? e.message : String(e));
       } finally {
@@ -86,92 +75,102 @@ export default function VendorScorecard() {
     })();
   }, []);
 
-  if (loading) return <div style={{ color: "#FFFFFF" }}>Loading performance…</div>;
+  if (loading) return <div style={{ color: "#FFFFFF" }}>Loading scorecard…</div>;
   if (err) return <div style={{ color: TH.primary, padding: "10px 12px", background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6 }}>Error: {err}</div>;
+
+  const cards = periods.slice(0, 4);
+  while (cards.length < 4) cards.push(null as unknown as ScorecardRow);
 
   return (
     <div>
       <div style={{ color: "#FFFFFF", fontSize: 14, marginBottom: 14 }}>
-        Your rolling 180-day performance. Contact your Ring of Fire buyer if you see anything off.
+        Your performance over the last 4 periods. Thresholds: on-time ≥ {ON_TIME_THRESHOLD}%, accuracy ≥ {ACCURACY_THRESHOLD}%.
       </div>
 
       {live && (
-        <>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 14 }}>
-            <KPICard
-              label="On-time delivery"
-              value={fmtPct(live.on_time_delivery_pct)}
-              color={scoreColor(live.on_time_delivery_pct)}
-              sub={`${live.po_count} POs in period`}
-            />
-            <KPICard
-              label="Invoice accuracy"
-              value={fmtPct(live.invoice_accuracy_pct)}
-              color={scoreColor(live.invoice_accuracy_pct)}
-              sub={`${live.discrepancy_count} discrepancies flagged`}
-            />
-            <KPICard
-              label="PO ack speed"
-              value={fmtHours(live.avg_acknowledgment_hours)}
-              color={live.avg_acknowledgment_hours == null || live.avg_acknowledgment_hours > 48 ? TH.primary : "#047857"}
-              sub="Average time to acknowledge"
-            />
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ color: "rgba(255,255,255,0.8)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", marginBottom: 8, letterSpacing: 0.3 }}>
+            Rolling 180 days (live)
           </div>
-          <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "14px 18px", marginBottom: 20, fontSize: 13, color: TH.textSub2 }}>
-            Period: <strong>{fmtDate(live.period_start)}</strong> → <strong>{fmtDate(live.period_end)}</strong>
-            &nbsp;·&nbsp; POs <strong>{live.po_count}</strong>
-            &nbsp;·&nbsp; Invoices <strong>{live.invoice_count}</strong>
+          <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 10, padding: "18px 20px", boxShadow: `0 1px 2px ${TH.shadow}` }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20 }}>
+              <MiniMetric label="On-time delivery" value={live.on_time_delivery_pct != null ? `${live.on_time_delivery_pct}%` : "—"} color={thresholdColor(live.on_time_delivery_pct, ON_TIME_THRESHOLD)} />
+              <MiniMetric label="Invoice accuracy" value={live.invoice_accuracy_pct != null ? `${live.invoice_accuracy_pct}%` : "—"} color={thresholdColor(live.invoice_accuracy_pct, ACCURACY_THRESHOLD)} />
+              <MiniMetric label="Avg ack time" value={live.avg_acknowledgment_hours != null ? (live.avg_acknowledgment_hours < 24 ? `${live.avg_acknowledgment_hours}h` : `${(live.avg_acknowledgment_hours / 24).toFixed(1)}d`) : "—"} color={live.avg_acknowledgment_hours == null || live.avg_acknowledgment_hours > 48 ? TH.primary : "#047857"} />
+            </div>
           </div>
-        </>
+        </div>
       )}
 
-      <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden", boxShadow: `0 1px 2px ${TH.shadow}` }}>
-        <div style={{ padding: "12px 20px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 14, fontWeight: 700, color: TH.text }}>
-          Historical scorecards
-        </div>
-        {history.length === 0 ? (
-          <div style={{ padding: 20, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
-            No snapshots yet. Scorecards are generated periodically (quarterly by Ring of Fire).
-          </div>
-        ) : (
-          <>
-            <div style={{ display: "grid", gridTemplateColumns: "180px 110px 110px 110px 80px 80px 100px", padding: "10px 20px", background: TH.surfaceHi, borderTop: `1px solid ${TH.border}`, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
-              <div>Period</div>
-              <div>On-time</div>
-              <div>Accuracy</div>
-              <div>Ack speed</div>
-              <div>POs</div>
-              <div>Invs</div>
-              <div style={{ textAlign: "right" }}>Score</div>
-            </div>
-            {history.map((r) => (
-              <div key={r.id} style={{ display: "grid", gridTemplateColumns: "180px 110px 110px 110px 80px 80px 100px", padding: "10px 20px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
-                <div style={{ color: TH.text, fontWeight: 600 }}>
-                  {fmtDate(r.period_start)} – {fmtDate(r.period_end)}
-                </div>
-                <div style={{ color: scoreColor(r.on_time_delivery_pct), fontWeight: 600 }}>{fmtPct(r.on_time_delivery_pct)}</div>
-                <div style={{ color: scoreColor(r.invoice_accuracy_pct), fontWeight: 600 }}>{fmtPct(r.invoice_accuracy_pct)}</div>
-                <div style={{ color: TH.textSub2 }}>{fmtHours(r.avg_acknowledgment_hours)}</div>
-                <div style={{ color: TH.textSub2 }}>{r.po_count}</div>
-                <div style={{ color: TH.textSub2 }}>{r.invoice_count}</div>
-                <div style={{ textAlign: "right", fontSize: 16, fontWeight: 700, color: scoreColor(r.composite_score) }}>
-                  {r.composite_score != null ? Number(r.composite_score).toFixed(0) : "—"}
-                </div>
-              </div>
-            ))}
-          </>
-        )}
+      <div style={{ color: "rgba(255,255,255,0.8)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", marginBottom: 8, letterSpacing: 0.3 }}>
+        Snapshotted periods
       </div>
+      {periods.length === 0 ? (
+        <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: 24, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
+          No snapshots yet. Scorecards are generated monthly on the 1st.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+          {cards.map((r, idx) => r ? (
+            <PeriodCard key={`${r.period_start}_${r.period_end}`} row={r} />
+          ) : (
+            <div key={`empty_${idx}`} style={{ background: "rgba(255,255,255,0.04)", border: `1px dashed rgba(255,255,255,0.2)`, borderRadius: 10, padding: 20, color: "rgba(255,255,255,0.4)", fontSize: 13, textAlign: "center", minHeight: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              Prior period<br/>(not yet generated)
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function KPICard({ label, value, color, sub }: { label: string; value: string; color: string; sub?: string }) {
+function PeriodCard({ row }: { row: ScorecardRow }) {
+  const ot = Number(row.on_time_delivery_pct ?? 0);
+  const acc = Number(row.invoice_accuracy_pct ?? 0);
+  const ack = Number(row.avg_acknowledgment_hours ?? 0);
+  const ackDisplay = row.avg_acknowledgment_hours == null
+    ? "—"
+    : ack < 24 ? `${ack.toFixed(1)}h` : `${(ack / 24).toFixed(1)}d`;
   return (
-    <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "20px 20px", boxShadow: `0 1px 2px ${TH.shadow}` }}>
-      <div style={{ fontSize: 12, color: TH.textMuted, textTransform: "uppercase", fontWeight: 600, marginBottom: 8 }}>{label}</div>
-      <div style={{ fontSize: 36, fontWeight: 700, color }}>{value}</div>
-      {sub && <div style={{ fontSize: 12, color: TH.textMuted, marginTop: 4 }}>{sub}</div>}
+    <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 10, padding: 18, boxShadow: `0 1px 2px ${TH.shadow}` }}>
+      <div style={{ fontSize: 11, color: TH.textMuted, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>Period</div>
+      <div style={{ fontSize: 13, color: TH.text, fontWeight: 700, marginBottom: 14 }}>
+        {fmtDate(row.period_start)} – {fmtDate(row.period_end)}
+      </div>
+
+      <Row label="On-time delivery" value={row.on_time_delivery_pct != null ? `${row.on_time_delivery_pct}%` : "—"} color={thresholdColor(row.on_time_delivery_pct, ON_TIME_THRESHOLD)} />
+      <Row label="Invoice accuracy" value={row.invoice_accuracy_pct != null ? `${row.invoice_accuracy_pct}%` : "—"} color={thresholdColor(row.invoice_accuracy_pct, ACCURACY_THRESHOLD)} />
+      <Row label="Avg ack time" value={ackDisplay} color={row.avg_acknowledgment_hours == null || row.avg_acknowledgment_hours > 48 ? TH.primary : "#047857"} />
+
+      <div style={{ borderTop: `1px solid ${TH.border}`, marginTop: 10, paddingTop: 10, fontSize: 11, color: TH.textMuted }}>
+        {row.po_count} PO{row.po_count === 1 ? "" : "s"} · {row.invoice_count} inv · {row.discrepancy_count} disc.
+      </div>
+      {row.composite_score != null && (
+        <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontSize: 11, color: TH.textMuted, fontWeight: 700, textTransform: "uppercase" }}>Score</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: Number(row.composite_score) >= 85 ? "#047857" : Number(row.composite_score) >= 70 ? "#B45309" : TH.primary }}>
+            {Math.round(Number(row.composite_score))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Row({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13, marginBottom: 8 }}>
+      <span style={{ color: TH.textMuted }}>{label}</span>
+      <span style={{ fontWeight: 700, color, fontSize: 15 }}>{value}</span>
+    </div>
+  );
+}
+
+function MiniMetric({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: TH.textMuted, textTransform: "uppercase", fontWeight: 600, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 28, fontWeight: 700, color }}>{value}</div>
     </div>
   );
 }

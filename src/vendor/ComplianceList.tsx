@@ -1,18 +1,23 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate } from "./utils";
+
+// Grouped compliance checklist. Data via /api/vendor/compliance which
+// returns { complete, expiring_soon, missing, rejected } with document
+// type + optional latest document per row.
 
 interface DocType {
   id: string;
   code: string;
   name: string;
   description: string | null;
+  required: boolean;
   expiry_required: boolean;
   sort_order: number;
 }
 
-interface DocRow {
+interface Doc {
   id: string;
   document_type_id: string;
   file_url: string;
@@ -28,56 +33,52 @@ interface DocRow {
   notes: string | null;
 }
 
-const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
-  pending_review: { bg: "#FEF3C7", fg: "#92400E" },
-  approved:       { bg: "#D1FAE5", fg: "#065F46" },
-  rejected:       { bg: "#FECACA", fg: "#991B1B" },
-  expired:        { bg: "#E5E7EB", fg: "#6B7280" },
-  superseded:     { bg: "#F3F4F6", fg: "#9CA3AF" },
-};
+interface GroupEntry {
+  document_type: DocType;
+  document: Doc | null;
+}
 
-function daysUntilExpiry(iso?: string | null): number | null {
-  if (!iso) return null;
-  const t = new Date(iso + "T00:00:00").getTime();
-  if (Number.isNaN(t)) return null;
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  return Math.round((t - today.getTime()) / 86_400_000);
+interface Grouped {
+  complete: GroupEntry[];
+  expiring_soon: GroupEntry[];
+  missing: GroupEntry[];
+  rejected: GroupEntry[];
+}
+
+function badgeFor(entry: GroupEntry, sectionKey: keyof Grouped): { label: string; bg: string; fg: string } {
+  if (sectionKey === "missing" && !entry.document) return { label: "Missing", bg: "#E5E7EB", fg: "#6B7280" };
+  const s = entry.document?.status;
+  if (s === "pending_review") return { label: "Pending review", bg: "#DBEAFE", fg: "#1E40AF" };
+  if (s === "approved")       return { label: "Approved",       bg: "#D1FAE5", fg: "#065F46" };
+  if (s === "rejected")       return { label: "Rejected",       bg: "#FECACA", fg: "#991B1B" };
+  if (s === "expired")        return { label: "Expired",        bg: "#E5E7EB", fg: "#6B7280" };
+  if (sectionKey === "expiring_soon") return { label: "Expiring soon", bg: "#FEF3C7", fg: "#92400E" };
+  return { label: s || "—", bg: "#F3F4F6", fg: "#9CA3AF" };
+}
+
+async function authedFetch(path: string, init?: RequestInit) {
+  const { data } = await supabaseVendor.auth.getSession();
+  const token = data?.session?.access_token;
+  return fetch(path, {
+    ...init,
+    headers: { ...(init?.headers || {}), Authorization: `Bearer ${token}` },
+  });
 }
 
 export default function ComplianceList() {
-  const [types, setTypes] = useState<DocType[]>([]);
-  const [docs, setDocs] = useState<DocRow[]>([]);
-  const [vendorId, setVendorId] = useState<string | null>(null);
-  const [vendorUserId, setVendorUserId] = useState<string | null>(null);
+  const [groups, setGroups] = useState<Grouped>({ complete: [], expiring_soon: [], missing: [], rejected: [] });
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [showUpload, setShowUpload] = useState(false);
+  const [uploadingFor, setUploadingFor] = useState<GroupEntry | null>(null);
 
   async function load() {
     setLoading(true);
     setErr(null);
     try {
-      const { data: userRes } = await supabaseVendor.auth.getUser();
-      const uid = userRes.user?.id;
-      if (!uid) throw new Error("Not signed in.");
-      const { data: vu } = await supabaseVendor
-        .from("vendor_users").select("id, vendor_id").eq("auth_id", uid).maybeSingle();
-      if (!vu) throw new Error("Not linked to a vendor.");
-      setVendorId(vu.vendor_id as string);
-      setVendorUserId(vu.id as string);
-
-      const [typeRes, docRes] = await Promise.all([
-        supabaseVendor.from("compliance_document_types")
-          .select("id, code, name, description, expiry_required, sort_order")
-          .eq("active", true).order("sort_order"),
-        supabaseVendor.from("compliance_documents")
-          .select("id, document_type_id, file_url, file_name, file_size_bytes, file_mime_type, issued_at, expiry_date, status, rejection_reason, reviewed_at, uploaded_at, notes")
-          .eq("vendor_id", vu.vendor_id).order("uploaded_at", { ascending: false }),
-      ]);
-      if (typeRes.error) throw typeRes.error;
-      if (docRes.error) throw docRes.error;
-      setTypes((typeRes.data ?? []) as DocType[]);
-      setDocs((docRes.data ?? []) as DocRow[]);
+      const r = await authedFetch("/api/vendor/compliance");
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error || `Request failed (${r.status})`);
+      setGroups(body as Grouped);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -87,139 +88,122 @@ export default function ComplianceList() {
 
   useEffect(() => { void load(); }, []);
 
-  const typeById = useMemo(() => {
-    const m = new Map<string, DocType>();
-    for (const t of types) m.set(t.id, t);
-    return m;
-  }, [types]);
-
-  const stats = useMemo(() => {
-    return {
-      total: docs.length,
-      approved: docs.filter((d) => d.status === "approved").length,
-      pending: docs.filter((d) => d.status === "pending_review").length,
-      rejected: docs.filter((d) => d.status === "rejected").length,
-      expiring_soon: docs.filter((d) => {
-        if (d.status !== "approved" || !d.expiry_date) return false;
-        const n = daysUntilExpiry(d.expiry_date);
-        return n != null && n <= 30 && n >= 0;
-      }).length,
-      expired: docs.filter((d) => d.status === "expired").length,
-    };
-  }, [docs]);
-
-  async function downloadFile(path: string, filename: string | null) {
+  async function downloadFile(path: string) {
     const { data, error } = await supabaseVendor.storage.from("vendor-docs").createSignedUrl(path, 300);
     if (error) { alert("Download failed: " + error.message); return; }
-    const a = document.createElement("a");
-    a.href = data.signedUrl;
-    a.download = filename ?? path.split("/").pop() ?? "document";
-    a.target = "_blank";
-    a.rel = "noopener";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    window.open(data.signedUrl, "_blank", "noopener");
   }
 
-  if (loading) return <div style={{ color: "#FFFFFF" }}>Loading compliance docs…</div>;
+  const counts = {
+    complete: groups.complete.length,
+    expiring_soon: groups.expiring_soon.length,
+    missing: groups.missing.length,
+    rejected: groups.rejected.length,
+  };
+  const totalTracked = counts.complete + counts.expiring_soon + counts.missing + counts.rejected;
+
+  if (loading) return <div style={{ color: "#FFFFFF" }}>Loading compliance…</div>;
   if (err) return <div style={{ color: TH.primary, padding: "10px 12px", background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6 }}>Error: {err}</div>;
 
   return (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 20 }}>
-        <StatCard label="Total" value={String(stats.total)} />
-        <StatCard label="Approved" value={String(stats.approved)} tone="ok" />
-        <StatCard label="Pending review" value={String(stats.pending)} tone={stats.pending > 0 ? "warn" : undefined} />
-        <StatCard label="Expiring soon" value={String(stats.expiring_soon)} tone={stats.expiring_soon > 0 ? "warn" : undefined} />
-        <StatCard label="Expired / rejected" value={String(stats.expired + stats.rejected)} tone={stats.expired + stats.rejected > 0 ? "err" : undefined} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
+        <StatCard label="Complete"       value={`${counts.complete} / ${totalTracked}`} tone="ok" />
+        <StatCard label="Action needed"  value={String(counts.rejected + counts.missing)} tone={counts.rejected + counts.missing > 0 ? "err" : undefined} />
+        <StatCard label="Expiring soon"  value={String(counts.expiring_soon)} tone={counts.expiring_soon > 0 ? "warn" : undefined} />
+        <StatCard label="Rejected"       value={String(counts.rejected)} tone={counts.rejected > 0 ? "err" : undefined} />
       </div>
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <div style={{ fontSize: 14, color: "#FFFFFF" }}>
-          Upload certificates and keep them current. Expiring docs are flagged 30 days ahead.
-        </div>
-        <button
-          onClick={() => setShowUpload(true)}
-          style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontWeight: 600, fontSize: 13, fontFamily: "inherit" }}
-        >
-          + Upload document
-        </button>
+      <div style={{ color: "#FFFFFF", fontSize: 14, marginBottom: 16 }}>
+        Upload certificates and keep them current. Expiring docs are flagged 30-60 days ahead depending on type.
       </div>
 
-      <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden", boxShadow: `0 1px 2px ${TH.shadow}` }}>
-        <div style={{ display: "grid", gridTemplateColumns: "260px 1fr 120px 120px 130px 130px", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
-          <div>Document type</div>
-          <div>File</div>
-          <div>Issued</div>
-          <div>Expires</div>
-          <div>Status</div>
-          <div style={{ textAlign: "right" }}>Uploaded</div>
-        </div>
-        {docs.length === 0 ? (
-          <div style={{ padding: 24, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>No documents uploaded yet.</div>
-        ) : docs.map((d) => {
-          const t = typeById.get(d.document_type_id);
-          const c = STATUS_COLORS[d.status] ?? STATUS_COLORS.pending_review;
-          const daysLeft = daysUntilExpiry(d.expiry_date);
-          const expiryWarn = d.status === "approved" && daysLeft != null && daysLeft >= 0 && daysLeft <= 30;
-          return (
-            <div key={d.id} style={{ display: "grid", gridTemplateColumns: "260px 1fr 120px 120px 130px 130px", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
-              <div>
-                <div style={{ fontWeight: 600, color: TH.text }}>{t?.name ?? "—"}</div>
-                {d.rejection_reason && <div style={{ fontSize: 11, color: TH.primary, marginTop: 2 }}>⚠ {d.rejection_reason}</div>}
-              </div>
-              <div>
-                <button
-                  onClick={() => downloadFile(d.file_url, d.file_name)}
-                  style={{ background: "none", border: "none", padding: 0, color: TH.primary, cursor: "pointer", fontFamily: "inherit", fontSize: 13, textAlign: "left" }}
-                >
-                  {d.file_name ?? d.file_url.split("/").pop()}
-                </button>
-              </div>
-              <div style={{ color: TH.textSub2 }}>{fmtDate(d.issued_at)}</div>
-              <div style={{ color: expiryWarn ? "#B45309" : TH.textSub2, fontWeight: expiryWarn ? 600 : 400 }}>
-                {fmtDate(d.expiry_date)}
-                {expiryWarn && <div style={{ fontSize: 11 }}>in {daysLeft}d</div>}
-              </div>
-              <div>
-                <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 10, background: c.bg, color: c.fg, fontWeight: 600, textTransform: "capitalize" }}>
-                  {d.status.replace(/_/g, " ")}
-                </span>
-              </div>
-              <div style={{ textAlign: "right", color: TH.textMuted, fontSize: 12 }}>{fmtDate(d.uploaded_at)}</div>
-            </div>
-          );
-        })}
-      </div>
+      <Section title="Action needed" tone="err" rows={[...groups.missing, ...groups.rejected]} sectionKey="missing" onDownload={downloadFile} onUpload={setUploadingFor} emptyText="Nothing needs your attention." />
+      <Section title="Expiring soon" tone="warn" rows={groups.expiring_soon} sectionKey="expiring_soon" onDownload={downloadFile} onUpload={setUploadingFor} emptyText="No documents expiring in the next 60 days." />
+      <Section title="Complete" tone="ok" rows={groups.complete} sectionKey="complete" onDownload={downloadFile} onUpload={setUploadingFor} emptyText="No approved documents on file." />
 
-      {showUpload && vendorId && vendorUserId && (
-        <UploadModal
-          types={types}
-          vendorId={vendorId}
-          vendorUserId={vendorUserId}
-          onClose={() => setShowUpload(false)}
-          onUploaded={() => { setShowUpload(false); void load(); }}
-        />
-      )}
+      {uploadingFor && <UploadModal entry={uploadingFor} onClose={() => setUploadingFor(null)} onUploaded={() => { setUploadingFor(null); void load(); }} />}
     </div>
   );
 }
 
-function UploadModal({ types, vendorId, vendorUserId, onClose, onUploaded }: {
-  types: DocType[]; vendorId: string; vendorUserId: string;
-  onClose: () => void; onUploaded: () => void;
+function Section({ title, tone, rows, sectionKey, onDownload, onUpload, emptyText }: {
+  title: string; tone: "ok" | "warn" | "err";
+  rows: GroupEntry[]; sectionKey: keyof Grouped;
+  onDownload: (path: string) => void;
+  onUpload: (entry: GroupEntry) => void;
+  emptyText: string;
 }) {
-  const [typeId, setTypeId] = useState("");
+  const accent = tone === "ok" ? "#047857" : tone === "warn" ? "#B45309" : TH.primary;
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+        <span style={{ width: 10, height: 10, borderRadius: 999, background: accent }} />
+        <div style={{ color: "#FFFFFF", fontWeight: 700, fontSize: 14, letterSpacing: 0.3 }}>{title}</div>
+        <span style={{ color: "rgba(255,255,255,0.6)", fontSize: 12 }}>{rows.length}</span>
+      </div>
+      <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden", boxShadow: `0 1px 2px ${TH.shadow}` }}>
+        {rows.length === 0 ? (
+          <div style={{ padding: 16, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>{emptyText}</div>
+        ) : (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "280px 140px 120px 120px 1fr 110px", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
+              <div>Document type</div>
+              <div>Status</div>
+              <div>Expires</div>
+              <div>Uploaded</div>
+              <div>File / notes</div>
+              <div style={{ textAlign: "right" }}>Action</div>
+            </div>
+            {rows.map((e) => {
+              const b = badgeFor(e, sectionKey);
+              const d = e.document;
+              return (
+                <div key={`${e.document_type.id}-${d?.id ?? "missing"}`} style={{ display: "grid", gridTemplateColumns: "280px 140px 120px 120px 1fr 110px", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontWeight: 600, color: TH.text }}>{e.document_type.name}</div>
+                    {e.document_type.required && <div style={{ fontSize: 10, color: TH.primary, marginTop: 2 }}>REQUIRED</div>}
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 10, background: b.bg, color: b.fg, fontWeight: 600 }}>{b.label}</span>
+                  </div>
+                  <div style={{ color: TH.textSub2 }}>{fmtDate(d?.expiry_date)}</div>
+                  <div style={{ color: TH.textSub2 }}>{fmtDate(d?.uploaded_at)}</div>
+                  <div>
+                    {d?.file_url ? (
+                      <button onClick={() => onDownload(d.file_url)} style={{ background: "none", border: "none", padding: 0, color: TH.primary, cursor: "pointer", fontFamily: "inherit", fontSize: 12, textAlign: "left" }}>
+                        {d.file_name ?? d.file_url.split("/").pop()}
+                      </button>
+                    ) : (
+                      <span style={{ color: TH.textMuted, fontSize: 12 }}>Not uploaded</span>
+                    )}
+                    {d?.rejection_reason && (
+                      <div style={{ fontSize: 11, color: TH.primary, marginTop: 2 }}>⚠ {d.rejection_reason}</div>
+                    )}
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <button onClick={() => onUpload(e)} style={{ padding: "5px 12px", borderRadius: 6, border: d ? `1px solid ${TH.border}` : "none", background: d ? TH.surface : TH.primary, color: d ? TH.textSub : "#FFFFFF", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}>
+                      {d ? "Re-upload" : "Upload"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function UploadModal({ entry, onClose, onUploaded }: { entry: GroupEntry; onClose: () => void; onUploaded: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [issuedAt, setIssuedAt] = useState("");
-  const [expiresAt, setExpiresAt] = useState("");
+  const [expiryDate, setExpiryDate] = useState("");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-
-  const selectedType = types.find((t) => t.id === typeId);
-  const requiresExpiry = selectedType?.expiry_required ?? false;
 
   function onFileChange(e: ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0] ?? null;
@@ -228,41 +212,50 @@ function UploadModal({ types, vendorId, vendorUserId, onClose, onUploaded }: {
 
   async function submit() {
     setErr(null);
-    if (!typeId) { setErr("Pick a document type."); return; }
     if (!file) { setErr("Choose a file."); return; }
-    if (requiresExpiry && !expiresAt) { setErr("This document type requires an expiry date."); return; }
+    if (entry.document_type.expiry_required && !expiryDate) {
+      setErr("This document type requires an expiry date.");
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) { setErr("File exceeds 20MB limit."); return; }
+    if (!/^(application\/pdf|image\/)/i.test(file.type)) { setErr("Only PDF or image files are allowed."); return; }
 
     setBusy(true);
     try {
+      const { data: userRes } = await supabaseVendor.auth.getUser();
+      const uid = userRes.user?.id;
+      if (!uid) throw new Error("Not signed in.");
+      const { data: vu } = await supabaseVendor.from("vendor_users").select("vendor_id").eq("auth_id", uid).maybeSingle();
+      if (!vu) throw new Error("Not linked to a vendor.");
+
       const docId = crypto.randomUUID();
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const path = `${vendorId}/${docId}/${safeName}`;
+      const path = `${vu.vendor_id}/${docId}/${safeName}`;
 
       const up = await supabaseVendor.storage.from("vendor-docs").upload(path, file, {
-        cacheControl: "3600",
-        upsert: false,
-        contentType: file.type,
+        cacheControl: "3600", upsert: false, contentType: file.type,
       });
       if (up.error) throw up.error;
 
-      const { error: insErr } = await supabaseVendor.from("compliance_documents").insert({
-        id: docId,
-        vendor_id: vendorId,
-        document_type_id: typeId,
-        file_url: path,
-        file_name: file.name,
-        file_size_bytes: file.size,
-        file_mime_type: file.type,
-        issued_at: issuedAt || null,
-        expiry_date: expiresAt || null,
-        status: "pending_review",
-        uploaded_by: vendorUserId,
-        notes: notes.trim() || null,
+      // Call the API so the server-side notification fires.
+      const r = await authedFetch("/api/vendor/compliance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          document_type_id: entry.document_type.id,
+          expiry_date: expiryDate || null,
+          issued_at: issuedAt || null,
+          notes: notes.trim() || null,
+          file_url: path,
+          file_name: file.name,
+          file_size_bytes: file.size,
+          file_mime_type: file.type,
+        }),
       });
-      if (insErr) {
-        // Roll back the storage upload on DB failure
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) {
         await supabaseVendor.storage.from("vendor-docs").remove([path]);
-        throw insErr;
+        throw new Error(body?.error || `Upload failed (${r.status})`);
       }
       onUploaded();
     } catch (e: unknown) {
@@ -275,27 +268,13 @@ function UploadModal({ types, vendorId, vendorUserId, onClose, onUploaded }: {
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(17,24,39,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: TH.surface, borderRadius: 12, padding: 24, width: "min(500px, 95vw)" }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: TH.text, marginBottom: 4 }}>Upload compliance document</div>
-        <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 18 }}>
-          Submitted for internal review. You'll be notified when it's approved or if re-submission is needed.
-        </div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: TH.primary, marginBottom: 4 }}>UPLOAD</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: TH.text, marginBottom: 4 }}>{entry.document_type.name}</div>
+        {entry.document_type.description && <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 18 }}>{entry.document_type.description}</div>}
 
-        <label style={labelStyle}>Document type</label>
-        <select value={typeId} onChange={(e) => setTypeId(e.target.value)} style={inputStyle}>
-          <option value="">— Select —</option>
-          {types.map((t) => (
-            <option key={t.id} value={t.id}>{t.name}{t.expiry_required ? "" : " (no expiry)"}</option>
-          ))}
-        </select>
-        {selectedType?.description && <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>{selectedType.description}</div>}
-
-        <label style={labelStyle}>File</label>
+        <label style={labelStyle}>File (PDF or image, max 20MB)</label>
         <input ref={fileRef} type="file" onChange={onFileChange} accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style={{ fontSize: 13, color: TH.textSub2, padding: "8px 0" }} />
-        {file && (
-          <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>
-            {file.name} · {(file.size / 1024).toFixed(1)} KB
-          </div>
-        )}
+        {file && <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>{file.name} · {(file.size / 1024).toFixed(1)} KB</div>}
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 4 }}>
           <div>
@@ -303,23 +282,19 @@ function UploadModal({ types, vendorId, vendorUserId, onClose, onUploaded }: {
             <input type="date" value={issuedAt} onChange={(e) => setIssuedAt(e.target.value)} style={inputStyle} />
           </div>
           <div>
-            <label style={labelStyle}>Expires{requiresExpiry && <span style={{ color: TH.primary }}> *</span>}</label>
-            <input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} style={inputStyle} />
+            <label style={labelStyle}>Expires{entry.document_type.expiry_required && <span style={{ color: TH.primary }}> *</span>}</label>
+            <input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} style={inputStyle} />
           </div>
         </div>
 
         <label style={labelStyle}>Notes (optional)</label>
         <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} style={{ ...inputStyle, fontFamily: "inherit", resize: "vertical" }} />
 
-        {err && (
-          <div style={{ color: TH.primary, padding: "10px 12px", background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6, marginTop: 12, fontSize: 13 }}>
-            {err}
-          </div>
-        )}
+        {err && <div style={{ color: TH.primary, padding: "10px 12px", background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6, marginTop: 12, fontSize: 13 }}>{err}</div>}
 
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18 }}>
           <button onClick={onClose} style={{ padding: "8px 14px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}>Cancel</button>
-          <button onClick={submit} disabled={busy || !typeId || !file} style={{ padding: "8px 16px", borderRadius: 7, border: "none", background: busy || !typeId || !file ? TH.textMuted : TH.primary, color: "#FFFFFF", cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 600 }}>
+          <button onClick={submit} disabled={busy || !file} style={{ padding: "8px 16px", borderRadius: 7, border: "none", background: busy || !file ? TH.textMuted : TH.primary, color: "#FFFFFF", cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 600 }}>
             {busy ? "Uploading…" : "Upload"}
           </button>
         </div>

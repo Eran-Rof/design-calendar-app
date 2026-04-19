@@ -1,0 +1,272 @@
+import { useEffect, useMemo, useState } from "react";
+import { TH } from "../utils/theme";
+import { supabaseVendor } from "./supabaseVendor";
+import { fmtDate, fmtMoney } from "./utils";
+
+interface Summary {
+  period: { from: string; to: string };
+  pos_this_year: number;
+  pos_by_status: { issued: number; acknowledged: number; fulfilled: number; closed: number };
+  invoices_this_year: number;
+  invoices_by_status: { submitted: number; under_review: number; approved: number; paid: number };
+  total_invoiced_ytd: number;
+  total_paid_ytd: number;
+  avg_payment_days: number | null;
+  on_time_delivery_pct: number | null;
+  invoice_accuracy_pct: number | null;
+}
+
+interface POHistoryRow {
+  po_number: string;
+  buyer_name: string | null;
+  issued_at: string | null;
+  acknowledged_at: string | null;
+  fulfilled_at: string | null;
+  required_by: string | null;
+  total_amount: number | null;
+  status: string;
+  on_time: boolean | null;
+}
+
+interface InvHistoryRow {
+  invoice_number: string;
+  po_number: string | null;
+  submitted_at: string;
+  approved_at: string | null;
+  paid_at: string | null;
+  amount: number;
+  currency: string;
+  status: string;
+  match_status: string | null;
+  days_to_payment: number | null;
+}
+
+const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
+  submitted:    { bg: "#FEF3C7", fg: "#92400E" },
+  under_review: { bg: "#DBEAFE", fg: "#1E40AF" },
+  approved:     { bg: "#D1FAE5", fg: "#065F46" },
+  paid:         { bg: "#A7F3D0", fg: "#064E3B" },
+  rejected:     { bg: "#FECACA", fg: "#991B1B" },
+  disputed:     { bg: "#FED7AA", fg: "#9A3412" },
+  issued:       { bg: "#E5E7EB", fg: "#374151" },
+  acknowledged: { bg: "#DBEAFE", fg: "#1E40AF" },
+  fulfilled:    { bg: "#D1FAE5", fg: "#065F46" },
+  closed:       { bg: "#A7F3D0", fg: "#064E3B" },
+  matched:      { bg: "#D1FAE5", fg: "#065F46" },
+  discrepancy:  { bg: "#FECACA", fg: "#991B1B" },
+  pending:      { bg: "#E5E7EB", fg: "#374151" },
+};
+
+async function authedFetch(path: string) {
+  const { data } = await supabaseVendor.auth.getSession();
+  const token = data?.session?.access_token;
+  return fetch(path, { headers: { Authorization: `Bearer ${token}` } });
+}
+
+export default function VendorReports() {
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [pos, setPOs] = useState<POHistoryRow[]>([]);
+  const [invoices, setInvoices] = useState<InvHistoryRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [fromDate, setFromDate] = useState(`${new Date().getFullYear()}-01-01`);
+  const [toDate, setToDate] = useState(new Date().toISOString().slice(0, 10));
+  const [poStatus, setPoStatus] = useState("");
+  const [invStatus, setInvStatus] = useState("");
+
+  async function load() {
+    setLoading(true);
+    setErr(null);
+    try {
+      const q = `?from=${fromDate}&to=${toDate}`;
+      const [sRes, pRes, iRes] = await Promise.all([
+        authedFetch(`/api/vendor/reports/summary${q}`),
+        authedFetch(`/api/vendor/reports/pos${q}${poStatus ? `&status=${poStatus}` : ""}&limit=100`),
+        authedFetch(`/api/vendor/reports/invoices${q}${invStatus ? `&status=${invStatus}` : ""}&limit=100`),
+      ]);
+      if (!sRes.ok) throw new Error(`summary: ${sRes.status}`);
+      if (!pRes.ok) throw new Error(`pos: ${pRes.status}`);
+      if (!iRes.ok) throw new Error(`invoices: ${iRes.status}`);
+      setSummary(await sRes.json());
+      const pJson = await pRes.json();
+      setPOs(pJson.rows || []);
+      const iJson = await iRes.json();
+      setInvoices(iJson.rows || []);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void load(); /* eslint-disable-next-line */ }, []);
+
+  const scoreColor = (pct: number | null | undefined) => {
+    if (pct == null) return TH.textMuted;
+    if (pct >= 95) return "#047857";
+    if (pct >= 80) return "#B45309";
+    return TH.primary;
+  };
+
+  if (loading && !summary) return <div style={{ color: "#FFFFFF" }}>Loading reports…</div>;
+  if (err) return <div style={{ color: TH.primary, padding: "10px 12px", background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6 }}>Error: {err}</div>;
+
+  return (
+    <div>
+      <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "12px 16px", marginBottom: 16, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ fontSize: 13, color: TH.textSub, fontWeight: 600 }}>Period</div>
+        <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }} />
+        <span style={{ color: TH.textMuted }}>→</span>
+        <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }} />
+        <button onClick={() => void load()} style={{ padding: "7px 14px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" }}>Refresh</button>
+      </div>
+
+      {summary && (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 14 }}>
+            <StatCard label="POs in period" value={String(summary.pos_this_year)} />
+            <StatCard label="Invoices in period" value={String(summary.invoices_this_year)} />
+            <StatCard label="Total invoiced" value={fmtMoney(summary.total_invoiced_ytd)} />
+            <StatCard label="Total paid" value={fmtMoney(summary.total_paid_ytd)} tone="ok" />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
+            <KPICard label="On-time delivery" value={summary.on_time_delivery_pct != null ? `${summary.on_time_delivery_pct}%` : "—"} color={scoreColor(summary.on_time_delivery_pct)} />
+            <KPICard label="Invoice accuracy" value={summary.invoice_accuracy_pct != null ? `${summary.invoice_accuracy_pct}%` : "—"} color={scoreColor(summary.invoice_accuracy_pct)} />
+            <KPICard label="Avg days to payment" value={summary.avg_payment_days != null ? `${summary.avg_payment_days}d` : "—"} color={summary.avg_payment_days == null || summary.avg_payment_days > 45 ? TH.primary : "#047857"} />
+          </div>
+
+          <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "14px 20px", marginBottom: 20, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+            <Breakdown title="POs by status" items={[
+              { label: "Issued", count: summary.pos_by_status.issued },
+              { label: "Acknowledged", count: summary.pos_by_status.acknowledged },
+              { label: "Fulfilled", count: summary.pos_by_status.fulfilled },
+              { label: "Closed", count: summary.pos_by_status.closed },
+            ]} />
+            <Breakdown title="Invoices by status" items={[
+              { label: "Submitted", count: summary.invoices_by_status.submitted },
+              { label: "Under review", count: summary.invoices_by_status.under_review },
+              { label: "Approved", count: summary.invoices_by_status.approved },
+              { label: "Paid", count: summary.invoices_by_status.paid },
+            ]} />
+          </div>
+        </>
+      )}
+
+      <div style={{ color: "#FFFFFF", fontSize: 14, fontWeight: 700, margin: "8px 0 10px", letterSpacing: 0.3 }}>PO history</div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+        <select value={poStatus} onChange={(e) => { setPoStatus(e.target.value); setTimeout(load, 0); }} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }}>
+          <option value="">All statuses</option>
+          <option value="issued">Issued</option>
+          <option value="acknowledged">Acknowledged</option>
+          <option value="fulfilled">Fulfilled</option>
+          <option value="closed">Closed</option>
+        </select>
+      </div>
+      <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden", marginBottom: 24 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "140px 120px 120px 120px 120px 120px 110px 80px", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
+          <div>PO #</div><div>Issued</div><div>Acknowledged</div><div>Fulfilled</div><div>Required by</div><div>Amount</div><div>Status</div><div style={{ textAlign: "right" }}>On-time</div>
+        </div>
+        {pos.length === 0 ? (
+          <div style={{ padding: 20, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>No POs in this period.</div>
+        ) : pos.map((r) => {
+          const c = STATUS_COLORS[r.status] ?? STATUS_COLORS.pending;
+          return (
+            <div key={r.po_number} style={{ display: "grid", gridTemplateColumns: "140px 120px 120px 120px 120px 120px 110px 80px", padding: "10px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
+              <div style={{ fontWeight: 600, color: TH.text, fontFamily: "Menlo, monospace" }}>{r.po_number}</div>
+              <div style={{ color: TH.textSub2 }}>{fmtDate(r.issued_at)}</div>
+              <div style={{ color: TH.textSub2 }}>{fmtDate(r.acknowledged_at)}</div>
+              <div style={{ color: TH.textSub2 }}>{fmtDate(r.fulfilled_at)}</div>
+              <div style={{ color: TH.textSub2 }}>{fmtDate(r.required_by)}</div>
+              <div style={{ color: TH.textSub2 }}>{fmtMoney(r.total_amount)}</div>
+              <div><span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: c.bg, color: c.fg, fontWeight: 600, textTransform: "capitalize" }}>{r.status}</span></div>
+              <div style={{ textAlign: "right", color: r.on_time === false ? TH.primary : r.on_time === true ? "#047857" : TH.textMuted }}>
+                {r.on_time == null ? "—" : r.on_time ? "Yes" : "No"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ color: "#FFFFFF", fontSize: 14, fontWeight: 700, margin: "8px 0 10px", letterSpacing: 0.3 }}>Invoice history</div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+        <select value={invStatus} onChange={(e) => { setInvStatus(e.target.value); setTimeout(load, 0); }} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }}>
+          <option value="">All statuses</option>
+          <option value="submitted">Submitted</option>
+          <option value="under_review">Under review</option>
+          <option value="approved">Approved</option>
+          <option value="paid">Paid</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </div>
+      <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "170px 130px 110px 110px 110px 120px 130px 100px", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
+          <div>Invoice #</div><div>PO #</div><div>Submitted</div><div>Approved</div><div>Paid</div><div>Amount</div><div>Status</div><div style={{ textAlign: "right" }}>Days to pay</div>
+        </div>
+        {invoices.length === 0 ? (
+          <div style={{ padding: 20, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>No invoices in this period.</div>
+        ) : invoices.map((r) => {
+          const c = STATUS_COLORS[r.status] ?? STATUS_COLORS.pending;
+          return (
+            <div key={r.invoice_number} style={{ display: "grid", gridTemplateColumns: "170px 130px 110px 110px 110px 120px 130px 100px", padding: "10px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
+              <div style={{ fontWeight: 600, color: TH.text, fontFamily: "Menlo, monospace" }}>{r.invoice_number}</div>
+              <div style={{ color: TH.textSub2, fontFamily: "Menlo, monospace", fontSize: 12 }}>{r.po_number ?? "—"}</div>
+              <div style={{ color: TH.textSub2 }}>{fmtDate(r.submitted_at)}</div>
+              <div style={{ color: TH.textSub2 }}>{fmtDate(r.approved_at)}</div>
+              <div style={{ color: TH.textSub2 }}>{fmtDate(r.paid_at)}</div>
+              <div style={{ color: TH.textSub2 }}>{fmtMoney(r.amount)}</div>
+              <div><span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: c.bg, color: c.fg, fontWeight: 600, textTransform: "capitalize" }}>{r.status.replace("_", " ")}</span></div>
+              <div style={{ textAlign: "right", color: r.days_to_payment == null ? TH.textMuted : r.days_to_payment > 45 ? TH.primary : "#047857", fontWeight: 600 }}>
+                {r.days_to_payment == null ? "—" : `${r.days_to_payment}d`}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ label, value, tone }: { label: string; value: string; tone?: "ok" | "warn" | "err" }) {
+  const color = tone === "ok" ? "#047857" : tone === "warn" ? "#B45309" : tone === "err" ? TH.primary : TH.text;
+  return (
+    <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "14px 16px", boxShadow: `0 1px 2px ${TH.shadow}` }}>
+      <div style={{ fontSize: 11, color: TH.textMuted, textTransform: "uppercase", fontWeight: 600, marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
+    </div>
+  );
+}
+
+function KPICard({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "20px 20px", boxShadow: `0 1px 2px ${TH.shadow}` }}>
+      <div style={{ fontSize: 12, color: TH.textMuted, textTransform: "uppercase", fontWeight: 600, marginBottom: 8 }}>{label}</div>
+      <div style={{ fontSize: 36, fontWeight: 700, color }}>{value}</div>
+    </div>
+  );
+}
+
+function Breakdown({ title, items }: { title: string; items: { label: string; count: number }[] }) {
+  const total = items.reduce((a, i) => a + i.count, 0);
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: TH.textMuted, textTransform: "uppercase", fontWeight: 700, marginBottom: 10 }}>{title}</div>
+      {items.map((i) => {
+        const pct = total ? (i.count / total) * 100 : 0;
+        return (
+          <div key={i.label} style={{ marginBottom: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: TH.textSub2 }}>
+              <span>{i.label}</span>
+              <span style={{ fontWeight: 600, color: TH.text }}>{i.count}</span>
+            </div>
+            <div style={{ height: 6, background: TH.surfaceHi, borderRadius: 3, overflow: "hidden", marginTop: 4 }}>
+              <div style={{ height: "100%", width: `${pct}%`, background: TH.primary }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export const useMemoFormatters = useMemo; // silence unused-lint in small projects
