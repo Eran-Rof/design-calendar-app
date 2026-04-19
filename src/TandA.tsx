@@ -23,6 +23,11 @@ import ComplianceReview from "./tanda/ComplianceReview";
 import MessagesView from "./tanda/MessagesView";
 import VendorLeaderboard from "./tanda/VendorLeaderboard";
 import SpendReport from "./tanda/SpendReport";
+import InternalOnboarding from "./tanda/InternalOnboarding";
+import InternalAnomalies from "./tanda/InternalAnomalies";
+import InternalAnalytics from "./tanda/InternalAnalytics";
+import InternalHealthScores from "./tanda/InternalHealthScores";
+import InternalPreferred from "./tanda/InternalPreferred";
 import { SyncModals } from "./tanda/views/SyncModal";
 import { SettingsModal } from "./tanda/views/SettingsModal";
 
@@ -91,13 +96,18 @@ function daysUntil(d?: string) {
 
 // ── Vendors nav dropdown ─────────────────────────────────────────────────────
 const VENDOR_MENU: { view: View; label: string; emoji: string }[] = [
-  { view: "vendors",    label: "Directory",   emoji: "🏢" },
-  { view: "shipments",  label: "Shipments",   emoji: "🚢" },
-  { view: "match",      label: "3-Way Match", emoji: "🔍" },
-  { view: "compliance", label: "Compliance",  emoji: "📋" },
-  { view: "messages",   label: "Messages",    emoji: "💬" },
-  { view: "scorecards", label: "Scorecards",  emoji: "🏆" },
-  { view: "spend",      label: "Spend",       emoji: "💰" },
+  { view: "vendors",            label: "Directory",       emoji: "🏢" },
+  { view: "onboarding",         label: "Onboarding",      emoji: "🚀" },
+  { view: "shipments",          label: "Shipments",       emoji: "🚢" },
+  { view: "match",              label: "3-Way Match",     emoji: "🔍" },
+  { view: "compliance",         label: "Compliance",      emoji: "📋" },
+  { view: "messages",           label: "Messages",        emoji: "💬" },
+  { view: "anomalies",          label: "Anomalies",       emoji: "🚨" },
+  { view: "scorecards",         label: "Scorecards",      emoji: "🏆" },
+  { view: "health_scores",      label: "Health Scores",   emoji: "❤️" },
+  { view: "preferred_vendors",  label: "Preferred",       emoji: "⭐" },
+  { view: "analytics",          label: "Analytics",       emoji: "📊" },
+  { view: "spend",              label: "Spend",           emoji: "💰" },
 ];
 
 function VendorsMenu({ view, onSelect }: { view: View; onSelect: (v: View) => void }) {
@@ -1433,6 +1443,21 @@ function TandAApp() {
 
         {/* ── SHIPMENTS VIEW ── */}
         {view === "shipments" && <ShipmentsView />}
+
+        {/* ── ONBOARDING REVIEW ── */}
+        {view === "onboarding" && <InternalOnboarding />}
+
+        {/* ── ANOMALIES ── */}
+        {view === "anomalies" && <InternalAnomalies />}
+
+        {/* ── ANALYTICS ── */}
+        {view === "analytics" && <InternalAnalytics />}
+
+        {/* ── HEALTH SCORES ── */}
+        {view === "health_scores" && <InternalHealthScores />}
+
+        {/* ── PREFERRED VENDORS ── */}
+        {view === "preferred_vendors" && <InternalPreferred />}
 
         {/* ── ARCHIVE VIEW ── */}
         {view === "archive" && <ArchiveView
