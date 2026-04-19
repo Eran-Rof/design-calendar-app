@@ -22,6 +22,7 @@
 //   }
 
 import { createClient } from "@supabase/supabase-js";
+import { resolveEntityContext } from "../../_lib/entity.js";
 
 export const config = { maxDuration: 60 };
 
@@ -68,7 +69,10 @@ export default async function handler(req, res) {
   const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString();
   const now = new Date();
 
-  const [vRes, kpiRes, posRes, invRes, docTypesRes, docsRes, disRes, flagRes, contractRes] = await Promise.all([
+  const entityCtx = await resolveEntityContext(admin, req, { kind: "internal" });
+  const entityFilterActive = !!req.headers?.["x-entity-id"];
+
+  const [vRes, kpiRes, posRes, invRes, docTypesRes, docsRes, disRes, flagRes, contractRes, evRes] = await Promise.all([
     admin.from("vendors").select("id, name, status, payment_terms, tax_id, deleted_at"),
     admin.from("vendor_kpi_live").select("vendor_id, on_time_delivery_pct, invoice_accuracy_pct, avg_acknowledgment_hours"),
     admin.from("tanda_pos").select("vendor_id, data"),
@@ -78,12 +82,19 @@ export default async function handler(req, res) {
     admin.from("disputes").select("vendor_id, status"),
     admin.from("vendor_flags").select("vendor_id, status"),
     admin.from("contracts").select("vendor_id, status, end_date"),
+    entityFilterActive
+      ? admin.from("entity_vendors").select("vendor_id").in("entity_id", entityCtx.entity_ids).eq("relationship_status", "active")
+      : Promise.resolve({ data: null, error: null }),
   ]);
 
   const errs = [vRes, kpiRes, posRes, invRes, docTypesRes, docsRes, disRes, flagRes, contractRes].filter((r) => r.error);
   if (errs.length) return res.status(500).json({ error: errs[0].error.message });
 
-  const vendors = (vRes.data || []).filter((v) => !v.deleted_at);
+  let vendors = (vRes.data || []).filter((v) => !v.deleted_at);
+  if (entityFilterActive) {
+    const allowed = new Set((evRes.data || []).map((r) => r.vendor_id));
+    vendors = vendors.filter((v) => allowed.has(v.id));
+  }
   const kpiByVendor = new Map((kpiRes.data || []).map((k) => [k.vendor_id, k]));
   const requiredTypes = (docTypesRes.data || []).filter((t) => t.required).map((t) => t.id);
 
