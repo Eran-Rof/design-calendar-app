@@ -34,6 +34,10 @@ import VendorDisputeDetail from "./VendorDisputeDetail";
 import VendorCatalog from "./VendorCatalog";
 import VendorBulk from "./VendorBulk";
 import VendorApiKeys from "./VendorApiKeys";
+import VendorOnboarding from "./VendorOnboarding";
+import VendorEdi from "./VendorEdi";
+import VendorErp from "./VendorErp";
+import VendorHealth from "./VendorHealth";
 
 function useVendorSession(): { session: Session | null; ready: boolean } {
   const [session, setSession] = useState<Session | null>(null);
@@ -63,6 +67,39 @@ function Protected({ children }: { children: ReactNode }) {
   const loc = useLocation();
   if (!ready) return <LoadingScreen />;
   if (!session) return <Navigate to="/vendor/login" replace state={{ from: loc }} />;
+  return <>{children}</>;
+}
+
+// Gate: if the vendor has an onboarding workflow that isn't approved, force
+// them into /vendor/onboarding until it's done. Vendors with no workflow
+// row yet (legacy) see the banner but aren't blocked.
+function OnboardingGate({ children }: { children: ReactNode }) {
+  const [ready, setReady] = useState(false);
+  const [block, setBlock] = useState(false);
+  const loc = useLocation();
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: { session } } = await supabaseVendor.auth.getSession();
+        const token = session?.access_token;
+        if (!token) { if (!cancelled) setReady(true); return; }
+        const r = await fetch("/api/vendor/onboarding", { headers: { Authorization: `Bearer ${token}` } });
+        if (!r.ok) { if (!cancelled) setReady(true); return; }
+        const data = await r.json() as { workflow: { status: string } };
+        const status = data.workflow?.status;
+        if (!cancelled) {
+          if (status && status !== "approved") setBlock(true);
+          setReady(true);
+        }
+      } catch { if (!cancelled) setReady(true); }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  if (!ready) return <LoadingScreen />;
+  if (block && !loc.pathname.startsWith("/vendor/onboarding")) {
+    return <Navigate to="/vendor/onboarding" replace />;
+  }
   return <>{children}</>;
 }
 
@@ -162,10 +199,20 @@ export default function VendorApp() {
         <Route path="/vendor/login" element={<VendorShell><VendorLogin /></VendorShell>} />
         <Route path="/vendor/setup" element={<VendorShell><VendorSetup /></VendorShell>} />
         <Route
+          path="/vendor/onboarding"
+          element={
+            <Protected>
+              <VendorShell><VendorOnboarding /></VendorShell>
+            </Protected>
+          }
+        />
+        <Route
           path="/vendor"
           element={
             <Protected>
-              <VendorShell withTabs><POList /></VendorShell>
+              <OnboardingGate>
+                <VendorShell withTabs><POList /></VendorShell>
+              </OnboardingGate>
             </Protected>
           }
         />
@@ -269,6 +316,9 @@ export default function VendorApp() {
         <Route path="/vendor/bulk"          element={<Protected><VendorShell withTabs><VendorBulk /></VendorShell></Protected>} />
         <Route path="/vendor/settings/api-keys" element={<Protected><VendorShell withTabs><VendorApiKeys /></VendorShell></Protected>} />
         <Route path="/vendor/settings"      element={<Navigate to="/vendor/settings/api-keys" replace />} />
+        <Route path="/vendor/erp"           element={<Protected><VendorShell withTabs><VendorErp /></VendorShell></Protected>} />
+        <Route path="/vendor/edi"           element={<Protected><VendorShell withTabs><VendorEdi /></VendorShell></Protected>} />
+        <Route path="/vendor/health"        element={<Protected><VendorShell withTabs><VendorHealth /></VendorShell></Protected>} />
         <Route path="/vendor/*" element={<Navigate to="/vendor" replace />} />
       </Routes>
     </BrowserRouter>
