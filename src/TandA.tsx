@@ -89,6 +89,70 @@ function daysUntil(d?: string) {
   return Math.ceil((new Date(d).getTime() - Date.now()) / 86400000);
 }
 
+// ── Vendors nav dropdown ─────────────────────────────────────────────────────
+const VENDOR_MENU: { view: View; label: string; emoji: string }[] = [
+  { view: "vendors",    label: "Directory",   emoji: "🏢" },
+  { view: "shipments",  label: "Shipments",   emoji: "🚢" },
+  { view: "match",      label: "3-Way Match", emoji: "🔍" },
+  { view: "compliance", label: "Compliance",  emoji: "📋" },
+  { view: "messages",   label: "Messages",    emoji: "💬" },
+  { view: "scorecards", label: "Scorecards",  emoji: "🏆" },
+  { view: "spend",      label: "Spend",       emoji: "💰" },
+];
+
+function VendorsMenu({ view, onSelect }: { view: View; onSelect: (v: View) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const click = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", click);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", click); document.removeEventListener("keydown", esc); };
+  }, [open]);
+
+  const active = VENDOR_MENU.some((m) => m.view === view);
+  const current = VENDOR_MENU.find((m) => m.view === view);
+  const label = current ? `${current.emoji} ${current.label}` : "🏢 Vendors";
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        style={active ? S.navBtnActive : S.navBtn}
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        {label} <span style={{ fontSize: 10, marginLeft: 4, opacity: 0.8 }}>▾</span>
+      </button>
+      {open && (
+        <div role="menu" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, background: "#1E293B", border: "1px solid #334155", borderRadius: 8, padding: 4, minWidth: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", zIndex: 100 }}>
+          {VENDOR_MENU.map((m) => (
+            <button
+              key={m.view}
+              role="menuitem"
+              onClick={() => { setOpen(false); onSelect(m.view); }}
+              style={{
+                display: "flex", alignItems: "center", gap: 8, width: "100%",
+                background: m.view === view ? "#3B82F620" : "transparent",
+                border: "none", color: m.view === view ? "#60A5FA" : "#CBD5E1",
+                borderRadius: 6, padding: "8px 10px", fontSize: 13, cursor: "pointer",
+                textAlign: "left", fontFamily: "inherit",
+              }}
+              onMouseEnter={(e) => { if (m.view !== view) (e.currentTarget as HTMLButtonElement).style.background = "#334155"; }}
+              onMouseLeave={(e) => { if (m.view !== view) (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+            >
+              <span style={{ width: 18, textAlign: "center" }}>{m.emoji}</span>
+              <span>{m.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function TandAAppWrapper() {
   return <TandAApp />;
@@ -1228,15 +1292,13 @@ function TandAApp() {
             }
           })}>📧 Email</button>
           <button style={view === "activity" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("activity"); })}>📋 Activity</button>
-          <button style={view === "vendors" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("vendors"); loadArchivedPOs(); })}>🏆 Vendors</button>
+          <VendorsMenu view={view} onSelect={(v) => guardedNav(() => {
+            setSelected(null);
+            setView(v);
+            if (v === "vendors") loadArchivedPOs();
+          })} />
           <button style={view === "timeline" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { if (selected) setSearch(selected.PoNumber ?? ""); setView("timeline"); })}>📊 Timeline</button>
           <button style={view === "archive" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("archive"); loadArchivedPOs(); })}>📦 Archive{archivedPos.length > 0 ? ` (${archivedPos.length})` : ""}</button>
-          <button style={view === "shipments" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("shipments"); })}>🚢 Shipments</button>
-          <button style={view === "match" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("match"); })}>🔍 3-Way Match</button>
-          <button style={view === "compliance" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("compliance"); })}>📋 Compliance</button>
-          <button style={view === "messages" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("messages"); })}>💬 Messages</button>
-          <button style={view === "scorecards" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("scorecards"); })}>🏆 Scorecards</button>
-          <button style={view === "spend" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("spend"); })}>💰 Spend</button>
           <button style={S.navBtn} onClick={() => { setShowBulkUpdate(true); setBulkVendor(""); setBulkPhase(""); setBulkPhases([]); setBulkCategory(""); setBulkStatus(""); setBulkPOs([]); setBulkPOSearch(""); }}>⚡ Bulk Update</button>
           <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing} title="Sync POs from Xoro">
             {syncing ? "⏳ Syncing…" : "🔄 Sync"}
