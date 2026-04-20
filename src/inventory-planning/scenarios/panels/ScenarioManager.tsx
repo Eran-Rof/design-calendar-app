@@ -100,7 +100,7 @@ export default function ScenarioManager() {
     } finally {
       setLoading(false);
     }
-  }, [selectedId]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadSelected = useCallback(async () => {
     if (!selected) { setAssumptions([]); setComparison(null); setExports([]); setAudit([]); return; }

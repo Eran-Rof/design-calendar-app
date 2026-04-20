@@ -199,7 +199,7 @@ function App() {
         setTeamsToken(t);
         if (stored?.expiresAt) setTeamsTokenExpiry(stored.expiresAt);
       }
-    }).catch(() => {});
+    }).catch(e => console.error("[App] MS token restore failed:", e));
   }, []);
 
   // Override getBrand to use stateful brands
@@ -253,6 +253,7 @@ function App() {
     s.src =
       "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
     document.head.appendChild(s);
+    return () => { document.head.removeChild(s); };
   }, []);
 
   // Close Teams view via X button
