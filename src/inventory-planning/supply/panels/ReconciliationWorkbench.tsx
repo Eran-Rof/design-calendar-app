@@ -140,7 +140,8 @@ export default function ReconciliationWorkbench() {
         <div style={S.navRight}>
           <a href="/planning/wholesale" style={{ ...S.btnSecondary, textDecoration: "none" }}>Wholesale</a>
           <a href="/planning/ecom" style={{ ...S.btnSecondary, textDecoration: "none" }}>Ecom</a>
-          <a href="/planning/data-quality" style={{ ...S.btnSecondary, textDecoration: "none" }}>Data quality</a>
+          <a href="/planning/accuracy" style={{ ...S.btnSecondary, textDecoration: "none" }}>Accuracy →</a>
+          <a href="/planning/data-quality" style={{ ...S.btnSecondary, textDecoration: "none" }}>DQ</a>
           <a href="/" style={{ ...S.btnSecondary, textDecoration: "none" }}>Back to PLM</a>
         </div>
       </div>

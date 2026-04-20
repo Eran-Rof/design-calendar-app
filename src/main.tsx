@@ -34,6 +34,9 @@ async function mount() {
   } else if (path.startsWith("/planning/supply")) {
     const { default: ReconciliationWorkbench } = await import("./inventory-planning/supply/panels/ReconciliationWorkbench");
     root.render(<StrictMode><ErrorBoundary appName="Supply Reconciliation"><ReconciliationWorkbench /></ErrorBoundary></StrictMode>);
+  } else if (path.startsWith("/planning/accuracy")) {
+    const { default: AccuracyWorkbench } = await import("./inventory-planning/accuracy/panels/AccuracyWorkbench");
+    root.render(<StrictMode><ErrorBoundary appName="Accuracy & AI"><AccuracyWorkbench /></ErrorBoundary></StrictMode>);
   } else if (path.startsWith("/planning/wholesale") || path.startsWith("/planning")) {
     const { default: WholesalePlanningWorkbench } = await import("./inventory-planning/panels/WholesalePlanningWorkbench");
     root.render(<StrictMode><ErrorBoundary appName="Wholesale Planning"><WholesalePlanningWorkbench /></ErrorBoundary></StrictMode>);
