@@ -1,6 +1,8 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/api/dispatch", "destination": "/api/dispatch" },
+    { "source": "/api/:rest*", "destination": "/api/dispatch?__fullpath=/api/:rest*" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "crons": [
     { "path": "/api/cron/compliance-daily", "schedule": "0 14 * * *" },
@@ -10,6 +12,13 @@
     { "path": "/api/cron/health-scores-monthly", "schedule": "0 7 1 * *" },
     { "path": "/api/cron/push-delivery", "schedule": "*/2 * * * *" },
     { "path": "/api/cron/ip-freshness-refresh", "schedule": "0 */4 * * *" },
-    { "path": "/api/cron/ip-integration-health", "schedule": "*/15 * * * *" }
+    { "path": "/api/cron/ip-integration-health", "schedule": "*/15 * * * *" },
+    { "path": "/api/cron/insights-weekly", "schedule": "0 6 * * 1" },
+    { "path": "/api/cron/compliance-automation", "schedule": "0 13 * * *" },
+    { "path": "/api/cron/benchmark-compute", "schedule": "0 7 1 * *" },
+    { "path": "/api/cron/insights-digest-daily", "schedule": "0 14 * * *" },
+    { "path": "/api/cron/workspace-tasks-due-soon", "schedule": "0 12 * * *" },
+    { "path": "/api/cron/discount-offers-daily", "schedule": "0 11 * * *" },
+    { "path": "/api/cron/fx-rate-sync", "schedule": "0 */4 * * *" }
   ]
 }
