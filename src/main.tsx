@@ -40,6 +40,9 @@ async function mount() {
   } else if (path.startsWith("/planning/scenarios")) {
     const { default: ScenarioManager } = await import("./inventory-planning/scenarios/panels/ScenarioManager");
     root.render(<StrictMode><ErrorBoundary appName="Scenarios & Exports"><ScenarioManager /></ErrorBoundary></StrictMode>);
+  } else if (path.startsWith("/planning/execution")) {
+    const { default: ExecutionBatchManager } = await import("./inventory-planning/execution/panels/ExecutionBatchManager");
+    root.render(<StrictMode><ErrorBoundary appName="Execution"><ExecutionBatchManager /></ErrorBoundary></StrictMode>);
   } else if (path.startsWith("/planning/wholesale") || path.startsWith("/planning")) {
     const { default: WholesalePlanningWorkbench } = await import("./inventory-planning/panels/WholesalePlanningWorkbench");
     root.render(<StrictMode><ErrorBoundary appName="Wholesale Planning"><WholesalePlanningWorkbench /></ErrorBoundary></StrictMode>);

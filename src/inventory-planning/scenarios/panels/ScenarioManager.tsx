@@ -218,6 +218,7 @@ export default function ScenarioManager() {
           <a href="/planning/ecom" style={{ ...S.btnSecondary, textDecoration: "none" }}>Ecom</a>
           <a href="/planning/supply" style={{ ...S.btnSecondary, textDecoration: "none" }}>Supply</a>
           <a href="/planning/accuracy" style={{ ...S.btnSecondary, textDecoration: "none" }}>Accuracy</a>
+          <a href="/planning/execution" style={{ ...S.btnSecondary, textDecoration: "none" }}>Execution →</a>
           <a href="/" style={{ ...S.btnSecondary, textDecoration: "none" }}>PLM</a>
         </div>
       </div>
