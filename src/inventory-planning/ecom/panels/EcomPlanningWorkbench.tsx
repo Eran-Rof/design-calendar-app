@@ -23,6 +23,7 @@ import { SB_HEADERS, SB_URL } from "../../../utils/supabase";
 import { S, PAL } from "../../components/styles";
 import PlanningRunControls from "../../panels/PlanningRunControls";
 import Toast, { type ToastMessage } from "../../components/Toast";
+import StaleDataBanner from "../../shared/components/StaleDataBanner";
 import EcomPlanningGrid from "./EcomPlanningGrid";
 import EcomForecastChart from "./EcomForecastChart";
 import EcomOverrideDrawer from "../components/EcomOverrideDrawer";
@@ -184,6 +185,10 @@ export default function EcomPlanningWorkbench() {
       </div>
 
       <div style={S.content}>
+        <StaleDataBanner
+          watch={["shopify_orders", "shopify_products", "ecom_forecast"]}
+          dismissKey="ecom_workbench"
+        />
         <PlanningRunControls
           runs={runs}
           selectedRunId={selectedRunId}

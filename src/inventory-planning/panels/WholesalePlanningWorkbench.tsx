@@ -28,6 +28,7 @@ import WholesalePlanningGrid from "./WholesalePlanningGrid";
 import FutureDemandRequestsPanel from "./FutureDemandRequestsPanel";
 import ForecastDetailDrawer from "../components/ForecastDetailDrawer";
 import Toast, { type ToastMessage } from "../components/Toast";
+import StaleDataBanner from "../shared/components/StaleDataBanner";
 
 async function fetchForecast(id: string): Promise<IpWholesaleForecast | null> {
   if (!SB_URL) return null;
@@ -154,6 +155,10 @@ export default function WholesalePlanningWorkbench() {
       </div>
 
       <div style={S.content}>
+        <StaleDataBanner
+          watch={["xoro_sales_history", "xoro_inventory", "wholesale_forecast"]}
+          dismissKey="wholesale_workbench"
+        />
         <PlanningRunControls
           runs={runs}
           selectedRunId={selectedRunId}

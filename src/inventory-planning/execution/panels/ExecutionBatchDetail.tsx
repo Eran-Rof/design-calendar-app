@@ -23,6 +23,8 @@ import {
 import { validateActions, hasBlockingErrors } from "../utils/validation";
 import { S, PAL, formatQty, formatDate } from "../../components/styles";
 import type { ToastMessage } from "../../components/Toast";
+import { useCurrentUser } from "../../shared/hooks/useCurrentUser";
+import { can } from "../../governance/services/permissionService";
 
 const STATUS_COLOR: Record<string, string> = {
   pending:   "#94A3B8",
@@ -63,6 +65,10 @@ export default function ExecutionBatchDetail({
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<WritebackResult[]>([]);
   const locked = isBatchLocked(batch);
+  const user = useCurrentUser();
+  const canApproveBatch = user ? can(user, "approve_execution") : false;
+  const canWriteback = user ? can(user, "run_writeback") : false;
+  const canExport = user ? can(user, "run_exports") : true; // permissive default for exports
   const issues = useMemo(() => validateActions(actions), [actions]);
   const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const cfgByType = useMemo(() => new Map(writebackConfig.map((c) => [c.action_type, c])), [writebackConfig]);
@@ -218,10 +224,16 @@ export default function ExecutionBatchDetail({
                 Move to ready
               </button>
             )}
-            {batch.status === "ready" && (
+            {batch.status === "ready" && canApproveBatch && (
               <button style={S.btnPrimary} disabled={busy || blockingCount > 0} onClick={approveBatch}>
                 Approve batch
               </button>
+            )}
+            {batch.status === "ready" && !canApproveBatch && (
+              <span title="Missing permission: approve_execution"
+                    style={{ ...S.chip, background: PAL.textMuted + "22", color: PAL.textMuted, fontSize: 11 }}>
+                Approve batch · role required
+              </span>
             )}
             {locked && batch.status !== "archived" && batch.status !== "executed" && (
               <button style={S.btnSecondary} disabled={busy} onClick={markReady}>Reopen to ready</button>
@@ -255,13 +267,18 @@ export default function ExecutionBatchDetail({
       <div style={{ ...S.card, marginBottom: 12 }}>
         <h4 style={S.cardTitle}>Execute</h4>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <button style={S.btnSecondary} disabled={busy || batch.status === "draft"} onClick={exportXlsx}>
+          <button style={S.btnSecondary} disabled={busy || batch.status === "draft" || !canExport} onClick={exportXlsx}
+                  title={canExport ? "" : "Missing permission: run_exports"}>
             Export xlsx
           </button>
-          <button style={S.btnSecondary} disabled={busy} onClick={dryRun}>
+          <button style={S.btnSecondary} disabled={busy || !canWriteback} onClick={dryRun}
+                  title={canWriteback ? "" : "Missing permission: run_writeback"}>
             Dry-run writeback
           </button>
-          <button style={S.btnPrimary} disabled={busy || (batch.status !== "approved" && batch.status !== "exported")} onClick={submit}>
+          <button style={S.btnPrimary}
+                  disabled={busy || !canWriteback || (batch.status !== "approved" && batch.status !== "exported")}
+                  title={canWriteback ? "" : "Missing permission: run_writeback"}
+                  onClick={submit}>
             Submit writeback
           </button>
           <div style={{ color: PAL.textMuted, fontSize: 12, marginLeft: "auto" }}>
