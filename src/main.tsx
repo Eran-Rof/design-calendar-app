@@ -43,6 +43,9 @@ async function mount() {
   } else if (path.startsWith("/planning/execution")) {
     const { default: ExecutionBatchManager } = await import("./inventory-planning/execution/panels/ExecutionBatchManager");
     root.render(<StrictMode><ErrorBoundary appName="Execution"><ExecutionBatchManager /></ErrorBoundary></StrictMode>);
+  } else if (path.startsWith("/planning/admin")) {
+    const { default: AdminWorkbench } = await import("./inventory-planning/admin/panels/AdminWorkbench");
+    root.render(<StrictMode><ErrorBoundary appName="Admin"><AdminWorkbench /></ErrorBoundary></StrictMode>);
   } else if (path.startsWith("/planning/wholesale") || path.startsWith("/planning")) {
     const { default: WholesalePlanningWorkbench } = await import("./inventory-planning/panels/WholesalePlanningWorkbench");
     root.render(<StrictMode><ErrorBoundary appName="Wholesale Planning"><WholesalePlanningWorkbench /></ErrorBoundary></StrictMode>);

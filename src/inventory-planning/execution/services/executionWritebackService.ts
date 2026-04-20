@@ -21,6 +21,7 @@ import { mapActionToXoroPayload } from "../utils/payloadMappers";
 import { hasBlockingErrors, validateAction } from "../utils/validation";
 import { executionRepo } from "./executionRepo";
 import { markActionStatus, transitionBatch } from "./executionBatchService";
+import { currentUserEmail } from "../../governance/services/permissionService";
 
 export interface SubmitArgs {
   batch: IpExecutionBatch;
@@ -109,7 +110,10 @@ export async function submitBatch(args: SubmitArgs): Promise<{
       const url = `${endpoint}${endpoint.includes("?") ? "&" : "?"}dry_run=${dryRun ? "1" : "0"}`;
       const res = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-email": currentUserEmail(), // Phase 7 server-side gate
+        },
         body: JSON.stringify({ action_id: action.id, payload }),
       });
       const body = await res.json().catch(() => ({}));
