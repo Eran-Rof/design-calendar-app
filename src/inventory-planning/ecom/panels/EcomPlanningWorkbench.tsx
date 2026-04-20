@@ -177,6 +177,7 @@ export default function EcomPlanningWorkbench() {
         </div>
         <div style={S.navRight}>
           <a href="/planning/wholesale" style={{ ...S.btnSecondary, textDecoration: "none" }}>Wholesale</a>
+          <a href="/planning/supply" style={{ ...S.btnSecondary, textDecoration: "none" }}>Supply →</a>
           <a href="/planning/data-quality" style={{ ...S.btnSecondary, textDecoration: "none" }}>Data quality</a>
           <a href="/" style={{ ...S.btnSecondary, textDecoration: "none" }}>Back to PLM</a>
         </div>

@@ -1,0 +1,132 @@
+// Supabase REST access for Phase 3 supply reconciliation tables. Same
+// SB_URL + SB_HEADERS convention as the wholesale + ecom repos.
+// Only read/write ip_* tables Phase 3 owns; cross-lane reads reuse the
+// Phase 1/2 repos.
+
+import { SB_HEADERS, SB_URL } from "../../../utils/supabase";
+import type {
+  IpAllocationRule,
+  IpInventoryRecommendation,
+  IpProjectedInventory,
+  IpSupplyException,
+  IpVendorTimingSignal,
+} from "../types/supply";
+
+function assertSupabase(): void {
+  if (!SB_URL) throw new Error("Supabase URL not configured");
+}
+async function sbGet<T>(path: string): Promise<T[]> {
+  assertSupabase();
+  const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: SB_HEADERS });
+  if (!r.ok) throw new Error(`Supabase GET ${path} failed: ${r.status} ${await r.text()}`);
+  return r.json();
+}
+async function sbPost<T>(path: string, body: unknown, prefer = "return=representation"): Promise<T[]> {
+  assertSupabase();
+  const r = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    method: "POST",
+    headers: { ...SB_HEADERS, Prefer: prefer },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`Supabase POST ${path} failed: ${r.status} ${await r.text()}`);
+  return prefer.includes("return=minimal") ? ([] as T[]) : r.json();
+}
+async function sbPatch<T>(path: string, body: unknown): Promise<T[]> {
+  assertSupabase();
+  const r = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    method: "PATCH",
+    headers: { ...SB_HEADERS, Prefer: "return=representation" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`Supabase PATCH ${path} failed: ${r.status} ${await r.text()}`);
+  return r.json();
+}
+async function sbDelete(path: string): Promise<void> {
+  assertSupabase();
+  const r = await fetch(`${SB_URL}/rest/v1/${path}`, { method: "DELETE", headers: SB_HEADERS });
+  if (!r.ok) throw new Error(`Supabase DELETE ${path} failed: ${r.status} ${await r.text()}`);
+}
+
+export const supplyRepo = {
+  // ── Allocation rules ─────────────────────────────────────────────────────
+  async listActiveRules(): Promise<IpAllocationRule[]> {
+    return sbGet<IpAllocationRule>(
+      `ip_allocation_rules?select=*&active=eq.true&order=priority_rank.asc&limit=5000`,
+    );
+  },
+  async createRule(row: Omit<IpAllocationRule, "id" | "created_at" | "updated_at">): Promise<IpAllocationRule> {
+    const [created] = await sbPost<IpAllocationRule>("ip_allocation_rules", [row]);
+    return created;
+  },
+  async updateRule(id: string, patch: Partial<IpAllocationRule>): Promise<IpAllocationRule> {
+    const [updated] = await sbPatch<IpAllocationRule>(`ip_allocation_rules?id=eq.${id}`, patch);
+    return updated;
+  },
+  async deleteRule(id: string): Promise<void> {
+    await sbDelete(`ip_allocation_rules?id=eq.${id}`);
+  },
+  async listAllRules(): Promise<IpAllocationRule[]> {
+    return sbGet<IpAllocationRule>(`ip_allocation_rules?select=*&order=priority_rank.asc&limit=5000`);
+  },
+
+  // ── Projected inventory ──────────────────────────────────────────────────
+  async listProjected(runId: string): Promise<IpProjectedInventory[]> {
+    return sbGet<IpProjectedInventory>(
+      `ip_projected_inventory?select=*&planning_run_id=eq.${runId}&order=period_start.asc,sku_id.asc&limit=200000`,
+    );
+  },
+  async replaceProjected(
+    runId: string,
+    rows: Array<Omit<IpProjectedInventory, "id" | "created_at">>,
+  ): Promise<void> {
+    await sbDelete(`ip_projected_inventory?planning_run_id=eq.${runId}`);
+    if (rows.length === 0) return;
+    for (let i = 0; i < rows.length; i += 500) {
+      const chunk = rows.slice(i, i + 500);
+      await sbPost("ip_projected_inventory", chunk, "return=minimal");
+    }
+  },
+
+  // ── Recommendations ──────────────────────────────────────────────────────
+  async listRecommendations(runId: string): Promise<IpInventoryRecommendation[]> {
+    return sbGet<IpInventoryRecommendation>(
+      `ip_inventory_recommendations?select=*&planning_run_id=eq.${runId}&limit=200000`,
+    );
+  },
+  async replaceRecommendations(
+    runId: string,
+    rows: Array<Omit<IpInventoryRecommendation, "id" | "created_at">>,
+  ): Promise<void> {
+    await sbDelete(`ip_inventory_recommendations?planning_run_id=eq.${runId}`);
+    if (rows.length === 0) return;
+    for (let i = 0; i < rows.length; i += 500) {
+      const chunk = rows.slice(i, i + 500);
+      await sbPost("ip_inventory_recommendations", chunk, "return=minimal");
+    }
+  },
+
+  // ── Exceptions ───────────────────────────────────────────────────────────
+  async listExceptions(runId: string): Promise<IpSupplyException[]> {
+    return sbGet<IpSupplyException>(
+      `ip_supply_exceptions?select=*&planning_run_id=eq.${runId}&order=severity.asc,created_at.desc&limit=200000`,
+    );
+  },
+  async replaceExceptions(
+    runId: string,
+    rows: Array<Omit<IpSupplyException, "id" | "created_at">>,
+  ): Promise<void> {
+    await sbDelete(`ip_supply_exceptions?planning_run_id=eq.${runId}`);
+    if (rows.length === 0) return;
+    for (let i = 0; i < rows.length; i += 500) {
+      const chunk = rows.slice(i, i + 500);
+      await sbPost("ip_supply_exceptions", chunk, "return=minimal");
+    }
+  },
+
+  // ── Vendor timing signals ────────────────────────────────────────────────
+  async listVendorTiming(): Promise<IpVendorTimingSignal[]> {
+    return sbGet<IpVendorTimingSignal>(`ip_vendor_timing_signals?select=*&limit=50000`);
+  },
+};
+
+export type SupplyRepo = typeof supplyRepo;
