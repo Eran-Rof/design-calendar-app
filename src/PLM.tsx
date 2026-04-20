@@ -97,6 +97,14 @@ const APPS = [
     color: "#10B981",
     path: "/ats",
   },
+  {
+    id: "planning" as const,
+    name: "Inventory Planning",
+    description: "Wholesale + ecom forecasts, supply reconciliation, scenarios, accuracy & AI co-pilot",
+    icon: "📊",
+    color: "#F59E0B",
+    path: "/planning/wholesale",
+  },
 ];
 
 function ROFLogoFull({ height = 44 }: { height?: number }) {
