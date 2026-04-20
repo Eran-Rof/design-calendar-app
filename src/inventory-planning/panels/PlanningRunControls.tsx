@@ -16,9 +16,19 @@ export interface PlanningRunControlsProps {
   onSelect: (runId: string) => void;
   onChange: () => Promise<void> | void;
   onToast: (t: ToastMessage) => void;
+  // New runs the user creates from this bar get this scope. Default
+  // 'wholesale' keeps Phase 1 unchanged; Phase 2 workbench passes 'ecom'.
+  scope?: "wholesale" | "ecom" | "all";
+  // Optional label shown on the action button — "Build forecast" for
+  // wholesale, the ecom workbench renders its own build button and
+  // passes `showBuild={false}` to avoid a duplicate.
+  showBuild?: boolean;
 }
 
-export default function PlanningRunControls({ runs, selectedRunId, onSelect, onChange, onToast }: PlanningRunControlsProps) {
+export default function PlanningRunControls({
+  runs, selectedRunId, onSelect, onChange, onToast,
+  scope = "wholesale", showBuild = true,
+}: PlanningRunControlsProps) {
   const [showNew, setShowNew] = useState(false);
   const [building, setBuilding] = useState(false);
 
@@ -67,9 +77,11 @@ export default function PlanningRunControls({ runs, selectedRunId, onSelect, onC
         <button style={S.btnSecondary} onClick={() => setShowNew(true)}>+ New run</button>
         {selected && (
           <>
-            <button style={S.btnPrimary} onClick={buildForecast} disabled={building}>
-              {building ? "Building…" : "Build forecast"}
-            </button>
+            {showBuild && (
+              <button style={S.btnPrimary} onClick={buildForecast} disabled={building}>
+                {building ? "Building…" : "Build forecast"}
+              </button>
+            )}
             {selected.status !== "active" && (
               <button style={S.btnSecondary} onClick={() => setStatus("active")}>Mark active</button>
             )}
@@ -86,7 +98,8 @@ export default function PlanningRunControls({ runs, selectedRunId, onSelect, onC
         </div>
       )}
       {showNew && (
-        <NewRunModal onClose={() => setShowNew(false)}
+        <NewRunModal scope={scope}
+                     onClose={() => setShowNew(false)}
                      onToast={onToast}
                      onCreated={async (id) => {
                        setShowNew(false);
@@ -99,10 +112,11 @@ export default function PlanningRunControls({ runs, selectedRunId, onSelect, onC
   );
 }
 
-function NewRunModal({ onClose, onCreated, onToast }: {
+function NewRunModal({ onClose, onCreated, onToast, scope }: {
   onClose: () => void;
   onCreated: (id: string) => Promise<void>;
   onToast: (t: ToastMessage) => void;
+  scope: "wholesale" | "ecom" | "all";
 }) {
   const today = new Date();
   const yyyy = today.getUTCFullYear();
@@ -111,7 +125,8 @@ function NewRunModal({ onClose, onCreated, onToast }: {
   const endD = new Date(Date.UTC(yyyy, today.getUTCMonth() + 5, 0));
   const defaultEnd = endD.toISOString().slice(0, 10);
 
-  const [name, setName] = useState(`Wholesale — ${yyyy}-${mm}`);
+  const defaultName = scope === "ecom" ? `Ecom — ${yyyy}-${mm}` : scope === "all" ? `Combined — ${yyyy}-${mm}` : `Wholesale — ${yyyy}-${mm}`;
+  const [name, setName] = useState(defaultName);
   const [horizonStart, setHorizonStart] = useState(defaultStart);
   const [horizonEnd, setHorizonEnd] = useState(defaultEnd);
   const [snapshot, setSnapshot] = useState(today.toISOString().slice(0, 10));
@@ -125,7 +140,7 @@ function NewRunModal({ onClose, onCreated, onToast }: {
     try {
       const r = await wholesaleRepo.createPlanningRun({
         name: name.trim(),
-        planning_scope: "wholesale",
+        planning_scope: scope,
         status: "draft",
         source_snapshot_date: snapshot,
         horizon_start: horizonStart,

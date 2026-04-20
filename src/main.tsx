@@ -28,6 +28,9 @@ async function mount() {
   } else if (path.startsWith("/planning/data-quality")) {
     const { default: DataQualityReport } = await import("./inventory-planning/admin/DataQualityReport");
     root.render(<StrictMode><ErrorBoundary appName="Planning DQ"><DataQualityReport /></ErrorBoundary></StrictMode>);
+  } else if (path.startsWith("/planning/ecom")) {
+    const { default: EcomPlanningWorkbench } = await import("./inventory-planning/ecom/panels/EcomPlanningWorkbench");
+    root.render(<StrictMode><ErrorBoundary appName="Ecom Planning"><EcomPlanningWorkbench /></ErrorBoundary></StrictMode>);
   } else if (path.startsWith("/planning/wholesale") || path.startsWith("/planning")) {
     const { default: WholesalePlanningWorkbench } = await import("./inventory-planning/panels/WholesalePlanningWorkbench");
     root.render(<StrictMode><ErrorBoundary appName="Wholesale Planning"><WholesalePlanningWorkbench /></ErrorBoundary></StrictMode>);

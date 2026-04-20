@@ -146,7 +146,8 @@ export default function WholesalePlanningWorkbench() {
           </div>
         </div>
         <div style={S.navRight}>
-          <a href="/planning/data-quality" style={{ ...S.btnSecondary, textDecoration: "none" }}>Data quality →</a>
+          <a href="/planning/ecom" style={{ ...S.btnSecondary, textDecoration: "none" }}>Ecom →</a>
+          <a href="/planning/data-quality" style={{ ...S.btnSecondary, textDecoration: "none" }}>Data quality</a>
           <a href="/" style={{ ...S.btnSecondary, textDecoration: "none" }}>Back to PLM</a>
         </div>
       </div>
@@ -158,6 +159,7 @@ export default function WholesalePlanningWorkbench() {
           onSelect={(id) => setSelectedRunId(id)}
           onChange={refreshAll}
           onToast={(t) => setToast(t)}
+          scope="wholesale"
         />
 
         <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
