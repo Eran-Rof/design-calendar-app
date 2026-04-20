@@ -32,6 +32,22 @@ import InternalRfqs from "./tanda/InternalRfqs";
 import InternalWorkflowRules from "./tanda/InternalWorkflowRules";
 import InternalWorkflowExecutions from "./tanda/InternalWorkflowExecutions";
 import InternalEntities from "./tanda/InternalEntities";
+import InternalInsights from "./tanda/InternalInsights";
+import InternalWorkspaces from "./tanda/InternalWorkspaces";
+import InternalSustainability from "./tanda/InternalSustainability";
+import InternalEsgScores from "./tanda/InternalEsgScores";
+import InternalDiversity from "./tanda/InternalDiversity";
+import InternalComplianceAutomation from "./tanda/InternalComplianceAutomation";
+import InternalComplianceAudit from "./tanda/InternalComplianceAudit";
+import InternalMarketplace from "./tanda/InternalMarketplace";
+import InternalMarketplaceInquiries from "./tanda/InternalMarketplaceInquiries";
+import InternalBenchmark from "./tanda/InternalBenchmark";
+import InternalDiscountOffers from "./tanda/InternalDiscountOffers";
+import InternalPayments from "./tanda/InternalPayments";
+import InternalScf from "./tanda/InternalScf";
+import InternalFx from "./tanda/InternalFx";
+import InternalVirtualCards from "./tanda/InternalVirtualCards";
+import InternalTax from "./tanda/InternalTax";
 import { SyncModals } from "./tanda/views/SyncModal";
 import { SettingsModal } from "./tanda/views/SettingsModal";
 
@@ -99,28 +115,122 @@ function daysUntil(d?: string) {
 }
 
 // ── Vendors nav dropdown ─────────────────────────────────────────────────────
-const VENDOR_MENU: { view: View; label: string; emoji: string }[] = [
-  { view: "vendors",            label: "Directory",       emoji: "🏢" },
-  { view: "onboarding",         label: "Onboarding",      emoji: "🚀" },
-  { view: "shipments",          label: "Shipments",       emoji: "🚢" },
-  { view: "match",              label: "3-Way Match",     emoji: "🔍" },
-  { view: "compliance",         label: "Compliance",      emoji: "📋" },
-  { view: "messages",           label: "Messages",        emoji: "💬" },
-  { view: "anomalies",          label: "Anomalies",       emoji: "🚨" },
-  { view: "scorecards",         label: "Scorecards",      emoji: "🏆" },
-  { view: "health_scores",      label: "Health Scores",   emoji: "❤️" },
-  { view: "preferred_vendors",  label: "Preferred",       emoji: "⭐" },
-  { view: "analytics",          label: "Analytics",       emoji: "📊" },
-  { view: "spend",              label: "Spend",           emoji: "💰" },
-  { view: "rfqs",               label: "RFQs",            emoji: "📨" },
-  { view: "workflow_rules",     label: "Workflow Rules",  emoji: "⚙️" },
-  { view: "workflow_executions",label: "Approvals",       emoji: "✅" },
-  { view: "entities",           label: "Entities",        emoji: "🏛️" },
+type MenuItem = { view: View; label: string; emoji: string };
+const VENDOR_MENU_GROUPS: { group: string; items: MenuItem[] }[] = [
+  { group: "Vendors", items: [
+    { view: "vendors",            label: "Directory",       emoji: "🏢" },
+    { view: "onboarding",         label: "Onboarding",      emoji: "🚀" },
+    { view: "preferred_vendors",  label: "Preferred",       emoji: "⭐" },
+    { view: "scorecards",         label: "Scorecards",      emoji: "🏆" },
+    { view: "health_scores",      label: "Health Scores",   emoji: "❤️" },
+    { view: "diversity",          label: "Diversity",       emoji: "🤝" },
+    { view: "sustainability",     label: "Sustainability",  emoji: "🌱" },
+    { view: "esg_scores",         label: "ESG Scores",      emoji: "🌍" },
+  ]},
+  { group: "Operations", items: [
+    { view: "shipments",          label: "Shipments",       emoji: "🚢" },
+    { view: "match",              label: "3-Way Match",     emoji: "🔍" },
+    { view: "messages",           label: "Messages",        emoji: "💬" },
+    { view: "anomalies",          label: "Anomalies",       emoji: "🚨" },
+    { view: "workspaces",         label: "Workspaces",      emoji: "🗂️" },
+  ]},
+  { group: "Compliance", items: [
+    { view: "compliance",         label: "Documents",       emoji: "📋" },
+    { view: "compliance_automation", label: "Automation",   emoji: "🤖" },
+    { view: "compliance_audit",   label: "Audit trail",     emoji: "📜" },
+  ]},
+  { group: "Sourcing", items: [
+    { view: "rfqs",               label: "RFQs",            emoji: "📨" },
+    { view: "marketplace",        label: "Marketplace",     emoji: "🛍️" },
+    { view: "marketplace_inquiries", label: "Inquiries",    emoji: "💬" },
+    { view: "benchmark",          label: "Benchmark",       emoji: "📈" },
+    { view: "insights",           label: "Insights",        emoji: "💡" },
+  ]},
+  { group: "Finance", items: [
+    { view: "payments",           label: "Payments",        emoji: "💸" },
+    { view: "discount_offers",    label: "Discount offers", emoji: "⚡" },
+    { view: "scf",                label: "SCF",             emoji: "🏦" },
+    { view: "virtual_cards",      label: "Virtual cards",   emoji: "💳" },
+    { view: "fx",                 label: "FX",              emoji: "🌐" },
+    { view: "tax",                label: "Tax",             emoji: "🧾" },
+  ]},
+  { group: "Analytics & Admin", items: [
+    { view: "analytics",          label: "Analytics",       emoji: "📊" },
+    { view: "spend",              label: "Spend",           emoji: "💰" },
+    { view: "workflow_rules",     label: "Workflow Rules",  emoji: "⚙️" },
+    { view: "workflow_executions",label: "Approvals",       emoji: "✅" },
+    { view: "entities",           label: "Entities",        emoji: "🏛️" },
+  ]},
 ];
+const VENDOR_MENU: MenuItem[] = VENDOR_MENU_GROUPS.flatMap((g) => g.items);
+
+function VendorsFlyout({ view, onSelect }: { view: View; onSelect: (v: View) => void }) {
+  const currentGroup = VENDOR_MENU_GROUPS.find((g) => g.items.some((i) => i.view === view))?.group;
+  const [hovered, setHovered] = useState<string | null>(currentGroup || VENDOR_MENU_GROUPS[0].group);
+  const active = VENDOR_MENU_GROUPS.find((g) => g.group === hovered) || VENDOR_MENU_GROUPS[0];
+
+  return (
+    <div
+      role="menu"
+      style={{
+        position: "absolute", top: "100%", left: 0, paddingTop: 4,
+        display: "flex", gap: 4,
+        zIndex: 100,
+      }}
+    >
+      <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 8, padding: 4, minWidth: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+        {VENDOR_MENU_GROUPS.map((g) => {
+          const isActive = g.group === hovered;
+          const hasSelected = g.items.some((i) => i.view === view);
+          return (
+            <button
+              key={g.group}
+              onMouseEnter={() => setHovered(g.group)}
+              onFocus={() => setHovered(g.group)}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+                background: isActive ? "#334155" : "transparent",
+                border: "none", color: hasSelected ? "#60A5FA" : "#F1F5F9",
+                borderRadius: 6, padding: "9px 10px", fontSize: 13, cursor: "default",
+                textAlign: "left", fontFamily: "inherit", fontWeight: hasSelected ? 700 : 500,
+              }}
+            >
+              <span>{g.group}</span>
+              <span style={{ fontSize: 10, opacity: 0.6 }}>▸</span>
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 8, padding: 4, minWidth: 220, boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+        <div style={{ padding: "6px 10px 4px", fontSize: 10, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: 0.8 }}>{active.group}</div>
+        {active.items.map((m) => (
+          <button
+            key={m.view}
+            role="menuitem"
+            onClick={() => onSelect(m.view)}
+            style={{
+              display: "flex", alignItems: "center", gap: 8, width: "100%",
+              background: m.view === view ? "#3B82F620" : "transparent",
+              border: "none", color: m.view === view ? "#60A5FA" : "#CBD5E1",
+              borderRadius: 6, padding: "8px 10px", fontSize: 13, cursor: "pointer",
+              textAlign: "left", fontFamily: "inherit",
+            }}
+            onMouseEnter={(e) => { if (m.view !== view) (e.currentTarget as HTMLButtonElement).style.background = "#334155"; }}
+            onMouseLeave={(e) => { if (m.view !== view) (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+          >
+            <span style={{ width: 18, textAlign: "center" }}>{m.emoji}</span>
+            <span>{m.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function VendorsMenu({ view, onSelect }: { view: View; onSelect: (v: View) => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!open) return;
     const click = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
@@ -129,13 +239,19 @@ function VendorsMenu({ view, onSelect }: { view: View; onSelect: (v: View) => vo
     document.addEventListener("keydown", esc);
     return () => { document.removeEventListener("mousedown", click); document.removeEventListener("keydown", esc); };
   }, [open]);
+  useEffect(() => () => { if (leaveTimer.current) clearTimeout(leaveTimer.current); }, []);
 
   const active = VENDOR_MENU.some((m) => m.view === view);
   const current = VENDOR_MENU.find((m) => m.view === view);
   const label = current ? `${current.emoji} ${current.label}` : "🏢 Vendors";
 
   return (
-    <div ref={ref} style={{ position: "relative" }}>
+    <div
+      ref={ref}
+      style={{ position: "relative" }}
+      onMouseEnter={() => { if (leaveTimer.current) { clearTimeout(leaveTimer.current); leaveTimer.current = null; } }}
+      onMouseLeave={() => { leaveTimer.current = setTimeout(() => setOpen(false), 200); }}
+    >
       <button
         style={active ? S.navBtnActive : S.navBtn}
         onClick={() => setOpen((o) => !o)}
@@ -145,27 +261,10 @@ function VendorsMenu({ view, onSelect }: { view: View; onSelect: (v: View) => vo
         {label} <span style={{ fontSize: 10, marginLeft: 4, opacity: 0.8 }}>▾</span>
       </button>
       {open && (
-        <div role="menu" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, background: "#1E293B", border: "1px solid #334155", borderRadius: 8, padding: 4, minWidth: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", zIndex: 100 }}>
-          {VENDOR_MENU.map((m) => (
-            <button
-              key={m.view}
-              role="menuitem"
-              onClick={() => { setOpen(false); onSelect(m.view); }}
-              style={{
-                display: "flex", alignItems: "center", gap: 8, width: "100%",
-                background: m.view === view ? "#3B82F620" : "transparent",
-                border: "none", color: m.view === view ? "#60A5FA" : "#CBD5E1",
-                borderRadius: 6, padding: "8px 10px", fontSize: 13, cursor: "pointer",
-                textAlign: "left", fontFamily: "inherit",
-              }}
-              onMouseEnter={(e) => { if (m.view !== view) (e.currentTarget as HTMLButtonElement).style.background = "#334155"; }}
-              onMouseLeave={(e) => { if (m.view !== view) (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
-            >
-              <span style={{ width: 18, textAlign: "center" }}>{m.emoji}</span>
-              <span>{m.label}</span>
-            </button>
-          ))}
-        </div>
+        <VendorsFlyout
+          view={view}
+          onSelect={(v) => { setOpen(false); onSelect(v); }}
+        />
       )}
     </div>
   );
@@ -1478,6 +1577,54 @@ function TandAApp() {
 
         {/* ── ENTITIES ── */}
         {view === "entities" && <InternalEntities />}
+
+        {/* ── INSIGHTS ── */}
+        {view === "insights" && <InternalInsights />}
+
+        {/* ── WORKSPACES ── */}
+        {view === "workspaces" && <InternalWorkspaces />}
+
+        {/* ── SUSTAINABILITY ── */}
+        {view === "sustainability" && <InternalSustainability />}
+
+        {/* ── ESG SCORES ── */}
+        {view === "esg_scores" && <InternalEsgScores />}
+
+        {/* ── DIVERSITY ── */}
+        {view === "diversity" && <InternalDiversity />}
+
+        {/* ── COMPLIANCE AUTOMATION ── */}
+        {view === "compliance_automation" && <InternalComplianceAutomation />}
+
+        {/* ── COMPLIANCE AUDIT ── */}
+        {view === "compliance_audit" && <InternalComplianceAudit />}
+
+        {/* ── MARKETPLACE ── */}
+        {view === "marketplace" && <InternalMarketplace />}
+
+        {/* ── MARKETPLACE INQUIRIES ── */}
+        {view === "marketplace_inquiries" && <InternalMarketplaceInquiries />}
+
+        {/* ── BENCHMARK ── */}
+        {view === "benchmark" && <InternalBenchmark />}
+
+        {/* ── DISCOUNT OFFERS ── */}
+        {view === "discount_offers" && <InternalDiscountOffers />}
+
+        {/* ── PAYMENTS ── */}
+        {view === "payments" && <InternalPayments />}
+
+        {/* ── SCF ── */}
+        {view === "scf" && <InternalScf />}
+
+        {/* ── FX ── */}
+        {view === "fx" && <InternalFx />}
+
+        {/* ── VIRTUAL CARDS ── */}
+        {view === "virtual_cards" && <InternalVirtualCards />}
+
+        {/* ── TAX ── */}
+        {view === "tax" && <InternalTax />}
 
         {/* ── ARCHIVE VIEW ── */}
         {view === "archive" && <ArchiveView

@@ -163,7 +163,218 @@ export default function InternalAnalytics() {
           </table>
         </div>
       </Panel>
+
+      <Phase9Analytics />
+      <FinancialAnalytics />
     </div>
+  );
+}
+
+interface DiversitySpend {
+  range: { from: string; to: string };
+  total_spend: number;
+  diversity_spend: number;
+  pct: number;
+  by_business_type: { type: string; spend: number; pct: number }[];
+  top_vendors: { vendor_id: string; name: string; spend: number }[];
+}
+interface SustainTrend {
+  range: { from: string; to: string };
+  points: { period: string; vendor_count: number; avg_env: number | null; avg_social: number | null; avg_gov: number | null; avg_overall: number | null }[];
+}
+interface EsgRow {
+  id: string; vendor_id: string;
+  vendor?: { id: string; name: string } | null;
+  environmental_score: number; social_score: number; governance_score: number; overall_score: number;
+  period_start: string; period_end: string;
+}
+
+function Phase9Analytics() {
+  const [esg, setEsg] = useState<EsgRow[]>([]);
+  const [diversity, setDiversity] = useState<DiversitySpend | null>(null);
+  const [trend, setTrend] = useState<SustainTrend | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [rEsg, rDiv, rTrend] = await Promise.all([
+          fetch("/api/internal/esg-scores"),
+          fetch("/api/internal/analytics/diversity-spend"),
+          fetch("/api/internal/analytics/sustainability-trend"),
+        ]);
+        if (rEsg.ok)   setEsg(((await rEsg.json()) as { rows: EsgRow[] }).rows || []);
+        if (rDiv.ok)   setDiversity(await rDiv.json() as DiversitySpend);
+        if (rTrend.ok) setTrend(await rTrend.json() as SustainTrend);
+      } catch { /* non-fatal */ }
+    })();
+  }, []);
+
+  return (
+    <>
+      <Panel title="ESG leaderboard (top 10, latest period)">
+        {esg.length === 0 ? <div style={{ color: C.textMuted, fontSize: 12 }}>No ESG scores yet.</div> : (
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 80px 80px 80px 80px", gap: 4, fontSize: 12 }}>
+            <div style={{ color: C.textMuted, fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>Vendor</div>
+            <div style={{ color: C.textMuted, fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>Env</div>
+            <div style={{ color: C.textMuted, fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>Social</div>
+            <div style={{ color: C.textMuted, fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>Gov</div>
+            <div style={{ color: C.textMuted, fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>Overall</div>
+            {esg.slice(0, 10).map((s) => (
+              <div key={s.id} style={{ display: "contents" }}>
+                <div>{s.vendor?.name || s.vendor_id}</div>
+                <div style={{ color: C.success }}>{Number(s.environmental_score).toFixed(0)}</div>
+                <div style={{ color: C.primary }}>{Number(s.social_score).toFixed(0)}</div>
+                <div style={{ color: C.warn }}>{Number(s.governance_score).toFixed(0)}</div>
+                <div style={{ fontWeight: 700 }}>{Number(s.overall_score).toFixed(0)}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
+
+      <Panel title="Diversity spend share">
+        {!diversity ? <div style={{ color: C.textMuted, fontSize: 12 }}>Loading…</div> : (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 12 }}>
+              <Stat label="Total spend" value={fmtMoney(diversity.total_spend)} />
+              <Stat label="With diversity-verified vendors" value={fmtMoney(diversity.diversity_spend)} tone="success" />
+              <Stat label="Diversity share" value={`${diversity.pct.toFixed(1)}%`} tone="success" />
+            </div>
+            {diversity.by_business_type.length > 0 && (
+              <div style={{ fontSize: 12, color: C.textSub }}>
+                {diversity.by_business_type.map((b) => (
+                  <div key={b.type} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", borderBottom: `1px dashed ${C.cardBdr}` }}>
+                    <span>{b.type.replace(/_/g, " ")}</span>
+                    <span>{fmtMoney(b.spend)} ({b.pct.toFixed(1)}%)</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </Panel>
+
+      <Panel title="Sustainability trend (vendor-base avg ESG over time)">
+        {!trend || trend.points.length === 0 ? <div style={{ color: C.textMuted, fontSize: 12 }}>No ESG history yet.</div> : (
+          <div style={{ height: 220 }}>
+            <ResponsiveContainer>
+              <LineChart data={trend.points}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.cardBdr} />
+                <XAxis dataKey="period" stroke={C.textMuted} fontSize={11} />
+                <YAxis stroke={C.textMuted} fontSize={11} domain={[0, 100]} />
+                <Tooltip contentStyle={{ background: C.card, border: `1px solid ${C.cardBdr}` }} />
+                <Legend />
+                <Line type="monotone" dataKey="avg_overall" name="Overall" stroke={C.text} dot={false} strokeWidth={2} />
+                <Line type="monotone" dataKey="avg_env"     name="Env"     stroke={C.success} dot={false} />
+                <Line type="monotone" dataKey="avg_social"  name="Social"  stroke={C.primary} dot={false} />
+                <Line type="monotone" dataKey="avg_gov"     name="Gov"     stroke={C.warn}    dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </Panel>
+    </>
+  );
+}
+
+interface FinancialResponse {
+  ranges: { ytd: { start: string; end: string }; quarter: { start: string; end: string } };
+  early_payment: {
+    ytd_discount_captured: number; ytd_avg_annualized_return_pct: number;
+    acceptance_rate_pct: number; cost_of_capital_pct: number;
+    net_benefit_vs_capital_pct: number; offers_made: number; offers_accepted: number;
+  };
+  fx_exposure: {
+    by_currency: { currency: string; outstanding_amount: number; intl_payments_count: number }[];
+    total_outstanding_usd_est: number;
+  };
+  scf_utilization: {
+    programs: { id: string; name: string; status: string; capacity: number; utilization: number; pct: number }[];
+    by_month: { month: string; utilization: number; capacity: number }[];
+    current_total_utilization: number; current_total_capacity: number; utilization_pct: number;
+  };
+  tax_liability: {
+    quarter: { start: string; end: string };
+    by_jurisdiction: { jurisdiction: string; tax_type: string; tax_owed: number }[];
+    total_tax_owed: number;
+  };
+}
+
+function FinancialAnalytics() {
+  const [d, setD] = useState<FinancialResponse | null>(null);
+  useEffect(() => { (async () => {
+    try {
+      const r = await fetch("/api/internal/analytics/financial");
+      if (r.ok) setD(await r.json() as FinancialResponse);
+    } catch { /* ignore */ }
+  })(); }, []);
+  if (!d) return null;
+  return (
+    <>
+      <Panel title="Early-payment ROI (YTD)">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+          <Stat label="Discount captured" value={`$${Math.round(d.early_payment.ytd_discount_captured).toLocaleString()}`} tone="success" />
+          <Stat label="Annualized return" value={`${d.early_payment.ytd_avg_annualized_return_pct.toFixed(1)}%`} />
+          <Stat label="Cost of capital" value={`${d.early_payment.cost_of_capital_pct.toFixed(1)}%`} tone="muted" />
+          <Stat label="Net benefit" value={`${d.early_payment.net_benefit_vs_capital_pct > 0 ? "+" : ""}${d.early_payment.net_benefit_vs_capital_pct.toFixed(1)}%`} tone={d.early_payment.net_benefit_vs_capital_pct > 0 ? "success" : "danger"} />
+        </div>
+      </Panel>
+
+      <Panel title="FX exposure (outstanding by currency, YTD)">
+        {d.fx_exposure.by_currency.length === 0 ? <div style={{ color: C.textMuted, fontSize: 12 }}>No outstanding international payments.</div> : (
+          <div style={{ height: 220 }}>
+            <ResponsiveContainer>
+              <BarChart data={d.fx_exposure.by_currency}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.cardBdr} />
+                <XAxis dataKey="currency" stroke={C.textMuted} fontSize={11} />
+                <YAxis stroke={C.textMuted} fontSize={11} />
+                <Tooltip contentStyle={{ background: C.card, border: `1px solid ${C.cardBdr}` }} />
+                <Bar dataKey="outstanding_amount" fill={C.primary} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </Panel>
+
+      <Panel title="SCF utilization (funded by month, 12mo)">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 10 }}>
+          <Stat label="Total capacity" value={`$${Math.round(d.scf_utilization.current_total_capacity).toLocaleString()}`} />
+          <Stat label="Current utilization" value={`$${Math.round(d.scf_utilization.current_total_utilization).toLocaleString()}`} tone="success" />
+          <Stat label="% used" value={`${d.scf_utilization.utilization_pct.toFixed(0)}%`} tone={d.scf_utilization.utilization_pct > 80 ? "danger" : "success"} />
+        </div>
+        {d.scf_utilization.by_month.length > 0 && (
+          <div style={{ height: 180 }}>
+            <ResponsiveContainer>
+              <BarChart data={d.scf_utilization.by_month}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.cardBdr} />
+                <XAxis dataKey="month" stroke={C.textMuted} fontSize={11} />
+                <YAxis stroke={C.textMuted} fontSize={11} tickFormatter={(v: number) => fmtMoney(v)} />
+                <Tooltip contentStyle={{ background: C.card, border: `1px solid ${C.cardBdr}` }} formatter={(v: number) => fmtMoney(v)} />
+                <Bar dataKey="utilization" fill={C.success} />
+                <Bar dataKey="capacity" fill={C.cardBdr} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </Panel>
+
+      <Panel title={`Tax liability by jurisdiction (Q ${d.tax_liability.quarter.start} → ${d.tax_liability.quarter.end})`}>
+        {d.tax_liability.by_jurisdiction.length === 0 ? <div style={{ color: C.textMuted, fontSize: 12 }}>No tax calculations this quarter.</div> : (
+          <div style={{ height: 220 }}>
+            <ResponsiveContainer>
+              <BarChart data={d.tax_liability.by_jurisdiction.map((r) => ({ label: `${r.jurisdiction} · ${r.tax_type}`, tax: r.tax_owed }))}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.cardBdr} />
+                <XAxis dataKey="label" stroke={C.textMuted} fontSize={11} />
+                <YAxis stroke={C.textMuted} fontSize={11} tickFormatter={(v: number) => fmtMoney(v)} />
+                <Tooltip contentStyle={{ background: C.card, border: `1px solid ${C.cardBdr}` }} formatter={(v: number) => fmtMoney(v)} />
+                <Bar dataKey="tax" fill={C.warn} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+        <div style={{ fontSize: 12, color: C.textMuted, marginTop: 8 }}>Total tax owed this quarter: <strong>{fmtMoney(d.tax_liability.total_tax_owed)}</strong></div>
+      </Panel>
+    </>
   );
 }
 
