@@ -8,7 +8,7 @@
 // Updates the workflow's current_step and completed_steps array.
 //
 // Step-specific validations:
-//   company_info  → legal_name, address, tax_id, business_type, year_founded required
+//   company_info  → legal_name, address, business_type, year_founded required (tax_id optional)
 //   banking       → expects banking_detail_id to exist (client calls /api/vendor/banking first)
 //   tax           → classification + document_url required
 //   compliance_docs → every required compliance_document_type must be approved or submitted
@@ -42,7 +42,7 @@ function getStepName(req) {
 
 async function validateStep(admin, vendorId, stepName, data) {
   if (stepName === "company_info") {
-    const req = ["legal_name", "address", "tax_id", "business_type", "year_founded"];
+    const req = ["legal_name", "address", "business_type", "year_founded"];
     const missing = req.filter((k) => !data?.[k] || !String(data[k]).trim());
     if (missing.length) return `Missing: ${missing.join(", ")}`;
   } else if (stepName === "banking") {

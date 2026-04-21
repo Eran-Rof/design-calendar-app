@@ -166,8 +166,8 @@ function CompanyInfoStep({ initial, onSubmit }: { initial: Record<string, unknow
   const [saving, setSaving] = useState(false);
 
   async function submit() {
-    if (!legalName.trim() || !address.trim() || !taxId.trim() || !businessType.trim() || !yearFounded.trim()) {
-      alert("All fields are required."); return;
+    if (!legalName.trim() || !address.trim() || !businessType.trim() || !yearFounded.trim()) {
+      alert("Legal name, address, business type, and year founded are required."); return;
     }
     setSaving(true);
     try {
@@ -182,7 +182,7 @@ function CompanyInfoStep({ initial, onSubmit }: { initial: Record<string, unknow
       <Field label="Legal business name"><input value={legalName} onChange={(e) => setLegalName(e.target.value)} style={inp} /></Field>
       <Field label="Business address"><textarea value={address} onChange={(e) => setAddress(e.target.value)} rows={3} style={{ ...inp, resize: "vertical" }} /></Field>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Field label="Tax ID (EIN / VAT)"><input value={taxId} onChange={(e) => setTaxId(e.target.value)} style={inp} /></Field>
+        <Field label="Tax ID (EIN / VAT) — optional"><input value={taxId} onChange={(e) => setTaxId(e.target.value)} style={inp} /></Field>
         <Field label="Business type">
           <select value={businessType} onChange={(e) => setBusinessType(e.target.value)} style={inp}>
             <option value="">Select…</option>
