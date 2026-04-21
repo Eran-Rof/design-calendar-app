@@ -8,7 +8,11 @@
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "npm run build && node scripts/setup-vercel.mjs && vercel --prod --prebuilt",
-    "test": "vitest run"
+    "test": "vitest run",
+    "staging:local": "node scripts/staging-setup.mjs --local",
+    "staging:remote": "node scripts/staging-setup.mjs --remote",
+    "staging:smoke": "node scripts/staging-smoke.mjs",
+    "staging:reset": "node scripts/staging-setup.mjs --local --reset"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.2",
