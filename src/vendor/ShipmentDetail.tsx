@@ -335,11 +335,33 @@ export default function ShipmentDetail() {
               <Labelled label="Estimated delivery">
                 <input type="date" value={editSave.estimated_delivery} onChange={(e) => setEditSave((s) => ({ ...s, estimated_delivery: e.target.value }))} style={editInp} />
               </Labelled>
-              <Labelled label="Replace packing list (optional)">
+              <Labelled label="Packing list">
+                {shipment.packing_list_url ? (
+                  <div style={{ fontSize: 12, color: TH.textSub2, marginBottom: 6, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: "Menlo, monospace" }}>{shipment.packing_list_url.split("/").pop()}</span>
+                    <button type="button" onClick={() => void openDoc(shipment.packing_list_url)} style={docBtn}>Download</button>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 6 }}>No file attached.</div>
+                )}
                 <input type="file" accept="application/pdf,.pdf,.xls,.xlsx" onChange={(e) => setReplacePackingList(e.target.files?.[0] || null)} />
+                <div style={{ fontSize: 10, color: TH.textMuted, marginTop: 2 }}>
+                  Leave blank to keep the current file.
+                </div>
               </Labelled>
-              <Labelled label="Replace BL document (optional)">
+              <Labelled label="Bill of Lading">
+                {shipment.bl_document_url ? (
+                  <div style={{ fontSize: 12, color: TH.textSub2, marginBottom: 6, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: "Menlo, monospace" }}>{shipment.bl_document_url.split("/").pop()}</span>
+                    <button type="button" onClick={() => void openDoc(shipment.bl_document_url)} style={docBtn}>Download</button>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 6 }}>No file attached.</div>
+                )}
                 <input type="file" accept="application/pdf,.pdf,.xls,.xlsx" onChange={(e) => setReplaceBl(e.target.files?.[0] || null)} />
+                <div style={{ fontSize: 10, color: TH.textMuted, marginTop: 2 }}>
+                  Leave blank to keep the current file.
+                </div>
               </Labelled>
               <div style={{ gridColumn: "1 / -1" }}>
                 <Labelled label="Notes">
