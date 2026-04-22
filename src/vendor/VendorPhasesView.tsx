@@ -5,12 +5,12 @@
 // tanda_milestone_change_requests with status='pending' for internal
 // review. The grid shows pending + reviewed activity per row.
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate } from "./utils";
-import { showAlert } from "./ui/AppDialog";
+import { showAlert, showConfirm } from "./ui/AppDialog";
 
 export type PhaseFilter = "all" | "overdue" | "this_week" | "next_30";
 
@@ -80,6 +80,19 @@ interface POLine {
   unit_price: number | null;
 }
 
+interface PhaseNote {
+  id: string;
+  po_id: string;
+  phase_name: string;
+  po_line_key: string | null;
+  body: string;
+  author_auth_id: string | null;
+  author_name: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
 // Compute a phase's expected date = DDP − daysBeforeDDP.
 export function computeExpectedDate(ddp: string | null, daysBefore: number): string | null {
   if (!ddp) return null;
@@ -108,6 +121,9 @@ export default function VendorPhasesView({ poId }: Props = {}) {
   const [requests, setRequests] = useState<ChangeRequest[]>([]);
   const [poLinesByPo, setPoLinesByPo] = useState<Record<string, POLine[]>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set()); // keys: `${po_id}::${phase_name}`
+  const [notes, setNotes] = useState<PhaseNote[]>([]);
+  const [currentAuthAid, setCurrentAuthAid] = useState<string | null>(null);
+  const [currentDisplayName, setCurrentDisplayName] = useState<string>("Vendor");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -121,9 +137,12 @@ export default function VendorPhasesView({ poId }: Props = {}) {
       const { data: userRes } = await supabaseVendor.auth.getUser();
       const uid = userRes.user?.id;
       if (!uid) throw new Error("Not signed in.");
-      const { data: vu } = await supabaseVendor.from("vendor_users").select("vendor_id").eq("auth_id", uid).maybeSingle();
-      const vid = (vu as { vendor_id: string } | null)?.vendor_id;
+      setCurrentAuthAid(uid);
+      const { data: vu } = await supabaseVendor.from("vendor_users").select("vendor_id, display_name").eq("auth_id", uid).maybeSingle();
+      const vid = (vu as { vendor_id: string; display_name: string | null } | null)?.vendor_id;
+      const vname = (vu as { vendor_id: string; display_name: string | null } | null)?.display_name;
       if (!vid) throw new Error("Not linked to a vendor.");
+      setCurrentDisplayName(vname || userRes.user?.email || "Vendor");
 
       let poQuery = supabaseVendor.from("tanda_pos")
         .select("uuid_id, po_number, buyer_name, date_expected_delivery, data")
@@ -131,7 +150,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
         .order("date_expected_delivery", { ascending: true });
       if (poId) poQuery = poQuery.eq("uuid_id", poId);
 
-      const [poRes, permRes, reqRes] = await Promise.all([
+      const [poRes, permRes, reqRes, notesRes] = await Promise.all([
         poQuery,
         supabaseVendor.from("vendor_phase_permissions")
           .select("phase_name, can_edit")
@@ -140,10 +159,17 @@ export default function VendorPhasesView({ poId }: Props = {}) {
           .select("id, po_id, phase_name, field_name, old_value, new_value, status, requested_at, reviewed_at, review_note, po_line_key")
           .eq("vendor_id", vid)
           .order("requested_at", { ascending: false }),
+        supabaseVendor.from("po_phase_notes")
+          .select("id, po_id, phase_name, po_line_key, body, author_auth_id, author_name, created_at, updated_at, deleted_at")
+          .eq("vendor_id", vid)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: true }),
       ]);
       if (poRes.error) throw poRes.error;
       if (permRes.error) throw permRes.error;
       if (reqRes.error) throw reqRes.error;
+      if (notesRes.error) throw notesRes.error;
+      setNotes((notesRes.data ?? []) as PhaseNote[]);
 
       const activePos = ((poRes.data ?? []) as PORow[]).filter((r) => !(r.data as { _archived?: boolean } | null)?._archived);
       setPos(activePos);
@@ -197,6 +223,57 @@ export default function VendorPhasesView({ poId }: Props = {}) {
 
   function latestRequest(poId: string, phase: string, field: string, lineKey: string | null = null): ChangeRequest | null {
     return requestIndex.get(`${poId}::${phase}::${lineKey ?? "__master"}::${field}`)?.[0] || null;
+  }
+
+  // Notes CRUD. Direct supabase calls — RLS enforces ownership on update.
+  function notesFor(poIdArg: string, phase: string, lineKey: string | null = null): PhaseNote[] {
+    return notes.filter((n) => n.po_id === poIdArg && n.phase_name === phase && (n.po_line_key ?? null) === (lineKey ?? null));
+  }
+  function notesAndLineNotesFor(poIdArg: string, phase: string): PhaseNote[] {
+    return notes.filter((n) => n.po_id === poIdArg && n.phase_name === phase);
+  }
+
+  async function addNote(po: PORow, phase: string, lineKey: string | null, body: string) {
+    if (!currentAuthAid || !body.trim()) return;
+    const { data: vu } = await supabaseVendor.from("vendor_users").select("vendor_id").eq("auth_id", currentAuthAid).maybeSingle();
+    const vid = (vu as { vendor_id: string } | null)?.vendor_id;
+    if (!vid) return;
+    const { data, error } = await supabaseVendor
+      .from("po_phase_notes")
+      .insert({
+        vendor_id: vid,
+        po_id: po.uuid_id,
+        phase_name: phase,
+        po_line_key: lineKey,
+        body: body.trim(),
+        author_auth_id: currentAuthAid,
+        author_name: currentDisplayName,
+      })
+      .select("*")
+      .single();
+    if (error || !data) { await showAlert({ title: "Could not save note", message: error?.message || "unknown error", tone: "danger" }); return; }
+    setNotes((prev) => [...prev, data as PhaseNote]);
+  }
+
+  async function editNote(id: string, body: string) {
+    if (!body.trim()) return;
+    const { data, error } = await supabaseVendor
+      .from("po_phase_notes")
+      .update({ body: body.trim(), updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (error || !data) { await showAlert({ title: "Could not edit note", message: error?.message || "unknown error", tone: "danger" }); return; }
+    setNotes((prev) => prev.map((n) => n.id === id ? (data as PhaseNote) : n));
+  }
+
+  async function deleteNote(id: string) {
+    const { error } = await supabaseVendor
+      .from("po_phase_notes")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) { await showAlert({ title: "Could not delete note", message: error.message, tone: "danger" }); return; }
+    setNotes((prev) => prev.filter((n) => n.id !== id));
   }
 
   function pendingCountForPO(poId: string): number {
@@ -406,9 +483,8 @@ export default function VendorPhasesView({ poId }: Props = {}) {
           const isExpanded = expanded.has(expandKey);
           const lines = poLinesByPo[r.po.uuid_id] || [];
 
-          // Master-level notes + per-line overrides.
-          const notesReq = latestRequest(r.po.uuid_id, r.phase.name, "notes", null);
-          const effectiveNotes = notesReq?.new_value ?? "";
+          // Aggregated notes for the master icon (master + every line).
+          const allPhaseNotes = notesAndLineNotesFor(r.po.uuid_id, r.phase.name);
 
           // Detect mismatch: any line whose effective status differs from master's.
           const lineStatusOverrides = lines.map((l) => {
@@ -475,65 +551,68 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                     {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
-                <div style={{ fontSize: 11 }}>
-                  {pending && <span style={{ color: "#92400E" }}>⏳ pending review</span>}
-                  {rejected && !pending && (
-                    <span style={{ color: "#991B1B" }} title={r.dateReq?.review_note || r.statusReq?.review_note || ""}>✗ rejected</span>
-                  )}
-                  {!pending && !rejected && (r.dateReq?.status === "approved" || r.statusReq?.status === "approved") && (
-                    <span style={{ color: "#065F46" }}>✓ approved</span>
-                  )}
-                  {!pending && !rejected && !r.dateReq?.status && !r.statusReq?.status && !hasMismatch && (
-                    <span style={{ color: TH.textMuted }}>—</span>
-                  )}
-                  {hasMismatch && (
-                    <div style={{ color: "#7C3AED", fontWeight: 600 }}>lines differ</div>
-                  )}
+                <div style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    {pending && <span style={{ color: "#92400E" }}>⏳ pending review</span>}
+                    {rejected && !pending && (
+                      <span style={{ color: "#991B1B" }} title={r.dateReq?.review_note || r.statusReq?.review_note || ""}>✗ rejected</span>
+                    )}
+                    {!pending && !rejected && (r.dateReq?.status === "approved" || r.statusReq?.status === "approved") && (
+                      <span style={{ color: "#065F46" }}>✓ approved</span>
+                    )}
+                    {!pending && !rejected && !r.dateReq?.status && !r.statusReq?.status && !hasMismatch && (
+                      <span style={{ color: TH.textMuted }}>—</span>
+                    )}
+                    {hasMismatch && (
+                      <div style={{ color: "#7C3AED", fontWeight: 600 }}>lines differ</div>
+                    )}
+                  </div>
+                  <NotesButton
+                    notes={allPhaseNotes}
+                    currentAuthAid={currentAuthAid}
+                    title={`${r.po.po_number} — ${r.phase.name}`}
+                    lines={lines}
+                    onAdd={(body) => void addNote(r.po, r.phase.name, null, body)}
+                    onEdit={(id, body) => void editNote(id, body)}
+                    onDelete={(id) => void deleteNote(id)}
+                  />
                 </div>
               </div>
 
-              {/* ── Expanded panel: notes + line breakdown ───────────── */}
+              {/* ── Expanded panel: master notes icon + line breakdown ── */}
               {isExpanded && (
                 <div style={{ padding: "10px 14px 14px 46px", background: "#F8FAFC", borderBottom: `1px solid ${TH.border}` }}>
-                  {/* Master notes. Line notes aggregate below. */}
-                  <div style={{ marginBottom: 10 }}>
-                    <label style={{ display: "block", fontSize: 10, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", marginBottom: 4 }}>
-                      Notes for {r.phase.name}
-                    </label>
-                    <NotesField
-                      value={effectiveNotes}
-                      disabled={!editable}
-                      pending={notesReq?.status === "pending"}
-                      onSave={(v) => void proposeChange(r.po, r.phase.name, "notes", effectiveNotes || null, v || null, null)}
-                    />
-                    {/* Aggregated line-level notes shown read-only on master so vendor sees everything together. */}
-                    <LineNotesDigest
-                      po={r.po}
-                      phaseName={r.phase.name}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>Notes for this phase</span>
+                    <NotesButton
+                      notes={notesAndLineNotesFor(r.po.uuid_id, r.phase.name)}
+                      currentAuthAid={currentAuthAid}
+                      title={`${r.phase.name} — all notes (master + line)`}
                       lines={lines}
-                      latestRequest={latestRequest}
+                      onAdd={(body) => void addNote(r.po, r.phase.name, null, body)}
+                      onEdit={(id, body) => void editNote(id, body)}
+                      onDelete={(id) => void deleteNote(id)}
                     />
+                    <span style={{ fontSize: 11, color: TH.textMuted }}>aggregates all line notes too</span>
                   </div>
 
                   {lines.length === 0 ? (
                     <div style={{ fontSize: 12, color: TH.textMuted, padding: "8px 0" }}>No line items materialized for this PO yet.</div>
                   ) : (
                     <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 6, overflow: "hidden" }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 140px 1fr", padding: "6px 10px", background: "#E2E8F0", fontSize: 10, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 140px 80px", padding: "6px 10px", background: "#E2E8F0", fontSize: 10, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
                         <div>Style</div>
                         <div>Description</div>
                         <div>Status</div>
-                        <div>Line notes</div>
+                        <div style={{ textAlign: "center" }}>Notes</div>
                       </div>
                       {lines.map((l) => {
                         const lineStatusReq = latestRequest(r.po.uuid_id, r.phase.name, "status", l.id);
-                        const lineNotesReq = latestRequest(r.po.uuid_id, r.phase.name, "notes", l.id);
                         const lineStatus = (lineStatusReq?.new_value || r.effectiveStatus) as Status;
-                        const lineNotes = lineNotesReq?.new_value ?? "";
                         const differs = lineStatusReq?.new_value && lineStatusReq.new_value !== r.effectiveStatus;
                         const lsc = STATUS_COLORS[lineStatus] || STATUS_COLORS["Not Started"];
                         return (
-                          <div key={l.id} style={{ display: "grid", gridTemplateColumns: "120px 1fr 140px 1fr", padding: "6px 10px", borderTop: `1px solid ${TH.border}`, fontSize: 12, alignItems: "center", gap: 6 }}>
+                          <div key={l.id} style={{ display: "grid", gridTemplateColumns: "120px 1fr 140px 80px", padding: "6px 10px", borderTop: `1px solid ${TH.border}`, fontSize: 12, alignItems: "center", gap: 6 }}>
                             <div style={{ fontFamily: "Menlo, monospace", color: TH.textSub2 }}>{l.item_number || "—"}</div>
                             <div style={{ color: TH.text }}>{l.description || "—"}</div>
                             <div>
@@ -553,13 +632,16 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                                 <div style={{ fontSize: 9, color: "#7C3AED", marginTop: 2 }}>overrides master</div>
                               )}
                             </div>
-                            <NotesField
-                              value={lineNotes}
-                              disabled={!editable}
-                              pending={lineNotesReq?.status === "pending"}
-                              compact
-                              onSave={(v) => void proposeChange(r.po, r.phase.name, "notes", lineNotes || null, v || null, l.id)}
-                            />
+                            <div style={{ display: "flex", justifyContent: "center" }}>
+                              <NotesButton
+                                notes={notesFor(r.po.uuid_id, r.phase.name, l.id)}
+                                currentAuthAid={currentAuthAid}
+                                title={`${l.item_number || `Line ${l.line_index}`} · ${r.phase.name}`}
+                                onAdd={(body) => void addNote(r.po, r.phase.name, l.id, body)}
+                                onEdit={(id, body) => void editNote(id, body)}
+                                onDelete={(id) => void deleteNote(id)}
+                              />
+                            </div>
                           </div>
                         );
                       })}
@@ -575,68 +657,170 @@ export default function VendorPhasesView({ poId }: Props = {}) {
   );
 }
 
-/** Textarea that commits on blur — avoids POST-per-keystroke. */
-function NotesField({
-  value, disabled, pending, compact, onSave,
+/**
+ * Icon button that opens a popover of threaded notes. Notes are
+ * user + timestamped. Each note has Edit + Delete (author only;
+ * RLS also enforces that server-side). Master-level buttons get
+ * passed both master and line notes so the vendor sees everything
+ * in one place.
+ */
+function NotesButton({
+  notes, currentAuthAid, title, lines, onAdd, onEdit, onDelete,
 }: {
-  value: string;
-  disabled: boolean;
-  pending: boolean;
-  compact?: boolean;
-  onSave: (newValue: string) => void;
+  notes: PhaseNote[];
+  currentAuthAid: string | null;
+  title: string;
+  lines?: POLine[];
+  onAdd: (body: string) => void;
+  onEdit: (id: string, body: string) => void;
+  onDelete: (id: string) => void;
 }) {
-  const [local, setLocal] = useState(value);
-  useEffect(() => { setLocal(value); }, [value]);
-  return (
-    <textarea
-      rows={compact ? 1 : 2}
-      value={local}
-      disabled={disabled}
-      placeholder={compact ? "Add note…" : "Add a vendor note for this phase…"}
-      onChange={(e) => setLocal(e.target.value)}
-      onBlur={() => { if (local !== value) onSave(local); }}
-      style={{
-        width: "100%",
-        padding: "4px 6px",
-        fontSize: compact ? 11 : 12,
-        borderRadius: 4,
-        border: `1px solid ${pending ? "#F59E0B" : "#CBD5E1"}`,
-        background: disabled ? "#f1f5f9" : "#fff",
-        cursor: disabled ? "not-allowed" : "text",
-        fontFamily: "inherit",
-        resize: "vertical",
-      }}
-    />
-  );
-}
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const count = notes.length;
 
-/** Aggregates line-level notes for a phase so the master view shows everything. */
-function LineNotesDigest({
-  po, phaseName, lines, latestRequest,
-}: {
-  po: PORow;
-  phaseName: string;
-  lines: POLine[];
-  latestRequest: (poId: string, phase: string, field: string, lineKey?: string | null) => ChangeRequest | null;
-}) {
-  const entries = lines.map((l) => {
-    const req = latestRequest(po.uuid_id, phaseName, "notes", l.id);
-    return req?.new_value ? { line: l, note: req.new_value, status: req.status } : null;
-  }).filter(Boolean) as { line: POLine; note: string; status: string }[];
-  if (entries.length === 0) return null;
+  // Map line id → label so we can caption line-level notes inside
+  // the master popover.
+  const lineLabel = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const l of lines || []) m[l.id] = l.item_number || `Line ${l.line_index}`;
+    return m;
+  }, [lines]);
+
+  async function handleDelete(id: string) {
+    const ok = await showConfirm({ title: "Delete note?", message: "This note will be removed for everyone. The audit trail is preserved server-side.", tone: "danger", confirmLabel: "Delete" });
+    if (ok) onDelete(id);
+  }
+
   return (
-    <div style={{ marginTop: 6, padding: "6px 10px", background: "#fff", border: `1px dashed ${TH.border}`, borderRadius: 4, fontSize: 11, color: TH.textSub2 }}>
-      <div style={{ fontWeight: 700, color: TH.textMuted, fontSize: 10, textTransform: "uppercase", marginBottom: 4 }}>Line notes</div>
-      {entries.map((e, i) => (
-        <div key={i} style={{ marginBottom: i === entries.length - 1 ? 0 : 4 }}>
-          <strong style={{ fontFamily: "Menlo, monospace", color: TH.text }}>{e.line.item_number || `Line ${e.line.line_index}`}</strong>
-          {" — "}{e.note}
-          {e.status === "pending" && <span style={{ color: "#92400E", marginLeft: 6 }}>(pending)</span>}
-        </div>
-      ))}
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <button
+        onClick={() => setOpen((x) => !x)}
+        title={count === 0 ? "Add a note" : `${count} note${count === 1 ? "" : "s"}`}
+        style={{
+          width: 28, height: 24, padding: 0,
+          border: `1px solid ${count > 0 ? TH.primary : TH.border}`,
+          borderRadius: 6,
+          background: count > 0 ? "#EFF6FF" : TH.surface,
+          color: count > 0 ? TH.primary : TH.textMuted,
+          cursor: "pointer", fontFamily: "inherit",
+          display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 3,
+          fontSize: 11, fontWeight: 700,
+        }}
+      >
+        💬{count > 0 ? count : ""}
+      </button>
+
+      {open && (
+        <>
+          {/* Click-outside backdrop */}
+          <div
+            onClick={() => { setOpen(false); setEditingId(null); }}
+            style={{ position: "fixed", inset: 0, zIndex: 40, background: "transparent" }}
+          />
+          <div
+            style={{
+              position: "absolute", right: 0, top: 28, zIndex: 41,
+              width: 340, maxHeight: 420, overflowY: "auto",
+              background: TH.surface, border: `1px solid ${TH.border}`,
+              borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+              fontFamily: "system-ui, -apple-system, sans-serif", color: TH.text,
+            }}
+          >
+            <div style={{ padding: "10px 12px", borderBottom: `1px solid ${TH.border}`, background: TH.surfaceHi }}>
+              <div style={{ fontWeight: 700, fontSize: 12 }}>{title}</div>
+              <div style={{ fontSize: 10, color: TH.textMuted }}>{count} note{count === 1 ? "" : "s"}</div>
+            </div>
+
+            <div style={{ padding: "8px 12px" }}>
+              {notes.length === 0 && (
+                <div style={{ color: TH.textMuted, fontSize: 12, padding: "6px 0" }}>No notes yet.</div>
+              )}
+              {notes.map((n) => {
+                const mine = !!currentAuthAid && n.author_auth_id === currentAuthAid;
+                const isEditing = editingId === n.id;
+                return (
+                  <div key={n.id} style={{ padding: "6px 0", borderBottom: `1px dashed ${TH.border}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 6, fontSize: 10, color: TH.textMuted }}>
+                      <span>
+                        <strong style={{ color: TH.text }}>{n.author_name}</strong>
+                        {n.po_line_key && lineLabel[n.po_line_key] && (
+                          <> · <span style={{ fontFamily: "Menlo, monospace" }}>{lineLabel[n.po_line_key]}</span></>
+                        )}
+                      </span>
+                      <span title={n.created_at}>{new Date(n.created_at).toLocaleString()}</span>
+                    </div>
+                    {isEditing ? (
+                      <>
+                        <textarea
+                          rows={2}
+                          value={editDraft}
+                          onChange={(e) => setEditDraft(e.target.value)}
+                          style={{ width: "100%", marginTop: 4, padding: "4px 6px", fontSize: 12, borderRadius: 4, border: `1px solid ${TH.border}`, fontFamily: "inherit", boxSizing: "border-box" }}
+                        />
+                        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", marginTop: 4 }}>
+                          <button onClick={() => { setEditingId(null); }} style={iconBtn}>Cancel</button>
+                          <button
+                            onClick={() => { if (editDraft.trim()) { onEdit(n.id, editDraft); setEditingId(null); } }}
+                            style={{ ...iconBtn, background: TH.primary, color: "#fff", borderColor: TH.primary }}
+                          >Save</button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 12, color: TH.text, marginTop: 2, whiteSpace: "pre-wrap" }}>{n.body}</div>
+                        {n.updated_at && n.updated_at !== n.created_at && (
+                          <div style={{ fontSize: 9, color: TH.textMuted, marginTop: 2 }}>edited {new Date(n.updated_at).toLocaleString()}</div>
+                        )}
+                        {mine && (
+                          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", marginTop: 4 }}>
+                            <button onClick={() => { setEditingId(n.id); setEditDraft(n.body); }} style={iconBtn}>Edit</button>
+                            <button onClick={() => void handleDelete(n.id)} style={{ ...iconBtn, color: "#B91C1C" }}>Delete</button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ padding: "8px 12px", borderTop: `1px solid ${TH.border}`, background: TH.surfaceHi }}>
+              <textarea
+                rows={2}
+                placeholder="Add a note…"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                style={{ width: "100%", padding: "4px 6px", fontSize: 12, borderRadius: 4, border: `1px solid ${TH.border}`, fontFamily: "inherit", boxSizing: "border-box" }}
+              />
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
+                <button
+                  disabled={!draft.trim()}
+                  onClick={() => { onAdd(draft); setDraft(""); }}
+                  style={{ ...iconBtn, background: draft.trim() ? TH.primary : TH.textMuted, color: "#fff", borderColor: draft.trim() ? TH.primary : TH.textMuted, cursor: draft.trim() ? "pointer" : "not-allowed" }}
+                >Add note</button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
+
+const iconBtn: React.CSSProperties = {
+  padding: "3px 10px",
+  fontSize: 11,
+  fontWeight: 600,
+  borderRadius: 4,
+  border: `1px solid ${TH.border}`,
+  background: TH.surface,
+  color: TH.textSub,
+  cursor: "pointer",
+  fontFamily: "inherit",
+};
 
 function FilterPill({ active, onClick, label, tone }: { active: boolean; onClick: () => void; label: string; tone?: "danger" | "warn" }) {
   const toneColor = tone === "danger" ? "#B91C1C" : tone === "warn" ? "#B45309" : TH.primary;
