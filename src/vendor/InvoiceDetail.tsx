@@ -175,11 +175,13 @@ export default function InvoiceDetail() {
       if (!r.ok) throw new Error(body?.error || `Request failed (${r.status})`);
 
       setInvoice(body as Invoice);
-      // Reload line items since the handler fully replaces them
+      // Reload line items since the handler fully replaces them.
+      // Use the route `id` (stable) rather than `invoice.id` (the
+      // newly-set state may not be flushed by the time we query).
       const { data: freshLines } = await supabaseVendor
         .from("invoice_line_items")
         .select("id, line_index, description, quantity_invoiced, unit_price, line_total, po_line_item_id")
-        .eq("invoice_id", invoice.id).order("line_index");
+        .eq("invoice_id", id).order("line_index");
       setLines((freshLines ?? []) as LineRow[]);
       setEditing(false);
     } catch (e: unknown) {

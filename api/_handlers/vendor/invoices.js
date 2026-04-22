@@ -63,6 +63,20 @@ export default async function handler(req, res) {
   if (!invoice_number || typeof invoice_number !== "string" || !invoice_number.trim()) return send(400, { error: "invoice_number is required" });
   if (!Array.isArray(line_items) || line_items.length === 0) return send(400, { error: "At least one line_item is required" });
 
+  // Reject non-numeric qty / price before the Number() fallbacks below
+  // silently coerce them into NaN and we insert garbage financial data.
+  for (const [i, l] of line_items.entries()) {
+    if (l.quantity_invoiced != null && !Number.isFinite(Number(l.quantity_invoiced))) {
+      return send(400, { error: `line_items[${i}].quantity_invoiced must be a number` });
+    }
+    if (l.unit_price != null && !Number.isFinite(Number(l.unit_price))) {
+      return send(400, { error: `line_items[${i}].unit_price must be a number` });
+    }
+    if (l.line_total != null && !Number.isFinite(Number(l.line_total))) {
+      return send(400, { error: `line_items[${i}].line_total must be a number` });
+    }
+  }
+
   // Verify the PO belongs to the caller's vendor
   const { data: po } = await admin
     .from("tanda_pos").select("uuid_id, po_number, vendor_id")

@@ -55,6 +55,11 @@ export default async function handler(req, res) {
   if (!Array.isArray(line_items) || line_items.length === 0) return send(400, { error: "At least one line_item is required" });
   if (number_type && !["CT", "BL", "BK"].includes(number_type)) return send(400, { error: "number_type must be CT, BL, or BK" });
 
+  // Require at least one line with quantity_shipped > 0. Otherwise the
+  // shipment header gets inserted with zero lines (orphan).
+  const hasShippable = line_items.some((l) => (Number(l.quantity_shipped) || 0) > 0);
+  if (!hasShippable) return send(400, { error: "At least one line_item must have quantity_shipped > 0" });
+
   const { data: po } = await admin
     .from("tanda_pos").select("uuid_id, po_number, vendor_id")
     .eq("uuid_id", po_id).eq("vendor_id", caller.vendor_id).maybeSingle();

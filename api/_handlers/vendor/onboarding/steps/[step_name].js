@@ -132,11 +132,18 @@ export default async function handler(req, res) {
   }, { onConflict: "workflow_id,step_name" });
 
   // Mirror collect_tax into vendors.is_tax_vendor so the invoice form can
-  // gate the Tax line without joining onboarding state.
+  // gate the Tax line without joining onboarding state. Bail out loudly
+  // on failure: the step is already upserted, but leaving the flag stale
+  // would silently break the invoice Tax gate.
   if (stepName === "tax" && !skip && stepData && typeof stepData.collect_tax === "boolean") {
-    await admin.from("vendors")
+    const { error: mirrorErr } = await admin.from("vendors")
       .update({ is_tax_vendor: stepData.collect_tax })
       .eq("id", caller.vendor_id);
+    if (mirrorErr) {
+      return res.status(500).json({
+        error: `Tax step saved, but could not sync is_tax_vendor on your vendor record: ${mirrorErr.message}. Please re-submit the Tax step.`,
+      });
+    }
   }
 
   const completedSet = new Set(workflow.completed_steps || []);
