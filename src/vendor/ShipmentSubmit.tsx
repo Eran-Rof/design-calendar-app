@@ -67,6 +67,7 @@ export default function ShipmentSubmit() {
 
   const [asnNumber, setAsnNumber] = useState("");
   const [carrier, setCarrier] = useState<string>("MSC");
+  const [shipVia, setShipVia] = useState<string>("Ocean");
   const [trackingType, setTrackingType] = useState<TrackingType>("");
   const [trackingNumber, setTrackingNumber] = useState("");
   const [shipDate, setShipDate] = useState(new Date().toISOString().slice(0, 10));
@@ -197,6 +198,7 @@ export default function ShipmentSubmit() {
           po_id: selectedPoId,
           asn_number: asnNumber.trim(),
           carrier,
+          ship_via: shipVia,
           ship_date: shipDate || null,
           estimated_port_date: estimatedPortDate || null,
           estimated_delivery: estimatedDelivery || null,
@@ -254,7 +256,7 @@ export default function ShipmentSubmit() {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 14, marginBottom: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div>
             <label style={labelStyle}>Carrier</label>
             <select value={carrier} onChange={(e) => setCarrier(e.target.value)} style={inputStyle}>
@@ -265,6 +267,20 @@ export default function ShipmentSubmit() {
               ))}
             </select>
           </div>
+          <div>
+            <label style={labelStyle}>Ship via</label>
+            <select value={shipVia} onChange={(e) => setShipVia(e.target.value)} style={inputStyle}>
+              <option value="Ocean">Ocean</option>
+              <option value="Air">Air</option>
+              <option value="Truck">Truck</option>
+              <option value="Rail">Rail</option>
+              <option value="Ocean/Rail">Ocean/Rail</option>
+              <option value="Ocean/Air">Ocean/Air</option>
+            </select>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div>
             <label style={labelStyle}>Ship date</label>
             <input type="date" value={shipDate} onChange={(e) => setShipDate(e.target.value)} style={inputStyle} />

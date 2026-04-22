@@ -45,7 +45,7 @@ export default async function handler(req, res) {
   if (typeof body === "string") { try { body = JSON.parse(body); } catch { return send(400, { error: "Invalid JSON" }); } }
 
   const {
-    po_id, asn_number, carrier, ship_date, estimated_delivery,
+    po_id, asn_number, carrier, ship_via, ship_date, estimated_delivery,
     estimated_port_date,
     number, number_type, notes, line_items,
     packing_list_url, bl_document_url,
@@ -75,6 +75,7 @@ export default async function handler(req, res) {
     number: number ? String(number).trim().toUpperCase() : null,
     number_type: number_type || null,
     carrier: carrier || null,
+    ship_via: ship_via || null,
     ship_date: ship_date || null,
     estimated_delivery: estimated_delivery || null,
     eta: estimated_port_date || null,
