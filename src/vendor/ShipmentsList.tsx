@@ -133,17 +133,18 @@ export default function ShipmentsList() {
                 ) : "—"}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                {r.current_status ? (
+                {r.current_status && (
                   <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: TH.surfaceHi, border: `1px solid ${TH.border}`, color: TH.textSub, alignSelf: "flex-start" }}>
                     {r.current_status}
                   </span>
-                ) : (
-                  <span style={{ color: TH.textMuted }}>—</span>
                 )}
                 {r.invoice_created_at && (
                   <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 8, background: "#D1FAE5", border: "1px solid #A7F3D0", color: "#065F46", alignSelf: "flex-start", fontWeight: 600 }}>
                     🧾 Invoiced {fmtDate(r.invoice_created_at)}
                   </span>
+                )}
+                {!r.current_status && !r.invoice_created_at && (
+                  <span style={{ color: TH.textMuted }}>—</span>
                 )}
               </div>
               <div style={{ textAlign: "right", color: TH.textMuted, fontSize: 12 }}>
