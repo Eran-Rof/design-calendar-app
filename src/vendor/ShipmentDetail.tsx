@@ -32,6 +32,7 @@ interface Shipment {
   current_status: string | null;
   last_tracked_at: string | null;
   po_number: string | null;
+  po_id: string | null;
   // Vendor-supplied fields
   asn_number: string | null;
   carrier: string | null;
@@ -70,6 +71,7 @@ export default function ShipmentDetail() {
   // Edit mode
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [extractingFromPl, setExtractingFromPl] = useState(false);
   const [editSave, setEditSave] = useState({
     asn_number: "", carrier: "", ship_via: "",
     ship_date: "", estimated_port_date: "", estimated_delivery: "",
@@ -143,6 +145,31 @@ export default function ShipmentDetail() {
     }
   }
 
+  async function createInvoiceFromPl() {
+    if (!shipment?.packing_list_url) return;
+    if (!shipment.po_id) { setErr("This shipment has no linked PO — cannot create invoice."); return; }
+    setExtractingFromPl(true);
+    setErr(null);
+    try {
+      const { data: sessionRes } = await supabaseVendor.auth.getSession();
+      const accessToken = sessionRes?.session?.access_token;
+      if (!accessToken) throw new Error("Not signed in.");
+      const r = await fetch("/api/vendor/ai-extract-invoice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ file_url: shipment.packing_list_url, po_id: shipment.po_id }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(`AI extraction failed: ${body?.error || r.status}`);
+      const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(body.extracted || {}))));
+      window.location.href = `/vendor/invoices/new?po=${shipment.po_id}&asn=${shipment.id}&file=${encodeURIComponent(shipment.packing_list_url)}&extracted=${encoded}`;
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExtractingFromPl(false);
+    }
+  }
+
   async function openDoc(path: string | null) {
     if (!path) return;
     const { data, error } = await supabaseVendor.storage.from("vendor-docs").createSignedUrl(path, 60);
@@ -152,13 +179,16 @@ export default function ShipmentDetail() {
 
   function startEdit() {
     if (!shipment) return;
+    // Postgres timestamptz comes back as "2026-04-22T00:00:00+00:00";
+    // <input type="date"> only accepts the YYYY-MM-DD prefix.
+    const toDateInput = (v: string | null) => (v ? v.slice(0, 10) : "");
     setEditSave({
       asn_number: shipment.asn_number || "",
       carrier: shipment.carrier || "",
       ship_via: shipment.ship_via || "",
-      ship_date: shipment.ship_date || "",
-      estimated_port_date: shipment.eta || "",
-      estimated_delivery: shipment.estimated_delivery || "",
+      ship_date: toDateInput(shipment.ship_date),
+      estimated_port_date: toDateInput(shipment.eta),
+      estimated_delivery: toDateInput(shipment.estimated_delivery),
       number: shipment.number || "",
       number_type: shipment.number_type || "",
       notes: shipment.notes || "",
@@ -337,9 +367,19 @@ export default function ShipmentDetail() {
             </div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12 }}>
               {shipment.packing_list_url && (
-                <button onClick={() => void openDoc(shipment.packing_list_url)} style={docBtn}>
-                  📄 Packing list
-                </button>
+                <>
+                  <button onClick={() => void openDoc(shipment.packing_list_url)} style={docBtn}>
+                    📄 Packing list
+                  </button>
+                  <button
+                    onClick={() => void createInvoiceFromPl()}
+                    disabled={extractingFromPl || !shipment.po_id}
+                    title={!shipment.po_id ? "Shipment has no linked PO" : "AI reads the packing list and drafts an invoice for review"}
+                    style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: extractingFromPl ? TH.textMuted : "#047857", color: "#FFFFFF", cursor: extractingFromPl ? "not-allowed" : "pointer", fontFamily: "inherit", fontWeight: 600 }}
+                  >
+                    {extractingFromPl ? "Reading PL with AI…" : "✨ Create Invoice from PL"}
+                  </button>
+                </>
               )}
               {shipment.bl_document_url && (
                 <button onClick={() => void openDoc(shipment.bl_document_url)} style={docBtn}>
