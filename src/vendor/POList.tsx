@@ -71,6 +71,7 @@ export default function POList() {
   const [ackAtByPo, setAckAtByPo] = useState<Map<string, string>>(new Map());
   const [vendorUserId, setVendorUserId] = useState<string | null>(null);
   const [lastReceivedByPo, setLastReceivedByPo] = useState<Map<string, string>>(new Map());
+  const [shippedPoIds, setShippedPoIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
@@ -117,10 +118,10 @@ export default function POList() {
         // Pull the most recent received_date per PO for the "Received" column.
         const poIds = active.map((r) => r.uuid_id).filter(Boolean);
         if (poIds.length > 0) {
-          const { data: receipts } = await supabaseVendor
-            .from("receipts")
-            .select("po_id, received_date")
-            .in("po_id", poIds);
+          const [{ data: receipts }, { data: invoices }] = await Promise.all([
+            supabaseVendor.from("receipts").select("po_id, received_date").in("po_id", poIds),
+            supabaseVendor.from("invoices").select("po_id, status").in("po_id", poIds),
+          ]);
           const map = new Map<string, string>();
           for (const r of (receipts || []) as { po_id: string; received_date: string | null }[]) {
             if (!r.po_id || !r.received_date) continue;
@@ -128,6 +129,11 @@ export default function POList() {
             if (!prev || new Date(r.received_date) > new Date(prev)) map.set(r.po_id, r.received_date);
           }
           if (!cancelled) setLastReceivedByPo(map);
+          const shipped = new Set<string>();
+          for (const i of (invoices || []) as { po_id: string | null; status: string }[]) {
+            if (i.po_id && i.status !== "rejected") shipped.add(i.po_id);
+          }
+          if (!cancelled) setShippedPoIds(shipped);
         }
       } catch (e: unknown) {
         if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
@@ -219,19 +225,19 @@ export default function POList() {
       </div>
 
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "auto", boxShadow: `0 1px 2px ${TH.shadow}` }}>
-        <div style={{ display: "grid", gridTemplateColumns: "120px 100px 110px 110px 120px 130px 110px 120px 120px 120px 140px 150px", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05, minWidth: 1450 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "120px 100px 110px 110px 24px 110px 130px 110px 120px 120px 140px 170px", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05, minWidth: 1434 }}>
           <div>PO #</div>
           <div>Issued</div>
           <div>Required</div>
           <div style={{ textAlign: "right" }}>Amount</div>
-          <div>Date Received</div>
+          <div></div>
+          <div>Dt Rcvd</div>
           <div style={{ textAlign: "right" }}>Qty Rcv / Ord</div>
           <div style={{ textAlign: "right" }}>Qty Remain</div>
           <div style={{ textAlign: "right" }}>Amt Received</div>
           <div style={{ textAlign: "right" }}>Amt Remain</div>
-          <div>Ack Date</div>
           <div>Status</div>
-          <div style={{ textAlign: "right" }}>Action</div>
+          <div style={{ textAlign: "right" }}>Acknowledge Date</div>
         </div>
         {visible.length === 0 ? (
           <div style={{ padding: 20, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
@@ -249,7 +255,7 @@ export default function POList() {
             <Link
               key={r.id}
               to={`/vendor/pos/${r.uuid_id}`}
-              style={{ display: "grid", gridTemplateColumns: "120px 100px 110px 110px 120px 130px 110px 120px 120px 120px 140px 150px", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", textDecoration: "none", color: "inherit", minWidth: 1450 }}
+              style={{ display: "grid", gridTemplateColumns: "120px 100px 110px 110px 24px 110px 130px 110px 120px 120px 140px 170px", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", textDecoration: "none", color: "inherit", minWidth: 1434 }}
             >
               <div style={{ fontWeight: 600, color: TH.primary }}>{r.po_number}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(p.DateOrder)}</div>
@@ -263,6 +269,7 @@ export default function POList() {
                 )}
               </div>
               <div style={{ color: TH.textSub2, textAlign: "right" }}>{fmtMoney(p.TotalAmount)}</div>
+              <div></div>
               <div style={{ color: TH.textSub2 }}>{receivedOn ? fmtDate(receivedOn) : "—"}</div>
               <div style={{ color: TH.textSub2, textAlign: "right" }}>
                 {totals.qtyOrdered > 0 ? `${totals.qtyReceived} / ${totals.qtyOrdered}` : "—"}
@@ -274,15 +281,22 @@ export default function POList() {
               <div style={{ color: totals.amountRemaining === 0 ? "#047857" : TH.textSub2, textAlign: "right", fontWeight: totals.amountRemaining === 0 ? 600 : 400 }}>
                 {totals.qtyOrdered > 0 ? fmtMoney(totals.amountRemaining) : "—"}
               </div>
-              <div style={{ color: TH.textSub2 }}>{ackedAt ? fmtDate(ackedAt) : "—"}</div>
               <div>
-                <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: TH.surfaceHi, border: `1px solid ${TH.border}`, color: TH.textSub, whiteSpace: "nowrap" }}>
-                  {p.StatusName || "—"}
-                </span>
+                {shippedPoIds.has(r.uuid_id) ? (
+                  <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "#D1FAE5", border: `1px solid #A7F3D0`, color: "#065F46", whiteSpace: "nowrap", fontWeight: 700 }}>
+                    Shipped
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: TH.surfaceHi, border: `1px solid ${TH.border}`, color: TH.textSub, whiteSpace: "nowrap" }}>
+                    {p.StatusName || "—"}
+                  </span>
+                )}
               </div>
               <div style={{ textAlign: "right" }}>
                 {acked ? (
-                  <span style={{ fontSize: 12, color: "#047857", fontWeight: 600 }}>✓ Acknowledged</span>
+                  <span style={{ fontSize: 12, color: "#047857", fontWeight: 600 }}>
+                    ✓ {ackedAt ? fmtDate(ackedAt) : "—"}
+                  </span>
                 ) : (
                   <button onClick={(e) => { e.preventDefault(); void acknowledge(r.po_number); }} style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}>
                     Acknowledge

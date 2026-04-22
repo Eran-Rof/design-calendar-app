@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
@@ -22,6 +22,7 @@ interface Invoice {
   payment_method: string | null;
   rejection_reason: string | null;
   notes: string | null;
+  file_url: string | null;
 }
 
 interface LineRow {
@@ -50,6 +51,13 @@ export default function InvoiceDetail() {
   const [poNumber, setPoNumber] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+
+  // Edit mode state
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editHeader, setEditHeader] = useState({ invoice_number: "", invoice_date: "", due_date: "", notes: "", tax: "0" });
+  const [editLines, setEditLines] = useState<LineRow[]>([]);
+  const [replacementFile, setReplacementFile] = useState<File | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -84,11 +92,109 @@ export default function InvoiceDetail() {
     })();
   }, [id]);
 
+  async function openAttachment() {
+    if (!invoice?.file_url) return;
+    const { data, error } = await supabaseVendor.storage.from("vendor-docs").createSignedUrl(invoice.file_url, 60);
+    if (error || !data?.signedUrl) { alert("Unable to open attachment: " + (error?.message || "unknown error")); return; }
+    window.open(data.signedUrl, "_blank", "noopener");
+  }
+
+  function startEdit() {
+    if (!invoice) return;
+    setEditHeader({
+      invoice_number: invoice.invoice_number,
+      invoice_date: invoice.invoice_date || "",
+      due_date: invoice.due_date || "",
+      notes: invoice.notes || "",
+      tax: invoice.tax != null ? String(invoice.tax) : "0",
+    });
+    setEditLines(lines.map((l) => ({ ...l })));
+    setReplacementFile(null);
+    setEditing(true);
+  }
+
+  function updateEditLine(idx: number, patch: Partial<LineRow>) {
+    setEditLines((xs) => xs.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+  }
+
+  async function saveEdit() {
+    if (!invoice) return;
+    setSaving(true);
+    setErr(null);
+    try {
+      let fileUrlPatch: string | undefined;
+      if (replacementFile) {
+        const MAX = 10 * 1024 * 1024;
+        if (replacementFile.size > MAX) throw new Error("File exceeds 10 MB limit.");
+        const allowedExts = ["pdf", "xls", "xlsx"];
+        const ext = replacementFile.name.split(".").pop()?.toLowerCase();
+        if (!ext || !allowedExts.includes(ext)) throw new Error("Only PDF or Excel files are accepted.");
+        const { data: userRes } = await supabaseVendor.auth.getUser();
+        const uid = userRes.user?.id;
+        if (!uid) throw new Error("Not signed in.");
+        const { data: vu } = await supabaseVendor.from("vendor_users").select("vendor_id").eq("auth_id", uid).maybeSingle();
+        const vid = (vu as { vendor_id: string } | null)?.vendor_id;
+        if (!vid) throw new Error("Not linked to a vendor.");
+        const path = `${vid}/invoices/${Date.now()}_${replacementFile.name.replace(/\s+/g, "_")}`;
+        const { error: upErr } = await supabaseVendor.storage.from("vendor-docs").upload(path, replacementFile, { upsert: false });
+        if (upErr) throw upErr;
+        fileUrlPatch = path;
+      }
+
+      const { data: session } = await supabaseVendor.auth.getSession();
+      const accessToken = session?.session?.access_token;
+      if (!accessToken) throw new Error("Not signed in.");
+
+      const subtotal = editLines.reduce((a, l) => a + (Number(l.quantity_invoiced) || 0) * (Number(l.unit_price) || 0), 0);
+      const taxNum = Number(editHeader.tax) || 0;
+      const total = subtotal + taxNum;
+
+      const r = await fetch(`/api/vendor/invoices/${invoice.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({
+          invoice_number: editHeader.invoice_number.trim(),
+          invoice_date: editHeader.invoice_date || null,
+          due_date: editHeader.due_date || null,
+          notes: editHeader.notes.trim() || null,
+          tax: taxNum,
+          subtotal,
+          total,
+          ...(fileUrlPatch !== undefined ? { file_url: fileUrlPatch } : {}),
+          line_items: editLines.map((l, idx) => ({
+            po_line_item_id: l.po_line_item_id,
+            line_index: idx + 1,
+            description: l.description,
+            quantity_invoiced: Number(l.quantity_invoiced) || 0,
+            unit_price: Number(l.unit_price) || 0,
+            line_total: (Number(l.quantity_invoiced) || 0) * (Number(l.unit_price) || 0),
+          })),
+        }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error || `Request failed (${r.status})`);
+
+      setInvoice(body as Invoice);
+      // Reload line items since the handler fully replaces them
+      const { data: freshLines } = await supabaseVendor
+        .from("invoice_line_items")
+        .select("id, line_index, description, quantity_invoiced, unit_price, line_total, po_line_item_id")
+        .eq("invoice_id", invoice.id).order("line_index");
+      setLines((freshLines ?? []) as LineRow[]);
+      setEditing(false);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading) return <div style={{ color: "#FFFFFF" }}>Loading invoice…</div>;
-  if (err) return <div style={{ color: TH.primary, padding: "10px 12px", background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6 }}>Error: {err}</div>;
+  if (err && !editing) return <div style={{ color: TH.primary, padding: "10px 12px", background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6 }}>Error: {err}</div>;
   if (!invoice) return null;
 
   const c = STATUS_COLORS[invoice.status] ?? { bg: TH.surfaceHi, fg: TH.text };
+  const canEdit = invoice.status === "submitted";
 
   return (
     <div>
@@ -106,18 +212,73 @@ export default function InvoiceDetail() {
               Submitted {fmtDate(invoice.submitted_at)}
             </div>
           </div>
-          <span style={{ fontSize: 13, padding: "6px 14px", borderRadius: 999, background: c.bg, color: c.fg, fontWeight: 700, textTransform: "capitalize" }}>
-            {invoice.status.replace("_", " ")}
-          </span>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {canEdit && !editing && (
+              <button onClick={startEdit} style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${TH.border}`, background: "none", color: TH.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}>
+                Edit
+              </button>
+            )}
+            <span style={{ fontSize: 13, padding: "6px 14px", borderRadius: 999, background: c.bg, color: c.fg, fontWeight: 700, textTransform: "capitalize" }}>
+              {invoice.status.replace("_", " ")}
+            </span>
+          </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 14, marginTop: 18 }}>
-          <InfoCell label="Invoice date" value={fmtDate(invoice.invoice_date)} />
-          <InfoCell label="Due date" value={fmtDate(invoice.due_date)} />
-          <InfoCell label="Currency" value={invoice.currency} />
-          {invoice.approved_at && <InfoCell label="Approved" value={fmtDate(invoice.approved_at)} tone="ok" />}
-          {invoice.paid_at && <InfoCell label="Paid" value={fmtDate(invoice.paid_at)} tone="ok" />}
-        </div>
+        {invoice.file_url && (
+          <div style={{ marginTop: 14, padding: "10px 14px", background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ color: TH.textSub2 }}>
+              <strong style={{ color: TH.text }}>Attachment:</strong>{" "}
+              <span style={{ fontFamily: "Menlo, monospace", fontSize: 12 }}>{invoice.file_url.split("/").pop()}</span>
+            </div>
+            <button onClick={() => void openAttachment()} style={{ padding: "4px 12px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}>
+              Download
+            </button>
+          </div>
+        )}
+
+        {editing ? (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginTop: 18 }}>
+            <Labelled label="Invoice number">
+              <input value={editHeader.invoice_number} onChange={(e) => setEditHeader((h) => ({ ...h, invoice_number: e.target.value }))} style={editInp} />
+            </Labelled>
+            <Labelled label="Invoice date">
+              <input type="date" value={editHeader.invoice_date} onChange={(e) => setEditHeader((h) => ({ ...h, invoice_date: e.target.value }))} style={editInp} />
+            </Labelled>
+            <Labelled label="Due date">
+              <input type="date" value={editHeader.due_date} onChange={(e) => setEditHeader((h) => ({ ...h, due_date: e.target.value }))} style={editInp} />
+            </Labelled>
+            <Labelled label="Tax">
+              <input type="number" step="any" value={editHeader.tax} onChange={(e) => setEditHeader((h) => ({ ...h, tax: e.target.value }))} style={editInp} />
+            </Labelled>
+            <Labelled label="Replace attachment (optional, PDF/Excel)">
+              <input type="file" accept="application/pdf,.pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xls,.xlsx" onChange={(e) => setReplacementFile(e.target.files?.[0] || null)} />
+            </Labelled>
+            <Labelled label="Notes">
+              <textarea rows={2} value={editHeader.notes} onChange={(e) => setEditHeader((h) => ({ ...h, notes: e.target.value }))} style={{ ...editInp, fontFamily: "inherit", resize: "vertical" }} />
+            </Labelled>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 14, marginTop: 18 }}>
+            <InfoCell label="Invoice date" value={fmtDate(invoice.invoice_date)} />
+            <InfoCell label="Due date" value={fmtDate(invoice.due_date)} />
+            <InfoCell label="Currency" value={invoice.currency} />
+            {invoice.approved_at && <InfoCell label="Approved" value={fmtDate(invoice.approved_at)} tone="ok" />}
+            {invoice.paid_at && <InfoCell label="Paid" value={fmtDate(invoice.paid_at)} tone="ok" />}
+          </div>
+        )}
+        {editing && err && (
+          <div style={{ marginTop: 12, color: TH.primary, padding: "8px 12px", background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6, fontSize: 13 }}>
+            {err}
+          </div>
+        )}
+        {editing && (
+          <div style={{ marginTop: 14, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button onClick={() => { setEditing(false); setErr(null); }} disabled={saving} style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${TH.border}`, background: "none", color: TH.text, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}>Cancel</button>
+            <button onClick={() => void saveEdit()} disabled={saving} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: saving ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" }}>
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        )}
 
         {invoice.payment_reference && (
           <div style={{ marginTop: 14, padding: "10px 14px", background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13 }}>
@@ -152,15 +313,32 @@ export default function InvoiceDetail() {
               <div>Unit price</div>
               <div style={{ textAlign: "right" }}>Line total</div>
             </div>
-            {lines.map((l) => (
-              <div key={l.id} style={{ display: "grid", gridTemplateColumns: "60px 1fr 100px 140px 140px", padding: "10px 20px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
-                <div style={{ color: TH.textMuted }}>{l.line_index}</div>
-                <div style={{ color: TH.text }}>{l.description ?? "—"}</div>
-                <div style={{ color: TH.textSub2 }}>{l.quantity_invoiced ?? "—"}</div>
-                <div style={{ color: TH.textSub2 }}>{fmtMoney(l.unit_price ?? undefined)}</div>
-                <div style={{ textAlign: "right", fontWeight: 600, color: TH.text }}>{fmtMoney(l.line_total ?? undefined)}</div>
-              </div>
-            ))}
+            {(editing ? editLines : lines).map((l, idx) => {
+              const lineTotal = editing
+                ? (Number(l.quantity_invoiced) || 0) * (Number(l.unit_price) || 0)
+                : (l.line_total ?? undefined);
+              return (
+                <div key={l.id} style={{ display: "grid", gridTemplateColumns: "60px 1fr 100px 140px 140px", padding: "10px 20px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", gap: 6 }}>
+                  <div style={{ color: TH.textMuted }}>{editing ? idx + 1 : l.line_index}</div>
+                  {editing ? (
+                    <input value={l.description ?? ""} onChange={(e) => updateEditLine(idx, { description: e.target.value })} style={editInp} />
+                  ) : (
+                    <div style={{ color: TH.text }}>{l.description ?? "—"}</div>
+                  )}
+                  {editing ? (
+                    <input type="number" step="any" value={l.quantity_invoiced ?? ""} onChange={(e) => updateEditLine(idx, { quantity_invoiced: e.target.value === "" ? null : Number(e.target.value) })} style={editInp} />
+                  ) : (
+                    <div style={{ color: TH.textSub2 }}>{l.quantity_invoiced ?? "—"}</div>
+                  )}
+                  {editing ? (
+                    <input type="number" step="any" value={l.unit_price ?? ""} onChange={(e) => updateEditLine(idx, { unit_price: e.target.value === "" ? null : Number(e.target.value) })} style={editInp} />
+                  ) : (
+                    <div style={{ color: TH.textSub2 }}>{fmtMoney(l.unit_price ?? undefined)}</div>
+                  )}
+                  <div style={{ textAlign: "right", fontWeight: 600, color: TH.text }}>{fmtMoney(lineTotal)}</div>
+                </div>
+              );
+            })}
             <div style={{ padding: "14px 20px", display: "flex", justifyContent: "flex-end" }}>
               <div style={{ minWidth: 280 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: TH.textSub2, marginBottom: 6 }}>
@@ -189,3 +367,14 @@ function InfoCell({ label, value, tone }: { label: string; value: string; tone?:
     </div>
   );
 }
+
+function Labelled({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05, marginBottom: 4 }}>{label}</div>
+      {children}
+    </div>
+  );
+}
+
+const editInp: React.CSSProperties = { width: "100%", padding: "6px 8px", borderRadius: 5, border: `1px solid ${TH.border}`, fontSize: 13, boxSizing: "border-box", fontFamily: "inherit" };

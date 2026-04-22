@@ -193,13 +193,18 @@ export default function VendorPODetail() {
               {payload.StatusName && <> · {payload.StatusName}</>}
             </div>
           </div>
-          {acked ? (
-            <span style={{ fontSize: 12, padding: "6px 14px", borderRadius: 999, background: "#D1FAE5", color: "#065F46", fontWeight: 700 }}>✓ Acknowledged</span>
-          ) : (
-            <button onClick={acknowledge} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontWeight: 600, fontSize: 13, fontFamily: "inherit" }}>
-              Acknowledge PO
-            </button>
-          )}
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {invoices.some((i) => i.status !== "rejected") && (
+              <span style={{ fontSize: 12, padding: "6px 14px", borderRadius: 999, background: "#D1FAE5", color: "#065F46", fontWeight: 700 }}>Shipped</span>
+            )}
+            {acked ? (
+              <span style={{ fontSize: 12, padding: "6px 14px", borderRadius: 999, background: "#D1FAE5", color: "#065F46", fontWeight: 700 }}>✓ Acknowledged</span>
+            ) : (
+              <button onClick={acknowledge} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontWeight: 600, fontSize: 13, fontFamily: "inherit" }}>
+                Acknowledge PO
+              </button>
+            )}
+          </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 14, marginTop: 16 }}>
           <InfoCell label="Issued" value={fmtDate(payload.DateOrder)} />
