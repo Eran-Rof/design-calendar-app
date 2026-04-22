@@ -27,12 +27,23 @@ export type IpOverrideReasonCode =
   | "supply_adjustment";
 
 export type IpForecastMethod =
+  | "ly_sales"
   | "trailing_avg_sku"
   | "weighted_recent_sku"
   | "cadence_sku"
   | "category_fallback"
   | "customer_category_fallback"
   | "zero_floor";
+
+// The three planner-visible method choices stored on ip_planning_runs.
+// Maps to the compute layer's preferred first-branch; fallbacks are automatic.
+export type IpForecastMethodPreference = "ly_sales" | "weighted_recent" | "cadence";
+
+export const FORECAST_METHOD_LABELS: Record<IpForecastMethodPreference, string> = {
+  ly_sales:        "LY Sales",
+  weighted_recent: "Weighted Recent Demand",
+  cadence:         "Reorder Cadence",
+};
 
 export type IpRecommendedAction = "buy" | "hold" | "monitor" | "reduce" | "expedite";
 
@@ -47,6 +58,7 @@ export interface IpPlanningRun {
   source_snapshot_date: IpIsoDate;
   horizon_start: IpIsoDate | null;
   horizon_end: IpIsoDate | null;
+  forecast_method_preference: IpForecastMethodPreference;
   note: string | null;
   created_by: string | null;
   created_at: IpIsoDateTime;
@@ -166,6 +178,10 @@ export interface IpPlanningGridRow {
 export interface IpForecastComputeInput {
   planning_run_id: string;
   source_snapshot_date: IpIsoDate;
+  // Planner-selected method preference. The compute layer attempts this
+  // branch first; if data is insufficient it falls through the normal
+  // waterfall and records the method that was actually used.
+  methodPreference?: IpForecastMethodPreference;
   // Inclusive horizon the caller wants filled. The compute iterates every
   // month in [horizon_start, horizon_end].
   horizon_start: IpIsoDate;

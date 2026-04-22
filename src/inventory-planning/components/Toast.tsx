@@ -4,7 +4,7 @@
 
 import { useEffect } from "react";
 
-export type ToastKind = "success" | "error";
+export type ToastKind = "success" | "error" | "info";
 
 export interface ToastMessage {
   text: string;
@@ -21,6 +21,7 @@ export interface ToastProps {
 const COLORS: Record<ToastKind, { bg: string; icon: string }> = {
   success: { bg: "#10B981", icon: "✓" },
   error:   { bg: "#EF4444", icon: "!" },
+  info:    { bg: "#3B82F6", icon: "i" },
 };
 
 export default function Toast({ toast, onDismiss, autoDismissMs = 2400 }: ToastProps) {

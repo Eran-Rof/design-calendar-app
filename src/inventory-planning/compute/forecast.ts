@@ -57,6 +57,7 @@ import type {
   IpForecastComputeInput,
   IpForecastComputeOutput,
   IpForecastMethod,
+  IpForecastMethodPreference,
 } from "../types/wholesale";
 import { monthOf, monthOffset, monthsBetween, monthsDiff } from "./periods";
 
@@ -105,12 +106,54 @@ interface PairBaselineResult {
   history_months_used: number | null;
 }
 
+// LY Sales: find demand from the same calendar month one year prior (±1 month
+// buffer for shipment timing noise). Returns null when no LY data exists so
+// the caller can fall through to the standard waterfall.
+//
+// Formula: average of non-zero quantities across the three LY months (LY-1,
+// LY, LY+1). Using ±1 reduces false-zero misses caused by shipment timing
+// variance without reaching far enough to distort the seasonal signal.
+function baselineForPairLy(
+  history: IpForecastComputeInput["history"],
+  snapshotDate: string,
+  customerId: string,
+  skuId: string,
+): PairBaselineResult | null {
+  // monthOffset(date, n) = n months before the snapshot.
+  // 12 = exact same month LY; 13 = one month earlier LY; 11 = one month later LY.
+  const lyCodes = [
+    monthOffset(snapshotDate, 13).period_code, // LY−1 month
+    monthOffset(snapshotDate, 12).period_code, // LY same month  ← primary
+    monthOffset(snapshotDate, 11).period_code, // LY+1 month
+  ];
+  const bucket = bucketHistoryByMonth(history, customerId, skuId, lyCodes);
+  const qtys = lyCodes.map((m) => bucket.get(m) ?? 0);
+  const nonZero = qtys.filter((q) => q > 0);
+  if (nonZero.length === 0) return null; // no LY data → fall through
+
+  return {
+    qty: round(sum(nonZero) / nonZero.length),
+    method: "ly_sales",
+    confidence: nonZero.length >= 2 ? "probable" : "possible",
+    history_months_used: nonZero.length,
+  };
+}
+
 function baselineForPair(
   input: IpForecastComputeInput,
   customerId: string,
   skuId: string,
   categoryId: string | null,
+  pref: IpForecastMethodPreference | undefined,
 ): PairBaselineResult {
+  // ── Preference: LY Sales ───────────────────────────────────────────────
+  // Try same-period last year first. Falls through to the standard waterfall
+  // if LY data is absent (new SKU, new customer, or first year of program).
+  if (pref === "ly_sales") {
+    const ly = baselineForPairLy(input.history, input.source_snapshot_date, customerId, skuId);
+    if (ly) return ly;
+  }
+
   const lookback = lookbackMonthCodes(input.source_snapshot_date, 12);
   const bucket = bucketHistoryByMonth(input.history, customerId, skuId, lookback);
   const monthly = lookback.map((m) => bucket.get(m) ?? 0);
@@ -118,14 +161,18 @@ function baselineForPair(
   const last12Sum = sum(monthly);
   const last3Sum = sum(monthly.slice(-3));
 
-  // (1)+(2): active SKU history.
-  if (nonZeroMonths >= 3 && last12Sum > 0) {
+  // ── (1)+(2): active SKU history ────────────────────────────────────────
+  // Skipped when cadence is preferred so cadence branch (3) fires first.
+  if (nonZeroMonths >= 3 && last12Sum > 0 && pref !== "cadence") {
     const avg = last12Sum / 12;
     const recent = last3Sum / 3;
-    // Pick the higher of the two when recent is at least 30% of the
-    // 12-month total — treats "currently active" programs as worth leaning
-    // into. Otherwise fall back to plain average.
-    const weighted = last3Sum >= 0.3 * last12Sum && recent > avg;
+    // weighted_recent preference: always use the recent-3 formula when
+    // enough months exist, dropping the 30% recency gate. Planners choose
+    // this when they believe the recent trend is more reliable than the
+    // 12-month average (e.g. a ramping program).
+    const weighted = pref === "weighted_recent"
+      ? true
+      : (last3Sum >= 0.3 * last12Sum && recent > avg);
     return {
       qty: round(weighted ? recent : avg),
       method: weighted ? "weighted_recent_sku" : "trailing_avg_sku",
@@ -134,15 +181,16 @@ function baselineForPair(
     };
   }
 
-  // (3): SKU cadence.
+  // ── (3): SKU cadence ────────────────────────────────────────────────────
+  // Catches sparse reorder programs (1–2 orders in 12 months). Also the
+  // first branch when cadence is preferred and step 1 was skipped.
   if (nonZeroMonths >= 1 && last12Sum > 0) {
     const firstIdx = monthly.findIndex((v) => v > 0);
     const lastIdx = monthly.length - 1 - [...monthly].reverse().findIndex((v) => v > 0);
     const orderQty = last12Sum / nonZeroMonths;
-    // Cadence expressed as average months between orders. If only one
-    // non-zero month is visible, assume the next order is one cadence
-    // later — conservative — and use the full month qty.
-    const span = lastIdx - firstIdx; // inclusive span in months
+    // Average months between orders. Single-order programs assume a 12-month
+    // cadence (annual reorder) — conservative by design.
+    const span = lastIdx - firstIdx;
     const cadenceMonths = nonZeroMonths > 1 ? Math.max(1, Math.round(span / (nonZeroMonths - 1))) : 12;
     return {
       qty: round(orderQty / cadenceMonths),
@@ -152,7 +200,7 @@ function baselineForPair(
     };
   }
 
-  // (4): customer/category fallback.
+  // ── (4): customer/category fallback ────────────────────────────────────
   if (categoryId) {
     const months6 = lookbackMonthCodes(input.source_snapshot_date, 6);
     const catSku = new Set<string>();
@@ -176,7 +224,7 @@ function baselineForPair(
     }
   }
 
-  // (5): customer-wide fallback.
+  // ── (5): customer-wide fallback ────────────────────────────────────────
   const months3 = lookbackMonthCodes(input.source_snapshot_date, 3);
   let custSum = 0;
   const custSkuByCat = new Map<string | null, Set<string>>();
@@ -202,7 +250,7 @@ function baselineForPair(
     };
   }
 
-  // (6): zero floor.
+  // ── (6): zero floor ────────────────────────────────────────────────────
   return { qty: 0, method: "zero_floor", confidence: "estimate", history_months_used: null };
 }
 
@@ -223,7 +271,7 @@ export function buildWholesaleBaselineForecast(
     const key = `${pair.customer_id}:${pair.sku_id}`;
     let baseline = baselineCache.get(key);
     if (!baseline) {
-      baseline = baselineForPair(input, pair.customer_id, pair.sku_id, pair.category_id);
+      baseline = baselineForPair(input, pair.customer_id, pair.sku_id, pair.category_id, input.methodPreference);
       baselineCache.set(key, baseline);
     }
 

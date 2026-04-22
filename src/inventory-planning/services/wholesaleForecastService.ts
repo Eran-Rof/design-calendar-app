@@ -122,6 +122,7 @@ export async function runForecastPass(run: IpPlanningRun): Promise<RunForecastPa
   const computeInput: IpForecastComputeInput = {
     planning_run_id: run.id,
     source_snapshot_date: snapshotDate,
+    methodPreference: run.forecast_method_preference ?? "ly_sales",
     horizon_start: run.horizon_start,
     horizon_end: run.horizon_end,
     pairs,
@@ -161,6 +162,7 @@ export async function runForecastPass(run: IpPlanningRun): Promise<RunForecastPa
   await wholesaleRepo.replaceRecommendations(run.id, recs);
 
   const methods: Record<IpForecastMethod, number> = {
+    ly_sales: 0,
     trailing_avg_sku: 0,
     weighted_recent_sku: 0,
     cadence_sku: 0,

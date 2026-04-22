@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { IpCategory, IpCustomer, IpItem } from "../types/entities";
 import type {
+  IpForecastMethodPreference,
   IpFutureDemandRequest,
   IpOverrideReasonCode,
   IpPlannerOverride,
@@ -19,6 +20,7 @@ import type {
   IpPlanningRun,
   IpWholesaleForecast,
 } from "../types/wholesale";
+import { FORECAST_METHOD_LABELS } from "../types/wholesale";
 import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { applyOverride, buildGridRows } from "../services/wholesaleForecastService";
 import { S, PAL } from "../components/styles";
@@ -116,6 +118,13 @@ export default function WholesalePlanningWorkbench() {
     );
   }, [overrides, selectedRow]);
 
+  async function handleMethodChange(pref: IpForecastMethodPreference) {
+    if (!selectedRun || selectedRun.forecast_method_preference === pref) return;
+    await wholesaleRepo.updatePlanningRun(selectedRun.id, { forecast_method_preference: pref });
+    setRuns((prev) => prev.map((r) => r.id === selectedRun.id ? { ...r, forecast_method_preference: pref } : r));
+    setToast({ text: `Method set to "${FORECAST_METHOD_LABELS[pref]}" — rebuild forecast to apply`, kind: "info" });
+  }
+
   async function saveOverride(args: { override_qty: number; reason_code: IpOverrideReasonCode; note: string | null }) {
     if (!selectedRow) return;
     // Find the underlying forecast row (grid row carries the id).
@@ -167,6 +176,33 @@ export default function WholesalePlanningWorkbench() {
           onToast={(t) => setToast(t)}
           scope="wholesale"
         />
+
+        {selectedRun && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+            <span style={{ fontSize: 12, color: PAL.textDim, fontWeight: 600 }}>Forecast method</span>
+            {(Object.keys(FORECAST_METHOD_LABELS) as IpForecastMethodPreference[]).map((pref) => {
+              const active = selectedRun.forecast_method_preference === pref;
+              return (
+                <button
+                  key={pref}
+                  onClick={() => void handleMethodChange(pref)}
+                  style={{
+                    background: active ? PAL.accent : "transparent",
+                    color: active ? "#fff" : PAL.textDim,
+                    border: `1px solid ${active ? PAL.accent : PAL.border}`,
+                    borderRadius: 6,
+                    padding: "4px 10px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  {FORECAST_METHOD_LABELS[pref]}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
           <TabButton active={tab === "grid"} onClick={() => setTab("grid")}>Planning grid</TabButton>
