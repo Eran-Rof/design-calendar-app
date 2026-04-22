@@ -4,6 +4,10 @@ import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 import StatusBadge, { disputeTone } from "./StatusBadge";
 import { fmtDate } from "./utils";
+import { showAlert } from "./ui/AppDialog";
+
+interface POOption { uuid_id: string; po_number: string }
+interface InvoiceOption { id: string; invoice_number: string; po_id: string | null }
 
 interface Dispute {
   id: string;
@@ -114,10 +118,29 @@ function DisputeCreateModal({ onClose, onCreated }: { onClose: () => void; onCre
   const [body, setBody] = useState("");
   const [poId, setPoId] = useState("");
   const [invoiceId, setInvoiceId] = useState("");
+  const [pos, setPos] = useState<POOption[]>([]);
+  const [invoices, setInvoices] = useState<InvoiceOption[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
+  useEffect(() => {
+    (async () => {
+      const [{ data: poRows }, { data: invRows }] = await Promise.all([
+        supabaseVendor.from("tanda_pos").select("uuid_id, po_number, data").order("date_order", { ascending: false }),
+        supabaseVendor.from("invoices").select("id, invoice_number, po_id, submitted_at").order("submitted_at", { ascending: false }),
+      ]);
+      const activePos = ((poRows ?? []) as (POOption & { data: { _archived?: boolean } | null })[])
+        .filter((r) => !r.data?._archived)
+        .map((r) => ({ uuid_id: r.uuid_id, po_number: r.po_number }));
+      setPos(activePos);
+      setInvoices((invRows ?? []) as InvoiceOption[]);
+    })();
+  }, []);
+
+  // When a PO is picked, narrow the invoice list so the user only sees invoices on that PO.
+  const invoiceOptions = poId ? invoices.filter((i) => i.po_id === poId) : invoices;
+
   async function submit() {
-    if (!subject.trim() || !body.trim()) { alert("Subject and body are required."); return; }
+    if (!subject.trim() || !body.trim()) { await showAlert({ title: "Missing fields", message: "Subject and details are required.", tone: "warn" }); return; }
     setSubmitting(true);
     try {
       const t = await token();
@@ -126,13 +149,13 @@ function DisputeCreateModal({ onClose, onCreated }: { onClose: () => void; onCre
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${t}` },
         body: JSON.stringify({
           type, priority, subject: subject.trim(), body: body.trim(),
-          po_id: poId.trim() || undefined, invoice_id: invoiceId.trim() || undefined,
+          po_id: poId || undefined, invoice_id: invoiceId || undefined,
         }),
       });
       if (!r.ok) throw new Error(await r.text());
       onCreated();
     } catch (e: unknown) {
-      alert(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+      await showAlert({ title: "Failed", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     } finally {
       setSubmitting(false);
     }
@@ -158,11 +181,36 @@ function DisputeCreateModal({ onClose, onCreated }: { onClose: () => void; onCre
         <Row label="Details">
           <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={5} style={{ ...inp, resize: "vertical" }} />
         </Row>
-        <Row label="Related PO id (optional)">
-          <input value={poId} onChange={(e) => setPoId(e.target.value)} placeholder="tanda_pos.uuid_id" style={inp} />
+        <Row label="Related PO (optional)">
+          <select
+            value={poId}
+            onChange={(e) => {
+              const newPo = e.target.value;
+              setPoId(newPo);
+              // If current invoice isn't on the new PO, clear it.
+              if (invoiceId && newPo) {
+                const inv = invoices.find((i) => i.id === invoiceId);
+                if (!inv || inv.po_id !== newPo) setInvoiceId("");
+              }
+            }}
+            style={inp}
+          >
+            <option value="">— None —</option>
+            {pos.map((p) => <option key={p.uuid_id} value={p.uuid_id}>{p.po_number}</option>)}
+          </select>
         </Row>
-        <Row label="Related invoice id (optional)">
-          <input value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)} style={inp} />
+        <Row label="Related invoice (optional)">
+          <select value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)} style={inp}>
+            <option value="">— None —</option>
+            {invoiceOptions.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.invoice_number}{!poId && i.po_id ? " (see PO)" : ""}
+              </option>
+            ))}
+          </select>
+          {poId && invoiceOptions.length === 0 && (
+            <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>No invoices on that PO yet.</div>
+          )}
         </Row>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
           <button onClick={onClose} style={btnSecondary}>Cancel</button>
