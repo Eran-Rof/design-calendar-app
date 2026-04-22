@@ -68,6 +68,16 @@ interface ChangeRequest {
   requested_at: string;
   reviewed_at: string | null;
   review_note: string | null;
+  po_line_key: string | null; // null = phase-master, non-null = per-line override
+}
+
+interface POLine {
+  id: string;
+  line_index: number;
+  item_number: string | null;
+  description: string | null;
+  qty_ordered: number | null;
+  unit_price: number | null;
 }
 
 // Compute a phase's expected date = DDP − daysBeforeDDP.
@@ -96,6 +106,8 @@ export default function VendorPhasesView({ poId }: Props = {}) {
   const [pos, setPos] = useState<PORow[]>([]);
   const [permissions, setPermissions] = useState<Map<string, boolean>>(new Map());
   const [requests, setRequests] = useState<ChangeRequest[]>([]);
+  const [poLinesByPo, setPoLinesByPo] = useState<Record<string, POLine[]>>({});
+  const [expanded, setExpanded] = useState<Set<string>>(new Set()); // keys: `${po_id}::${phase_name}`
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -125,7 +137,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
           .select("phase_name, can_edit")
           .eq("vendor_id", vid),
         supabaseVendor.from("tanda_milestone_change_requests")
-          .select("id, po_id, phase_name, field_name, old_value, new_value, status, requested_at, reviewed_at, review_note")
+          .select("id, po_id, phase_name, field_name, old_value, new_value, status, requested_at, reviewed_at, review_note, po_line_key")
           .eq("vendor_id", vid)
           .order("requested_at", { ascending: false }),
       ]);
@@ -133,7 +145,27 @@ export default function VendorPhasesView({ poId }: Props = {}) {
       if (permRes.error) throw permRes.error;
       if (reqRes.error) throw reqRes.error;
 
-      setPos(((poRes.data ?? []) as PORow[]).filter((r) => !(r.data as { _archived?: boolean } | null)?._archived));
+      const activePos = ((poRes.data ?? []) as PORow[]).filter((r) => !(r.data as { _archived?: boolean } | null)?._archived);
+      setPos(activePos);
+
+      // Fetch PO line items for all POs we're about to show so expansion
+      // is instant (no second round-trip on each expand).
+      const ids = activePos.map((p) => p.uuid_id);
+      if (ids.length > 0) {
+        const { data: lineRows } = await supabaseVendor
+          .from("po_line_items")
+          .select("id, po_id, line_index, item_number, description, qty_ordered, unit_price")
+          .in("po_id", ids)
+          .order("line_index", { ascending: true });
+        const byPo: Record<string, POLine[]> = {};
+        for (const l of (lineRows ?? []) as (POLine & { po_id: string })[]) {
+          (byPo[l.po_id] ||= []).push({
+            id: l.id, line_index: l.line_index, item_number: l.item_number,
+            description: l.description, qty_ordered: l.qty_ordered, unit_price: l.unit_price,
+          });
+        }
+        setPoLinesByPo(byPo);
+      }
       const m = new Map<string, boolean>();
       for (const r of (permRes.data ?? []) as { phase_name: string; can_edit: boolean }[]) {
         m.set(r.phase_name, r.can_edit);
@@ -149,11 +181,13 @@ export default function VendorPhasesView({ poId }: Props = {}) {
 
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [poId]);
 
-  // Index requests by (po_id, phase_name, field_name) for quick display lookup.
+  // Index requests by (po_id, phase_name, po_line_key ?? "__master", field_name).
+  // po_line_key null represents the phase-master row; non-null rows are
+  // per-line-item overrides.
   const requestIndex = useMemo(() => {
     const map = new Map<string, ChangeRequest[]>();
     for (const r of requests) {
-      const key = `${r.po_id}::${r.phase_name}::${r.field_name}`;
+      const key = `${r.po_id}::${r.phase_name}::${r.po_line_key ?? "__master"}::${r.field_name}`;
       const arr = map.get(key) || [];
       arr.push(r);
       map.set(key, arr);
@@ -161,8 +195,8 @@ export default function VendorPhasesView({ poId }: Props = {}) {
     return map;
   }, [requests]);
 
-  function latestRequest(poId: string, phase: string, field: string): ChangeRequest | null {
-    return requestIndex.get(`${poId}::${phase}::${field}`)?.[0] || null;
+  function latestRequest(poId: string, phase: string, field: string, lineKey: string | null = null): ChangeRequest | null {
+    return requestIndex.get(`${poId}::${phase}::${lineKey ?? "__master"}::${field}`)?.[0] || null;
   }
 
   function pendingCountForPO(poId: string): number {
@@ -247,19 +281,52 @@ export default function VendorPhasesView({ poId }: Props = {}) {
     return c;
   }, [phaseRows]);
 
-  async function proposeChange(po: PORow, phaseName: string, fieldName: string, oldValue: string | null, newValue: string | null) {
+  async function proposeChange(
+    po: PORow,
+    phaseName: string,
+    fieldName: string,
+    oldValue: string | null,
+    newValue: string | null,
+    lineKey: string | null = null,
+  ) {
     if (newValue === oldValue) return;
+    // Optimistic insert: surface the pending change in local state
+    // immediately so the cell updates without waiting for the round-trip.
+    // Tmp id gets replaced with the server's canonical id once POST resolves.
+    const tmpId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const optimistic: ChangeRequest = {
+      id: tmpId,
+      po_id: po.uuid_id,
+      phase_name: phaseName,
+      field_name: fieldName,
+      old_value: oldValue,
+      new_value: newValue,
+      status: "pending",
+      requested_at: new Date().toISOString(),
+      reviewed_at: null,
+      review_note: null,
+      po_line_key: lineKey,
+    };
+    setRequests((prev) => [optimistic, ...prev]);
     try {
       const accessToken = await token();
       const r = await fetch("/api/vendor/change-requests", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ po_id: po.uuid_id, phase_name: phaseName, field_name: fieldName, old_value: oldValue, new_value: newValue }),
+        body: JSON.stringify({
+          po_id: po.uuid_id,
+          phase_name: phaseName,
+          field_name: fieldName,
+          old_value: oldValue,
+          new_value: newValue,
+          po_line_key: lineKey,
+        }),
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body?.error || `Request failed (${r.status})`);
-      await load();
+      setRequests((prev) => prev.map((x) => (x.id === tmpId ? { ...optimistic, ...body, id: body.id || tmpId } : x)));
     } catch (e: unknown) {
+      setRequests((prev) => prev.filter((x) => x.id !== tmpId));
       await showAlert({ title: "Could not propose change", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     }
   }
@@ -335,63 +402,238 @@ export default function VendorPhasesView({ poId }: Props = {}) {
           const pending = (r.dateReq?.status === "pending") || (r.statusReq?.status === "pending");
           const rejected = (r.dateReq?.status === "rejected") || (r.statusReq?.status === "rejected");
           const sc = STATUS_COLORS[r.effectiveStatus] || STATUS_COLORS["Not Started"];
+          const expandKey = `${r.po.uuid_id}::${r.phase.name}`;
+          const isExpanded = expanded.has(expandKey);
+          const lines = poLinesByPo[r.po.uuid_id] || [];
+
+          // Master-level notes + per-line overrides.
+          const notesReq = latestRequest(r.po.uuid_id, r.phase.name, "notes", null);
+          const effectiveNotes = notesReq?.new_value ?? "";
+
+          // Detect mismatch: any line whose effective status differs from master's.
+          const lineStatusOverrides = lines.map((l) => {
+            const lReq = latestRequest(r.po.uuid_id, r.phase.name, "status", l.id);
+            return lReq?.new_value || null;
+          });
+          const hasMismatch = lineStatusOverrides.some((s) => s != null && s !== r.effectiveStatus);
+          const masterCellBorder = hasMismatch ? "#7C3AED" // distinct purple when lines diverge
+            : r.statusReq?.status === "pending" ? "#F59E0B"
+            : "#CBD5E1";
+
           return (
-            <div key={`${r.po.uuid_id}-${r.phase.name}`} style={{ display: "grid", gridTemplateColumns: `${poId ? "" : "140px "}240px 120px 110px 120px 1fr`, padding: "10px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
-              {!poId && (
-                <div style={{ fontWeight: 600, fontFamily: "Menlo, monospace" }}>
-                  <Link to={`/vendor/pos/${r.po.uuid_id}`} style={{ color: TH.primary, textDecoration: "none" }}>{r.po.po_number}</Link>
+            <div key={expandKey}>
+              {/* ── Master phase row ─────────────────────────────────── */}
+              <div style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 1fr`, padding: "10px 14px", borderBottom: isExpanded ? "none" : `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", background: isExpanded ? "#F8FAFC" : "transparent" }}>
+                <button
+                  onClick={() => setExpanded((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(expandKey)) next.delete(expandKey); else next.add(expandKey);
+                    return next;
+                  })}
+                  aria-label={isExpanded ? "Collapse lines" : "Expand lines"}
+                  style={{ width: 24, height: 24, border: `1px solid ${TH.border}`, background: TH.surface, borderRadius: 4, cursor: "pointer", fontFamily: "inherit", fontSize: 11, lineHeight: 1, padding: 0 }}
+                >
+                  {isExpanded ? "▼" : "▶"}
+                </button>
+                {!poId && (
+                  <div style={{ fontWeight: 600, fontFamily: "Menlo, monospace" }}>
+                    <Link to={`/vendor/pos/${r.po.uuid_id}`} style={{ color: TH.primary, textDecoration: "none" }}>{r.po.po_number}</Link>
+                  </div>
+                )}
+                <div style={{ color: TH.text }}>
+                  <div style={{ fontWeight: 600 }}>{r.phase.name}{editable ? "" : " 🔒"}</div>
+                  <div style={{ fontSize: 10, color: TH.textMuted, marginTop: 2 }}>{r.phase.category} · T−{r.phase.daysBeforeDDP}d</div>
+                </div>
+                <div>
+                  <input
+                    type="date"
+                    value={r.effectiveDate || ""}
+                    disabled={!editable}
+                    onChange={(e) => void proposeChange(r.po, r.phase.name, "expected_date", r.effectiveDate, e.target.value || null)}
+                    style={{ width: "100%", padding: "4px 6px", fontSize: 12, borderRadius: 4,
+                      border: `1px solid ${r.dateReq?.status === "pending" ? "#F59E0B" : r.dateReq?.status === "rejected" ? "#EF4444" : "#CBD5E1"}`,
+                      background: editable ? "#fff" : "#f1f5f9", cursor: editable ? "text" : "not-allowed",
+                      fontFamily: "inherit",
+                    }}
+                  />
+                </div>
+                <div style={{ textAlign: "center", fontSize: 12, color: r.daysFromToday == null ? TH.textMuted : r.daysFromToday < 0 ? "#B91C1C" : r.daysFromToday <= 7 ? "#B45309" : TH.textSub2, fontWeight: 600 }}>
+                  {r.daysFromToday == null ? "—" : r.daysFromToday < 0 ? `${-r.daysFromToday}d late` : `${r.daysFromToday}d`}
+                </div>
+                <div>
+                  <select
+                    value={r.effectiveStatus}
+                    disabled={!editable}
+                    onChange={(e) => void proposeChange(r.po, r.phase.name, "status", r.effectiveStatus, e.target.value)}
+                    title={hasMismatch ? "One or more lines have a different status — expand to review" : undefined}
+                    style={{ width: "100%", padding: "3px 4px", fontSize: 11, borderRadius: 4,
+                      border: `2px solid ${masterCellBorder}`,
+                      background: sc.bg, color: sc.fg, cursor: editable ? "pointer" : "not-allowed",
+                      fontWeight: 600, fontFamily: "inherit",
+                    }}
+                  >
+                    {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div style={{ fontSize: 11 }}>
+                  {pending && <span style={{ color: "#92400E" }}>⏳ pending review</span>}
+                  {rejected && !pending && (
+                    <span style={{ color: "#991B1B" }} title={r.dateReq?.review_note || r.statusReq?.review_note || ""}>✗ rejected</span>
+                  )}
+                  {!pending && !rejected && (r.dateReq?.status === "approved" || r.statusReq?.status === "approved") && (
+                    <span style={{ color: "#065F46" }}>✓ approved</span>
+                  )}
+                  {!pending && !rejected && !r.dateReq?.status && !r.statusReq?.status && !hasMismatch && (
+                    <span style={{ color: TH.textMuted }}>—</span>
+                  )}
+                  {hasMismatch && (
+                    <div style={{ color: "#7C3AED", fontWeight: 600 }}>lines differ</div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── Expanded panel: notes + line breakdown ───────────── */}
+              {isExpanded && (
+                <div style={{ padding: "10px 14px 14px 46px", background: "#F8FAFC", borderBottom: `1px solid ${TH.border}` }}>
+                  {/* Master notes. Line notes aggregate below. */}
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={{ display: "block", fontSize: 10, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", marginBottom: 4 }}>
+                      Notes for {r.phase.name}
+                    </label>
+                    <NotesField
+                      value={effectiveNotes}
+                      disabled={!editable}
+                      pending={notesReq?.status === "pending"}
+                      onSave={(v) => void proposeChange(r.po, r.phase.name, "notes", effectiveNotes || null, v || null, null)}
+                    />
+                    {/* Aggregated line-level notes shown read-only on master so vendor sees everything together. */}
+                    <LineNotesDigest
+                      po={r.po}
+                      phaseName={r.phase.name}
+                      lines={lines}
+                      latestRequest={latestRequest}
+                    />
+                  </div>
+
+                  {lines.length === 0 ? (
+                    <div style={{ fontSize: 12, color: TH.textMuted, padding: "8px 0" }}>No line items materialized for this PO yet.</div>
+                  ) : (
+                    <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 6, overflow: "hidden" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 140px 1fr", padding: "6px 10px", background: "#E2E8F0", fontSize: 10, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
+                        <div>Style</div>
+                        <div>Description</div>
+                        <div>Status</div>
+                        <div>Line notes</div>
+                      </div>
+                      {lines.map((l) => {
+                        const lineStatusReq = latestRequest(r.po.uuid_id, r.phase.name, "status", l.id);
+                        const lineNotesReq = latestRequest(r.po.uuid_id, r.phase.name, "notes", l.id);
+                        const lineStatus = (lineStatusReq?.new_value || r.effectiveStatus) as Status;
+                        const lineNotes = lineNotesReq?.new_value ?? "";
+                        const differs = lineStatusReq?.new_value && lineStatusReq.new_value !== r.effectiveStatus;
+                        const lsc = STATUS_COLORS[lineStatus] || STATUS_COLORS["Not Started"];
+                        return (
+                          <div key={l.id} style={{ display: "grid", gridTemplateColumns: "120px 1fr 140px 1fr", padding: "6px 10px", borderTop: `1px solid ${TH.border}`, fontSize: 12, alignItems: "center", gap: 6 }}>
+                            <div style={{ fontFamily: "Menlo, monospace", color: TH.textSub2 }}>{l.item_number || "—"}</div>
+                            <div style={{ color: TH.text }}>{l.description || "—"}</div>
+                            <div>
+                              <select
+                                value={lineStatus}
+                                disabled={!editable}
+                                onChange={(e) => void proposeChange(r.po, r.phase.name, "status", lineStatus, e.target.value, l.id)}
+                                style={{ width: "100%", padding: "2px 4px", fontSize: 10, borderRadius: 4,
+                                  border: `1px solid ${lineStatusReq?.status === "pending" ? "#F59E0B" : differs ? "#7C3AED" : "#CBD5E1"}`,
+                                  background: lsc.bg, color: lsc.fg, cursor: editable ? "pointer" : "not-allowed",
+                                  fontWeight: 600, fontFamily: "inherit",
+                                }}
+                              >
+                                {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                              {differs && (
+                                <div style={{ fontSize: 9, color: "#7C3AED", marginTop: 2 }}>overrides master</div>
+                              )}
+                            </div>
+                            <NotesField
+                              value={lineNotes}
+                              disabled={!editable}
+                              pending={lineNotesReq?.status === "pending"}
+                              compact
+                              onSave={(v) => void proposeChange(r.po, r.phase.name, "notes", lineNotes || null, v || null, l.id)}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
-              <div style={{ color: TH.text }}>
-                <div style={{ fontWeight: 600 }}>{r.phase.name}{editable ? "" : " 🔒"}</div>
-                <div style={{ fontSize: 10, color: TH.textMuted, marginTop: 2 }}>{r.phase.category} · T−{r.phase.daysBeforeDDP}d</div>
-              </div>
-              <div>
-                <input
-                  type="date"
-                  value={r.effectiveDate || ""}
-                  disabled={!editable}
-                  onChange={(e) => void proposeChange(r.po, r.phase.name, "expected_date", r.effectiveDate, e.target.value || null)}
-                  style={{ width: "100%", padding: "4px 6px", fontSize: 12, borderRadius: 4,
-                    border: `1px solid ${r.dateReq?.status === "pending" ? "#F59E0B" : r.dateReq?.status === "rejected" ? "#EF4444" : "#CBD5E1"}`,
-                    background: editable ? "#fff" : "#f1f5f9", cursor: editable ? "text" : "not-allowed",
-                    fontFamily: "inherit",
-                  }}
-                />
-              </div>
-              <div style={{ textAlign: "center", fontSize: 12, color: r.daysFromToday == null ? TH.textMuted : r.daysFromToday < 0 ? "#B91C1C" : r.daysFromToday <= 7 ? "#B45309" : TH.textSub2, fontWeight: 600 }}>
-                {r.daysFromToday == null ? "—" : r.daysFromToday < 0 ? `${-r.daysFromToday}d late` : `${r.daysFromToday}d`}
-              </div>
-              <div>
-                <select
-                  value={r.effectiveStatus}
-                  disabled={!editable}
-                  onChange={(e) => void proposeChange(r.po, r.phase.name, "status", r.effectiveStatus, e.target.value)}
-                  style={{ width: "100%", padding: "3px 4px", fontSize: 11, borderRadius: 4,
-                    border: `1px solid ${r.statusReq?.status === "pending" ? "#F59E0B" : "#CBD5E1"}`,
-                    background: sc.bg, color: sc.fg, cursor: editable ? "pointer" : "not-allowed",
-                    fontWeight: 600, fontFamily: "inherit",
-                  }}
-                >
-                  {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-              <div style={{ fontSize: 11 }}>
-                {pending && <span style={{ color: "#92400E" }}>⏳ pending review</span>}
-                {rejected && !pending && (
-                  <span style={{ color: "#991B1B" }} title={r.dateReq?.review_note || r.statusReq?.review_note || ""}>✗ rejected</span>
-                )}
-                {!pending && !rejected && (r.dateReq?.status === "approved" || r.statusReq?.status === "approved") && (
-                  <span style={{ color: "#065F46" }}>✓ approved by reviewer</span>
-                )}
-                {!pending && !rejected && !r.dateReq?.status && !r.statusReq?.status && (
-                  <span style={{ color: TH.textMuted }}>—</span>
-                )}
-              </div>
             </div>
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/** Textarea that commits on blur — avoids POST-per-keystroke. */
+function NotesField({
+  value, disabled, pending, compact, onSave,
+}: {
+  value: string;
+  disabled: boolean;
+  pending: boolean;
+  compact?: boolean;
+  onSave: (newValue: string) => void;
+}) {
+  const [local, setLocal] = useState(value);
+  useEffect(() => { setLocal(value); }, [value]);
+  return (
+    <textarea
+      rows={compact ? 1 : 2}
+      value={local}
+      disabled={disabled}
+      placeholder={compact ? "Add note…" : "Add a vendor note for this phase…"}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={() => { if (local !== value) onSave(local); }}
+      style={{
+        width: "100%",
+        padding: "4px 6px",
+        fontSize: compact ? 11 : 12,
+        borderRadius: 4,
+        border: `1px solid ${pending ? "#F59E0B" : "#CBD5E1"}`,
+        background: disabled ? "#f1f5f9" : "#fff",
+        cursor: disabled ? "not-allowed" : "text",
+        fontFamily: "inherit",
+        resize: "vertical",
+      }}
+    />
+  );
+}
+
+/** Aggregates line-level notes for a phase so the master view shows everything. */
+function LineNotesDigest({
+  po, phaseName, lines, latestRequest,
+}: {
+  po: PORow;
+  phaseName: string;
+  lines: POLine[];
+  latestRequest: (poId: string, phase: string, field: string, lineKey?: string | null) => ChangeRequest | null;
+}) {
+  const entries = lines.map((l) => {
+    const req = latestRequest(po.uuid_id, phaseName, "notes", l.id);
+    return req?.new_value ? { line: l, note: req.new_value, status: req.status } : null;
+  }).filter(Boolean) as { line: POLine; note: string; status: string }[];
+  if (entries.length === 0) return null;
+  return (
+    <div style={{ marginTop: 6, padding: "6px 10px", background: "#fff", border: `1px dashed ${TH.border}`, borderRadius: 4, fontSize: 11, color: TH.textSub2 }}>
+      <div style={{ fontWeight: 700, color: TH.textMuted, fontSize: 10, textTransform: "uppercase", marginBottom: 4 }}>Line notes</div>
+      {entries.map((e, i) => (
+        <div key={i} style={{ marginBottom: i === entries.length - 1 ? 0 : 4 }}>
+          <strong style={{ fontFamily: "Menlo, monospace", color: TH.text }}>{e.line.item_number || `Line ${e.line.line_index}`}</strong>
+          {" — "}{e.note}
+          {e.status === "pending" && <span style={{ color: "#92400E", marginLeft: 6 }}>(pending)</span>}
+        </div>
+      ))}
     </div>
   );
 }

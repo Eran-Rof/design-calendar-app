@@ -41,7 +41,7 @@ export default async function handler(req, res) {
 
   let body = req.body;
   if (typeof body === "string") { try { body = JSON.parse(body); } catch { return send(400, { error: "Invalid JSON" }); } }
-  const { po_id, phase_name, field_name, old_value, new_value } = body || {};
+  const { po_id, phase_name, field_name, old_value, new_value, po_line_key } = body || {};
 
   if (!po_id) return send(400, { error: "po_id is required" });
   if (!phase_name || typeof phase_name !== "string") return send(400, { error: "phase_name is required" });
@@ -77,6 +77,7 @@ export default async function handler(req, res) {
       old_value: old_value != null ? String(old_value) : null,
       new_value: new_value != null ? String(new_value) : null,
       requested_by_vendor_user_id: auth.vendor_user_id || null,
+      po_line_key: po_line_key ? String(po_line_key) : null,
     })
     .select("*")
     .single();
@@ -90,7 +91,7 @@ export default async function handler(req, res) {
         sender_type: "vendor",
         sender_auth_id: auth.auth_id,
         sender_name: "Vendor (auto-generated)",
-        body: `🛠 Proposed change on ${po.po_number}: "${phase_name}" → ${field_name} = ${new_value ?? "(cleared)"} (was ${old_value ?? "(empty)"}). Awaiting Ring of Fire review.`,
+        body: `🛠 Proposed change on ${po.po_number}: "${phase_name}"${po_line_key ? ` · line ${po_line_key}` : ""} → ${field_name} = ${new_value ?? "(cleared)"} (was ${old_value ?? "(empty)"}). Awaiting Ring of Fire review.`,
         read_by_vendor: true,
         read_by_internal: false,
       });
