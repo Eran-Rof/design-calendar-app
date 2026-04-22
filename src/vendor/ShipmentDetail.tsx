@@ -34,6 +34,8 @@ interface Shipment {
   last_tracked_at: string | null;
   po_number: string | null;
   po_id: string | null;
+  invoice_id: string | null;
+  invoice_created_at: string | null;
   // Vendor-supplied fields
   asn_number: string | null;
   carrier: string | null;
@@ -315,7 +317,12 @@ export default function ShipmentDetail() {
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            {shipment.packing_list_url && shipment.po_id && (
+            {shipment.invoice_created_at && (
+              <span style={{ fontSize: 12, fontWeight: 600, padding: "4px 12px", borderRadius: 999, background: "#D1FAE5", border: "1px solid #A7F3D0", color: "#065F46" }}>
+                🧾 Invoiced {fmtDate(shipment.invoice_created_at)}
+              </span>
+            )}
+            {shipment.packing_list_url && shipment.po_id && !shipment.invoice_created_at && (
               <button
                 onClick={() => void createInvoiceFromPl()}
                 disabled={extractingFromPl}
@@ -435,6 +442,14 @@ export default function ShipmentDetail() {
                 </button>
               )}
             </div>
+            {shipment.invoice_created_at && shipment.invoice_id && (
+              <div style={{ marginTop: 10, fontSize: 13, color: "#065F46" }}>
+                🧾 Invoice created {fmtDate(shipment.invoice_created_at)} — {" "}
+                <Link to={`/vendor/invoices/${shipment.invoice_id}`} style={{ color: TH.primary, textDecoration: "none" }}>
+                  View invoice →
+                </Link>
+              </div>
+            )}
             {shipment.notes && (
               <div style={{ marginTop: 10, fontSize: 13, color: TH.textSub2 }}>
                 <strong style={{ color: TH.text }}>Notes:</strong> {shipment.notes}

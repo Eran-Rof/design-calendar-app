@@ -149,6 +149,14 @@ export default async function handler(req, res) {
 
   if (from_asn_id && auth.auth_id) {
     try {
+      // Stamp the shipment: link the invoice + timestamp. Scoped by
+      // vendor_id so a rogue from_asn_id pointing at another vendor's
+      // shipment does nothing.
+      await admin.from("shipments")
+        .update({ invoice_id: inv.id, invoice_created_at: new Date().toISOString() })
+        .eq("id", from_asn_id)
+        .eq("vendor_id", caller.vendor_id);
+
       const { data: shipment } = await admin
         .from("shipments").select("asn_number, carrier, ship_via, ship_date")
         .eq("id", from_asn_id).eq("vendor_id", caller.vendor_id).maybeSingle();

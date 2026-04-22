@@ -12,6 +12,7 @@ export interface ShipmentRow {
   sealine_scac: string | null;
   sealine_name: string | null;
   carrier: string | null;
+  invoice_created_at: string | null;
   pol_locode: string | null;
   pod_locode: string | null;
   eta: string | null;
@@ -36,7 +37,7 @@ export default function ShipmentsList() {
     try {
       const { data, error } = await supabaseVendor
         .from("shipments")
-        .select("id, number, number_type, sealine_scac, sealine_name, carrier, pol_locode, pod_locode, eta, ata, current_status, last_tracked_at, po_number, updated_at")
+        .select("id, number, number_type, sealine_scac, sealine_name, carrier, invoice_created_at, pol_locode, pod_locode, eta, ata, current_status, last_tracked_at, po_number, updated_at")
         .order("updated_at", { ascending: false });
       if (error) throw error;
       setRows((data ?? []) as ShipmentRow[]);
@@ -131,12 +132,19 @@ export default function ShipmentsList() {
                   <><span style={{ color: TH.textMuted, fontSize: 11 }}>ETA</span> {fmtDate(r.eta)}</>
                 ) : "—"}
               </div>
-              <div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                 {r.current_status ? (
-                  <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: TH.surfaceHi, border: `1px solid ${TH.border}`, color: TH.textSub }}>
+                  <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: TH.surfaceHi, border: `1px solid ${TH.border}`, color: TH.textSub, alignSelf: "flex-start" }}>
                     {r.current_status}
                   </span>
-                ) : "—"}
+                ) : (
+                  <span style={{ color: TH.textMuted }}>—</span>
+                )}
+                {r.invoice_created_at && (
+                  <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 8, background: "#D1FAE5", border: "1px solid #A7F3D0", color: "#065F46", alignSelf: "flex-start", fontWeight: 600 }}>
+                    🧾 Invoiced {fmtDate(r.invoice_created_at)}
+                  </span>
+                )}
               </div>
               <div style={{ textAlign: "right", color: TH.textMuted, fontSize: 12 }}>
                 {r.last_tracked_at ? new Date(r.last_tracked_at).toLocaleString() : "—"}
