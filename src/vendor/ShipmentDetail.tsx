@@ -80,6 +80,8 @@ export default function ShipmentDetail() {
   });
   const [replacePackingList, setReplacePackingList] = useState<File | null>(null);
   const [replaceBl, setReplaceBl] = useState<File | null>(null);
+  const [removePackingList, setRemovePackingList] = useState(false);
+  const [removeBl, setRemoveBl] = useState(false);
 
   async function load() {
     if (!id) return;
@@ -195,6 +197,8 @@ export default function ShipmentDetail() {
     });
     setReplacePackingList(null);
     setReplaceBl(null);
+    setRemovePackingList(false);
+    setRemoveBl(false);
     setEditing(true);
   }
 
@@ -239,8 +243,11 @@ export default function ShipmentDetail() {
         number_type: editSave.number_type || null,
         notes: editSave.notes || null,
       };
+      // File path: new upload wins; otherwise explicit removal wins; otherwise leave unchanged (don't include).
       if (packingListUrl) payload.packing_list_url = packingListUrl;
+      else if (removePackingList) payload.packing_list_url = null;
       if (blUrl) payload.bl_document_url = blUrl;
+      else if (removeBl) payload.bl_document_url = null;
 
       const r = await fetch(`/api/vendor/shipments/${shipment.id}`, {
         method: "PATCH",
@@ -335,34 +342,22 @@ export default function ShipmentDetail() {
               <Labelled label="Estimated delivery">
                 <input type="date" value={editSave.estimated_delivery} onChange={(e) => setEditSave((s) => ({ ...s, estimated_delivery: e.target.value }))} style={editInp} />
               </Labelled>
-              <Labelled label="Packing list">
-                {shipment.packing_list_url ? (
-                  <div style={{ fontSize: 12, color: TH.textSub2, marginBottom: 6, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <span style={{ fontFamily: "Menlo, monospace" }}>{shipment.packing_list_url.split("/").pop()}</span>
-                    <button type="button" onClick={() => void openDoc(shipment.packing_list_url)} style={docBtn}>Download</button>
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 6 }}>No file attached.</div>
-                )}
-                <input type="file" accept="application/pdf,.pdf,.xls,.xlsx" onChange={(e) => setReplacePackingList(e.target.files?.[0] || null)} />
-                <div style={{ fontSize: 10, color: TH.textMuted, marginTop: 2 }}>
-                  Leave blank to keep the current file.
-                </div>
-              </Labelled>
-              <Labelled label="Bill of Lading">
-                {shipment.bl_document_url ? (
-                  <div style={{ fontSize: 12, color: TH.textSub2, marginBottom: 6, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <span style={{ fontFamily: "Menlo, monospace" }}>{shipment.bl_document_url.split("/").pop()}</span>
-                    <button type="button" onClick={() => void openDoc(shipment.bl_document_url)} style={docBtn}>Download</button>
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 6 }}>No file attached.</div>
-                )}
-                <input type="file" accept="application/pdf,.pdf,.xls,.xlsx" onChange={(e) => setReplaceBl(e.target.files?.[0] || null)} />
-                <div style={{ fontSize: 10, color: TH.textMuted, marginTop: 2 }}>
-                  Leave blank to keep the current file.
-                </div>
-              </Labelled>
+              <DocSlot
+                label="Packing list"
+                currentPath={removePackingList ? null : shipment.packing_list_url}
+                pendingFile={replacePackingList}
+                onOpen={openDoc}
+                onReplace={(f) => { setReplacePackingList(f); setRemovePackingList(false); }}
+                onRemove={() => { setRemovePackingList(true); setReplacePackingList(null); }}
+              />
+              <DocSlot
+                label="Bill of Lading"
+                currentPath={removeBl ? null : shipment.bl_document_url}
+                pendingFile={replaceBl}
+                onOpen={openDoc}
+                onReplace={(f) => { setReplaceBl(f); setRemoveBl(false); }}
+                onRemove={() => { setRemoveBl(true); setReplaceBl(null); }}
+              />
               <div style={{ gridColumn: "1 / -1" }}>
                 <Labelled label="Notes">
                   <textarea rows={2} value={editSave.notes} onChange={(e) => setEditSave((s) => ({ ...s, notes: e.target.value }))} style={{ ...editInp, fontFamily: "inherit", resize: "vertical" }} />
@@ -510,4 +505,79 @@ function Labelled({ label, children }: { label: string; children: React.ReactNod
 }
 
 const editInp: React.CSSProperties = { width: "100%", padding: "6px 8px", borderRadius: 5, border: `1px solid ${TH.border}`, fontSize: 13, boxSizing: "border-box", fontFamily: "inherit" };
-const docBtn: React.CSSProperties = { padding: "4px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, background: TH.surface, color: TH.textSub, cursor: "pointer", fontFamily: "inherit" };
+const docBtn: React.CSSProperties = { padding: "4px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, background: TH.surface, color: TH.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 11 };
+const docDanger: React.CSSProperties = { ...docBtn, color: "#B91C1C", borderColor: "#FECACA" };
+const docAdd: React.CSSProperties = { ...docBtn, color: TH.text, borderStyle: "dashed" };
+
+function DocSlot({
+  label, currentPath, pendingFile, onOpen, onReplace, onRemove,
+}: {
+  label: string;
+  currentPath: string | null;
+  pendingFile: File | null;
+  onOpen: (p: string | null) => Promise<void>;
+  onReplace: (f: File) => void;
+  onRemove: () => void;
+}) {
+  const inputId = `docslot-${label.replace(/\s+/g, "-")}`;
+  const filename = currentPath ? currentPath.split("/").pop() : null;
+
+  // After the user picks an edited copy locally. Show that we'll upload it on Save.
+  if (pendingFile) {
+    return (
+      <Labelled label={label}>
+        <div style={{ fontSize: 12, color: TH.textSub2, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontFamily: "Menlo, monospace" }}>⤴ {pendingFile.name}</span>
+          <span style={{ color: TH.textMuted, fontSize: 10 }}>(uploaded on Save)</span>
+          <label htmlFor={inputId} style={docBtn}>Change</label>
+        </div>
+        <input
+          id={inputId}
+          type="file"
+          accept="application/pdf,.pdf,.xls,.xlsx"
+          style={{ display: "none" }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) onReplace(f); }}
+        />
+      </Labelled>
+    );
+  }
+
+  if (currentPath) {
+    // Existing file: show name + Download / Edit (picker) / Delete.
+    // "Edit" triggers the file picker so the user can upload the edited copy after editing locally.
+    return (
+      <Labelled label={label}>
+        <div style={{ fontSize: 12, color: TH.textSub2, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontFamily: "Menlo, monospace" }}>{filename}</span>
+          <button type="button" onClick={() => void onOpen(currentPath)} style={docBtn}>Download</button>
+          <label htmlFor={inputId} style={docBtn}>Edit</label>
+          <button type="button" onClick={onRemove} style={docDanger}>Delete</button>
+        </div>
+        <input
+          id={inputId}
+          type="file"
+          accept="application/pdf,.pdf,.xls,.xlsx"
+          style={{ display: "none" }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) onReplace(f); }}
+        />
+        <div style={{ fontSize: 10, color: TH.textMuted, marginTop: 2 }}>
+          Edit downloads the file — upload the edited copy to replace it on Save.
+        </div>
+      </Labelled>
+    );
+  }
+
+  // No file attached (either never was, or user clicked Delete).
+  return (
+    <Labelled label={label}>
+      <label htmlFor={inputId} style={docAdd}>📎 Add file</label>
+      <input
+        id={inputId}
+        type="file"
+        accept="application/pdf,.pdf,.xls,.xlsx"
+        style={{ display: "none" }}
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) onReplace(f); }}
+      />
+    </Labelled>
+  );
+}
