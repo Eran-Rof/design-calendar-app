@@ -121,7 +121,6 @@ function OnboardingGate({ children }: { children: ReactNode }) {
 
 const MORE_GROUPS: { group: string; items: { to: string; label: string; match: (p: string) => boolean }[] }[] = [
   { group: "Orders", items: [
-    { to: "/vendor/shipments", label: "Shipments", match: (p) => p.startsWith("/vendor/shipments") },
     { to: "/vendor/contracts", label: "Contracts", match: (p) => p.startsWith("/vendor/contracts") },
     { to: "/vendor/catalog",   label: "Catalog",   match: (p) => p.startsWith("/vendor/catalog") },
   ]},
@@ -256,6 +255,7 @@ function TabNav() {
   return (
     <nav style={{ display: "flex", gap: 2, padding: "0 24px", background: "rgba(255,255,255,0.05)", borderBottom: `1px solid rgba(255,255,255,0.12)`, alignItems: "center" }}>
       <TabLink to="/vendor" active={p === "/vendor"}>Purchase Orders</TabLink>
+      <TabLink to="/vendor/shipments" active={p.startsWith("/vendor/shipments")}>Shipments</TabLink>
       <TabLink to="/vendor/invoices" active={p.startsWith("/vendor/invoices")}>Invoices</TabLink>
       <TabLink to="/vendor/payments" active={p.startsWith("/vendor/payments")}>Payments</TabLink>
       <TabLink to="/vendor/messages" active={p.startsWith("/vendor/messages")}>Messages</TabLink>
