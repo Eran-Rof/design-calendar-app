@@ -1,6 +1,7 @@
 import { useCallback, useRef } from "react";
 import type { ATSRow, ExcelData, UploadWarning } from "../types";
 import type { NormChange, NormDecisions } from "../normalize";
+import { parseExcelFiles } from "../parseExcelClient";
 import { detectNormChanges, partitionNormChanges, applyNormChanges } from "../normalize";
 import { dedupeExcelData, mergeExcelDataSkus } from "../merge";
 import { computeRowsFromExcelData } from "../compute";
@@ -144,22 +145,9 @@ export function useExcelUpload(opts: UseExcelUploadOpts) {
     abortRef.current = new AbortController();
     try {
       opts.setUploadProgress({ step: "Parsing files…", pct: 15 });
-      const formData = new FormData();
-      formData.append("inventory", inv);
-      if (pur) formData.append("purchases", pur);
-      formData.append("orders", ord);
-      const res = await fetch("/api/parse-excel", {
-        method: "POST",
-        body: formData,
-        signal: abortRef.current.signal,
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Parse failed" }));
-        throw new Error(err.error ?? "Parse failed");
-      }
+      let data: ExcelData = await parseExcelFiles(inv, pur, ord);
       if (cancelRef.current) return;
       opts.setUploadProgress({ step: "Processing data…", pct: 50 });
-      let data: ExcelData = await res.json();
       if (cancelRef.current) return;
 
       // Always pull PO data from PO WIP (tanda_pos) — single source of truth.
