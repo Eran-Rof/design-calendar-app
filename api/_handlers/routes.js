@@ -216,6 +216,7 @@ import h210 from "./parse-excel.js";
 import h211 from "./xoro-proxy.js";
 import h212 from "./vendor/invoices/[id].js";
 import h213 from "./vendor/ai-extract-invoice.js";
+import h214 from "./vendor/shipments/[id].js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -405,6 +406,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/contracts", handler: h184 },
   { pattern: "/api/vendor/esg-score", handler: h185 },
   { pattern: "/api/vendor/scorecard", handler: h186 },
+  { pattern: "/api/vendor/shipments/:id", handler: h214 },
   { pattern: "/api/vendor/shipments", handler: h187 },
   { pattern: "/api/shopify/returns", handler: h188 },
   { pattern: "/api/vendor/api-keys", handler: h189 },
