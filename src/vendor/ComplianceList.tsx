@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate } from "./utils";
+import { showAlert } from "./ui/AppDialog";
 
 // Grouped compliance checklist. Data via /api/vendor/compliance which
 // returns { complete, expiring_soon, missing, rejected } with document
@@ -90,7 +91,7 @@ export default function ComplianceList() {
 
   async function downloadFile(path: string) {
     const { data, error } = await supabaseVendor.storage.from("vendor-docs").createSignedUrl(path, 300);
-    if (error) { alert("Download failed: " + error.message); return; }
+    if (error) { await showAlert({ title: "Download failed", message: error.message, tone: "danger" }); return; }
     window.open(data.signedUrl, "_blank", "noopener");
   }
 

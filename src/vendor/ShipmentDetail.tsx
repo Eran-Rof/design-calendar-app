@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate } from "./utils";
+import { showAlert, showConfirm } from "./ui/AppDialog";
 
 const CARRIER_GROUPS: { label: string; carriers: string[] }[] = [
   { label: "Parcel / courier", carriers: ["UPS", "FedEx", "USPS", "DHL"] },
@@ -113,7 +114,12 @@ export default function ShipmentDetail() {
   async function refresh(forceUpdate: boolean) {
     if (!shipment) return;
     if (forceUpdate) {
-      const ok = window.confirm("Live refresh pulls directly from the carrier and uses 1 billable API call. Proceed?");
+      const ok = await showConfirm({
+        title: "Live refresh",
+        tone: "warn",
+        message: "Live refresh pulls directly from the carrier and uses 1 billable API call. Proceed?",
+        confirmLabel: "Refresh",
+      });
       if (!ok) return;
     }
     setRefreshMsg(null);
@@ -175,7 +181,7 @@ export default function ShipmentDetail() {
   async function openDoc(path: string | null) {
     if (!path) return;
     const { data, error } = await supabaseVendor.storage.from("vendor-docs").createSignedUrl(path, 60);
-    if (error || !data?.signedUrl) { alert("Unable to open: " + (error?.message || "unknown")); return; }
+    if (error || !data?.signedUrl) { await showAlert({ title: "Unable to open", message: error?.message || "unknown error", tone: "danger" }); return; }
     window.open(data.signedUrl, "_blank", "noopener");
   }
 

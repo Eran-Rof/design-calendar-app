@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate, fmtMoney, daysUntil, parseLocalDate } from "./utils";
+import { showAlert } from "./ui/AppDialog";
 
 // tanda_pos row shape (subset we care about in the portal). RLS scopes the
 // SELECT to rows where vendor_id matches the logged-in vendor_user, so we
@@ -186,7 +187,7 @@ export default function POList() {
         { onConflict: "po_number,vendor_user_id" },
       );
     if (error) {
-      alert("Could not acknowledge: " + error.message);
+      await showAlert({ title: "Could not acknowledge", message: error.message, tone: "danger" });
       return;
     }
     setAckIds((prev) => new Set(prev).add(poNumber));

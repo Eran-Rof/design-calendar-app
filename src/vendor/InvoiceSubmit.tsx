@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtMoney } from "./utils";
+import { showConfirm } from "./ui/AppDialog";
 
 const PAYMENT_TERMS = [
   "FOB", "DDP 30", "DDP 60", "DDP 90", "DDP 120", "DDP 150", "DDP 180", "DP", "TT",
@@ -86,6 +87,7 @@ export default function InvoiceSubmit() {
   const [vendorUserId, setVendorUserId] = useState<string | null>(null);
   const [vendorId, setVendorId] = useState<string | null>(null);
   const [isTaxVendor, setIsTaxVendor] = useState(false);
+  const [asnShipDate, setAsnShipDate] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -115,6 +117,14 @@ export default function InvoiceSubmit() {
         if (error) throw error;
         const active = (data ?? []).filter((r: { data: { _archived?: boolean } | null }) => !r.data?._archived);
         setPOs(active as POOption[]);
+
+        // Pull the linked shipment's ship_date so we can flag invoice-before-ship.
+        if (fromAsnId) {
+          const { data: ship } = await supabaseVendor
+            .from("shipments").select("ship_date").eq("id", fromAsnId).maybeSingle();
+          const s = (ship as { ship_date?: string | null } | null)?.ship_date;
+          if (s) setAsnShipDate(s.slice(0, 10));
+        }
       } catch (e: unknown) {
         setErr(e instanceof Error ? e.message : String(e));
       }
@@ -179,6 +189,49 @@ export default function InvoiceSubmit() {
   const effectiveTax = isTaxVendor ? (Number(tax) || 0) : 0;
   const total = useMemo(() => subtotal + effectiveTax, [subtotal, effectiveTax]);
 
+  // Per-line discrepancies vs PO + extracted packing list data.
+  // Rule: only fire when we actually have a reference value to compare
+  // against, to avoid noise on blank fields.
+  const lineWarnings = useMemo(() => {
+    return lineInputs.map((l, idx) => {
+      const po = poLines[idx];
+      const extracted = prefill?.line_items?.[idx];
+      const warnings: string[] = [];
+      if (!l.include) return warnings;
+      const qty = Number(l.qty) || 0;
+      const price = Number(l.unit_price) || 0;
+
+      // Qty vs packing list
+      if (extracted?.quantity_invoiced != null && qty !== Number(extracted.quantity_invoiced)) {
+        warnings.push(`Qty ${qty} differs from packing list (${extracted.quantity_invoiced}).`);
+      }
+      // Qty vs PO ordered
+      if (po?.qty_ordered != null && qty > Number(po.qty_ordered)) {
+        warnings.push(`Qty ${qty} exceeds PO ordered (${po.qty_ordered}).`);
+      }
+      // Unit price vs packing list
+      if (extracted?.unit_price != null && Math.abs(price - Number(extracted.unit_price)) > 0.009) {
+        warnings.push(`Unit price ${fmtMoney(price)} differs from packing list (${fmtMoney(Number(extracted.unit_price))}).`);
+      }
+      // Unit price vs PO
+      if (po?.unit_price != null && Math.abs(price - Number(po.unit_price)) > 0.009) {
+        warnings.push(`Unit price ${fmtMoney(price)} differs from PO (${fmtMoney(Number(po.unit_price))}).`);
+      }
+      return warnings;
+    });
+  }, [lineInputs, poLines, prefill]);
+
+  // Header-level: invoice dated before the ASN ship date.
+  const headerWarnings = useMemo(() => {
+    const w: string[] = [];
+    if (asnShipDate && invoiceDate && invoiceDate < asnShipDate) {
+      w.push(`Invoice date (${invoiceDate}) is before the shipment's ship date (${asnShipDate}).`);
+    }
+    return w;
+  }, [asnShipDate, invoiceDate]);
+
+  const totalWarnings = headerWarnings.length + lineWarnings.reduce((a, ws) => a + ws.length, 0);
+
   function updateLine(idx: number, patch: Partial<LineInput>) {
     setLineInputs((xs) => xs.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
   }
@@ -191,6 +244,38 @@ export default function InvoiceSubmit() {
     if (!selectedPoId) { setErr("Select a PO."); return; }
     const includedLines = lineInputs.filter((l) => l.include && (Number(l.qty) || 0) > 0);
     if (includedLines.length === 0) { setErr("Add at least one line with quantity > 0."); return; }
+
+    // Build a flat discrepancy list from current warnings.
+    const discrepancies: string[] = [];
+    for (const hw of headerWarnings) discrepancies.push(hw);
+    lineInputs.forEach((l, idx) => {
+      for (const w of lineWarnings[idx] || []) {
+        const label = poLines[idx]?.item_number || l.description || `Line ${idx + 1}`;
+        discrepancies.push(`${label}: ${w}`);
+      }
+    });
+    if (discrepancies.length > 0) {
+      const ok = await showConfirm({
+        title: `${discrepancies.length} discrepanc${discrepancies.length === 1 ? "y" : "ies"} detected`,
+        tone: "warn",
+        message: (
+          <>
+            <div style={{ marginBottom: 8, color: TH.textSub2 }}>
+              This invoice doesn't match the PO, packing list, or shipment in the following ways:
+            </div>
+            <ul style={{ margin: "0 0 10px 18px", padding: 0 }}>
+              {discrepancies.map((d, i) => <li key={i} style={{ marginBottom: 4 }}>{d}</li>)}
+            </ul>
+            <div style={{ color: TH.textMuted, fontSize: 12 }}>
+              Submit anyway? The Ring of Fire reviewer will be notified.
+            </div>
+          </>
+        ),
+        confirmLabel: "Submit with discrepancies",
+        cancelLabel: "Go back",
+      });
+      if (!ok) return;
+    }
 
     setBusy(true);
     try {
@@ -244,6 +329,7 @@ export default function InvoiceSubmit() {
           file_url: fileUrl,
           payment_terms: paymentTerms || null,
           from_asn_id: fromAsnId || undefined,
+          discrepancies: discrepancies.length > 0 ? discrepancies : undefined,
           line_items: lineItems,
         }),
       });
@@ -333,6 +419,18 @@ export default function InvoiceSubmit() {
           </div>
         )}
 
+        {totalWarnings > 0 && (
+          <div style={{ padding: "10px 12px", background: "#FFFBEB", border: "1px solid #FCD34D", borderRadius: 6, marginBottom: 14, fontSize: 13, color: "#92400E" }}>
+            <strong>⚠ {totalWarnings} discrepanc{totalWarnings === 1 ? "y" : "ies"}</strong>
+            {" "}vs the PO / packing list / shipment. You can still submit — a message will be sent to the reviewer listing them.
+            {headerWarnings.length > 0 && (
+              <ul style={{ margin: "6px 0 0 18px", padding: 0 }}>
+                {headerWarnings.map((w, i) => <li key={i}>{w}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
+
         {selectedPoId && (
           <>
             <div style={{ fontSize: 14, fontWeight: 700, color: TH.text, marginBottom: 8 }}>
@@ -355,14 +453,22 @@ export default function InvoiceSubmit() {
                 {lineInputs.map((l, idx) => {
                   const po = poLines[idx];
                   const lineTotal = (Number(l.qty) || 0) * (Number(l.unit_price) || 0);
+                  const warnings = lineWarnings[idx] || [];
                   return (
-                    <div key={l.line_id} style={{ display: "grid", gridTemplateColumns: "32px 100px 1fr 100px 120px 120px", padding: "8px 12px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", gap: 6, opacity: l.include ? 1 : 0.5 }}>
-                      <input type="checkbox" checked={l.include} onChange={(e) => updateLine(idx, { include: e.target.checked })} />
-                      <div style={{ fontFamily: "Menlo, monospace", fontSize: 12, color: TH.textSub2 }}>{po?.item_number ?? "—"}</div>
-                      <input value={l.description} onChange={(e) => updateLine(idx, { description: e.target.value })} style={{ ...inputStyle, marginBottom: 0, fontSize: 12, padding: "5px 8px" }} />
-                      <input type="number" step="any" value={l.qty} onChange={(e) => updateLine(idx, { qty: e.target.value })} style={{ ...inputStyle, marginBottom: 0, fontSize: 12, padding: "5px 8px" }} />
-                      <input type="number" step="any" value={l.unit_price} onChange={(e) => updateLine(idx, { unit_price: e.target.value })} style={{ ...inputStyle, marginBottom: 0, fontSize: 12, padding: "5px 8px" }} />
-                      <div style={{ textAlign: "right", fontWeight: 600, color: TH.text }}>{fmtMoney(lineTotal)}</div>
+                    <div key={l.line_id} style={{ borderBottom: `1px solid ${TH.border}` }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "32px 100px 1fr 100px 120px 120px", padding: "8px 12px", fontSize: 13, alignItems: "center", gap: 6, opacity: l.include ? 1 : 0.5 }}>
+                        <input type="checkbox" checked={l.include} onChange={(e) => updateLine(idx, { include: e.target.checked })} />
+                        <div style={{ fontFamily: "Menlo, monospace", fontSize: 12, color: TH.textSub2 }}>{po?.item_number ?? "—"}</div>
+                        <input value={l.description} onChange={(e) => updateLine(idx, { description: e.target.value })} style={{ ...inputStyle, marginBottom: 0, fontSize: 12, padding: "5px 8px" }} />
+                        <input type="number" step="any" value={l.qty} onChange={(e) => updateLine(idx, { qty: e.target.value })} style={{ ...inputStyle, marginBottom: 0, fontSize: 12, padding: "5px 8px", borderColor: warnings.length ? "#FCD34D" : TH.border }} />
+                        <input type="number" step="any" value={l.unit_price} onChange={(e) => updateLine(idx, { unit_price: e.target.value })} style={{ ...inputStyle, marginBottom: 0, fontSize: 12, padding: "5px 8px", borderColor: warnings.length ? "#FCD34D" : TH.border }} />
+                        <div style={{ textAlign: "right", fontWeight: 600, color: TH.text }}>{fmtMoney(lineTotal)}</div>
+                      </div>
+                      {l.include && warnings.length > 0 && (
+                        <div style={{ padding: "4px 12px 8px 44px", fontSize: 11, color: "#92400E" }}>
+                          {warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

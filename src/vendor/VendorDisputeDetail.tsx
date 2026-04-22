@@ -4,6 +4,7 @@ import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 import StatusBadge, { disputeTone } from "./StatusBadge";
 import { fmtDate } from "./utils";
+import { showAlert } from "./ui/AppDialog";
 
 interface Dispute {
   id: string;
@@ -87,7 +88,7 @@ export default function VendorDisputeDetail() {
       setDraft("");
       await load();
     } catch (e: unknown) {
-      alert(`Send failed: ${e instanceof Error ? e.message : String(e)}`);
+      await showAlert({ title: "Send failed", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     } finally {
       setSending(false);
     }

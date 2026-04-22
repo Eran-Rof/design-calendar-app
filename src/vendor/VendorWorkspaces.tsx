@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabaseVendor } from "./supabaseVendor";
+import { showAlert } from "./ui/AppDialog";
 
 interface Vendor { id: string; name: string }
 interface Workspace {
@@ -101,7 +102,7 @@ function VendorWorkspaceDetail({ workspace, onBack }: { workspace: Workspace; on
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { await showAlert({ title: "Error", message: await r.text(), tone: "danger" }); return; }
     await load();
   }
 
@@ -178,7 +179,7 @@ function VendorTaskModal({ workspaceId, onClose, onSaved }: { workspaceId: strin
   const [saving, setSaving] = useState(false);
 
   async function save() {
-    if (!title.trim()) { alert("Title is required"); return; }
+    if (!title.trim()) { await showAlert({ title: "Missing title", message: "Title is required", tone: "warn" }); return; }
     setSaving(true);
     try {
       const r = await api(`/api/vendor/workspaces/${workspaceId}/tasks`, {
@@ -187,7 +188,7 @@ function VendorTaskModal({ workspaceId, onClose, onSaved }: { workspaceId: strin
       });
       if (!r.ok) throw new Error(await r.text());
       onSaved();
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e: unknown) { await showAlert({ title: "Error", message: e instanceof Error ? e.message : String(e), tone: "danger" }); }
     finally { setSaving(false); }
   }
 

@@ -56,7 +56,7 @@ export default async function handler(req, res) {
   const {
     po_id, invoice_number, invoice_date, due_date, currency,
     subtotal, tax, total, notes, file_url, payment_terms,
-    from_asn_id,
+    from_asn_id, discrepancies,
     line_items,
   } = body || {};
 
@@ -127,6 +127,26 @@ export default async function handler(req, res) {
   // Auto-generated PO message when this invoice was submitted via the
   // combined ASN + Invoice flow. Gives the internal Ring of Fire team a
   // single thread-entry that announces both.
+  // Discrepancy message — fires whenever the client flagged mismatches,
+  // independent of whether the invoice came from the ASN + Invoice flow.
+  if (Array.isArray(discrepancies) && discrepancies.length > 0 && auth.auth_id) {
+    try {
+      const lines = [
+        `⚠️ Invoice ${inv.invoice_number} submitted with ${discrepancies.length} discrepanc${discrepancies.length === 1 ? "y" : "ies"} (PO ${po.po_number}):`,
+        ...discrepancies.slice(0, 25).map((d) => `• ${String(d)}`),
+      ].join("\n");
+      await admin.from("po_messages").insert({
+        po_id: inv.po_id,
+        sender_type: "vendor",
+        sender_auth_id: auth.auth_id,
+        sender_name: "Vendor (auto-generated)",
+        body: lines,
+        read_by_vendor: true,
+        read_by_internal: false,
+      });
+    } catch { /* non-blocking */ }
+  }
+
   if (from_asn_id && auth.auth_id) {
     try {
       const { data: shipment } = await admin

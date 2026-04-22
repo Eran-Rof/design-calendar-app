@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
+import { showAlert } from "./ui/AppDialog";
 
 interface ApiKey {
   id: string;
@@ -71,7 +72,7 @@ export default function VendorApiKeys() {
     if (!confirm("Revoke this key? Existing integrations using it will stop working.")) return;
     const t = await token();
     const r = await fetch(`/api/vendor/api-keys/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${t}` } });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { await showAlert({ title: "Error", message: await r.text(), tone: "danger" }); return; }
     await load();
   }
 
@@ -139,7 +140,7 @@ function CreateKeyModal({ onClose, onCreated }: { onClose: () => void; onCreated
   const [submitting, setSubmitting] = useState(false);
 
   async function submit() {
-    if (!name.trim() || scopes.length === 0) { alert("Name and at least one scope are required."); return; }
+    if (!name.trim() || scopes.length === 0) { await showAlert({ title: "Missing fields", message: "Name and at least one scope are required.", tone: "warn" }); return; }
     setSubmitting(true);
     try {
       const t = await token();
@@ -152,7 +153,7 @@ function CreateKeyModal({ onClose, onCreated }: { onClose: () => void; onCreated
       const data = await r.json();
       onCreated({ key: data.key, name: data.name });
     } catch (e: unknown) {
-      alert(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+      await showAlert({ title: "Failed", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     } finally {
       setSubmitting(false);
     }
@@ -201,7 +202,7 @@ function OneTimeKeyModal({ name, value, onClose }: { name: string; value: string
           {value}
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button onClick={() => { void navigator.clipboard.writeText(value); alert("Copied"); }} style={btnSecondary}>Copy</button>
+          <button onClick={() => { void navigator.clipboard.writeText(value); void showAlert({ title: "Copied", message: "API key copied to clipboard.", tone: "success" }); }} style={btnSecondary}>Copy</button>
           <button onClick={onClose} style={btnPrimary}>I've saved it</button>
         </div>
       </div>

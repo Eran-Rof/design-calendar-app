@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
+import { showAlert } from "./ui/AppDialog";
 
 type StepName = "company_info" | "banking" | "tax" | "compliance_docs" | "portal_tour" | "agreement";
 const ORDER: StepName[] = ["company_info", "banking", "tax", "compliance_docs", "portal_tour", "agreement"];
@@ -167,13 +168,13 @@ function CompanyInfoStep({ initial, onSubmit }: { initial: Record<string, unknow
 
   async function submit() {
     if (!legalName.trim() || !address.trim() || !businessType.trim() || !yearFounded.trim()) {
-      alert("Legal name, address, business type, and year founded are required."); return;
+      void showAlert({ title: "Missing fields", message: "Legal name, address, business type, and year founded are required.", tone: "warn" }); return;
     }
     setSaving(true);
     try {
       await onSubmit({ legal_name: legalName.trim(), address: address.trim(), tax_id: taxId.trim(), business_type: businessType.trim(), year_founded: yearFounded.trim() });
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : String(e));
+      void showAlert({ title: "Error", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     } finally { setSaving(false); }
   }
 
@@ -211,7 +212,7 @@ function BankingStep({ onSubmit }: { onSubmit: (d: Record<string, unknown>) => P
 
   async function submit() {
     if (!accountName.trim() || !bankName.trim() || !accountNumber.trim() || !routingNumber.trim()) {
-      alert("All fields are required."); return;
+      void showAlert({ title: "Missing fields", message: "All fields are required.", tone: "warn" }); return;
     }
     setSaving(true);
     try {
@@ -225,7 +226,7 @@ function BankingStep({ onSubmit }: { onSubmit: (d: Record<string, unknown>) => P
       const bd = await r.json();
       await onSubmit({ banking_detail_id: bd.id });
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : String(e));
+      void showAlert({ title: "Error", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     } finally { setSaving(false); }
   }
 
@@ -283,10 +284,10 @@ function TaxStep({ initial, onSubmit }: { initial: Record<string, unknown> | nul
         if (upErr) throw upErr;
         docUrl = path;
       }
-      if (!docUrl) { alert("Please upload a tax document."); setSaving(false); return; }
+      if (!docUrl) { void showAlert({ title: "Missing tax document", message: "Please upload a tax document.", tone: "warn" }); setSaving(false); return; }
       await onSubmit({ collect_tax: true, classification, document_url: docUrl });
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : String(e));
+      void showAlert({ title: "Error", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     } finally { setSaving(false); }
   }
 
@@ -331,7 +332,7 @@ function ComplianceStep({ onSubmit }: { onSubmit: (d: Record<string, unknown>) =
     try {
       await onSubmit({ acknowledged: true });
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : String(e));
+      void showAlert({ title: "Error", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     } finally { setSaving(false); }
   }
   return (
@@ -388,7 +389,7 @@ function AgreementStep({ onSubmit }: { onSubmit: (d: Record<string, unknown>) =>
       } catch { /* ignore */ }
       await onSubmit({ accepted_at: new Date().toISOString(), ip: ip || "unknown" });
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : String(e));
+      void showAlert({ title: "Error", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     } finally { setSaving(false); }
   }
 

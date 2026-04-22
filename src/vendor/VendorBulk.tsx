@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 import StatusBadge, { bulkTone } from "./StatusBadge";
+import { showAlert } from "./ui/AppDialog";
 
 interface BulkOp {
   id: string;
@@ -64,9 +65,9 @@ export default function VendorBulk() {
       if (!r.ok) throw new Error(await r.text());
       const data = await r.json();
       if (data.result_download_url) window.open(data.result_download_url, "_blank");
-      else alert("Result not ready yet.");
+      else await showAlert({ title: "Not ready", message: "Result not ready yet.", tone: "info" });
     } catch (e: unknown) {
-      alert(`Download failed: ${e instanceof Error ? e.message : String(e)}`);
+      await showAlert({ title: "Download failed", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     }
   }
 
