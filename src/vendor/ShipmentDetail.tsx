@@ -186,6 +186,28 @@ export default function ShipmentDetail() {
     await showFileViewer({ signedUrl: data.signedUrl, filename });
   }
 
+  // Edit flow: download the file so it opens in the user's native app
+  // (Preview, Acrobat, Excel, etc.). They edit and save locally, then
+  // re-upload via the file picker — see the Upload CTA in DocSlot.
+  async function downloadForEdit(path: string | null) {
+    if (!path) return false;
+    const filename = path.split("/").pop() || "document";
+    const { data, error } = await supabaseVendor.storage
+      .from("vendor-docs")
+      .createSignedUrl(path, 300, { download: filename });
+    if (error || !data?.signedUrl) {
+      await showAlert({ title: "Unable to download", message: error?.message || "unknown error", tone: "danger" });
+      return false;
+    }
+    const a = document.createElement("a");
+    a.href = data.signedUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    return true;
+  }
+
   function startEdit() {
     if (!shipment) return;
     // Postgres timestamptz comes back as "2026-04-22T00:00:00+00:00";
@@ -292,7 +314,17 @@ export default function ShipmentDetail() {
               {shipment.po_number && <> · PO <strong>{shipment.po_number}</strong></>}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            {shipment.packing_list_url && shipment.po_id && (
+              <button
+                onClick={() => void createInvoiceFromPl()}
+                disabled={extractingFromPl}
+                title="AI reads the packing list and drafts an invoice for review"
+                style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: extractingFromPl ? TH.textMuted : "#047857", color: "#FFFFFF", cursor: extractingFromPl ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}
+              >
+                {extractingFromPl ? "Reading PL with AI…" : "✨ Create Invoice from PL"}
+              </button>
+            )}
             {shipment.workflow_status === "submitted" && !editing && (
               <button onClick={startEdit} style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${TH.border}`, background: "none", color: TH.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}>
                 Edit
@@ -354,6 +386,7 @@ export default function ShipmentDetail() {
                 currentPath={removePackingList ? null : shipment.packing_list_url}
                 pendingFile={replacePackingList}
                 onOpen={openDoc}
+                onEdit={downloadForEdit}
                 onReplace={(f) => { setReplacePackingList(f); setRemovePackingList(false); }}
                 onRemove={() => { setRemovePackingList(true); setReplacePackingList(null); }}
               />
@@ -362,6 +395,7 @@ export default function ShipmentDetail() {
                 currentPath={removeBl ? null : shipment.bl_document_url}
                 pendingFile={replaceBl}
                 onOpen={openDoc}
+                onEdit={downloadForEdit}
                 onReplace={(f) => { setReplaceBl(f); setRemoveBl(false); }}
                 onRemove={() => { setRemoveBl(true); setReplaceBl(null); }}
               />
@@ -391,19 +425,9 @@ export default function ShipmentDetail() {
             </div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12 }}>
               {shipment.packing_list_url && (
-                <>
-                  <button onClick={() => void openDoc(shipment.packing_list_url)} style={docBtn}>
-                    📄 Packing list
-                  </button>
-                  <button
-                    onClick={() => void createInvoiceFromPl()}
-                    disabled={extractingFromPl || !shipment.po_id}
-                    title={!shipment.po_id ? "Shipment has no linked PO" : "AI reads the packing list and drafts an invoice for review"}
-                    style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: extractingFromPl ? TH.textMuted : "#047857", color: "#FFFFFF", cursor: extractingFromPl ? "not-allowed" : "pointer", fontFamily: "inherit", fontWeight: 600 }}
-                  >
-                    {extractingFromPl ? "Reading PL with AI…" : "✨ Create Invoice from PL"}
-                  </button>
-                </>
+                <button onClick={() => void openDoc(shipment.packing_list_url)} style={docBtn}>
+                  📄 Packing list
+                </button>
               )}
               {shipment.bl_document_url && (
                 <button onClick={() => void openDoc(shipment.bl_document_url)} style={docBtn}>
@@ -517,17 +541,24 @@ const docDanger: React.CSSProperties = { ...docBtn, color: "#B91C1C", borderColo
 const docAdd: React.CSSProperties = { ...docBtn, color: TH.text, borderStyle: "dashed" };
 
 function DocSlot({
-  label, currentPath, pendingFile, onOpen, onReplace, onRemove,
+  label, currentPath, pendingFile, onOpen, onEdit, onReplace, onRemove,
 }: {
   label: string;
   currentPath: string | null;
   pendingFile: File | null;
   onOpen: (p: string | null) => Promise<void>;
+  onEdit: (p: string | null) => Promise<boolean>;
   onReplace: (f: File) => void;
   onRemove: () => void;
 }) {
+  const [awaitingEditedUpload, setAwaitingEditedUpload] = React.useState(false);
   const inputId = `docslot-${label.replace(/\s+/g, "-")}`;
   const filename = currentPath ? currentPath.split("/").pop() : null;
+
+  async function handleEditClick() {
+    const ok = await onEdit(currentPath);
+    if (ok) setAwaitingEditedUpload(true);
+  }
 
   // After the user picks an edited copy locally. Show that we'll upload it on Save.
   if (pendingFile) {
@@ -550,26 +581,31 @@ function DocSlot({
   }
 
   if (currentPath) {
-    // Existing file: show name + Download / Edit (picker) / Delete.
-    // "Edit" triggers the file picker so the user can upload the edited copy after editing locally.
     return (
       <Labelled label={label}>
         <div style={{ fontSize: 12, color: TH.textSub2, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ fontFamily: "Menlo, monospace" }}>{filename}</span>
-          <button type="button" onClick={() => void onOpen(currentPath)} style={docBtn}>Download</button>
-          <label htmlFor={inputId} style={docBtn}>Edit</label>
+          <button type="button" onClick={() => void onOpen(currentPath)} style={docBtn}>View</button>
+          <button type="button" onClick={() => void handleEditClick()} style={docBtn}>Edit</button>
           <button type="button" onClick={onRemove} style={docDanger}>Delete</button>
         </div>
+        {awaitingEditedUpload && (
+          <div style={{ marginTop: 8, padding: "10px 12px", background: "#FFFBEB", border: "1px solid #FCD34D", borderRadius: 6, fontSize: 12, color: "#92400E" }}>
+            <div style={{ marginBottom: 6 }}>
+              📥 File downloaded. Open it in your PDF/Excel app, edit, save it locally, then upload the edited copy:
+            </div>
+            <label htmlFor={inputId} style={{ ...docBtn, background: TH.primary, color: "#FFFFFF", borderColor: TH.primary }}>
+              📤 Upload edited version
+            </label>
+          </div>
+        )}
         <input
           id={inputId}
           type="file"
           accept="application/pdf,.pdf,.xls,.xlsx"
           style={{ display: "none" }}
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) onReplace(f); }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) { onReplace(f); setAwaitingEditedUpload(false); } }}
         />
-        <div style={{ fontSize: 10, color: TH.textMuted, marginTop: 2 }}>
-          Edit downloads the file — upload the edited copy to replace it on Save.
-        </div>
       </Labelled>
     );
   }
