@@ -67,6 +67,76 @@ async function authedFetch(path: string) {
   return fetch(path, { headers: { Authorization: `Bearer ${token}` } });
 }
 
+// ── Date-range presets ──────────────────────────────────────────────
+const PRESETS = [
+  "Today", "Yesterday", "This week", "Last week",
+  "Last 7 days", "Last 30 days", "Last 90 days",
+  "This month", "Last month", "Month to date",
+  "This quarter", "Last quarter", "Quarter to date",
+  "This year", "Last year", "Year to date",
+  "Last 12 months", "All time",
+] as const;
+type Preset = typeof PRESETS[number];
+
+function iso(d: Date): string {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString().slice(0, 10);
+}
+
+function resolvePreset(preset: Preset): { from: string; to: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const dow = now.getDay(); // 0 = Sunday
+  const mondayOffset = (dow + 6) % 7; // days since Monday
+  const quarter = Math.floor(m / 3);
+
+  switch (preset) {
+    case "Today":          return { from: iso(now), to: iso(now) };
+    case "Yesterday": {
+      const y1 = new Date(now); y1.setDate(y1.getDate() - 1);
+      return { from: iso(y1), to: iso(y1) };
+    }
+    case "This week": {
+      const start = new Date(now); start.setDate(now.getDate() - mondayOffset);
+      return { from: iso(start), to: iso(now) };
+    }
+    case "Last week": {
+      const end = new Date(now); end.setDate(now.getDate() - mondayOffset - 1);
+      const start = new Date(end); start.setDate(end.getDate() - 6);
+      return { from: iso(start), to: iso(end) };
+    }
+    case "Last 7 days": {
+      const s = new Date(now); s.setDate(now.getDate() - 6);
+      return { from: iso(s), to: iso(now) };
+    }
+    case "Last 30 days": {
+      const s = new Date(now); s.setDate(now.getDate() - 29);
+      return { from: iso(s), to: iso(now) };
+    }
+    case "Last 90 days": {
+      const s = new Date(now); s.setDate(now.getDate() - 89);
+      return { from: iso(s), to: iso(now) };
+    }
+    case "This month":     return { from: iso(new Date(y, m, 1)), to: iso(new Date(y, m + 1, 0)) };
+    case "Month to date":  return { from: iso(new Date(y, m, 1)), to: iso(now) };
+    case "Last month":     return { from: iso(new Date(y, m - 1, 1)), to: iso(new Date(y, m, 0)) };
+    case "This quarter":   return { from: iso(new Date(y, quarter * 3, 1)), to: iso(new Date(y, quarter * 3 + 3, 0)) };
+    case "Quarter to date": return { from: iso(new Date(y, quarter * 3, 1)), to: iso(now) };
+    case "Last quarter": {
+      const q = quarter === 0 ? { ys: y - 1, qm: 9 } : { ys: y, qm: (quarter - 1) * 3 };
+      return { from: iso(new Date(q.ys, q.qm, 1)), to: iso(new Date(q.ys, q.qm + 3, 0)) };
+    }
+    case "This year":      return { from: iso(new Date(y, 0, 1)), to: iso(new Date(y, 11, 31)) };
+    case "Year to date":   return { from: iso(new Date(y, 0, 1)), to: iso(now) };
+    case "Last year":      return { from: iso(new Date(y - 1, 0, 1)), to: iso(new Date(y - 1, 11, 31)) };
+    case "Last 12 months": {
+      const s = new Date(y, m - 12, now.getDate());
+      return { from: iso(s), to: iso(now) };
+    }
+    case "All time":       return { from: "2020-01-01", to: iso(now) };
+  }
+}
+
 export default function VendorReports() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [pos, setPOs] = useState<POHistoryRow[]>([]);
@@ -149,6 +219,48 @@ export default function VendorReports() {
       <h2 style={{ margin: "0 0 16px", color: "#FFFFFF", fontSize: 22 }}>Dashboard</h2>
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "12px 16px", marginBottom: 16, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
         <div style={{ fontSize: 13, color: TH.textSub, fontWeight: 600 }}>Period</div>
+        <select
+          onChange={(e) => {
+            const v = e.target.value;
+            if (!v) return;
+            const r = resolvePreset(v as Preset);
+            setFromDate(r.from);
+            setToDate(r.to);
+            e.target.value = ""; // reset so the same preset can be re-picked
+          }}
+          defaultValue=""
+          style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }}
+        >
+          <option value="" disabled>Quick range…</option>
+          <optgroup label="Short">
+            <option value="Today">Today</option>
+            <option value="Yesterday">Yesterday</option>
+            <option value="This week">This week</option>
+            <option value="Last week">Last week</option>
+          </optgroup>
+          <optgroup label="Rolling">
+            <option value="Last 7 days">Last 7 days</option>
+            <option value="Last 30 days">Last 30 days</option>
+            <option value="Last 90 days">Last 90 days</option>
+            <option value="Last 12 months">Last 12 months</option>
+          </optgroup>
+          <optgroup label="Month">
+            <option value="This month">This month</option>
+            <option value="Month to date">Month to date</option>
+            <option value="Last month">Last month</option>
+          </optgroup>
+          <optgroup label="Quarter">
+            <option value="This quarter">This quarter</option>
+            <option value="Quarter to date">Quarter to date</option>
+            <option value="Last quarter">Last quarter</option>
+          </optgroup>
+          <optgroup label="Year">
+            <option value="This year">This year</option>
+            <option value="Year to date">Year to date</option>
+            <option value="Last year">Last year</option>
+          </optgroup>
+          <option value="All time">All time</option>
+        </select>
         <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }} />
         <span style={{ color: TH.textMuted }}>→</span>
         <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }} />
@@ -163,18 +275,6 @@ export default function VendorReports() {
           }}
         >
           {loading ? "Refreshing…" : "Refresh"}
-        </button>
-        <button
-          onClick={() => {
-            const today = new Date();
-            const from = new Date(today.getFullYear(), today.getMonth() - 12, today.getDate());
-            setFromDate(from.toISOString().slice(0, 10));
-            setToDate(today.toISOString().slice(0, 10));
-          }}
-          disabled={loading}
-          style={{ padding: "7px 12px", borderRadius: 6, border: `1px solid ${TH.border}`, background: "none", color: TH.textSub, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}
-        >
-          Reset to last 12 mo
         </button>
       </div>
 
