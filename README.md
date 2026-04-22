@@ -161,15 +161,28 @@ supabase start                   # local Postgres + Auth + Studio
 npm run staging:local            # migrations + seed + test vendors + API keys
 ```
 
-**2. Wire Vite to local Supabase.** `supabase start` prints the URL and
-anon key; copy them into `.env.local`:
+**2. Wire Vite to Supabase.** Check whether `.env.local` already exists —
+**don't clobber it** if so:
 
 ```bash
-cp .env.local.example .env.local
-# edit .env.local:
-#   VITE_SUPABASE_URL=http://127.0.0.1:54321
-#   VITE_SUPABASE_ANON_KEY=<anon key from `supabase status`>
+[ -f .env.local ] && echo "keep existing" || cp .env.local.example .env.local
 ```
+
+Then make sure `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are set.
+Source depends on which Supabase you're using:
+
+- **Local stack (Docker + Supabase CLI)**: `supabase status` prints both.
+  ```
+  VITE_SUPABASE_URL=http://127.0.0.1:54321
+  VITE_SUPABASE_ANON_KEY=<anon key from `supabase status`>
+  ```
+- **Hosted project (no local CLI/Docker)**: grab them from Supabase
+  Dashboard → your project → Settings → API. The URL looks like
+  `https://<ref>.supabase.co`.
+
+Also set `VITE_XORO_API_KEY` / `VITE_XORO_API_SECRET` unless you're fine
+with PO sync features erroring. `VITE_AZURE_*` is optional (disables Teams
+/ Outlook integration when blank).
 
 **3. Run the app:**
 
@@ -178,6 +191,9 @@ npm run dev                      # http://localhost:5173
 # optional second terminal — gives you /api/* too:
 vercel dev --listen 3000
 ```
+
+If 5173 is already bound (another Vite or a stale process), Vite will
+auto-pick 5174. Watch the startup output for the actual URL.
 
 **4. Log in.** Three pre-made vendor accounts, all password `Staging@2026!`:
 
@@ -204,9 +220,12 @@ npm run staging:reset            # wipes + re-seeds, keeps migrations applied
 **Gotchas**
 
 - *`supabase start` hangs* — Docker not running, or ports 54321–54324 are taken. `supabase stop --all` to clear.
+- *`supabase: command not found`* — the CLI isn't installed. Either install it (`brew install supabase/tap/supabase`) or skip the local stack and point `.env.local` at a hosted Supabase project instead.
+- *You already have `.env.local`* — don't `cp` over it; the example has empty placeholders. Open it and verify the six `VITE_*` keys are populated.
 - *Vendor login fails after `supabase db reset`* — `db reset` wipes `auth.users`; you need `staging-setup.mjs` to recreate them. Re-run `npm run staging:local`.
 - *Empty PO list after login* — the email must match one of the three test accounts. Any other email gets zero rows by RLS design.
 - *`/api/*` 404s* — you're running `npm run dev` only. Start `vercel dev` in a second terminal.
+- *Vite grabbed port 5174 (or 5175, ...)* — 5173 is already in use. Find the other process with `lsof -iTCP:5173 -sTCP:LISTEN` and kill it, or use whatever port Vite announced.
 
 ---
 
