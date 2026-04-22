@@ -551,8 +551,8 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                     {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
-                <div style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-end" }}>
+                  <div style={{ textAlign: "right" }}>
                     {pending && <span style={{ color: "#92400E" }}>⏳ pending review</span>}
                     {rejected && !pending && (
                       <span style={{ color: "#991B1B" }} title={r.dateReq?.review_note || r.statusReq?.review_note || ""}>✗ rejected</span>
@@ -695,9 +695,9 @@ function NotesButton({
   }
 
   return (
-    <div style={{ position: "relative", display: "inline-block" }}>
+    <>
       <button
-        onClick={() => setOpen((x) => !x)}
+        onClick={() => setOpen(true)}
         title={count === 0 ? "Add a note" : `${count} note${count === 1 ? "" : "s"}`}
         style={{
           width: 28, height: 24, padding: 0,
@@ -714,27 +714,40 @@ function NotesButton({
       </button>
 
       {open && (
-        <>
-          {/* Click-outside backdrop */}
-          <div
-            onClick={() => { setOpen(false); setEditingId(null); }}
-            style={{ position: "fixed", inset: 0, zIndex: 40, background: "transparent" }}
-          />
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => { if (e.currentTarget === e.target) { setOpen(false); setEditingId(null); } }}
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: "rgba(15, 23, 42, 0.55)",
+          }}
+        >
           <div
             style={{
-              position: "absolute", right: 0, top: 28, zIndex: 41,
-              width: 340, maxHeight: 420, overflowY: "auto",
+              width: "min(480px, calc(100vw - 32px))",
+              maxHeight: "min(560px, calc(100vh - 48px))",
+              overflow: "hidden",
+              display: "flex", flexDirection: "column",
               background: TH.surface, border: `1px solid ${TH.border}`,
-              borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+              borderRadius: 10, boxShadow: "0 12px 40px rgba(0,0,0,0.35)",
               fontFamily: "system-ui, -apple-system, sans-serif", color: TH.text,
             }}
           >
-            <div style={{ padding: "10px 12px", borderBottom: `1px solid ${TH.border}`, background: TH.surfaceHi }}>
-              <div style={{ fontWeight: 700, fontSize: 12 }}>{title}</div>
-              <div style={{ fontSize: 10, color: TH.textMuted }}>{count} note{count === 1 ? "" : "s"}</div>
+            <div style={{ padding: "12px 16px", borderBottom: `1px solid ${TH.border}`, background: TH.surfaceHi, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>{title}</div>
+                <div style={{ fontSize: 10, color: TH.textMuted }}>{count} note{count === 1 ? "" : "s"}</div>
+              </div>
+              <button
+                onClick={() => { setOpen(false); setEditingId(null); }}
+                aria-label="Close"
+                style={{ ...iconBtn, padding: "3px 10px" }}
+              >Close</button>
             </div>
 
-            <div style={{ padding: "8px 12px" }}>
+            <div style={{ padding: "8px 16px", overflowY: "auto", flex: 1 }}>
               {notes.length === 0 && (
                 <div style={{ color: TH.textMuted, fontSize: 12, padding: "6px 0" }}>No notes yet.</div>
               )}
@@ -804,9 +817,9 @@ function NotesButton({
               </div>
             </div>
           </div>
-        </>
+        </div>
       )}
-    </div>
+    </>
   );
 }
 
