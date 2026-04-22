@@ -147,19 +147,38 @@ export default async function handler(req, res) {
     } catch { /* non-blocking */ }
   }
 
-  if (from_asn_id && auth.auth_id) {
+  // Resolve the shipment to stamp: prefer the client-provided from_asn_id,
+  // but fall back to the newest un-invoiced shipment on the same PO so
+  // an invoice still marks the shipment even when the user submits via
+  // the regular Invoice form (no asn query param).
+  let stampTargetShipmentId = null;
+  if (from_asn_id) {
+    stampTargetShipmentId = from_asn_id;
+  } else {
+    const { data: pending } = await admin
+      .from("shipments")
+      .select("id")
+      .eq("vendor_id", caller.vendor_id)
+      .eq("po_id", po_id)
+      .is("invoice_id", null)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (pending && pending[0]) stampTargetShipmentId = pending[0].id;
+  }
+
+  if (stampTargetShipmentId && auth.auth_id) {
     try {
       // Stamp the shipment: link the invoice + timestamp. Scoped by
-      // vendor_id so a rogue from_asn_id pointing at another vendor's
-      // shipment does nothing.
+      // vendor_id so a rogue id pointing at another vendor's shipment
+      // does nothing.
       await admin.from("shipments")
         .update({ invoice_id: inv.id, invoice_created_at: new Date().toISOString() })
-        .eq("id", from_asn_id)
+        .eq("id", stampTargetShipmentId)
         .eq("vendor_id", caller.vendor_id);
 
       const { data: shipment } = await admin
         .from("shipments").select("asn_number, carrier, ship_via, ship_date")
-        .eq("id", from_asn_id).eq("vendor_id", caller.vendor_id).maybeSingle();
+        .eq("id", stampTargetShipmentId).eq("vendor_id", caller.vendor_id).maybeSingle();
       const totalDisplay = inv.total != null
         ? Number(inv.total).toLocaleString(undefined, { style: "currency", currency: inv.currency || "USD" })
         : "—";

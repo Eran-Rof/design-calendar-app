@@ -285,7 +285,7 @@ export default function POList() {
               <div style={{ textAlign: "center" }}>
                 {shippedPoIds.has(r.uuid_id) ? (
                   <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "#D1FAE5", border: `1px solid #A7F3D0`, color: "#065F46", whiteSpace: "nowrap", fontWeight: 700 }}>
-                    Shipped
+                    Shipped/Invoiced
                   </span>
                 ) : (
                   <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: TH.surfaceHi, border: `1px solid ${TH.border}`, color: TH.textSub, whiteSpace: "nowrap" }}>

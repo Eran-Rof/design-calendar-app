@@ -27,6 +27,7 @@ import POMessages from "./POMessages";
 import VendorScorecard from "./VendorScorecard";
 import VendorReports from "./VendorReports";
 import VendorPODetail from "./VendorPODetail";
+import POPrintView from "./POPrintView";
 import VendorContracts from "./VendorContracts";
 import VendorContractDetail from "./VendorContractDetail";
 import VendorDisputes from "./VendorDisputes";
@@ -448,6 +449,10 @@ export default function VendorApp() {
               <VendorShell withTabs><VendorPODetail /></VendorShell>
             </Protected>
           }
+        />
+        <Route
+          path="/vendor/pos/:id/view"
+          element={<Protected><POPrintView /></Protected>}
         />
         <Route path="/vendor/contracts"     element={<Protected><VendorShell withTabs><VendorContracts /></VendorShell></Protected>} />
         <Route path="/vendor/contracts/:id" element={<Protected><VendorShell withTabs><VendorContractDetail /></VendorShell></Protected>} />

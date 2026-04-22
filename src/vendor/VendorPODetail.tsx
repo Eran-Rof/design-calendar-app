@@ -193,9 +193,15 @@ export default function VendorPODetail() {
               {payload.StatusName && <> · {payload.StatusName}</>}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <Link
+              to={`/vendor/pos/${id}/view`}
+              style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${TH.border}`, background: "none", color: TH.text, fontSize: 12, fontWeight: 600, fontFamily: "inherit", textDecoration: "none" }}
+            >
+              📄 View PO
+            </Link>
             {invoices.some((i) => i.status !== "rejected") && (
-              <span style={{ fontSize: 12, padding: "6px 14px", borderRadius: 999, background: "#D1FAE5", color: "#065F46", fontWeight: 700 }}>Shipped</span>
+              <span style={{ fontSize: 12, padding: "6px 14px", borderRadius: 999, background: "#D1FAE5", color: "#065F46", fontWeight: 700 }}>Shipped/Invoiced</span>
             )}
             {acked ? (
               <span style={{ fontSize: 12, padding: "6px 14px", borderRadius: 999, background: "#D1FAE5", color: "#065F46", fontWeight: 700 }}>✓ Acknowledged</span>
