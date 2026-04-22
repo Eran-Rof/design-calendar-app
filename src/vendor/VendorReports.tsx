@@ -126,7 +126,13 @@ export default function VendorReports() {
     }
   }
 
-  useEffect(() => { void load(); /* eslint-disable-next-line */ }, []);
+  // Re-fetch whenever any filter changes. Debounced by 200ms so rapid date
+  // input typing doesn't hammer the API.
+  useEffect(() => {
+    const t = setTimeout(() => { void load(); }, 200);
+    return () => clearTimeout(t);
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [fromDate, toDate, poStatus, invStatus]);
 
   const scoreColor = (pct: number | null | undefined) => {
     if (pct == null) return TH.textMuted;
@@ -146,7 +152,30 @@ export default function VendorReports() {
         <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }} />
         <span style={{ color: TH.textMuted }}>→</span>
         <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }} />
-        <button onClick={() => void load()} style={{ padding: "7px 14px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" }}>Refresh</button>
+        <button
+          onClick={() => void load()}
+          disabled={loading}
+          style={{
+            padding: "7px 14px", borderRadius: 6, border: "none",
+            background: loading ? TH.textMuted : TH.primary, color: "#FFFFFF",
+            cursor: loading ? "not-allowed" : "pointer",
+            fontSize: 13, fontWeight: 600, fontFamily: "inherit",
+          }}
+        >
+          {loading ? "Refreshing…" : "Refresh"}
+        </button>
+        <button
+          onClick={() => {
+            const today = new Date();
+            const from = new Date(today.getFullYear(), today.getMonth() - 12, today.getDate());
+            setFromDate(from.toISOString().slice(0, 10));
+            setToDate(today.toISOString().slice(0, 10));
+          }}
+          disabled={loading}
+          style={{ padding: "7px 12px", borderRadius: 6, border: `1px solid ${TH.border}`, background: "none", color: TH.textSub, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}
+        >
+          Reset to last 12 mo
+        </button>
       </div>
 
       {summary && (
@@ -184,7 +213,7 @@ export default function VendorReports() {
 
       <div style={{ color: "#FFFFFF", fontSize: 14, fontWeight: 700, margin: "8px 0 10px", letterSpacing: 0.3 }}>PO history</div>
       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-        <select value={poStatus} onChange={(e) => { setPoStatus(e.target.value); setTimeout(load, 0); }} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }}>
+        <select value={poStatus} onChange={(e) => setPoStatus(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }}>
           <option value="">All statuses</option>
           <option value="issued">Issued</option>
           <option value="acknowledged">Acknowledged</option>
@@ -237,7 +266,7 @@ export default function VendorReports() {
 
       <div style={{ color: "#FFFFFF", fontSize: 14, fontWeight: 700, margin: "8px 0 10px", letterSpacing: 0.3 }}>Invoice history</div>
       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-        <select value={invStatus} onChange={(e) => { setInvStatus(e.target.value); setTimeout(load, 0); }} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }}>
+        <select value={invStatus} onChange={(e) => setInvStatus(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }}>
           <option value="">All statuses</option>
           <option value="submitted">Submitted</option>
           <option value="under_review">Under review</option>
