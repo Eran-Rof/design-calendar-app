@@ -149,6 +149,65 @@ npm run staging:local             # runs migrations + seeds + creates vendor tes
 `scripts/staging-setup.mjs --local` writes an `.env.staging` file with the
 generated credentials, including a vendor API key for smoke-testing.
 
+### Running the app with test data
+
+Full walkthrough — fresh clone to a logged-in vendor session.
+
+**1. One-time setup** (Docker Desktop must be running):
+
+```bash
+npm install
+supabase start                   # local Postgres + Auth + Studio
+npm run staging:local            # migrations + seed + test vendors + API keys
+```
+
+**2. Wire Vite to local Supabase.** `supabase start` prints the URL and
+anon key; copy them into `.env.local`:
+
+```bash
+cp .env.local.example .env.local
+# edit .env.local:
+#   VITE_SUPABASE_URL=http://127.0.0.1:54321
+#   VITE_SUPABASE_ANON_KEY=<anon key from `supabase status`>
+```
+
+**3. Run the app:**
+
+```bash
+npm run dev                      # http://localhost:5173
+# optional second terminal — gives you /api/* too:
+vercel dev --listen 3000
+```
+
+**4. Log in.** Three pre-made vendor accounts, all password `Staging@2026!`:
+
+| Email | Vendor in seed data |
+|---|---|
+| `vendor-a@staging.ringoffireclothing.com` | Sunrise Apparel Co. (CN) |
+| `vendor-b@staging.ringoffireclothing.com` | Pacific Thread Works (VN) |
+| `vendor-c@staging.ringoffireclothing.com` | Atlas Manufacturing (BD) |
+
+Each vendor sees only their own rows (RLS). Open
+`http://localhost:5173/vendor` and sign in.
+
+The **internal app** (`/`) has no pre-seeded users — either sign up through
+the internal flow or insert a row into `app_data['users']` directly. The
+seed doesn't touch that table because internal auth is custom and hashes
+passwords via `src/utils/hash.ts`.
+
+**Reset** when seed data gets dirty:
+
+```bash
+npm run staging:reset            # wipes + re-seeds, keeps migrations applied
+```
+
+**Gotchas**
+
+- *`supabase start` hangs* — Docker not running, or ports 54321–54324 are taken. `supabase stop --all` to clear.
+- *Vendor login fails after `supabase db reset`* — `db reset` wipes `auth.users`; you need `staging-setup.mjs` to recreate them. Re-run `npm run staging:local`.
+- *Empty PO list after login* — the email must match one of the three test accounts. Any other email gets zero rows by RLS design.
+- *`/api/*` 404s* — you're running `npm run dev` only. Start `vercel dev` in a second terminal.
+
 ---
 
 ## 3. Environment variables
