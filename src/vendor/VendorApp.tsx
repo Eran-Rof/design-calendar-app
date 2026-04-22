@@ -143,7 +143,6 @@ const MORE_GROUPS: { group: string; items: { to: string; label: string; match: (
     { to: "/vendor/marketplace", label: "Marketplace", match: (p) => p.startsWith("/vendor/marketplace") },
   ]},
   { group: "Reports & Admin", items: [
-    { to: "/vendor/reports",           label: "Reports",   match: (p) => p.startsWith("/vendor/reports") },
     { to: "/vendor/scorecard",         label: "Scorecard", match: (p) => p.startsWith("/vendor/scorecard") || p.startsWith("/vendor/performance") },
     { to: "/vendor/bulk",              label: "Bulk",      match: (p) => p.startsWith("/vendor/bulk") },
     { to: "/vendor/settings/api-keys", label: "Settings",  match: (p) => p.startsWith("/vendor/settings") },
@@ -255,6 +254,7 @@ function TabNav() {
   const p = loc.pathname;
   return (
     <nav style={{ display: "flex", gap: 2, padding: "0 24px", background: "rgba(255,255,255,0.05)", borderBottom: `1px solid rgba(255,255,255,0.12)`, alignItems: "center" }}>
+      <TabLink to="/vendor/reports" active={p.startsWith("/vendor/reports")}>Dashboard</TabLink>
       <TabLink to="/vendor" active={p === "/vendor"}>Purchase Orders</TabLink>
       <TabLink to="/vendor/shipments" active={p.startsWith("/vendor/shipments")}>Shipments</TabLink>
       <TabLink to="/vendor/invoices" active={p.startsWith("/vendor/invoices")}>Invoices</TabLink>

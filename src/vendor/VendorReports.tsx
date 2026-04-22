@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate, fmtMoney } from "./utils";
@@ -79,6 +80,25 @@ export default function VendorReports() {
   const [toDate, setToDate] = useState(new Date().toISOString().slice(0, 10));
   const [poStatus, setPoStatus] = useState("");
   const [invStatus, setInvStatus] = useState("");
+  // Lookups so we can link row-level po_number / invoice_number to
+  // their detail routes without API changes.
+  const [poIdByNumber, setPoIdByNumber] = useState<Record<string, string>>({});
+  const [invoiceIdByNumber, setInvoiceIdByNumber] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    (async () => {
+      const [{ data: poRows }, { data: invRows }] = await Promise.all([
+        supabaseVendor.from("tanda_pos").select("uuid_id, po_number"),
+        supabaseVendor.from("invoices").select("id, invoice_number"),
+      ]);
+      const pm: Record<string, string> = {};
+      for (const r of (poRows ?? []) as { uuid_id: string; po_number: string }[]) pm[r.po_number] = r.uuid_id;
+      setPoIdByNumber(pm);
+      const im: Record<string, string> = {};
+      for (const r of (invRows ?? []) as { id: string; invoice_number: string }[]) im[r.invoice_number] = r.id;
+      setInvoiceIdByNumber(im);
+    })();
+  }, []);
 
   async function load() {
     setLoading(true);
@@ -119,6 +139,7 @@ export default function VendorReports() {
 
   return (
     <div>
+      <h2 style={{ margin: "0 0 16px", color: "#FFFFFF", fontSize: 22 }}>Dashboard</h2>
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "12px 16px", marginBottom: 16, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
         <div style={{ fontSize: 13, color: TH.textSub, fontWeight: 600 }}>Period</div>
         <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }} />
@@ -130,16 +151,16 @@ export default function VendorReports() {
       {summary && (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 14 }}>
-            <StatCard label="POs in period" value={String(summary.pos_this_year)} />
-            <StatCard label="Invoices in period" value={String(summary.invoices_this_year)} />
-            <StatCard label="Total invoiced" value={fmtMoney(summary.total_invoiced_ytd)} />
-            <StatCard label="Total paid" value={fmtMoney(summary.total_paid_ytd)} tone="ok" />
+            <StatCard label="POs in period" value={String(summary.pos_this_year)} to="/vendor" />
+            <StatCard label="Invoices in period" value={String(summary.invoices_this_year)} to="/vendor/invoices" />
+            <StatCard label="Total invoiced" value={fmtMoney(summary.total_invoiced_ytd)} to="/vendor/invoices" />
+            <StatCard label="Total paid" value={fmtMoney(summary.total_paid_ytd)} tone="ok" to="/vendor/payments" />
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
-            <KPICard label="On-time delivery" value={summary.on_time_delivery_pct != null ? `${summary.on_time_delivery_pct}%` : "—"} color={scoreColor(summary.on_time_delivery_pct)} />
-            <KPICard label="Invoice accuracy" value={summary.invoice_accuracy_pct != null ? `${summary.invoice_accuracy_pct}%` : "—"} color={scoreColor(summary.invoice_accuracy_pct)} />
-            <KPICard label="Avg days to payment" value={summary.avg_payment_days != null ? `${summary.avg_payment_days}d` : "—"} color={summary.avg_payment_days == null || summary.avg_payment_days > 45 ? TH.primary : "#047857"} />
+            <KPICard label="On-time delivery" value={summary.on_time_delivery_pct != null ? `${summary.on_time_delivery_pct}%` : "—"} color={scoreColor(summary.on_time_delivery_pct)} to="/vendor/scorecard" />
+            <KPICard label="Invoice accuracy" value={summary.invoice_accuracy_pct != null ? `${summary.invoice_accuracy_pct}%` : "—"} color={scoreColor(summary.invoice_accuracy_pct)} to="/vendor/scorecard" />
+            <KPICard label="Avg days to payment" value={summary.avg_payment_days != null ? `${summary.avg_payment_days}d` : "—"} color={summary.avg_payment_days == null || summary.avg_payment_days > 45 ? TH.primary : "#047857"} to="/vendor/payments" />
           </div>
 
           <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "14px 20px", marginBottom: 20, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
@@ -181,9 +202,14 @@ export default function VendorReports() {
           const c = STATUS_COLORS[r.status] ?? STATUS_COLORS.pending;
           const pct = r.pct_received;
           const pctColor = pct == null ? TH.textMuted : pct >= 100 ? "#047857" : pct >= 50 ? "#B45309" : TH.primary;
+          const poUuid = poIdByNumber[r.po_number];
           return (
             <div key={r.po_number} style={{ display: "grid", gridTemplateColumns: "140px 110px 110px 110px 110px 110px 140px 90px 80px", padding: "10px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
-              <div style={{ fontWeight: 600, color: TH.text, fontFamily: "Menlo, monospace" }}>{r.po_number}</div>
+              <div style={{ fontWeight: 600, fontFamily: "Menlo, monospace" }}>
+                {poUuid
+                  ? <Link to={`/vendor/pos/${poUuid}`} style={{ color: TH.primary, textDecoration: "none" }}>{r.po_number}</Link>
+                  : <span style={{ color: TH.text }}>{r.po_number}</span>}
+              </div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.issued_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.acknowledged_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.fulfilled_at)}</div>
@@ -220,10 +246,22 @@ export default function VendorReports() {
           <div style={{ padding: 20, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>No invoices in this period.</div>
         ) : invoices.map((r) => {
           const c = STATUS_COLORS[r.status] ?? STATUS_COLORS.pending;
+          const invId = invoiceIdByNumber[r.invoice_number];
+          const poUuid = r.po_number ? poIdByNumber[r.po_number] : undefined;
           return (
             <div key={r.invoice_number} style={{ display: "grid", gridTemplateColumns: "170px 130px 110px 110px 110px 120px 130px 100px", padding: "10px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
-              <div style={{ fontWeight: 600, color: TH.text, fontFamily: "Menlo, monospace" }}>{r.invoice_number}</div>
-              <div style={{ color: TH.textSub2, fontFamily: "Menlo, monospace", fontSize: 12 }}>{r.po_number ?? "—"}</div>
+              <div style={{ fontWeight: 600, fontFamily: "Menlo, monospace" }}>
+                {invId
+                  ? <Link to={`/vendor/invoices/${invId}`} style={{ color: TH.primary, textDecoration: "none" }}>{r.invoice_number}</Link>
+                  : <span style={{ color: TH.text }}>{r.invoice_number}</span>}
+              </div>
+              <div style={{ color: TH.textSub2, fontFamily: "Menlo, monospace", fontSize: 12 }}>
+                {r.po_number
+                  ? (poUuid
+                      ? <Link to={`/vendor/pos/${poUuid}`} style={{ color: TH.primary, textDecoration: "none" }}>{r.po_number}</Link>
+                      : r.po_number)
+                  : "—"}
+              </div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.submitted_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.approved_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.paid_at)}</div>
@@ -240,22 +278,38 @@ export default function VendorReports() {
   );
 }
 
-function StatCard({ label, value, tone }: { label: string; value: string; tone?: "ok" | "warn" | "err" }) {
+function StatCard({ label, value, tone, to }: { label: string; value: string; tone?: "ok" | "warn" | "err"; to?: string }) {
   const color = tone === "ok" ? "#047857" : tone === "warn" ? "#B45309" : tone === "err" ? TH.primary : TH.text;
-  return (
-    <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "14px 16px", boxShadow: `0 1px 2px ${TH.shadow}` }}>
-      <div style={{ fontSize: 11, color: TH.textMuted, textTransform: "uppercase", fontWeight: 600, marginBottom: 6 }}>{label}</div>
+  const content = (
+    <>
+      <div style={{ fontSize: 11, color: TH.textMuted, textTransform: "uppercase", fontWeight: 600, marginBottom: 6 }}>
+        {label}{to && <span style={{ color: TH.primary, marginLeft: 6 }}>→</span>}
+      </div>
       <div style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
-    </div>
+    </>
+  );
+  const baseStyle = { background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "14px 16px", boxShadow: `0 1px 2px ${TH.shadow}`, display: "block", textDecoration: "none", color: "inherit" };
+  return to ? (
+    <Link to={to} style={{ ...baseStyle, cursor: "pointer" }}>{content}</Link>
+  ) : (
+    <div style={baseStyle}>{content}</div>
   );
 }
 
-function KPICard({ label, value, color }: { label: string; value: string; color: string }) {
-  return (
-    <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "20px 20px", boxShadow: `0 1px 2px ${TH.shadow}` }}>
-      <div style={{ fontSize: 12, color: TH.textMuted, textTransform: "uppercase", fontWeight: 600, marginBottom: 8 }}>{label}</div>
+function KPICard({ label, value, color, to }: { label: string; value: string; color: string; to?: string }) {
+  const content = (
+    <>
+      <div style={{ fontSize: 12, color: TH.textMuted, textTransform: "uppercase", fontWeight: 600, marginBottom: 8 }}>
+        {label}{to && <span style={{ color: TH.primary, marginLeft: 6 }}>→</span>}
+      </div>
       <div style={{ fontSize: 36, fontWeight: 700, color }}>{value}</div>
-    </div>
+    </>
+  );
+  const baseStyle = { background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "20px 20px", boxShadow: `0 1px 2px ${TH.shadow}`, display: "block", textDecoration: "none", color: "inherit" };
+  return to ? (
+    <Link to={to} style={{ ...baseStyle, cursor: "pointer" }}>{content}</Link>
+  ) : (
+    <div style={baseStyle}>{content}</div>
   );
 }
 

@@ -139,8 +139,21 @@ function DisputeCreateModal({ onClose, onCreated }: { onClose: () => void; onCre
   // When a PO is picked, narrow the invoice list so the user only sees invoices on that PO.
   const invoiceOptions = poId ? invoices.filter((i) => i.po_id === poId) : invoices;
 
+  // Cross-validate the current selection. If the user manages to pair a
+  // PO with an invoice from a different PO, surface it clearly.
+  const selectedInvoice = invoiceId ? invoices.find((i) => i.id === invoiceId) : null;
+  const mismatch = Boolean(poId && selectedInvoice && selectedInvoice.po_id && selectedInvoice.po_id !== poId);
+
   async function submit() {
     if (!subject.trim() || !body.trim()) { await showAlert({ title: "Missing fields", message: "Subject and details are required.", tone: "warn" }); return; }
+    if (mismatch) {
+      await showAlert({
+        title: "PO / Invoice don't match",
+        message: "The selected invoice belongs to a different PO than the one you picked. Clear one of them or pick a matching pair before opening the dispute.",
+        tone: "warn",
+      });
+      return;
+    }
     setSubmitting(true);
     try {
       const t = await token();
@@ -187,10 +200,19 @@ function DisputeCreateModal({ onClose, onCreated }: { onClose: () => void; onCre
             onChange={(e) => {
               const newPo = e.target.value;
               setPoId(newPo);
-              // If current invoice isn't on the new PO, clear it.
-              if (invoiceId && newPo) {
-                const inv = invoices.find((i) => i.id === invoiceId);
-                if (!inv || inv.po_id !== newPo) setInvoiceId("");
+              if (!newPo) return; // cleared — leave invoice alone
+              const currentInv = invoiceId ? invoices.find((i) => i.id === invoiceId) : null;
+              // If no invoice yet, auto-pick the newest one on this PO.
+              if (!currentInv) {
+                const firstOnPo = invoices.find((i) => i.po_id === newPo);
+                if (firstOnPo) setInvoiceId(firstOnPo.id);
+                return;
+              }
+              // If selected invoice belongs to a different PO, swap it for
+              // the first invoice on the new PO (or clear if none exist).
+              if (currentInv.po_id && currentInv.po_id !== newPo) {
+                const firstOnPo = invoices.find((i) => i.po_id === newPo);
+                setInvoiceId(firstOnPo ? firstOnPo.id : "");
               }
             }}
             style={inp}
@@ -200,18 +222,32 @@ function DisputeCreateModal({ onClose, onCreated }: { onClose: () => void; onCre
           </select>
         </Row>
         <Row label="Related invoice (optional)">
-          <select value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)} style={inp}>
+          <select
+            value={invoiceId}
+            onChange={(e) => {
+              const newInv = e.target.value;
+              setInvoiceId(newInv);
+              if (!newInv) return;
+              // Auto-fill the PO to match the invoice's po_id.
+              const inv = invoices.find((i) => i.id === newInv);
+              if (inv?.po_id && inv.po_id !== poId) setPoId(inv.po_id);
+            }}
+            style={inp}
+          >
             <option value="">— None —</option>
             {invoiceOptions.map((i) => (
-              <option key={i.id} value={i.id}>
-                {i.invoice_number}{!poId && i.po_id ? " (see PO)" : ""}
-              </option>
+              <option key={i.id} value={i.id}>{i.invoice_number}</option>
             ))}
           </select>
           {poId && invoiceOptions.length === 0 && (
             <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>No invoices on that PO yet.</div>
           )}
         </Row>
+        {mismatch && (
+          <div style={{ marginTop: 4, marginBottom: 10, padding: "8px 12px", background: "#FFFBEB", border: "1px solid #FCD34D", borderRadius: 6, fontSize: 12, color: "#92400E" }}>
+            ⚠ The selected invoice belongs to a different PO. Clear one before opening the dispute.
+          </div>
+        )}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
           <button onClick={onClose} style={btnSecondary}>Cancel</button>
           <button onClick={() => void submit()} disabled={submitting} style={{ ...btnPrimary, opacity: submitting ? 0.6 : 1 }}>{submitting ? "Opening…" : "Open dispute"}</button>
