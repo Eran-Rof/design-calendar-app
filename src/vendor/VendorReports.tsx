@@ -203,26 +203,32 @@ export default function VendorReports() {
           const pct = r.pct_received;
           const pctColor = pct == null ? TH.textMuted : pct >= 100 ? "#047857" : pct >= 50 ? "#B45309" : TH.primary;
           const poUuid = poIdByNumber[r.po_number];
+          const rowStyle: React.CSSProperties = {
+            display: "grid",
+            gridTemplateColumns: "140px 110px 110px 110px 110px 110px 140px 90px 80px",
+            padding: "10px 14px",
+            borderBottom: `1px solid ${TH.border}`,
+            fontSize: 13,
+            alignItems: "center",
+            textDecoration: "none",
+            color: "inherit",
+          };
+          const RowTag: React.ElementType = poUuid ? Link : "div";
+          const rowProps: Record<string, unknown> = poUuid ? { to: `/vendor/pos/${poUuid}`, style: { ...rowStyle, cursor: "pointer" } } : { style: rowStyle };
           return (
-            <div key={r.po_number} style={{ display: "grid", gridTemplateColumns: "140px 110px 110px 110px 110px 110px 140px 90px 80px", padding: "10px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
-              <div style={{ fontWeight: 600, fontFamily: "Menlo, monospace" }}>
-                {poUuid
-                  ? <Link to={`/vendor/pos/${poUuid}`} style={{ color: TH.primary, textDecoration: "none" }}>{r.po_number}</Link>
-                  : <span style={{ color: TH.text }}>{r.po_number}</span>}
-              </div>
+            <RowTag key={r.po_number} {...rowProps}>
+              <div style={{ fontWeight: 600, color: poUuid ? TH.primary : TH.text, fontFamily: "Menlo, monospace" }}>{r.po_number}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.issued_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.acknowledged_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.fulfilled_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.required_by)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtMoney(r.total_amount)}</div>
               <div><span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: c.bg, color: c.fg, fontWeight: 600, textTransform: "capitalize", whiteSpace: "nowrap" }}>{r.status.replace(/_/g, " ")}</span></div>
-              <div style={{ color: pctColor, fontWeight: 600 }}>
-                {pct != null ? `${pct}%` : "—"}
-              </div>
+              <div style={{ color: pctColor, fontWeight: 600 }}>{pct != null ? `${pct}%` : "—"}</div>
               <div style={{ textAlign: "right", color: r.on_time === false ? TH.primary : r.on_time === true ? "#047857" : TH.textMuted }}>
                 {r.on_time == null ? "—" : r.on_time ? "Yes" : "No"}
               </div>
-            </div>
+            </RowTag>
           );
         })}
       </div>
@@ -248,17 +254,27 @@ export default function VendorReports() {
           const c = STATUS_COLORS[r.status] ?? STATUS_COLORS.pending;
           const invId = invoiceIdByNumber[r.invoice_number];
           const poUuid = r.po_number ? poIdByNumber[r.po_number] : undefined;
+          const rowStyle: React.CSSProperties = {
+            display: "grid",
+            gridTemplateColumns: "170px 130px 110px 110px 110px 120px 130px 100px",
+            padding: "10px 14px",
+            borderBottom: `1px solid ${TH.border}`,
+            fontSize: 13,
+            alignItems: "center",
+            textDecoration: "none",
+            color: "inherit",
+          };
+          const RowTag: React.ElementType = invId ? Link : "div";
+          const rowProps: Record<string, unknown> = invId ? { to: `/vendor/invoices/${invId}`, style: { ...rowStyle, cursor: "pointer" } } : { style: rowStyle };
           return (
-            <div key={r.invoice_number} style={{ display: "grid", gridTemplateColumns: "170px 130px 110px 110px 110px 120px 130px 100px", padding: "10px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
-              <div style={{ fontWeight: 600, fontFamily: "Menlo, monospace" }}>
-                {invId
-                  ? <Link to={`/vendor/invoices/${invId}`} style={{ color: TH.primary, textDecoration: "none" }}>{r.invoice_number}</Link>
-                  : <span style={{ color: TH.text }}>{r.invoice_number}</span>}
-              </div>
+            <RowTag key={r.invoice_number} {...rowProps}>
+              <div style={{ fontWeight: 600, color: invId ? TH.primary : TH.text, fontFamily: "Menlo, monospace" }}>{r.invoice_number}</div>
               <div style={{ color: TH.textSub2, fontFamily: "Menlo, monospace", fontSize: 12 }}>
                 {r.po_number
                   ? (poUuid
-                      ? <Link to={`/vendor/pos/${poUuid}`} style={{ color: TH.primary, textDecoration: "none" }}>{r.po_number}</Link>
+                      // Nested Link inside a Link is illegal — render PO# as plain text
+                      // here; users can get to the PO from the invoice detail page.
+                      ? <span>{r.po_number}</span>
                       : r.po_number)
                   : "—"}
               </div>
@@ -270,7 +286,7 @@ export default function VendorReports() {
               <div style={{ textAlign: "right", color: r.days_to_payment == null ? TH.textMuted : r.days_to_payment > 45 ? TH.primary : "#047857", fontWeight: 600 }}>
                 {r.days_to_payment == null ? "—" : `${r.days_to_payment}d`}
               </div>
-            </div>
+            </RowTag>
           );
         })}
       </div>
