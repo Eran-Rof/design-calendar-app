@@ -55,7 +55,8 @@ export default async function handler(req, res) {
 
   const {
     po_id, invoice_number, invoice_date, due_date, currency,
-    subtotal, tax, total, notes, file_url,
+    subtotal, tax, total, notes, file_url, payment_terms,
+    from_asn_id,
     line_items,
   } = body || {};
 
@@ -98,6 +99,7 @@ export default async function handler(req, res) {
     file_url: file_url || null,
     submitted_by: caller.id,
     notes: notes ? String(notes).trim() : null,
+    payment_terms: payment_terms ? String(payment_terms).trim() : null,
   }).select("*").single();
   if (invErr) {
     if (invErr.code === "23505") return send(409, { error: `Invoice ${invoice_number} already exists for this vendor` });
@@ -120,6 +122,37 @@ export default async function handler(req, res) {
   if (liErr) {
     // Non-fatal: header exists. Return with warning so caller knows.
     return send(201, { ...inv, line_items_error: liErr.message });
+  }
+
+  // Auto-generated PO message when this invoice was submitted via the
+  // combined ASN + Invoice flow. Gives the internal Ring of Fire team a
+  // single thread-entry that announces both.
+  if (from_asn_id && auth.auth_id) {
+    try {
+      const { data: shipment } = await admin
+        .from("shipments").select("asn_number, carrier, ship_via, ship_date")
+        .eq("id", from_asn_id).eq("vendor_id", caller.vendor_id).maybeSingle();
+      const totalDisplay = inv.total != null
+        ? Number(inv.total).toLocaleString(undefined, { style: "currency", currency: inv.currency || "USD" })
+        : "—";
+      const lines = [
+        `📦 New ASN + Invoice submitted for PO ${po.po_number}`,
+        shipment?.asn_number ? `• ASN: ${shipment.asn_number}` : null,
+        shipment?.carrier ? `• Carrier: ${shipment.carrier}${shipment.ship_via ? ` (${shipment.ship_via})` : ""}` : null,
+        shipment?.ship_date ? `• Ship date: ${shipment.ship_date}` : null,
+        `• Invoice: ${inv.invoice_number} — ${totalDisplay}`,
+        inv.payment_terms ? `• Terms: ${inv.payment_terms}` : null,
+      ].filter(Boolean).join("\n");
+      await admin.from("po_messages").insert({
+        po_id: inv.po_id,
+        sender_type: "vendor",
+        sender_auth_id: auth.auth_id,
+        sender_name: "Vendor (auto-generated)",
+        body: lines,
+        read_by_vendor: true,
+        read_by_internal: false,
+      });
+    } catch { /* non-blocking */ }
   }
 
   // Fire internal notifications

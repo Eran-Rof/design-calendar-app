@@ -1,8 +1,39 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtMoney } from "./utils";
+
+const PAYMENT_TERMS = [
+  "FOB", "DDP 30", "DDP 60", "DDP 90", "DDP 120", "DDP 150", "DDP 180", "DP", "TT",
+];
+
+interface ExtractedLine {
+  description?: string | null;
+  quantity_invoiced?: number | null;
+  unit_price?: number | null;
+  item_number?: string | null;
+}
+
+interface ExtractedPayload {
+  invoice_number?: string | null;
+  invoice_date?: string | null;
+  due_date?: string | null;
+  currency?: string | null;
+  notes?: string | null;
+  line_items?: ExtractedLine[];
+}
+
+function decodeExtracted(raw: string | null): ExtractedPayload | null {
+  if (!raw) return null;
+  try {
+    const bin = atob(raw);
+    const utf8 = decodeURIComponent(escape(bin));
+    return JSON.parse(utf8) as ExtractedPayload;
+  } catch {
+    return null;
+  }
+}
 
 interface POOption {
   uuid_id: string;
@@ -30,18 +61,27 @@ interface LineInput {
 
 export default function InvoiceSubmit() {
   const nav = useNavigate();
+  const [params] = useSearchParams();
+  // URL params from the ASN + Invoice AI-extraction flow.
+  const prefill = useMemo(() => decodeExtracted(params.get("extracted")), [params]);
+  const prefillPoId = params.get("po") || "";
+  const prefillFileUrl = params.get("file") || "";
+  const fromAsnId = params.get("asn") || "";
+
   const [pos, setPOs] = useState<POOption[]>([]);
-  const [selectedPoId, setSelectedPoId] = useState<string>("");
+  const [selectedPoId, setSelectedPoId] = useState<string>(prefillPoId);
   const [poLines, setPoLines] = useState<LineItem[]>([]);
   const [lineInputs, setLineInputs] = useState<LineInput[]>([]);
+  const [linesPrefilledFromExtract, setLinesPrefilledFromExtract] = useState(false);
 
-  const [invoiceNumber, setInvoiceNumber] = useState("");
-  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
-  const [dueDate, setDueDate] = useState("");
-  const [currency, setCurrency] = useState("USD");
+  const [invoiceNumber, setInvoiceNumber] = useState(prefill?.invoice_number || "");
+  const [invoiceDate, setInvoiceDate] = useState(prefill?.invoice_date || new Date().toISOString().slice(0, 10));
+  const [dueDate, setDueDate] = useState(prefill?.due_date || "");
+  const [currency, setCurrency] = useState(prefill?.currency || "USD");
   const [tax, setTax] = useState("0");
-  const [notes, setNotes] = useState("");
+  const [notes, setNotes] = useState(prefill?.notes || "");
   const [file, setFile] = useState<File | null>(null);
+  const [paymentTerms, setPaymentTerms] = useState<string>("");
 
   const [vendorUserId, setVendorUserId] = useState<string | null>(null);
   const [vendorId, setVendorId] = useState<string | null>(null);
@@ -62,8 +102,10 @@ export default function InvoiceSubmit() {
           setVendorUserId(vu.id as string);
           setVendorId((vu as { vendor_id: string }).vendor_id);
           const { data: vRow } = await supabaseVendor
-            .from("vendors").select("is_tax_vendor").eq("id", (vu as { vendor_id: string }).vendor_id).maybeSingle();
-          setIsTaxVendor(Boolean((vRow as { is_tax_vendor?: boolean } | null)?.is_tax_vendor));
+            .from("vendors").select("is_tax_vendor, default_payment_terms").eq("id", (vu as { vendor_id: string }).vendor_id).maybeSingle();
+          const v = vRow as { is_tax_vendor?: boolean; default_payment_terms?: string | null } | null;
+          setIsTaxVendor(Boolean(v?.is_tax_vendor));
+          if (v?.default_payment_terms) setPaymentTerms(v.default_payment_terms);
         }
 
         const { data, error } = await supabaseVendor
@@ -91,18 +133,39 @@ export default function InvoiceSubmit() {
       if (error) { setErr(error.message); return; }
       const lines = (data ?? []) as LineItem[];
       setPoLines(lines);
+
+      // Match AI-extracted lines against PO lines. Prefer exact item_number
+      // match; fall back to order. Extracted values only override when
+      // present — otherwise defer to the PO line's ordered qty / unit price.
+      const extracted = prefill?.line_items || [];
+      const matched = (idx: number, l: LineItem): ExtractedLine | undefined => {
+        if (l.item_number) {
+          const byNumber = extracted.find((e) => e.item_number && e.item_number.trim() === l.item_number?.trim());
+          if (byNumber) return byNumber;
+        }
+        return extracted[idx];
+      };
+
       setLineInputs(
-        lines.map((l) => ({
-          line_id: l.id,
-          line_index: l.line_index,
-          description: l.description ?? "",
-          qty: l.qty_ordered != null ? String(l.qty_ordered) : "",
-          unit_price: l.unit_price != null ? String(l.unit_price) : "",
-          include: true,
-        }))
+        lines.map((l, i) => {
+          const e = matched(i, l);
+          const qty = e?.quantity_invoiced != null ? String(e.quantity_invoiced)
+            : (l.qty_ordered != null ? String(l.qty_ordered) : "");
+          const up = e?.unit_price != null ? String(e.unit_price)
+            : (l.unit_price != null ? String(l.unit_price) : "");
+          return {
+            line_id: l.id,
+            line_index: l.line_index,
+            description: e?.description ?? l.description ?? "",
+            qty,
+            unit_price: up,
+            include: true,
+          };
+        })
       );
+      if (extracted.length > 0) setLinesPrefilledFromExtract(true);
     })();
-  }, [selectedPoId]);
+  }, [selectedPoId, prefill]);
 
   const subtotal = useMemo(() => {
     return lineInputs.reduce((acc, l) => {
@@ -135,8 +198,10 @@ export default function InvoiceSubmit() {
       const accessToken = session?.session?.access_token;
       if (!accessToken) { setErr("Not signed in."); setBusy(false); return; }
 
-      // Optional PDF/Excel attachment upload
-      let fileUrl: string | null = null;
+      // Optional PDF/Excel attachment upload. If we came from the
+      // ASN + Invoice AI flow, the packing list path is already in the URL
+      // and acts as the attachment unless the user picked a different one.
+      let fileUrl: string | null = prefillFileUrl || null;
       if (file) {
         if (!vendorId) { throw new Error("Vendor not resolved yet."); }
         const MAX = 10 * 1024 * 1024;
@@ -177,6 +242,8 @@ export default function InvoiceSubmit() {
           total,
           notes: notes.trim() || null,
           file_url: fileUrl,
+          payment_terms: paymentTerms || null,
+          from_asn_id: fromAsnId || undefined,
           line_items: lineItems,
         }),
       });
@@ -231,7 +298,7 @@ export default function InvoiceSubmit() {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 14, marginBottom: 20 }}>
           <div>
             <label style={labelStyle}>Invoice date</label>
             <input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} style={inputStyle} />
@@ -251,7 +318,20 @@ export default function InvoiceSubmit() {
               <option value="INR">INR</option>
             </select>
           </div>
+          <div>
+            <label style={labelStyle}>Payment terms</label>
+            <select value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} style={inputStyle}>
+              <option value="">— Select —</option>
+              {PAYMENT_TERMS.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
         </div>
+
+        {linesPrefilledFromExtract && (
+          <div style={{ padding: "10px 12px", background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 6, marginBottom: 14, fontSize: 13, color: "#065F46" }}>
+            ✨ Draft pre-filled from the packing list by AI. <strong>Review every line before submitting.</strong>
+          </div>
+        )}
 
         {selectedPoId && (
           <>

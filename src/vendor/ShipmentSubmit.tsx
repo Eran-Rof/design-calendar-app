@@ -5,6 +5,8 @@ import { supabaseVendor } from "./supabaseVendor";
 import { fmtMoney } from "./utils";
 import { isValidContainerNumber } from "./shipmentUtils";
 
+type SubmitMode = "asn_only" | "asn_and_invoice";
+
 type TrackingType = "" | "CT" | "BL" | "BK";
 
 const CARRIER_GROUPS: { label: string; carriers: string[] }[] = [
@@ -76,6 +78,7 @@ export default function ShipmentSubmit() {
   const [notes, setNotes] = useState("");
   const [packingListFile, setPackingListFile] = useState<File | null>(null);
   const [blFile, setBlFile] = useState<File | null>(null);
+  const [extractStatus, setExtractStatus] = useState<string | null>(null);
 
   const [vendorUserId, setVendorUserId] = useState<string | null>(null);
   const [vendorId, setVendorId] = useState<string | null>(null);
@@ -144,14 +147,19 @@ export default function ShipmentSubmit() {
     setLineInputs((xs) => xs.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
   }
 
-  async function submit(e: FormEvent) {
+  async function submit(e: FormEvent, mode: SubmitMode = "asn_only") {
     e.preventDefault();
     setErr(null);
+    setExtractStatus(null);
 
     if (!asnNumber.trim()) { setErr("ASN reference number is required."); return; }
     if (!selectedPoId) { setErr("Select a PO."); return; }
     const includedLines = lineInputs.filter((l) => l.include && (Number(l.qty_shipped) || 0) > 0);
     if (includedLines.length === 0) { setErr("Add at least one line with quantity > 0."); return; }
+    if (mode === "asn_and_invoice" && !packingListFile) {
+      setErr("Attach a packing list (PDF or Excel) to use the combined ASN + Invoice flow — the AI reads it to draft the invoice.");
+      return;
+    }
 
     if (trackingNumber.trim() && trackingType === "CT") {
       if (!isValidContainerNumber(trackingNumber)) {
@@ -212,6 +220,24 @@ export default function ShipmentSubmit() {
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body?.error || `Request failed (${r.status})`);
+
+      if (mode === "asn_and_invoice" && packingListUrl) {
+        setExtractStatus("Reading packing list with AI to draft the invoice…");
+        const extractRes = await fetch("/api/vendor/ai-extract-invoice", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ file_url: packingListUrl, po_id: selectedPoId }),
+        });
+        const extractBody = await extractRes.json().catch(() => ({}));
+        if (!extractRes.ok) {
+          throw new Error(`ASN was submitted, but AI extraction failed: ${extractBody?.error || extractRes.status}`);
+        }
+        // Hand the extracted payload off to InvoiceSubmit for user review.
+        const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(extractBody.extracted || {}))));
+        nav(`/vendor/invoices/new?po=${selectedPoId}&asn=${body.id}&file=${encodeURIComponent(packingListUrl)}&extracted=${encoded}`, { replace: true });
+        return;
+      }
+
       nav(`/vendor/shipments/${body.id}`, { replace: true });
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -226,7 +252,7 @@ export default function ShipmentSubmit() {
         <a href="/vendor/shipments" style={{ color: "#FFFFFF", fontSize: 13, textDecoration: "none" }}>← Back to shipments</a>
       </div>
 
-      <form onSubmit={submit} style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 10, padding: 24, boxShadow: `0 1px 2px ${TH.shadow}` }}>
+      <form onSubmit={(e) => void submit(e, "asn_only")} style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 10, padding: 24, boxShadow: `0 1px 2px ${TH.shadow}` }}>
         <h1 style={{ margin: 0, marginBottom: 6, fontSize: 20, color: TH.text }}>Submit shipment (ASN)</h1>
         <p style={{ margin: 0, marginBottom: 20, color: TH.textMuted, fontSize: 13 }}>
           Tell us what's shipping, against which PO lines. Tracking number is optional — you can add it later once you have the BL or container.
@@ -321,7 +347,12 @@ export default function ShipmentSubmit() {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div>
-              <label style={labelStyle}>Packing list</label>
+              <label style={labelStyle}>
+                Packing list
+                <span style={{ fontSize: 10, color: TH.textMuted, fontWeight: 400, marginLeft: 6 }}>
+                  (also the source for "Submit ASN + Invoice")
+                </span>
+              </label>
               <input
                 type="file"
                 accept="application/pdf,.pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xls,.xlsx"
@@ -391,13 +422,33 @@ export default function ShipmentSubmit() {
             {err}
           </div>
         )}
+        {extractStatus && (
+          <div style={{ color: TH.textSub2, padding: "10px 12px", background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 6, marginBottom: 14, fontSize: 13 }}>
+            {extractStatus}
+          </div>
+        )}
 
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
           <button type="button" onClick={() => nav("/vendor/shipments")} style={{ padding: "9px 16px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}>
             Cancel
           </button>
           <button type="submit" disabled={busy || !selectedPoId} style={{ padding: "9px 20px", borderRadius: 7, border: "none", background: busy || !selectedPoId ? TH.textMuted : TH.primary, color: "#FFFFFF", cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 600 }}>
             {busy ? "Submitting…" : "Submit ASN"}
+          </button>
+          <button
+            type="button"
+            onClick={(e) => void submit(e as unknown as FormEvent, "asn_and_invoice")}
+            disabled={busy || !selectedPoId || !packingListFile}
+            title={!packingListFile ? "Attach a packing list above to enable this button — the AI reads it to draft the invoice." : undefined}
+            style={{
+              padding: "9px 20px", borderRadius: 7, border: "none",
+              background: busy || !selectedPoId || !packingListFile ? TH.textMuted : "#047857",
+              color: "#FFFFFF",
+              cursor: busy || !packingListFile ? "not-allowed" : "pointer",
+              fontFamily: "inherit", fontSize: 13, fontWeight: 600,
+            }}
+          >
+            {busy ? "Submitting…" : "Submit ASN + Invoice"}
           </button>
         </div>
       </form>
