@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate } from "./utils";
-import { showAlert, showConfirm } from "./ui/AppDialog";
+import { showAlert, showConfirm, showFileViewer } from "./ui/AppDialog";
 
 const CARRIER_GROUPS: { label: string; carriers: string[] }[] = [
   { label: "Parcel / courier", carriers: ["UPS", "FedEx", "USPS", "DHL"] },
@@ -180,9 +180,10 @@ export default function ShipmentDetail() {
 
   async function openDoc(path: string | null) {
     if (!path) return;
-    const { data, error } = await supabaseVendor.storage.from("vendor-docs").createSignedUrl(path, 60);
+    const { data, error } = await supabaseVendor.storage.from("vendor-docs").createSignedUrl(path, 300);
     if (error || !data?.signedUrl) { await showAlert({ title: "Unable to open", message: error?.message || "unknown error", tone: "danger" }); return; }
-    window.open(data.signedUrl, "_blank", "noopener");
+    const filename = path.split("/").pop() || "document";
+    await showFileViewer({ signedUrl: data.signedUrl, filename });
   }
 
   function startEdit() {

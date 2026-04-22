@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { showAlert, showFileViewer } from "./ui/AppDialog";
 import { Link, useParams } from "react-router-dom";
 import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
@@ -94,9 +95,10 @@ export default function InvoiceDetail() {
 
   async function openAttachment() {
     if (!invoice?.file_url) return;
-    const { data, error } = await supabaseVendor.storage.from("vendor-docs").createSignedUrl(invoice.file_url, 60);
-    if (error || !data?.signedUrl) { alert("Unable to open attachment: " + (error?.message || "unknown error")); return; }
-    window.open(data.signedUrl, "_blank", "noopener");
+    const { data, error } = await supabaseVendor.storage.from("vendor-docs").createSignedUrl(invoice.file_url, 300);
+    if (error || !data?.signedUrl) { await showAlert({ title: "Unable to open", message: error?.message || "unknown error", tone: "danger" }); return; }
+    const filename = invoice.file_url.split("/").pop() || "attachment";
+    await showFileViewer({ signedUrl: data.signedUrl, filename });
   }
 
   function startEdit() {

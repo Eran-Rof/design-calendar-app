@@ -148,3 +148,110 @@ export function showConfirm(opts: DialogOpts): Promise<boolean> {
     );
   });
 }
+
+// File viewer — in-app preview with Download fallback. PDFs render
+// natively in the iframe; other types fall back to a Download button.
+export function showFileViewer({
+  signedUrl, filename,
+}: { signedUrl: string; filename: string }): Promise<void> {
+  return new Promise((resolve) => {
+    const ext = (filename.split(".").pop() || "").toLowerCase();
+    const isPdf = ext === "pdf";
+    const handleClose = () => { close(); resolve(); };
+    const triggerDownload = () => {
+      const a = document.createElement("a");
+      a.href = signedUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    };
+
+    ensureMount().render(
+      <div
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => { if (e.currentTarget === e.target) handleClose(); }}
+        style={{
+          position: "fixed", inset: 0, zIndex: 9999,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          background: "rgba(15, 23, 42, 0.65)",
+        }}
+      >
+        <div style={{
+          width: "min(1000px, calc(100vw - 48px))",
+          height: "min(800px, calc(100vh - 48px))",
+          background: TH.surface,
+          border: `1px solid ${TH.border}`,
+          borderRadius: 10,
+          boxShadow: `0 16px 48px rgba(0,0,0,0.4)`,
+          display: "flex", flexDirection: "column",
+          overflow: "hidden",
+          fontFamily: "system-ui, -apple-system, sans-serif",
+        }}>
+          <div style={{
+            padding: "10px 16px", background: TH.surfaceHi,
+            borderBottom: `1px solid ${TH.border}`,
+            display: "flex", alignItems: "center", gap: 10,
+          }}>
+            <div style={{ flex: 1, fontFamily: "Menlo, monospace", fontSize: 13, color: TH.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {filename}
+            </div>
+            <button
+              onClick={triggerDownload}
+              style={{
+                padding: "6px 14px", borderRadius: 6, border: "none",
+                background: TH.primary, color: "#FFFFFF",
+                cursor: "pointer", fontSize: 12, fontWeight: 600,
+                fontFamily: "inherit",
+              }}
+            >
+              ⬇ Download
+            </button>
+            <button
+              onClick={handleClose}
+              aria-label="Close"
+              style={{
+                padding: "6px 12px", borderRadius: 6,
+                border: `1px solid ${TH.border}`, background: "none", color: TH.text,
+                cursor: "pointer", fontSize: 12, fontFamily: "inherit",
+              }}
+            >
+              Close
+            </button>
+          </div>
+          <div style={{ flex: 1, background: "#1e293b", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {isPdf ? (
+              <iframe
+                src={signedUrl}
+                style={{ width: "100%", height: "100%", border: "none", background: "#fff" }}
+                title={filename}
+              />
+            ) : (
+              <div style={{ textAlign: "center", color: TH.textMuted, padding: 32 }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>📄</div>
+                <div style={{ fontSize: 14, color: TH.text, marginBottom: 6 }}>
+                  Preview not available for .{ext || "this"} files.
+                </div>
+                <div style={{ fontSize: 12, marginBottom: 18 }}>
+                  Download the file to open it in Excel or your preferred editor.
+                </div>
+                <button
+                  onClick={triggerDownload}
+                  style={{
+                    padding: "8px 20px", borderRadius: 6, border: "none",
+                    background: TH.primary, color: "#FFFFFF",
+                    cursor: "pointer", fontSize: 13, fontWeight: 600,
+                    fontFamily: "inherit",
+                  }}
+                >
+                  ⬇ Download
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>,
+    );
+  });
+}
