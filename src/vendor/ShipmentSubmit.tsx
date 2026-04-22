@@ -5,8 +5,32 @@ import { supabaseVendor } from "./supabaseVendor";
 import { fmtMoney } from "./utils";
 import { isValidContainerNumber } from "./shipmentUtils";
 
-type Carrier = "UPS" | "FedEx" | "USPS" | "DHL" | "Ocean Freight" | "Air Freight" | "Truck" | "Other";
 type TrackingType = "" | "CT" | "BL" | "BK";
+
+const CARRIER_GROUPS: { label: string; carriers: string[] }[] = [
+  { label: "Parcel / courier", carriers: ["UPS", "FedEx", "USPS", "DHL"] },
+  { label: "Ocean", carriers: [
+    "MSC",
+    "Maersk",
+    "CMA CGM",
+    "COSCO Shipping Lines",
+    "Hapag-Lloyd",
+    "Ocean Network Express (ONE)",
+    "Evergreen Line",
+    "HMM",
+    "Yang Ming",
+    "ZIM",
+    "Wan Hai Lines",
+    "PIL",
+    "X-Press Feeders",
+    "SITC",
+    "UniFeeder",
+    "KMTC",
+  ]},
+  { label: "Air", carriers: ["Air Freight"] },
+  { label: "Road", carriers: ["Truck"] },
+  { label: "Other", carriers: ["Other"] },
+];
 
 interface POOption {
   uuid_id: string;
@@ -34,8 +58,6 @@ interface LineInput {
   qty_remaining: number;
 }
 
-const CARRIERS: Carrier[] = ["UPS", "FedEx", "USPS", "DHL", "Ocean Freight", "Air Freight", "Truck", "Other"];
-
 export default function ShipmentSubmit() {
   const nav = useNavigate();
   const [pos, setPOs] = useState<POOption[]>([]);
@@ -44,7 +66,7 @@ export default function ShipmentSubmit() {
   const [lineInputs, setLineInputs] = useState<LineInput[]>([]);
 
   const [asnNumber, setAsnNumber] = useState("");
-  const [carrier, setCarrier] = useState<Carrier>("Ocean Freight");
+  const [carrier, setCarrier] = useState<string>("MSC");
   const [trackingType, setTrackingType] = useState<TrackingType>("");
   const [trackingNumber, setTrackingNumber] = useState("");
   const [shipDate, setShipDate] = useState(new Date().toISOString().slice(0, 10));
@@ -235,8 +257,12 @@ export default function ShipmentSubmit() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div>
             <label style={labelStyle}>Carrier</label>
-            <select value={carrier} onChange={(e) => setCarrier(e.target.value as Carrier)} style={inputStyle}>
-              {CARRIERS.map((c) => <option key={c} value={c}>{c}</option>)}
+            <select value={carrier} onChange={(e) => setCarrier(e.target.value)} style={inputStyle}>
+              {CARRIER_GROUPS.map((g) => (
+                <optgroup key={g.label} label={g.label}>
+                  {g.carriers.map((c) => <option key={c} value={c}>{c}</option>)}
+                </optgroup>
+              ))}
             </select>
           </div>
           <div>
