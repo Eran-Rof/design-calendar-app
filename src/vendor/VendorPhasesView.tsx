@@ -461,14 +461,15 @@ export default function VendorPhasesView({ poId }: Props = {}) {
       )}
 
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "auto", boxShadow: `0 1px 2px ${TH.shadow}` }}>
-        <div style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 1fr`, padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
+        <div style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 140px 60px`, padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
           <div></div>{/* expand-toggle column — keeps header aligned with rows */}
           {!poId && <div>PO #</div>}
           <div>Phase</div>
           <div>Expected</div>
           <div style={{ textAlign: "center" }}>Days</div>
           <div>Status</div>
-          <div style={{ textAlign: "right", paddingRight: 40 }}>Review state</div>
+          <div>Review state</div>
+          <div style={{ textAlign: "center" }}>Notes</div>
         </div>
 
         {filteredRows.length === 0 ? (
@@ -500,7 +501,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
           return (
             <div key={expandKey}>
               {/* ── Master phase row ─────────────────────────────────── */}
-              <div style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 1fr`, padding: "10px 14px", borderBottom: isExpanded ? "none" : `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", background: isExpanded ? "#F8FAFC" : "transparent" }}>
+              <div style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 140px 60px`, padding: "10px 14px", borderBottom: isExpanded ? "none" : `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", background: isExpanded ? "#F8FAFC" : "transparent" }}>
                 <button
                   onClick={() => setExpanded((prev) => {
                     const next = new Set(prev);
@@ -552,22 +553,22 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                     {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 32px", alignItems: "center", gap: 8 }}>
-                  <div style={{ textAlign: "right", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, lineHeight: 1.35 }}>
-                    {pending && <div style={{ color: "#92400E" }}>⏳ Pending review</div>}
-                    {rejected && !pending && (
-                      <div style={{ color: "#991B1B" }} title={r.dateReq?.review_note || r.statusReq?.review_note || ""}>✗ Rejected</div>
-                    )}
-                    {!pending && !rejected && (r.dateReq?.status === "approved" || r.statusReq?.status === "approved") && (
-                      <div style={{ color: "#065F46" }}>✓ Approved</div>
-                    )}
-                    {hasMismatch && (
-                      <div style={{ color: "#7C3AED" }}>⚠ Lines differ</div>
-                    )}
-                    {!pending && !rejected && !r.dateReq?.status && !r.statusReq?.status && !hasMismatch && (
-                      <div style={{ color: TH.textMuted, fontWeight: 500 }}>—</div>
-                    )}
-                  </div>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, lineHeight: 1.35 }}>
+                  {pending && <div style={{ color: "#92400E" }}>⏳ Pending review</div>}
+                  {rejected && !pending && (
+                    <div style={{ color: "#991B1B" }} title={r.dateReq?.review_note || r.statusReq?.review_note || ""}>✗ Rejected</div>
+                  )}
+                  {!pending && !rejected && (r.dateReq?.status === "approved" || r.statusReq?.status === "approved") && (
+                    <div style={{ color: "#065F46" }}>✓ Approved</div>
+                  )}
+                  {hasMismatch && (
+                    <div style={{ color: "#7C3AED" }}>⚠ Lines differ</div>
+                  )}
+                  {!pending && !rejected && !r.dateReq?.status && !r.statusReq?.status && !hasMismatch && (
+                    <div style={{ color: TH.textMuted, fontWeight: 500 }}>—</div>
+                  )}
+                </div>
+                <div style={{ display: "flex", justifyContent: "center" }}>
                   <NotesButton
                     notes={allPhaseNotes}
                     currentAuthAid={currentAuthAid}
