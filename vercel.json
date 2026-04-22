@@ -1,4 +1,7 @@
 {
+  "installCommand": "npm install --prefer-offline --no-audit",
+  "buildCommand": "npm run build",
+  "devCommand": "vite --port $PORT --strictPort",
   "rewrites": [
     { "source": "/api/dispatch", "destination": "/api/dispatch" },
     { "source": "/api/:rest*", "destination": "/api/dispatch?__fullpath=/api/:rest*" },
