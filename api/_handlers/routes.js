@@ -217,6 +217,7 @@ import h211 from "./xoro-proxy.js";
 import h212 from "./vendor/invoices/[id].js";
 import h213 from "./vendor/ai-extract-invoice.js";
 import h214 from "./vendor/shipments/[id].js";
+import h215 from "./vendor/change-requests.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -413,6 +414,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/disputes", handler: h190 },
   { pattern: "/api/vendor/entities", handler: h191 },
   { pattern: "/api/vendor/ai-extract-invoice", handler: h213 },
+  { pattern: "/api/vendor/change-requests", handler: h215 },
   { pattern: "/api/vendor/invoices/:id", handler: h212 },
   { pattern: "/api/vendor/invoices", handler: h192 },
   { pattern: "/api/vendor/payments", handler: h193 },

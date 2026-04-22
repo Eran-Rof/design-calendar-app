@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate, fmtMoney } from "./utils";
+import { PHASES, computeExpectedDate } from "./VendorPhasesView";
 
 interface Summary {
   period: { from: string; to: string };
@@ -155,12 +156,15 @@ export default function VendorReports() {
   // their detail routes without API changes.
   const [poIdByNumber, setPoIdByNumber] = useState<Record<string, string>>({});
   const [invoiceIdByNumber, setInvoiceIdByNumber] = useState<Record<string, string>>({});
+  // Phase bucket counters — computed client-side from each PO's DDP.
+  const [phaseBuckets, setPhaseBuckets] = useState({ overdue: 0, this_week: 0, next_30: 0 });
 
   useEffect(() => {
     (async () => {
-      const [{ data: poRows }, { data: invRows }] = await Promise.all([
-        supabaseVendor.from("tanda_pos").select("uuid_id, po_number"),
+      const [{ data: poRows }, { data: invRows }, { data: reqRows }] = await Promise.all([
+        supabaseVendor.from("tanda_pos").select("uuid_id, po_number, date_expected_delivery, data"),
         supabaseVendor.from("invoices").select("id, invoice_number"),
+        supabaseVendor.from("tanda_milestone_change_requests").select("po_id, phase_name, field_name, new_value, status"),
       ]);
       const pm: Record<string, string> = {};
       for (const r of (poRows ?? []) as { uuid_id: string; po_number: string }[]) pm[r.po_number] = r.uuid_id;
@@ -168,6 +172,38 @@ export default function VendorReports() {
       const im: Record<string, string> = {};
       for (const r of (invRows ?? []) as { id: string; invoice_number: string }[]) im[r.invoice_number] = r.id;
       setInvoiceIdByNumber(im);
+
+      // Phase bucket counts. For each PO × phase, compute expected date
+      // (using any approved/pending change-request override), then bucket
+      // by today's date. Skip Complete / N/A statuses.
+      const reqs = (reqRows ?? []) as { po_id: string; phase_name: string; field_name: string; new_value: string | null; status: string }[];
+      const latest = new Map<string, { new_value: string | null; status: string }>();
+      // reqRows is ordered arbitrarily; iterate and keep the first seen
+      // (caller didn't order, but any active row wins over defaults).
+      for (const r of reqs) {
+        const key = `${r.po_id}::${r.phase_name}::${r.field_name}`;
+        if (!latest.has(key)) latest.set(key, r);
+      }
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const in7 = new Date(today); in7.setDate(today.getDate() + 7);
+      const in30 = new Date(today); in30.setDate(today.getDate() + 30);
+      const counts = { overdue: 0, this_week: 0, next_30: 0 };
+      for (const po of (poRows ?? []) as { uuid_id: string; date_expected_delivery: string | null; data: { DateExpectedDelivery?: string } | null }[]) {
+        const ddp = po.date_expected_delivery || po.data?.DateExpectedDelivery || null;
+        for (const phase of PHASES) {
+          const statusReq = latest.get(`${po.uuid_id}::${phase.name}::status`);
+          const effStatus = statusReq?.new_value || "Not Started";
+          if (effStatus === "Complete" || effStatus === "N/A") continue;
+          const dateReq = latest.get(`${po.uuid_id}::${phase.name}::expected_date`);
+          const eff = dateReq?.new_value || computeExpectedDate(ddp, phase.daysBeforeDDP);
+          if (!eff) continue;
+          const d = new Date(eff);
+          if (d < today) counts.overdue++;
+          else if (d <= in7) counts.this_week++;
+          else if (d <= in30) counts.next_30++;
+        }
+      }
+      setPhaseBuckets(counts);
     })();
   }, []);
 
@@ -280,6 +316,26 @@ export default function VendorReports() {
 
       {summary && (
         <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 12 }}>
+            <PhaseBucketCard
+              label="Overdue phases"
+              count={phaseBuckets.overdue}
+              to="/vendor/phases?filter=overdue"
+              tone="danger"
+            />
+            <PhaseBucketCard
+              label="Due this week"
+              count={phaseBuckets.this_week}
+              to="/vendor/phases?filter=this_week"
+              tone="warn"
+            />
+            <PhaseBucketCard
+              label="Next 30 days"
+              count={phaseBuckets.next_30}
+              to="/vendor/phases?filter=next_30"
+            />
+          </div>
+
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 14 }}>
             <StatCard label="POs in period" value={String(summary.pos_this_year)} to="/vendor" />
             <StatCard label="Invoices in period" value={String(summary.invoices_this_year)} to="/vendor/invoices" />
@@ -433,6 +489,28 @@ export default function VendorReports() {
         })}
       </div>
     </div>
+  );
+}
+
+function PhaseBucketCard({ label, count, to, tone }: { label: string; count: number; to: string; tone?: "danger" | "warn" }) {
+  const accent = tone === "danger" ? "#B91C1C" : tone === "warn" ? "#B45309" : TH.primary;
+  const bg = tone === "danger" ? "#FEE2E2" : tone === "warn" ? "#FEF3C7" : "#DBEAFE";
+  return (
+    <Link
+      to={to}
+      style={{
+        display: "block", textDecoration: "none", color: "inherit",
+        background: TH.surface, border: `1px solid ${TH.border}`, borderLeft: `4px solid ${accent}`,
+        borderRadius: 8, padding: "14px 16px", boxShadow: `0 1px 2px ${TH.shadow}`,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+        <div style={{ fontSize: 11, color: TH.textMuted, textTransform: "uppercase", fontWeight: 700 }}>{label}</div>
+        <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: bg, color: accent, fontWeight: 700 }}>View →</span>
+      </div>
+      <div style={{ fontSize: 30, fontWeight: 700, color: count > 0 ? accent : TH.textMuted }}>{count}</div>
+      <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 2 }}>phase{count === 1 ? "" : "s"} across your POs</div>
+    </Link>
   );
 }
 

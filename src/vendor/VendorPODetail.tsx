@@ -4,6 +4,7 @@ import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate, fmtMoney } from "./utils";
 import POMessageThread, { type Sender } from "./POMessageThread";
+import VendorPhasesView from "./VendorPhasesView";
 
 interface PORow {
   uuid_id: string;
@@ -46,7 +47,7 @@ interface InvoiceRow {
   paid_at: string | null;
 }
 
-type Tab = "overview" | "messages" | "shipments" | "invoices";
+type Tab = "overview" | "messages" | "shipments" | "invoices" | "phases";
 
 const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
   submitted:    { bg: "#FEF3C7", fg: "#92400E" },
@@ -226,6 +227,7 @@ export default function VendorPODetail() {
         <TabBtn active={tab === "messages"} onClick={() => setTab("messages")} badge={unreadCount}>Messages</TabBtn>
         <TabBtn active={tab === "shipments"} onClick={() => setTab("shipments")} badge={shipments.length || undefined}>Shipments</TabBtn>
         <TabBtn active={tab === "invoices"} onClick={() => setTab("invoices")} badge={invoices.length || undefined}>Invoices</TabBtn>
+        <TabBtn active={tab === "phases"} onClick={() => setTab("phases")}>Phases</TabBtn>
       </div>
 
       {tab === "overview" && (
@@ -318,6 +320,10 @@ export default function VendorPODetail() {
             </>
           )}
         </div>
+      )}
+
+      {tab === "phases" && id && (
+        <VendorPhasesView poId={id} />
       )}
     </div>
   );
