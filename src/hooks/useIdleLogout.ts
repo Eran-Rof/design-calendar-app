@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 interface IdleLogoutOpts {
   enabled: boolean;
@@ -13,6 +13,11 @@ interface IdleLogoutOpts {
  * (avoids re-rendering the entire app on every mouse move).
  */
 export function useIdleLogout({ enabled, idleMs, onWarning, onLogout }: IdleLogoutOpts) {
+  const onWarningRef = useRef(onWarning);
+  const onLogoutRef = useRef(onLogout);
+  useEffect(() => { onWarningRef.current = onWarning; }, [onWarning]);
+  useEffect(() => { onLogoutRef.current = onLogout; }, [onLogout]);
+
   useEffect(() => {
     if (!enabled) return;
     let warnTimer: ReturnType<typeof setTimeout> | null = null;
@@ -20,11 +25,11 @@ export function useIdleLogout({ enabled, idleMs, onWarning, onLogout }: IdleLogo
     let warningShown = false;
 
     function resetTimers() {
-      if (warningShown) { onWarning(false); warningShown = false; }
+      if (warningShown) { onWarningRef.current(false); warningShown = false; }
       if (warnTimer) clearTimeout(warnTimer);
       if (logoutTimer) clearTimeout(logoutTimer);
-      warnTimer = setTimeout(() => { warningShown = true; onWarning(true); }, idleMs - 5 * 60 * 1000);
-      logoutTimer = setTimeout(onLogout, idleMs);
+      warnTimer = setTimeout(() => { warningShown = true; onWarningRef.current(true); }, idleMs - 5 * 60 * 1000);
+      logoutTimer = setTimeout(() => onLogoutRef.current(), idleMs);
     }
 
     const EVENTS = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "click", "wheel"];

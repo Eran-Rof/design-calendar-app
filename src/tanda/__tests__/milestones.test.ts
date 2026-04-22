@@ -183,8 +183,8 @@ describe("generateMilestones — additional edge cases", () => {
     const ms = generateMilestones("PO-1", "2028-02-29", templates, "");
     expect(ms).toHaveLength(1);
     expect(ms[0].expected_date).toBeDefined();
-    // 120 days before Feb 29, 2028 = Oct 31, 2027
-    expect(ms[0].expected_date).toBe("2027-10-31");
+    // 120 days before Feb 29, 2028 = Nov 1, 2027 (Oct 31 + 120d = Feb 28)
+    expect(ms[0].expected_date).toBe("2027-11-01");
   });
 
   it("handles large daysBeforeDDP that crosses a year boundary", () => {

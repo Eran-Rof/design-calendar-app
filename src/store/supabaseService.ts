@@ -50,18 +50,20 @@ export async function sbSaveTask(task: any, currentUserName: string): Promise<vo
       }
     }
   }
-  await fetch(`${SB_URL}/rest/v1/tasks`, {
+  const res = await fetch(`${SB_URL}/rest/v1/tasks`, {
     method: "POST",
     headers: UPSERT_PREFER,
     body: JSON.stringify({ id: task.id, data: { ...task, updatedAt: new Date().toISOString(), updatedBy: currentUserName } }),
   });
+  if (!res.ok) throw new Error(`sbSaveTask(${task.id}) HTTP ${res.status}`);
 }
 
 export async function sbDeleteTask(id: string): Promise<void> {
-  await fetch(`${SB_URL}/rest/v1/tasks?id=eq.${id}`, {
+  const res = await fetch(`${SB_URL}/rest/v1/tasks?id=eq.${id}`, {
     method: "DELETE",
     headers: HEADERS_READ,
   });
+  if (!res.ok) throw new Error(`sbDeleteTask(${id}) HTTP ${res.status}`);
 }
 
 export async function sbLoadTasks(): Promise<any[] | null> {
@@ -76,11 +78,12 @@ export async function sbLoadTasks(): Promise<any[] | null> {
 // ── Collections ───────────────────────────────────────────────────────────
 
 export async function sbSaveCollection(key: string, data: any, currentUserName: string): Promise<void> {
-  await fetch(`${SB_URL}/rest/v1/collections`, {
+  const res = await fetch(`${SB_URL}/rest/v1/collections`, {
     method: "POST",
     headers: UPSERT_PREFER,
     body: JSON.stringify({ id: key, data: { ...data, _updatedAt: new Date().toISOString(), _updatedBy: currentUserName } }),
   });
+  if (!res.ok) throw new Error(`sbSaveCollection("${key}") HTTP ${res.status}`);
 }
 
 export async function sbLoadCollections(): Promise<Record<string, any> | null> {

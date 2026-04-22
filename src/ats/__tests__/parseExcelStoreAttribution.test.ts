@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 // Store-attribution logic drives which inventory row an SO/PO event
 // lands on; regressions here have already bitten us once (ECOM SOs
 // routed to ROF rows). Lock the matrix down.
-import { detectSkuStore, detectPoStore, detectSoStore } from "../../../api/parse-excel.js";
+import { detectSkuStore, detectPoStore, detectSoStore } from "../../../api/_handlers/parse-excel.js";
 
 describe("detectSkuStore", () => {
   it("routes Psycho Tuna brand variants to PT", () => {

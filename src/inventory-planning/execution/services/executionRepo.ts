@@ -53,10 +53,12 @@ export const executionRepo = {
   },
   async createBatch(row: Omit<IpExecutionBatch, "id" | "created_at" | "updated_at">): Promise<IpExecutionBatch> {
     const [c] = await sbPost<IpExecutionBatch>("ip_execution_batches", [row]);
+    if (!c) throw new Error("createBatch: no row returned from Supabase");
     return c;
   },
   async updateBatch(id: string, patch: Partial<IpExecutionBatch>): Promise<IpExecutionBatch> {
     const [u] = await sbPatch<IpExecutionBatch>(`ip_execution_batches?id=eq.${id}`, patch);
+    if (!u) throw new Error(`updateBatch(${id}): no row returned from Supabase`);
     return u;
   },
 
@@ -72,6 +74,7 @@ export const executionRepo = {
   },
   async updateAction(id: string, patch: Partial<IpExecutionAction>): Promise<IpExecutionAction> {
     const [u] = await sbPatch<IpExecutionAction>(`ip_execution_actions?id=eq.${id}`, patch);
+    if (!u) throw new Error(`updateAction(${id}): no row returned from Supabase`);
     return u;
   },
   async deleteAction(id: string): Promise<void> {
@@ -96,6 +99,7 @@ export const executionRepo = {
   },
   async updateWritebackConfig(id: string, patch: Partial<IpErpWritebackConfig>): Promise<IpErpWritebackConfig> {
     const [u] = await sbPatch<IpErpWritebackConfig>(`ip_erp_writeback_config?id=eq.${id}`, patch);
+    if (!u) throw new Error(`updateWritebackConfig(${id}): no row returned from Supabase`);
     return u;
   },
 

@@ -37,6 +37,15 @@ async function sbPost(path: string, body: unknown, prefer = "return=minimal"): P
   });
   if (!r.ok) throw new Error(`sbPost ${path} failed: ${r.status} ${await r.text()}`);
 }
+async function sbPatch(path: string, body: unknown): Promise<void> {
+  if (!SB_URL) throw new Error("Supabase URL not configured");
+  const r = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    method: "PATCH",
+    headers: SB_HEADERS,
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`sbPatch ${path} failed: ${r.status} ${await r.text()}`);
+}
 
 export interface IngestShopifyOrdersResult {
   raw_payload_ids_processed: number;
@@ -124,11 +133,7 @@ export async function ingestShopifyOrders(opts: { limit?: number } = {}): Promis
       }
     }
     // Mark raw as normalized.
-    await fetch(`${SB_URL}/rest/v1/raw_shopify_payloads?id=eq.${raw.id}`, {
-      method: "PATCH",
-      headers: SB_HEADERS,
-      body: JSON.stringify({ normalized_at: new Date().toISOString() }),
-    });
+    await sbPatch(`raw_shopify_payloads?id=eq.${raw.id}`, { normalized_at: new Date().toISOString() });
   }
   return {
     raw_payload_ids_processed: rawRows.length,
@@ -233,11 +238,7 @@ export async function ingestShopifyProducts(opts: { limit?: number } = {}): Prom
         channel_status_rows += chunk.length;
       }
     }
-    await fetch(`${SB_URL}/rest/v1/raw_shopify_payloads?id=eq.${raw.id}`, {
-      method: "PATCH",
-      headers: SB_HEADERS,
-      body: JSON.stringify({ normalized_at: new Date().toISOString() }),
-    });
+    await sbPatch(`raw_shopify_payloads?id=eq.${raw.id}`, { normalized_at: new Date().toISOString() });
   }
   return {
     raw_payload_ids_processed: rawRows.length,

@@ -9,11 +9,18 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      VITE_SUPABASE_URL: https://placeholder.supabase.co
+      VITE_SUPABASE_ANON_KEY: placeholder
+      VITE_AZURE_CLIENT_ID: placeholder
+      VITE_AZURE_TENANT_ID: placeholder
+      VITE_XORO_API_KEY: placeholder
+      VITE_XORO_API_SECRET: placeholder
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: "npm"
-      - run: npm ci --prefer-offline
+      - run: npm ci
       - run: npm test

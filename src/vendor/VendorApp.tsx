@@ -43,6 +43,17 @@ import VendorRfqDetail from "./VendorRfqDetail";
 import VendorEntitySwitcher from "./VendorEntitySwitcher";
 import VendorMobileFeed from "./VendorMobileFeed";
 import PortalLogin from "./PortalLogin";
+import VendorWorkspaces from "./VendorWorkspaces";
+import VendorSustainability from "./VendorSustainability";
+import VendorDiversity from "./VendorDiversity";
+import VendorMarketplace from "./VendorMarketplace";
+import VendorEsg from "./VendorEsg";
+import VendorDiscountOffers from "./VendorDiscountOffers";
+import VendorPaymentPreferences from "./VendorPaymentPreferences";
+import VendorScf from "./VendorScf";
+import VendorVirtualCards from "./VendorVirtualCards";
+import VendorWithholding from "./VendorWithholding";
+import VendorPayments from "./VendorPayments";
 
 function useVendorSession(): { session: Session | null; ready: boolean } {
   const [session, setSession] = useState<Session | null>(null);
@@ -108,23 +119,148 @@ function OnboardingGate({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+const MORE_GROUPS: { group: string; items: { to: string; label: string; match: (p: string) => boolean }[] }[] = [
+  { group: "Orders", items: [
+    { to: "/vendor/shipments", label: "Shipments", match: (p) => p.startsWith("/vendor/shipments") },
+    { to: "/vendor/contracts", label: "Contracts", match: (p) => p.startsWith("/vendor/contracts") },
+    { to: "/vendor/catalog",   label: "Catalog",   match: (p) => p.startsWith("/vendor/catalog") },
+  ]},
+  { group: "Finance", items: [
+    { to: "/vendor/discount-offers",     label: "Early pay",     match: (p) => p.startsWith("/vendor/discount-offers") },
+    { to: "/vendor/scf",                 label: "Financing",     match: (p) => p.startsWith("/vendor/scf") },
+    { to: "/vendor/virtual-cards",       label: "Virtual cards", match: (p) => p.startsWith("/vendor/virtual-cards") },
+    { to: "/vendor/withholding",         label: "Tax",           match: (p) => p.startsWith("/vendor/withholding") || p.startsWith("/vendor/tax") },
+    { to: "/vendor/payment-preferences", label: "Payment prefs", match: (p) => p.startsWith("/vendor/payment-preferences") },
+  ]},
+  { group: "ESG & Diversity", items: [
+    { to: "/vendor/sustainability", label: "Sustainability", match: (p) => p.startsWith("/vendor/sustainability") },
+    { to: "/vendor/esg",            label: "ESG",            match: (p) => p.startsWith("/vendor/esg") },
+    { to: "/vendor/diversity",      label: "Diversity",      match: (p) => p.startsWith("/vendor/diversity") },
+  ]},
+  { group: "Collab", items: [
+    { to: "/vendor/workspaces",  label: "Workspaces",  match: (p) => p.startsWith("/vendor/workspaces") },
+    { to: "/vendor/disputes",    label: "Disputes",    match: (p) => p.startsWith("/vendor/disputes") },
+    { to: "/vendor/marketplace", label: "Marketplace", match: (p) => p.startsWith("/vendor/marketplace") },
+  ]},
+  { group: "Reports & Admin", items: [
+    { to: "/vendor/reports",           label: "Reports",   match: (p) => p.startsWith("/vendor/reports") },
+    { to: "/vendor/scorecard",         label: "Scorecard", match: (p) => p.startsWith("/vendor/scorecard") || p.startsWith("/vendor/performance") },
+    { to: "/vendor/bulk",              label: "Bulk",      match: (p) => p.startsWith("/vendor/bulk") },
+    { to: "/vendor/settings/api-keys", label: "Settings",  match: (p) => p.startsWith("/vendor/settings") },
+  ]},
+];
+
+function MoreFlyout({ activePath, onClose }: { activePath: string; onClose: () => void }) {
+  const currentGroup = MORE_GROUPS.find((g) => g.items.some((i) => i.match(activePath)))?.group;
+  const [hovered, setHovered] = useState<string | null>(currentGroup || MORE_GROUPS[0].group);
+  const active = MORE_GROUPS.find((g) => g.group === hovered) || MORE_GROUPS[0];
+
+  return (
+    <div
+      role="menu"
+      style={{
+        position: "absolute", top: "100%", right: 0, paddingTop: 2,
+        display: "flex", gap: 4, flexDirection: "row-reverse",
+        zIndex: 100,
+      }}
+    >
+      <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 8, padding: 4, minWidth: 180, boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+        {MORE_GROUPS.map((g) => {
+          const isHovered = g.group === hovered;
+          const hasSelected = g.items.some((i) => i.match(activePath));
+          return (
+            <button
+              key={g.group}
+              onMouseEnter={() => setHovered(g.group)}
+              onFocus={() => setHovered(g.group)}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+                background: isHovered ? "#334155" : "transparent",
+                border: "none", color: hasSelected ? "#60A5FA" : "#F1F5F9",
+                borderRadius: 6, padding: "9px 10px", fontSize: 13, cursor: "default",
+                textAlign: "left", fontFamily: "inherit", fontWeight: hasSelected ? 700 : 500,
+              }}
+            >
+              <span style={{ fontSize: 10, opacity: 0.6 }}>◂</span>
+              <span>{g.group}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 8, padding: 4, minWidth: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+        <div style={{ padding: "6px 10px 4px", fontSize: 10, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: 0.8 }}>{active.group}</div>
+        {active.items.map((i) => (
+          <Link
+            key={i.to} to={i.to} role="menuitem"
+            onClick={onClose}
+            style={{
+              display: "block", width: "100%",
+              background: i.match(activePath) ? "#3B82F620" : "transparent",
+              color: i.match(activePath) ? "#60A5FA" : "#CBD5E1",
+              borderRadius: 6, padding: "8px 10px", fontSize: 13, textDecoration: "none",
+              boxSizing: "border-box",
+            }}
+          >{i.label}</Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MoreMenu({ activePath }: { activePath: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const click = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", click);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", click); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  useEffect(() => () => { if (leaveTimer.current) clearTimeout(leaveTimer.current); }, []);
+
+  const anyActive = MORE_GROUPS.some((g) => g.items.some((i) => i.match(activePath)));
+  const activeItem = MORE_GROUPS.flatMap((g) => g.items).find((i) => i.match(activePath));
+  const label = activeItem ? activeItem.label : "More";
+
+  return (
+    <div
+      ref={ref}
+      style={{ position: "relative" }}
+      onMouseEnter={() => { if (leaveTimer.current) { clearTimeout(leaveTimer.current); leaveTimer.current = null; } }}
+      onMouseLeave={() => { leaveTimer.current = setTimeout(() => setOpen(false), 200); }}
+    >
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          padding: "10px 18px", fontSize: 13, fontWeight: 600,
+          color: anyActive ? "#60A5FA" : "#CBD5E1",
+          background: "transparent", border: "none",
+          borderBottom: anyActive ? "2px solid #60A5FA" : "2px solid transparent",
+          cursor: "pointer", fontFamily: "inherit",
+        }}
+        aria-haspopup="menu" aria-expanded={open}
+      >
+        {label} <span style={{ fontSize: 10, marginLeft: 4, opacity: 0.8 }}>▾</span>
+      </button>
+      {open && <MoreFlyout activePath={activePath} onClose={() => setOpen(false)} />}
+    </div>
+  );
+}
+
 function TabNav() {
   const loc = useLocation();
   const p = loc.pathname;
   return (
-    <nav style={{ display: "flex", gap: 2, padding: "0 24px", background: "rgba(255,255,255,0.05)", borderBottom: `1px solid rgba(255,255,255,0.12)`, flexWrap: "wrap" }}>
+    <nav style={{ display: "flex", gap: 2, padding: "0 24px", background: "rgba(255,255,255,0.05)", borderBottom: `1px solid rgba(255,255,255,0.12)`, alignItems: "center" }}>
       <TabLink to="/vendor" active={p === "/vendor"}>Purchase Orders</TabLink>
-      <TabLink to="/vendor/shipments" active={p.startsWith("/vendor/shipments")}>Shipments</TabLink>
       <TabLink to="/vendor/invoices" active={p.startsWith("/vendor/invoices")}>Invoices</TabLink>
-      <TabLink to="/vendor/contracts" active={p.startsWith("/vendor/contracts")}>Contracts</TabLink>
-      <TabLink to="/vendor/catalog" active={p.startsWith("/vendor/catalog")}>Catalog</TabLink>
-      <TabLink to="/vendor/compliance" active={p.startsWith("/vendor/compliance")}>Compliance</TabLink>
+      <TabLink to="/vendor/payments" active={p.startsWith("/vendor/payments")}>Payments</TabLink>
       <TabLink to="/vendor/messages" active={p.startsWith("/vendor/messages")}>Messages</TabLink>
-      <TabLink to="/vendor/disputes" active={p.startsWith("/vendor/disputes")}>Disputes</TabLink>
-      <TabLink to="/vendor/reports" active={p.startsWith("/vendor/reports")}>Reports</TabLink>
-      <TabLink to="/vendor/scorecard" active={p.startsWith("/vendor/scorecard") || p.startsWith("/vendor/performance")}>Scorecard</TabLink>
-      <TabLink to="/vendor/bulk" active={p.startsWith("/vendor/bulk")}>Bulk</TabLink>
-      <TabLink to="/vendor/settings/api-keys" active={p.startsWith("/vendor/settings")}>Settings</TabLink>
+      <TabLink to="/vendor/compliance" active={p.startsWith("/vendor/compliance")}>Compliance</TabLink>
+      <div style={{ marginLeft: "auto" }}><MoreMenu activePath={p} /></div>
     </nav>
   );
 }
@@ -328,6 +464,20 @@ export default function VendorApp() {
         <Route path="/vendor/rfqs/:id"       element={<Protected><VendorShell withTabs><VendorRfqDetail /></VendorShell></Protected>} />
         <Route path="/vendor/entity-switcher" element={<Protected><VendorShell withTabs><VendorEntitySwitcher /></VendorShell></Protected>} />
         <Route path="/vendor/mobile/feed"    element={<Protected><VendorShell><VendorMobileFeed /></VendorShell></Protected>} />
+        <Route path="/vendor/workspaces"     element={<Protected><VendorShell withTabs><VendorWorkspaces /></VendorShell></Protected>} />
+        <Route path="/vendor/sustainability" element={<Protected><VendorShell withTabs><VendorSustainability /></VendorShell></Protected>} />
+        <Route path="/vendor/diversity"      element={<Protected><VendorShell withTabs><VendorDiversity /></VendorShell></Protected>} />
+        <Route path="/vendor/marketplace"    element={<Protected><VendorShell withTabs><VendorMarketplace /></VendorShell></Protected>} />
+        <Route path="/vendor/esg"            element={<Protected><VendorShell withTabs><VendorEsg /></VendorShell></Protected>} />
+        <Route path="/vendor/discount-offers" element={<Protected><VendorShell withTabs><VendorDiscountOffers /></VendorShell></Protected>} />
+        <Route path="/vendor/payment-preferences" element={<Protected><VendorShell withTabs><VendorPaymentPreferences /></VendorShell></Protected>} />
+        <Route path="/vendor/scf"                 element={<Protected><VendorShell withTabs><VendorScf /></VendorShell></Protected>} />
+        <Route path="/vendor/virtual-cards"       element={<Protected><VendorShell withTabs><VendorVirtualCards /></VendorShell></Protected>} />
+        <Route path="/vendor/virtual-cards/:id/reveal" element={<Protected><VendorShell withTabs><VendorVirtualCards /></VendorShell></Protected>} />
+        <Route path="/vendor/withholding"         element={<Protected><VendorShell withTabs><VendorWithholding /></VendorShell></Protected>} />
+        <Route path="/vendor/tax"                 element={<Protected><VendorShell withTabs><VendorWithholding /></VendorShell></Protected>} />
+        <Route path="/vendor/financing"           element={<Protected><VendorShell withTabs><VendorScf /></VendorShell></Protected>} />
+        <Route path="/vendor/payments"            element={<Protected><VendorShell withTabs><VendorPayments /></VendorShell></Protected>} />
         <Route path="/portal/:slug/login"    element={<PortalLogin />} />
         <Route path="/vendor/*" element={<Navigate to="/vendor" replace />} />
       </Routes>
