@@ -461,7 +461,8 @@ export default function VendorPhasesView({ poId }: Props = {}) {
       )}
 
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "auto", boxShadow: `0 1px 2px ${TH.shadow}` }}>
-        <div style={{ display: "grid", gridTemplateColumns: `${poId ? "" : "140px "}240px 120px 110px 120px 1fr`, padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
+        <div style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 1fr`, padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
+          <div></div>{/* expand-toggle column — keeps header aligned with rows */}
           {!poId && <div>PO #</div>}
           <div>Phase</div>
           <div>Expected</div>
