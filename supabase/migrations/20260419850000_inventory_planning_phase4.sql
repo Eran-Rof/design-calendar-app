@@ -176,28 +176,35 @@ CREATE INDEX IF NOT EXISTS idx_ip_export_run      ON ip_export_jobs (planning_ru
 CREATE INDEX IF NOT EXISTS idx_ip_export_scenario ON ip_export_jobs (scenario_id);
 CREATE INDEX IF NOT EXISTS idx_ip_export_type     ON ip_export_jobs (export_type);
 
--- ── Wire Phase 5 scenario_id FKs now that ip_scenarios exists ─────────────
--- The Phase 5 migration left these as nullable uuids with no constraint;
--- add the constraints here. DROP IF EXISTS first so this migration is
--- idempotent even if a future patch re-runs it.
+-- ── Wire Phase 5 scenario_id FKs (runs only if Phase 5 tables exist) ──────
+-- On prod this block was added after Phase 5 already landed, so the tables
+-- are present. On a fresh DB, Phase 4 runs before Phase 5, so we skip and
+-- let migration 20260419861000_ip_scenario_fks.sql do the actual wiring.
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ip_forecast_accuracy_scenario_fk') THEN
+  IF to_regclass('public.ip_scenarios') IS NULL THEN
+    RETURN;
+  END IF;
+  IF to_regclass('public.ip_forecast_accuracy') IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ip_forecast_accuracy_scenario_fk') THEN
     ALTER TABLE ip_forecast_accuracy
       ADD CONSTRAINT ip_forecast_accuracy_scenario_fk
         FOREIGN KEY (scenario_id) REFERENCES ip_scenarios(id) ON DELETE SET NULL;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ip_override_effectiveness_scenario_fk') THEN
+  IF to_regclass('public.ip_override_effectiveness') IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ip_override_effectiveness_scenario_fk') THEN
     ALTER TABLE ip_override_effectiveness
       ADD CONSTRAINT ip_override_effectiveness_scenario_fk
         FOREIGN KEY (scenario_id) REFERENCES ip_scenarios(id) ON DELETE SET NULL;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ip_planning_anomalies_scenario_fk') THEN
+  IF to_regclass('public.ip_planning_anomalies') IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ip_planning_anomalies_scenario_fk') THEN
     ALTER TABLE ip_planning_anomalies
       ADD CONSTRAINT ip_planning_anomalies_scenario_fk
         FOREIGN KEY (scenario_id) REFERENCES ip_scenarios(id) ON DELETE SET NULL;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ip_ai_suggestions_scenario_fk') THEN
+  IF to_regclass('public.ip_ai_suggestions') IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ip_ai_suggestions_scenario_fk') THEN
     ALTER TABLE ip_ai_suggestions
       ADD CONSTRAINT ip_ai_suggestions_scenario_fk
         FOREIGN KEY (scenario_id) REFERENCES ip_scenarios(id) ON DELETE SET NULL;
