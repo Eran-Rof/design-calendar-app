@@ -50,8 +50,11 @@ export default function ShipmentSubmit() {
   const [shipDate, setShipDate] = useState(new Date().toISOString().slice(0, 10));
   const [estimatedDelivery, setEstimatedDelivery] = useState("");
   const [notes, setNotes] = useState("");
+  const [packingListFile, setPackingListFile] = useState<File | null>(null);
+  const [blFile, setBlFile] = useState<File | null>(null);
 
   const [vendorUserId, setVendorUserId] = useState<string | null>(null);
+  const [vendorId, setVendorId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -62,8 +65,11 @@ export default function ShipmentSubmit() {
         const uid = userRes.user?.id;
         if (!uid) throw new Error("Not signed in.");
         const { data: vu } = await supabaseVendor
-          .from("vendor_users").select("id").eq("auth_id", uid).maybeSingle();
-        if (vu) setVendorUserId(vu.id as string);
+          .from("vendor_users").select("id, vendor_id").eq("auth_id", uid).maybeSingle();
+        if (vu) {
+          setVendorUserId(vu.id as string);
+          setVendorId((vu as { vendor_id: string }).vendor_id);
+        }
 
         const { data, error } = await supabaseVendor
           .from("tanda_pos")
@@ -140,6 +146,22 @@ export default function ShipmentSubmit() {
       const accessToken = session?.session?.access_token;
       if (!accessToken) { setErr("Not signed in."); setBusy(false); return; }
 
+      async function uploadDoc(f: File | null, subdir: string): Promise<string | null> {
+        if (!f) return null;
+        if (!vendorId) throw new Error("Vendor not resolved yet.");
+        const MAX = 10 * 1024 * 1024;
+        if (f.size > MAX) throw new Error(`${subdir} exceeds 10 MB limit.`);
+        const ext = f.name.split(".").pop()?.toLowerCase();
+        const allowed = ["pdf", "xls", "xlsx"];
+        if (!ext || !allowed.includes(ext)) throw new Error(`${subdir} must be PDF or Excel.`);
+        const path = `${vendorId}/shipments/${Date.now()}_${subdir}_${f.name.replace(/\s+/g, "_")}`;
+        const { error: upErr } = await supabaseVendor.storage.from("vendor-docs").upload(path, f, { upsert: false });
+        if (upErr) throw upErr;
+        return path;
+      }
+      const packingListUrl = await uploadDoc(packingListFile, "packing_list");
+      const blUrl = await uploadDoc(blFile, "bl");
+
       const lineItems = includedLines.map((l) => ({
         po_line_item_id: l.line_id,
         quantity_shipped: Number(l.qty_shipped) || 0,
@@ -157,6 +179,8 @@ export default function ShipmentSubmit() {
           number: trackingNumber.trim() || undefined,
           number_type: trackingNumber.trim() && trackingType ? trackingType : undefined,
           notes: notes.trim() || null,
+          packing_list_url: packingListUrl,
+          bl_document_url: blUrl,
           line_items: lineItems,
         }),
       });
@@ -240,6 +264,32 @@ export default function ShipmentSubmit() {
               placeholder="Tracking number (leave blank to add later)"
               style={{ ...inputStyle, fontFamily: "Menlo, monospace", textTransform: "uppercase" }}
             />
+          </div>
+        </div>
+
+        <div style={{ padding: 14, background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 6, marginBottom: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: TH.textSub, marginBottom: 8 }}>
+            Documents (PDF or Excel, 10 MB max each)
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <label style={labelStyle}>Packing list</label>
+              <input
+                type="file"
+                accept="application/pdf,.pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xls,.xlsx"
+                onChange={(e) => setPackingListFile(e.target.files?.[0] || null)}
+              />
+              {packingListFile && <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>{packingListFile.name} · {(packingListFile.size / 1024).toFixed(0)} KB</div>}
+            </div>
+            <div>
+              <label style={labelStyle}>Bill of Lading</label>
+              <input
+                type="file"
+                accept="application/pdf,.pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xls,.xlsx"
+                onChange={(e) => setBlFile(e.target.files?.[0] || null)}
+              />
+              {blFile && <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>{blFile.name} · {(blFile.size / 1024).toFixed(0)} KB</div>}
+            </div>
           </div>
         </div>
 

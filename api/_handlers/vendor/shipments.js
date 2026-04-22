@@ -47,6 +47,7 @@ export default async function handler(req, res) {
   const {
     po_id, asn_number, carrier, ship_date, estimated_delivery,
     number, number_type, notes, line_items,
+    packing_list_url, bl_document_url,
   } = body || {};
 
   if (!po_id) return send(400, { error: "po_id is required" });
@@ -72,6 +73,8 @@ export default async function handler(req, res) {
     estimated_delivery: estimated_delivery || null,
     workflow_status: "submitted",
     notes: notes ? String(notes).trim() : null,
+    packing_list_url: packing_list_url || null,
+    bl_document_url: bl_document_url || null,
   }).select("*").single();
   if (shipErr) {
     if (shipErr.code === "23505") return send(409, { error: "An ASN with this reference already exists for your vendor" });
