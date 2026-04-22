@@ -46,6 +46,7 @@ export default async function handler(req, res) {
 
   const {
     po_id, asn_number, carrier, ship_date, estimated_delivery,
+    estimated_port_date,
     number, number_type, notes, line_items,
     packing_list_url, bl_document_url,
   } = body || {};
@@ -76,6 +77,7 @@ export default async function handler(req, res) {
     carrier: carrier || null,
     ship_date: ship_date || null,
     estimated_delivery: estimated_delivery || null,
+    eta: estimated_port_date || null,
     workflow_status: "submitted",
     notes: notes ? String(notes).trim() : null,
     packing_list_url: packing_list_url || null,

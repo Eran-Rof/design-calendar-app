@@ -48,6 +48,7 @@ export default function ShipmentSubmit() {
   const [trackingType, setTrackingType] = useState<TrackingType>("");
   const [trackingNumber, setTrackingNumber] = useState("");
   const [shipDate, setShipDate] = useState(new Date().toISOString().slice(0, 10));
+  const [estimatedPortDate, setEstimatedPortDate] = useState("");
   const [estimatedDelivery, setEstimatedDelivery] = useState("");
   const [notes, setNotes] = useState("");
   const [packingListFile, setPackingListFile] = useState<File | null>(null);
@@ -175,6 +176,7 @@ export default function ShipmentSubmit() {
           asn_number: asnNumber.trim(),
           carrier,
           ship_date: shipDate || null,
+          estimated_port_date: estimatedPortDate || null,
           estimated_delivery: estimatedDelivery || null,
           number: trackingNumber.trim() || undefined,
           number_type: trackingNumber.trim() && trackingType ? trackingType : undefined,
@@ -230,7 +232,7 @@ export default function ShipmentSubmit() {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div>
             <label style={labelStyle}>Carrier</label>
             <select value={carrier} onChange={(e) => setCarrier(e.target.value as Carrier)} style={inputStyle}>
@@ -240,6 +242,10 @@ export default function ShipmentSubmit() {
           <div>
             <label style={labelStyle}>Ship date</label>
             <input type="date" value={shipDate} onChange={(e) => setShipDate(e.target.value)} style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Estimated port date</label>
+            <input type="date" value={estimatedPortDate} onChange={(e) => setEstimatedPortDate(e.target.value)} style={inputStyle} />
           </div>
           <div>
             <label style={labelStyle}>Estimated delivery</label>
