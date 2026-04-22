@@ -24,8 +24,11 @@ async function resolveVendor(admin, authHeader) {
   } catch { return null; }
 }
 
-function bucketPo(po, ackSet) {
+function bucketPo(po, ackSet, invoicedSet) {
   const statusName = ((po.data && po.data.StatusName) || "").toLowerCase();
+  // An invoice submitted against this PO is the portal's source of
+  // truth for "done" — outranks Xoro's StatusName in the vendor view.
+  if (invoicedSet.has(po.uuid_id)) return "shipped_invoiced";
   if (statusName.includes("closed")) return "closed";
   if (statusName.includes("partial")) return "partially_received";
   if (statusName.includes("received") || statusName.includes("shipped") || statusName.includes("fulfilled")) return "fulfilled";
@@ -70,11 +73,12 @@ export default async function handler(req, res) {
   const limit = Math.min(Number(url.searchParams.get("limit")) || 50, 200);
   const offset = Math.max(Number(url.searchParams.get("offset")) || 0, 0);
 
-  const [poRes, ackRes] = await Promise.all([
+  const [poRes, ackRes, invRes] = await Promise.all([
     admin.from("tanda_pos")
       .select("uuid_id, po_number, data, date_expected_delivery, buyer_name")
       .eq("vendor_id", caller.vendor_id),
     admin.from("po_acknowledgments").select("po_number, acknowledged_at"),
+    admin.from("invoices").select("po_id, status").eq("vendor_id", caller.vendor_id),
   ]);
   if (poRes.error)  return res.status(500).json({ error: poRes.error.message });
   if (ackRes.error) return res.status(500).json({ error: ackRes.error.message });
@@ -83,6 +87,11 @@ export default async function handler(req, res) {
   const ackSet = new Set(acks.map((a) => a.po_number));
   const ackAtByPo = new Map(acks.map((a) => [a.po_number, a.acknowledged_at]));
   const allPos = poRes.data || [];
+  // PO ids that have at least one non-rejected invoice — these are
+  // treated as shipped/invoiced in the dashboard bucket.
+  const invoicedSet = new Set(
+    ((invRes?.data) || []).filter((i) => i.po_id && i.status !== "rejected").map((i) => i.po_id),
+  );
 
   const fromMs = fromDate ? new Date(fromDate + "T00:00:00").getTime() : -Infinity;
   const toMs = toDate ? new Date(toDate + "T23:59:59").getTime() : Infinity;
@@ -95,7 +104,7 @@ export default async function handler(req, res) {
       return d >= fromMs && d <= toMs;
     })
     .map((p) => {
-      const bucket = bucketPo(p, ackSet);
+      const bucket = bucketPo(p, ackSet, invoicedSet);
       const ddp = p.date_expected_delivery || p.data?.DateExpectedDelivery || null;
       const requiredMs = ddp ? new Date(ddp).getTime() : null;
       const issued_at = p.data?.DateOrder || null;

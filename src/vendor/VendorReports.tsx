@@ -54,6 +54,7 @@ const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
   acknowledged:       { bg: "#DBEAFE", fg: "#1E40AF" },
   partially_received: { bg: "#FEF3C7", fg: "#92400E" },
   fulfilled:          { bg: "#D1FAE5", fg: "#065F46" },
+  shipped_invoiced:   { bg: "#D1FAE5", fg: "#065F46" },
   closed:             { bg: "#A7F3D0", fg: "#064E3B" },
   matched:      { bg: "#D1FAE5", fg: "#065F46" },
   discrepancy:  { bg: "#FECACA", fg: "#991B1B" },
@@ -189,6 +190,7 @@ export default function VendorReports() {
           <option value="acknowledged">Acknowledged</option>
           <option value="partially_received">Partially received</option>
           <option value="fulfilled">Fulfilled</option>
+          <option value="shipped_invoiced">Shipped/Invoiced</option>
           <option value="closed">Closed</option>
         </select>
       </div>
@@ -283,8 +285,19 @@ export default function VendorReports() {
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.paid_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtMoney(r.amount)}</div>
               <div><span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: c.bg, color: c.fg, fontWeight: 600, textTransform: "capitalize" }}>{r.status.replace("_", " ")}</span></div>
-              <div style={{ textAlign: "right", color: r.days_to_payment == null ? TH.textMuted : r.days_to_payment > 45 ? TH.primary : "#047857", fontWeight: 600 }}>
-                {r.days_to_payment == null ? "—" : `${r.days_to_payment}d`}
+              <div style={{ textAlign: "right", fontWeight: 600 }}>
+                {r.days_to_payment != null ? (
+                  <span style={{ color: r.days_to_payment > 45 ? TH.primary : "#047857" }}>{r.days_to_payment}d</span>
+                ) : r.status === "rejected" || r.status === "disputed" ? (
+                  <span style={{ color: TH.textMuted }}>—</span>
+                ) : (() => {
+                  // Not paid yet — show how long the invoice has been outstanding.
+                  const anchor = r.approved_at || r.submitted_at;
+                  if (!anchor) return <span style={{ color: TH.textMuted }}>—</span>;
+                  const days = Math.floor((Date.now() - new Date(anchor).getTime()) / 86_400_000);
+                  const color = days > 45 ? TH.primary : days > 30 ? "#B45309" : TH.textSub2;
+                  return <span style={{ color }}>{days}d pending</span>;
+                })()}
               </div>
             </RowTag>
           );
