@@ -11,7 +11,7 @@ export function generateMilestones(
 
   return templates.map((tpl, i) => {
     const expected = new Date(ddp);
-    expected.setDate(expected.getDate() - tpl.daysBeforeDDP);
+    expected.setUTCDate(expected.getUTCDate() - tpl.daysBeforeDDP);
     return {
       id: milestoneUid(),
       po_number: poNumber,
