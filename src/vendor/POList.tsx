@@ -225,7 +225,7 @@ export default function POList() {
       </div>
 
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "auto", boxShadow: `0 1px 2px ${TH.shadow}` }}>
-        <div style={{ display: "grid", gridTemplateColumns: "120px 100px 110px 110px 24px 110px 130px 110px 120px 120px 140px 170px", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05, minWidth: 1434 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "120px 100px 110px 110px 24px 110px 130px 110px 120px 120px 260px 170px", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05, minWidth: 1554 }}>
           <div>PO #</div>
           <div>Issued</div>
           <div>Required</div>
@@ -236,8 +236,8 @@ export default function POList() {
           <div style={{ textAlign: "right" }}>Qty Remain</div>
           <div style={{ textAlign: "right" }}>Amt Received</div>
           <div style={{ textAlign: "right" }}>Amt Remain</div>
-          <div>Status</div>
-          <div style={{ textAlign: "right" }}>Acknowledge Date</div>
+          <div style={{ textAlign: "center" }}>Status</div>
+          <div style={{ textAlign: "center" }}>Acknowledge Date</div>
         </div>
         {visible.length === 0 ? (
           <div style={{ padding: 20, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
@@ -255,7 +255,7 @@ export default function POList() {
             <Link
               key={r.id}
               to={`/vendor/pos/${r.uuid_id}`}
-              style={{ display: "grid", gridTemplateColumns: "120px 100px 110px 110px 24px 110px 130px 110px 120px 120px 140px 170px", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", textDecoration: "none", color: "inherit", minWidth: 1434 }}
+              style={{ display: "grid", gridTemplateColumns: "120px 100px 110px 110px 24px 110px 130px 110px 120px 120px 260px 170px", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", textDecoration: "none", color: "inherit", minWidth: 1554 }}
             >
               <div style={{ fontWeight: 600, color: TH.primary }}>{r.po_number}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(p.DateOrder)}</div>
@@ -281,7 +281,7 @@ export default function POList() {
               <div style={{ color: totals.amountRemaining === 0 ? "#047857" : TH.textSub2, textAlign: "right", fontWeight: totals.amountRemaining === 0 ? 600 : 400 }}>
                 {totals.qtyOrdered > 0 ? fmtMoney(totals.amountRemaining) : "—"}
               </div>
-              <div>
+              <div style={{ textAlign: "center" }}>
                 {shippedPoIds.has(r.uuid_id) ? (
                   <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "#D1FAE5", border: `1px solid #A7F3D0`, color: "#065F46", whiteSpace: "nowrap", fontWeight: 700 }}>
                     Shipped
@@ -292,7 +292,7 @@ export default function POList() {
                   </span>
                 )}
               </div>
-              <div style={{ textAlign: "right" }}>
+              <div style={{ textAlign: "center" }}>
                 {acked ? (
                   <span style={{ fontSize: 12, color: "#047857", fontWeight: 600 }}>
                     ✓ {ackedAt ? fmtDate(ackedAt) : "—"}
