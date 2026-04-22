@@ -63,7 +63,7 @@ Rules:
 
 async function extractFromPdf(client, pdfBase64) {
   const resp = await client.messages.create({
-    model: "claude-opus-4-7",
+    model: "claude-haiku-4-5",
     max_tokens: 16000,
     system: SYSTEM_PROMPT,
     output_config: {
@@ -95,7 +95,7 @@ function excelToText(buffer) {
 async function extractFromExcel(client, buffer) {
   const text = excelToText(buffer);
   const resp = await client.messages.create({
-    model: "claude-opus-4-7",
+    model: "claude-haiku-4-5",
     max_tokens: 16000,
     system: SYSTEM_PROMPT,
     output_config: {
