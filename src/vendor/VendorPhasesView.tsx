@@ -467,7 +467,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
           <div>Expected</div>
           <div style={{ textAlign: "center" }}>Days</div>
           <div>Status</div>
-          <div>Review state</div>
+          <div style={{ textAlign: "right", paddingRight: 40 }}>Review state</div>
         </div>
 
         {filteredRows.length === 0 ? (
@@ -551,20 +551,20 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                     {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
-                <div style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-end" }}>
-                  <div style={{ textAlign: "right" }}>
-                    {pending && <span style={{ color: "#92400E" }}>⏳ pending review</span>}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 32px", alignItems: "center", gap: 8 }}>
+                  <div style={{ textAlign: "right", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, lineHeight: 1.35 }}>
+                    {pending && <div style={{ color: "#92400E" }}>⏳ Pending review</div>}
                     {rejected && !pending && (
-                      <span style={{ color: "#991B1B" }} title={r.dateReq?.review_note || r.statusReq?.review_note || ""}>✗ rejected</span>
+                      <div style={{ color: "#991B1B" }} title={r.dateReq?.review_note || r.statusReq?.review_note || ""}>✗ Rejected</div>
                     )}
                     {!pending && !rejected && (r.dateReq?.status === "approved" || r.statusReq?.status === "approved") && (
-                      <span style={{ color: "#065F46" }}>✓ approved</span>
-                    )}
-                    {!pending && !rejected && !r.dateReq?.status && !r.statusReq?.status && !hasMismatch && (
-                      <span style={{ color: TH.textMuted }}>—</span>
+                      <div style={{ color: "#065F46" }}>✓ Approved</div>
                     )}
                     {hasMismatch && (
-                      <div style={{ color: "#7C3AED", fontWeight: 600 }}>lines differ</div>
+                      <div style={{ color: "#7C3AED" }}>⚠ Lines differ</div>
+                    )}
+                    {!pending && !rejected && !r.dateReq?.status && !r.statusReq?.status && !hasMismatch && (
+                      <div style={{ color: TH.textMuted, fontWeight: 500 }}>—</div>
                     )}
                   </div>
                   <NotesButton
