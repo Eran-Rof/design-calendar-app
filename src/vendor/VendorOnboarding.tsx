@@ -256,6 +256,8 @@ function BankingStep({ onSubmit }: { onSubmit: (d: Record<string, unknown>) => P
 }
 
 function TaxStep({ initial, onSubmit }: { initial: Record<string, unknown> | null; onSubmit: (d: Record<string, unknown>) => Promise<unknown> }) {
+  const initialCollect = typeof initial?.collect_tax === "boolean" ? (initial.collect_tax as boolean) : false;
+  const [collectTax, setCollectTax] = useState<boolean>(initialCollect);
   const [classification, setClassification] = useState(String((initial?.classification as string) || "W-9"));
   const [file, setFile] = useState<File | null>(null);
   const [existingUrl] = useState(String((initial?.document_url as string) || ""));
@@ -264,6 +266,10 @@ function TaxStep({ initial, onSubmit }: { initial: Record<string, unknown> | nul
   async function submit() {
     setSaving(true);
     try {
+      if (!collectTax) {
+        await onSubmit({ collect_tax: false });
+        return;
+      }
       let docUrl = existingUrl;
       if (file) {
         const { data: userRes } = await supabaseVendor.auth.getUser();
@@ -278,7 +284,7 @@ function TaxStep({ initial, onSubmit }: { initial: Record<string, unknown> | nul
         docUrl = path;
       }
       if (!docUrl) { alert("Please upload a tax document."); setSaving(false); return; }
-      await onSubmit({ classification, document_url: docUrl });
+      await onSubmit({ collect_tax: true, classification, document_url: docUrl });
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : String(e));
     } finally { setSaving(false); }
@@ -286,17 +292,33 @@ function TaxStep({ initial, onSubmit }: { initial: Record<string, unknown> | nul
 
   return (
     <Card title="Step 3: Tax">
-      <p style={{ color: TH.textSub2, fontSize: 13, marginTop: 0 }}>Upload your W-9 (US) or W-8BEN (non-US) form.</p>
-      <Field label="Classification">
-        <select value={classification} onChange={(e) => setClassification(e.target.value)} style={inp}>
-          <option value="W-9">W-9 (US entity)</option>
-          <option value="W-8BEN">W-8BEN (non-US entity)</option>
-        </select>
-      </Field>
-      <Field label="Tax document (PDF)">
-        <input type="file" accept="application/pdf" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-        {existingUrl && !file && <div style={{ fontSize: 12, color: TH.textMuted, marginTop: 4 }}>Previously uploaded — re-upload to replace, or continue with existing.</div>}
-      </Field>
+      <p style={{ color: TH.textSub2, fontSize: 13, marginTop: 0 }}>
+        Do you collect and remit sales or VAT tax on your invoices to Ring of Fire?
+      </p>
+      <div style={{ display: "flex", gap: 14, marginBottom: 14 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: TH.text, cursor: "pointer" }}>
+          <input type="radio" name="collect_tax" checked={!collectTax} onChange={() => setCollectTax(false)} />
+          No — I do not collect tax
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: TH.text, cursor: "pointer" }}>
+          <input type="radio" name="collect_tax" checked={collectTax} onChange={() => setCollectTax(true)} />
+          Yes — I collect sales/VAT tax
+        </label>
+      </div>
+      {collectTax && (
+        <>
+          <Field label="Classification">
+            <select value={classification} onChange={(e) => setClassification(e.target.value)} style={inp}>
+              <option value="W-9">W-9 (US entity)</option>
+              <option value="W-8BEN">W-8BEN (non-US entity)</option>
+            </select>
+          </Field>
+          <Field label="Tax document (PDF)">
+            <input type="file" accept="application/pdf" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+            {existingUrl && !file && <div style={{ fontSize: 12, color: TH.textMuted, marginTop: 4 }}>Previously uploaded — re-upload to replace, or continue with existing.</div>}
+          </Field>
+        </>
+      )}
       <button onClick={() => void submit()} disabled={saving} style={btnPrimary}>{saving ? "Saving…" : "Save and continue"}</button>
     </Card>
   );

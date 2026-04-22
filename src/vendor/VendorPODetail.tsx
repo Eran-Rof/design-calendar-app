@@ -62,6 +62,7 @@ export default function VendorPODetail() {
   const [lines, setLines] = useState<POLineItem[]>([]);
   const [shipments, setShipments] = useState<ShipmentRow[]>([]);
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
+  const [shippedByLine, setShippedByLine] = useState<Record<string, number>>({});
   const [acked, setAcked] = useState(false);
   const [vendorUserId, setVendorUserId] = useState<string | null>(null);
   const [sender, setSender] = useState<Sender | null>(null);
@@ -125,7 +126,26 @@ export default function VendorPODetail() {
           .select("id, invoice_number, total, status, submitted_at, paid_at")
           .eq("po_id", id)
           .order("submitted_at", { ascending: false });
-        setInvoices((invs ?? []) as InvoiceRow[]);
+        const invoiceRows = (invs ?? []) as InvoiceRow[];
+        setInvoices(invoiceRows);
+
+        // Qty shipped per line = sum of invoice_line_items.quantity_invoiced
+        // across non-rejected invoices for this PO.
+        const activeInvoiceIds = invoiceRows.filter((i) => i.status !== "rejected").map((i) => i.id);
+        if (activeInvoiceIds.length > 0) {
+          const { data: invLines } = await supabaseVendor
+            .from("invoice_line_items")
+            .select("po_line_item_id, quantity_invoiced")
+            .in("invoice_id", activeInvoiceIds);
+          const map: Record<string, number> = {};
+          for (const r of (invLines ?? []) as { po_line_item_id: string | null; quantity_invoiced: number | null }[]) {
+            if (!r.po_line_item_id) continue;
+            map[r.po_line_item_id] = (map[r.po_line_item_id] ?? 0) + (Number(r.quantity_invoiced) || 0);
+          }
+          setShippedByLine(map);
+        } else {
+          setShippedByLine({});
+        }
 
         const unread = ((msgRes.data ?? []) as { sender_type: string; read_by_vendor: boolean }[])
           .filter((m) => m.sender_type === "internal" && !m.read_by_vendor).length;
@@ -204,15 +224,16 @@ export default function VendorPODetail() {
             <div style={{ padding: 20, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>No line items materialized yet.</div>
           ) : (
             <>
-              <div style={{ display: "grid", gridTemplateColumns: "60px 160px 1fr 100px 100px 120px 120px", padding: "10px 20px", background: TH.surfaceHi, borderTop: `1px solid ${TH.border}`, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
-                <div>#</div><div>Item</div><div>Description</div><div>Qty ord.</div><div>Qty rcv.</div><div>Unit price</div><div style={{ textAlign: "right" }}>Line total</div>
+              <div style={{ display: "grid", gridTemplateColumns: "60px 160px 1fr 100px 100px 100px 120px 120px", padding: "10px 20px", background: TH.surfaceHi, borderTop: `1px solid ${TH.border}`, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
+                <div>#</div><div>Item</div><div>Description</div><div>Qty ord.</div><div>Qty shipped</div><div>Qty rcv.</div><div>Unit price</div><div style={{ textAlign: "right" }}>Line total</div>
               </div>
               {lines.map((l) => (
-                <div key={l.id} style={{ display: "grid", gridTemplateColumns: "60px 160px 1fr 100px 100px 120px 120px", padding: "10px 20px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
+                <div key={l.id} style={{ display: "grid", gridTemplateColumns: "60px 160px 1fr 100px 100px 100px 120px 120px", padding: "10px 20px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
                   <div style={{ color: TH.textMuted }}>{l.line_index}</div>
                   <div style={{ fontFamily: "Menlo, monospace", fontSize: 12, color: TH.textSub2 }}>{l.item_number ?? "—"}</div>
                   <div style={{ color: TH.text }}>{l.description ?? "—"}</div>
                   <div style={{ color: TH.textSub2 }}>{l.qty_ordered ?? "—"}</div>
+                  <div style={{ color: TH.textSub2 }}>{shippedByLine[l.id] ?? 0}</div>
                   <div style={{ color: TH.textSub2 }}>{l.qty_received ?? "—"}</div>
                   <div style={{ color: TH.textSub2 }}>{fmtMoney(l.unit_price ?? undefined)}</div>
                   <div style={{ textAlign: "right", fontWeight: 600, color: TH.text }}>{fmtMoney(l.line_total ?? (Number(l.qty_ordered) || 0) * (Number(l.unit_price) || 0))}</div>

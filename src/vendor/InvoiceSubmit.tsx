@@ -41,8 +41,11 @@ export default function InvoiceSubmit() {
   const [currency, setCurrency] = useState("USD");
   const [tax, setTax] = useState("0");
   const [notes, setNotes] = useState("");
+  const [file, setFile] = useState<File | null>(null);
 
   const [vendorUserId, setVendorUserId] = useState<string | null>(null);
+  const [vendorId, setVendorId] = useState<string | null>(null);
+  const [isTaxVendor, setIsTaxVendor] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -54,8 +57,14 @@ export default function InvoiceSubmit() {
         const uid = userRes.user?.id;
         if (!uid) throw new Error("Not signed in.");
         const { data: vu } = await supabaseVendor
-          .from("vendor_users").select("id").eq("auth_id", uid).maybeSingle();
-        if (vu) setVendorUserId(vu.id as string);
+          .from("vendor_users").select("id, vendor_id").eq("auth_id", uid).maybeSingle();
+        if (vu) {
+          setVendorUserId(vu.id as string);
+          setVendorId((vu as { vendor_id: string }).vendor_id);
+          const { data: vRow } = await supabaseVendor
+            .from("vendors").select("is_tax_vendor").eq("id", (vu as { vendor_id: string }).vendor_id).maybeSingle();
+          setIsTaxVendor(Boolean((vRow as { is_tax_vendor?: boolean } | null)?.is_tax_vendor));
+        }
 
         const { data, error } = await supabaseVendor
           .from("tanda_pos")
@@ -104,7 +113,8 @@ export default function InvoiceSubmit() {
     }, 0);
   }, [lineInputs]);
 
-  const total = useMemo(() => subtotal + (Number(tax) || 0), [subtotal, tax]);
+  const effectiveTax = isTaxVendor ? (Number(tax) || 0) : 0;
+  const total = useMemo(() => subtotal + effectiveTax, [subtotal, effectiveTax]);
 
   function updateLine(idx: number, patch: Partial<LineInput>) {
     setLineInputs((xs) => xs.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
@@ -124,6 +134,21 @@ export default function InvoiceSubmit() {
       const { data: session } = await supabaseVendor.auth.getSession();
       const accessToken = session?.session?.access_token;
       if (!accessToken) { setErr("Not signed in."); setBusy(false); return; }
+
+      // Optional PDF/Excel attachment upload
+      let fileUrl: string | null = null;
+      if (file) {
+        if (!vendorId) { throw new Error("Vendor not resolved yet."); }
+        const MAX = 10 * 1024 * 1024;
+        if (file.size > MAX) throw new Error("File exceeds 10 MB limit.");
+        const allowedExts = ["pdf", "xls", "xlsx"];
+        const ext = file.name.split(".").pop()?.toLowerCase();
+        if (!ext || !allowedExts.includes(ext)) throw new Error("Only PDF or Excel files are accepted.");
+        const path = `${vendorId}/invoices/${Date.now()}_${file.name.replace(/\s+/g, "_")}`;
+        const { error: upErr } = await supabaseVendor.storage.from("vendor-docs").upload(path, file, { upsert: false });
+        if (upErr) throw upErr;
+        fileUrl = path;
+      }
 
       const lineItems = includedLines.map((l, idx) => {
         const q = Number(l.qty) || 0;
@@ -148,9 +173,10 @@ export default function InvoiceSubmit() {
           due_date: dueDate || null,
           currency,
           subtotal,
-          tax: Number(tax) || 0,
+          tax: effectiveTax,
           total,
           notes: notes.trim() || null,
+          file_url: fileUrl,
           line_items: lineItems,
         }),
       });
@@ -267,16 +293,29 @@ export default function InvoiceSubmit() {
               <div>
                 <label style={labelStyle}>Notes (optional)</label>
                 <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} style={{ ...inputStyle, fontFamily: "inherit", resize: "vertical" }} />
+                <label style={{ ...labelStyle, marginTop: 10 }}>Attachment (PDF or Excel, optional)</label>
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xls,.xlsx"
+                  onChange={(e) => setFile(e.target.files?.[0] || null)}
+                />
+                {file && (
+                  <div style={{ fontSize: 12, color: TH.textMuted, marginTop: 4 }}>
+                    {file.name} · {(file.size / 1024).toFixed(0)} KB
+                  </div>
+                )}
               </div>
               <div style={{ background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 6, padding: "14px 18px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: TH.textSub2, marginBottom: 8 }}>
                   <span>Subtotal</span>
                   <strong style={{ color: TH.text }}>{fmtMoney(subtotal)}</strong>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: TH.textSub2, marginBottom: 8 }}>
-                  <span>Tax</span>
-                  <input type="number" step="any" value={tax} onChange={(e) => setTax(e.target.value)} style={{ width: 120, padding: "4px 8px", borderRadius: 4, border: `1px solid ${TH.border}`, fontFamily: "inherit", fontSize: 13, textAlign: "right" }} />
-                </div>
+                {isTaxVendor && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: TH.textSub2, marginBottom: 8 }}>
+                    <span>Tax</span>
+                    <input type="number" step="any" value={tax} onChange={(e) => setTax(e.target.value)} style={{ width: 120, padding: "4px 8px", borderRadius: 4, border: `1px solid ${TH.border}`, fontFamily: "inherit", fontSize: 13, textAlign: "right" }} />
+                  </div>
+                )}
                 <div style={{ borderTop: `1px solid ${TH.border}`, paddingTop: 8, display: "flex", justifyContent: "space-between", fontSize: 15 }}>
                   <strong>Total</strong>
                   <strong style={{ color: TH.primary }}>{fmtMoney(total)}</strong>
