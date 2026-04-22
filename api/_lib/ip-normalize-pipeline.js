@@ -43,7 +43,8 @@ function canonicalizeChannelCode(s) {
 
 function canonicalizeCustomerName(s) {
   if (!s) return null;
-  const cleaned = String(s).replace(CORP_SUFFIX, "").trim().toUpperCase().replace(/[^A-Z0-9& ]/g, "").trim().replace(/\s+/g, " ");
+  // Matches TS canonicalKeys.ts: strips punctuation (no corp-suffix stripping for customers).
+  const cleaned = String(s).replace(/['']/g, "").replace(/[^A-Za-z0-9&\s]/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
   return cleaned || null;
 }
 
@@ -177,6 +178,8 @@ function normalizeXoroItem(row) {
   const sku = canonicalizeSku(row.Sku ?? row.ItemNumber);
   if (!sku) return null;
   const style = toOptionalString(row.StyleNumber)?.toUpperCase() || deriveStyleFromSku(sku);
+  const leadTimeDays = toOptionalNumber(row.LeadTimeDays);
+  const moqUnits = toOptionalNumber(row.Moq);
   return {
     sku_code: sku,
     style_code: style ?? null,
@@ -186,10 +189,8 @@ function normalizeXoroItem(row) {
     uom: toOptionalString(row.Uom) ?? "each",
     unit_cost: toOptionalNumber(row.UnitCost),
     unit_price: toOptionalNumber(row.UnitPrice),
-    lead_time_days: toOptionalNumber(row.LeadTimeDays) != null
-      ? Math.round(toOptionalNumber(row.LeadTimeDays)) : null,
-    moq_units: toOptionalNumber(row.Moq) != null
-      ? Math.round(toOptionalNumber(row.Moq)) : null,
+    lead_time_days: leadTimeDays != null ? Math.round(leadTimeDays) : null,
+    moq_units: moqUnits != null ? Math.round(moqUnits) : null,
     lifecycle_status: toOptionalString(row.Status),
     planning_class: null,
     active: true,
@@ -382,8 +383,8 @@ function normalizeShopifyVariant(variant, product, storefrontCode, rawPayloadId)
     sku_code: sku,
     style_code: null,
     description: toOptionalString(product.title),
-    color: toOptionalString(variant.option1),
-    size: toOptionalString(variant.option2 ?? variant.option1),
+    color: toOptionalString(variant.option2) ?? toOptionalString(variant.option1),
+    size: toOptionalString(variant.option3) ?? toOptionalString(variant.option1),
     uom: "each",
     unit_cost: null,
     unit_price: toOptionalNumber(variant.price),
@@ -407,27 +408,32 @@ function normalizeShopifyVariant(variant, product, storefrontCode, rawPayloadId)
 }
 
 // ── DB upsert helpers ─────────────────────────────────────────────────────────
+// Each helper builds the full rows array (reconciling _src in-memory), then
+// sends a single bulk upsert rather than one HTTP call per row.
 
 async function upsertItems(admin, norms, masters, ignoreDuplicates = false) {
   const out = { inserted: 0, skipped: 0, errors: [] };
-  for (const norm of norms) {
+  const rows = norms.map((norm) => {
     const { _src, ...row } = norm;
     row.category_id = reconcileCategoryId(_src.category_name, masters.categories);
     row.vendor_id = reconcileVendorId(
       { vendor_name: _src.vendor_name, vendor_code: _src.vendor_code },
       masters.vendors,
     );
-    const { error } = await admin
-      .from("ip_item_master")
-      .upsert(row, { onConflict: "sku_code", ignoreDuplicates });
-    if (error) out.errors.push({ sku: row.sku_code, error: error.message });
-    else out.inserted++;
-  }
+    return row;
+  });
+  if (rows.length === 0) return out;
+  const { error } = await admin
+    .from("ip_item_master")
+    .upsert(rows, { onConflict: "sku_code", ignoreDuplicates });
+  if (error) out.errors.push({ error: error.message });
+  else out.inserted = rows.length;
   return out;
 }
 
 async function upsertWholesaleSales(admin, norms, masters) {
   const out = { inserted: 0, skipped: 0, errors: [] };
+  const rows = [];
   for (const norm of norms) {
     const { _src, ...row } = norm;
     const itemId = reconcileItemId(_src, masters.items);
@@ -439,82 +445,97 @@ async function upsertWholesaleSales(admin, norms, masters) {
     );
     row.category_id = reconcileCategoryId(_src.category_name, masters.categories);
     row.channel_id = null;
-    const { error } = await admin
-      .from("ip_sales_history_wholesale")
-      .upsert(row, { onConflict: "source,source_line_key", ignoreDuplicates: true });
-    if (error) out.errors.push({ key: row.source_line_key, error: error.message });
-    else out.inserted++;
+    rows.push(row);
   }
+  if (rows.length === 0) return out;
+  const { error } = await admin
+    .from("ip_sales_history_wholesale")
+    .upsert(rows, { onConflict: "source,source_line_key", ignoreDuplicates: true });
+  if (error) out.errors.push({ error: error.message });
+  else out.inserted = rows.length;
   return out;
 }
 
 async function upsertInventorySnapshot(admin, norms, masters) {
   const out = { inserted: 0, skipped: 0, errors: [] };
+  const rows = [];
   for (const norm of norms) {
     const { _src, ...row } = norm;
     const itemId = reconcileItemId(_src, masters.items);
     if (!itemId) { out.skipped++; continue; }
     row.sku_id = itemId;
-    const { error } = await admin
-      .from("ip_inventory_snapshot")
-      .upsert(row, { onConflict: "sku_id,warehouse_code,snapshot_date,source", ignoreDuplicates: false });
-    if (error) out.errors.push({ sku: _src.sku, error: error.message });
-    else out.inserted++;
+    rows.push(row);
   }
+  if (rows.length === 0) return out;
+  const { error } = await admin
+    .from("ip_inventory_snapshot")
+    .upsert(rows, { onConflict: "sku_id,warehouse_code,snapshot_date,source", ignoreDuplicates: false });
+  if (error) out.errors.push({ error: error.message });
+  else out.inserted = rows.length;
   return out;
 }
 
 async function upsertReceipts(admin, norms, masters) {
   const out = { inserted: 0, skipped: 0, errors: [] };
+  const rows = [];
   for (const norm of norms) {
     const { _src, ...row } = norm;
     const itemId = reconcileItemId(_src, masters.items);
     if (!itemId) { out.skipped++; continue; }
     row.sku_id = itemId;
     row.vendor_id = reconcileVendorId(_src, masters.vendors);
-    const { error } = await admin
-      .from("ip_receipts_history")
-      .upsert(row, { onConflict: "source,source_line_key", ignoreDuplicates: true });
-    if (error) out.errors.push({ key: row.source_line_key, error: error.message });
-    else out.inserted++;
+    rows.push(row);
   }
+  if (rows.length === 0) return out;
+  const { error } = await admin
+    .from("ip_receipts_history")
+    .upsert(rows, { onConflict: "source,source_line_key", ignoreDuplicates: true });
+  if (error) out.errors.push({ error: error.message });
+  else out.inserted = rows.length;
   return out;
 }
 
 async function upsertOpenPos(admin, norms, masters) {
   const out = { inserted: 0, skipped: 0, errors: [] };
+  const now = new Date().toISOString();
+  const rows = [];
   for (const norm of norms) {
     const { _src, ...row } = norm;
     const itemId = reconcileItemId(_src, masters.items);
     if (!itemId) { out.skipped++; continue; }
     row.sku_id = itemId;
     row.vendor_id = reconcileVendorId(_src, masters.vendors);
-    row.last_seen_at = new Date().toISOString();
-    const { error } = await admin
-      .from("ip_open_purchase_orders")
-      .upsert(row, { onConflict: "source,source_line_key", ignoreDuplicates: false });
-    if (error) out.errors.push({ key: row.source_line_key, error: error.message });
-    else out.inserted++;
+    row.last_seen_at = now;
+    rows.push(row);
   }
+  if (rows.length === 0) return out;
+  const { error } = await admin
+    .from("ip_open_purchase_orders")
+    .upsert(rows, { onConflict: "source,source_line_key", ignoreDuplicates: false });
+  if (error) out.errors.push({ error: error.message });
+  else out.inserted = rows.length;
   return out;
 }
 
 async function upsertEcomSales(admin, norms, masters) {
   const out = { inserted: 0, skipped: 0, errors: [] };
+  const rows = [];
   for (const norm of norms) {
     const { _src, ...row } = norm;
     const itemId = reconcileItemId(_src, masters.items);
     if (!itemId) { out.skipped++; continue; }
     row.sku_id = itemId;
     row.channel_id = reconcileChannelId(_src.storefront_code, masters.channels);
-    if (!row.channel_id) { out.skipped++; continue; } // NOT NULL constraint
+    if (!row.channel_id) { out.skipped++; continue; } // channel_id NOT NULL
     row.category_id = null;
-    const { error } = await admin
-      .from("ip_sales_history_ecom")
-      .upsert(row, { onConflict: "source,source_line_key", ignoreDuplicates: true });
-    if (error) out.errors.push({ key: row.source_line_key, error: error.message });
-    else out.inserted++;
+    rows.push(row);
   }
+  if (rows.length === 0) return out;
+  const { error } = await admin
+    .from("ip_sales_history_ecom")
+    .upsert(rows, { onConflict: "source,source_line_key", ignoreDuplicates: true });
+  if (error) out.errors.push({ error: error.message });
+  else out.inserted = rows.length;
   return out;
 }
 

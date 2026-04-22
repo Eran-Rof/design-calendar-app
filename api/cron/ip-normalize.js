@@ -8,23 +8,22 @@
 // Processes up to BATCH payloads per invocation. When a backlog builds up,
 // subsequent runs drain it automatically.
 
-import { createClient } from "@supabase/supabase-js";
 import { loadMasters, processXoroPayload, processShopifyPayload } from "../_lib/ip-normalize-pipeline.js";
+import { supabaseAdminFromEnv } from "../_lib/planning-raw.js";
 
 export const config = { maxDuration: 300 };
 
 const BATCH = 20;
 
-function admin() {
-  const SB_URL = process.env.VITE_SUPABASE_URL;
-  const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!SB_URL || !KEY) return null;
-  return createClient(SB_URL, KEY, { auth: { persistSession: false } });
+function formatErrorSummary(errors) {
+  return errors?.length > 0
+    ? errors.slice(0, 3).map((e) => e.error ?? String(e)).join("; ")
+    : null;
 }
 
 export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
-  const a = admin();
+  const a = supabaseAdminFromEnv();
   if (!a) return res.status(500).json({ error: "Supabase admin not configured" });
 
   const { data: job, error: startErr } = await a
@@ -65,9 +64,7 @@ export default async function handler(req, res) {
         summary.xoro.payloads++;
         await a.from("raw_xoro_payloads").update({
           normalized_at: new Date().toISOString(),
-          normalization_error: r.errors?.length > 0
-            ? r.errors.slice(0, 3).map((e) => e.error ?? String(e)).join("; ")
-            : null,
+          normalization_error: formatErrorSummary(r.errors),
         }).eq("id", raw.id);
       } catch (e) {
         summary.xoro.errors++;
@@ -94,9 +91,7 @@ export default async function handler(req, res) {
         summary.shopify.payloads++;
         await a.from("raw_shopify_payloads").update({
           normalized_at: new Date().toISOString(),
-          normalization_error: r.errors?.length > 0
-            ? r.errors.slice(0, 3).map((e) => e.error ?? String(e)).join("; ")
-            : null,
+          normalization_error: formatErrorSummary(r.errors),
         }).eq("id", raw.id);
       } catch (e) {
         summary.shopify.errors++;
