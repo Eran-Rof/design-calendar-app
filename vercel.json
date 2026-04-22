@@ -5,7 +5,7 @@
   "rewrites": [
     { "source": "/api/dispatch", "destination": "/api/dispatch" },
     { "source": "/api/:rest*", "destination": "/api/dispatch?__fullpath=/api/:rest*" },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+    { "source": "/((?!api/|@|src/|node_modules/|assets/).*)", "destination": "/index.html" }
   ],
   "crons": [
     { "path": "/api/cron/compliance-daily", "schedule": "0 14 * * *" },
