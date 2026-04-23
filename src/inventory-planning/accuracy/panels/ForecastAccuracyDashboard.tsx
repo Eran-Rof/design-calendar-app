@@ -83,7 +83,7 @@ export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryN
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th}>{groupBy}</th>
+              <th style={S.th}>{{ sku: "SKU", category: "Category", customer: "Customer", channel: "Channel", method: "Method" }[groupBy]}</th>
               <th style={{ ...S.th, textAlign: "right" }}>Rows</th>
               <th style={{ ...S.th, textAlign: "right" }}>Σ actual</th>
               <th style={{ ...S.th, textAlign: "right" }}>WAPE sys</th>
