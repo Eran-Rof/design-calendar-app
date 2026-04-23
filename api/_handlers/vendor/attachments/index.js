@@ -8,7 +8,7 @@
 // is trusted based on RLS + the vendor check for each entity type.
 
 import { createClient } from "@supabase/supabase-js";
-import { authenticateVendor } from "../../_lib/vendor-auth.js";
+import { authenticateVendor } from "../../../_lib/vendor-auth.js";
 
 export const config = { maxDuration: 10 };
 

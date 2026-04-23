@@ -5,7 +5,7 @@
 // PATCH  body: { file_description?: string } — rename the description
 
 import { createClient } from "@supabase/supabase-js";
-import { authenticateVendor } from "../../_lib/vendor-auth.js";
+import { authenticateVendor } from "../../../_lib/vendor-auth.js";
 
 export const config = { maxDuration: 10 };
 
