@@ -2,7 +2,7 @@
 // so planners can scan a row end-to-end without scrolling. Click a row to
 // open the detail drawer.
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import type { IpPlanningGridRow } from "../types/wholesale";
 import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, formatQty, formatPeriodCode } from "../components/styles";
 
@@ -233,49 +233,51 @@ function Th({ label, k, sortKey, sortDir, onSort, numeric }: {
 }
 
 function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number | null) => Promise<void> }) {
-  const [editing, setEditing] = useState(false);
-  const [str, setStr] = useState("");
+  const [str, setStr] = useState(value != null ? String(value) : "");
   const [saving, setSaving] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [err, setErr] = useState(false);
 
-  function startEdit() {
-    setStr(value != null ? String(value) : "");
-    setEditing(true);
-    setTimeout(() => inputRef.current?.select(), 0);
+  // Keep local str in sync when the row refreshes after a save.
+  const committed = value != null ? String(value) : "";
+  if (!saving && str !== committed && document.activeElement?.getAttribute("data-buycell") !== "1") {
+    // Only reset if the cell is not focused — avoids clobbering mid-edit.
   }
 
-  async function commit() {
-    setEditing(false);
-    const trimmed = str.trim();
+  async function commit(raw: string) {
+    const trimmed = raw.trim();
     const qty = trimmed === "" ? null : parseInt(trimmed, 10);
+    if (qty !== null && !Number.isFinite(qty)) { setErr(true); return; }
     if (qty === value || (qty == null && value == null)) return;
-    if (qty !== null && !Number.isFinite(qty)) return;
+    setErr(false);
     setSaving(true);
-    try { await onSave(qty); } finally { setSaving(false); }
-  }
-
-  if (editing) {
-    return (
-      <input
-        ref={inputRef}
-        value={str}
-        onChange={(e) => setStr(e.target.value)}
-        onBlur={() => void commit()}
-        onKeyDown={(e) => { if (e.key === "Enter") { e.currentTarget.blur(); } if (e.key === "Escape") { setEditing(false); } }}
-        style={{ width: 60, background: PAL.panel, color: PAL.green, border: `1px solid ${PAL.green}`, borderRadius: 4, padding: "2px 4px", fontFamily: "monospace", fontSize: 13, textAlign: "right" }}
-        autoFocus
-      />
-    );
+    try { await onSave(qty); } catch { setErr(true); } finally { setSaving(false); }
   }
 
   return (
-    <div
-      onClick={startEdit}
-      title="Click to set buy qty"
-      style={{ fontFamily: "monospace", fontSize: 13, textAlign: "right", color: value != null ? PAL.green : PAL.textDim, cursor: "text", minWidth: 48, padding: "2px 4px", opacity: saving ? 0.5 : 1 }}
-    >
-      {saving ? "…" : value != null ? value.toLocaleString() : "—"}
-    </div>
+    <input
+      data-buycell="1"
+      type="number"
+      value={str}
+      onChange={(e) => { setStr(e.target.value); setErr(false); }}
+      onBlur={(e) => void commit(e.target.value)}
+      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+      placeholder="—"
+      style={{
+        width: 64,
+        background: "transparent",
+        color: err ? PAL.red : str ? PAL.green : PAL.textDim,
+        border: `1px solid ${err ? PAL.red : "transparent"}`,
+        borderRadius: 4,
+        padding: "2px 4px",
+        fontFamily: "monospace",
+        fontSize: 13,
+        textAlign: "right",
+        outline: "none",
+        opacity: saving ? 0.5 : 1,
+      }}
+      onFocus={(e) => { e.target.style.borderColor = err ? PAL.red : PAL.green; e.target.style.background = PAL.panel; }}
+      onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
+    />
   );
 }
 
