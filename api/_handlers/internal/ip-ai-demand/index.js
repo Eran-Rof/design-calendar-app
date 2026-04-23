@@ -61,17 +61,17 @@ export default async function handler(req, res) {
     { data: items },
     { data: categories },
   ] = await Promise.all([
-    db.from("ip_wholesale_sales")
+    db.from("ip_sales_history_wholesale")
       .select("sku_id, customer_id, txn_date, qty, net_amount")
       .gte("txn_date", historyFrom)
       .lte("txn_date", snapshotDate)
       .order("txn_date", { ascending: false })
       .limit(50000),
-    db.from("ip_ecom_sales")
-      .select("sku_id, channel_id, txn_date, qty, net_amount")
-      .gte("txn_date", historyFrom)
-      .lte("txn_date", snapshotDate)
-      .order("txn_date", { ascending: false })
+    db.from("ip_sales_history_ecom")
+      .select("sku_id, channel_id, order_date, qty, net_amount")
+      .gte("order_date", historyFrom)
+      .lte("order_date", snapshotDate)
+      .order("order_date", { ascending: false })
       .limit(20000),
     db.from("ip_inventory_snapshot")
       .select("sku_id, qty_on_hand, qty_available, snapshot_date")
@@ -123,7 +123,7 @@ export default async function handler(req, res) {
   // Monthly ecom sales per SKU
   const eSalesBySkuMonth = new Map();
   for (const s of (salesEcom || [])) {
-    const m = s.txn_date.slice(0, 7);
+    const m = s.order_date.slice(0, 7);
     const k = `${s.sku_id}|${m}`;
     const e = eSalesBySkuMonth.get(k) || { qty: 0, revenue: 0 };
     e.qty += s.qty || 0;
