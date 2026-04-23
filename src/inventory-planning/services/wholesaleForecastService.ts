@@ -19,6 +19,7 @@ import type {
 } from "../types/wholesale";
 import {
   buildFinalWholesaleForecast,
+  buildRollingWholesaleSupply,
   committedSoBySku,
   generateWholesaleRecommendations,
   latestOnHandBySku,
@@ -140,20 +141,14 @@ export async function runForecastPass(run: IpPlanningRun): Promise<RunForecastPa
   const forecastRows = buildFinalWholesaleForecast(computeInput);
   await wholesaleRepo.upsertForecast(forecastRows);
 
-  // Recompute supply × forecast to land recommendations.
+  // Recompute supply × forecast using a rolling balance so PO receipts
+  // landing in month N carry the surplus forward to month N+1.
   const horizon = monthsBetween(run.horizon_start, run.horizon_end);
-  const supplyBySkuPeriod = new Map<string, ReturnType<typeof supplyForPeriod>>();
-  const skuSet = new Set(forecastRows.map((r) => r.sku_id));
-  for (const skuId of skuSet) {
-    for (const p of horizon) {
-      supplyBySkuPeriod.set(supplyKey(skuId, p.period_start), supplyForPeriod(
-        { inventorySnapshots: inv, openPos: pos, receipts },
-        skuId,
-        p.period_start,
-        p.period_end,
-      ));
-    }
-  }
+  const supplyBySkuPeriod = buildRollingWholesaleSupply(
+    forecastRows,
+    { inventorySnapshots: inv, openPos: pos, receipts },
+    horizon,
+  );
   const asOf = new Date().toISOString().slice(0, 10);
 
   // The forecast rows we just wrote need ids to persist recommendations;
@@ -245,18 +240,21 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     trailing.set(key, (trailing.get(key) ?? 0) + s.qty);
   }
 
+  // Rolling supply: PO receipts in a period drain the pool for subsequent periods.
+  const rollingSupply = buildRollingWholesaleSupply(
+    forecast,
+    { inventorySnapshots: inv, openPos: pos, receipts },
+    Array.from(new Map(forecast.map((f) => [f.period_start, { period_start: f.period_start, period_end: f.period_end }])).values())
+      .sort((a, b) => a.period_start.localeCompare(b.period_start)),
+  );
+
   const rows: IpPlanningGridRow[] = forecast.map((f) => {
     const item = itemById.get(f.sku_id);
     const customer = customerById.get(f.customer_id);
     const category = f.category_id ? categoryById.get(f.category_id) : null;
     const rec = recByGrain.get(`${f.customer_id}:${f.sku_id}:${f.period_start}`);
-    const supply = supplyForPeriod(
-      { inventorySnapshots: inv, openPos: pos, receipts },
-      f.sku_id,
-      f.period_start,
-      f.period_end,
-    );
-    const avail = rec?.available_supply_qty ?? supply.available_supply_qty;
+    const supply = rollingSupply.get(`${f.sku_id}:${f.period_start}`);
+    const avail = rec?.available_supply_qty ?? supply?.available_supply_qty ?? 0;
     const shortage = rec?.projected_shortage_qty ?? Math.max(0, f.final_forecast_qty - avail);
     const excess = rec?.projected_excess_qty ?? Math.max(0, avail - f.final_forecast_qty);
     return {
@@ -283,7 +281,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       on_hand_qty: onHand.get(f.sku_id) ?? 0,
       on_so_qty: onSo.get(f.sku_id) ?? 0,
       on_po_qty: onPo.get(f.sku_id) ?? 0,
-      receipts_due_qty: supply.receipts_due_qty,
+      receipts_due_qty: supply?.receipts_due_qty ?? 0,
       available_supply_qty: avail,
       projected_shortage_qty: shortage,
       projected_excess_qty: excess,

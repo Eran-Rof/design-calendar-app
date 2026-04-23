@@ -114,3 +114,46 @@ export function supplyForPeriod(
     available_supply_qty: Math.max(0, on_hand_qty - committed_qty) + receipts_due_qty,
   };
 }
+
+// Rolling supply across an ordered horizon. Each period's ending balance
+// (available − total demand) becomes the next period's beginning. This is
+// the correct model for multi-period planning: a PO landing in May is
+// consumed in May and only the surplus rolls forward to June.
+//
+// forecasts must cover all customers for each (sku, period) — demand is
+// summed across customers before the roll so shared SKU supply depletes once.
+export function buildRollingWholesaleSupply(
+  forecasts: Array<{ sku_id: string; period_start: IpIsoDate; final_forecast_qty: number }>,
+  inputs: SupplyInputs,
+  periods: Array<{ period_start: IpIsoDate; period_end: IpIsoDate }>,
+): Map<string, PeriodSupply> {
+  const onHandMap = latestOnHandBySku(inputs.inventorySnapshots);
+  const committedMap = committedSoBySku(inputs.inventorySnapshots);
+  const onPoMap = openPoQtyBySku(inputs.openPos);
+
+  // Total demand per (sku, period) — summed across all customers.
+  const demandByGrain = new Map<string, number>();
+  for (const f of forecasts) {
+    const k = `${f.sku_id}:${f.period_start}`;
+    demandByGrain.set(k, (demandByGrain.get(k) ?? 0) + f.final_forecast_qty);
+  }
+
+  const skuIds = new Set(forecasts.map((f) => f.sku_id));
+  const out = new Map<string, PeriodSupply>();
+
+  for (const skuId of skuIds) {
+    const on_hand_qty = onHandMap.get(skuId) ?? 0;
+    const on_po_qty = onPoMap.get(skuId) ?? 0;
+    let rolling = Math.max(0, on_hand_qty - (committedMap.get(skuId) ?? 0));
+
+    for (const p of periods) {
+      const receipts_due_qty = receiptsDueInPeriod(inputs, skuId, p.period_start, p.period_end);
+      const available_supply_qty = rolling + receipts_due_qty;
+      out.set(`${skuId}:${p.period_start}`, { on_hand_qty, on_po_qty, receipts_due_qty, available_supply_qty });
+      const demand = demandByGrain.get(`${skuId}:${p.period_start}`) ?? 0;
+      rolling = Math.max(0, available_supply_qty - demand);
+    }
+  }
+
+  return out;
+}
