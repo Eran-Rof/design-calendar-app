@@ -523,7 +523,7 @@ export default function InvoiceSubmit() {
                 {isTaxVendor && (
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: TH.textSub2, marginBottom: 8 }}>
                     <span>Tax</span>
-                    <input type="number" step="any" value={tax} onChange={(e) => setTax(e.target.value)} style={{ width: 120, padding: "4px 8px", borderRadius: 4, border: `1px solid ${TH.border}`, fontFamily: "inherit", fontSize: 13, textAlign: "right" }} />
+                    <input type="number" step="any" value={tax} onChange={(e) => setTax(e.target.value)} style={{ width: 120, padding: "4px 8px", borderRadius: 4, border: `1px solid ${TH.border}`, fontFamily: "inherit", fontSize: 13, textAlign: "right", background: TH.bg, color: TH.text }} />
                   </div>
                 )}
                 <div style={{ borderTop: `1px solid ${TH.border}`, paddingTop: 8, display: "flex", justifyContent: "space-between", fontSize: 15 }}>
@@ -555,4 +555,4 @@ export default function InvoiceSubmit() {
 }
 
 const labelStyle = { display: "block", fontSize: 12, fontWeight: 600, color: TH.textSub, marginBottom: 6 };
-const inputStyle = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 14, boxSizing: "border-box" as const, fontFamily: "inherit", marginBottom: 0 };
+const inputStyle = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 14, boxSizing: "border-box" as const, fontFamily: "inherit", marginBottom: 0, background: TH.bg, color: TH.text };

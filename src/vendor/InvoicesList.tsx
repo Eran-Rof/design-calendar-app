@@ -110,7 +110,7 @@ export default function InvoicesList() {
           <div>Invoice #</div>
           <div>Submitted</div>
           <div>Due</div>
-          <div>Amount</div>
+          <div style={{ textAlign: "right" }}>Amount</div>
           <div>Status</div>
           <div style={{ textAlign: "right" }}>Paid</div>
         </div>

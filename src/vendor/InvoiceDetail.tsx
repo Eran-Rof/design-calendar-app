@@ -368,10 +368,10 @@ export default function InvoiceDetail() {
         ) : (
           <>
             <div style={{ display: "grid", gridTemplateColumns: "60px 1fr 100px 140px 140px", padding: "10px 20px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
-              <div>#</div>
+              <div style={{ textAlign: "center" }}>#</div>
               <div>Description</div>
-              <div>Qty</div>
-              <div>Unit price</div>
+              <div style={{ textAlign: "right" }}>Qty</div>
+              <div style={{ textAlign: "right" }}>Unit price</div>
               <div style={{ textAlign: "right" }}>Line total</div>
             </div>
             {(editing ? editLines : lines).map((l, idx) => {
@@ -380,21 +380,21 @@ export default function InvoiceDetail() {
                 : (l.line_total ?? undefined);
               return (
                 <div key={l.id} style={{ display: "grid", gridTemplateColumns: "60px 1fr 100px 140px 140px", padding: "10px 20px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", gap: 6 }}>
-                  <div style={{ color: TH.textMuted }}>{editing ? idx + 1 : l.line_index}</div>
+                  <div style={{ color: TH.textMuted, textAlign: "center" }}>{editing ? idx + 1 : l.line_index}</div>
                   {editing ? (
                     <input value={l.description ?? ""} onChange={(e) => updateEditLine(idx, { description: e.target.value })} style={editInp} />
                   ) : (
                     <div style={{ color: TH.text }}>{l.description ?? "—"}</div>
                   )}
                   {editing ? (
-                    <input type="number" step="any" value={l.quantity_invoiced ?? ""} onChange={(e) => updateEditLine(idx, { quantity_invoiced: e.target.value === "" ? null : Number(e.target.value) })} style={editInp} />
+                    <input type="number" step="any" value={l.quantity_invoiced ?? ""} onChange={(e) => updateEditLine(idx, { quantity_invoiced: e.target.value === "" ? null : Number(e.target.value) })} style={{ ...editInp, textAlign: "right" }} />
                   ) : (
-                    <div style={{ color: TH.textSub2 }}>{l.quantity_invoiced ?? "—"}</div>
+                    <div style={{ color: TH.textSub2, textAlign: "right" }}>{l.quantity_invoiced ?? "—"}</div>
                   )}
                   {editing ? (
-                    <input type="number" step="any" value={l.unit_price ?? ""} onChange={(e) => updateEditLine(idx, { unit_price: e.target.value === "" ? null : Number(e.target.value) })} style={editInp} />
+                    <input type="number" step="any" value={l.unit_price ?? ""} onChange={(e) => updateEditLine(idx, { unit_price: e.target.value === "" ? null : Number(e.target.value) })} style={{ ...editInp, textAlign: "right" }} />
                   ) : (
-                    <div style={{ color: TH.textSub2 }}>{fmtMoney(l.unit_price ?? undefined)}</div>
+                    <div style={{ color: TH.textSub2, textAlign: "right" }}>{fmtMoney(l.unit_price ?? undefined)}</div>
                   )}
                   <div style={{ textAlign: "right", fontWeight: 600, color: TH.text }}>{fmtMoney(lineTotal)}</div>
                 </div>
@@ -438,4 +438,4 @@ function Labelled({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
-const editInp: React.CSSProperties = { width: "100%", padding: "6px 8px", borderRadius: 5, border: `1px solid ${TH.border}`, fontSize: 13, boxSizing: "border-box", fontFamily: "inherit" };
+const editInp: React.CSSProperties = { width: "100%", padding: "6px 8px", borderRadius: 5, border: `1px solid ${TH.border}`, fontSize: 13, boxSizing: "border-box", fontFamily: "inherit", background: TH.bg, color: TH.text };
