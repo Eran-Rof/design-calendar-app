@@ -789,8 +789,8 @@ function TandAApp() {
 
   // ── Load notes from Supabase ──────────────────────────────────────────────
   const loadNotes = useCallback(async () => {
-    const { data } = await sb.from("tanda_notes").select("*", "order=created_at.desc");
-    setNotes((data as LocalNote[]) ?? []);
+    const { data } = await sb.from("tanda_notes").select("*").order("created_at", { ascending: false });
+    setNotes(Array.isArray(data) ? (data as LocalNote[]) : []);
   }, []);
 
   // ── Template operations (extracted to useTemplateOps) ──────────────────────
@@ -1234,7 +1234,7 @@ function TandAApp() {
   // ── Notes / Attachments / DeletePO → extracted to useNotesOps ────────────
   // ── Archive / Bulk-update → extracted to useArchiveOps ─────────────────
 
-  const allPONotes = notes.filter(n => n.po_number === selected?.PoNumber);
+  const allPONotes = (Array.isArray(notes) ? notes : []).filter(n => n.po_number === selected?.PoNumber);
   const selectedNotes = allPONotes.filter(n => n.status_override !== "__history__" && n.status_override !== "__attachment__");
   const selectedHistory = allPONotes.filter(n => n.status_override === "__history__");
 

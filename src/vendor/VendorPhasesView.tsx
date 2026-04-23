@@ -227,10 +227,12 @@ export default function VendorPhasesView({ poId }: Props = {}) {
 
   // Notes CRUD. Direct supabase calls — RLS enforces ownership on update.
   function notesFor(poIdArg: string, phase: string, lineKey: string | null = null): PhaseNote[] {
-    return notes.filter((n) => n.po_id === poIdArg && n.phase_name === phase && (n.po_line_key ?? null) === (lineKey ?? null));
+    const list = Array.isArray(notes) ? notes : [];
+    return list.filter((n) => n.po_id === poIdArg && n.phase_name === phase && (n.po_line_key ?? null) === (lineKey ?? null));
   }
   function notesAndLineNotesFor(poIdArg: string, phase: string): PhaseNote[] {
-    return notes.filter((n) => n.po_id === poIdArg && n.phase_name === phase);
+    const list = Array.isArray(notes) ? notes : [];
+    return list.filter((n) => n.po_id === poIdArg && n.phase_name === phase);
   }
 
   async function addNote(po: PORow, phase: string, lineKey: string | null, body: string) {
