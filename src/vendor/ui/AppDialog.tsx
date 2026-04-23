@@ -149,85 +149,111 @@ export function showConfirm(opts: DialogOpts): Promise<boolean> {
   });
 }
 
-// Excel preview — lazy-loads SheetJS (~300KB gz) on demand, converts
-// every worksheet to styled HTML, tab bar lets the vendor switch sheets.
+// Office-like preview — renders the file through Microsoft's public
+// Office Online viewer (view.officeapps.live.com). MS's server fetches
+// the signed URL and returns an iframe that looks like real Excel /
+// Word / PowerPoint, preserving fonts, colors, conditional formatting
+// and cell merges that SheetJS community strips.
 //
-// SheetJS Community strips cell formatting (bold/colors/fonts) — only
-// SheetJS Pro preserves it. We compensate with our own base styles,
-// zebra striping, a sticky-ish column-letter header, a row-number
-// gutter, and best-effort column widths pulled from the workbook's
-// "!cols" metadata.
-interface ParsedSheet {
-  name: string;
-  rows: string[][];        // formatted display strings per cell
-  colCount: number;
-  colWidths: number[];     // CSS pixel widths, 0 = auto
-  merges: Array<{ s: { r: number; c: number }; e: { r: number; c: number } }>;
+// Requires the URL to be publicly fetchable (HTTPS, no auth wall). Our
+// Supabase signed URLs satisfy that while the token is valid.
+//
+// MS sometimes fails to load a file (rate limiting, unsupported
+// variant). After a timeout we switch the iframe to Google Docs
+// Viewer which provides an independent preview backend.
+function OfficePreview({ signedUrl, filename }: { signedUrl: string; filename: string }) {
+  const [fallback, setFallback] = useState<"ms" | "google">("ms");
+  const [giveUp, setGiveUp] = useState(false);
+
+  const src = useMemo(() => {
+    const encoded = encodeURIComponent(signedUrl);
+    return fallback === "ms"
+      ? `https://view.officeapps.live.com/op/embed.aspx?src=${encoded}`
+      : `https://docs.google.com/gview?url=${encoded}&embedded=true`;
+  }, [signedUrl, fallback]);
+
+  // 15 s safety net: if the iframe hasn't loaded a rendered view, swap
+  // to the other backend. Both backends fire `load` even when they're
+  // still displaying their own spinner, so this isn't foolproof, but
+  // it catches the case where MS 404s the signed URL entirely.
+  useEffect(() => {
+    setGiveUp(false);
+    const t = setTimeout(() => setGiveUp(true), 15000);
+    return () => clearTimeout(t);
+  }, [fallback]);
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "#fff", minHeight: 0 }}>
+      <iframe
+        src={src}
+        title={filename}
+        style={{ flex: 1, border: "none", width: "100%", minHeight: 0, background: "#fff" }}
+      />
+      {giveUp && (
+        <div style={{ padding: "8px 12px", background: TH.surfaceHi, borderTop: `1px solid ${TH.border}`, color: TH.textMuted, fontSize: 12, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+          <span>Preview slow? Try the other viewer:</span>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              onClick={() => setFallback("ms")}
+              style={previewBtn(fallback === "ms")}
+            >Microsoft</button>
+            <button
+              onClick={() => setFallback("google")}
+              style={previewBtn(fallback === "google")}
+            >Google Docs</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
-function colLetter(n: number): string {
-  // 0 -> A, 25 -> Z, 26 -> AA, …
-  let s = "";
-  let x = n;
-  do {
-    s = String.fromCharCode(65 + (x % 26)) + s;
-    x = Math.floor(x / 26) - 1;
-  } while (x >= 0);
-  return s;
+function previewBtn(active: boolean): React.CSSProperties {
+  return {
+    padding: "3px 10px", borderRadius: 4, border: `1px solid ${active ? TH.primary : TH.border}`,
+    background: active ? TH.primary : "transparent",
+    color: active ? "#fff" : TH.textSub, cursor: "pointer",
+    fontSize: 11, fontWeight: 600, fontFamily: "inherit",
+  };
 }
 
-function ExcelPreview({ signedUrl }: { signedUrl: string }) {
-  const [sheets, setSheets] = useState<ParsedSheet[]>([]);
-  const [active, setActive] = useState(0);
+// CSV preview kept lightweight (no need to round-trip through MS for a
+// plain text file). Uses SheetJS to parse + renders our simple styled
+// table. Suppress the `useMemo` import warning when no longer needed.
+function CsvPreview({ signedUrl }: { signedUrl: string }) {
+  const [rows, setRows] = useState<string[][]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [xlsxMod, buf] = await Promise.all([
-          import("xlsx"),
-          fetch(signedUrl).then((r) => {
-            if (!r.ok) throw new Error(`Download failed: HTTP ${r.status}`);
-            return r.arrayBuffer();
-          }),
-        ]);
-        if (cancelled) return;
-        const XLSX = xlsxMod.default || xlsxMod;
-        const wb = XLSX.read(buf, { type: "array", cellDates: true, cellText: true, cellFormula: false });
-        const parsed: ParsedSheet[] = wb.SheetNames.map((name: string) => {
-          const sheet = wb.Sheets[name];
-          const ref = sheet["!ref"] as string | undefined;
-          if (!ref) return { name, rows: [], colCount: 0, colWidths: [], merges: [] };
-          const range = XLSX.utils.decode_range(ref);
-          const colCount = range.e.c - range.s.c + 1;
-          const rows: string[][] = [];
-          for (let r = range.s.r; r <= range.e.r; r++) {
-            const row: string[] = [];
-            for (let c = range.s.c; c <= range.e.c; c++) {
-              const addr = XLSX.utils.encode_cell({ r, c });
-              const cell = sheet[addr];
-              // Prefer the pre-formatted display string `w`, fall back to raw value
-              const v = cell ? (cell.w != null ? cell.w : cell.v) : null;
-              row.push(v == null ? "" : String(v));
-            }
-            rows.push(row);
-          }
-          // Column widths — SheetJS stores character widths in !cols[i].wch;
-          // rough conversion: 1 char ≈ 7px. Clamp 40–360.
-          const colsMeta = (sheet["!cols"] || []) as Array<{ wch?: number; wpx?: number } | undefined>;
-          const colWidths: number[] = [];
-          for (let c = 0; c < colCount; c++) {
-            const m = colsMeta[c];
-            if (m?.wpx && Number.isFinite(m.wpx)) colWidths.push(Math.max(40, Math.min(360, Math.round(m.wpx))));
-            else if (m?.wch && Number.isFinite(m.wch)) colWidths.push(Math.max(40, Math.min(360, Math.round(m.wch * 7 + 10))));
-            else colWidths.push(0);
-          }
-          const merges = (sheet["!merges"] || []) as Array<{ s: { r: number; c: number }; e: { r: number; c: number } }>;
-          return { name, rows, colCount, colWidths, merges };
+        const txt = await fetch(signedUrl).then((r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.text();
         });
-        if (!cancelled) { setSheets(parsed); setLoading(false); }
+        if (cancelled) return;
+        // Minimal CSV parser — handles quoted values with commas/newlines.
+        const out: string[][] = [];
+        let row: string[] = [];
+        let cur = "";
+        let inQ = false;
+        for (let i = 0; i < txt.length; i++) {
+          const ch = txt[i];
+          if (inQ) {
+            if (ch === '"' && txt[i + 1] === '"') { cur += '"'; i++; }
+            else if (ch === '"') { inQ = false; }
+            else cur += ch;
+          } else {
+            if (ch === '"') inQ = true;
+            else if (ch === ",") { row.push(cur); cur = ""; }
+            else if (ch === "\n") { row.push(cur); out.push(row); row = []; cur = ""; }
+            else if (ch === "\r") { /* skip */ }
+            else cur += ch;
+          }
+        }
+        if (cur || row.length) { row.push(cur); out.push(row); }
+        if (!cancelled) { setRows(out); setLoading(false); }
       } catch (e: unknown) {
         if (!cancelled) { setErr(e instanceof Error ? e.message : String(e)); setLoading(false); }
       }
@@ -235,140 +261,29 @@ function ExcelPreview({ signedUrl }: { signedUrl: string }) {
     return () => { cancelled = true; };
   }, [signedUrl]);
 
-  const sheet = sheets[active];
+  if (loading) return <div style={{ color: TH.textMuted, padding: 32, textAlign: "center", fontSize: 13 }}>Loading…</div>;
+  if (err) return <div style={{ color: "#FCA5A5", padding: 32, textAlign: "center", fontSize: 12 }}>Couldn't read this file: {err}</div>;
+  if (rows.length === 0) return <div style={{ color: TH.textMuted, padding: 32, textAlign: "center" }}>Empty file.</div>;
 
-  // Pre-compute which (r,c) are "skipped" because they're covered by a
-  // merge started in another cell, and which cells carry colSpan/rowSpan.
-  const mergeInfo = useMemo(() => {
-    const skip = new Set<string>();
-    const span = new Map<string, { colSpan: number; rowSpan: number }>();
-    if (!sheet) return { skip, span };
-    for (const m of sheet.merges) {
-      const anchor = `${m.s.r},${m.s.c}`;
-      span.set(anchor, { colSpan: m.e.c - m.s.c + 1, rowSpan: m.e.r - m.s.r + 1 });
-      for (let r = m.s.r; r <= m.e.r; r++) {
-        for (let c = m.s.c; c <= m.e.c; c++) {
-          if (r === m.s.r && c === m.s.c) continue;
-          skip.add(`${r},${c}`);
-        }
-      }
-    }
-    return { skip, span };
-  }, [sheet]);
-
-  if (loading) {
-    return <div style={{ color: TH.textMuted, padding: 32, textAlign: "center", fontSize: 13 }}>Parsing workbook…</div>;
-  }
-  if (err) {
-    return (
-      <div style={{ color: TH.textMuted, padding: 32, textAlign: "center" }}>
-        <div style={{ fontSize: 14, color: "#FCA5A5", marginBottom: 6 }}>Couldn't preview this file.</div>
-        <div style={{ fontSize: 12 }}>{err}</div>
-      </div>
-    );
-  }
-  if (sheets.length === 0 || !sheet || sheet.rows.length === 0) {
-    return <div style={{ color: TH.textMuted, padding: 32, textAlign: "center" }}>No data in this workbook.</div>;
-  }
-
+  const colCount = Math.max(...rows.map((r) => r.length));
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "#F8FAFC", overflow: "hidden" }}>
-      {sheets.length > 1 && (
-        <div style={{ display: "flex", gap: 2, padding: "6px 8px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, overflowX: "auto", flexShrink: 0 }}>
-          {sheets.map((s, i) => (
-            <button
-              key={s.name + i}
-              onClick={() => setActive(i)}
-              style={{
-                padding: "4px 12px", fontSize: 12, borderRadius: 4,
-                border: `1px solid ${i === active ? TH.primary : TH.border}`,
-                background: i === active ? TH.primary : "transparent",
-                color: i === active ? "#fff" : TH.textSub,
-                cursor: "pointer", fontFamily: "inherit", fontWeight: 600,
-                whiteSpace: "nowrap",
-              }}
-            >{s.name}</button>
-          ))}
-        </div>
-      )}
-      <div style={{ flex: 1, overflow: "auto", minHeight: 0 }}>
-        <table style={{
-          borderCollapse: "separate",
-          borderSpacing: 0,
-          fontSize: 12,
-          fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif",
-          color: "#0F172A",
-          background: "#fff",
-          tableLayout: "fixed",
-        }}>
-          <thead>
-            <tr>
-              <th style={{ ...gutterTh, width: 40, minWidth: 40 }}></th>
-              {Array.from({ length: sheet.colCount }).map((_, c) => {
-                const w = sheet.colWidths[c] || 120;
-                return (
-                  <th key={c} style={{ ...headerTh, width: w, minWidth: w }}>
-                    {colLetter(c)}
-                  </th>
-                );
-              })}
+    <div style={{ flex: 1, overflow: "auto", background: "#fff", minHeight: 0 }}>
+      <table style={{ borderCollapse: "collapse", fontSize: 12, color: "#0F172A", width: "100%", tableLayout: "auto" }}>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} style={{ background: i === 0 ? "#F1F5F9" : i % 2 === 0 ? "#fff" : "#F8FAFC" }}>
+              {Array.from({ length: colCount }).map((_, c) => (
+                <td key={c} style={{ border: "1px solid #E2E8F0", padding: "4px 10px", whiteSpace: "nowrap", fontWeight: i === 0 ? 700 : 400 }}>
+                  {r[c] || ""}
+                </td>
+              ))}
             </tr>
-          </thead>
-          <tbody>
-            {sheet.rows.map((row, rIdx) => (
-              <tr key={rIdx}>
-                <td style={gutterTd}>{rIdx + 1}</td>
-                {row.map((cell, cIdx) => {
-                  if (mergeInfo.skip.has(`${rIdx},${cIdx}`)) return null;
-                  const anchor = mergeInfo.span.get(`${rIdx},${cIdx}`);
-                  const numeric = cell !== "" && cell != null && !Number.isNaN(Number(cell.replace(/[$,]/g, "")));
-                  return (
-                    <td
-                      key={cIdx}
-                      colSpan={anchor?.colSpan}
-                      rowSpan={anchor?.rowSpan}
-                      style={{
-                        ...bodyTd,
-                        textAlign: numeric ? "right" : "left",
-                        fontVariantNumeric: numeric ? "tabular-nums" : undefined,
-                        background: rIdx % 2 === 0 ? "#fff" : "#F8FAFC",
-                      }}
-                    >{cell}</td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
-
-const gutterTh: React.CSSProperties = {
-  position: "sticky", top: 0, left: 0, zIndex: 3,
-  background: "#E2E8F0", borderRight: "1px solid #CBD5E1", borderBottom: "1px solid #CBD5E1",
-  padding: "6px 8px", fontWeight: 700, color: "#475569", fontSize: 11,
-};
-const headerTh: React.CSSProperties = {
-  position: "sticky", top: 0, zIndex: 2,
-  background: "#E2E8F0", borderRight: "1px solid #CBD5E1", borderBottom: "1px solid #CBD5E1",
-  padding: "6px 10px", fontWeight: 700, color: "#475569", fontSize: 11,
-  textAlign: "center",
-};
-const gutterTd: React.CSSProperties = {
-  position: "sticky", left: 0, zIndex: 1,
-  background: "#E2E8F0", borderRight: "1px solid #CBD5E1", borderBottom: "1px solid #E2E8F0",
-  padding: "4px 8px", fontWeight: 600, color: "#64748B", fontSize: 11,
-  textAlign: "center", width: 40, minWidth: 40,
-};
-const bodyTd: React.CSSProperties = {
-  borderRight: "1px solid #E2E8F0",
-  borderBottom: "1px solid #E2E8F0",
-  padding: "4px 10px",
-  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-  verticalAlign: "top",
-};
 
 // File viewer — in-app preview with Download fallback. PDFs render
 // natively in the iframe, Excel/CSV go through SheetJS, others fall
@@ -379,7 +294,9 @@ export function showFileViewer({
   return new Promise((resolve) => {
     const ext = (filename.split(".").pop() || "").toLowerCase();
     const isPdf = ext === "pdf";
-    const isExcel = ext === "xlsx" || ext === "xls" || ext === "xlsm" || ext === "csv";
+    const isOffice = ext === "xlsx" || ext === "xls" || ext === "xlsm"
+      || ext === "docx" || ext === "doc" || ext === "pptx" || ext === "ppt";
+    const isCsv = ext === "csv";
     const handleClose = () => { close(); resolve(); };
     const triggerDownload = () => {
       const a = document.createElement("a");
@@ -450,8 +367,10 @@ export function showFileViewer({
                 style={{ width: "100%", height: "100%", border: "none", background: "#fff" }}
                 title={filename}
               />
-            ) : isExcel ? (
-              <ExcelPreview signedUrl={signedUrl} />
+            ) : isOffice ? (
+              <OfficePreview signedUrl={signedUrl} filename={filename} />
+            ) : isCsv ? (
+              <CsvPreview signedUrl={signedUrl} />
             ) : (
               <div style={{ flex: 1, textAlign: "center", color: TH.textMuted, padding: 32, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
                 <div style={{ fontSize: 48, marginBottom: 12 }}>📄</div>
