@@ -119,15 +119,22 @@ export const wholesaleRepo = {
   },
   async upsertForecast(rows: Array<Omit<IpWholesaleForecast, "id" | "created_at" | "updated_at">>): Promise<void> {
     if (rows.length === 0) return;
-    // Upsert via the uq_ip_wholesale_forecast_grain unique index. Chunk
-    // to keep the payload manageable.
+    const url = "ip_wholesale_forecast?on_conflict=planning_run_id,customer_id,sku_id,period_start";
+    const prefer = "return=minimal,resolution=merge-duplicates";
     for (let i = 0; i < rows.length; i += 500) {
       const chunk = rows.slice(i, i + 500);
-      await sbPost<IpWholesaleForecast>(
-        "ip_wholesale_forecast?on_conflict=planning_run_id,customer_id,sku_id,period_start",
-        chunk,
-        "return=minimal,resolution=merge-duplicates",
-      );
+      try {
+        await sbPost<IpWholesaleForecast>(url, chunk, prefer);
+      } catch (e) {
+        // PGRST204 = column not in schema cache (migration pending). Retry
+        // without ly_reference_qty so builds survive before the ALTER TABLE runs.
+        if (e instanceof Error && e.message.includes("PGRST204") && e.message.includes("ly_reference_qty")) {
+          const stripped = chunk.map(({ ly_reference_qty: _drop, ...rest }) => rest);
+          await sbPost<IpWholesaleForecast>(url, stripped, prefer);
+        } else {
+          throw e;
+        }
+      }
     }
   },
   async patchForecastOverride(
