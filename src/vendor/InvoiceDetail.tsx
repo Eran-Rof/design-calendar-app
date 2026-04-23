@@ -379,7 +379,7 @@ export default function InvoiceDetail() {
                 ? (Number(l.quantity_invoiced) || 0) * (Number(l.unit_price) || 0)
                 : (l.line_total ?? undefined);
               return (
-                <div key={l.id} style={{ display: "grid", gridTemplateColumns: "60px 1fr 100px 140px 140px", padding: "10px 20px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", gap: 6 }}>
+                <div key={l.id} style={{ display: "grid", gridTemplateColumns: "60px 1fr 100px 140px 140px", padding: "10px 20px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
                   <div style={{ color: TH.textMuted, textAlign: "center" }}>{editing ? idx + 1 : l.line_index}</div>
                   {editing ? (
                     <input value={l.description ?? ""} onChange={(e) => updateEditLine(idx, { description: e.target.value })} style={editInp} />
