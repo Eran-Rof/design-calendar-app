@@ -75,7 +75,7 @@ export default function EcomPlanningGrid({ rows, onSelectRow, loading }: EcomPla
   return (
     <div>
       <div style={S.statsRow}>
-        <StatCell label="Rows" value={filtered.length.toLocaleString()} />
+        <StatCell label="Rows" value={filtered.length > 500 ? `500 / ${filtered.length.toLocaleString()}` : filtered.length.toLocaleString()} accent={filtered.length > 500 ? PAL.yellow : undefined} />
         <StatCell label="Σ Final" value={formatQty(totals.final)} accent={PAL.green} />
         <StatCell label="Σ Protected" value={formatQty(totals.protected)} accent={PAL.accent} />
         <StatCell label="Promo weeks" value={String(totals.promo)} accent={PAL.accent} />
@@ -134,7 +134,7 @@ export default function EcomPlanningGrid({ rows, onSelectRow, loading }: EcomPla
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r) => (
+            {filtered.slice(0, 500).map((r) => (
               <tr key={r.forecast_id} style={{ cursor: "pointer" }} onClick={() => onSelectRow(r)}>
                 <td style={S.td}>{r.channel_name}</td>
                 <td style={{ ...S.td, color: PAL.textDim }}>{r.category_name ?? "–"}</td>
