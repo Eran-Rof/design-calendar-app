@@ -104,12 +104,13 @@ export function supplyForPeriod(
   periodEnd: IpIsoDate,
 ): PeriodSupply {
   const on_hand_qty = latestOnHandBySku(inputs.inventorySnapshots).get(skuId) ?? 0;
+  const committed_qty = committedSoBySku(inputs.inventorySnapshots).get(skuId) ?? 0;
   const on_po_qty = openPoQtyBySku(inputs.openPos).get(skuId) ?? 0;
   const receipts_due_qty = receiptsDueInPeriod(inputs, skuId, periodStart, periodEnd);
   return {
     on_hand_qty,
     on_po_qty,
     receipts_due_qty,
-    available_supply_qty: on_hand_qty + receipts_due_qty,
+    available_supply_qty: Math.max(0, on_hand_qty - committed_qty) + receipts_due_qty,
   };
 }
