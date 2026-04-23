@@ -4,7 +4,7 @@
 
 import { useMemo, useState } from "react";
 import type { IpPlanningGridRow } from "../types/wholesale";
-import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, formatQty, formatPeriodCode } from "../components/styles";
+import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, formatQty, formatPeriodCode } from "../components/styles";
 
 export interface WholesalePlanningGridProps {
   rows: IpPlanningGridRow[];
@@ -13,7 +13,7 @@ export interface WholesalePlanningGridProps {
 }
 
 type SortKey =
-  | "customer" | "sku" | "period" | "final" | "shortage" | "excess" | "action";
+  | "customer" | "sku" | "period" | "final" | "shortage" | "excess" | "action" | "method";
 
 export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
@@ -21,6 +21,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [filterAction, setFilterAction] = useState<string>("all");
   const [filterConfidence, setFilterConfidence] = useState<string>("all");
+  const [filterMethod, setFilterMethod] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("customer");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
@@ -43,6 +44,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
       if (filterCategory !== "all" && r.category_id !== filterCategory) return false;
       if (filterAction !== "all" && r.recommended_action !== filterAction) return false;
       if (filterConfidence !== "all" && r.confidence_level !== filterConfidence) return false;
+      if (filterMethod !== "all" && r.forecast_method !== filterMethod) return false;
       if (q && !(r.sku_code.includes(q) || r.customer_name.toUpperCase().includes(q))) return false;
       return true;
     });
@@ -97,9 +99,13 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
           <option value="all">All confidence</option>
           {["committed", "probable", "possible", "estimate"].map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
+        <select style={S.select} value={filterMethod} onChange={(e) => setFilterMethod(e.target.value)}>
+          <option value="all">All methods</option>
+          {Object.keys(METHOD_LABEL).map((m) => <option key={m} value={m}>{METHOD_LABEL[m]}</option>)}
+        </select>
         <button style={S.btnSecondary} onClick={() => {
           setSearch(""); setFilterCustomer("all"); setFilterCategory("all");
-          setFilterAction("all"); setFilterConfidence("all");
+          setFilterAction("all"); setFilterConfidence("all"); setFilterMethod("all");
         }}>Clear</button>
       </div>
 
@@ -117,6 +123,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
               <th style={{ ...S.th, textAlign: "right" }}>Override</th>
               <Th label="Final" k="final" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
               <th style={S.th}>Conf.</th>
+              <Th label="Method" k="method" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th style={{ ...S.th, textAlign: "right" }}>On hand</th>
               <th style={{ ...S.th, textAlign: "right" }}>On PO</th>
               <th style={{ ...S.th, textAlign: "right" }}>Receipts</th>
@@ -151,6 +158,11 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
                     {r.confidence_level}
                   </span>
                 </td>
+                <td style={S.td}>
+                  <span style={{ ...S.chip, background: (METHOD_COLOR[r.forecast_method] ?? PAL.textMuted) + "22", color: METHOD_COLOR[r.forecast_method] ?? PAL.textMuted }}>
+                    {METHOD_LABEL[r.forecast_method] ?? r.forecast_method}
+                  </span>
+                </td>
                 <td style={S.tdNum}>{formatQty(r.on_hand_qty)}</td>
                 <td style={S.tdNum}>{formatQty(r.on_po_qty)}</td>
                 <td style={S.tdNum}>{formatQty(r.receipts_due_qty)}</td>
@@ -169,14 +181,14 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
               </tr>
             ))}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={17} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={18} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No forecast rows yet. Click \"Build forecast\" above to populate the grid."
                   : "No rows match your filters."}
               </td></tr>
             )}
             {loading && (
-              <tr><td colSpan={17} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={18} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 Loading…
               </td></tr>
             )}
@@ -219,5 +231,6 @@ function cmp(a: IpPlanningGridRow, b: IpPlanningGridRow, k: SortKey, d: "asc" | 
     case "shortage": return (a.projected_shortage_qty - b.projected_shortage_qty) * sign;
     case "excess":   return (a.projected_excess_qty - b.projected_excess_qty) * sign;
     case "action":   return a.recommended_action.localeCompare(b.recommended_action) * sign;
+    case "method":   return a.forecast_method.localeCompare(b.forecast_method) * sign;
   }
 }

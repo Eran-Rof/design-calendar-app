@@ -8,7 +8,7 @@ import type {
   IpPlannerOverride,
   IpPlanningGridRow,
 } from "../types/wholesale";
-import { S, ACTION_COLOR, CONFIDENCE_COLOR, PAL, formatQty, formatDate, formatDateTime, formatPeriodCode } from "./styles";
+import { S, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, PAL, formatQty, formatDate, formatDateTime, formatPeriodCode } from "./styles";
 
 const REASON_CODES: IpOverrideReasonCode[] = [
   "buyer_request",
@@ -104,8 +104,11 @@ export default function ForecastDetailDrawer({
           {/* Method + confidence */}
           <SectionLabel>Method</SectionLabel>
           <div style={S.infoCell}>
-            <div style={{ ...S.infoValue, fontFamily: "monospace", fontSize: 13 }}>{row.forecast_method}</div>
-            <div style={{ marginTop: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ ...S.chip, background: (METHOD_COLOR[row.forecast_method] ?? PAL.textMuted) + "22", color: METHOD_COLOR[row.forecast_method] ?? PAL.textMuted, fontSize: 13 }}>
+                {METHOD_LABEL[row.forecast_method] ?? row.forecast_method}
+              </span>
+              <span style={{ fontSize: 11, color: PAL.textMuted, fontFamily: "monospace" }}>{row.forecast_method}</span>
               <span style={{ ...S.chip, background: CONFIDENCE_COLOR[row.confidence_level] + "33", color: CONFIDENCE_COLOR[row.confidence_level] }}>
                 {row.confidence_level}
               </span>
