@@ -55,8 +55,10 @@ export default function EcomPlanningWorkbench() {
   const loadRuns = useCallback(async () => {
     // Accept both 'ecom' and 'all' scopes; the Phase 1 UI filtered to
     // 'wholesale' only, so here we show the ecom-appropriate runs.
-    const rs = await wholesaleRepo.listPlanningRuns("ecom");
-    const allRs = await wholesaleRepo.listPlanningRuns("all");
+    const [rs, allRs] = await Promise.all([
+      wholesaleRepo.listPlanningRuns("ecom"),
+      wholesaleRepo.listPlanningRuns("all"),
+    ]);
     const combined = [...rs, ...allRs];
     const dedup = Array.from(new Map(combined.map((r) => [r.id, r])).values());
     setRuns(dedup);

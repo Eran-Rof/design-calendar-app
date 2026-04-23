@@ -78,16 +78,16 @@ export default function ScenarioManager() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [r, s, its, cs, cats, chs] = await Promise.all([
+      const [r, wsRuns, ecRuns, s, its, cs, cats, chs] = await Promise.all([
         wholesaleRepo.listPlanningRuns("all"),
+        wholesaleRepo.listPlanningRuns("wholesale"),
+        wholesaleRepo.listPlanningRuns("ecom"),
         scenarioRepo.listScenarios(),
         wholesaleRepo.listItems(),
         wholesaleRepo.listCustomers(),
         wholesaleRepo.listCategories(),
         ecomRepo.listChannels(),
       ]);
-      const wsRuns = await wholesaleRepo.listPlanningRuns("wholesale");
-      const ecRuns = await wholesaleRepo.listPlanningRuns("ecom");
       setRuns(Array.from(new Map([...r, ...wsRuns, ...ecRuns].map((x) => [x.id, x])).values()));
       setScenarios(s);
       setItems(its);
