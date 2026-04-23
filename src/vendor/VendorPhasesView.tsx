@@ -248,13 +248,30 @@ export default function VendorPhasesView({ poId }: Props = {}) {
       .sort((a, b) => new Date(b.reviewed_at || 0).getTime() - new Date(a.reviewed_at || 0).getTime());
   }
 
-  // True if any line under this phase has a reviewed change request — used
-  // on the master row so the vendor knows to expand and see line-level
-  // review notes/history.
-  function hasLineReviewsFor(poIdArg: string, phase: string): boolean {
-    return requests.some((r) =>
+  // Summarise line-level reviews for a phase so the master row can show
+  // "✓ Line items approved · 4/23" etc. inline. Returns one entry per
+  // status (approved / rejected) that actually occurred, each with the
+  // most-recent reviewed_at and a count of line reviews feeding it.
+  function lineReviewSummary(poIdArg: string, phase: string): Array<{ status: "approved" | "rejected"; latestDate: string; count: number }> {
+    const lineRevs = requests.filter((r) =>
       r.po_id === poIdArg && r.phase_name === phase && r.po_line_key != null && r.reviewed_at && r.status !== "pending"
     );
+    const byStatus = new Map<"approved" | "rejected", { latestDate: string; count: number }>();
+    for (const rv of lineRevs) {
+      const s = rv.status as "approved" | "rejected";
+      const cur = byStatus.get(s);
+      if (!cur || new Date(rv.reviewed_at || 0).getTime() > new Date(cur.latestDate).getTime()) {
+        byStatus.set(s, { latestDate: rv.reviewed_at || "", count: (cur?.count || 0) + 1 });
+      } else {
+        byStatus.set(s, { latestDate: cur.latestDate, count: cur.count + 1 });
+      }
+    }
+    const out: Array<{ status: "approved" | "rejected"; latestDate: string; count: number }> = [];
+    const a = byStatus.get("approved");
+    const j = byStatus.get("rejected");
+    if (a) out.push({ status: "approved", ...a });
+    if (j) out.push({ status: "rejected", ...j });
+    return out.sort((x, y) => new Date(y.latestDate).getTime() - new Date(x.latestDate).getTime());
   }
 
   // Notes CRUD. Direct supabase calls — RLS enforces ownership on update.
@@ -503,7 +520,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
       )}
 
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "auto", boxShadow: `0 1px 2px ${TH.shadow}` }}>
-        <div style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 60px 140px 60px`, padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
+        <div style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 60px minmax(140px, max-content) 60px`, padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
           <div></div>{/* expand-toggle column — keeps header aligned with rows */}
           {!poId && <div>PO #</div>}
           <div>Phase</div>
@@ -544,7 +561,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
           return (
             <div key={expandKey}>
               {/* ── Master phase row ─────────────────────────────────── */}
-              <div style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 60px 140px 60px`, padding: "10px 14px", borderBottom: isExpanded ? "none" : `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", background: isExpanded ? "#F8FAFC" : "transparent" }}>
+              <div style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 60px minmax(140px, max-content) 60px`, padding: "10px 14px", borderBottom: isExpanded ? "none" : `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", background: isExpanded ? "#F8FAFC" : "transparent" }}>
                 <button
                   onClick={() => setExpanded((prev) => {
                     const next = new Set(prev);
@@ -629,7 +646,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                         h.review_note ? `Note: ${h.review_note}` : null,
                       ].filter(Boolean).join("\n");
                       return (
-                        <div key={h.id} style={{ color, display: "flex", gap: 4, alignItems: "baseline" }} title={tooltip}>
+                        <div key={h.id} style={{ color, display: "flex", gap: 4, alignItems: "baseline", whiteSpace: "nowrap" }} title={tooltip}>
                           <span>{icon} {label}</span>
                           {date && <span style={{ color: TH.textMuted, fontWeight: 500 }}>{date}</span>}
                         </div>
@@ -640,14 +657,24 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                   {!pending && !hasMismatch && !r.dateReq?.status && !r.statusReq?.status && (
                     <div style={{ color: TH.textMuted, fontWeight: 500 }}>—</div>
                   )}
-                  {hasLineReviewsFor(r.po.uuid_id, r.phase.name) && (
-                    <div
-                      title="One or more line items on this phase have their own approval/rejection from Ring of Fire. Expand this phase row to see them."
-                      style={{ color: "#7C3AED", fontSize: 9, fontWeight: 600, marginTop: 2 }}
-                    >
-                      ⚠ Check line items
-                    </div>
-                  )}
+                  {lineReviewSummary(r.po.uuid_id, r.phase.name).map((sum) => {
+                    const approved = sum.status === "approved";
+                    const color = approved ? "#065F46" : "#991B1B";
+                    const icon = approved ? "✓" : "✗";
+                    const label = approved ? "Line item approved" : "Line item rejected";
+                    const date = sum.latestDate ? new Date(sum.latestDate).toLocaleDateString() : "";
+                    const countSuffix = sum.count > 1 ? ` (${sum.count})` : "";
+                    return (
+                      <div
+                        key={sum.status}
+                        title={`${sum.count} line item${sum.count === 1 ? "" : "s"} ${sum.status}. Expand the phase row to see each line.`}
+                        style={{ color, display: "flex", gap: 4, alignItems: "baseline", whiteSpace: "nowrap" }}
+                      >
+                        <span>{icon} {label}{countSuffix}</span>
+                        {date && <span style={{ color: TH.textMuted, fontWeight: 500 }}>{date}</span>}
+                      </div>
+                    );
+                  })}
                 </div>
                 <div style={{ display: "flex", justifyContent: "center" }}>
                   <NotesButton
