@@ -231,12 +231,14 @@ export default function InvoiceDetail() {
           </div>
         </div>
 
-        {invoice.file_url && (
+        {(invoice.file_url || (editing && replacementFile)) && (
           <div style={{ marginTop: 14, padding: "10px 14px", background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
             <div style={{ color: TH.textSub2, flex: 1, minWidth: 0 }}>
               {editing ? (
                 <>
-                  <div style={{ fontSize: 10, color: TH.textMuted, textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.4, marginBottom: 4 }}>Document description</div>
+                  <div style={{ fontSize: 10, color: TH.textMuted, textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.4, marginBottom: 4 }}>
+                    Document description {replacementFile ? "(for new file below)" : ""}
+                  </div>
                   <input
                     type="text"
                     list="invoice-detail-file-description-options"
@@ -257,21 +259,23 @@ export default function InvoiceDetail() {
                     <option value="Other" />
                   </datalist>
                   <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4, fontFamily: "Menlo, monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {invoice.file_url.split("/").pop()}
+                    {replacementFile ? `→ ${replacementFile.name} (pending upload, ${(replacementFile.size / 1024).toFixed(0)} KB)` : invoice.file_url?.split("/").pop()}
                   </div>
                 </>
               ) : (
                 <>
                   <strong style={{ color: TH.text }}>{invoice.file_description || "Document"}</strong>
                   <span style={{ fontFamily: "Menlo, monospace", fontSize: 12, marginLeft: 8, color: TH.textMuted }}>
-                    {invoice.file_url.split("/").pop()}
+                    {invoice.file_url?.split("/").pop()}
                   </span>
                 </>
               )}
             </div>
-            <button onClick={() => void openAttachment()} style={{ padding: "4px 12px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit", flexShrink: 0 }}>
-              Download
-            </button>
+            {invoice.file_url && !editing && (
+              <button onClick={() => void openAttachment()} style={{ padding: "4px 12px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit", flexShrink: 0 }}>
+                Download
+              </button>
+            )}
           </div>
         )}
 
