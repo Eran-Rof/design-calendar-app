@@ -42,11 +42,14 @@ export default function PackingListUploadPanel() {
     loadUploads, processUpload, selectUpload,
     companySettings, loadCompanySettings,
     generateGtinsForPendingRows,
+    bomBuilding, buildBomsForUpload,
     setActiveTab,
   } = useGS1Store();
 
   const fileRef = useRef<HTMLInputElement>(null);
-  const [genMsg, setGenMsg] = useState("");
+  const [genMsg,  setGenMsg]  = useState("");
+  const [bomMsg,  setBomMsg]  = useState("");
+  const [gtinsGenerated, setGtinsGenerated] = useState(false);
 
   useEffect(() => {
     loadUploads();
@@ -61,12 +64,24 @@ export default function PackingListUploadPanel() {
   }
 
   async function handleGenerateGtins() {
-    setGenMsg("");
+    setGenMsg(""); setBomMsg(""); setGtinsGenerated(false);
     try {
       await generateGtinsForPendingRows();
-      setGenMsg(`✓ GTINs generated for ${new Set(pendingRows.map(r => `${r.styleNo}|${r.color}|${r.scaleCode}`)).size} unique style/color/scale combinations.`);
+      const count = new Set(pendingRows.map(r => `${r.styleNo}|${r.color}|${r.scaleCode}`)).size;
+      setGenMsg(`✓ GTINs generated for ${count} unique style/color/scale combinations.`);
+      setGtinsGenerated(true);
     } catch (err) {
       setGenMsg(`Error: ${(err as Error).message}`);
+    }
+  }
+
+  async function handleBuildBoms() {
+    setBomMsg("");
+    try {
+      const s = await buildBomsForUpload();
+      setBomMsg(`✓ BOMs built: ${s.complete} complete, ${s.incomplete} incomplete, ${s.errors} errors`);
+    } catch (err) {
+      setBomMsg(`Error: ${(err as Error).message}`);
     }
   }
 
@@ -136,20 +151,33 @@ export default function PackingListUploadPanel() {
             </div>
           </div>
 
-          {/* Generate GTINs action */}
+          {/* Generate GTINs + Build BOMs actions */}
           {uploadBlocks.length > 0 && (
-            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 16 }}>
-              <button onClick={handleGenerateGtins} disabled={!companySettings || uploadLoading}
-                style={{ background: TH.primary, color: "#fff", border: "none", borderRadius: 7, padding: "8px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                Generate GTINs for All Parsed Rows
-              </button>
-              <button onClick={() => setActiveTab("labels")}
-                style={{ background: TH.header, color: "#fff", border: "none", borderRadius: 7, padding: "8px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                → Create Label Batch
-              </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <button onClick={handleGenerateGtins} disabled={!companySettings || uploadLoading}
+                  style={{ background: TH.primary, color: "#fff", border: "none", borderRadius: 7, padding: "8px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                  1. Generate GTINs for All Parsed Rows
+                </button>
+                <button
+                  onClick={handleBuildBoms}
+                  disabled={!gtinsGenerated || bomBuilding}
+                  style={{ background: "#276749", color: "#fff", border: "none", borderRadius: 7, padding: "8px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: gtinsGenerated ? 1 : 0.4 }}>
+                  {bomBuilding ? "Building BOMs…" : "2. Build BOMs from Scale + UPC Master"}
+                </button>
+                <button onClick={() => setActiveTab("labels")}
+                  style={{ background: TH.header, color: "#fff", border: "none", borderRadius: 7, padding: "8px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                  → Create Label Batch
+                </button>
+              </div>
               {genMsg && (
                 <span style={{ fontSize: 13, color: genMsg.startsWith("Error") ? TH.primary : "#276749", fontWeight: 600 }}>
                   {genMsg}
+                </span>
+              )}
+              {bomMsg && (
+                <span style={{ fontSize: 13, color: bomMsg.startsWith("Error") ? TH.primary : "#276749", fontWeight: 600 }}>
+                  {bomMsg}
                 </span>
               )}
             </div>

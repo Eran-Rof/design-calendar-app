@@ -44,12 +44,14 @@ export default function ReceivingPanel() {
     receivingEditedQtys, receivingSessions, receivingSession,
     receivingLoading, receivingError, receivingAlreadyReceived,
     searchBySscc, setReceivingEditedQty, confirmReceive, clearReceiving, loadReceivingSessions,
+    bomBuilding, buildBomForReceiving,
   } = useGS1Store();
 
-  const [ssccInput, setSsccInput] = useState("");
-  const [notes, setNotes] = useState("");
-  const [confirming, setConfirming] = useState(false);
+  const [ssccInput, setSsccInput]     = useState("");
+  const [notes, setNotes]             = useState("");
+  const [confirming, setConfirming]   = useState(false);
   const [confirmDone, setConfirmDone] = useState(false);
+  const [buildingBom, setBuildingBom] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -80,7 +82,19 @@ export default function ReceivingPanel() {
     setSsccInput("");
     setNotes("");
     setConfirmDone(false);
+    setBuildingBom(false);
     inputRef.current?.focus();
+  }
+
+  async function handleBuildBomNow() {
+    setBuildingBom(true);
+    try {
+      await buildBomForReceiving();
+      // Re-run explosion with the same SSCC now that BOMs exist
+      if (receivingCarton) await searchBySscc(receivingCarton.sscc);
+    } finally {
+      setBuildingBom(false);
+    }
   }
 
   const explosion = receivingExplosion;
@@ -209,18 +223,27 @@ export default function ReceivingPanel() {
 
           {/* ── Right: UPC breakdown + confirm ───────────────────────────── */}
           <div>
-            {/* Missing BOM warnings */}
+            {/* Missing BOM warnings + Build BOM now */}
             {explosion && explosion.missingBomGtins.length > 0 && (
               <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8,
-                padding: "10px 16px", marginBottom: 16, fontSize: 13, color: "#92400E" }}>
+                padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#92400E" }}>
                 <strong>⚠ BOM missing for {explosion.missingBomGtins.length} Pack GTIN(s):</strong>
                 {" "}cannot explode to UPC-level receiving.
-                <ul style={{ margin: "6px 0 0 16px", fontSize: 12 }}>
+                <ul style={{ margin: "6px 0 6px 16px", fontSize: 12 }}>
                   {explosion.missingBomGtins.map(g => <li key={g}><code>{g}</code></li>)}
                 </ul>
-                <div style={{ marginTop: 6, fontSize: 12 }}>
-                  Add BOM records in the Pack GTINs tab to enable full UPC receiving.
-                </div>
+                <button
+                  onClick={handleBuildBomNow}
+                  disabled={buildingBom || bomBuilding}
+                  style={{
+                    background: "#92400E", color: "#fff", border: "none", borderRadius: 6,
+                    padding: "6px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer", marginTop: 4,
+                  }}>
+                  {buildingBom ? "Building BOM…" : "Build BOM now"}
+                </button>
+                <span style={{ marginLeft: 10, fontSize: 11, color: "#A16207" }}>
+                  Uses Scale Master + UPC Master to auto-build
+                </span>
               </div>
             )}
 
@@ -330,8 +353,7 @@ export default function ReceivingPanel() {
               </div>
             ) : explosion && explosion.contentLines.length > 0 && explosion.missingBomGtins.length > 0 ? (
               <div style={{ ...CARD, padding: 24, color: TH.textMuted, fontSize: 13, textAlign: "center" }}>
-                No UPC lines — all Pack GTINs are missing BOM records.
-                Add BOM in the Pack GTINs tab to enable receiving.
+                No UPC lines — all Pack GTINs are missing BOM records. Use "Build BOM now" above.
               </div>
             ) : !explosion ? null : (
               <div style={{ ...CARD, padding: 24, color: TH.textMuted, fontSize: 13, textAlign: "center" }}>

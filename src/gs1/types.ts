@@ -50,6 +50,8 @@ export interface ScaleSizeRatio {
   created_at: string;
 }
 
+export type BomStatus = "not_built" | "complete" | "incomplete" | "error";
+
 export interface PackGtin {
   id: string;
   style_no: string;
@@ -60,8 +62,21 @@ export interface PackGtin {
   units_per_pack: number | null;
   status: "active" | "inactive";
   source_method: string;
+  bom_status: BomStatus;
+  bom_last_built_at: string | null;
+  bom_issue_summary: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface PackGtinBomIssue {
+  id: string;
+  pack_gtin: string;
+  issue_type: string;
+  severity: "info" | "warning" | "error";
+  message: string;
+  context: Record<string, unknown> | null;
+  created_at: string;
 }
 
 export interface PackGtinBom {

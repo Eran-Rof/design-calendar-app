@@ -3,6 +3,7 @@ import { TH } from "../../utils/theme";
 import { useGS1Store } from "../store/gs1Store";
 import type { ScaleSizeRatio } from "../types";
 import { KNOWN_SCALE_CODES } from "../types";
+import type { BomCheckResult } from "../services/bomBuilderService";
 
 const TH_STYLE: React.CSSProperties = {
   padding: "8px 12px", textAlign: "left", fontSize: 12,
@@ -79,11 +80,19 @@ function EditModal({ code, existing, onSave, onClose }: {
 }
 
 export default function ScaleMasterPanel() {
-  const { scales, scaleRatios, scaleLoading, scaleError, loadScales, saveScale, deleteScale } = useGS1Store();
+  const { scales, scaleRatios, scaleLoading, scaleError, loadScales, saveScale, deleteScale, checkUpcCoverageForStyleColor } = useGS1Store();
   const [editing, setEditing] = useState<string | null>(null);
   const [adding,  setAdding]  = useState(false);
   const [newCode, setNewCode] = useState("");
   const [saved,   setSaved]   = useState(false);
+
+  // UPC coverage check state
+  const [coverageStyle,  setCoverageStyle]  = useState("");
+  const [coverageColor,  setCoverageColor]  = useState("");
+  const [coverageScale,  setCoverageScale]  = useState("");
+  const [coverageResult, setCoverageResult] = useState<BomCheckResult | null>(null);
+  const [coverageLoading, setCoverageLoading] = useState(false);
+  const [coverageError,  setCoverageError]  = useState("");
 
   useEffect(() => { loadScales(); }, []);
 
@@ -101,6 +110,22 @@ export default function ScaleMasterPanel() {
   async function handleDelete(code: string) {
     if (!confirm(`Delete scale ${code}? This cannot be undone if GTINs reference it.`)) return;
     await deleteScale(code);
+  }
+
+  async function handleCheckCoverage(e: React.FormEvent) {
+    e.preventDefault();
+    if (!coverageStyle.trim() || !coverageColor.trim() || !coverageScale.trim()) return;
+    setCoverageLoading(true); setCoverageResult(null); setCoverageError("");
+    try {
+      const result = await checkUpcCoverageForStyleColor(
+        coverageStyle.trim().toUpperCase(),
+        coverageColor.trim().toUpperCase(),
+        coverageScale.trim().toUpperCase()
+      );
+      setCoverageResult(result);
+    } catch (err) {
+      setCoverageError((err as Error).message);
+    } finally { setCoverageLoading(false); }
   }
 
   const knownCodes = Array.from(KNOWN_SCALE_CODES).sort();
@@ -185,6 +210,78 @@ export default function ScaleMasterPanel() {
               </table>
             )
         }
+      </div>
+
+      {/* UPC Coverage Check */}
+      <div style={{ background: TH.surface, borderRadius: 10, padding: "16px 20px", boxShadow: `0 1px 4px ${TH.shadow}`, marginTop: 20 }}>
+        <h3 style={{ margin: "0 0 12px", fontSize: 15, color: TH.textSub }}>UPC Coverage Check</h3>
+        <p style={{ margin: "0 0 12px", fontSize: 13, color: TH.textMuted }}>
+          Check whether UPC Master has a matching UPC for every size in a scale, for a given style and color.
+        </p>
+        <form onSubmit={handleCheckCoverage} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 16 }}>
+          {[
+            { label: "Style No", value: coverageStyle, set: setCoverageStyle, placeholder: "e.g. 100227091BK" },
+            { label: "Color",    value: coverageColor, set: setCoverageColor, placeholder: "e.g. DRESS BLUES" },
+          ].map(f => (
+            <div key={f.label} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: TH.textSub2, textTransform: "uppercase" }}>{f.label}</label>
+              <input value={f.value} onChange={e => f.set(e.target.value)} placeholder={f.placeholder}
+                style={{ padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13, width: 180 }} />
+            </div>
+          ))}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: TH.textSub2, textTransform: "uppercase" }}>Scale Code</label>
+            <select value={coverageScale} onChange={e => setCoverageScale(e.target.value)}
+              style={{ padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13 }}>
+              <option value="">— select —</option>
+              {scales.map(s => <option key={s.scale_code}>{s.scale_code}</option>)}
+            </select>
+          </div>
+          <button type="submit" disabled={coverageLoading || !coverageStyle.trim() || !coverageColor.trim() || !coverageScale.trim()}
+            style={{ background: TH.primary, color: "#fff", border: "none", borderRadius: 7, padding: "8px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            {coverageLoading ? "Checking…" : "Check Coverage"}
+          </button>
+        </form>
+
+        {coverageError && (
+          <div style={{ background: "#FFF5F5", border: `1px solid ${TH.accentBdr}`, borderRadius: 6, padding: "8px 12px", fontSize: 13, color: TH.primary, marginBottom: 12 }}>
+            {coverageError}
+          </div>
+        )}
+
+        {coverageResult && (
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: TH.textSub }}>
+                {coverageResult.complete
+                  ? "✓ Complete — all sizes have matching UPCs"
+                  : `⚠ Incomplete — ${coverageResult.missing_sizes.length} size(s) missing UPCs`}
+              </span>
+              <span style={{ fontSize: 12, color: TH.textMuted }}>Scale {coverageResult.scale_code}</span>
+            </div>
+            <table style={{ borderCollapse: "collapse", minWidth: 320 }}>
+              <thead>
+                <tr>
+                  {["Size", "Qty/Pack", "UPC", "Status"].map(h => <th key={h} style={TH_STYLE}>{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {coverageResult.sizes.map(row => (
+                  <tr key={row.size} style={{ background: row.found ? "transparent" : "#FFF5F5" }}>
+                    <td style={{ ...TD_STYLE, fontWeight: 700 }}>{row.size}</td>
+                    <td style={TD_STYLE}>{row.qty_in_scale}</td>
+                    <td style={{ ...TD_STYLE, fontFamily: "monospace", fontSize: 12 }}>{row.upc ?? "—"}</td>
+                    <td style={TD_STYLE}>
+                      <span style={{ color: row.found ? "#276749" : TH.primary, fontWeight: 600, fontSize: 12 }}>
+                        {row.found ? "✓ found" : "✗ missing"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {editing && (

@@ -16,6 +16,12 @@ import {
   type AggregatedLine,
   type ExplosionResult,
 } from "../services/receivingService";
+import {
+  buildBomLines,
+  checkUpcCoverage,
+  type BomBuildResult,
+  type BomCheckResult,
+} from "../services/bomBuilderService";
 import type {
   CompanySettings,
   CompanySettingsInput,
@@ -26,6 +32,7 @@ import type {
   ScaleInput,
   PackGtin,
   PackGtinBom,
+  PackGtinBomIssue,
   PackingListUpload,
   PackingListBlock,
   ParseIssue,
@@ -87,6 +94,10 @@ interface GS1State {
   cartonError: string | null;
   lastCreatedSscc: string | null;
 
+  // BOM builder
+  bomBuilding: boolean;
+  bomBuildError: string | null;
+
   // Receiving tab
   receivingCarton: Carton | null;
   receivingContents: CartonContent[];
@@ -134,6 +145,13 @@ interface GS1Actions {
   loadAllCartons: () => Promise<void>;
   createManualSscc: (data: ManualCartonInput) => Promise<Carton>;
   clearLastCreatedSscc: () => void;
+
+  // BOM builder actions
+  buildBomForGtin: (packGtinRow: PackGtin) => Promise<BomBuildResult>;
+  buildBomForAllMissing: () => Promise<{ built: number; complete: number; incomplete: number; errors: number }>;
+  buildBomsForUpload: () => Promise<{ built: number; complete: number; incomplete: number; errors: number }>;
+  buildBomForReceiving: () => Promise<void>;
+  checkUpcCoverageForStyleColor: (styleNo: string, color: string, scaleCode: string) => Promise<BomCheckResult>;
 
   // Receiving tab actions
   searchBySscc: (sscc: string) => Promise<void>;
@@ -186,6 +204,9 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
   cartonLoading: false,
   cartonError: null,
   lastCreatedSscc: null,
+
+  bomBuilding: false,
+  bomBuildError: null,
 
   receivingCarton: null,
   receivingContents: [],
@@ -568,6 +589,159 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
   },
 
   clearLastCreatedSscc: () => set({ lastCreatedSscc: null }),
+
+  // ── BOM builder ───────────────────────────────────────────────────────────────
+  buildBomForGtin: async (packGtinRow) => {
+    set({ bomBuilding: true, bomBuildError: null });
+    try {
+      const [ratios, upcItems] = await Promise.all([
+        db.loadScaleRatios(packGtinRow.scale_code),
+        db.loadUpcItemsByStyleColor(packGtinRow.style_no, packGtinRow.color),
+      ]);
+      const result = buildBomLines(packGtinRow.pack_gtin, packGtinRow.style_no, packGtinRow.color, ratios, upcItems);
+
+      await Promise.all([
+        db.deletePackGtinBomRows(packGtinRow.pack_gtin),
+        db.deletePackGtinBomIssues(packGtinRow.pack_gtin),
+      ]);
+      if (result.lines.length > 0) await db.insertPackGtinBomRows(result.lines);
+      if (result.issues.length > 0) await db.insertPackGtinBomIssues(result.issues);
+      await db.updatePackGtinBomStatus(packGtinRow.pack_gtin, result.status, result.units_per_pack, {
+        missing_upcs: result.issues.filter(i => i.issue_type === "missing_upc_for_size").length,
+        total_issues: result.issues.length,
+      });
+
+      const gtins = await db.loadPackGtins();
+      set({ packGtins: gtins, bomBuilding: false });
+      return result;
+    } catch (e) {
+      set({ bomBuildError: String(e), bomBuilding: false });
+      throw e;
+    }
+  },
+
+  buildBomForAllMissing: async () => {
+    const { packGtins } = get();
+    const missing = packGtins.filter(g => g.bom_status === "not_built" || g.bom_status === "error");
+    set({ bomBuilding: true, bomBuildError: null });
+    let complete = 0, incomplete = 0, errors = 0;
+    try {
+      for (const g of missing) {
+        try {
+          const [ratios, upcItems] = await Promise.all([
+            db.loadScaleRatios(g.scale_code),
+            db.loadUpcItemsByStyleColor(g.style_no, g.color),
+          ]);
+          const result = buildBomLines(g.pack_gtin, g.style_no, g.color, ratios, upcItems);
+          await Promise.all([db.deletePackGtinBomRows(g.pack_gtin), db.deletePackGtinBomIssues(g.pack_gtin)]);
+          if (result.lines.length > 0) await db.insertPackGtinBomRows(result.lines);
+          if (result.issues.length > 0) await db.insertPackGtinBomIssues(result.issues);
+          await db.updatePackGtinBomStatus(g.pack_gtin, result.status, result.units_per_pack, {
+            missing_upcs: result.issues.filter(i => i.issue_type === "missing_upc_for_size").length,
+            total_issues: result.issues.length,
+          });
+          if (result.status === "complete") complete++;
+          else if (result.status === "incomplete") incomplete++;
+          else errors++;
+        } catch { errors++; }
+      }
+      const gtins = await db.loadPackGtins();
+      set({ packGtins: gtins, bomBuilding: false });
+      return { built: missing.length, complete, incomplete, errors };
+    } catch (e) {
+      set({ bomBuildError: String(e), bomBuilding: false });
+      throw e;
+    }
+  },
+
+  buildBomsForUpload: async () => {
+    const { pendingRows, packGtins } = get();
+    if (pendingRows.length === 0) return { built: 0, complete: 0, incomplete: 0, errors: 0 };
+    set({ bomBuilding: true, bomBuildError: null });
+    let complete = 0, incomplete = 0, errors = 0;
+    try {
+      const seen = new Set<string>();
+      const uniqueRows = pendingRows.filter(r => {
+        const key = `${r.styleNo}|${r.color}|${r.scaleCode}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      for (const row of uniqueRows) {
+        const g = packGtins.find(pg =>
+          pg.style_no === row.styleNo && pg.color === row.color && pg.scale_code === row.scaleCode
+        );
+        if (!g) { errors++; continue; }
+        try {
+          const [ratios, upcItems] = await Promise.all([
+            db.loadScaleRatios(g.scale_code),
+            db.loadUpcItemsByStyleColor(g.style_no, g.color),
+          ]);
+          const result = buildBomLines(g.pack_gtin, g.style_no, g.color, ratios, upcItems);
+          await Promise.all([db.deletePackGtinBomRows(g.pack_gtin), db.deletePackGtinBomIssues(g.pack_gtin)]);
+          if (result.lines.length > 0) await db.insertPackGtinBomRows(result.lines);
+          if (result.issues.length > 0) await db.insertPackGtinBomIssues(result.issues);
+          await db.updatePackGtinBomStatus(g.pack_gtin, result.status, result.units_per_pack, {
+            missing_upcs: result.issues.filter(i => i.issue_type === "missing_upc_for_size").length,
+            total_issues: result.issues.length,
+          });
+          if (result.status === "complete") complete++;
+          else if (result.status === "incomplete") incomplete++;
+          else errors++;
+        } catch { errors++; }
+      }
+
+      const gtins = await db.loadPackGtins();
+      set({ packGtins: gtins, bomBuilding: false });
+      return { built: uniqueRows.length, complete, incomplete, errors };
+    } catch (e) {
+      set({ bomBuildError: String(e), bomBuilding: false });
+      throw e;
+    }
+  },
+
+  buildBomForReceiving: async () => {
+    const { receivingExplosion } = get();
+    if (!receivingExplosion?.missingBomGtins.length) return;
+    set({ bomBuilding: true, bomBuildError: null });
+    try {
+      for (const packGtinStr of receivingExplosion.missingBomGtins) {
+        // Try cached list first, then fresh load
+        let packGtinRow = get().packGtins.find(g => g.pack_gtin === packGtinStr);
+        if (!packGtinRow) {
+          const fresh = await db.loadPackGtins();
+          set({ packGtins: fresh });
+          packGtinRow = fresh.find(g => g.pack_gtin === packGtinStr);
+        }
+        if (!packGtinRow) continue;
+
+        const [ratios, upcItems] = await Promise.all([
+          db.loadScaleRatios(packGtinRow.scale_code),
+          db.loadUpcItemsByStyleColor(packGtinRow.style_no, packGtinRow.color),
+        ]);
+        const result = buildBomLines(packGtinStr, packGtinRow.style_no, packGtinRow.color, ratios, upcItems);
+        await Promise.all([db.deletePackGtinBomRows(packGtinStr), db.deletePackGtinBomIssues(packGtinStr)]);
+        if (result.lines.length > 0) await db.insertPackGtinBomRows(result.lines);
+        if (result.issues.length > 0) await db.insertPackGtinBomIssues(result.issues);
+        await db.updatePackGtinBomStatus(packGtinStr, result.status, result.units_per_pack, {
+          missing_upcs: result.issues.filter(i => i.issue_type === "missing_upc_for_size").length,
+          total_issues: result.issues.length,
+        });
+      }
+      const gtins = await db.loadPackGtins();
+      set({ packGtins: gtins, bomBuilding: false });
+    } catch (e) {
+      set({ bomBuildError: String(e), bomBuilding: false });
+      throw e;
+    }
+  },
+
+  checkUpcCoverageForStyleColor: async (styleNo, color, scaleCode) => {
+    const ratios = get().scaleRatios.filter(r => r.scale_code === scaleCode);
+    const upcItems = await db.loadUpcItemsByStyleColor(styleNo, color);
+    return checkUpcCoverage(styleNo, color, scaleCode, ratios, upcItems);
+  },
 
   // ── Receiving tab ─────────────────────────────────────────────────────────────
   searchBySscc: async (rawSscc) => {

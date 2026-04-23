@@ -13,6 +13,7 @@ import type {
   ScaleInput,
   PackGtin,
   PackGtinBom,
+  PackGtinBomIssue,
   PackingListUpload,
   PackingListBlock,
   ParseIssue,
@@ -574,6 +575,85 @@ export async function loadReceivingSessions(limit = 50): Promise<ReceivingSessio
 export async function loadSessionLines(sessionId: string): Promise<ReceivingSessionLine[]> {
   return sbFetch<ReceivingSessionLine[]>(
     `${rpc("receiving_session_lines")}?session_id=eq.${sessionId}&order=style_no.asc,color.asc,size.asc`
+  );
+}
+
+// ── BOM builder DB operations ─────────────────────────────────────────────────
+
+export async function loadUpcItemsByStyleColor(styleNo: string, color: string): Promise<UpcItem[]> {
+  return sbFetch<UpcItem[]>(
+    `${rpc("upc_item_master")}?style_no=eq.${encodeURIComponent(styleNo)}&color=eq.${encodeURIComponent(color)}&order=size.asc`
+  );
+}
+
+export async function loadPackGtinBomRows(packGtin: string): Promise<PackGtinBom[]> {
+  return sbFetch<PackGtinBom[]>(
+    `${rpc("pack_gtin_bom")}?pack_gtin=eq.${encodeURIComponent(packGtin)}&order=size.asc`
+  );
+}
+
+export async function deletePackGtinBomRows(packGtin: string): Promise<void> {
+  await sbFetch<void>(
+    `${rpc("pack_gtin_bom")}?pack_gtin=eq.${encodeURIComponent(packGtin)}`,
+    { method: "DELETE" }
+  );
+}
+
+export async function insertPackGtinBomRows(
+  lines: Array<{ pack_gtin: string; child_upc: string; size: string; qty_in_pack: number }>
+): Promise<PackGtinBom[]> {
+  if (lines.length === 0) return [];
+  return sbFetch<PackGtinBom[]>(
+    rpc("pack_gtin_bom"),
+    { method: "POST", body: JSON.stringify(lines), headers: { Prefer: "return=representation" } }
+  );
+}
+
+export async function updatePackGtinBomStatus(
+  packGtin: string,
+  status: string,
+  unitsPerPack: number | null,
+  issueSummary: Record<string, unknown> | null
+): Promise<void> {
+  await sbFetch<void>(
+    `${rpc("pack_gtin_master")}?pack_gtin=eq.${encodeURIComponent(packGtin)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        bom_status: status,
+        bom_last_built_at: new Date().toISOString(),
+        bom_issue_summary: issueSummary,
+        units_per_pack: unitsPerPack,
+      }),
+      headers: { Prefer: "return=minimal" },
+    }
+  );
+}
+
+export async function loadPackGtinBomIssues(packGtin: string): Promise<PackGtinBomIssue[]> {
+  return sbFetch<PackGtinBomIssue[]>(
+    `${rpc("pack_gtin_bom_issues")}?pack_gtin=eq.${encodeURIComponent(packGtin)}&order=severity.asc,created_at.asc`
+  );
+}
+
+export async function deletePackGtinBomIssues(packGtin: string): Promise<void> {
+  await sbFetch<void>(
+    `${rpc("pack_gtin_bom_issues")}?pack_gtin=eq.${encodeURIComponent(packGtin)}`,
+    { method: "DELETE" }
+  );
+}
+
+export async function insertPackGtinBomIssues(
+  issues: Array<{ pack_gtin: string; issue_type: string; severity: string; message: string; context?: Record<string, unknown> }>
+): Promise<void> {
+  if (issues.length === 0) return;
+  await sbFetch<void>(
+    rpc("pack_gtin_bom_issues"),
+    {
+      method: "POST",
+      body: JSON.stringify(issues.map(i => ({ ...i, context: i.context ?? null }))),
+      headers: { Prefer: "return=minimal" },
+    }
   );
 }
 
