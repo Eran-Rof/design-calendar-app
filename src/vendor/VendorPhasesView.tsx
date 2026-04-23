@@ -528,8 +528,8 @@ export default function VendorPhasesView({ poId }: Props = {}) {
           <div style={{ textAlign: "center" }}>Days</div>
           <div>Status</div>
           <div></div>{/* spacer — push Review state + Notes to the right */}
-          <div>Review state</div>
-          <div style={{ textAlign: "center" }}>Notes</div>
+          <div style={{ textAlign: "left" }}>Review state</div>
+          <div style={{ textAlign: "right" }}>Notes</div>
         </div>
 
         {filteredRows.length === 0 ? (
@@ -676,7 +676,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                     );
                   })}
                 </div>
-                <div style={{ display: "flex", justifyContent: "center" }}>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
                   <NotesButton
                     notes={allPhaseNotes}
                     reviewEntries={reviewEntriesFor(r.po.uuid_id, r.phase.name)}
@@ -773,7 +773,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                                 );
                               })}
                             </div>
-                            <div style={{ display: "flex", justifyContent: "center", paddingTop: 2 }}>
+                            <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 2 }}>
                               <NotesButton
                                 notes={notesFor(r.po.uuid_id, r.phase.name, l.id)}
                                 reviewEntries={lineReviews}
