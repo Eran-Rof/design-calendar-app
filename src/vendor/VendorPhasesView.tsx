@@ -41,12 +41,14 @@ export const PHASES: { name: string; category: string; daysBeforeDDP: number }[]
 const STATUSES = ["Not Started", "In Progress", "Complete", "Delayed", "N/A"] as const;
 type Status = typeof STATUSES[number];
 
+// Dark-theme pill palette — semi-transparent tints over slate so the
+// selects read as status chips rather than solid light rectangles.
 const STATUS_COLORS: Record<Status, { bg: string; fg: string }> = {
-  "Not Started": { bg: "#E5E7EB", fg: "#374151" },
-  "In Progress": { bg: "#DBEAFE", fg: "#1E40AF" },
-  "Complete":    { bg: "#D1FAE5", fg: "#065F46" },
-  "Delayed":     { bg: "#FECACA", fg: "#991B1B" },
-  "N/A":         { bg: "#F3F4F6", fg: "#6B7280" },
+  "Not Started": { bg: "#47556933", fg: "#CBD5E1" },
+  "In Progress": { bg: "#1E40AF44", fg: "#93C5FD" },
+  "Complete":    { bg: "#065F4644", fg: "#6EE7B7" },
+  "Delayed":     { bg: "#991B1B44", fg: "#FCA5A5" },
+  "N/A":         { bg: "#33415533", fg: "#94A3B8" },
 };
 
 interface PORow {
@@ -556,7 +558,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
           const hasMismatch = lineStatusOverrides.some((s) => s != null && s !== r.effectiveStatus);
           const masterCellBorder = hasMismatch ? "#7C3AED" // distinct purple when lines diverge
             : r.statusReq?.status === "pending" ? "#F59E0B"
-            : "#CBD5E1";
+            : TH.border;
 
           return (
             <div key={expandKey}>
@@ -569,7 +571,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                     return next;
                   })}
                   aria-label={isExpanded ? "Collapse lines" : "Expand lines"}
-                  style={{ width: 24, height: 24, border: `1px solid ${TH.border}`, background: TH.surface, borderRadius: 4, cursor: "pointer", fontFamily: "inherit", fontSize: 11, lineHeight: 1, padding: 0 }}
+                  style={{ width: 24, height: 24, border: `1px solid ${TH.border}`, background: TH.surface, color: TH.textSub, borderRadius: 4, cursor: "pointer", fontFamily: "inherit", fontSize: 11, lineHeight: 1, padding: 0 }}
                 >
                   {isExpanded ? "▼" : "▶"}
                 </button>
@@ -589,9 +591,10 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                     disabled={!editable}
                     onChange={(e) => void proposeChange(r.po, r.phase.name, "expected_date", r.effectiveDate, e.target.value || null)}
                     style={{ width: "100%", padding: "4px 6px", fontSize: 12, borderRadius: 4,
-                      border: `1px solid ${r.dateReq?.status === "pending" ? "#F59E0B" : r.dateReq?.status === "rejected" ? "#EF4444" : "#CBD5E1"}`,
-                      background: editable ? "#fff" : "#f1f5f9", cursor: editable ? "text" : "not-allowed",
-                      fontFamily: "inherit",
+                      border: `1px solid ${r.dateReq?.status === "pending" ? "#F59E0B" : r.dateReq?.status === "rejected" ? "#EF4444" : TH.border}`,
+                      background: editable ? TH.bg : TH.surface, color: TH.text,
+                      cursor: editable ? "text" : "not-allowed",
+                      fontFamily: "inherit", colorScheme: "dark",
                     }}
                   />
                 </div>
@@ -724,7 +727,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                                 disabled={!editable}
                                 onChange={(e) => void proposeChange(r.po, r.phase.name, "status", lineStatus, e.target.value, l.id)}
                                 style={{ width: "100%", padding: "2px 4px", fontSize: 10, borderRadius: 4,
-                                  border: `1px solid ${linePending ? "#F59E0B" : differs ? "#7C3AED" : "#CBD5E1"}`,
+                                  border: `1px solid ${linePending ? "#F59E0B" : differs ? "#7C3AED" : TH.border}`,
                                   background: lsc.bg, color: lsc.fg, cursor: editable ? "pointer" : "not-allowed",
                                   fontWeight: 600, fontFamily: "inherit",
                                 }}
@@ -841,8 +844,8 @@ function NotesButton({
           width: 28, height: 24, padding: 0,
           border: `1px solid ${count > 0 || reviewCount > 0 ? TH.primary : TH.border}`,
           borderRadius: 6,
-          background: count > 0 || reviewCount > 0 ? "#EFF6FF" : TH.surface,
-          color: count > 0 || reviewCount > 0 ? TH.primary : TH.textMuted,
+          background: count > 0 || reviewCount > 0 ? "#1E3A8A55" : TH.surface,
+          color: count > 0 || reviewCount > 0 ? TH.primaryLt : TH.textMuted,
           cursor: "pointer", fontFamily: "inherit",
           display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 3,
           fontSize: 11, fontWeight: 700,
