@@ -22,9 +22,10 @@ import type {
   LabelData,
   LabelMode,
   Carton,
+  ManualCartonInput,
 } from "../types";
 
-export type GS1Tab = "company" | "upc" | "scale" | "gtins" | "upload" | "labels";
+export type GS1Tab = "company" | "upc" | "scale" | "gtins" | "upload" | "labels" | "cartons";
 
 interface GS1State {
   activeTab: GS1Tab;
@@ -63,6 +64,12 @@ interface GS1State {
   cartons: Carton[];
   batchLoading: boolean;
   batchError: string | null;
+
+  // All cartons — for the Carton Labels tab
+  allCartons: Carton[];
+  cartonLoading: boolean;
+  cartonError: string | null;
+  lastCreatedSscc: string | null;
 }
 
 interface GS1Actions {
@@ -95,6 +102,11 @@ interface GS1Actions {
   loadCartonsForBatch: (batchId: string) => Promise<void>;
   updateBatchStatus: (batchId: string, status: LabelBatch["status"]) => Promise<void>;
   clearCurrentBatch: () => void;
+
+  // Carton tab actions
+  loadAllCartons: () => Promise<void>;
+  createManualSscc: (data: ManualCartonInput) => Promise<Carton>;
+  clearLastCreatedSscc: () => void;
 }
 
 type GS1Store = GS1State & GS1Actions;
@@ -135,6 +147,11 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
   cartons: [],
   batchLoading: false,
   batchError: null,
+
+  allCartons: [],
+  cartonLoading: false,
+  cartonError: null,
+  lastCreatedSscc: null,
 
   // ── Tab + mode ────────────────────────────────────────────────────────────────
   setActiveTab: (tab) => set({ activeTab: tab }),
@@ -477,4 +494,34 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
   },
 
   clearCurrentBatch: () => set({ currentBatch: null, batchLines: [], cartons: [] }),
+
+  // ── Carton tab ────────────────────────────────────────────────────────────────
+  loadAllCartons: async () => {
+    set({ cartonLoading: true, cartonError: null });
+    try {
+      const allCartons = await db.loadAllCartons(200);
+      set({ allCartons, cartonLoading: false });
+    } catch (e) {
+      set({ cartonError: String(e), cartonLoading: false });
+    }
+  },
+
+  createManualSscc: async (data) => {
+    const { companySettings } = get();
+    if (!companySettings) throw new Error("Company settings not configured. Go to Company Setup first.");
+    set({ cartonLoading: true, cartonError: null, lastCreatedSscc: null });
+    try {
+      const serialRef = await db.claimOneSsccSerial();
+      const sscc = buildSsccFromSettings(companySettings, serialRef);
+      const carton = await db.createSingleCarton(sscc, serialRef, data);
+      const allCartons = await db.loadAllCartons(200);
+      set({ allCartons, cartonLoading: false, lastCreatedSscc: sscc });
+      return carton;
+    } catch (e) {
+      set({ cartonError: String(e), cartonLoading: false });
+      throw e;
+    }
+  },
+
+  clearLastCreatedSscc: () => set({ lastCreatedSscc: null }),
 }));

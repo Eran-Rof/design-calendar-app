@@ -157,11 +157,16 @@ export interface Carton {
   serial_reference: number;
   batch_id: string | null;
   batch_line_id: string | null;
+  upload_id: string | null;
+  po_number: string | null;
+  carton_no: string | null;
   pack_gtin: string | null;
   style_no: string | null;
   color: string | null;
   scale_code: string | null;
   carton_seq: number;
+  total_packs: number | null;
+  total_units: number | null;
   status: "generated" | "shipped" | "received" | "cancelled";
   created_at: string;
   updated_at: string;
@@ -171,9 +176,14 @@ export interface CartonContent {
   id: string;
   carton_id: string;
   pack_gtin: string;
+  style_no: string | null;
+  color: string | null;
+  scale_code: string | null;
   child_upc: string | null;
   size: string | null;
   qty_per_pack: number;
+  pack_qty: number | null;
+  exploded_unit_qty: number | null;
   created_at: string;
 }
 
@@ -187,6 +197,22 @@ export interface CartonInput {
   color: string;
   scale_code: string;
   carton_seq: number;
+  upload_id?: string | null;
+  po_number?: string | null;
+  carton_no?: string | null;
+  total_packs?: number | null;
+  total_units?: number | null;
+}
+
+export interface ManualCartonInput {
+  upload_id?: string;
+  po_number?: string;
+  carton_no?: string;
+  channel?: string;
+  style_no?: string;
+  color?: string;
+  total_packs?: number;
+  total_units?: number;
 }
 
 // ── Input/form types ──────────────────────────────────────────────────────────

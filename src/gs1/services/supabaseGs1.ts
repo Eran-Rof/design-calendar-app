@@ -24,6 +24,7 @@ import type {
   LabelMode,
   Carton,
   CartonInput,
+  ManualCartonInput,
 } from "../types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -424,6 +425,54 @@ export async function loadCartonsByLine(batchLineId: string): Promise<Carton[]> 
   return sbFetch<Carton[]>(
     `${rpc("cartons")}?batch_line_id=eq.${batchLineId}&order=carton_seq.asc`
   );
+}
+
+export async function loadCartonsByUpload(uploadId: string): Promise<Carton[]> {
+  return sbFetch<Carton[]>(
+    `${rpc("cartons")}?upload_id=eq.${uploadId}&order=created_at.asc`
+  );
+}
+
+export async function loadAllCartons(limit = 100): Promise<Carton[]> {
+  return sbFetch<Carton[]>(
+    `${rpc("cartons")}?order=created_at.desc&limit=${limit}`
+  );
+}
+
+export async function claimOneSsccSerial(): Promise<number> {
+  const result = await sbFetch<number | [number]>(
+    rpc("rpc/sscc_claim_one_serial"),
+    { method: "POST", body: JSON.stringify({}) }
+  );
+  return Array.isArray(result) ? result[0] : Number(result);
+}
+
+export async function createSingleCarton(
+  sscc: string,
+  serialReference: number,
+  data: ManualCartonInput
+): Promise<Carton> {
+  const [row] = await sbFetch<Carton[]>(
+    rpc("cartons"),
+    {
+      method: "POST",
+      body: JSON.stringify({
+        sscc,
+        serial_reference: serialReference,
+        upload_id:    data.upload_id    ?? null,
+        po_number:    data.po_number    ?? null,
+        carton_no:    data.carton_no    ?? null,
+        style_no:     data.style_no     ?? null,
+        color:        data.color        ?? null,
+        total_packs:  data.total_packs  ?? null,
+        total_units:  data.total_units  ?? null,
+        carton_seq:   1,
+        status:       "generated",
+      }),
+      headers: { Prefer: "return=representation" },
+    }
+  );
+  return row;
 }
 
 export async function loadBatchLines(batchId: string): Promise<LabelBatchLine[]> {
