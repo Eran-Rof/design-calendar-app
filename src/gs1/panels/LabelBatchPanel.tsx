@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { TH } from "../../utils/theme";
 import { useGS1Store } from "../store/gs1Store";
-import { exportLabelsCsv, printLabelBatch } from "../services/labelExport";
+import { exportLabelsCsv, printLabelBatch, exportSsccCsv, printSsccLabels } from "../services/labelExport";
 import { formatGtin14Display } from "../services/gtinService";
+import type { LabelMode } from "../types";
 
 const TH_STYLE: React.CSSProperties = {
   padding: "8px 12px", textAlign: "left", fontSize: 12,
@@ -13,10 +14,11 @@ const TD_STYLE: React.CSSProperties = { padding: "7px 12px", fontSize: 13, color
 
 export default function LabelBatchPanel() {
   const {
-    batches, currentBatch, batchLines, batchLoading, batchError,
+    batches, currentBatch, batchLines, cartons, batchLoading, batchError,
     currentUpload, uploadBlocks, companySettings,
+    labelMode, setLabelMode,
     loadBatches, loadCompanySettings, selectBatch, clearCurrentBatch,
-    createBatchFromUpload, updateBatchStatus,
+    createBatchFromUpload, updateBatchStatus, loadCartonsForBatch,
   } = useGS1Store();
 
   const [batchName, setBatchName] = useState("");
@@ -36,6 +38,11 @@ export default function LabelBatchPanel() {
     }
   }, [currentUpload]);
 
+  async function handleSelectBatch(batch: typeof batches[0]) {
+    await selectBatch(batch);
+    await loadCartonsForBatch(batch.id);
+  }
+
   async function handleCreateBatch(e: React.FormEvent) {
     e.preventDefault();
     if (!batchName.trim()) return;
@@ -54,6 +61,19 @@ export default function LabelBatchPanel() {
 
   const totalLabels   = batchLines.reduce((s, l) => s + l.label_qty, 0);
   const uniqueGtins   = new Set(batchLines.map(l => l.pack_gtin)).size;
+  const totalCartons  = cartons.length;
+  const batchMode     = currentBatch?.label_mode ?? "pack_gtin";
+  const hasSSCC       = batchMode === "sscc" || batchMode === "both";
+
+  const modeBadgeStyle = (mode: string): React.CSSProperties => {
+    const map: Record<string, { bg: string; color: string }> = {
+      pack_gtin: { bg: "#EBF8FF", color: "#2B6CB0" },
+      sscc:      { bg: "#F0FFF4", color: "#276749" },
+      both:      { bg: "#FAF5FF", color: "#553C9A" },
+    };
+    const s = map[mode] ?? { bg: TH.surfaceHi, color: TH.textMuted };
+    return { background: s.bg, color: s.color, fontSize: 11, fontWeight: 700, padding: "2px 10px", borderRadius: 10 };
+  };
 
   return (
     <div style={{ padding: "24px 16px", maxWidth: 1100, margin: "0 auto" }}>
@@ -82,20 +102,49 @@ export default function LabelBatchPanel() {
             and upload a file first.
           </p>
         ) : (
-          <form onSubmit={handleCreateBatch} style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <label style={{ fontSize: 11, fontWeight: 600, color: TH.textSub2, textTransform: "uppercase" }}>Batch Name</label>
-              <input value={batchName} onChange={e => setBatchName(e.target.value)} required
-                style={{ padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13, width: 280 }} />
+          <form onSubmit={handleCreateBatch} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {/* Label mode selector */}
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: TH.textSub2, textTransform: "uppercase", marginBottom: 8 }}>Label Type</div>
+              <div style={{ display: "flex", gap: 10 }}>
+                {(["pack_gtin", "sscc", "both"] as LabelMode[]).map(m => {
+                  const labels: Record<LabelMode, string> = { pack_gtin: "GTIN Only", sscc: "SSCC Only", both: "GTIN + SSCC" };
+                  const active = labelMode === m;
+                  return (
+                    <button key={m} type="button" onClick={() => setLabelMode(m)}
+                      style={{
+                        padding: "6px 16px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                        border: `2px solid ${active ? TH.primary : TH.border}`,
+                        background: active ? TH.accent : "#fff",
+                        color: active ? TH.primary : TH.textSub,
+                      }}>
+                      {labels[m]}
+                    </button>
+                  );
+                })}
+              </div>
+              {labelMode !== "pack_gtin" && (
+                <div style={{ marginTop: 6, fontSize: 11, color: TH.textMuted }}>
+                  SSCC-18 carton numbers will be generated and reserved atomically.
+                </div>
+              )}
             </div>
-            <div style={{ fontSize: 12, color: TH.textMuted, alignSelf: "center" }}>
-              {uploadBlocks.length} blocks from {currentUpload.file_name}
+
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: TH.textSub2, textTransform: "uppercase" }}>Batch Name</label>
+                <input value={batchName} onChange={e => setBatchName(e.target.value)} required
+                  style={{ padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13, width: 280 }} />
+              </div>
+              <div style={{ fontSize: 12, color: TH.textMuted, alignSelf: "center" }}>
+                {uploadBlocks.length} blocks from {currentUpload.file_name}
+              </div>
+              <button type="submit" disabled={creating || !companySettings}
+                style={{ background: TH.primary, color: "#fff", border: "none", borderRadius: 7, padding: "8px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                {creating ? "Creating…" : "Create Batch"}
+              </button>
+              {createMsg && <span style={{ fontSize: 13, color: createMsg.startsWith("Error") ? TH.primary : "#276749", fontWeight: 600 }}>{createMsg}</span>}
             </div>
-            <button type="submit" disabled={creating || !companySettings}
-              style={{ background: TH.primary, color: "#fff", border: "none", borderRadius: 7, padding: "8px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-              {creating ? "Creating…" : "Create Batch"}
-            </button>
-            {createMsg && <span style={{ fontSize: 13, color: createMsg.startsWith("Error") ? TH.primary : "#276749", fontWeight: 600 }}>{createMsg}</span>}
           </form>
         )}
       </div>
@@ -112,7 +161,7 @@ export default function LabelBatchPanel() {
               ? <p style={{ padding: 16, color: TH.textMuted, fontSize: 13 }}>No batches yet.</p>
               : batches.map(b => (
                 <div key={b.id}
-                  onClick={() => selectBatch(b)}
+                  onClick={() => handleSelectBatch(b)}
                   style={{
                     padding: "10px 16px", cursor: "pointer",
                     background: currentBatch?.id === b.id ? TH.accent : "transparent",
@@ -140,21 +189,45 @@ export default function LabelBatchPanel() {
               {/* Header */}
               <div style={{ padding: "16px 20px", borderBottom: `1px solid ${TH.border}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div>
-                  <h3 style={{ margin: "0 0 4px", fontSize: 16 }}>{currentBatch.batch_name}</h3>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <h3 style={{ margin: 0, fontSize: 16 }}>{currentBatch.batch_name}</h3>
+                    <span style={modeBadgeStyle(batchMode)}>
+                      {{ pack_gtin: "GTIN Only", sscc: "SSCC Only", both: "GTIN + SSCC" }[batchMode]}
+                    </span>
+                  </div>
                   <div style={{ fontSize: 12, color: TH.textMuted }}>
                     {batchLines.length} lines &nbsp;·&nbsp; {uniqueGtins} unique GTINs &nbsp;·&nbsp;
                     <strong style={{ color: TH.primary }}>{totalLabels.toLocaleString()} total labels</strong>
+                    {hasSSCC && totalCartons > 0 && (
+                      <> &nbsp;·&nbsp; <strong style={{ color: "#276749" }}>{totalCartons.toLocaleString()} cartons</strong></>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button onClick={() => printLabelBatch(currentBatch.batch_name, batchLines)}
-                    style={{ background: TH.primary, color: "#fff", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                    🖨 Print Labels
-                  </button>
-                  <button onClick={() => exportLabelsCsv(currentBatch.batch_name, batchLines)}
-                    style={{ background: TH.header, color: "#fff", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                    ↓ Export CSV
-                  </button>
+                  {batchMode !== "sscc" && (
+                    <>
+                      <button onClick={() => printLabelBatch(currentBatch.batch_name, batchLines)}
+                        style={{ background: TH.primary, color: "#fff", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                        Print GTIN Labels
+                      </button>
+                      <button onClick={() => exportLabelsCsv(currentBatch.batch_name, batchLines)}
+                        style={{ background: TH.header, color: "#fff", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                        ↓ GTIN CSV
+                      </button>
+                    </>
+                  )}
+                  {hasSSCC && cartons.length > 0 && (
+                    <>
+                      <button onClick={() => printSsccLabels(currentBatch.batch_name, cartons)}
+                        style={{ background: "#276749", color: "#fff", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                        Print SSCC Labels
+                      </button>
+                      <button onClick={() => exportSsccCsv(currentBatch.batch_name, cartons)}
+                        style={{ background: "#553C9A", color: "#fff", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                        ↓ SSCC CSV
+                      </button>
+                    </>
+                  )}
                   {currentBatch.status !== "printed" && (
                     <button onClick={() => updateBatchStatus(currentBatch.id, "printed")}
                       style={{ background: "transparent", border: `1px solid #276749`, color: "#276749", borderRadius: 7, padding: "7px 14px", fontSize: 13, cursor: "pointer" }}>
@@ -178,7 +251,12 @@ export default function LabelBatchPanel() {
                       <table style={{ width: "100%", borderCollapse: "collapse" }}>
                         <thead>
                           <tr>
-                            {["Style No", "Color", "Scale", "Pack GTIN", "GTIN Human", "Channel", "Labels to Print"].map(h => <th key={h} style={TH_STYLE}>{h}</th>)}
+                            {[
+                              "Style No", "Color", "Scale",
+                              ...(batchMode !== "sscc" ? ["Pack GTIN", "GTIN Human"] : []),
+                              "Channel", "Cartons",
+                              ...(hasSSCC ? ["SSCC First", "SSCC Last"] : []),
+                            ].map(h => <th key={h} style={TH_STYLE}>{h}</th>)}
                           </tr>
                         </thead>
                         <tbody>
@@ -187,19 +265,29 @@ export default function LabelBatchPanel() {
                               <td style={TD_STYLE}>{l.style_no}</td>
                               <td style={TD_STYLE}>{l.color}</td>
                               <td style={{ ...TD_STYLE, fontWeight: 700 }}>{l.scale_code}</td>
-                              <td style={{ ...TD_STYLE, fontFamily: "monospace", fontWeight: 600 }}>{l.pack_gtin}</td>
-                              <td style={{ ...TD_STYLE, fontFamily: "monospace", fontSize: 11, color: TH.textMuted }}>{formatGtin14Display(l.pack_gtin)}</td>
+                              {batchMode !== "sscc" && <>
+                                <td style={{ ...TD_STYLE, fontFamily: "monospace", fontWeight: 600 }}>{l.pack_gtin}</td>
+                                <td style={{ ...TD_STYLE, fontFamily: "monospace", fontSize: 11, color: TH.textMuted }}>{formatGtin14Display(l.pack_gtin)}</td>
+                              </>}
                               <td style={{ ...TD_STYLE, color: TH.textMuted }}>{l.source_channel ?? "—"}</td>
                               <td style={{ ...TD_STYLE, fontWeight: 700, color: TH.primary, fontSize: 15 }}>{l.label_qty.toLocaleString()}</td>
+                              {hasSSCC && <>
+                                <td style={{ ...TD_STYLE, fontFamily: "monospace", fontSize: 11 }}>{l.sscc_first ?? "—"}</td>
+                                <td style={{ ...TD_STYLE, fontFamily: "monospace", fontSize: 11 }}>{l.sscc_last ?? "—"}</td>
+                              </>}
                             </tr>
                           ))}
                         </tbody>
                         <tfoot>
                           <tr style={{ background: TH.surfaceHi }}>
-                            <td colSpan={6} style={{ ...TD_STYLE, fontWeight: 700, textAlign: "right", borderTop: `2px solid ${TH.border}` }}>Total Labels:</td>
+                            <td colSpan={hasSSCC ? (batchMode !== "sscc" ? 8 : 6) : (batchMode !== "sscc" ? 6 : 4)}
+                              style={{ ...TD_STYLE, fontWeight: 700, textAlign: "right", borderTop: `2px solid ${TH.border}` }}>
+                              Total Cartons:
+                            </td>
                             <td style={{ ...TD_STYLE, fontWeight: 700, color: TH.primary, fontSize: 16, borderTop: `2px solid ${TH.border}` }}>
                               {totalLabels.toLocaleString()}
                             </td>
+                            {hasSSCC && <td colSpan={2} style={{ ...TD_STYLE, borderTop: `2px solid ${TH.border}` }} />}
                           </tr>
                         </tfoot>
                       </table>

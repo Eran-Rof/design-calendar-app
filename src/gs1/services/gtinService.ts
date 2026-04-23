@@ -1,80 +1,63 @@
-// ── GS1 GTIN-14 generation service ────────────────────────────────────────────
-// Pure functions for check digit calculation and GTIN construction.
-// The atomic DB counter increment is a separate async operation (supabaseGs1.ts).
+// ── GS1 GTIN-14 + SSCC-18 generation service ──────────────────────────────────
+// Pure functions — no async, no side effects.
+// Atomic DB counter operations live in supabaseGs1.ts.
 
 import type { CompanySettings } from "../types";
 
-// ── Check digit (GS1 Mod-10) ──────────────────────────────────────────────────
-// Reference: https://www.gs1.org/services/check-digit-calculator/details
-//
-// Algorithm:
-//   Given 13 digits (left to right), assign positions 13..1 from left to right.
-//   Multiply each digit by 3 if its position (from right) is odd, else by 1.
-//   Check digit = (10 − (sum mod 10)) mod 10
-export function calculateGs1CheckDigit(digits13: string): number {
-  if (digits13.length !== 13 || !/^\d{13}$/.test(digits13)) {
-    throw new Error(`calculateGs1CheckDigit: expected 13 numeric digits, got "${digits13}" (len=${digits13.length})`);
-  }
+// ── Internal: GS1 Mod-10 check digit for any N-digit string ──────────────────
+// Assign positions N..1 from left to right.
+// Odd positions from right → ×3; even → ×1.
+// Check = (10 − sum mod 10) mod 10.
+function gs1CheckDigit(digits: string): number {
+  const n = digits.length;
   let sum = 0;
-  for (let i = 0; i < 13; i++) {
-    const posFromRight = 13 - i;            // position 1 = rightmost
-    const multiplier   = posFromRight % 2 === 1 ? 3 : 1;
-    sum += parseInt(digits13[i], 10) * multiplier;
+  for (let i = 0; i < n; i++) {
+    const posFromRight = n - i;
+    sum += parseInt(digits[i], 10) * (posFromRight % 2 === 1 ? 3 : 1);
   }
   return (10 - (sum % 10)) % 10;
 }
 
-// ── Build a GTIN-14 string ─────────────────────────────────────────────────────
-// indicatorDigit : single digit string, e.g. "1"
-// gs1Prefix      : numeric string, e.g. "0310927"
-// prefixLength   : length of gs1Prefix (used to determine item ref padding)
-// itemReference  : integer item reference (user portion only, no prefix, no check)
-//
+// ── GTIN-14 ───────────────────────────────────────────────────────────────────
+
+export function calculateGs1CheckDigit(digits13: string): number {
+  if (digits13.length !== 13 || !/^\d{13}$/.test(digits13)) {
+    throw new Error(
+      `calculateGs1CheckDigit: expected 13 numeric digits, got "${digits13}" (len=${digits13.length})`
+    );
+  }
+  return gs1CheckDigit(digits13);
+}
+
 // GTIN-14 layout:
 //   [indicator_digit (1)][gs1_prefix (prefixLength)][item_ref (12-prefixLength)][check (1)]
-//   Total = 14 digits
 export function buildGtin14(
   indicatorDigit: string,
   gs1Prefix: string,
   prefixLength: number,
   itemReference: number
 ): string {
-  if (!/^\d$/.test(indicatorDigit)) {
+  if (!/^\d$/.test(indicatorDigit))
     throw new Error(`buildGtin14: indicator digit must be 0-9, got "${indicatorDigit}"`);
-  }
-  if (gs1Prefix.length !== prefixLength || !/^\d+$/.test(gs1Prefix)) {
+  if (gs1Prefix.length !== prefixLength || !/^\d+$/.test(gs1Prefix))
     throw new Error(`buildGtin14: prefix "${gs1Prefix}" has length ${gs1Prefix.length}, expected ${prefixLength}`);
-  }
 
   const itemRefLen = 12 - prefixLength;
-  if (itemRefLen < 1) {
-    throw new Error(`buildGtin14: prefixLength ${prefixLength} leaves no room for item reference`);
-  }
+  if (itemRefLen < 1) throw new Error(`buildGtin14: prefixLength ${prefixLength} leaves no room for item reference`);
 
   const maxRef = Math.pow(10, itemRefLen) - 1;
-  if (itemReference < 1 || itemReference > maxRef) {
-    throw new Error(`buildGtin14: item reference ${itemReference} out of range [1, ${maxRef}] for prefixLength ${prefixLength}`);
-  }
+  if (itemReference < 1 || itemReference > maxRef)
+    throw new Error(`buildGtin14: item reference ${itemReference} out of range [1, ${maxRef}]`);
 
-  const itemRefStr = String(itemReference).padStart(itemRefLen, "0");
-  const digits13   = `${indicatorDigit}${gs1Prefix}${itemRefStr}`;
-
-  if (digits13.length !== 13) {
-    throw new Error(`buildGtin14: constructed base has length ${digits13.length}, expected 13`);
-  }
-
-  const checkDigit = calculateGs1CheckDigit(digits13);
-  return `${digits13}${checkDigit}`;
+  const base13 = `${indicatorDigit}${gs1Prefix}${String(itemReference).padStart(itemRefLen, "0")}`;
+  return `${base13}${gs1CheckDigit(base13)}`;
 }
 
-// ── Validate a complete GTIN-14 ───────────────────────────────────────────────
 export function validateGtin14(gtin: string): boolean {
   if (!/^\d{14}$/.test(gtin)) return false;
-  const expected = calculateGs1CheckDigit(gtin.slice(0, 13));
-  return expected === parseInt(gtin[13], 10);
+  return gs1CheckDigit(gtin.slice(0, 13)) === parseInt(gtin[13], 10);
 }
 
-// ── Build GTIN from company settings + item reference ─────────────────────────
 export function buildGtinFromSettings(settings: CompanySettings, itemReference: number): string {
   return buildGtin14(
     settings.gtin_indicator_digit,
@@ -84,13 +67,71 @@ export function buildGtinFromSettings(settings: CompanySettings, itemReference: 
   );
 }
 
-// ── Maximum item reference for a given prefix length ─────────────────────────
 export function maxItemReference(prefixLength: number): number {
   return Math.pow(10, 12 - prefixLength) - 1;
 }
 
-// ── Format a GTIN-14 for human display (groups of 1-7-5-1) ───────────────────
 export function formatGtin14Display(gtin: string): string {
   if (gtin.length !== 14) return gtin;
+  // Groups: indicator | prefix | item-ref | check
   return `${gtin[0]} ${gtin.slice(1, 8)} ${gtin.slice(8, 13)} ${gtin[13]}`;
+}
+
+// ── SSCC-18 ───────────────────────────────────────────────────────────────────
+// Layout:
+//   [extension_digit (1)][gs1_prefix (N)][serial_ref (16-N)][check (1)]
+//   Total = 18 digits
+//
+// Serial reference fills (16 - prefixLength) digits, left-padded with zeros.
+// Check digit uses GS1 Mod-10 on first 17 digits (same algorithm as GTIN).
+
+export function buildSscc18(
+  extensionDigit: string,
+  gs1Prefix: string,
+  prefixLength: number,
+  serialReference: number
+): string {
+  if (!/^\d$/.test(extensionDigit))
+    throw new Error(`buildSscc18: extension digit must be 0-9, got "${extensionDigit}"`);
+  if (gs1Prefix.length !== prefixLength || !/^\d+$/.test(gs1Prefix))
+    throw new Error(`buildSscc18: prefix "${gs1Prefix}" has length ${gs1Prefix.length}, expected ${prefixLength}`);
+
+  const serialLen = 16 - prefixLength;
+  if (serialLen < 1) throw new Error(`buildSscc18: prefixLength ${prefixLength} leaves no room for serial reference`);
+
+  const maxSerial = Math.pow(10, serialLen) - 1;
+  if (serialReference < 1 || serialReference > maxSerial)
+    throw new Error(`buildSscc18: serial reference ${serialReference} out of range [1, ${maxSerial}]`);
+
+  const base17 = `${extensionDigit}${gs1Prefix}${String(serialReference).padStart(serialLen, "0")}`;
+  if (base17.length !== 17)
+    throw new Error(`buildSscc18: constructed base has length ${base17.length}, expected 17`);
+
+  return `${base17}${gs1CheckDigit(base17)}`;
+}
+
+export function validateSscc18(sscc: string): boolean {
+  if (!/^\d{18}$/.test(sscc)) return false;
+  return gs1CheckDigit(sscc.slice(0, 17)) === parseInt(sscc[17], 10);
+}
+
+export function buildSsccFromSettings(settings: CompanySettings, serialReference: number): string {
+  return buildSscc18(
+    settings.sscc_extension_digit,
+    settings.gs1_prefix,
+    settings.prefix_length,
+    serialReference
+  );
+}
+
+// Maximum serial reference for a given GS1 prefix length
+export function maxSerialReference(prefixLength: number): number {
+  return Math.pow(10, 16 - prefixLength) - 1;
+}
+
+// Human-readable: "(00) ext+prefix serial check"
+export function formatSscc18Display(sscc: string): string {
+  if (sscc.length !== 18) return sscc;
+  // Application identifier (00) + SSCC is the standard label format
+  return `(00) ${sscc}`;
 }

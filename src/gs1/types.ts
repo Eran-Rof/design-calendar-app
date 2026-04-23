@@ -13,6 +13,10 @@ export interface CompanySettings {
   default_label_format: string | null;
   xoro_api_base_url: string | null;
   xoro_api_key_ref: string | null;
+  // SSCC fields (added in 20260423 migration)
+  sscc_extension_digit: string;
+  sscc_starting_serial_reference: number;
+  sscc_next_serial_reference_counter: number;
   created_at: string;
   updated_at: string;
 }
@@ -115,12 +119,15 @@ export interface ParseIssue {
   created_at: string;
 }
 
+export type LabelMode = "pack_gtin" | "sscc" | "both";
+
 export interface LabelBatch {
   id: string;
   upload_id: string | null;
   batch_name: string;
   status: "generated" | "printed" | "cancelled";
   output_format: string;
+  label_mode: LabelMode;
   generated_at: string;
   created_at: string;
 }
@@ -135,7 +142,51 @@ export interface LabelBatchLine {
   label_qty: number;
   source_sheet_name: string | null;
   source_channel: string | null;
+  label_type: LabelMode;
+  sscc_first: string | null;
+  sscc_last: string | null;
+  carton_count: number | null;
   created_at: string;
+}
+
+// ── Carton types ──────────────────────────────────────────────────────────────
+
+export interface Carton {
+  id: string;
+  sscc: string;
+  serial_reference: number;
+  batch_id: string | null;
+  batch_line_id: string | null;
+  pack_gtin: string | null;
+  style_no: string | null;
+  color: string | null;
+  scale_code: string | null;
+  carton_seq: number;
+  status: "generated" | "shipped" | "received" | "cancelled";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CartonContent {
+  id: string;
+  carton_id: string;
+  pack_gtin: string;
+  child_upc: string | null;
+  size: string | null;
+  qty_per_pack: number;
+  created_at: string;
+}
+
+export interface CartonInput {
+  sscc: string;
+  serial_reference: number;
+  batch_id: string;
+  batch_line_id: string;
+  pack_gtin: string;
+  style_no: string;
+  color: string;
+  scale_code: string;
+  carton_seq: number;
 }
 
 // ── Input/form types ──────────────────────────────────────────────────────────
@@ -150,6 +201,9 @@ export interface CompanySettingsInput {
   default_label_format: string;
   xoro_api_base_url: string;
   xoro_api_key_ref: string;
+  sscc_extension_digit: string;
+  sscc_starting_serial_reference: number;
+  sscc_next_serial_reference_counter: number;
 }
 
 export interface UpcItemInput {
@@ -219,5 +273,4 @@ export const KNOWN_SCALE_CODES = new Set([
 ]);
 
 // ── Style number pattern ──────────────────────────────────────────────────────
-// e.g. 100227091BK, 10022709, 1002270BK
 export const STYLE_NO_RE = /^\d{6,10}[A-Z]{0,4}$/;

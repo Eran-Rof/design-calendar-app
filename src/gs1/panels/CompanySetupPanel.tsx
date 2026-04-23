@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { TH } from "../../utils/theme";
 import { useGS1Store } from "../store/gs1Store";
 import type { CompanySettingsInput } from "../types";
-import { maxItemReference, buildGtinFromSettings } from "../services/gtinService";
+import { maxItemReference, buildGtinFromSettings, maxSerialReference, buildSsccFromSettings } from "../services/gtinService";
 
 const FIELD: React.CSSProperties = {
   display: "flex", flexDirection: "column", gap: 4, marginBottom: 16,
@@ -42,6 +42,9 @@ export default function CompanySetupPanel() {
     default_label_format: "",
     xoro_api_base_url: "",
     xoro_api_key_ref: "",
+    sscc_extension_digit: "0",
+    sscc_starting_serial_reference: 1,
+    sscc_next_serial_reference_counter: 1,
   });
 
   useEffect(() => {
@@ -60,6 +63,9 @@ export default function CompanySetupPanel() {
         default_label_format: companySettings.default_label_format ?? "",
         xoro_api_base_url: companySettings.xoro_api_base_url ?? "",
         xoro_api_key_ref: companySettings.xoro_api_key_ref ?? "",
+        sscc_extension_digit: companySettings.sscc_extension_digit ?? "0",
+        sscc_starting_serial_reference: companySettings.sscc_starting_serial_reference ?? 1,
+        sscc_next_serial_reference_counter: companySettings.sscc_next_serial_reference_counter ?? 1,
       });
     }
   }, [companySettings]);
@@ -91,12 +97,28 @@ export default function CompanySetupPanel() {
   }
 
   const maxRef = maxItemReference(form.prefix_length);
+  const maxSerial = maxSerialReference(form.prefix_length);
+
+  let ssccPreview = "";
+  let ssccPreviewError = "";
+  try {
+    if (form.gs1_prefix && form.prefix_length && form.sscc_extension_digit) {
+      const fakeSettings = {
+        ...form,
+        id: "", created_at: "", updated_at: "",
+        default_label_format: null, xoro_api_base_url: null, xoro_api_key_ref: null,
+      } as Parameters<typeof buildSsccFromSettings>[0];
+      ssccPreview = buildSsccFromSettings(fakeSettings, form.sscc_next_serial_reference_counter);
+    }
+  } catch (err) {
+    ssccPreviewError = (err as Error).message;
+  }
 
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", padding: "24px 16px" }}>
       <h2 style={{ margin: "0 0 4px", fontSize: 20, color: TH.text }}>Company Setup</h2>
       <p style={{ margin: "0 0 24px", color: TH.textMuted, fontSize: 13 }}>
-        Configure your GS1 company prefix and GTIN numbering. Save before generating any GTINs.
+        Configure your GS1 company prefix, GTIN numbering, and SSCC carton numbering. Save before generating any GTINs or SSCCs.
       </p>
 
       {settingsError && (
@@ -154,6 +176,44 @@ export default function CompanySetupPanel() {
                 : <>
                     <span style={{ fontSize: 12, color: TH.textMuted }}>Preview GTIN for current counter: </span>
                     <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 15 }}>{gtinPreview}</span>
+                  </>
+              }
+            </div>
+          )}
+        </Section>
+
+        <Section title="GS1 SSCC Numbering">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div style={FIELD}>
+              <label style={LABEL}>SSCC Extension Digit</label>
+              <input style={INPUT} value={form.sscc_extension_digit}
+                onChange={e => set("sscc_extension_digit", e.target.value.replace(/\D/g, "").slice(0, 1))}
+                maxLength={1} required placeholder="0" />
+              <span style={HINT}>Usually 0 — identifies the shipping company</span>
+            </div>
+            <div style={FIELD}>
+              <label style={LABEL}>Starting Serial Reference</label>
+              <input style={INPUT} type="number" min={1} max={maxSerial}
+                value={form.sscc_starting_serial_reference}
+                onChange={e => set("sscc_starting_serial_reference", parseInt(e.target.value))} required />
+              <span style={HINT}>Max: {maxSerial.toLocaleString()}</span>
+            </div>
+            <div style={FIELD}>
+              <label style={LABEL}>Next Serial Reference Counter</label>
+              <input style={INPUT} type="number" min={1} max={maxSerial}
+                value={form.sscc_next_serial_reference_counter}
+                onChange={e => set("sscc_next_serial_reference_counter", parseInt(e.target.value))} required />
+              <span style={HINT}>Auto-incremented on each new SSCC carton</span>
+            </div>
+          </div>
+
+          {(ssccPreview || ssccPreviewError) && (
+            <div style={{ marginTop: 12, padding: "12px 16px", background: ssccPreviewError ? "#FFF5F5" : "#F0FFF4", borderRadius: 8, border: `1px solid ${ssccPreviewError ? TH.accentBdr : "#C6F6D5"}` }}>
+              {ssccPreviewError
+                ? <span style={{ color: TH.primary, fontSize: 12 }}>Preview error: {ssccPreviewError}</span>
+                : <>
+                    <span style={{ fontSize: 12, color: TH.textMuted }}>Preview SSCC for current counter: </span>
+                    <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 15 }}>(00) {ssccPreview}</span>
                   </>
               }
             </div>

@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import * as db from "../services/supabaseGs1";
 import { parsePackingListFile } from "../services/parsePackingList";
+import { buildSsccFromSettings } from "../services/gtinService";
 import type {
   CompanySettings,
   CompanySettingsInput,
@@ -19,6 +20,8 @@ import type {
   LabelBatch,
   LabelBatchLine,
   LabelData,
+  LabelMode,
+  Carton,
 } from "../types";
 
 export type GS1Tab = "company" | "upc" | "scale" | "gtins" | "upload" | "labels";
@@ -26,76 +29,70 @@ export type GS1Tab = "company" | "upc" | "scale" | "gtins" | "upload" | "labels"
 interface GS1State {
   activeTab: GS1Tab;
 
-  // Company settings
   companySettings: CompanySettings | null;
   settingsLoading: boolean;
   settingsError: string | null;
 
-  // UPC master
   upcItems: UpcItem[];
   upcLoading: boolean;
   upcError: string | null;
 
-  // Scale master
   scales: ScaleMaster[];
   scaleRatios: ScaleSizeRatio[];
   scaleLoading: boolean;
   scaleError: string | null;
 
-  // Pack GTIN master
   packGtins: PackGtin[];
   gtinLoading: boolean;
   gtinError: string | null;
 
-  // Packing list uploads
   uploads: PackingListUpload[];
   currentUpload: PackingListUpload | null;
   uploadBlocks: PackingListBlock[];
   parseIssues: ParseIssue[];
-  pendingRows: ParsedRow[];   // rows parsed client-side, before DB save
+  pendingRows: ParsedRow[];
   uploadLoading: boolean;
   uploadError: string | null;
 
-  // Label batches
+  // Label generation mode — chosen in the upload panel before batch creation
+  labelMode: LabelMode;
+
   batches: LabelBatch[];
   currentBatch: LabelBatch | null;
   batchLines: LabelBatchLine[];
+  cartons: Carton[];
   batchLoading: boolean;
   batchError: string | null;
 }
 
 interface GS1Actions {
   setActiveTab: (tab: GS1Tab) => void;
+  setLabelMode: (mode: LabelMode) => void;
 
-  // Company settings
   loadCompanySettings: () => Promise<void>;
   saveCompanySettings: (data: CompanySettingsInput) => Promise<void>;
 
-  // UPC master
   loadUpcItems: () => Promise<void>;
   importUpcItems: (items: UpcItemInput[]) => Promise<{ inserted: number }>;
   deleteUpcItem: (id: string) => Promise<void>;
 
-  // Scale master
   loadScales: () => Promise<void>;
   loadScaleRatios: (scaleCode?: string) => Promise<void>;
   saveScale: (data: ScaleInput) => Promise<void>;
   deleteScale: (scaleCode: string) => Promise<void>;
 
-  // Pack GTIN master
   loadPackGtins: (filters?: { style_no?: string; color?: string; scale_code?: string }) => Promise<void>;
   generateGtin: (styleNo: string, color: string, scaleCode: string) => Promise<PackGtin>;
   generateGtinsForPendingRows: () => Promise<void>;
 
-  // Packing list uploads
   loadUploads: () => Promise<void>;
   processUpload: (file: File) => Promise<void>;
   selectUpload: (upload: PackingListUpload) => Promise<void>;
 
-  // Label batches
   loadBatches: () => Promise<void>;
   createBatchFromUpload: (batchName: string) => Promise<void>;
   selectBatch: (batch: LabelBatch) => Promise<void>;
+  loadCartonsForBatch: (batchId: string) => Promise<void>;
   updateBatchStatus: (batchId: string, status: LabelBatch["status"]) => Promise<void>;
   clearCurrentBatch: () => void;
 }
@@ -130,14 +127,18 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
   uploadLoading: false,
   uploadError: null,
 
+  labelMode: "both",
+
   batches: [],
   currentBatch: null,
   batchLines: [],
+  cartons: [],
   batchLoading: false,
   batchError: null,
 
-  // ── Tab ──────────────────────────────────────────────────────────────────────
+  // ── Tab + mode ────────────────────────────────────────────────────────────────
   setActiveTab: (tab) => set({ activeTab: tab }),
+  setLabelMode:  (mode) => set({ labelMode: mode }),
 
   // ── Company settings ──────────────────────────────────────────────────────────
   loadCompanySettings: async () => {
@@ -240,11 +241,10 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
 
   generateGtin: async (styleNo, color, scaleCode) => {
     const settings = get().companySettings;
-    if (!settings) throw new Error("Company settings not configured. Please complete Company Setup first.");
+    if (!settings) throw new Error("Company settings not configured.");
     set({ gtinLoading: true, gtinError: null });
     try {
       const gtin = await db.getOrCreatePackGtin(styleNo, color, scaleCode, settings);
-      // Refresh list
       const gtins = await db.loadPackGtins();
       set({ packGtins: gtins, gtinLoading: false });
       return gtin;
@@ -261,7 +261,6 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
 
     set({ gtinLoading: true, gtinError: null });
     try {
-      // Deduplicate by style/color/scale
       const seen = new Set<string>();
       const unique = pendingRows.filter(r => {
         const key = `${r.styleNo}|${r.color}|${r.scaleCode}`;
@@ -269,7 +268,6 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
         seen.add(key);
         return true;
       });
-
       for (const row of unique) {
         await db.getOrCreatePackGtin(row.styleNo, row.color, row.scaleCode, companySettings);
       }
@@ -321,18 +319,10 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
       const uploads = await db.loadUploads();
       const updated = uploads.find(u => u.id === uploadRecord!.id) ?? uploadRecord;
 
-      set({
-        currentUpload: updated,
-        uploadBlocks: blocks,
-        parseIssues: issues,
-        pendingRows: result.allRows,
-        uploads,
-        uploadLoading: false,
-      });
+      set({ currentUpload: updated, uploadBlocks: blocks, parseIssues: issues,
+            pendingRows: result.allRows, uploads, uploadLoading: false });
     } catch (e) {
-      if (uploadRecord) {
-        await db.updateUploadStatus(uploadRecord.id, "error").catch(() => {});
-      }
+      if (uploadRecord) await db.updateUploadStatus(uploadRecord.id, "error").catch(() => {});
       set({ uploadError: String(e), uploadLoading: false });
       throw e;
     }
@@ -363,7 +353,7 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
   },
 
   createBatchFromUpload: async (batchName) => {
-    const { currentUpload, uploadBlocks, companySettings } = get();
+    const { currentUpload, uploadBlocks, companySettings, labelMode } = get();
     if (!currentUpload) throw new Error("No upload selected.");
     if (!companySettings) throw new Error("Company settings not configured.");
     if (uploadBlocks.length === 0) throw new Error("No parsed blocks to create batch from.");
@@ -398,12 +388,60 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
         });
       }
 
-      const batch = await db.createLabelBatch(batchName, currentUpload.id, lines);
-      const batchLines = await db.loadBatchLines(batch.id);
-      const batches = await db.loadBatches();
-      const gtins = await db.loadPackGtins();
+      const batch = await db.createLabelBatch(batchName, currentUpload.id, lines, labelMode);
+      let batchLines = await db.loadBatchLines(batch.id);
 
-      set({ batches, currentBatch: batch, batchLines, packGtins: gtins, batchLoading: false });
+      // ── Generate SSCCs if mode includes sscc ────────────────────────────────
+      let allCartons: Carton[] = [];
+      if (labelMode === "sscc" || labelMode === "both") {
+        const ssccExt  = companySettings.sscc_extension_digit;
+        const cartonInputs: Parameters<typeof db.insertCartons>[0] = [];
+        const lineUpdates: Array<{ id: string; sscc_first: string; sscc_last: string; carton_count: number }> = [];
+
+        // Claim serial ranges in parallel (DB lock serializes them server-side)
+        const ranges = await Promise.all(
+          batchLines.map(line => db.claimSsccSerialRange(line.label_qty))
+        );
+
+        for (let i = 0; i < batchLines.length; i++) {
+          const line  = batchLines[i];
+          const range = ranges[i];
+          const ssccFirst = buildSsccFromSettings(companySettings, range.start);
+          const ssccLast  = buildSsccFromSettings(companySettings, range.end);
+
+          lineUpdates.push({ id: line.id, sscc_first: ssccFirst, sscc_last: ssccLast, carton_count: line.label_qty });
+
+          for (let seq = 1; seq <= line.label_qty; seq++) {
+            const serialRef = range.start + seq - 1;
+            cartonInputs.push({
+              sscc:             buildSsccFromSettings(companySettings, serialRef),
+              serial_reference: serialRef,
+              batch_id:         batch.id,
+              batch_line_id:    line.id,
+              pack_gtin:        line.pack_gtin,
+              style_no:         line.style_no,
+              color:            line.color,
+              scale_code:       line.scale_code,
+              carton_seq:       seq,
+            });
+          }
+        }
+
+        // Bulk insert cartons + update line SSCC ranges
+        const [insertedCartons] = await Promise.all([
+          db.insertCartons(cartonInputs),
+          db.updateBatchLinesSscc(lineUpdates),
+        ]);
+        allCartons = insertedCartons;
+
+        // Refresh lines to get updated sscc_first/last fields
+        batchLines = await db.loadBatchLines(batch.id);
+      }
+
+      const batches  = await db.loadBatches();
+      const gtins    = await db.loadPackGtins();
+      set({ batches, currentBatch: batch, batchLines, cartons: allCartons,
+            packGtins: gtins, batchLoading: false });
     } catch (e) {
       set({ batchError: String(e), batchLoading: false });
       throw e;
@@ -420,13 +458,23 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
     }
   },
 
+  loadCartonsForBatch: async (batchId) => {
+    set({ batchLoading: true });
+    try {
+      const cartons = await db.loadCartonsByBatch(batchId);
+      set({ cartons, batchLoading: false });
+    } catch (e) {
+      set({ batchError: String(e), batchLoading: false });
+    }
+  },
+
   updateBatchStatus: async (batchId, status) => {
     await db.updateBatchStatus(batchId, status);
     set(s => ({
-      batches: s.batches.map(b => b.id === batchId ? { ...b, status } : b),
+      batches:      s.batches.map(b => b.id === batchId ? { ...b, status } : b),
       currentBatch: s.currentBatch?.id === batchId ? { ...s.currentBatch, status } : s.currentBatch,
     }));
   },
 
-  clearCurrentBatch: () => set({ currentBatch: null, batchLines: [] }),
+  clearCurrentBatch: () => set({ currentBatch: null, batchLines: [], cartons: [] }),
 }));
