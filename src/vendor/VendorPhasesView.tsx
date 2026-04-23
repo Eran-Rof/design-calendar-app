@@ -241,6 +241,22 @@ export default function VendorPhasesView({ poId }: Props = {}) {
       .sort((a, b) => new Date(b.reviewed_at || 0).getTime() - new Date(a.reviewed_at || 0).getTime());
   }
 
+  // Same as reviewEntriesFor but scoped to a specific line item.
+  function reviewEntriesForLine(poIdArg: string, phase: string, lineKey: string): ChangeRequest[] {
+    return requests
+      .filter((r) => r.po_id === poIdArg && r.phase_name === phase && r.po_line_key === lineKey && r.reviewed_at && r.status !== "pending")
+      .sort((a, b) => new Date(b.reviewed_at || 0).getTime() - new Date(a.reviewed_at || 0).getTime());
+  }
+
+  // True if any line under this phase has a reviewed change request — used
+  // on the master row so the vendor knows to expand and see line-level
+  // review notes/history.
+  function hasLineReviewsFor(poIdArg: string, phase: string): boolean {
+    return requests.some((r) =>
+      r.po_id === poIdArg && r.phase_name === phase && r.po_line_key != null && r.reviewed_at && r.status !== "pending"
+    );
+  }
+
   // Notes CRUD. Direct supabase calls — RLS enforces ownership on update.
   function notesFor(poIdArg: string, phase: string, lineKey: string | null = null): PhaseNote[] {
     const list = Array.isArray(notes) ? notes : [];
@@ -624,6 +640,14 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                   {!pending && !hasMismatch && !r.dateReq?.status && !r.statusReq?.status && (
                     <div style={{ color: TH.textMuted, fontWeight: 500 }}>—</div>
                   )}
+                  {hasLineReviewsFor(r.po.uuid_id, r.phase.name) && (
+                    <div
+                      title="One or more line items on this phase have their own approval/rejection from Ring of Fire. Expand this phase row to see them."
+                      style={{ color: "#7C3AED", fontSize: 9, fontWeight: 600, marginTop: 2 }}
+                    >
+                      ⚠ Check line items
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: "flex", justifyContent: "center" }}>
                   <NotesButton
@@ -672,17 +696,19 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                         const lineStatus = (lineStatusReq?.new_value || r.effectiveStatus) as Status;
                         const differs = lineStatusReq?.new_value && lineStatusReq.new_value !== r.effectiveStatus;
                         const lsc = STATUS_COLORS[lineStatus] || STATUS_COLORS["Not Started"];
+                        const lineReviews = reviewEntriesForLine(r.po.uuid_id, r.phase.name, l.id);
+                        const linePending = lineStatusReq?.status === "pending";
                         return (
-                          <div key={l.id} style={{ display: "grid", gridTemplateColumns: "120px 1fr 140px 80px", padding: "6px 10px", borderTop: `1px solid ${TH.border}`, fontSize: 12, alignItems: "center", gap: 6 }}>
-                            <div style={{ fontFamily: "Menlo, monospace", color: TH.textSub2 }}>{l.item_number || "—"}</div>
-                            <div style={{ color: TH.text }}>{l.description || "—"}</div>
+                          <div key={l.id} style={{ display: "grid", gridTemplateColumns: "120px 1fr 140px 80px", padding: "6px 10px", borderTop: `1px solid ${TH.border}`, fontSize: 12, alignItems: "start", gap: 6 }}>
+                            <div style={{ fontFamily: "Menlo, monospace", color: TH.textSub2, paddingTop: 4 }}>{l.item_number || "—"}</div>
+                            <div style={{ color: TH.text, paddingTop: 4 }}>{l.description || "—"}</div>
                             <div>
                               <select
                                 value={lineStatus}
                                 disabled={!editable}
                                 onChange={(e) => void proposeChange(r.po, r.phase.name, "status", lineStatus, e.target.value, l.id)}
                                 style={{ width: "100%", padding: "2px 4px", fontSize: 10, borderRadius: 4,
-                                  border: `1px solid ${lineStatusReq?.status === "pending" ? "#F59E0B" : differs ? "#7C3AED" : "#CBD5E1"}`,
+                                  border: `1px solid ${linePending ? "#F59E0B" : differs ? "#7C3AED" : "#CBD5E1"}`,
                                   background: lsc.bg, color: lsc.fg, cursor: editable ? "pointer" : "not-allowed",
                                   fontWeight: 600, fontFamily: "inherit",
                                 }}
@@ -692,10 +718,38 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                               {differs && (
                                 <div style={{ fontSize: 9, color: "#7C3AED", marginTop: 2 }}>overrides master</div>
                               )}
+                              {linePending && (
+                                <div style={{ fontSize: 9, color: "#92400E", marginTop: 2, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}>⏳ Pending</div>
+                              )}
+                              {/* Stack ROF review history for this line — same
+                                  treatment as the master row so vendors see
+                                  approvals/rejections inline on the line. */}
+                              {lineReviews.map((rv) => {
+                                const approved = rv.status === "approved";
+                                const hasComment = !!(rv.review_note && rv.review_note.trim());
+                                const color = approved ? "#065F46" : "#991B1B";
+                                const icon = approved ? "✓" : "✗";
+                                const label = approved
+                                  ? hasComment ? "Approved w/ note" : "Approved"
+                                  : "Rejected";
+                                const date = rv.reviewed_at ? new Date(rv.reviewed_at).toLocaleDateString() : "";
+                                const tooltip = [
+                                  `${rv.field_name} → ${rv.new_value ?? "(cleared)"}`,
+                                  rv.reviewed_by_internal_id ? `Reviewed by ${rv.reviewed_by_internal_id}` : null,
+                                  rv.review_note ? `Note: ${rv.review_note}` : null,
+                                ].filter(Boolean).join("\n");
+                                return (
+                                  <div key={rv.id} title={tooltip} style={{ color, fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, marginTop: 2, display: "flex", gap: 3, alignItems: "baseline" }}>
+                                    <span>{icon} {label}</span>
+                                    {date && <span style={{ color: TH.textMuted, fontWeight: 500 }}>{date}</span>}
+                                  </div>
+                                );
+                              })}
                             </div>
-                            <div style={{ display: "flex", justifyContent: "center" }}>
+                            <div style={{ display: "flex", justifyContent: "center", paddingTop: 2 }}>
                               <NotesButton
                                 notes={notesFor(r.po.uuid_id, r.phase.name, l.id)}
+                                reviewEntries={lineReviews}
                                 currentAuthAid={currentAuthAid}
                                 title={`${l.item_number || `Line ${l.line_index}`} · ${r.phase.name}`}
                                 onAdd={(body) => void addNote(r.po, r.phase.name, l.id, body)}
