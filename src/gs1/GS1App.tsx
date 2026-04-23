@@ -9,6 +9,7 @@ import PackGtinMasterPanel from "./panels/PackGtinMasterPanel";
 import PackingListUploadPanel from "./panels/PackingListUploadPanel";
 import LabelBatchPanel from "./panels/LabelBatchPanel";
 import CartonPanel from "./panels/CartonPanel";
+import ReceivingPanel from "./panels/ReceivingPanel";
 
 export default function GS1App() {
   const activeTab = useGS1Store(s => s.activeTab);
@@ -24,6 +25,7 @@ export default function GS1App() {
         {activeTab === "upload"   && <PackingListUploadPanel />}
         {activeTab === "labels"   && <LabelBatchPanel />}
         {activeTab === "cartons"  && <CartonPanel />}
+        {activeTab === "receiving" && <ReceivingPanel />}
       </div>
     </div>
   );

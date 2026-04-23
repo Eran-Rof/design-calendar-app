@@ -4,6 +4,18 @@ import { create } from "zustand";
 import * as db from "../services/supabaseGs1";
 import { parsePackingListFile } from "../services/parsePackingList";
 import { buildSsccFromSettings } from "../services/gtinService";
+import {
+  buildContentLines,
+  explodeBom,
+  aggregateExplosionLines,
+  applyReceivedQtys,
+  runExplosion,
+  isAlreadyReceived,
+  determineSessionStatus,
+  normalizeSsccInput,
+  type AggregatedLine,
+  type ExplosionResult,
+} from "../services/receivingService";
 import type {
   CompanySettings,
   CompanySettingsInput,
@@ -13,6 +25,7 @@ import type {
   ScaleSizeRatio,
   ScaleInput,
   PackGtin,
+  PackGtinBom,
   PackingListUpload,
   PackingListBlock,
   ParseIssue,
@@ -22,10 +35,13 @@ import type {
   LabelData,
   LabelMode,
   Carton,
+  CartonContent,
   ManualCartonInput,
+  ReceivingSession,
+  ReceivingSessionLine,
 } from "../types";
 
-export type GS1Tab = "company" | "upc" | "scale" | "gtins" | "upload" | "labels" | "cartons";
+export type GS1Tab = "company" | "upc" | "scale" | "gtins" | "upload" | "labels" | "cartons" | "receiving";
 
 interface GS1State {
   activeTab: GS1Tab;
@@ -70,6 +86,17 @@ interface GS1State {
   cartonLoading: boolean;
   cartonError: string | null;
   lastCreatedSscc: string | null;
+
+  // Receiving tab
+  receivingCarton: Carton | null;
+  receivingContents: CartonContent[];
+  receivingExplosion: ExplosionResult | null;
+  receivingEditedQtys: Record<string, number>;
+  receivingSessions: ReceivingSession[];
+  receivingSession: ReceivingSession | null;
+  receivingLoading: boolean;
+  receivingError: string | null;
+  receivingAlreadyReceived: boolean;
 }
 
 interface GS1Actions {
@@ -107,6 +134,13 @@ interface GS1Actions {
   loadAllCartons: () => Promise<void>;
   createManualSscc: (data: ManualCartonInput) => Promise<Carton>;
   clearLastCreatedSscc: () => void;
+
+  // Receiving tab actions
+  searchBySscc: (sscc: string) => Promise<void>;
+  setReceivingEditedQty: (upc: string, qty: number) => void;
+  confirmReceive: (notes?: string) => Promise<void>;
+  clearReceiving: () => void;
+  loadReceivingSessions: () => Promise<void>;
 }
 
 type GS1Store = GS1State & GS1Actions;
@@ -152,6 +186,16 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
   cartonLoading: false,
   cartonError: null,
   lastCreatedSscc: null,
+
+  receivingCarton: null,
+  receivingContents: [],
+  receivingExplosion: null,
+  receivingEditedQtys: {},
+  receivingSessions: [],
+  receivingSession: null,
+  receivingLoading: false,
+  receivingError: null,
+  receivingAlreadyReceived: false,
 
   // ── Tab + mode ────────────────────────────────────────────────────────────────
   setActiveTab: (tab) => set({ activeTab: tab }),
@@ -524,4 +568,130 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
   },
 
   clearLastCreatedSscc: () => set({ lastCreatedSscc: null }),
+
+  // ── Receiving tab ─────────────────────────────────────────────────────────────
+  searchBySscc: async (rawSscc) => {
+    const sscc = normalizeSsccInput(rawSscc);
+    set({ receivingLoading: true, receivingError: null, receivingCarton: null,
+          receivingContents: [], receivingExplosion: null, receivingEditedQtys: {},
+          receivingSession: null, receivingAlreadyReceived: false });
+    try {
+      const carton = await db.loadCartonBySscc(sscc);
+      if (!carton) {
+        set({ receivingError: `No carton found for SSCC: ${sscc}`, receivingLoading: false });
+        return;
+      }
+
+      const alreadyReceived = isAlreadyReceived(carton);
+      const contents = await db.loadCartonContents(carton.id);
+
+      // Build content lines and load BOM + UPC data
+      const contentLines = buildContentLines(carton, contents);
+      const uniqueGtins = [...new Set(contentLines.map(c => c.pack_gtin))];
+      const bomRows     = await db.loadPackGtinBomForGtins(uniqueGtins);
+      const uniqueUpcs  = [...new Set(bomRows.map(b => b.child_upc))];
+      const upcRows     = await db.loadUpcsByUpcs(uniqueUpcs);
+
+      const bomMap = new Map<string, PackGtinBom[]>();
+      for (const b of bomRows) {
+        (bomMap.get(b.pack_gtin) ?? bomMap.set(b.pack_gtin, []).get(b.pack_gtin)!).push(b);
+      }
+      const upcMap = new Map(upcRows.map(u => [u.upc, u]));
+
+      const explosion = runExplosion(carton, contents, bomMap, upcMap, new Map());
+
+      set({
+        receivingCarton:         carton,
+        receivingContents:       contents,
+        receivingExplosion:      explosion,
+        receivingEditedQtys:     {},
+        receivingAlreadyReceived: alreadyReceived,
+        receivingLoading:        false,
+      });
+    } catch (e) {
+      set({ receivingError: String(e), receivingLoading: false });
+    }
+  },
+
+  setReceivingEditedQty: (upc, qty) => {
+    const { receivingCarton, receivingContents, receivingExplosion, receivingEditedQtys } = get();
+    if (!receivingCarton || !receivingExplosion) return;
+    const newQtys = { ...receivingEditedQtys, [upc]: qty };
+    // Recompute only the aggregated lines with new qty map
+    const updated = applyReceivedQtys(
+      receivingExplosion.aggregated,
+      new Map(Object.entries(newQtys))
+    );
+    set({
+      receivingEditedQtys: newQtys,
+      receivingExplosion: {
+        ...receivingExplosion,
+        aggregated: updated,
+        totalReceived: updated.reduce((s, l) => s + l.received_qty, 0),
+      },
+    });
+  },
+
+  confirmReceive: async (notes) => {
+    const { receivingCarton, receivingExplosion } = get();
+    if (!receivingCarton) throw new Error("No carton loaded.");
+    if (!receivingExplosion) throw new Error("No explosion data — search an SSCC first.");
+
+    const { aggregated } = receivingExplosion;
+    const sessionStatus = determineSessionStatus(aggregated);
+
+    set({ receivingLoading: true, receivingError: null });
+    try {
+      const session = await db.createReceivingSession({
+        sscc:      receivingCarton.sscc,
+        carton_id: receivingCarton.id,
+        status:    sessionStatus,
+        notes,
+        lines: aggregated.map(l => ({
+          child_upc:    l.child_upc,
+          style_no:     l.style_no,
+          color:        l.color,
+          size:         l.size,
+          expected_qty: l.expected_qty,
+          received_qty: l.received_qty,
+          variance_qty: l.variance_qty,
+          status:       l.line_status === "expected" ? "matched" : l.line_status,
+        })),
+      });
+
+      await db.markCartonReceived(receivingCarton.id);
+
+      const [updatedCarton, sessions] = await Promise.all([
+        db.loadCartonBySscc(receivingCarton.sscc),
+        db.loadReceivingSessions(),
+      ]);
+
+      set({
+        receivingSession:         session,
+        receivingCarton:          updatedCarton ?? receivingCarton,
+        receivingAlreadyReceived: true,
+        receivingSessions:        sessions,
+        receivingLoading:         false,
+      });
+    } catch (e) {
+      set({ receivingError: String(e), receivingLoading: false });
+      throw e;
+    }
+  },
+
+  clearReceiving: () => set({
+    receivingCarton: null, receivingContents: [], receivingExplosion: null,
+    receivingEditedQtys: {}, receivingSession: null, receivingError: null,
+    receivingAlreadyReceived: false,
+  }),
+
+  loadReceivingSessions: async () => {
+    set({ receivingLoading: true });
+    try {
+      const sessions = await db.loadReceivingSessions();
+      set({ receivingSessions: sessions, receivingLoading: false });
+    } catch (e) {
+      set({ receivingError: String(e), receivingLoading: false });
+    }
+  },
 }));

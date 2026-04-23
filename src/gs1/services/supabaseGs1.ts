@@ -12,6 +12,7 @@ import type {
   ScaleSizeRatio,
   ScaleInput,
   PackGtin,
+  PackGtinBom,
   PackingListUpload,
   PackingListBlock,
   ParseIssue,
@@ -24,7 +25,11 @@ import type {
   LabelMode,
   Carton,
   CartonInput,
+  CartonContent,
   ManualCartonInput,
+  ReceivingSession,
+  ReceivingSessionLine,
+  ReceivingSessionInput,
 } from "../types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -462,6 +467,7 @@ export async function createSingleCarton(
         upload_id:    data.upload_id    ?? null,
         po_number:    data.po_number    ?? null,
         carton_no:    data.carton_no    ?? null,
+        channel:      data.channel      ?? null,
         style_no:     data.style_no     ?? null,
         color:        data.color        ?? null,
         total_packs:  data.total_packs  ?? null,
@@ -473,6 +479,102 @@ export async function createSingleCarton(
     }
   );
   return row;
+}
+
+// ── Receiving DB operations ───────────────────────────────────────────────────
+
+export async function loadCartonBySscc(sscc: string): Promise<Carton | null> {
+  const rows = await sbFetch<Carton[]>(
+    `${rpc("cartons")}?sscc=eq.${encodeURIComponent(sscc)}&limit=1`
+  );
+  return rows[0] ?? null;
+}
+
+export async function loadCartonContents(cartonId: string): Promise<CartonContent[]> {
+  return sbFetch<CartonContent[]>(
+    `${rpc("carton_contents")}?carton_id=eq.${cartonId}&order=pack_gtin.asc`
+  );
+}
+
+export async function loadPackGtinBomForGtins(gtins: string[]): Promise<PackGtinBom[]> {
+  if (gtins.length === 0) return [];
+  const inClause = gtins.map(g => encodeURIComponent(g)).join(",");
+  return sbFetch<PackGtinBom[]>(
+    `${rpc("pack_gtin_bom")}?pack_gtin=in.(${inClause})&order=pack_gtin.asc,size.asc`
+  );
+}
+
+export async function loadUpcsByUpcs(upcs: string[]): Promise<UpcItem[]> {
+  if (upcs.length === 0) return [];
+  const inClause = upcs.map(u => encodeURIComponent(u)).join(",");
+  return sbFetch<UpcItem[]>(
+    `${rpc("upc_item_master")}?upc=in.(${inClause})`
+  );
+}
+
+export async function markCartonReceived(cartonId: string): Promise<void> {
+  await sbFetch<void>(
+    `${rpc("cartons")}?id=eq.${cartonId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status: "received" }),
+      headers: { Prefer: "return=minimal" },
+    }
+  );
+}
+
+export async function createReceivingSession(
+  input: ReceivingSessionInput
+): Promise<ReceivingSession> {
+  const [session] = await sbFetch<ReceivingSession[]>(
+    rpc("receiving_sessions"),
+    {
+      method: "POST",
+      body: JSON.stringify({
+        sscc:       input.sscc,
+        carton_id:  input.carton_id,
+        status:     input.status,
+        received_at: new Date().toISOString(),
+        notes:      input.notes ?? null,
+      }),
+      headers: { Prefer: "return=representation" },
+    }
+  );
+
+  if (input.lines.length > 0) {
+    await sbFetch<void>(
+      rpc("receiving_session_lines"),
+      {
+        method: "POST",
+        body: JSON.stringify(input.lines.map(l => ({
+          session_id:   session.id,
+          child_upc:    l.child_upc,
+          style_no:     l.style_no,
+          color:        l.color,
+          size:         l.size,
+          expected_qty: l.expected_qty,
+          received_qty: l.received_qty,
+          variance_qty: l.variance_qty,
+          status:       l.status,
+        }))),
+        headers: { Prefer: "return=minimal" },
+      }
+    );
+  }
+
+  return session;
+}
+
+export async function loadReceivingSessions(limit = 50): Promise<ReceivingSession[]> {
+  return sbFetch<ReceivingSession[]>(
+    `${rpc("receiving_sessions")}?order=created_at.desc&limit=${limit}`
+  );
+}
+
+export async function loadSessionLines(sessionId: string): Promise<ReceivingSessionLine[]> {
+  return sbFetch<ReceivingSessionLine[]>(
+    `${rpc("receiving_session_lines")}?session_id=eq.${sessionId}&order=style_no.asc,color.asc,size.asc`
+  );
 }
 
 export async function loadBatchLines(batchId: string): Promise<LabelBatchLine[]> {

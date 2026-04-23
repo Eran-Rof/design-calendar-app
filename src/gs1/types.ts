@@ -160,6 +160,7 @@ export interface Carton {
   upload_id: string | null;
   po_number: string | null;
   carton_no: string | null;
+  channel: string | null;
   pack_gtin: string | null;
   style_no: string | null;
   color: string | null;
@@ -170,6 +171,33 @@ export interface Carton {
   status: "generated" | "shipped" | "received" | "cancelled";
   created_at: string;
   updated_at: string;
+}
+
+// ── Receiving types ───────────────────────────────────────────────────────────
+
+export interface ReceivingSession {
+  id: string;
+  sscc: string;
+  carton_id: string | null;
+  status: "open" | "received" | "variance" | "override";
+  received_at: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReceivingSessionLine {
+  id: string;
+  session_id: string;
+  child_upc: string;
+  style_no: string;
+  color: string;
+  size: string;
+  expected_qty: number;
+  received_qty: number | null;
+  variance_qty: number | null;
+  status: "expected" | "matched" | "variance";
+  created_at: string;
 }
 
 export interface CartonContent {
@@ -213,6 +241,23 @@ export interface ManualCartonInput {
   color?: string;
   total_packs?: number;
   total_units?: number;
+}
+
+export interface ReceivingSessionInput {
+  sscc: string;
+  carton_id: string | null;
+  status: "received" | "variance";
+  notes?: string;
+  lines: Array<{
+    child_upc: string;
+    style_no: string;
+    color: string;
+    size: string;
+    expected_qty: number;
+    received_qty: number;
+    variance_qty: number;
+    status: "matched" | "variance";
+  }>;
 }
 
 // ── Input/form types ──────────────────────────────────────────────────────────

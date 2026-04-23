@@ -10,6 +10,7 @@ const TABS: Array<{ id: GS1Tab; label: string }> = [
   { id: "upload",   label: "Packing List" },
   { id: "labels",   label: "Label Batches" },
   { id: "cartons",  label: "Carton Labels" },
+  { id: "receiving", label: "Receiving" },
 ];
 
 export default function GS1NavBar() {
