@@ -4,6 +4,7 @@ import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
 import StatusBadge, { contractTone } from "./StatusBadge";
 import { fmtDate, fmtMoney } from "./utils";
+import { showFileViewer } from "../utils/fileViewer";
 
 interface Contract {
   id: string;
@@ -68,8 +69,8 @@ export default function VendorContractDetail() {
 
   async function download(path: string) {
     const url = await signedUrl(path);
-    if (url) window.open(url, "_blank");
-    else alert("Could not generate download link.");
+    if (!url) { alert("Could not generate download link."); return; }
+    void showFileViewer({ signedUrl: url, filename: path.split("/").pop() || "contract" });
   }
 
   async function submitSign() {

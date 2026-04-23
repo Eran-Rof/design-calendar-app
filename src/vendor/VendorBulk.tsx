@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
 import StatusBadge, { bulkTone } from "./StatusBadge";
-import { showAlert } from "./ui/AppDialog";
+import { showAlert, showFileViewer } from "./ui/AppDialog";
 
 interface BulkOp {
   id: string;
@@ -64,8 +64,14 @@ export default function VendorBulk() {
       const r = await fetch(`/api/vendor/bulk/${opId}`, { headers: { Authorization: `Bearer ${t}` } });
       if (!r.ok) throw new Error(await r.text());
       const data = await r.json();
-      if (data.result_download_url) window.open(data.result_download_url, "_blank");
-      else await showAlert({ title: "Not ready", message: "Result not ready yet.", tone: "info" });
+      if (data.result_download_url) {
+        const url: string = data.result_download_url;
+        const filename = (() => {
+          try { return decodeURIComponent(new URL(url).pathname.split("/").pop() || "result.csv"); }
+          catch { return "result.csv"; }
+        })();
+        void showFileViewer({ signedUrl: url, filename });
+      } else await showAlert({ title: "Not ready", message: "Result not ready yet.", tone: "info" });
     } catch (e: unknown) {
       await showAlert({ title: "Download failed", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     }
