@@ -52,11 +52,53 @@ export default async function handler(req, res) {
     for (const vu of vus || []) vuNameById.set(vu.id, vu.display_name || "—");
   }
 
-  const out = (rows || []).map((r) => ({
-    ...r,
-    vendor_name: vendorNameById.get(r.vendor_id) || "—",
-    requested_by_display_name: r.requested_by_vendor_user_id ? vuNameById.get(r.requested_by_vendor_user_id) : null,
-  }));
+  // Look up prior reviewed requests on the same (vendor, po, phase, line,
+  // field) so the caller can flag resubmissions — e.g. "previously
+  // rejected on DATE". We scope to the set of (po_id, phase_name) pairs
+  // currently being returned to keep the query cheap.
+  const phasePoPairs = Array.from(new Set((rows || []).map((r) => `${r.po_id}::${r.phase_name}`)));
+  const priorByKey = new Map(); // `${po_id}::${phase}::${line}::${field}` → array sorted desc
+  if (phasePoPairs.length) {
+    const poIdList = Array.from(new Set((rows || []).map((r) => r.po_id)));
+    const phaseList = Array.from(new Set((rows || []).map((r) => r.phase_name)));
+    const { data: priors } = await admin
+      .from("tanda_milestone_change_requests")
+      .select("id, po_id, phase_name, po_line_key, field_name, status, new_value, old_value, reviewed_at, reviewed_by_internal_id, review_note")
+      .in("po_id", poIdList)
+      .in("phase_name", phaseList)
+      .in("status", ["approved", "rejected"])
+      .not("reviewed_at", "is", null)
+      .order("reviewed_at", { ascending: false });
+    for (const p of priors || []) {
+      const key = `${p.po_id}::${p.phase_name}::${p.po_line_key ?? "__master"}::${p.field_name}`;
+      const arr = priorByKey.get(key) || [];
+      arr.push(p);
+      priorByKey.set(key, arr);
+    }
+  }
+
+  const out = (rows || []).map((r) => {
+    const key = `${r.po_id}::${r.phase_name}::${r.po_line_key ?? "__master"}::${r.field_name}`;
+    const priors = (priorByKey.get(key) || []).filter((p) => p.id !== r.id);
+    const lastRejected = priors.find((p) => p.status === "rejected") || null;
+    return {
+      ...r,
+      vendor_name: vendorNameById.get(r.vendor_id) || "—",
+      requested_by_display_name: r.requested_by_vendor_user_id ? vuNameById.get(r.requested_by_vendor_user_id) : null,
+      prior_reviews_count: priors.length,
+      last_rejected_at: lastRejected?.reviewed_at || null,
+      last_rejected_note: lastRejected?.review_note || null,
+      prior_reviews: priors.slice(0, 5).map((p) => ({
+        id: p.id,
+        status: p.status,
+        new_value: p.new_value,
+        old_value: p.old_value,
+        reviewed_at: p.reviewed_at,
+        review_note: p.review_note,
+        reviewed_by_internal_id: p.reviewed_by_internal_id,
+      })),
+    };
+  });
 
   return res.status(200).json({ rows: out });
 }

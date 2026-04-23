@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 
+type PriorReview = {
+  id: string;
+  status: "approved" | "rejected";
+  new_value: string | null;
+  old_value: string | null;
+  reviewed_at: string;
+  review_note: string | null;
+  reviewed_by_internal_id: string | null;
+};
+
 type Req = {
   id: string;
   vendor_id: string;
@@ -17,6 +27,10 @@ type Req = {
   review_note: string | null;
   po_line_key: string | null;
   requested_by_display_name: string | null;
+  prior_reviews_count?: number;
+  last_rejected_at?: string | null;
+  last_rejected_note?: string | null;
+  prior_reviews?: PriorReview[];
 };
 
 type Note = {
@@ -299,8 +313,25 @@ export default function PhaseReviews() {
           <div style={{ display: "grid", gap: 10 }}>
             {rows.map((r) => {
               const notes = notesByPoPhase[`${r.po_id}::${r.phase_name}`] || [];
+              const isResubmission = r.status === "pending" && (r.prior_reviews_count ?? 0) > 0;
               return (
-                <div key={r.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 16 }}>
+                <div key={r.id} style={{ background: C.surface, border: `1px solid ${isResubmission ? C.warn : C.border}`, borderRadius: 10, padding: 16 }}>
+                  {isResubmission && (
+                    <div style={{ marginBottom: 12, padding: "8px 12px", background: `${C.warn}22`, border: `1px solid ${C.warn}66`, borderRadius: 6, fontSize: 12, color: "#FCD34D", display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 14 }}>⚠️</span>
+                      <div>
+                        <strong>Resubmission</strong> — this phase was reviewed {r.prior_reviews_count} time{r.prior_reviews_count === 1 ? "" : "s"} before.
+                        {r.last_rejected_at && (
+                          <>
+                            {" Previously rejected on "}
+                            <strong>{new Date(r.last_rejected_at).toLocaleDateString()}</strong>
+                            {r.last_rejected_note && <>: <span style={{ fontStyle: "italic", color: C.textSub }}>"{r.last_rejected_note}"</span></>}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
@@ -335,21 +366,14 @@ export default function PhaseReviews() {
                     </div>
                   </div>
 
-                  {r.status !== "pending" && r.review_note && (
-                    <div style={{ marginTop: 12, padding: 10, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, color: C.textSub }}>
-                      <strong style={{ color: C.text }}>{r.reviewed_by_internal_id || "Reviewer"}:</strong> {r.review_note}
-                      {r.reviewed_at && <span style={{ color: C.textMuted }}> · {new Date(r.reviewed_at).toLocaleString()}</span>}
-                    </div>
-                  )}
-
                   {notes.length > 0 && (
-                    <div style={{ marginTop: 12, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
-                      <div style={{ fontSize: 10, textTransform: "uppercase", color: C.textMuted, fontWeight: 700, letterSpacing: 0.4, marginBottom: 8 }}>
-                        Vendor notes on this phase ({notes.length})
+                    <div style={{ marginTop: 12, padding: 10, background: C.bg, border: `1px solid ${C.warn}55`, borderRadius: 8 }}>
+                      <div style={{ fontSize: 10, textTransform: "uppercase", color: C.warn, fontWeight: 700, letterSpacing: 0.4, marginBottom: 8 }}>
+                        💬 Vendor notes on this phase ({notes.length})
                       </div>
                       <div style={{ display: "grid", gap: 6 }}>
                         {notes.slice(0, 5).map((n) => (
-                          <div key={n.id} style={{ fontSize: 12, padding: 8, background: C.bg, border: `1px solid ${C.warn}55`, borderRadius: 6 }}>
+                          <div key={n.id} style={{ fontSize: 12, padding: 8, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6 }}>
                             <div style={{ color: C.textMuted, fontSize: 11 }}>
                               {n.author_name || "Vendor"} · {new Date(n.created_at).toLocaleString()}
                             </div>
@@ -358,6 +382,26 @@ export default function PhaseReviews() {
                         ))}
                         {notes.length > 5 && <div style={{ fontSize: 11, color: C.textMuted }}>+ {notes.length - 5} more</div>}
                       </div>
+                    </div>
+                  )}
+
+                  {r.status !== "pending" && r.review_note && (
+                    <div style={{ marginTop: 12, padding: 10, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, color: C.textSub }}>
+                      <strong style={{ color: C.text }}>{r.reviewed_by_internal_id || "Reviewer"}:</strong> {r.review_note}
+                      {r.reviewed_at && <span style={{ color: C.textMuted }}> · {new Date(r.reviewed_at).toLocaleString()}</span>}
+                    </div>
+                  )}
+
+                  {(r.prior_reviews?.length ?? 0) > 0 && (
+                    <div style={{ marginTop: 10, padding: 8, background: C.bg, border: `1px dashed ${C.border}`, borderRadius: 6, fontSize: 11, color: C.textMuted }}>
+                      <div style={{ fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>Prior review history</div>
+                      {(r.prior_reviews || []).map((p) => (
+                        <div key={p.id} style={{ marginTop: 2 }}>
+                          {p.status === "approved" ? "✓" : "✗"} {p.status} {p.new_value ?? "(cleared)"} on {new Date(p.reviewed_at).toLocaleDateString()}
+                          {p.reviewed_by_internal_id && ` by ${p.reviewed_by_internal_id}`}
+                          {p.review_note && <span style={{ fontStyle: "italic" }}> — "{p.review_note}"</span>}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
