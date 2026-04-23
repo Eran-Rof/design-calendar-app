@@ -21,6 +21,9 @@ import type {
   LabelBatch,
   LabelBatchLine,
   LabelData,
+  LabelMode,
+  Carton,
+  CartonInput,
 } from "../types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -34,12 +37,12 @@ async function sbFetch<T>(url: string, init: RequestInit = {}): Promise<T> {
     ...init,
     headers: { ...SB_HEADERS, ...(init.headers as Record<string, string> ?? {}) },
   });
+  const text = await res.text();
   if (!res.ok) {
-    const text = await res.text();
     throw new Error(`Supabase request failed [${res.status}]: ${text.slice(0, 300)}`);
   }
-  if (res.status === 204) return [] as unknown as T;
-  return res.json() as Promise<T>;
+  if (!text) return [] as unknown as T;
+  return JSON.parse(text) as T;
 }
 
 // ── company_settings ──────────────────────────────────────────────────────────
@@ -50,45 +53,31 @@ export async function loadCompanySettings(): Promise<CompanySettings | null> {
 }
 
 export async function saveCompanySettings(data: CompanySettingsInput): Promise<CompanySettings> {
+  const payload = {
+    company_name: data.company_name,
+    gs1_prefix: data.gs1_prefix,
+    prefix_length: data.prefix_length,
+    gtin_indicator_digit: data.gtin_indicator_digit,
+    starting_item_reference: data.starting_item_reference,
+    next_item_reference_counter: data.next_item_reference_counter,
+    default_label_format: data.default_label_format || null,
+    xoro_api_base_url: data.xoro_api_base_url || null,
+    xoro_api_key_ref: data.xoro_api_key_ref || null,
+    sscc_extension_digit: data.sscc_extension_digit || "0",
+    sscc_starting_serial_reference: data.sscc_starting_serial_reference ?? 1,
+    sscc_next_serial_reference_counter: data.sscc_next_serial_reference_counter ?? 1,
+  };
   const existing = await loadCompanySettings();
   if (existing) {
     const rows = await sbFetch<CompanySettings[]>(
       `${rpc("company_settings")}?id=eq.${existing.id}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({
-          company_name: data.company_name,
-          gs1_prefix: data.gs1_prefix,
-          prefix_length: data.prefix_length,
-          gtin_indicator_digit: data.gtin_indicator_digit,
-          starting_item_reference: data.starting_item_reference,
-          next_item_reference_counter: data.next_item_reference_counter,
-          default_label_format: data.default_label_format || null,
-          xoro_api_base_url: data.xoro_api_base_url || null,
-          xoro_api_key_ref: data.xoro_api_key_ref || null,
-        }),
-        headers: { Prefer: "return=representation" },
-      }
+      { method: "PATCH", body: JSON.stringify(payload), headers: { Prefer: "return=representation" } }
     );
     return rows[0];
   }
   const rows = await sbFetch<CompanySettings[]>(
     rpc("company_settings"),
-    {
-      method: "POST",
-      body: JSON.stringify({
-        company_name: data.company_name,
-        gs1_prefix: data.gs1_prefix,
-        prefix_length: data.prefix_length,
-        gtin_indicator_digit: data.gtin_indicator_digit,
-        starting_item_reference: data.starting_item_reference,
-        next_item_reference_counter: data.next_item_reference_counter,
-        default_label_format: data.default_label_format || null,
-        xoro_api_base_url: data.xoro_api_base_url || null,
-        xoro_api_key_ref: data.xoro_api_key_ref || null,
-      }),
-      headers: { Prefer: "return=representation" },
-    }
+    { method: "POST", body: JSON.stringify(payload), headers: { Prefer: "return=representation" } }
   );
   return rows[0];
 }
@@ -205,11 +194,12 @@ export async function getOrCreatePackGtin(
   if (existing) return existing;
 
   // Claim next item reference atomically via RPC
-  const rpcRes = await sbFetch<{ gs1_claim_next_item_reference: number }[]>(
+  // Supabase RPCs can return either [{gs1_claim_next_item_reference: n}] or a bare scalar
+  const rpcRes = await sbFetch<{ gs1_claim_next_item_reference: number }[] | number>(
     `${rpc("rpc/gs1_claim_next_item_reference")}`,
     { method: "POST", body: JSON.stringify({}) }
   );
-  const itemRef = rpcRes[0]?.gs1_claim_next_item_reference ?? (rpcRes as unknown as number);
+  const itemRef = Array.isArray(rpcRes) ? rpcRes[0]?.gs1_claim_next_item_reference : rpcRes;
 
   const gtin = buildGtinFromSettings(settings, Number(itemRef));
 
@@ -277,17 +267,17 @@ export async function insertParsedBlocks(uploadId: string, rows: ParsedRow[]): P
   if (rows.length === 0) return;
   const payload = rows.map(r => ({
     upload_id: uploadId,
-    sheet_name: r.sheetName,
+    sheet_name: r.sheetName ?? null,
     block_type: "channel_qty",
-    style_no: r.styleNo,
-    color: r.color,
-    channel: r.channel,
-    scale_code: r.scaleCode,
-    pack_qty: r.packQty,
-    confidence_score: r.confidence,
-    parse_status: r.confidence >= 70 ? "parsed" : r.confidence >= 40 ? "review" : "failed",
+    style_no: r.styleNo ?? null,
+    color: r.color ?? null,
+    channel: r.channel ?? null,
+    scale_code: r.scaleCode ?? null,
+    pack_qty: r.packQty ?? null,
+    confidence_score: r.confidence ?? null,
+    parse_status: (r.confidence ?? 0) >= 70 ? "parsed" : (r.confidence ?? 0) >= 40 ? "review" : "failed",
     raw_payload: {},
-    parsed_payload: { styleNo: r.styleNo, color: r.color, channel: r.channel, scaleCode: r.scaleCode, packQty: r.packQty },
+    parsed_payload: { styleNo: r.styleNo, color: r.color ?? null, channel: r.channel ?? null, scaleCode: r.scaleCode, packQty: r.packQty },
   }));
   await sbFetch<void>(
     rpc("packing_list_blocks"),
@@ -313,7 +303,14 @@ export async function insertParseIssues(uploadId: string, issues: ParseIssueInpu
     rpc("parse_issues"),
     {
       method: "POST",
-      body: JSON.stringify(issues.map(i => ({ ...i, upload_id: uploadId }))),
+      body: JSON.stringify(issues.map(i => ({
+        upload_id: uploadId,
+        sheet_name: i.sheet_name ?? null,
+        issue_type: i.issue_type,
+        severity: i.severity,
+        message: i.message,
+        raw_context: i.raw_context ?? null,
+      }))),
       headers: { Prefer: "return=minimal" },
     }
   );
@@ -334,7 +331,8 @@ export async function loadBatches(): Promise<LabelBatch[]> {
 export async function createLabelBatch(
   batchName: string,
   uploadId: string | null,
-  lines: LabelData[]
+  lines: LabelData[],
+  labelMode: LabelMode = "pack_gtin"
 ): Promise<LabelBatch> {
   const [batch] = await sbFetch<LabelBatch[]>(
     rpc("label_batches"),
@@ -345,6 +343,7 @@ export async function createLabelBatch(
         upload_id: uploadId ?? null,
         status: "generated",
         output_format: "pdf",
+        label_mode: labelMode,
       }),
       headers: { Prefer: "return=representation" },
     }
@@ -364,12 +363,67 @@ export async function createLabelBatch(
           label_qty: l.label_qty,
           source_sheet_name: l.source_sheet_name ?? null,
           source_channel: l.source_channel ?? null,
+          label_type: labelMode,
+          sscc_first: null,
+          sscc_last: null,
+          carton_count: null,
         }))),
         headers: { Prefer: "return=minimal" },
       }
     );
   }
   return batch;
+}
+
+// ── SSCC / carton operations ──────────────────────────────────────────────────
+
+export async function claimSsccSerialRange(count: number): Promise<{ start: number; end: number }> {
+  const rows = await sbFetch<{ serial_start: number; serial_end: number }[]>(
+    rpc("rpc/sscc_claim_serial_range"),
+    { method: "POST", body: JSON.stringify({ p_count: count }) }
+  );
+  const r = rows[0];
+  return { start: Number(r.serial_start), end: Number(r.serial_end) };
+}
+
+export async function insertCartons(cartons: CartonInput[]): Promise<Carton[]> {
+  if (cartons.length === 0) return [];
+  return sbFetch<Carton[]>(
+    rpc("cartons"),
+    {
+      method: "POST",
+      body: JSON.stringify(cartons),
+      headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+    }
+  );
+}
+
+export async function updateBatchLinesSscc(
+  lines: Array<{ id: string; sscc_first: string; sscc_last: string; carton_count: number }>
+): Promise<void> {
+  // Update each line individually (PostgREST doesn't support bulk PATCH with different values)
+  await Promise.all(lines.map(l =>
+    sbFetch<void>(
+      `${rpc("label_batch_lines")}?id=eq.${l.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ sscc_first: l.sscc_first, sscc_last: l.sscc_last, carton_count: l.carton_count }),
+        headers: { Prefer: "return=minimal" },
+      }
+    )
+  ));
+}
+
+export async function loadCartonsByBatch(batchId: string): Promise<Carton[]> {
+  return sbFetch<Carton[]>(
+    `${rpc("cartons")}?batch_id=eq.${batchId}&order=batch_line_id.asc,carton_seq.asc`
+  );
+}
+
+export async function loadCartonsByLine(batchLineId: string): Promise<Carton[]> {
+  return sbFetch<Carton[]>(
+    `${rpc("cartons")}?batch_line_id=eq.${batchLineId}&order=carton_seq.asc`
+  );
 }
 
 export async function loadBatchLines(batchId: string): Promise<LabelBatchLine[]> {
