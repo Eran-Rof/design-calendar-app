@@ -232,6 +232,15 @@ export default function VendorPhasesView({ poId }: Props = {}) {
     return all.slice(1).filter((r) => r.reviewed_at && r.status !== "pending");
   }
 
+  // All reviewed requests for a phase (across status + expected_date fields),
+  // surfaced to the vendor so they can see ROF's review notes alongside their
+  // own phase notes. Sorted newest-first.
+  function reviewEntriesFor(poIdArg: string, phase: string): ChangeRequest[] {
+    return requests
+      .filter((r) => r.po_id === poIdArg && r.phase_name === phase && r.reviewed_at && r.status !== "pending")
+      .sort((a, b) => new Date(b.reviewed_at || 0).getTime() - new Date(a.reviewed_at || 0).getTime());
+  }
+
   // Notes CRUD. Direct supabase calls — RLS enforces ownership on update.
   function notesFor(poIdArg: string, phase: string, lineKey: string | null = null): PhaseNote[] {
     const list = Array.isArray(notes) ? notes : [];
@@ -572,51 +581,54 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                   </select>
                 </div>
                 <div></div>{/* spacer column — matches header, pushes review state + notes right */}
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, lineHeight: 1.35 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, lineHeight: 1.35, display: "grid", gap: 2 }}>
+                  {pending && <div style={{ color: "#92400E" }}>⏳ Pending review</div>}
+                  {hasMismatch && <div style={{ color: "#7C3AED" }}>⚠ Lines differ</div>}
+
+                  {/* Stack all reviewed history for this phase (across status +
+                      expected_date fields) newest-first, so the vendor sees the
+                      full audit trail inline instead of a "+ N earlier" hint. */}
                   {(() => {
-                    // Pick the latest reviewed request that is driving this cell's chip.
-                    const latestReviewed = [r.statusReq, r.dateReq].find((x) => x && x.reviewed_at) || null;
                     const history = [
+                      ...(r.statusReq?.reviewed_at && r.statusReq.status !== "pending" ? [r.statusReq] : []),
+                      ...(r.dateReq?.reviewed_at && r.dateReq.status !== "pending" ? [r.dateReq] : []),
                       ...priorHistory(r.po.uuid_id, r.phase.name, "status"),
                       ...priorHistory(r.po.uuid_id, r.phase.name, "expected_date"),
                     ]
-                      .sort((a, b) => new Date(b.reviewed_at || 0).getTime() - new Date(a.reviewed_at || 0).getTime())
-                      .slice(0, 3);
-                    const historyTitle = history.length
-                      ? history.map((h) => `${h.status === "approved" ? "✓" : "✗"} ${h.field_name} → ${h.new_value ?? "(cleared)"} on ${new Date(h.reviewed_at!).toLocaleDateString()}${h.review_note ? ` — ${h.review_note}` : ""}`).join("\n")
-                      : "";
-                    const reviewedDate = latestReviewed?.reviewed_at ? new Date(latestReviewed.reviewed_at).toLocaleDateString() : "";
-                    return (
-                      <>
-                        {pending && <div style={{ color: "#92400E" }}>⏳ Pending review</div>}
-                        {rejected && !pending && (
-                          <div style={{ color: "#991B1B" }} title={latestReviewed?.review_note || r.dateReq?.review_note || r.statusReq?.review_note || ""}>
-                            ✗ Rejected{reviewedDate && <span style={{ color: TH.textMuted, fontWeight: 500, marginLeft: 4 }}>{reviewedDate}</span>}
-                          </div>
-                        )}
-                        {!pending && !rejected && (r.dateReq?.status === "approved" || r.statusReq?.status === "approved") && (
-                          <div style={{ color: "#065F46" }} title={latestReviewed?.review_note || ""}>
-                            ✓ Approved{reviewedDate && <span style={{ color: TH.textMuted, fontWeight: 500, marginLeft: 4 }}>{reviewedDate}</span>}
-                          </div>
-                        )}
-                        {hasMismatch && (
-                          <div style={{ color: "#7C3AED" }}>⚠ Lines differ</div>
-                        )}
-                        {!pending && !rejected && !r.dateReq?.status && !r.statusReq?.status && !hasMismatch && (
-                          <div style={{ color: TH.textMuted, fontWeight: 500 }}>—</div>
-                        )}
-                        {history.length > 0 && (
-                          <div style={{ color: TH.textMuted, fontWeight: 500, marginTop: 2, fontSize: 9 }} title={historyTitle}>
-                            + {history.length} earlier
-                          </div>
-                        )}
-                      </>
-                    );
+                      .filter((x, i, arr) => arr.findIndex((y) => y.id === x.id) === i)
+                      .sort((a, b) => new Date(b.reviewed_at || 0).getTime() - new Date(a.reviewed_at || 0).getTime());
+
+                    return history.map((h) => {
+                      const approved = h.status === "approved";
+                      const hasComment = !!(h.review_note && h.review_note.trim());
+                      const color = approved ? "#065F46" : "#991B1B";
+                      const icon = approved ? "✓" : "✗";
+                      const label = approved
+                        ? hasComment ? "Approved w/ note" : "Approved"
+                        : "Rejected";
+                      const date = h.reviewed_at ? new Date(h.reviewed_at).toLocaleDateString() : "";
+                      const tooltip = [
+                        `${h.field_name} → ${h.new_value ?? "(cleared)"}`,
+                        h.reviewed_by_internal_id ? `Reviewed by ${h.reviewed_by_internal_id}` : null,
+                        h.review_note ? `Note: ${h.review_note}` : null,
+                      ].filter(Boolean).join("\n");
+                      return (
+                        <div key={h.id} style={{ color, display: "flex", gap: 4, alignItems: "baseline" }} title={tooltip}>
+                          <span>{icon} {label}</span>
+                          {date && <span style={{ color: TH.textMuted, fontWeight: 500 }}>{date}</span>}
+                        </div>
+                      );
+                    });
                   })()}
+
+                  {!pending && !hasMismatch && !r.dateReq?.status && !r.statusReq?.status && (
+                    <div style={{ color: TH.textMuted, fontWeight: 500 }}>—</div>
+                  )}
                 </div>
                 <div style={{ display: "flex", justifyContent: "center" }}>
                   <NotesButton
                     notes={allPhaseNotes}
+                    reviewEntries={reviewEntriesFor(r.po.uuid_id, r.phase.name)}
                     currentAuthAid={currentAuthAid}
                     title={`${r.po.po_number} — ${r.phase.name}`}
                     lines={lines}
@@ -634,6 +646,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                     <span style={{ fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>Notes for this phase</span>
                     <NotesButton
                       notes={notesAndLineNotesFor(r.po.uuid_id, r.phase.name)}
+                      reviewEntries={reviewEntriesFor(r.po.uuid_id, r.phase.name)}
                       currentAuthAid={currentAuthAid}
                       title={`${r.phase.name} — all notes (master + line)`}
                       lines={lines}
@@ -713,9 +726,10 @@ export default function VendorPhasesView({ poId }: Props = {}) {
  * in one place.
  */
 function NotesButton({
-  notes, currentAuthAid, title, lines, onAdd, onEdit, onDelete,
+  notes, reviewEntries, currentAuthAid, title, lines, onAdd, onEdit, onDelete,
 }: {
   notes: PhaseNote[];
+  reviewEntries?: ChangeRequest[];
   currentAuthAid: string | null;
   title: string;
   lines?: POLine[];
@@ -728,6 +742,8 @@ function NotesButton({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const count = notes.length;
+  const reviews = (reviewEntries || []).filter((r) => r.reviewed_at && r.status !== "pending");
+  const reviewCount = reviews.length;
 
   // Map line id → label so we can caption line-level notes inside
   // the master popover.
@@ -746,19 +762,22 @@ function NotesButton({
     <>
       <button
         onClick={() => setOpen(true)}
-        title={count === 0 ? "Add a note" : `${count} note${count === 1 ? "" : "s"}`}
+        title={
+          count === 0 && reviewCount === 0 ? "Add a note"
+          : `${count} note${count === 1 ? "" : "s"}${reviewCount ? ` · ${reviewCount} ROF review${reviewCount === 1 ? "" : "s"}` : ""}`
+        }
         style={{
           width: 28, height: 24, padding: 0,
-          border: `1px solid ${count > 0 ? TH.primary : TH.border}`,
+          border: `1px solid ${count > 0 || reviewCount > 0 ? TH.primary : TH.border}`,
           borderRadius: 6,
-          background: count > 0 ? "#EFF6FF" : TH.surface,
-          color: count > 0 ? TH.primary : TH.textMuted,
+          background: count > 0 || reviewCount > 0 ? "#EFF6FF" : TH.surface,
+          color: count > 0 || reviewCount > 0 ? TH.primary : TH.textMuted,
           cursor: "pointer", fontFamily: "inherit",
           display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 3,
           fontSize: 11, fontWeight: 700,
         }}
       >
-        💬{count > 0 ? count : ""}
+        💬{count + reviewCount > 0 ? count + reviewCount : ""}
       </button>
 
       {open && (
@@ -796,8 +815,37 @@ function NotesButton({
             </div>
 
             <div style={{ padding: "8px 16px", overflowY: "auto", flex: 1 }}>
+              {reviews.length > 0 && (
+                <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: `1px solid ${TH.border}` }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>
+                    Ring of Fire review notes ({reviews.length})
+                  </div>
+                  {reviews.map((rv) => {
+                    const approved = rv.status === "approved";
+                    const color = approved ? "#065F46" : "#991B1B";
+                    const bg = approved ? "#ECFDF5" : "#FEF2F2";
+                    const border = approved ? "#A7F3D0" : "#FCA5A5";
+                    return (
+                      <div key={rv.id} style={{ padding: 8, marginBottom: 6, background: bg, border: `1px solid ${border}`, borderRadius: 6 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: TH.textMuted, fontWeight: 600 }}>
+                          <span style={{ color }}>
+                            {approved ? "✓" : "✗"} {approved ? "Approved" : "Rejected"} · {rv.field_name} → {rv.new_value ?? "(cleared)"}
+                          </span>
+                          <span>{rv.reviewed_at && new Date(rv.reviewed_at).toLocaleString()}</span>
+                        </div>
+                        {rv.reviewed_by_internal_id && (
+                          <div style={{ fontSize: 10, color: TH.textMuted, marginTop: 2 }}>by {rv.reviewed_by_internal_id}</div>
+                        )}
+                        {rv.review_note && (
+                          <div style={{ fontSize: 12, color: TH.text, marginTop: 4, whiteSpace: "pre-wrap" }}>{rv.review_note}</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               {notes.length === 0 && (
-                <div style={{ color: TH.textMuted, fontSize: 12, padding: "6px 0" }}>No notes yet.</div>
+                <div style={{ color: TH.textMuted, fontSize: 12, padding: "6px 0" }}>{reviews.length === 0 ? "No notes yet." : "No vendor notes yet — add one below."}</div>
               )}
               {notes.map((n) => {
                 const mine = !!currentAuthAid && n.author_auth_id === currentAuthAid;
