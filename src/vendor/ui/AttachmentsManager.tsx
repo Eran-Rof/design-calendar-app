@@ -284,7 +284,7 @@ function AttachmentRowView({
         }}>{fname}</div>
       </div>
       <div style={{ display: "flex", gap: 4 }}>
-        <button onClick={onPreview} style={iconBtn}>Preview</button>
+        <button onClick={onPreview} style={previewBtn}>Preview</button>
         {!readOnly && <button onClick={onDelete} style={{ ...iconBtn, color: "#FCA5A5" }}>Remove</button>}
       </div>
       <datalist id="attachment-description-options">
@@ -298,4 +298,10 @@ const iconBtn: React.CSSProperties = {
   padding: "3px 10px", borderRadius: 4,
   border: `1px solid ${TH.border}`, background: "transparent", color: TH.textSub,
   cursor: "pointer", fontFamily: "inherit", fontSize: 11, fontWeight: 600,
+};
+
+const previewBtn: React.CSSProperties = {
+  padding: "4px 12px", borderRadius: 6,
+  border: "none", background: TH.primary, color: "#FFFFFF",
+  cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600,
 };
