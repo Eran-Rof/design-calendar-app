@@ -218,6 +218,10 @@ import h212 from "./vendor/invoices/[id].js";
 import h213 from "./vendor/ai-extract-invoice.js";
 import h214 from "./vendor/shipments/[id].js";
 import h215 from "./vendor/change-requests.js";
+import h216 from "./internal/phase-change-requests/index.js";
+import h217 from "./internal/phase-change-requests/[id]/approve.js";
+import h218 from "./internal/phase-change-requests/[id]/reject.js";
+import h219 from "./internal/phase-notes/index.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -415,6 +419,10 @@ export const ROUTES = [
   { pattern: "/api/vendor/entities", handler: h191 },
   { pattern: "/api/vendor/ai-extract-invoice", handler: h213 },
   { pattern: "/api/vendor/change-requests", handler: h215 },
+  { pattern: "/api/internal/phase-change-requests/:id/approve", handler: h217 },
+  { pattern: "/api/internal/phase-change-requests/:id/reject", handler: h218 },
+  { pattern: "/api/internal/phase-change-requests", handler: h216 },
+  { pattern: "/api/internal/phase-notes", handler: h219 },
   { pattern: "/api/vendor/invoices/:id", handler: h212 },
   { pattern: "/api/vendor/invoices", handler: h192 },
   { pattern: "/api/vendor/payments", handler: h193 },
