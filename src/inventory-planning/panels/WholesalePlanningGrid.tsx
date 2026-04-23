@@ -2,20 +2,21 @@
 // so planners can scan a row end-to-end without scrolling. Click a row to
 // open the detail drawer.
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { IpPlanningGridRow } from "../types/wholesale";
 import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, formatQty, formatPeriodCode } from "../components/styles";
 
 export interface WholesalePlanningGridProps {
   rows: IpPlanningGridRow[];
   onSelectRow: (row: IpPlanningGridRow) => void;
+  onUpdateBuyQty: (forecastId: string, qty: number | null) => Promise<void>;
   loading?: boolean;
 }
 
 type SortKey =
   | "customer" | "sku" | "period" | "final" | "shortage" | "excess" | "action" | "method";
 
-export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, loading }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
   const [filterCustomer, setFilterCustomer] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
@@ -134,6 +135,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
               <th style={{ ...S.th, textAlign: "right" }}>On PO</th>
               <th style={{ ...S.th, textAlign: "right" }}>Receipts</th>
               <th style={{ ...S.th, textAlign: "right" }}>ATS</th>
+              <th style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy</th>
               <Th label="Short" k="shortage" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
               <Th label="Excess" k="excess" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
               <Th label="Action" k="action" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
@@ -179,6 +181,12 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
                 <td style={S.tdNum}>{formatQty(r.on_po_qty)}</td>
                 <td style={S.tdNum}>{formatQty(r.receipts_due_qty)}</td>
                 <td style={{ ...S.tdNum, color: PAL.text }}>{formatQty(r.available_supply_qty)}</td>
+                <td style={{ ...S.tdNum, padding: "0 4px" }} onClick={(e) => e.stopPropagation()}>
+                  <BuyCell
+                    value={r.planned_buy_qty}
+                    onSave={(qty) => onUpdateBuyQty(r.forecast_id, qty)}
+                  />
+                </td>
                 <td style={{ ...S.tdNum, color: r.projected_shortage_qty > 0 ? PAL.red : PAL.textMuted }}>
                   {formatQty(r.projected_shortage_qty)}
                 </td>
@@ -193,14 +201,14 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
               </tr>
             ))}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={20} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={21} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No forecast rows yet. Click \"Build forecast\" above to populate the grid."
                   : "No rows match your filters."}
               </td></tr>
             )}
             {loading && (
-              <tr><td colSpan={20} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={21} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 Loading…
               </td></tr>
             )}
@@ -221,6 +229,53 @@ function Th({ label, k, sortKey, sortDir, onSort, numeric }: {
         onClick={() => onSort(k)}>
       {label}{active ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
     </th>
+  );
+}
+
+function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number | null) => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [str, setStr] = useState("");
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function startEdit() {
+    setStr(value != null ? String(value) : "");
+    setEditing(true);
+    setTimeout(() => inputRef.current?.select(), 0);
+  }
+
+  async function commit() {
+    setEditing(false);
+    const trimmed = str.trim();
+    const qty = trimmed === "" ? null : parseInt(trimmed, 10);
+    if (qty === value || (qty == null && value == null)) return;
+    if (qty !== null && !Number.isFinite(qty)) return;
+    setSaving(true);
+    try { await onSave(qty); } finally { setSaving(false); }
+  }
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        value={str}
+        onChange={(e) => setStr(e.target.value)}
+        onBlur={() => void commit()}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.currentTarget.blur(); } if (e.key === "Escape") { setEditing(false); } }}
+        style={{ width: 60, background: PAL.panel, color: PAL.green, border: `1px solid ${PAL.green}`, borderRadius: 4, padding: "2px 4px", fontFamily: "monospace", fontSize: 13, textAlign: "right" }}
+        autoFocus
+      />
+    );
+  }
+
+  return (
+    <div
+      onClick={startEdit}
+      title="Click to set buy qty"
+      style={{ fontFamily: "monospace", fontSize: 13, textAlign: "right", color: value != null ? PAL.green : PAL.textDim, cursor: "text", minWidth: 48, padding: "2px 4px", opacity: saving ? 0.5 : 1 }}
+    >
+      {saving ? "…" : value != null ? value.toLocaleString() : "—"}
+    </div>
   );
 }
 

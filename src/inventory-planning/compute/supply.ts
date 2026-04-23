@@ -122,8 +122,12 @@ export function supplyForPeriod(
 //
 // forecasts must cover all customers for each (sku, period) — demand is
 // summed across customers before the roll so shared SKU supply depletes once.
+//
+// plannedBuyByGrain: optional map of `skuId:periodStart` → planned_buy_qty.
+// When set, the planner's intended buy is added to available supply for that
+// period and the resulting surplus rolls forward to the next month.
 export function buildRollingWholesaleSupply(
-  forecasts: Array<{ sku_id: string; period_start: IpIsoDate; final_forecast_qty: number }>,
+  forecasts: Array<{ sku_id: string; period_start: IpIsoDate; final_forecast_qty: number; planned_buy_qty?: number | null }>,
   inputs: SupplyInputs,
   periods: Array<{ period_start: IpIsoDate; period_end: IpIsoDate }>,
 ): Map<string, PeriodSupply> {
@@ -138,6 +142,15 @@ export function buildRollingWholesaleSupply(
     demandByGrain.set(k, (demandByGrain.get(k) ?? 0) + f.final_forecast_qty);
   }
 
+  // Planned buy per (sku, period) — summed across customers (buy is SKU-level).
+  const buyByGrain = new Map<string, number>();
+  for (const f of forecasts) {
+    if (f.planned_buy_qty == null) continue;
+    const k = `${f.sku_id}:${f.period_start}`;
+    // Use max across customers — the buy applies to the SKU for that period.
+    buyByGrain.set(k, Math.max(buyByGrain.get(k) ?? 0, f.planned_buy_qty));
+  }
+
   const skuIds = new Set(forecasts.map((f) => f.sku_id));
   const out = new Map<string, PeriodSupply>();
 
@@ -148,7 +161,8 @@ export function buildRollingWholesaleSupply(
 
     for (const p of periods) {
       const receipts_due_qty = receiptsDueInPeriod(inputs, skuId, p.period_start, p.period_end);
-      const available_supply_qty = rolling + receipts_due_qty;
+      const planned_buy = buyByGrain.get(`${skuId}:${p.period_start}`) ?? 0;
+      const available_supply_qty = rolling + receipts_due_qty + planned_buy;
       out.set(`${skuId}:${p.period_start}`, { on_hand_qty, on_po_qty, receipts_due_qty, available_supply_qty });
       const demand = demandByGrain.get(`${skuId}:${p.period_start}`) ?? 0;
       rolling = Math.max(0, available_supply_qty - demand);

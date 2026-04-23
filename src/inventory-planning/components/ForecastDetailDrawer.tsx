@@ -28,22 +28,28 @@ export interface ForecastDetailDrawerProps {
     reason_code: IpOverrideReasonCode;
     note: string | null;
   }) => Promise<void>;
+  onUpdateBuyQty: (forecastId: string, qty: number | null) => Promise<void>;
 }
 
 export default function ForecastDetailDrawer({
-  row, overrides, onClose, onSaveOverride,
+  row, overrides, onClose, onSaveOverride, onUpdateBuyQty,
 }: ForecastDetailDrawerProps) {
   const [qtyStr, setQtyStr] = useState("");
   const [reason, setReason] = useState<IpOverrideReasonCode>("planner_estimate");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [buyStr, setBuyStr] = useState("");
+  const [buyingSaving, setBuyingSaving] = useState(false);
+  const [buyError, setBuyError] = useState<string | null>(null);
 
   useEffect(() => {
     setQtyStr(row ? String(row.override_qty ?? 0) : "");
     setReason("planner_estimate");
     setNote("");
     setError(null);
+    setBuyStr(row?.planned_buy_qty != null ? String(row.planned_buy_qty) : "");
+    setBuyError(null);
   }, [row?.forecast_id]);
 
   if (!row) return null;
@@ -64,6 +70,20 @@ export default function ForecastDetailDrawer({
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveBuy() {
+    const trimmed = buyStr.trim();
+    const qty = trimmed === "" ? null : parseInt(trimmed, 10);
+    if (qty !== null && !Number.isFinite(qty)) { setBuyError("Must be a whole number"); return; }
+    setBuyingSaving(true); setBuyError(null);
+    try {
+      await onUpdateBuyQty(row.forecast_id, qty);
+    } catch (e) {
+      setBuyError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBuyingSaving(false);
     }
   }
 
@@ -169,6 +189,33 @@ export default function ForecastDetailDrawer({
               )}
             </div>
             <div style={{ fontSize: 12, color: PAL.textMuted }}>{row.action_reason ?? ""}</div>
+          </div>
+
+          {/* Buy plan */}
+          <SectionLabel>Buy plan</SectionLabel>
+          <div style={S.infoCell}>
+            <div style={{ fontSize: 12, color: PAL.textMuted, marginBottom: 8 }}>
+              Units you intend to buy for this period. Adds to ATS and rolls the surplus forward to the next month.
+              Clear to remove.
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                style={{ ...S.input, width: 120 }}
+                value={buyStr}
+                inputMode="numeric"
+                placeholder="e.g. 60"
+                onChange={(e) => setBuyStr(e.target.value)}
+              />
+              <button style={S.btnPrimary} onClick={saveBuy} disabled={buyingSaving}>
+                {buyingSaving ? "Saving…" : "Save buy qty"}
+              </button>
+              {row.planned_buy_qty != null && (
+                <span style={{ fontFamily: "monospace", fontSize: 13, color: PAL.green }}>
+                  Current: {row.planned_buy_qty.toLocaleString()} units
+                </span>
+              )}
+            </div>
+            {buyError && <div style={{ color: PAL.red, marginTop: 6, fontSize: 12 }}>{buyError}</div>}
           </div>
 
           {/* Override form */}

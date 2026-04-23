@@ -128,8 +128,9 @@ export const wholesaleRepo = {
       } catch (e) {
         // PGRST204 = column not in schema cache (migration pending). Retry
         // without ly_reference_qty so builds survive before the ALTER TABLE runs.
-        if (e instanceof Error && e.message.includes("PGRST204") && e.message.includes("ly_reference_qty")) {
-          const stripped = chunk.map(({ ly_reference_qty: _drop, ...rest }) => rest);
+        if (e instanceof Error && e.message.includes("PGRST204") && (e.message.includes("ly_reference_qty") || e.message.includes("planned_buy_qty"))) {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const stripped = chunk.map(({ ly_reference_qty: _a, planned_buy_qty: _b, ...rest }) => rest);
           await sbPost<IpWholesaleForecast>(url, stripped, prefer);
         } else {
           throw e;
@@ -147,6 +148,12 @@ export const wholesaleRepo = {
       { override_qty, final_forecast_qty },
     );
     return updated;
+  },
+  async patchForecastBuyQty(forecastId: string, planned_buy_qty: number | null): Promise<void> {
+    await sbPatch<IpWholesaleForecast>(
+      `ip_wholesale_forecast?id=eq.${forecastId}`,
+      { planned_buy_qty },
+    );
   },
 
   // ── Future demand requests ───────────────────────────────────────────────

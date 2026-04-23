@@ -85,6 +85,7 @@ export interface IpWholesaleForecast {
   forecast_method: IpForecastMethod;
   history_months_used: number | null;
   ly_reference_qty: number | null;
+  planned_buy_qty: number | null;
   notes: string | null;
   created_at: IpIsoDateTime;
   updated_at: IpIsoDateTime;
@@ -165,6 +166,7 @@ export interface IpPlanningGridRow {
   confidence_level: IpConfidenceLevel;
   forecast_method: IpForecastMethod;
   ly_reference_qty: number | null;
+  planned_buy_qty: number | null;
   on_hand_qty: number | null;
   on_so_qty: number;
   on_po_qty: number | null;

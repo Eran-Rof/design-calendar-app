@@ -125,6 +125,14 @@ export default function WholesalePlanningWorkbench() {
     setToast({ text: `Method set to "${FORECAST_METHOD_LABELS[pref]}" — rebuild forecast to apply`, kind: "info" });
   }
 
+  async function saveBuyQty(forecastId: string, qty: number | null) {
+    await wholesaleRepo.patchForecastBuyQty(forecastId, qty);
+    const refreshed = await buildGridRows(selectedRun!);
+    setRows(refreshed);
+    setSelectedRow((prev) => prev ? (refreshed.find((r) => r.forecast_id === prev.forecast_id) ?? prev) : null);
+    setToast({ text: qty != null ? `Buy qty set to ${qty.toLocaleString()}` : "Buy qty cleared", kind: "success" });
+  }
+
   async function saveOverride(args: { override_qty: number; reason_code: IpOverrideReasonCode; note: string | null }) {
     if (!selectedRow) return;
     // Find the underlying forecast row (grid row carries the id).
@@ -216,6 +224,7 @@ export default function WholesalePlanningWorkbench() {
             rows={rows}
             loading={loading}
             onSelectRow={setSelectedRow}
+            onUpdateBuyQty={saveBuyQty}
           />
         )}
 
@@ -237,6 +246,7 @@ export default function WholesalePlanningWorkbench() {
           overrides={overridesForRow}
           onClose={() => setSelectedRow(null)}
           onSaveOverride={saveOverride}
+          onUpdateBuyQty={saveBuyQty}
         />
       )}
 
