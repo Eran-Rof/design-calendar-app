@@ -21,7 +21,6 @@ import type {
 import { wholesaleRepo } from "../../services/wholesalePlanningRepository";
 import { supplyRepo, buildReconciliationGrid, runReconciliationPass } from "../services";
 import { S, PAL, formatDate } from "../../components/styles";
-import { SB_HEADERS, SB_URL } from "../../../utils/supabase";
 import Toast, { type ToastMessage } from "../../components/Toast";
 import StaleDataBanner from "../../shared/components/StaleDataBanner";
 import ReconciliationGrid from "./ReconciliationGrid";
@@ -268,25 +267,20 @@ function NewReconciliationRunModal({
     if (horizonEnd < horizonStart) { onToast({ text: "Horizon end is before start", kind: "error" }); return; }
     setSaving(true);
     try {
-      if (!SB_URL) throw new Error("Supabase not configured");
-      const r = await fetch(`${SB_URL}/rest/v1/ip_planning_runs`, {
-        method: "POST",
-        headers: { ...SB_HEADERS, Prefer: "return=representation" },
-        body: JSON.stringify([{
-          name: name.trim(),
-          planning_scope: "all",
-          status: "draft",
-          source_snapshot_date: snapshot,
-          horizon_start: horizonStart,
-          horizon_end: horizonEnd,
-          note: note.trim() || null,
-          wholesale_source_run_id: wholesaleId || null,
-          ecom_source_run_id: ecomId || null,
-        }]),
+      const r = await wholesaleRepo.createPlanningRun({
+        name: name.trim(),
+        planning_scope: "all",
+        status: "draft",
+        source_snapshot_date: snapshot,
+        horizon_start: horizonStart,
+        horizon_end: horizonEnd,
+        forecast_method_preference: "ly_sales",
+        wholesale_source_run_id: wholesaleId || null,
+        ecom_source_run_id: ecomId || null,
+        note: note.trim() || null,
+        created_by: null,
       });
-      if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
-      const rows = await r.json();
-      await onCreated(rows[0].id);
+      await onCreated(r.id);
     } catch (e) {
       onToast({ text: "Couldn't create run — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
     } finally {
