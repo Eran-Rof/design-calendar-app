@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:api": "node scripts/dev-api-server.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "npm run build && node scripts/setup-vercel.mjs && vercel --prod --prebuilt",
