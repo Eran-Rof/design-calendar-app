@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { TH } from "../utils/theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate, fmtMoney } from "./utils";
@@ -68,7 +68,17 @@ export default function VendorPODetail() {
   const [vendorUserId, setVendorUserId] = useState<string | null>(null);
   const [sender, setSender] = useState<Sender | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [tab, setTab] = useState<Tab>("overview");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const ALL_TABS: readonly Tab[] = ["overview", "messages", "shipments", "invoices", "phases"] as const;
+  const raw = searchParams.get("tab");
+  const initialTab: Tab = ALL_TABS.includes(raw as Tab) ? (raw as Tab) : "overview";
+  const [tab, setTabState] = useState<Tab>(initialTab);
+  const setTab = (t: Tab) => {
+    setTabState(t);
+    const next = new URLSearchParams(searchParams);
+    if (t === "overview") next.delete("tab"); else next.set("tab", t);
+    setSearchParams(next, { replace: true });
+  };
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 

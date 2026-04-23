@@ -158,13 +158,23 @@ export default function VendorReports() {
   const [invoiceIdByNumber, setInvoiceIdByNumber] = useState<Record<string, string>>({});
   // Phase bucket counters — computed client-side from each PO's DDP.
   const [phaseBuckets, setPhaseBuckets] = useState({ overdue: 0, this_week: 0, next_30: 0 });
+  // Per-PO tally of phase review activity (approved/rejected + pending).
+  // Populated at the same time as phaseBuckets so one API call feeds both.
+  const [phaseActivity, setPhaseActivity] = useState<Array<{
+    po_id: string;
+    po_number: string;
+    pending: number;
+    approved: number;
+    rejected: number;
+    latest_at: string | null;
+  }>>([]);
 
   useEffect(() => {
     (async () => {
       const [{ data: poRows }, { data: invRows }, { data: reqRows }] = await Promise.all([
         supabaseVendor.from("tanda_pos").select("uuid_id, po_number, date_expected_delivery, data"),
         supabaseVendor.from("invoices").select("id, invoice_number"),
-        supabaseVendor.from("tanda_milestone_change_requests").select("po_id, phase_name, field_name, new_value, status"),
+        supabaseVendor.from("tanda_milestone_change_requests").select("po_id, po_number, phase_name, field_name, new_value, status, reviewed_at, po_line_key"),
       ]);
       const pm: Record<string, string> = {};
       for (const r of (poRows ?? []) as { uuid_id: string; po_number: string }[]) pm[r.po_number] = r.uuid_id;
@@ -204,6 +214,29 @@ export default function VendorReports() {
         }
       }
       setPhaseBuckets(counts);
+
+      // Aggregate per-PO phase activity: count approved/rejected/pending
+      // change requests and the most recent reviewed_at so the dashboard
+      // can surface a clickable list of POs with review activity.
+      const allReqs = (reqRows ?? []) as Array<{ po_id: string; po_number: string; status: string; reviewed_at: string | null }>;
+      const map = new Map<string, { po_id: string; po_number: string; pending: number; approved: number; rejected: number; latest_at: string | null }>();
+      for (const r of allReqs) {
+        const cur = map.get(r.po_id) || { po_id: r.po_id, po_number: r.po_number, pending: 0, approved: 0, rejected: 0, latest_at: null };
+        if (r.status === "pending") cur.pending += 1;
+        else if (r.status === "approved") cur.approved += 1;
+        else if (r.status === "rejected") cur.rejected += 1;
+        if (r.reviewed_at && (!cur.latest_at || new Date(r.reviewed_at).getTime() > new Date(cur.latest_at).getTime())) {
+          cur.latest_at = r.reviewed_at;
+        }
+        map.set(r.po_id, cur);
+      }
+      const sorted = Array.from(map.values()).sort((a, b) => {
+        const at = a.latest_at ? new Date(a.latest_at).getTime() : 0;
+        const bt = b.latest_at ? new Date(b.latest_at).getTime() : 0;
+        if (bt !== at) return bt - at;
+        return (b.pending + b.approved + b.rejected) - (a.pending + a.approved + a.rejected);
+      });
+      setPhaseActivity(sorted);
     })();
   }, []);
 
@@ -335,6 +368,9 @@ export default function VendorReports() {
               to="/vendor/phases?filter=next_30"
             />
           </div>
+
+          <POPhaseActivity rows={phaseActivity} />
+
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 14 }}>
             <StatCard label="POs in period" value={String(summary.pos_this_year)} to="/vendor" />
@@ -488,6 +524,64 @@ export default function VendorReports() {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function POPhaseActivity({ rows }: { rows: Array<{ po_id: string; po_number: string; pending: number; approved: number; rejected: number; latest_at: string | null }> }) {
+  if (rows.length === 0) return null;
+  return (
+    <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "14px 16px", marginBottom: 20, boxShadow: `0 1px 2px ${TH.shadow}` }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: TH.text, textTransform: "uppercase", letterSpacing: 0.4 }}>
+          Phase review activity by PO
+        </div>
+        <div style={{ fontSize: 11, color: TH.textMuted }}>
+          {rows.length} PO{rows.length === 1 ? "" : "s"} · click a row to open its phases tab
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 100px 100px 140px 36px", padding: "6px 10px", background: TH.surfaceHi, borderRadius: 6, fontSize: 10, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>
+        <div>PO</div>
+        <div style={{ textAlign: "right" }}>Pending</div>
+        <div style={{ textAlign: "right" }}>Approved</div>
+        <div style={{ textAlign: "right" }}>Rejected</div>
+        <div style={{ textAlign: "right" }}>Latest review</div>
+        <div></div>
+      </div>
+      {rows.map((r) => {
+        const total = r.pending + r.approved + r.rejected;
+        return (
+          <Link
+            key={r.po_id}
+            to={`/vendor/pos/${r.po_id}?tab=phases`}
+            style={{
+              display: "grid", gridTemplateColumns: "1fr 90px 100px 100px 140px 36px",
+              padding: "10px", borderBottom: `1px solid ${TH.border}`, alignItems: "center",
+              textDecoration: "none", color: "inherit", fontSize: 13,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <span style={{ fontFamily: "Menlo, monospace", fontWeight: 700, color: TH.primary }}>{r.po_number}</span>
+              <span style={{ fontSize: 11, color: TH.textMuted }}>
+                {total} change{total === 1 ? "" : "s"}
+              </span>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              {r.pending > 0 ? <span style={{ background: "#FEF3C7", color: "#92400E", padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 700 }}>{r.pending}</span> : <span style={{ color: TH.textMuted, fontSize: 11 }}>—</span>}
+            </div>
+            <div style={{ textAlign: "right" }}>
+              {r.approved > 0 ? <span style={{ background: "#D1FAE5", color: "#065F46", padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 700 }}>{r.approved}</span> : <span style={{ color: TH.textMuted, fontSize: 11 }}>—</span>}
+            </div>
+            <div style={{ textAlign: "right" }}>
+              {r.rejected > 0 ? <span style={{ background: "#FECACA", color: "#991B1B", padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 700 }}>{r.rejected}</span> : <span style={{ color: TH.textMuted, fontSize: 11 }}>—</span>}
+            </div>
+            <div style={{ textAlign: "right", fontSize: 11, color: TH.textMuted }}>
+              {r.latest_at ? new Date(r.latest_at).toLocaleDateString() : "—"}
+            </div>
+            <div style={{ textAlign: "right", color: TH.primary, fontSize: 14, fontWeight: 700 }}>→</div>
+          </Link>
+        );
+      })}
     </div>
   );
 }
