@@ -52,6 +52,22 @@ export default async function handler(req, res) {
     for (const vu of vus || []) vuNameById.set(vu.id, vu.display_name || "—");
   }
 
+  // Batch-fetch line labels so line-level change requests render with a
+  // human-readable caption (style / item number / line index) instead of
+  // the raw po_line_key UUID — or no label at all.
+  const lineKeys = Array.from(new Set((rows || []).map((r) => r.po_line_key).filter(Boolean)));
+  const lineLabelById = new Map();
+  if (lineKeys.length) {
+    const { data: lines } = await admin
+      .from("po_line_items")
+      .select("id, line_index, item_number, description")
+      .in("id", lineKeys);
+    for (const l of lines || []) {
+      const label = l.item_number || (l.line_index != null ? `Line ${l.line_index}` : `Line item`);
+      lineLabelById.set(l.id, { label, description: l.description || null });
+    }
+  }
+
   // Look up prior reviewed requests on the same (vendor, po, phase, line,
   // field) so the caller can flag resubmissions — e.g. "previously
   // rejected on DATE". We scope to the set of (po_id, phase_name) pairs
@@ -81,10 +97,14 @@ export default async function handler(req, res) {
     const key = `${r.po_id}::${r.phase_name}::${r.po_line_key ?? "__master"}::${r.field_name}`;
     const priors = (priorByKey.get(key) || []).filter((p) => p.id !== r.id);
     const lastRejected = priors.find((p) => p.status === "rejected") || null;
+    const lineInfo = r.po_line_key ? lineLabelById.get(r.po_line_key) || null : null;
     return {
       ...r,
       vendor_name: vendorNameById.get(r.vendor_id) || "—",
       requested_by_display_name: r.requested_by_vendor_user_id ? vuNameById.get(r.requested_by_vendor_user_id) : null,
+      scope: r.po_line_key ? "line" : "master",
+      line_label: lineInfo?.label || null,
+      line_description: lineInfo?.description || null,
       prior_reviews_count: priors.length,
       last_rejected_at: lastRejected?.reviewed_at || null,
       last_rejected_note: lastRejected?.review_note || null,

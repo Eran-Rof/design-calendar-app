@@ -27,6 +27,9 @@ type Req = {
   review_note: string | null;
   po_line_key: string | null;
   requested_by_display_name: string | null;
+  scope?: "master" | "line";
+  line_label?: string | null;
+  line_description?: string | null;
   prior_reviews_count?: number;
   last_rejected_at?: string | null;
   last_rejected_note?: string | null;
@@ -338,6 +341,17 @@ export default function PhaseReviews() {
                         <span style={{ background: C.bg, padding: "2px 10px", borderRadius: 4, fontFamily: "Menlo, monospace", fontSize: 12, fontWeight: 700, color: C.primary, border: `1px solid ${C.border}` }}>{r.po_number}</span>
                         <span style={{ fontSize: 12, color: C.textMuted }}>·</span>
                         <span style={{ fontWeight: 600, fontSize: 14, color: C.text }}>{r.phase_name}</span>
+                        {r.scope === "line" ? (
+                          <span
+                            title={r.line_description || "Line-item level change"}
+                            style={{ fontSize: 10, background: C.accent, color: "#EDE9FE", padding: "2px 10px", borderRadius: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, display: "inline-flex", alignItems: "center", gap: 4 }}
+                          >
+                            <span>🔀</span>
+                            <span>Line {r.line_label ? `· ${r.line_label}` : ""}</span>
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 10, background: C.surfaceHi, color: C.textSub, padding: "2px 10px", borderRadius: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>Master</span>
+                        )}
                         <span style={{ fontSize: 10, color: "#fff", background: statusColor(r.status), padding: "2px 10px", borderRadius: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>{r.status}</span>
                       </div>
                       <div style={{ fontSize: 12, color: C.textMuted }}>
