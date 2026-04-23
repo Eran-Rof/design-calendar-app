@@ -78,14 +78,12 @@ function countTrailingTrue(xs: boolean[]): number {
   return n;
 }
 function ecomSrcForRun(run: IpPlanningRun): string | null {
-  const r = run as unknown as { ecom_source_run_id?: string | null };
-  if (r.ecom_source_run_id) return r.ecom_source_run_id;
+  if (run.ecom_source_run_id) return run.ecom_source_run_id;
   if (run.planning_scope === "ecom") return run.id;
   return null;
 }
 function wholesaleSrcForRun(run: IpPlanningRun): string | null {
-  const r = run as unknown as { wholesale_source_run_id?: string | null };
-  if (r.wholesale_source_run_id) return r.wholesale_source_run_id;
+  if (run.wholesale_source_run_id) return run.wholesale_source_run_id;
   if (run.planning_scope === "wholesale") return run.id;
   return null;
 }

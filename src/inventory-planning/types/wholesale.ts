@@ -59,6 +59,9 @@ export interface IpPlanningRun {
   horizon_start: IpIsoDate | null;
   horizon_end: IpIsoDate | null;
   forecast_method_preference: IpForecastMethodPreference;
+  // Phase 3 cross-scope pointers (non-null on "all"-scope runs).
+  wholesale_source_run_id: string | null;
+  ecom_source_run_id: string | null;
   note: string | null;
   created_by: string | null;
   created_at: IpIsoDateTime;
