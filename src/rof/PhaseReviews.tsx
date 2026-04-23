@@ -83,8 +83,9 @@ function loadReviewer(): string {
 }
 
 type ActionDialogState = {
-  kind: "approve" | "reject";
+  kind: "approve" | "reject" | "flip";
   req: Req;
+  targetStatus?: "approved" | "rejected"; // only when kind === "flip"
 };
 
 function ActionDialog({
@@ -97,7 +98,11 @@ function ActionDialog({
 }) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
-  const isReject = state.kind === "reject";
+  const effective = state.kind === "flip" ? state.targetStatus! : state.kind === "approve" ? "approved" : "rejected";
+  const isReject = effective === "rejected";
+  const headline = state.kind === "flip"
+    ? `Change decision → ${effective}`
+    : isReject ? "Reject change" : "Approve change";
 
   async function handleSubmit() {
     if (isReject && !note.trim()) return;
@@ -133,7 +138,7 @@ function ActionDialog({
           background: `linear-gradient(135deg, ${isReject ? C.danger : C.success}22, ${isReject ? C.warn : C.primary}22)`,
         }}>
           <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: isReject ? "#FCA5A5" : "#6EE7B7", marginBottom: 6 }}>
-            {isReject ? "Reject change" : "Approve change"}
+            {headline}
           </div>
           <div style={{ fontSize: 15, fontWeight: 700 }}>
             {state.req.po_number} · {state.req.phase_name}
@@ -254,10 +259,16 @@ export default function PhaseReviews() {
     if (!dialog) return;
     const kind = dialog.kind;
     const id = dialog.req.id;
-    const r = await fetch(`/api/internal/phase-change-requests/${id}/${kind}`, {
+    const { url, successLabel } = kind === "flip"
+      ? { url: `/api/internal/phase-change-requests/${id}/set-status`, successLabel: `Marked ${dialog.targetStatus}` }
+      : { url: `/api/internal/phase-change-requests/${id}/${kind}`, successLabel: kind === "approve" ? "Approved" : "Rejected" };
+    const body = kind === "flip"
+      ? { status: dialog.targetStatus, reviewer_name: reviewer, note }
+      : { reviewer_name: reviewer, note };
+    const r = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reviewer_name: reviewer, note }),
+      body: JSON.stringify(body),
     });
     if (!r.ok) {
       const t = await r.text();
@@ -265,7 +276,22 @@ export default function PhaseReviews() {
       return;
     }
     setDialog(null);
-    setToast({ text: kind === "approve" ? "Approved" : "Rejected", tone: "success" });
+    setToast({ text: successLabel, tone: "success" });
+    await load();
+  }
+
+  async function revertToPending(req: Req) {
+    const r = await fetch(`/api/internal/phase-change-requests/${req.id}/set-status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "pending", reviewer_name: reviewer }),
+    });
+    if (!r.ok) {
+      const t = await r.text();
+      setToast({ text: `Failed: ${t.slice(0, 120)}`, tone: "danger" });
+      return;
+    }
+    setToast({ text: "Moved back to pending", tone: "success" });
     await load();
   }
 
@@ -360,10 +386,29 @@ export default function PhaseReviews() {
                         {" · requested "}{new Date(r.requested_at).toLocaleString()}
                       </div>
                     </div>
-                    {r.status === "pending" && (
+                    {r.status === "pending" ? (
                       <div style={{ display: "flex", gap: 6 }}>
                         <button onClick={() => setDialog({ kind: "approve", req: r })} style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: C.success, color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}>Approve</button>
                         <button onClick={() => setDialog({ kind: "reject", req: r })} style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: C.danger, color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}>Reject</button>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        <button
+                          onClick={() => void revertToPending(r)}
+                          title="Reopen this request so it goes back to the pending queue"
+                          style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.borderLt}`, background: "transparent", color: C.textSub, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}
+                        >↺ Revert to pending</button>
+                        {r.status === "approved" ? (
+                          <button
+                            onClick={() => setDialog({ kind: "flip", req: r, targetStatus: "rejected" })}
+                            style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.danger}`, background: "transparent", color: C.danger, cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "inherit" }}
+                          >✗ Change to rejected</button>
+                        ) : (
+                          <button
+                            onClick={() => setDialog({ kind: "flip", req: r, targetStatus: "approved" })}
+                            style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.success}`, background: "transparent", color: C.success, cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "inherit" }}
+                          >✓ Change to approved</button>
+                        )}
                       </div>
                     )}
                   </div>
