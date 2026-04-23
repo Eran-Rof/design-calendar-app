@@ -520,7 +520,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
       )}
 
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "auto", boxShadow: `0 1px 2px ${TH.shadow}` }}>
-        <div style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 60px minmax(140px, max-content) 60px`, padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
+        <div style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 60px 280px 60px`, padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
           <div></div>{/* expand-toggle column — keeps header aligned with rows */}
           {!poId && <div>PO #</div>}
           <div>Phase</div>
@@ -561,7 +561,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
           return (
             <div key={expandKey}>
               {/* ── Master phase row ─────────────────────────────────── */}
-              <div style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 60px minmax(140px, max-content) 60px`, padding: "10px 14px", borderBottom: isExpanded ? "none" : `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", background: isExpanded ? "#F8FAFC" : "transparent" }}>
+              <div style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 60px 280px 60px`, padding: "10px 14px", borderBottom: isExpanded ? "none" : `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", background: isExpanded ? "#F8FAFC" : "transparent" }}>
                 <button
                   onClick={() => setExpanded((prev) => {
                     const next = new Set(prev);
@@ -706,7 +706,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                           // Mirror the master row's grid so every cell (and
                           // especially the right-most Notes icon) lines up
                           // vertically with the master above.
-                          <div key={l.id} style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 60px minmax(140px, max-content) 60px`, padding: "6px 14px", borderTop: `1px solid ${TH.border}`, fontSize: 12, alignItems: "start", gap: 0 }}>
+                          <div key={l.id} style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 60px 280px 60px`, padding: "6px 14px", borderTop: `1px solid ${TH.border}`, fontSize: 12, alignItems: "start", gap: 0 }}>
                             <div></div>{/* expand-toggle placeholder */}
                             {!poId && <div></div>}{/* PO # placeholder — master shows number, line leaves blank */}
                             {/* Style + description occupy the Phase column so
