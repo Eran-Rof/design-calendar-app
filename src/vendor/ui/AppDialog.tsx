@@ -150,9 +150,34 @@ export function showConfirm(opts: DialogOpts): Promise<boolean> {
 }
 
 // Excel preview — lazy-loads SheetJS (~300KB gz) on demand, converts
-// every worksheet to HTML, tab bar lets the vendor switch sheets.
+// every worksheet to styled HTML, tab bar lets the vendor switch sheets.
+//
+// SheetJS Community strips cell formatting (bold/colors/fonts) — only
+// SheetJS Pro preserves it. We compensate with our own base styles,
+// zebra striping, a sticky-ish column-letter header, a row-number
+// gutter, and best-effort column widths pulled from the workbook's
+// "!cols" metadata.
+interface ParsedSheet {
+  name: string;
+  rows: string[][];        // formatted display strings per cell
+  colCount: number;
+  colWidths: number[];     // CSS pixel widths, 0 = auto
+  merges: Array<{ s: { r: number; c: number }; e: { r: number; c: number } }>;
+}
+
+function colLetter(n: number): string {
+  // 0 -> A, 25 -> Z, 26 -> AA, …
+  let s = "";
+  let x = n;
+  do {
+    s = String.fromCharCode(65 + (x % 26)) + s;
+    x = Math.floor(x / 26) - 1;
+  } while (x >= 0);
+  return s;
+}
+
 function ExcelPreview({ signedUrl }: { signedUrl: string }) {
-  const [sheets, setSheets] = useState<Array<{ name: string; html: string }>>([]);
+  const [sheets, setSheets] = useState<ParsedSheet[]>([]);
   const [active, setActive] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -170,11 +195,37 @@ function ExcelPreview({ signedUrl }: { signedUrl: string }) {
         ]);
         if (cancelled) return;
         const XLSX = xlsxMod.default || xlsxMod;
-        const wb = XLSX.read(buf, { type: "array" });
-        const parsed = wb.SheetNames.map((name: string) => {
+        const wb = XLSX.read(buf, { type: "array", cellDates: true, cellText: true, cellFormula: false });
+        const parsed: ParsedSheet[] = wb.SheetNames.map((name: string) => {
           const sheet = wb.Sheets[name];
-          const html = XLSX.utils.sheet_to_html(sheet, { editable: false });
-          return { name, html };
+          const ref = sheet["!ref"] as string | undefined;
+          if (!ref) return { name, rows: [], colCount: 0, colWidths: [], merges: [] };
+          const range = XLSX.utils.decode_range(ref);
+          const colCount = range.e.c - range.s.c + 1;
+          const rows: string[][] = [];
+          for (let r = range.s.r; r <= range.e.r; r++) {
+            const row: string[] = [];
+            for (let c = range.s.c; c <= range.e.c; c++) {
+              const addr = XLSX.utils.encode_cell({ r, c });
+              const cell = sheet[addr];
+              // Prefer the pre-formatted display string `w`, fall back to raw value
+              const v = cell ? (cell.w != null ? cell.w : cell.v) : null;
+              row.push(v == null ? "" : String(v));
+            }
+            rows.push(row);
+          }
+          // Column widths — SheetJS stores character widths in !cols[i].wch;
+          // rough conversion: 1 char ≈ 7px. Clamp 40–360.
+          const colsMeta = (sheet["!cols"] || []) as Array<{ wch?: number; wpx?: number } | undefined>;
+          const colWidths: number[] = [];
+          for (let c = 0; c < colCount; c++) {
+            const m = colsMeta[c];
+            if (m?.wpx && Number.isFinite(m.wpx)) colWidths.push(Math.max(40, Math.min(360, Math.round(m.wpx))));
+            else if (m?.wch && Number.isFinite(m.wch)) colWidths.push(Math.max(40, Math.min(360, Math.round(m.wch * 7 + 10))));
+            else colWidths.push(0);
+          }
+          const merges = (sheet["!merges"] || []) as Array<{ s: { r: number; c: number }; e: { r: number; c: number } }>;
+          return { name, rows, colCount, colWidths, merges };
         });
         if (!cancelled) { setSheets(parsed); setLoading(false); }
       } catch (e: unknown) {
@@ -184,7 +235,26 @@ function ExcelPreview({ signedUrl }: { signedUrl: string }) {
     return () => { cancelled = true; };
   }, [signedUrl]);
 
-  const currentHtml = useMemo(() => sheets[active]?.html || "", [sheets, active]);
+  const sheet = sheets[active];
+
+  // Pre-compute which (r,c) are "skipped" because they're covered by a
+  // merge started in another cell, and which cells carry colSpan/rowSpan.
+  const mergeInfo = useMemo(() => {
+    const skip = new Set<string>();
+    const span = new Map<string, { colSpan: number; rowSpan: number }>();
+    if (!sheet) return { skip, span };
+    for (const m of sheet.merges) {
+      const anchor = `${m.s.r},${m.s.c}`;
+      span.set(anchor, { colSpan: m.e.c - m.s.c + 1, rowSpan: m.e.r - m.s.r + 1 });
+      for (let r = m.s.r; r <= m.e.r; r++) {
+        for (let c = m.s.c; c <= m.e.c; c++) {
+          if (r === m.s.r && c === m.s.c) continue;
+          skip.add(`${r},${c}`);
+        }
+      }
+    }
+    return { skip, span };
+  }, [sheet]);
 
   if (loading) {
     return <div style={{ color: TH.textMuted, padding: 32, textAlign: "center", fontSize: 13 }}>Parsing workbook…</div>;
@@ -197,14 +267,14 @@ function ExcelPreview({ signedUrl }: { signedUrl: string }) {
       </div>
     );
   }
-  if (sheets.length === 0) {
-    return <div style={{ color: TH.textMuted, padding: 32, textAlign: "center" }}>No sheets in this workbook.</div>;
+  if (sheets.length === 0 || !sheet || sheet.rows.length === 0) {
+    return <div style={{ color: TH.textMuted, padding: 32, textAlign: "center" }}>No data in this workbook.</div>;
   }
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "#fff", overflow: "hidden" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "#F8FAFC", overflow: "hidden" }}>
       {sheets.length > 1 && (
-        <div style={{ display: "flex", gap: 2, padding: "6px 8px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, overflowX: "auto" }}>
+        <div style={{ display: "flex", gap: 2, padding: "6px 8px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, overflowX: "auto", flexShrink: 0 }}>
           {sheets.map((s, i) => (
             <button
               key={s.name + i}
@@ -221,13 +291,84 @@ function ExcelPreview({ signedUrl }: { signedUrl: string }) {
           ))}
         </div>
       )}
-      <div
-        style={{ flex: 1, overflow: "auto", padding: 12, background: "#fff", color: "#0F172A", fontSize: 12 }}
-        dangerouslySetInnerHTML={{ __html: currentHtml }}
-      />
+      <div style={{ flex: 1, overflow: "auto", minHeight: 0 }}>
+        <table style={{
+          borderCollapse: "separate",
+          borderSpacing: 0,
+          fontSize: 12,
+          fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif",
+          color: "#0F172A",
+          background: "#fff",
+          tableLayout: "fixed",
+        }}>
+          <thead>
+            <tr>
+              <th style={{ ...gutterTh, width: 40, minWidth: 40 }}></th>
+              {Array.from({ length: sheet.colCount }).map((_, c) => {
+                const w = sheet.colWidths[c] || 120;
+                return (
+                  <th key={c} style={{ ...headerTh, width: w, minWidth: w }}>
+                    {colLetter(c)}
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {sheet.rows.map((row, rIdx) => (
+              <tr key={rIdx}>
+                <td style={gutterTd}>{rIdx + 1}</td>
+                {row.map((cell, cIdx) => {
+                  if (mergeInfo.skip.has(`${rIdx},${cIdx}`)) return null;
+                  const anchor = mergeInfo.span.get(`${rIdx},${cIdx}`);
+                  const numeric = cell !== "" && cell != null && !Number.isNaN(Number(cell.replace(/[$,]/g, "")));
+                  return (
+                    <td
+                      key={cIdx}
+                      colSpan={anchor?.colSpan}
+                      rowSpan={anchor?.rowSpan}
+                      style={{
+                        ...bodyTd,
+                        textAlign: numeric ? "right" : "left",
+                        fontVariantNumeric: numeric ? "tabular-nums" : undefined,
+                        background: rIdx % 2 === 0 ? "#fff" : "#F8FAFC",
+                      }}
+                    >{cell}</td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
+
+const gutterTh: React.CSSProperties = {
+  position: "sticky", top: 0, left: 0, zIndex: 3,
+  background: "#E2E8F0", borderRight: "1px solid #CBD5E1", borderBottom: "1px solid #CBD5E1",
+  padding: "6px 8px", fontWeight: 700, color: "#475569", fontSize: 11,
+};
+const headerTh: React.CSSProperties = {
+  position: "sticky", top: 0, zIndex: 2,
+  background: "#E2E8F0", borderRight: "1px solid #CBD5E1", borderBottom: "1px solid #CBD5E1",
+  padding: "6px 10px", fontWeight: 700, color: "#475569", fontSize: 11,
+  textAlign: "center",
+};
+const gutterTd: React.CSSProperties = {
+  position: "sticky", left: 0, zIndex: 1,
+  background: "#E2E8F0", borderRight: "1px solid #CBD5E1", borderBottom: "1px solid #E2E8F0",
+  padding: "4px 8px", fontWeight: 600, color: "#64748B", fontSize: 11,
+  textAlign: "center", width: 40, minWidth: 40,
+};
+const bodyTd: React.CSSProperties = {
+  borderRight: "1px solid #E2E8F0",
+  borderBottom: "1px solid #E2E8F0",
+  padding: "4px 10px",
+  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+  verticalAlign: "top",
+};
 
 // File viewer — in-app preview with Download fallback. PDFs render
 // natively in the iframe, Excel/CSV go through SheetJS, others fall
