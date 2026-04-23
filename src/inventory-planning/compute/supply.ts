@@ -50,6 +50,20 @@ export function latestOnHandBySku(snapshots: IpInventorySnapshot[]): Map<string,
   return out;
 }
 
+export function committedSoBySku(snapshots: IpInventorySnapshot[]): Map<string, number> {
+  const latestDateBySku = new Map<string, string>();
+  for (const s of snapshots) {
+    const prev = latestDateBySku.get(s.sku_id);
+    if (!prev || s.snapshot_date > prev) latestDateBySku.set(s.sku_id, s.snapshot_date);
+  }
+  const out = new Map<string, number>();
+  for (const s of snapshots) {
+    if (latestDateBySku.get(s.sku_id) !== s.snapshot_date) continue;
+    out.set(s.sku_id, (out.get(s.sku_id) ?? 0) + (s.qty_committed ?? 0));
+  }
+  return out;
+}
+
 export function openPoQtyBySku(openPos: IpOpenPoRow[]): Map<string, number> {
   const out = new Map<string, number>();
   for (const p of openPos) {

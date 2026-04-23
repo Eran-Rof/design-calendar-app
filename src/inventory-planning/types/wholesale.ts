@@ -166,6 +166,7 @@ export interface IpPlanningGridRow {
   forecast_method: IpForecastMethod;
   ly_reference_qty: number | null;
   on_hand_qty: number | null;
+  on_so_qty: number;
   on_po_qty: number | null;
   receipts_due_qty: number | null;
   available_supply_qty: number;

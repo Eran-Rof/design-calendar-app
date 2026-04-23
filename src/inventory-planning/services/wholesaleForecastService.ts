@@ -19,6 +19,7 @@ import type {
 } from "../types/wholesale";
 import {
   buildFinalWholesaleForecast,
+  committedSoBySku,
   generateWholesaleRecommendations,
   latestOnHandBySku,
   monthOf,
@@ -234,6 +235,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
   ]));
 
   const onHand = latestOnHandBySku(inv);
+  const onSo = committedSoBySku(inv);
   const onPo = openPoQtyBySku(pos);
 
   // Trailing-3 per (customer, sku).
@@ -279,6 +281,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       forecast_method: f.forecast_method,
       ly_reference_qty: f.ly_reference_qty ?? null,
       on_hand_qty: onHand.get(f.sku_id) ?? 0,
+      on_so_qty: onSo.get(f.sku_id) ?? 0,
       on_po_qty: onPo.get(f.sku_id) ?? 0,
       receipts_due_qty: supply.receipts_due_qty,
       available_supply_qty: avail,

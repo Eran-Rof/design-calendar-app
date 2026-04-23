@@ -130,9 +130,10 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
               <th style={S.th}>Conf.</th>
               <Th label="Method" k="method" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th style={{ ...S.th, textAlign: "right" }}>On hand</th>
+              <th style={{ ...S.th, textAlign: "right" }}>On SO</th>
               <th style={{ ...S.th, textAlign: "right" }}>On PO</th>
               <th style={{ ...S.th, textAlign: "right" }}>Receipts</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Available</th>
+              <th style={{ ...S.th, textAlign: "right" }}>ATS</th>
               <Th label="Short" k="shortage" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
               <Th label="Excess" k="excess" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
               <Th label="Action" k="action" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
@@ -172,6 +173,9 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
                   </span>
                 </td>
                 <td style={S.tdNum}>{formatQty(r.on_hand_qty)}</td>
+                <td style={{ ...S.tdNum, color: r.on_so_qty > 0 ? PAL.yellow : PAL.textMuted }}>
+                  {r.on_so_qty > 0 ? formatQty(r.on_so_qty) : "—"}
+                </td>
                 <td style={S.tdNum}>{formatQty(r.on_po_qty)}</td>
                 <td style={S.tdNum}>{formatQty(r.receipts_due_qty)}</td>
                 <td style={{ ...S.tdNum, color: PAL.text }}>{formatQty(r.available_supply_qty)}</td>
@@ -189,14 +193,14 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
               </tr>
             ))}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={19} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={20} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No forecast rows yet. Click \"Build forecast\" above to populate the grid."
                   : "No rows match your filters."}
               </td></tr>
             )}
             {loading && (
-              <tr><td colSpan={19} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={20} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 Loading…
               </td></tr>
             )}

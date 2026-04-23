@@ -147,11 +147,12 @@ export default function ForecastDetailDrawer({
 
           {/* Supply */}
           <SectionLabel>Supply context</SectionLabel>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 8 }}>
             <MiniCell label="On hand" value={formatQty(row.on_hand_qty)} />
+            <MiniCell label="On SO" value={row.on_so_qty > 0 ? formatQty(row.on_so_qty) : "—"} accent={row.on_so_qty > 0 ? PAL.yellow : undefined} />
             <MiniCell label="On PO" value={formatQty(row.on_po_qty)} />
             <MiniCell label="Receipts due" value={formatQty(row.receipts_due_qty)} />
-            <MiniCell label="Available" value={formatQty(row.available_supply_qty)} accent={PAL.accent} />
+            <MiniCell label="ATS" value={formatQty(row.available_supply_qty)} accent={PAL.accent} />
           </div>
 
           {/* Recommendation */}
