@@ -213,7 +213,7 @@ export default function AttachmentsManager({
           {entityId ? "No attachments yet." : "Save this record first to attach files."}
         </div>
       ) : (
-        <div style={{ display: "grid", gap: 6 }}>
+        <div style={{ display: "grid", gap: 0 }}>
           {rows.map((row) => (
             <AttachmentRowView
               key={row.id}
@@ -258,7 +258,8 @@ function AttachmentRowView({
       display: "grid",
       gridTemplateColumns: readOnly ? "1fr auto" : "minmax(160px, 220px) 1fr auto",
       alignItems: "center", gap: 8,
-      padding: "6px 10px", background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 6,
+      padding: "8px 0",
+      borderTop: `1px solid ${TH.border}`,
     }}>
       {!readOnly && (
         <input
