@@ -191,7 +191,7 @@ export async function updateExecutionAction(args: {
   const updated = await executionRepo.updateAction(action.id, patch);
 
   for (const [field, newValue] of Object.entries(patch)) {
-    const oldValue = (action as unknown as Record<string, unknown>)[field];
+    const oldValue = action[field as keyof IpExecutionAction];
     if (oldValue === newValue) continue;
     await executionRepo.insertAudit({
       execution_batch_id: batch.id,
