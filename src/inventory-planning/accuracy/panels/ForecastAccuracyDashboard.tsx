@@ -4,7 +4,7 @@
 import { useMemo, useState } from "react";
 import type { IpForecastAccuracy } from "../types/accuracy";
 import { aggregateAccuracy } from "../compute/accuracyMetrics";
-import { S, PAL, formatQty, formatPeriodCode } from "../../components/styles";
+import { S, PAL, METHOD_LABEL, formatQty, formatPeriodCode } from "../../components/styles";
 
 export interface ForecastAccuracyDashboardProps {
   rows: IpForecastAccuracy[];
@@ -12,7 +12,7 @@ export interface ForecastAccuracyDashboardProps {
   categoryNameById: Map<string, string>;
 }
 
-type GroupBy = "sku" | "category" | "customer" | "channel";
+type GroupBy = "sku" | "category" | "customer" | "channel" | "method";
 
 export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryNameById }: ForecastAccuracyDashboardProps) {
   const [lane, setLane] = useState<"all" | "wholesale" | "ecom">("all");
@@ -34,6 +34,7 @@ export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryN
         case "category": key = r.category_id ?? "(none)"; label = categoryNameById.get(r.category_id ?? "") ?? "—"; break;
         case "customer": key = r.customer_id ?? "(none)"; label = r.customer_id ? r.customer_id.slice(0, 8) : "—"; break;
         case "channel": key = r.channel_id ?? "(none)"; label = r.channel_id ? r.channel_id.slice(0, 8) : "—"; break;
+        case "method": key = r.forecast_method ?? "(none)"; label = r.forecast_method ? (METHOD_LABEL[r.forecast_method] ?? r.forecast_method) : "—"; break;
       }
       const bucket = m.get(key) ?? { label, rows: [] };
       bucket.rows.push(r);
@@ -69,6 +70,7 @@ export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryN
           <option value="category">Group by category</option>
           <option value="customer">Group by customer</option>
           <option value="channel">Group by channel</option>
+          <option value="method">Group by method</option>
         </select>
         <input style={{ ...S.input, width: 220 }} placeholder="Search label"
                value={search} onChange={(e) => setSearch(e.target.value)} />
