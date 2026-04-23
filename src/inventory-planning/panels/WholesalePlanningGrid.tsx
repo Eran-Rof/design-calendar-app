@@ -79,7 +79,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
         <StatCell label="Buy / Expedite"
                   value={`${totals.actions.buy ?? 0} / ${totals.actions.expedite ?? 0}`}
                   accent={PAL.accent} />
-        <StatCell label="LY Sales rows"
+        <StatCell label="Same Period LY rows"
                   value={(totals.methods.ly_sales ?? 0).toLocaleString()}
                   accent={PAL.accent2} />
       </div>

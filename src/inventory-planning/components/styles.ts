@@ -85,7 +85,7 @@ export const METHOD_COLOR: Record<string, string> = {
 };
 
 export const METHOD_LABEL: Record<string, string> = {
-  ly_sales:                    "LY Sales",
+  ly_sales:                    "Same Period LY",
   trailing_avg_sku:            "Trailing",
   weighted_recent_sku:         "Weighted",
   cadence_sku:                 "Cadence",

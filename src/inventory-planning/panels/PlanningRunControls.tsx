@@ -40,7 +40,7 @@ export default function PlanningRunControls({
     try {
       const result = await runForecastPass(selected);
       const lyCount = result.methods.ly_sales ?? 0;
-      const lyNote = lyCount > 0 ? ` · ${lyCount} LY Sales` : "";
+      const lyNote = lyCount > 0 ? ` · ${lyCount} Same Period LY` : "";
       onToast({
         text: `Forecast built — ${result.forecast_rows_written} rows, ${result.recommendations_written} recs${lyNote}`,
         kind: "success",

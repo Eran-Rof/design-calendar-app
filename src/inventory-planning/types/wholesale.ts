@@ -40,7 +40,7 @@ export type IpForecastMethod =
 export type IpForecastMethodPreference = "ly_sales" | "weighted_recent" | "cadence";
 
 export const FORECAST_METHOD_LABELS: Record<IpForecastMethodPreference, string> = {
-  ly_sales:        "LY Sales",
+  ly_sales:        "Same Period LY",
   weighted_recent: "Weighted Recent Demand",
   cadence:         "Reorder Cadence",
 };
