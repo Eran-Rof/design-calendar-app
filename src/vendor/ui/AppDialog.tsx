@@ -7,7 +7,7 @@
 //   const ok = await showConfirm({ title: "Discard?", message: "...", confirmLabel: "Discard" });
 
 import { createRoot, type Root } from "react-dom/client";
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { TH } from "../theme";
 
 type Tone = "info" | "danger" | "warn" | "success";
@@ -149,14 +149,96 @@ export function showConfirm(opts: DialogOpts): Promise<boolean> {
   });
 }
 
+// Excel preview — lazy-loads SheetJS (~300KB gz) on demand, converts
+// every worksheet to HTML, tab bar lets the vendor switch sheets.
+function ExcelPreview({ signedUrl }: { signedUrl: string }) {
+  const [sheets, setSheets] = useState<Array<{ name: string; html: string }>>([]);
+  const [active, setActive] = useState(0);
+  const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [xlsxMod, buf] = await Promise.all([
+          import("xlsx"),
+          fetch(signedUrl).then((r) => {
+            if (!r.ok) throw new Error(`Download failed: HTTP ${r.status}`);
+            return r.arrayBuffer();
+          }),
+        ]);
+        if (cancelled) return;
+        const XLSX = xlsxMod.default || xlsxMod;
+        const wb = XLSX.read(buf, { type: "array" });
+        const parsed = wb.SheetNames.map((name: string) => {
+          const sheet = wb.Sheets[name];
+          const html = XLSX.utils.sheet_to_html(sheet, { editable: false });
+          return { name, html };
+        });
+        if (!cancelled) { setSheets(parsed); setLoading(false); }
+      } catch (e: unknown) {
+        if (!cancelled) { setErr(e instanceof Error ? e.message : String(e)); setLoading(false); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [signedUrl]);
+
+  const currentHtml = useMemo(() => sheets[active]?.html || "", [sheets, active]);
+
+  if (loading) {
+    return <div style={{ color: TH.textMuted, padding: 32, textAlign: "center", fontSize: 13 }}>Parsing workbook…</div>;
+  }
+  if (err) {
+    return (
+      <div style={{ color: TH.textMuted, padding: 32, textAlign: "center" }}>
+        <div style={{ fontSize: 14, color: "#FCA5A5", marginBottom: 6 }}>Couldn't preview this file.</div>
+        <div style={{ fontSize: 12 }}>{err}</div>
+      </div>
+    );
+  }
+  if (sheets.length === 0) {
+    return <div style={{ color: TH.textMuted, padding: 32, textAlign: "center" }}>No sheets in this workbook.</div>;
+  }
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "#fff", overflow: "hidden" }}>
+      {sheets.length > 1 && (
+        <div style={{ display: "flex", gap: 2, padding: "6px 8px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, overflowX: "auto" }}>
+          {sheets.map((s, i) => (
+            <button
+              key={s.name + i}
+              onClick={() => setActive(i)}
+              style={{
+                padding: "4px 12px", fontSize: 12, borderRadius: 4,
+                border: `1px solid ${i === active ? TH.primary : TH.border}`,
+                background: i === active ? TH.primary : "transparent",
+                color: i === active ? "#fff" : TH.textSub,
+                cursor: "pointer", fontFamily: "inherit", fontWeight: 600,
+                whiteSpace: "nowrap",
+              }}
+            >{s.name}</button>
+          ))}
+        </div>
+      )}
+      <div
+        style={{ flex: 1, overflow: "auto", padding: 12, background: "#fff", color: "#0F172A", fontSize: 12 }}
+        dangerouslySetInnerHTML={{ __html: currentHtml }}
+      />
+    </div>
+  );
+}
+
 // File viewer — in-app preview with Download fallback. PDFs render
-// natively in the iframe; other types fall back to a Download button.
+// natively in the iframe, Excel/CSV go through SheetJS, others fall
+// back to a Download prompt.
 export function showFileViewer({
   signedUrl, filename,
 }: { signedUrl: string; filename: string }): Promise<void> {
   return new Promise((resolve) => {
     const ext = (filename.split(".").pop() || "").toLowerCase();
     const isPdf = ext === "pdf";
+    const isExcel = ext === "xlsx" || ext === "xls" || ext === "xlsm" || ext === "csv";
     const handleClose = () => { close(); resolve(); };
     const triggerDownload = () => {
       const a = document.createElement("a");
@@ -179,8 +261,8 @@ export function showFileViewer({
         }}
       >
         <div style={{
-          width: "min(1000px, calc(100vw - 48px))",
-          height: "min(800px, calc(100vh - 48px))",
+          width: "min(1100px, calc(100vw - 48px))",
+          height: "min(820px, calc(100vh - 48px))",
           background: TH.surface,
           border: `1px solid ${TH.border}`,
           borderRadius: 10,
@@ -220,21 +302,23 @@ export function showFileViewer({
               Close
             </button>
           </div>
-          <div style={{ flex: 1, background: "#1e293b", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ flex: 1, background: "#1e293b", display: "flex", alignItems: "stretch", justifyContent: "stretch", minHeight: 0 }}>
             {isPdf ? (
               <iframe
                 src={signedUrl}
                 style={{ width: "100%", height: "100%", border: "none", background: "#fff" }}
                 title={filename}
               />
+            ) : isExcel ? (
+              <ExcelPreview signedUrl={signedUrl} />
             ) : (
-              <div style={{ textAlign: "center", color: TH.textMuted, padding: 32 }}>
+              <div style={{ flex: 1, textAlign: "center", color: TH.textMuted, padding: 32, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
                 <div style={{ fontSize: 48, marginBottom: 12 }}>📄</div>
                 <div style={{ fontSize: 14, color: TH.text, marginBottom: 6 }}>
                   Preview not available for .{ext || "this"} files.
                 </div>
                 <div style={{ fontSize: 12, marginBottom: 18 }}>
-                  Download the file to open it in Excel or your preferred editor.
+                  Download the file to open it in its native app.
                 </div>
                 <button
                   onClick={triggerDownload}
