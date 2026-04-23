@@ -145,6 +145,9 @@ function NewRunModal({ onClose, onCreated, onToast, scope }: {
         source_snapshot_date: snapshot,
         horizon_start: horizonStart,
         horizon_end: horizonEnd,
+        forecast_method_preference: "ly_sales",
+        wholesale_source_run_id: null,
+        ecom_source_run_id: null,
         note: note.trim() || null,
         created_by: null,
       });
