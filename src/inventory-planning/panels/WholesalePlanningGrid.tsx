@@ -49,7 +49,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
       return true;
     });
     return out.sort((a, b) => cmp(a, b, sortKey, sortDir));
-  }, [rows, search, filterCustomer, filterCategory, filterAction, filterConfidence, sortKey, sortDir]);
+  }, [rows, search, filterCustomer, filterCategory, filterAction, filterConfidence, filterMethod, sortKey, sortDir]);
 
   const totals = useMemo(() => {
     const t = { final: 0, shortage: 0, excess: 0, actions: {} as Record<string, number>, methods: {} as Record<string, number> };
@@ -122,6 +122,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
               <Th label="SKU" k="sku" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <Th label="Period" k="period" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th style={{ ...S.th, textAlign: "right" }}>Hist T3</th>
+              <th style={{ ...S.th, textAlign: "right" }}>Hist LY</th>
               <th style={{ ...S.th, textAlign: "right" }}>System</th>
               <th style={{ ...S.th, textAlign: "right" }}>Buyer</th>
               <th style={{ ...S.th, textAlign: "right" }}>Override</th>
@@ -147,6 +148,9 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
                 <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>{r.sku_code}</td>
                 <td style={S.td}>{formatPeriodCode(r.period_code)}</td>
                 <td style={S.tdNum}>{formatQty(r.historical_trailing_qty)}</td>
+                <td style={{ ...S.tdNum, color: r.forecast_method === "ly_sales" && r.ly_reference_qty != null ? PAL.accent2 : PAL.textMuted }}>
+                  {r.ly_reference_qty != null ? formatQty(r.ly_reference_qty) : "—"}
+                </td>
                 <td style={S.tdNum}>{formatQty(r.system_forecast_qty)}</td>
                 <td style={{ ...S.tdNum, color: r.buyer_request_qty > 0 ? PAL.accent : PAL.textMuted }}>
                   {formatQty(r.buyer_request_qty)}
@@ -185,14 +189,14 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
               </tr>
             ))}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={18} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={19} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No forecast rows yet. Click \"Build forecast\" above to populate the grid."
                   : "No rows match your filters."}
               </td></tr>
             )}
             {loading && (
-              <tr><td colSpan={18} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={19} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 Loading…
               </td></tr>
             )}

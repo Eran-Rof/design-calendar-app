@@ -121,13 +121,29 @@ export default function ForecastDetailDrawer({
           </div>
 
           {/* Trailing history */}
-          <SectionLabel>History (trailing 3 mo)</SectionLabel>
+          <SectionLabel>History T3 (trailing 3 mo)</SectionLabel>
           <div style={S.infoCell}>
             <div style={S.infoValue}>{formatQty(row.historical_trailing_qty)} units</div>
             <div style={{ fontSize: 12, color: PAL.textMuted }}>
               Sum of {row.customer_name} × {row.sku_code} shipped in the 3 months before the snapshot.
             </div>
           </div>
+
+          {/* Same Period LY reference — only shown when method = ly_sales */}
+          {row.forecast_method === "ly_sales" && (
+            <>
+              <SectionLabel>Same Period LY reference</SectionLabel>
+              <div style={S.infoCell}>
+                <div style={S.infoValue}>
+                  {row.ly_reference_qty != null ? `${formatQty(row.ly_reference_qty)} units` : "—"}
+                </div>
+                <div style={{ fontSize: 12, color: PAL.textMuted }}>
+                  Total shipped across the non-zero months in the LY ±1 window (LY−1, LY, LY+1).
+                  System = average of non-zero months in that window.
+                </div>
+              </div>
+            </>
+          )}
 
           {/* Supply */}
           <SectionLabel>Supply context</SectionLabel>
@@ -226,6 +242,7 @@ function SectionLabel({ children }: { children: string }) {
     </div>
   );
 }
+
 
 function MiniCell({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (

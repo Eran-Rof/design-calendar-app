@@ -104,6 +104,7 @@ interface PairBaselineResult {
   method: IpForecastMethod;
   confidence: IpConfidenceLevel;
   history_months_used: number | null;
+  ly_reference_qty?: number | null;
 }
 
 // LY Sales: find demand from the same calendar month one year prior (±1 month
@@ -131,11 +132,13 @@ function baselineForPairLy(
   const nonZero = qtys.filter((q) => q > 0);
   if (nonZero.length === 0) return null; // no LY data → fall through
 
+  const lySum = sum(nonZero);
   return {
-    qty: round(sum(nonZero) / nonZero.length),
+    qty: round(lySum / nonZero.length),
     method: "ly_sales",
     confidence: nonZero.length >= 2 ? "probable" : "possible",
     history_months_used: nonZero.length,
+    ly_reference_qty: lySum,
   };
 }
 
@@ -291,6 +294,7 @@ export function buildWholesaleBaselineForecast(
         confidence_level: baseline.confidence,
         forecast_method: baseline.method,
         history_months_used: baseline.history_months_used,
+        ly_reference_qty: baseline.ly_reference_qty ?? null,
         notes: null,
       });
     }

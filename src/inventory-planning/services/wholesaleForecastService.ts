@@ -277,6 +277,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       final_forecast_qty: f.final_forecast_qty,
       confidence_level: f.confidence_level,
       forecast_method: f.forecast_method,
+      ly_reference_qty: f.ly_reference_qty ?? null,
       on_hand_qty: onHand.get(f.sku_id) ?? 0,
       on_po_qty: onPo.get(f.sku_id) ?? 0,
       receipts_due_qty: supply.receipts_due_qty,
