@@ -86,7 +86,7 @@ export default function CartonPanel() {
   };
 
   return (
-    <div style={{ padding: "24px 16px", maxWidth: 1100, margin: "0 auto" }}>
+    <div style={{ padding: "24px 24px" }}>
       <h2 style={{ margin: "0 0 4px", fontSize: 20, color: TH.text }}>Carton SSCC Labels</h2>
       <p style={{ margin: "0 0 24px", color: TH.textMuted, fontSize: 13 }}>
         Generate an SSCC-18 for a physical carton. SSCCs are assigned from your company&apos;s serial reference counter.
@@ -105,10 +105,10 @@ export default function CartonPanel() {
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 24, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "380px 1fr", gap: 24, alignItems: "start", minWidth: 0 }}>
 
         {/* ── Create form ─────────────────────────────────────────────────────── */}
-        <div style={{ background: TH.surface, borderRadius: 10, padding: "20px 24px", boxShadow: `0 1px 4px ${TH.shadow}` }}>
+        <div style={{ background: TH.surface, borderRadius: 10, padding: "20px 24px", boxShadow: `0 1px 4px ${TH.shadow}`, minWidth: 0 }}>
           <h3 style={{ margin: "0 0 16px", fontSize: 15, color: TH.textSub }}>Create Carton</h3>
 
           {lastCreatedSscc && (
@@ -192,7 +192,7 @@ export default function CartonPanel() {
         </div>
 
         {/* ── Carton list ──────────────────────────────────────────────────────── */}
-        <div style={{ background: TH.surface, borderRadius: 10, boxShadow: `0 1px 4px ${TH.shadow}`, overflow: "hidden" }}>
+        <div style={{ background: TH.surface, borderRadius: 10, boxShadow: `0 1px 4px ${TH.shadow}`, overflow: "hidden", minWidth: 0 }}>
           <div style={{ padding: "14px 20px", borderBottom: `1px solid ${TH.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h3 style={{ margin: 0, fontSize: 15, color: TH.textSub }}>Recent Cartons ({allCartons.length})</h3>
             {allCartons.length > 0 && (
