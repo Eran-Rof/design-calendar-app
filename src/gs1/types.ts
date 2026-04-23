@@ -1,0 +1,223 @@
+// ── GS1 Prepack Label Generation — shared types ────────────────────────────
+
+// ── DB row types ──────────────────────────────────────────────────────────────
+
+export interface CompanySettings {
+  id: string;
+  company_name: string;
+  gs1_prefix: string;
+  prefix_length: number;
+  gtin_indicator_digit: string;
+  starting_item_reference: number;
+  next_item_reference_counter: number;
+  default_label_format: string | null;
+  xoro_api_base_url: string | null;
+  xoro_api_key_ref: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpcItem {
+  id: string;
+  upc: string;
+  style_no: string;
+  color: string;
+  size: string;
+  description: string | null;
+  source_method: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScaleMaster {
+  id: string;
+  scale_code: string;
+  description: string | null;
+  total_units: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScaleSizeRatio {
+  id: string;
+  scale_code: string;
+  size: string;
+  qty: number;
+  created_at: string;
+}
+
+export interface PackGtin {
+  id: string;
+  style_no: string;
+  color: string;
+  scale_code: string;
+  pack_gtin: string;
+  item_reference: number;
+  units_per_pack: number | null;
+  status: "active" | "inactive";
+  source_method: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PackGtinBom {
+  id: string;
+  pack_gtin: string;
+  child_upc: string;
+  size: string;
+  qty_in_pack: number;
+  created_at: string;
+}
+
+export interface PackingListUpload {
+  id: string;
+  file_name: string;
+  storage_path: string;
+  parse_status: "uploaded" | "parsing" | "parsed" | "error";
+  parse_summary: ParseSummary | null;
+  uploaded_at: string;
+  created_at: string;
+}
+
+export interface ParseSummary {
+  sheets_processed: number;
+  blocks_found: number;
+  blocks_failed: number;
+  total_labels: number;
+  issues_count: number;
+}
+
+export interface PackingListBlock {
+  id: string;
+  upload_id: string;
+  sheet_name: string;
+  block_type: string;
+  style_no: string | null;
+  color: string | null;
+  channel: string | null;
+  scale_code: string | null;
+  pack_qty: number | null;
+  raw_payload: Record<string, unknown>;
+  parsed_payload: Record<string, unknown> | null;
+  confidence_score: number | null;
+  parse_status: "parsed" | "review" | "failed";
+  created_at: string;
+}
+
+export interface ParseIssue {
+  id: string;
+  upload_id: string;
+  sheet_name: string | null;
+  issue_type: string;
+  severity: "info" | "warning" | "error";
+  message: string;
+  raw_context: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface LabelBatch {
+  id: string;
+  upload_id: string | null;
+  batch_name: string;
+  status: "generated" | "printed" | "cancelled";
+  output_format: string;
+  generated_at: string;
+  created_at: string;
+}
+
+export interface LabelBatchLine {
+  id: string;
+  batch_id: string;
+  style_no: string;
+  color: string;
+  scale_code: string;
+  pack_gtin: string;
+  label_qty: number;
+  source_sheet_name: string | null;
+  source_channel: string | null;
+  created_at: string;
+}
+
+// ── Input/form types ──────────────────────────────────────────────────────────
+
+export interface CompanySettingsInput {
+  company_name: string;
+  gs1_prefix: string;
+  prefix_length: number;
+  gtin_indicator_digit: string;
+  starting_item_reference: number;
+  next_item_reference_counter: number;
+  default_label_format: string;
+  xoro_api_base_url: string;
+  xoro_api_key_ref: string;
+}
+
+export interface UpcItemInput {
+  upc: string;
+  style_no: string;
+  color: string;
+  size: string;
+  description?: string;
+}
+
+export interface ScaleInput {
+  scale_code: string;
+  description?: string;
+  ratios?: Array<{ size: string; qty: number }>;
+}
+
+// ── Parser domain types ───────────────────────────────────────────────────────
+
+export interface ParsedRow {
+  styleNo: string;
+  color: string;
+  channel: string;
+  scaleCode: string;
+  packQty: number;
+  sheetName: string;
+  rowIndex?: number;
+  confidence: number;
+}
+
+export interface ParsedSheet {
+  sheetName: string;
+  rows: ParsedRow[];
+  issues: ParseIssueInput[];
+}
+
+export interface ParseIssueInput {
+  sheet_name: string | null;
+  issue_type: string;
+  severity: "info" | "warning" | "error";
+  message: string;
+  raw_context?: Record<string, unknown>;
+}
+
+export interface PackingListParseResult {
+  sheets: ParsedSheet[];
+  allRows: ParsedRow[];
+  issues: ParseIssueInput[];
+}
+
+// ── Label export types ────────────────────────────────────────────────────────
+
+export interface LabelData {
+  pack_gtin: string;
+  style_no: string;
+  color: string;
+  scale_code: string;
+  label_qty: number;
+  source_channel?: string | null;
+  source_sheet_name?: string | null;
+}
+
+// ── Known scale codes (for parser detection) ──────────────────────────────────
+export const KNOWN_SCALE_CODES = new Set([
+  "CA","CB","CC","CD","CE","CF","CG","CH","CI",
+  "UR","US","UT","UV","UX","UY","UZ",
+  "VA","VB","VC",
+]);
+
+// ── Style number pattern ──────────────────────────────────────────────────────
+// e.g. 100227091BK, 10022709, 1002270BK
+export const STYLE_NO_RE = /^\d{6,10}[A-Z]{0,4}$/;

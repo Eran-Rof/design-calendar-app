@@ -82,6 +82,10 @@ async function mount() {
     const { default: ATS } = await import("./ATS");
     root.render(<StrictMode><ErrorBoundary appName="ATS"><ATS /></ErrorBoundary></StrictMode>);
 
+  } else if (path.startsWith("/gs1")) {
+    const { default: GS1 } = await import("./GS1");
+    root.render(<StrictMode><ErrorBoundary appName="GS1 Labels"><GS1 /></ErrorBoundary></StrictMode>);
+
   } else if (path.startsWith("/planning")) {
     // ── Planning gate ─────────────────────────────────────────────────────
     // All /planning/* sub-routes share the same access check so it only

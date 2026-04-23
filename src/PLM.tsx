@@ -106,6 +106,14 @@ const APPS = [
     color: "#F59E0B",
     path: "/planning/wholesale",
   },
+  {
+    id: "gs1" as const,
+    name: "Prepack Labels",
+    description: "GS1 GTIN generation, packing list parsing and prepack carton label printing",
+    icon: "🏷️",
+    color: "#0891B2",
+    path: "/gs1",
+  },
 ];
 
 function ROFLogoFull({ height = 44 }: { height?: number }) {
