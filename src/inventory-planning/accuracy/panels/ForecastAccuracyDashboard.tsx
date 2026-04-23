@@ -10,11 +10,13 @@ export interface ForecastAccuracyDashboardProps {
   rows: IpForecastAccuracy[];
   skuCodeById: Map<string, string>;
   categoryNameById: Map<string, string>;
+  customerNameById: Map<string, string>;
+  channelNameById: Map<string, string>;
 }
 
 type GroupBy = "sku" | "category" | "customer" | "channel" | "method";
 
-export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryNameById }: ForecastAccuracyDashboardProps) {
+export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryNameById, customerNameById, channelNameById }: ForecastAccuracyDashboardProps) {
   const [lane, setLane] = useState<"all" | "wholesale" | "ecom">("all");
   const [groupBy, setGroupBy] = useState<GroupBy>("sku");
   const [search, setSearch] = useState("");
@@ -32,8 +34,8 @@ export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryN
       switch (groupBy) {
         case "sku": key = r.sku_id; label = skuCodeById.get(r.sku_id) ?? r.sku_id.slice(0, 8); break;
         case "category": key = r.category_id ?? "(none)"; label = categoryNameById.get(r.category_id ?? "") ?? "—"; break;
-        case "customer": key = r.customer_id ?? "(none)"; label = r.customer_id ? r.customer_id.slice(0, 8) : "—"; break;
-        case "channel": key = r.channel_id ?? "(none)"; label = r.channel_id ? r.channel_id.slice(0, 8) : "—"; break;
+        case "customer": key = r.customer_id ?? "(none)"; label = (r.customer_id ? customerNameById.get(r.customer_id) ?? r.customer_id.slice(0, 8) : "—"); break;
+        case "channel": key = r.channel_id ?? "(none)"; label = (r.channel_id ? channelNameById.get(r.channel_id) ?? r.channel_id.slice(0, 8) : "—"); break;
         case "method": key = r.forecast_method ?? "(none)"; label = r.forecast_method ? (METHOD_LABEL[r.forecast_method] ?? r.forecast_method) : "—"; break;
       }
       const bucket = m.get(key) ?? { label, rows: [] };

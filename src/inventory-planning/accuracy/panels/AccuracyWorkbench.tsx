@@ -5,7 +5,7 @@
 //   • Suggestions
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { IpItem, IpCategory } from "../../types/entities";
+import type { IpItem, IpCategory, IpCustomer, IpChannel } from "../../types/entities";
 import type { IpPlanningRun } from "../../types/wholesale";
 import type {
   IpForecastAccuracy,
@@ -13,6 +13,7 @@ import type {
 } from "../types/accuracy";
 import type { IpAiSuggestion, IpPlanningAnomaly } from "../../intelligence/types/intelligence";
 import { wholesaleRepo } from "../../services/wholesalePlanningRepository";
+import { ecomRepo } from "../../ecom/services/ecomForecastRepo";
 import { accuracyRepo, runAccuracyAndIntelligencePass } from "../services";
 import { S, PAL, formatDate } from "../../components/styles";
 import Toast, { type ToastMessage } from "../../components/Toast";
@@ -32,6 +33,8 @@ export default function AccuracyWorkbench() {
   const [suggestions, setSuggestions] = useState<IpAiSuggestion[]>([]);
   const [items, setItems] = useState<IpItem[]>([]);
   const [categories, setCategories] = useState<IpCategory[]>([]);
+  const [customers, setCustomers] = useState<IpCustomer[]>([]);
+  const [channels, setChannels] = useState<IpChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [building, setBuilding] = useState(false);
   const [tab, setTab] = useState<TabKey>("accuracy");
@@ -40,6 +43,8 @@ export default function AccuracyWorkbench() {
   const selected = useMemo(() => runs.find((r) => r.id === selectedRunId) ?? null, [runs, selectedRunId]);
   const skuCodeById = useMemo(() => new Map(items.map((i) => [i.id, i.sku_code])), [items]);
   const categoryNameById = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
+  const customerNameById = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
+  const channelNameById = useMemo(() => new Map(channels.map((ch) => [ch.id, ch.name])), [channels]);
 
   const loadRuns = useCallback(async () => {
     const [a, w, e] = await Promise.all([
@@ -72,12 +77,16 @@ export default function AccuracyWorkbench() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [its, cats] = await Promise.all([
+      const [its, cats, custs, chs] = await Promise.all([
         wholesaleRepo.listItems(),
         wholesaleRepo.listCategories(),
+        wholesaleRepo.listCustomers(),
+        ecomRepo.listChannels(),
       ]);
       setItems(its);
       setCategories(cats);
+      setCustomers(custs);
+      setChannels(chs);
       await loadRuns();
       await loadRunData();
     } catch (e) {
@@ -180,7 +189,7 @@ export default function AccuracyWorkbench() {
         ) : (
           <>
             {tab === "accuracy" && (
-              <ForecastAccuracyDashboard rows={rows} skuCodeById={skuCodeById} categoryNameById={categoryNameById} />
+              <ForecastAccuracyDashboard rows={rows} skuCodeById={skuCodeById} categoryNameById={categoryNameById} customerNameById={customerNameById} channelNameById={channelNameById} />
             )}
             {tab === "overrides" && (
               <OverrideEffectivenessPanel rows={overrideEff} skuCodeById={skuCodeById} />
