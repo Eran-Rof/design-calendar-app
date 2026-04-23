@@ -649,9 +649,9 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                         h.review_note ? `Note: ${h.review_note}` : null,
                       ].filter(Boolean).join("\n");
                       return (
-                        <div key={h.id} style={{ color, display: "flex", gap: 4, alignItems: "baseline", whiteSpace: "nowrap" }} title={tooltip}>
+                        <div key={h.id} style={{ color, display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "baseline", whiteSpace: "nowrap" }} title={tooltip}>
                           <span>{icon} {label}</span>
-                          {date && <span style={{ color: TH.textMuted, fontWeight: 500 }}>{date}</span>}
+                          {date && <span style={{ color: TH.textMuted, fontWeight: 500, textAlign: "right" }}>{date}</span>}
                         </div>
                       );
                     });
@@ -671,10 +671,10 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                       <div
                         key={sum.status}
                         title={`${sum.count} line item${sum.count === 1 ? "" : "s"} ${sum.status}. Expand the phase row to see each line.`}
-                        style={{ color, display: "flex", gap: 4, alignItems: "baseline", whiteSpace: "nowrap" }}
+                        style={{ color, display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "baseline", whiteSpace: "nowrap" }}
                       >
                         <span>{icon} {label}{countSuffix}</span>
-                        {date && <span style={{ color: TH.textMuted, fontWeight: 500 }}>{date}</span>}
+                        {date && <span style={{ color: TH.textMuted, fontWeight: 500, textAlign: "right" }}>{date}</span>}
                       </div>
                     );
                   })}
@@ -761,9 +761,9 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                                   rv.review_note ? `Note: ${rv.review_note}` : null,
                                 ].filter(Boolean).join("\n");
                                 return (
-                                  <div key={rv.id} title={tooltip} style={{ color, display: "flex", gap: 4, alignItems: "baseline", whiteSpace: "nowrap" }}>
+                                  <div key={rv.id} title={tooltip} style={{ color, display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "baseline", whiteSpace: "nowrap" }}>
                                     <span>{icon} {label}</span>
-                                    {date && <span style={{ color: TH.textMuted, fontWeight: 500 }}>{date}</span>}
+                                    {date && <span style={{ color: TH.textMuted, fontWeight: 500, textAlign: "right" }}>{date}</span>}
                                   </div>
                                 );
                               })}
