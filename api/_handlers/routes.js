@@ -214,6 +214,7 @@ import h208 from "./vendor-invite.js";
 import h209 from "./xoro-ap-sync.js";
 import h210 from "./parse-excel.js";
 import h211 from "./xoro-proxy.js";
+import h212 from "./internal/ip-ai-demand/index.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -428,6 +429,7 @@ export const ROUTES = [
   { pattern: "/api/xoro-ap-sync", handler: h209 },
   { pattern: "/api/parse-excel", handler: h210 },
   { pattern: "/api/xoro-proxy", handler: h211 },
+  { pattern: "/api/internal/ip-ai-demand", handler: h212 },
 ];
 
 export function compileRoutes(routes) {

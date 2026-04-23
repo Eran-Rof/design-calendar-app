@@ -21,8 +21,9 @@ import ForecastAccuracyDashboard from "./ForecastAccuracyDashboard";
 import OverrideEffectivenessPanel from "./OverrideEffectivenessPanel";
 import AnomalyQueue from "../../intelligence/panels/AnomalyQueue";
 import AISuggestionPanel from "../../intelligence/panels/AISuggestionPanel";
+import AIDemandPanel from "../../intelligence/panels/AIDemandPanel";
 
-type TabKey = "accuracy" | "overrides" | "anomalies" | "suggestions";
+type TabKey = "accuracy" | "overrides" | "anomalies" | "suggestions" | "ai_demand";
 
 export default function AccuracyWorkbench() {
   const [runs, setRuns] = useState<IpPlanningRun[]>([]);
@@ -182,6 +183,9 @@ export default function AccuracyWorkbench() {
           <TabButton active={tab === "suggestions"} onClick={() => setTab("suggestions")}>
             Suggestions ({suggestions.filter((s) => s.accepted_flag == null).length}/{suggestions.length})
           </TabButton>
+          <TabButton active={tab === "ai_demand"} onClick={() => setTab("ai_demand")}>
+            AI Demand ✦
+          </TabButton>
         </div>
 
         {loading ? (
@@ -203,6 +207,12 @@ export default function AccuracyWorkbench() {
                 skuCodeById={skuCodeById}
                 onAccept={acceptSuggestion}
                 onIgnore={ignoreSuggestion}
+              />
+            )}
+            {tab === "ai_demand" && (
+              <AIDemandPanel
+                planningRunId={selectedRunId}
+                onToast={(t) => setToast(t)}
               />
             )}
           </>
