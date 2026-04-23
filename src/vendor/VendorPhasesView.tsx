@@ -690,35 +690,12 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                 </div>
               </div>
 
-              {/* ── Expanded panel: master notes icon + line breakdown ── */}
+              {/* ── Expanded panel: line breakdown, aligned with master grid ── */}
               {isExpanded && (
-                <div style={{ padding: "10px 14px 14px 46px", background: "#F8FAFC", borderBottom: `1px solid ${TH.border}` }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>Notes for this phase</span>
-                    <NotesButton
-                      notes={notesAndLineNotesFor(r.po.uuid_id, r.phase.name)}
-                      reviewEntries={reviewEntriesFor(r.po.uuid_id, r.phase.name)}
-                      currentAuthAid={currentAuthAid}
-                      title={`${r.phase.name} — all notes (master + line)`}
-                      lines={lines}
-                      onAdd={(body) => void addNote(r.po, r.phase.name, null, body)}
-                      onEdit={(id, body) => void editNote(id, body)}
-                      onDelete={(id) => void deleteNote(id)}
-                    />
-                    <span style={{ fontSize: 11, color: TH.textMuted }}>aggregates all line notes too</span>
-                  </div>
-
+                <div style={{ background: "#F8FAFC", borderBottom: `1px solid ${TH.border}` }}>
                   {lines.length === 0 ? (
-                    <div style={{ fontSize: 12, color: TH.textMuted, padding: "8px 0" }}>No line items materialized for this PO yet.</div>
-                  ) : (
-                    <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 6, overflow: "hidden" }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 140px 80px", padding: "6px 10px", background: "#E2E8F0", fontSize: 10, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
-                        <div>Style</div>
-                        <div>Description</div>
-                        <div>Status</div>
-                        <div style={{ textAlign: "center" }}>Notes</div>
-                      </div>
-                      {lines.map((l) => {
+                    <div style={{ fontSize: 12, color: TH.textMuted, padding: "10px 14px" }}>No line items materialized for this PO yet.</div>
+                  ) : lines.map((l) => {
                         const lineStatusReq = latestRequest(r.po.uuid_id, r.phase.name, "status", l.id);
                         const lineStatus = (lineStatusReq?.new_value || r.effectiveStatus) as Status;
                         const differs = lineStatusReq?.new_value && lineStatusReq.new_value !== r.effectiveStatus;
@@ -726,9 +703,21 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                         const lineReviews = reviewEntriesForLine(r.po.uuid_id, r.phase.name, l.id);
                         const linePending = lineStatusReq?.status === "pending";
                         return (
-                          <div key={l.id} style={{ display: "grid", gridTemplateColumns: "120px 1fr 140px 80px", padding: "6px 10px", borderTop: `1px solid ${TH.border}`, fontSize: 12, alignItems: "start", gap: 6 }}>
-                            <div style={{ fontFamily: "Menlo, monospace", color: TH.textSub2, paddingTop: 4 }}>{l.item_number || "—"}</div>
-                            <div style={{ color: TH.text, paddingTop: 4 }}>{l.description || "—"}</div>
+                          // Mirror the master row's grid so every cell (and
+                          // especially the right-most Notes icon) lines up
+                          // vertically with the master above.
+                          <div key={l.id} style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 60px minmax(140px, max-content) 60px`, padding: "6px 14px", borderTop: `1px solid ${TH.border}`, fontSize: 12, alignItems: "start", gap: 0 }}>
+                            <div></div>{/* expand-toggle placeholder */}
+                            {!poId && <div></div>}{/* PO # placeholder — master shows number, line leaves blank */}
+                            {/* Style + description occupy the Phase column so
+                                the text naturally indents under the phase name
+                                above without breaking the grid alignment. */}
+                            <div style={{ paddingTop: 4 }}>
+                              <div style={{ fontFamily: "Menlo, monospace", fontWeight: 600, fontSize: 11, color: TH.textSub2 }}>{l.item_number || "—"}</div>
+                              <div style={{ fontSize: 11, color: TH.text, marginTop: 2, lineHeight: 1.35 }}>{l.description || "—"}</div>
+                            </div>
+                            <div></div>{/* Expected date placeholder */}
+                            <div></div>{/* Days placeholder */}
                             <div>
                               <select
                                 value={lineStatus}
@@ -748,9 +737,12 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                               {linePending && (
                                 <div style={{ fontSize: 9, color: "#92400E", marginTop: 2, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}>⏳ Pending</div>
                               )}
-                              {/* Stack ROF review history for this line — same
-                                  treatment as the master row so vendors see
-                                  approvals/rejections inline on the line. */}
+                            </div>
+                            <div></div>{/* spacer */}
+                            {/* Review state column — stack line review history
+                                here so it aligns under the master's review
+                                chips, matching the user's "beacon" ask. */}
+                            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, lineHeight: 1.35, display: "grid", gap: 2 }}>
                               {lineReviews.map((rv) => {
                                 const approved = rv.status === "approved";
                                 const hasComment = !!(rv.review_note && rv.review_note.trim());
@@ -766,7 +758,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                                   rv.review_note ? `Note: ${rv.review_note}` : null,
                                 ].filter(Boolean).join("\n");
                                 return (
-                                  <div key={rv.id} title={tooltip} style={{ color, fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, marginTop: 2, display: "flex", gap: 3, alignItems: "baseline" }}>
+                                  <div key={rv.id} title={tooltip} style={{ color, display: "flex", gap: 4, alignItems: "baseline", whiteSpace: "nowrap" }}>
                                     <span>{icon} {label}</span>
                                     {date && <span style={{ color: TH.textMuted, fontWeight: 500 }}>{date}</span>}
                                   </div>
@@ -787,8 +779,6 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                           </div>
                         );
                       })}
-                    </div>
-                  )}
                 </div>
               )}
             </div>
