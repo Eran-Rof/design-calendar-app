@@ -52,12 +52,13 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
   }, [rows, search, filterCustomer, filterCategory, filterAction, filterConfidence, sortKey, sortDir]);
 
   const totals = useMemo(() => {
-    const t = { final: 0, shortage: 0, excess: 0, actions: {} as Record<string, number> };
+    const t = { final: 0, shortage: 0, excess: 0, actions: {} as Record<string, number>, methods: {} as Record<string, number> };
     for (const r of filtered) {
       t.final += r.final_forecast_qty;
       t.shortage += r.projected_shortage_qty;
       t.excess += r.projected_excess_qty;
       t.actions[r.recommended_action] = (t.actions[r.recommended_action] ?? 0) + 1;
+      t.methods[r.forecast_method] = (t.methods[r.forecast_method] ?? 0) + 1;
     }
     return t;
   }, [filtered]);
@@ -70,7 +71,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
   return (
     <div>
       {/* Stats row */}
-      <div style={S.statsRow}>
+      <div style={{ ...S.statsRow, gridTemplateColumns: "repeat(6,1fr)" }}>
         <StatCell label="Rows" value={filtered.length.toLocaleString()} />
         <StatCell label="Σ Final forecast" value={formatQty(totals.final)} accent={PAL.green} />
         <StatCell label="Σ Shortage" value={formatQty(totals.shortage)} accent={PAL.red} />
@@ -78,6 +79,9 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
         <StatCell label="Buy / Expedite"
                   value={`${totals.actions.buy ?? 0} / ${totals.actions.expedite ?? 0}`}
                   accent={PAL.accent} />
+        <StatCell label="LY Sales rows"
+                  value={(totals.methods.ly_sales ?? 0).toLocaleString()}
+                  accent={PAL.accent2} />
       </div>
 
       <div style={S.toolbar}>

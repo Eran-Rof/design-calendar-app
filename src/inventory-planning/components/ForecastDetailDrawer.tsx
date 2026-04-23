@@ -104,7 +104,7 @@ export default function ForecastDetailDrawer({
           {/* Method + confidence */}
           <SectionLabel>Method</SectionLabel>
           <div style={S.infoCell}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
               <span style={{ ...S.chip, background: (METHOD_COLOR[row.forecast_method] ?? PAL.textMuted) + "22", color: METHOD_COLOR[row.forecast_method] ?? PAL.textMuted, fontSize: 13 }}>
                 {METHOD_LABEL[row.forecast_method] ?? row.forecast_method}
               </span>
@@ -113,6 +113,11 @@ export default function ForecastDetailDrawer({
                 {row.confidence_level}
               </span>
             </div>
+            {row.history_months_used != null && (
+              <div style={{ fontSize: 12, color: PAL.textMuted }}>
+                Based on {row.history_months_used} month{row.history_months_used !== 1 ? "s" : ""} of history
+              </div>
+            )}
           </div>
 
           {/* Trailing history */}
