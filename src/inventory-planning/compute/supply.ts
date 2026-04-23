@@ -27,7 +27,8 @@ export interface SupplyInputs {
 }
 
 export interface PeriodSupply {
-  on_hand_qty: number;
+  on_hand_qty: number;       // raw snapshot (always the Xoro value)
+  beginning_balance_qty: number; // rolling start-of-period balance (period 1 = ATS, period 2+ = prior ending)
   on_po_qty: number;
   receipts_due_qty: number;
   available_supply_qty: number;
@@ -107,11 +108,13 @@ export function supplyForPeriod(
   const committed_qty = committedSoBySku(inputs.inventorySnapshots).get(skuId) ?? 0;
   const on_po_qty = openPoQtyBySku(inputs.openPos).get(skuId) ?? 0;
   const receipts_due_qty = receiptsDueInPeriod(inputs, skuId, periodStart, periodEnd);
+  const beginning_balance_qty = Math.max(0, on_hand_qty - committed_qty);
   return {
     on_hand_qty,
+    beginning_balance_qty,
     on_po_qty,
     receipts_due_qty,
-    available_supply_qty: Math.max(0, on_hand_qty - committed_qty) + receipts_due_qty,
+    available_supply_qty: beginning_balance_qty + receipts_due_qty,
   };
 }
 
@@ -162,8 +165,9 @@ export function buildRollingWholesaleSupply(
     for (const p of periods) {
       const receipts_due_qty = receiptsDueInPeriod(inputs, skuId, p.period_start, p.period_end);
       const planned_buy = buyByGrain.get(`${skuId}:${p.period_start}`) ?? 0;
+      const beginning_balance_qty = rolling;
       const available_supply_qty = rolling + receipts_due_qty + planned_buy;
-      out.set(`${skuId}:${p.period_start}`, { on_hand_qty, on_po_qty, receipts_due_qty, available_supply_qty });
+      out.set(`${skuId}:${p.period_start}`, { on_hand_qty, beginning_balance_qty, on_po_qty, receipts_due_qty, available_supply_qty });
       const demand = demandByGrain.get(`${skuId}:${p.period_start}`) ?? 0;
       rolling = Math.max(0, available_supply_qty - demand);
     }
