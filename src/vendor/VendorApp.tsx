@@ -9,7 +9,7 @@ import {
   useLocation,
 } from "react-router-dom";
 import type { Session } from "@supabase/supabase-js";
-import { TH } from "../utils/theme";
+import { TH } from "./theme";
 import { ROFLogoFull } from "../utils/styles";
 import { supabaseVendor } from "./supabaseVendor";
 import VendorLogin from "./VendorLogin";
@@ -290,8 +290,8 @@ function VendorShell({ children, withTabs = false }: { children: ReactNode; with
   const { session } = useVendorSession();
   const nav = useNavigate();
   return (
-    <div style={{ minHeight: "100vh", background: TH.bg, fontFamily: "system-ui, -apple-system, sans-serif" }}>
-      <header style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 24px", background: "#808895", borderBottom: `1px solid ${TH.header}`, boxShadow: `0 1px 2px ${TH.shadowMd}` }}>
+    <div style={{ minHeight: "100vh", background: TH.bg, fontFamily: "system-ui, -apple-system, sans-serif", color: TH.text, colorScheme: "dark" }}>
+      <header style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 24px", background: TH.header, borderBottom: `1px solid ${TH.border}`, boxShadow: `0 1px 2px ${TH.shadowMd}` }}>
         <div style={{ display: "flex", alignItems: "center" }}>
           <ROFLogoFull height={66} />
         </div>

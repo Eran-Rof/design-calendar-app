@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { TH } from "../utils/theme";
+import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtMoney } from "./utils";
 import { showConfirm } from "./ui/AppDialog";

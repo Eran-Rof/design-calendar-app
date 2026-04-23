@@ -7,7 +7,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { TH } from "../utils/theme";
+import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate } from "./utils";
 import { showAlert, showConfirm } from "./ui/AppDialog";
@@ -494,7 +494,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
       )}
 
       {banner && banner.total > 0 && (
-        <div style={{ marginBottom: 14, padding: "10px 14px", background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 8, fontSize: 13, color: "#065F46" }}>
+        <div style={{ marginBottom: 14, padding: "10px 14px", background: "#064E3B33", border: "1px solid #10B98166", borderRadius: 8, fontSize: 13, color: "#6EE7B7" }}>
           Ring of Fire reviewed {banner.total} of your proposed changes in the last 24 hours — {banner.approved} approved · {banner.rejected} rejected. See the cell indicators below for details.
         </div>
       )}
@@ -561,7 +561,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
           return (
             <div key={expandKey}>
               {/* ── Master phase row ─────────────────────────────────── */}
-              <div style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 60px 280px 60px`, padding: "10px 14px", borderBottom: isExpanded ? "none" : `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", background: isExpanded ? "#F8FAFC" : "transparent" }}>
+              <div style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 60px 280px 60px`, padding: "10px 14px", borderBottom: isExpanded ? "none" : `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", background: isExpanded ? TH.surfaceHi : "transparent" }}>
                 <button
                   onClick={() => setExpanded((prev) => {
                     const next = new Set(prev);
@@ -595,7 +595,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                     }}
                   />
                 </div>
-                <div style={{ textAlign: "center", fontSize: 12, color: r.daysFromToday == null ? TH.textMuted : r.daysFromToday < 0 ? "#B91C1C" : r.daysFromToday <= 7 ? "#B45309" : TH.textSub2, fontWeight: 600 }}>
+                <div style={{ textAlign: "center", fontSize: 12, color: r.daysFromToday == null ? TH.textMuted : r.daysFromToday < 0 ? "#F87171" : r.daysFromToday <= 7 ? "#FBBF24" : TH.textSub2, fontWeight: 600 }}>
                   {r.daysFromToday == null ? "—" : r.daysFromToday < 0 ? `${-r.daysFromToday}d late` : `${r.daysFromToday}d`}
                 </div>
                 <div>
@@ -615,7 +615,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                 </div>
                 <div></div>{/* spacer column — matches header, pushes review state + notes right */}
                 <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, lineHeight: 1.35, display: "grid", gap: 2 }}>
-                  {pending && <div style={{ color: "#92400E" }}>⏳ Pending review</div>}
+                  {pending && <div style={{ color: "#FCD34D" }}>⏳ Pending review</div>}
                   {hasMismatch && <div style={{ color: "#7C3AED" }}>⚠ Lines differ</div>}
 
                   {/* Stack all reviewed history for this phase (across status +
@@ -634,7 +634,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                     return history.map((h) => {
                       const approved = h.status === "approved";
                       const hasComment = !!(h.review_note && h.review_note.trim());
-                      const color = approved ? "#065F46" : "#991B1B";
+                      const color = approved ? "#6EE7B7" : "#FCA5A5";
                       const icon = approved ? "✓" : "✗";
                       const label = approved
                         ? hasComment ? "Approved w/ note" : "Approved"
@@ -659,7 +659,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                   )}
                   {lineReviewSummary(r.po.uuid_id, r.phase.name).map((sum) => {
                     const approved = sum.status === "approved";
-                    const color = approved ? "#065F46" : "#991B1B";
+                    const color = approved ? "#6EE7B7" : "#FCA5A5";
                     const icon = approved ? "✓" : "✗";
                     const label = approved ? "Line item approved" : "Line item rejected";
                     const date = sum.latestDate ? new Date(sum.latestDate).toLocaleDateString() : "";
@@ -692,7 +692,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
 
               {/* ── Expanded panel: line breakdown, aligned with master grid ── */}
               {isExpanded && (
-                <div style={{ background: "#F8FAFC", borderBottom: `1px solid ${TH.border}` }}>
+                <div style={{ background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}` }}>
                   {lines.length === 0 ? (
                     <div style={{ fontSize: 12, color: TH.textMuted, padding: "10px 14px" }}>No line items materialized for this PO yet.</div>
                   ) : lines.map((l) => {
@@ -735,7 +735,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                                 <div style={{ fontSize: 9, color: "#7C3AED", marginTop: 2 }}>overrides master</div>
                               )}
                               {linePending && (
-                                <div style={{ fontSize: 9, color: "#92400E", marginTop: 2, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}>⏳ Pending</div>
+                                <div style={{ fontSize: 9, color: "#FCD34D", marginTop: 2, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}>⏳ Pending</div>
                               )}
                             </div>
                             <div></div>{/* spacer */}
@@ -746,7 +746,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                               {lineReviews.map((rv) => {
                                 const approved = rv.status === "approved";
                                 const hasComment = !!(rv.review_note && rv.review_note.trim());
-                                const color = approved ? "#065F46" : "#991B1B";
+                                const color = approved ? "#6EE7B7" : "#FCA5A5";
                                 const icon = approved ? "✓" : "✗";
                                 const label = approved
                                   ? hasComment ? "Approved w/ note" : "Approved"
@@ -893,9 +893,9 @@ function NotesButton({
                   </div>
                   {reviews.map((rv) => {
                     const approved = rv.status === "approved";
-                    const color = approved ? "#065F46" : "#991B1B";
-                    const bg = approved ? "#ECFDF5" : "#FEF2F2";
-                    const border = approved ? "#A7F3D0" : "#FCA5A5";
+                    const color = approved ? "#6EE7B7" : "#FCA5A5";
+                    const bg = approved ? "#064E3B33" : "#7F1D1D33";
+                    const border = approved ? "#10B98166" : "#EF444466";
                     return (
                       <div key={rv.id} style={{ padding: 8, marginBottom: 6, background: bg, border: `1px solid ${border}`, borderRadius: 6 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: TH.textMuted, fontWeight: 600 }}>
@@ -957,7 +957,7 @@ function NotesButton({
                         {mine && (
                           <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", marginTop: 4 }}>
                             <button onClick={() => { setEditingId(n.id); setEditDraft(n.body); }} style={iconBtn}>Edit</button>
-                            <button onClick={() => void handleDelete(n.id)} style={{ ...iconBtn, color: "#B91C1C" }}>Delete</button>
+                            <button onClick={() => void handleDelete(n.id)} style={{ ...iconBtn, color: "#F87171" }}>Delete</button>
                           </div>
                         )}
                       </>
@@ -1003,7 +1003,7 @@ const iconBtn: React.CSSProperties = {
 };
 
 function FilterPill({ active, onClick, label, tone }: { active: boolean; onClick: () => void; label: string; tone?: "danger" | "warn" }) {
-  const toneColor = tone === "danger" ? "#B91C1C" : tone === "warn" ? "#B45309" : TH.primary;
+  const toneColor = tone === "danger" ? "#F87171" : tone === "warn" ? "#FBBF24" : TH.primary;
   return (
     <button
       onClick={onClick}

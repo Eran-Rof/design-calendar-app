@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { TH } from "../utils/theme";
+import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate, fmtMoney } from "./utils";
 import POMessageThread, { type Sender } from "./POMessageThread";

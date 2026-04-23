@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { TH } from "../utils/theme";
+import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
 import StatusBadge from "./StatusBadge";
 import { fmtDate, fmtMoney } from "./utils";

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { TH } from "../utils/theme";
+import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
 
 export default function VendorLogin() {
@@ -79,7 +79,7 @@ export default function VendorLogin() {
 }
 
 const labelStyle = { display: "block", fontSize: 12, fontWeight: 600, color: TH.textSub, marginBottom: 6, marginTop: 12 };
-const inputStyle = { width: "100%", padding: "9px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 14, boxSizing: "border-box" as const, fontFamily: "inherit" };
+const inputStyle = { width: "100%", padding: "9px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 14, boxSizing: "border-box" as const, fontFamily: "inherit", background: TH.bg, color: TH.text };
 const buttonStyle = (disabled: boolean) => ({
   width: "100%", marginTop: 18, padding: "10px 14px", borderRadius: 6,
   border: "none", background: disabled ? TH.textMuted : TH.primary,

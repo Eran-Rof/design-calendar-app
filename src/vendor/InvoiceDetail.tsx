@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { showAlert, showFileViewer } from "./ui/AppDialog";
 import { Link, useParams } from "react-router-dom";
-import { TH } from "../utils/theme";
+import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate, fmtMoney } from "./utils";
 

@@ -8,7 +8,7 @@
 
 import { createRoot, type Root } from "react-dom/client";
 import type { ReactNode } from "react";
-import { TH } from "../../utils/theme";
+import { TH } from "../theme";
 
 type Tone = "info" | "danger" | "warn" | "success";
 

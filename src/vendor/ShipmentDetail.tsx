@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { TH } from "../utils/theme";
+import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate } from "./utils";
 import { showAlert, showConfirm, showFileViewer } from "./ui/AppDialog";
