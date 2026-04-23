@@ -31,17 +31,21 @@ type Note = {
   updated_at: string;
 };
 
+// Dark theme matching the PO WIP (TandA) app.
 const C = {
-  bg: "#F8FAFC",
-  surface: "#FFFFFF",
-  surfaceAlt: "#F1F5F9",
-  border: "#E2E8F0",
-  text: "#0F172A",
-  textMuted: "#64748B",
+  bg: "#0F172A",          // slate-900
+  surface: "#1E293B",     // slate-800
+  surfaceHi: "#334155",   // slate-700
+  border: "#334155",
+  borderLt: "#475569",
+  text: "#F1F5F9",
+  textSub: "#CBD5E1",
+  textMuted: "#94A3B8",
   primary: "#3B82F6",
   success: "#10B981",
   danger: "#EF4444",
   warn: "#F59E0B",
+  accent: "#7C3AED",
 };
 
 function statusColor(s: Req["status"]) {
@@ -61,12 +65,143 @@ function loadReviewer(): string {
   return "Ring of Fire";
 }
 
+type ActionDialogState = {
+  kind: "approve" | "reject";
+  req: Req;
+};
+
+function ActionDialog({
+  state, reviewer, onSubmit, onCancel,
+}: {
+  state: ActionDialogState;
+  reviewer: string;
+  onSubmit: (note: string) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const isReject = state.kind === "reject";
+
+  async function handleSubmit() {
+    if (isReject && !note.trim()) return;
+    setBusy(true);
+    try { await onSubmit(note.trim()); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => { if (e.currentTarget === e.target && !busy) onCancel(); }}
+      style={{
+        position: "fixed", inset: 0, zIndex: 9999,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        background: "rgba(0,0,0,0.7)",
+      }}
+    >
+      <div style={{
+        width: "min(520px, calc(100vw - 32px))",
+        background: C.surface,
+        border: `1px solid ${isReject ? C.danger : C.success}44`,
+        borderRadius: 14,
+        boxShadow: "0 24px 64px rgba(0,0,0,0.5)",
+        overflow: "hidden",
+        color: C.text,
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+      }}>
+        <div style={{
+          padding: "20px 24px",
+          borderBottom: `1px solid ${C.border}`,
+          background: `linear-gradient(135deg, ${isReject ? C.danger : C.success}22, ${isReject ? C.warn : C.primary}22)`,
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: isReject ? "#FCA5A5" : "#6EE7B7", marginBottom: 6 }}>
+            {isReject ? "Reject change" : "Approve change"}
+          </div>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>
+            {state.req.po_number} · {state.req.phase_name}
+          </div>
+          <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>
+            {state.req.field_name}: <span style={{ color: C.textSub }}>{state.req.old_value ?? "(empty)"}</span>
+            <span style={{ margin: "0 6px" }}>→</span>
+            <span style={{ color: isReject ? "#FCA5A5" : "#6EE7B7" }}>{state.req.new_value ?? "(cleared)"}</span>
+          </div>
+        </div>
+
+        <div style={{ padding: "16px 24px" }}>
+          <label style={{ display: "block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: C.textMuted, marginBottom: 6 }}>
+            {isReject ? "Reason (required)" : "Note (optional)"}
+          </label>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={4}
+            autoFocus
+            placeholder={isReject
+              ? "Explain why — the vendor will see this in the PO message thread."
+              : "Add context for the vendor, or leave blank."}
+            style={{
+              width: "100%", boxSizing: "border-box",
+              background: C.bg, color: C.text,
+              border: `1px solid ${C.borderLt}`, borderRadius: 8,
+              padding: "10px 12px", fontSize: 13, fontFamily: "inherit",
+              resize: "vertical",
+            }}
+          />
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6 }}>
+            Posted as <strong style={{ color: C.textSub }}>{reviewer}</strong>.
+          </div>
+        </div>
+
+        <div style={{
+          padding: "12px 24px", borderTop: `1px solid ${C.border}`,
+          display: "flex", justifyContent: "flex-end", gap: 8, background: C.bg,
+        }}>
+          <button onClick={onCancel} disabled={busy} style={{
+            padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.borderLt}`,
+            background: "transparent", color: C.textSub,
+            cursor: busy ? "not-allowed" : "pointer",
+            fontSize: 13, fontWeight: 600, fontFamily: "inherit",
+          }}>Cancel</button>
+          <button
+            onClick={() => void handleSubmit()}
+            disabled={busy || (isReject && !note.trim())}
+            style={{
+              padding: "8px 20px", borderRadius: 8, border: "none",
+              background: busy ? C.surfaceHi : (isReject ? C.danger : C.success),
+              color: "#fff",
+              cursor: busy || (isReject && !note.trim()) ? "not-allowed" : "pointer",
+              opacity: (isReject && !note.trim()) ? 0.6 : 1,
+              fontSize: 13, fontWeight: 700, fontFamily: "inherit",
+            }}
+          >{busy ? "Sending…" : isReject ? "Reject" : "Approve"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Toast({ text, tone, onClose }: { text: string; tone: "success" | "danger"; onClose: () => void }) {
+  useEffect(() => { const t = setTimeout(onClose, 3200); return () => clearTimeout(t); }, [onClose]);
+  return (
+    <div style={{
+      position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
+      background: tone === "success" ? C.success : C.danger,
+      color: "#fff", padding: "10px 20px", borderRadius: 8,
+      boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+      fontSize: 13, fontWeight: 600, zIndex: 10000,
+    }}>{text}</div>
+  );
+}
+
 export default function PhaseReviews() {
   const [rows, setRows] = useState<Req[]>([]);
   const [notesByPoPhase, setNotesByPoPhase] = useState<Record<string, Note[]>>({});
   const [statusFilter, setStatusFilter] = useState<"pending" | "all" | "approved" | "rejected">("pending");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<ActionDialogState | null>(null);
+  const [toast, setToast] = useState<{ text: string; tone: "success" | "danger" } | null>(null);
   const reviewer = useMemo(() => loadReviewer(), []);
 
   async function load() {
@@ -98,17 +233,22 @@ export default function PhaseReviews() {
   }
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [statusFilter]);
 
-  async function act(id: string, kind: "approve" | "reject") {
-    const note = kind === "reject"
-      ? prompt("Reason for rejecting this change (required):")?.trim() || ""
-      : prompt("Optional note to send with approval (leave blank to skip):")?.trim() || "";
-    if (kind === "reject" && !note) return;
+  async function submitAction(note: string) {
+    if (!dialog) return;
+    const kind = dialog.kind;
+    const id = dialog.req.id;
     const r = await fetch(`/api/internal/phase-change-requests/${id}/${kind}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reviewer_name: reviewer, note }),
     });
-    if (!r.ok) { alert(`Failed: ${await r.text()}`); return; }
+    if (!r.ok) {
+      const t = await r.text();
+      setToast({ text: `Failed: ${t.slice(0, 120)}`, tone: "danger" });
+      return;
+    }
+    setDialog(null);
+    setToast({ text: kind === "approve" ? "Approved" : "Rejected", tone: "success" });
     await load();
   }
 
@@ -121,39 +261,38 @@ export default function PhaseReviews() {
   return (
     <div style={{ minHeight: "100vh", background: C.bg, color: C.text, padding: 24, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
       <div style={{ maxWidth: 1400, margin: "0 auto" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 16, flexWrap: "wrap" }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>Vendor phase reviews</h1>
+            <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: C.text }}>Vendor phase reviews</h1>
             <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>
-              Reviewer: <strong>{reviewer}</strong> · Approve or reject vendor-proposed phase updates. Approvals and rejections auto-post to the PO message thread.
+              Reviewer: <strong style={{ color: C.textSub }}>{reviewer}</strong> · Approvals and rejections auto-post to the PO message thread.
             </div>
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             {(["pending", "approved", "rejected", "all"] as const).map((f) => (
               <button key={f} onClick={() => setStatusFilter(f)}
                 style={{
-                  padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.border}`,
+                  padding: "6px 14px", borderRadius: 6,
+                  border: `1px solid ${statusFilter === f ? C.primary : C.borderLt}`,
                   background: statusFilter === f ? C.primary : C.surface,
-                  color: statusFilter === f ? "#fff" : C.text,
+                  color: statusFilter === f ? "#fff" : C.textSub,
                   cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600,
                   textTransform: "capitalize",
-                }}>
-                {f}{statusFilter === "all" && f !== "all" ? "" : statusFilter === f && f !== "all" ? ` (${counts[f]})` : ""}
-              </button>
+                }}>{f}</button>
             ))}
-            <button onClick={() => void load()} style={{
-              padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.border}`,
-              background: C.surface, color: C.text, cursor: "pointer", fontFamily: "inherit", fontSize: 12,
+            <button onClick={() => void load()} title="Refresh" style={{
+              padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.borderLt}`,
+              background: C.surface, color: C.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 12,
             }}>↻</button>
           </div>
         </div>
 
-        {err && <div style={{ background: "#FEF2F2", color: C.danger, border: `1px solid ${C.danger}`, padding: 10, borderRadius: 6, marginBottom: 14, fontSize: 13 }}>{err}</div>}
+        {err && <div style={{ background: "#7F1D1D44", color: "#FCA5A5", border: `1px solid ${C.danger}`, padding: 12, borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{err}</div>}
 
         {loading ? (
           <div style={{ color: C.textMuted, padding: 40, textAlign: "center" }}>Loading…</div>
         ) : rows.length === 0 ? (
-          <div style={{ background: C.surface, border: `1px solid ${C.border}`, padding: 40, borderRadius: 8, textAlign: "center", color: C.textMuted }}>
+          <div style={{ background: C.surface, border: `1px solid ${C.border}`, padding: 40, borderRadius: 10, textAlign: "center", color: C.textMuted }}>
             No {statusFilter === "all" ? "" : statusFilter} requests.
           </div>
         ) : (
@@ -161,61 +300,60 @@ export default function PhaseReviews() {
             {rows.map((r) => {
               const notes = notesByPoPhase[`${r.po_id}::${r.phase_name}`] || [];
               return (
-                <div key={r.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 14 }}>
+                <div key={r.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 16 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
                     <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
-                        <span style={{ background: C.surfaceAlt, padding: "2px 8px", borderRadius: 4, fontFamily: "Menlo, monospace", fontSize: 12, fontWeight: 600 }}>{r.po_number}</span>
-                        <span style={{ fontSize: 13, color: C.textMuted }}>·</span>
-                        <span style={{ fontWeight: 600, fontSize: 14 }}>{r.phase_name}</span>
-                        {r.po_line_key && <span style={{ fontSize: 11, background: "#EDE9FE", color: "#6D28D9", padding: "1px 6px", borderRadius: 3, fontWeight: 600 }}>line {r.po_line_key}</span>}
-                        <span style={{ fontSize: 10, color: "#fff", background: statusColor(r.status), padding: "2px 8px", borderRadius: 10, fontWeight: 700, textTransform: "uppercase" }}>{r.status}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                        <span style={{ background: C.bg, padding: "2px 10px", borderRadius: 4, fontFamily: "Menlo, monospace", fontSize: 12, fontWeight: 700, color: C.primary, border: `1px solid ${C.border}` }}>{r.po_number}</span>
+                        <span style={{ fontSize: 12, color: C.textMuted }}>·</span>
+                        <span style={{ fontWeight: 600, fontSize: 14, color: C.text }}>{r.phase_name}</span>
+                        <span style={{ fontSize: 10, color: "#fff", background: statusColor(r.status), padding: "2px 10px", borderRadius: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>{r.status}</span>
                       </div>
                       <div style={{ fontSize: 12, color: C.textMuted }}>
-                        <strong>{r.vendor_name}</strong>
+                        <strong style={{ color: C.textSub }}>{r.vendor_name}</strong>
                         {r.requested_by_display_name && ` · ${r.requested_by_display_name}`}
                         {" · requested "}{new Date(r.requested_at).toLocaleString()}
                       </div>
                     </div>
                     {r.status === "pending" && (
                       <div style={{ display: "flex", gap: 6 }}>
-                        <button onClick={() => void act(r.id, "approve")} style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: C.success, color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" }}>Approve</button>
-                        <button onClick={() => void act(r.id, "reject")} style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: C.danger, color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" }}>Reject</button>
+                        <button onClick={() => setDialog({ kind: "approve", req: r })} style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: C.success, color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}>Approve</button>
+                        <button onClick={() => setDialog({ kind: "reject", req: r })} style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: C.danger, color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}>Reject</button>
                       </div>
                     )}
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "140px 1fr 1fr", gap: 10, marginTop: 10, alignItems: "start" }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: C.textMuted, letterSpacing: 0.4 }}>{r.field_name}</div>
-                    <div style={{ background: C.surfaceAlt, padding: 8, borderRadius: 6, fontSize: 13 }}>
-                      <div style={{ fontSize: 10, textTransform: "uppercase", color: C.textMuted, fontWeight: 700 }}>From</div>
-                      <div style={{ color: C.text, marginTop: 2 }}>{r.old_value ?? <span style={{ color: C.textMuted, fontStyle: "italic" }}>(empty)</span>}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "140px 1fr 1fr", gap: 10, marginTop: 12, alignItems: "start" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: C.textMuted, letterSpacing: 0.4, paddingTop: 6 }}>{r.field_name}</div>
+                    <div style={{ background: C.bg, padding: 10, borderRadius: 8, fontSize: 13, border: `1px solid ${C.border}` }}>
+                      <div style={{ fontSize: 10, textTransform: "uppercase", color: C.textMuted, fontWeight: 700, letterSpacing: 0.4 }}>From</div>
+                      <div style={{ color: C.textSub, marginTop: 3 }}>{r.old_value ?? <span style={{ color: C.textMuted, fontStyle: "italic" }}>(empty)</span>}</div>
                     </div>
-                    <div style={{ background: "#ECFDF5", padding: 8, borderRadius: 6, fontSize: 13 }}>
-                      <div style={{ fontSize: 10, textTransform: "uppercase", color: C.textMuted, fontWeight: 700 }}>To</div>
-                      <div style={{ color: C.text, marginTop: 2 }}>{r.new_value ?? <span style={{ color: C.textMuted, fontStyle: "italic" }}>(cleared)</span>}</div>
+                    <div style={{ background: "#064E3B33", padding: 10, borderRadius: 8, fontSize: 13, border: `1px solid ${C.success}55` }}>
+                      <div style={{ fontSize: 10, textTransform: "uppercase", color: C.textMuted, fontWeight: 700, letterSpacing: 0.4 }}>To</div>
+                      <div style={{ color: "#6EE7B7", marginTop: 3 }}>{r.new_value ?? <span style={{ color: C.textMuted, fontStyle: "italic" }}>(cleared)</span>}</div>
                     </div>
                   </div>
 
                   {r.status !== "pending" && r.review_note && (
-                    <div style={{ marginTop: 10, padding: 8, background: C.surfaceAlt, borderRadius: 6, fontSize: 12 }}>
-                      <strong>{r.reviewed_by_internal_id || "Reviewer"}:</strong> {r.review_note}
+                    <div style={{ marginTop: 12, padding: 10, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, color: C.textSub }}>
+                      <strong style={{ color: C.text }}>{r.reviewed_by_internal_id || "Reviewer"}:</strong> {r.review_note}
                       {r.reviewed_at && <span style={{ color: C.textMuted }}> · {new Date(r.reviewed_at).toLocaleString()}</span>}
                     </div>
                   )}
 
                   {notes.length > 0 && (
-                    <div style={{ marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
-                      <div style={{ fontSize: 10, textTransform: "uppercase", color: C.textMuted, fontWeight: 700, letterSpacing: 0.4, marginBottom: 6 }}>
+                    <div style={{ marginTop: 12, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+                      <div style={{ fontSize: 10, textTransform: "uppercase", color: C.textMuted, fontWeight: 700, letterSpacing: 0.4, marginBottom: 8 }}>
                         Vendor notes on this phase ({notes.length})
                       </div>
                       <div style={{ display: "grid", gap: 6 }}>
                         {notes.slice(0, 5).map((n) => (
-                          <div key={n.id} style={{ fontSize: 12, padding: 6, background: "#FFFBEB", border: `1px solid #FDE68A`, borderRadius: 4 }}>
+                          <div key={n.id} style={{ fontSize: 12, padding: 8, background: C.bg, border: `1px solid ${C.warn}55`, borderRadius: 6 }}>
                             <div style={{ color: C.textMuted, fontSize: 11 }}>
-                              {n.author_name || "Vendor"}{n.po_line_key ? ` · line ${n.po_line_key}` : ""} · {new Date(n.created_at).toLocaleString()}
+                              {n.author_name || "Vendor"} · {new Date(n.created_at).toLocaleString()}
                             </div>
-                            <div style={{ marginTop: 2, whiteSpace: "pre-wrap" }}>{n.body}</div>
+                            <div style={{ marginTop: 3, whiteSpace: "pre-wrap", color: C.textSub }}>{n.body}</div>
                           </div>
                         ))}
                         {notes.length > 5 && <div style={{ fontSize: 11, color: C.textMuted }}>+ {notes.length - 5} more</div>}
@@ -227,7 +365,21 @@ export default function PhaseReviews() {
             })}
           </div>
         )}
+
+        <div style={{ marginTop: 20, fontSize: 11, color: C.textMuted, textAlign: "center" }}>
+          {counts.pending} pending · {counts.approved} approved · {counts.rejected} rejected (in current filter)
+        </div>
       </div>
+
+      {dialog && (
+        <ActionDialog
+          state={dialog}
+          reviewer={reviewer}
+          onSubmit={submitAction}
+          onCancel={() => setDialog(null)}
+        />
+      )}
+      {toast && <Toast text={toast.text} tone={toast.tone} onClose={() => setToast(null)} />}
     </div>
   );
 }

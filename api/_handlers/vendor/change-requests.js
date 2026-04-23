@@ -66,21 +66,54 @@ export default async function handler(req, res) {
     return send(403, { error: `You don't have permission to edit "${phase_name}". Contact your Ring of Fire admin.` });
   }
 
-  const { data: inserted, error: insErr } = await admin
+  // Collapse: if a pending request already exists for the same
+  // (vendor, po, phase, line, field), update its new_value rather than
+  // inserting a second pending row. We preserve the ORIGINAL old_value
+  // from the first request so the reviewer sees the true baseline
+  // instead of an intermediate step the vendor has since superseded.
+  const lineKeyNorm = po_line_key ? String(po_line_key) : null;
+  let existingQ = admin
     .from("tanda_milestone_change_requests")
-    .insert({
-      vendor_id: vendorId,
-      po_id,
-      po_number: po.po_number,
-      phase_name,
-      field_name,
-      old_value: old_value != null ? String(old_value) : null,
-      new_value: new_value != null ? String(new_value) : null,
-      requested_by_vendor_user_id: auth.vendor_user_id || null,
-      po_line_key: po_line_key ? String(po_line_key) : null,
-    })
-    .select("*")
-    .single();
+    .select("id, old_value")
+    .eq("vendor_id", vendorId)
+    .eq("po_id", po_id)
+    .eq("phase_name", phase_name)
+    .eq("field_name", field_name)
+    .eq("status", "pending");
+  existingQ = lineKeyNorm === null ? existingQ.is("po_line_key", null) : existingQ.eq("po_line_key", lineKeyNorm);
+  const { data: existingMatch } = await existingQ.order("requested_at", { ascending: false }).limit(1).maybeSingle();
+
+  let inserted;
+  let insErr;
+  if (existingMatch?.id) {
+    ({ data: inserted, error: insErr } = await admin
+      .from("tanda_milestone_change_requests")
+      .update({
+        new_value: new_value != null ? String(new_value) : null,
+        requested_at: new Date().toISOString(),
+        requested_by_vendor_user_id: auth.vendor_user_id || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existingMatch.id)
+      .select("*")
+      .single());
+  } else {
+    ({ data: inserted, error: insErr } = await admin
+      .from("tanda_milestone_change_requests")
+      .insert({
+        vendor_id: vendorId,
+        po_id,
+        po_number: po.po_number,
+        phase_name,
+        field_name,
+        old_value: old_value != null ? String(old_value) : null,
+        new_value: new_value != null ? String(new_value) : null,
+        requested_by_vendor_user_id: auth.vendor_user_id || null,
+        po_line_key: lineKeyNorm,
+      })
+      .select("*")
+      .single());
+  }
   if (insErr) return send(500, { error: insErr.message });
 
   // Fire a vendor-authored po_message so the internal thread lights up.
