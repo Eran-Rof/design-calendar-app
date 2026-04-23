@@ -30,13 +30,8 @@ import AllocationDetailDrawer from "../components/AllocationDetailDrawer";
 
 type TabKey = "grid" | "exceptions";
 
-interface ExtendedRun extends IpPlanningRun {
-  wholesale_source_run_id?: string | null;
-  ecom_source_run_id?: string | null;
-}
-
 export default function ReconciliationWorkbench() {
-  const [runs, setRuns] = useState<ExtendedRun[]>([]);
+  const [runs, setRuns] = useState<IpPlanningRun[]>([]);
   const [wholesaleRuns, setWholesaleRuns] = useState<IpPlanningRun[]>([]);
   const [ecomRuns, setEcomRuns] = useState<IpPlanningRun[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -62,7 +57,7 @@ export default function ReconciliationWorkbench() {
       wholesaleRepo.listPlanningRuns("wholesale"),
       wholesaleRepo.listPlanningRuns("ecom"),
     ]);
-    setRuns(all as ExtendedRun[]);
+    setRuns(all);
     setWholesaleRuns(ws);
     setEcomRuns(es);
     if (!selectedRunId && all.length > 0) {
