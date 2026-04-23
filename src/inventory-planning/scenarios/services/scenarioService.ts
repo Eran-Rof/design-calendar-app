@@ -51,11 +51,6 @@ import { monthOf, monthsBetween } from "../../compute/periods";
 import { scenarioRepo } from "./scenarioRepo";
 import { logChange } from "./auditLogService";
 
-interface ExtendedRun extends IpPlanningRun {
-  wholesale_source_run_id?: string | null;
-  ecom_source_run_id?: string | null;
-}
-
 // ── 1. clone base into scenario ───────────────────────────────────────────
 export async function cloneBaseIntoScenario(args: {
   baseRunId: string;
@@ -77,16 +72,13 @@ export async function cloneBaseIntoScenario(args: {
     source_snapshot_date: baseRun.source_snapshot_date,
     horizon_start: baseRun.horizon_start,
     horizon_end: baseRun.horizon_end,
+    forecast_method_preference: baseRun.forecast_method_preference,
+    wholesale_source_run_id: baseRun.wholesale_source_run_id
+                              ?? (baseRun.planning_scope === "wholesale" ? baseRun.id : null),
+    ecom_source_run_id: baseRun.ecom_source_run_id
+                              ?? (baseRun.planning_scope === "ecom" ? baseRun.id : null),
     note: `Cloned from ${baseRun.id.slice(0, 8)} at ${new Date().toISOString()}`,
     created_by: createdBy ?? null,
-  });
-  // Patch the source-run pointers (createPlanningRun doesn't accept them
-  // in its typed shape; use raw REST PATCH).
-  await patchRunRaw(newRun.id, {
-    wholesale_source_run_id: (baseRun as ExtendedRun).wholesale_source_run_id
-                              ?? (baseRun.planning_scope === "wholesale" ? baseRun.id : null),
-    ecom_source_run_id: (baseRun as ExtendedRun).ecom_source_run_id
-                              ?? (baseRun.planning_scope === "ecom" ? baseRun.id : null),
   });
 
   // 2. Clone forecast rows.
@@ -409,20 +401,12 @@ export async function recomputeScenarioOutputs(scenarioId: string): Promise<{
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────
-async function fetchRun(id: string): Promise<ExtendedRun | null> {
+async function fetchRun(id: string): Promise<IpPlanningRun | null> {
   if (!SB_URL) return null;
   const r = await fetch(`${SB_URL}/rest/v1/ip_planning_runs?select=*&id=eq.${id}`, { headers: SB_HEADERS });
   if (!r.ok) return null;
-  const rows = (await r.json()) as ExtendedRun[];
+  const rows = (await r.json()) as IpPlanningRun[];
   return rows[0] ?? null;
-}
-async function patchRunRaw(id: string, patch: Record<string, unknown>): Promise<void> {
-  if (!SB_URL) return;
-  await fetch(`${SB_URL}/rest/v1/ip_planning_runs?id=eq.${id}`, {
-    method: "PATCH",
-    headers: SB_HEADERS,
-    body: JSON.stringify(patch),
-  });
 }
 function earlierIso(iso: string, months: number): string {
   const d = new Date(iso + "T00:00:00Z");
