@@ -4,6 +4,7 @@ import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate } from "./utils";
 import { showAlert, showConfirm, showFileViewer } from "./ui/AppDialog";
+import AttachmentsManager from "./ui/AttachmentsManager";
 
 const CARRIER_GROUPS: { label: string; carriers: string[] }[] = [
   { label: "Parcel / courier", carriers: ["UPS", "FedEx", "USPS", "DHL"] },
@@ -46,6 +47,7 @@ interface Shipment {
   notes: string | null;
   packing_list_url: string | null;
   bl_document_url: string | null;
+  vendor_id: string | null;
 }
 
 interface EventRow {
@@ -455,6 +457,18 @@ export default function ShipmentDetail() {
                 <strong style={{ color: TH.text }}>Notes:</strong> {shipment.notes}
               </div>
             )}
+          </div>
+        )}
+
+        {shipment.vendor_id && (
+          <div style={{ marginTop: 14 }}>
+            <AttachmentsManager
+              entityType="shipment"
+              entityId={shipment.id}
+              storageFolder={`${shipment.vendor_id}/shipments`}
+              readOnly={!editing}
+              label="Shipment documents"
+            />
           </div>
         )}
 

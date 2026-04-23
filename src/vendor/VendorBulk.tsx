@@ -108,7 +108,7 @@ export default function VendorBulk() {
             <div style={{ textAlign: "right", color: o.failure_count > 0 ? TH.primary : TH.textSub2 }}>{o.failure_count}</div>
             <div style={{ textAlign: "right" }}>
               {o.result_file_url ? (
-                <button onClick={() => void downloadResult(o.id)} style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>Download</button>
+                <button onClick={() => void downloadResult(o.id)} style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>Preview</button>
               ) : <span style={{ color: TH.textMuted, fontSize: 12 }}>—</span>}
             </div>
           </div>

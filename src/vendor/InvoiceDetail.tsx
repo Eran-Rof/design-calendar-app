@@ -276,7 +276,7 @@ export default function InvoiceDetail() {
             </div>
             {invoice.file_url && !editing && (
               <button onClick={() => void openAttachment()} style={{ padding: "4px 12px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit", flexShrink: 0 }}>
-                Download
+                Preview
               </button>
             )}
           </div>

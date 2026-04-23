@@ -5,6 +5,7 @@ import { supabaseVendor } from "./supabaseVendor";
 import StatusBadge, { disputeTone } from "./StatusBadge";
 import { fmtDate } from "./utils";
 import { showAlert } from "./ui/AppDialog";
+import AttachmentsManager from "./ui/AttachmentsManager";
 
 interface Dispute {
   id: string;
@@ -46,6 +47,7 @@ function timeAgo(iso: string): string {
 export default function VendorDisputeDetail() {
   const { id } = useParams<{ id: string }>();
   const [dispute, setDispute] = useState<Dispute | null>(null);
+  const [vendorId, setVendorId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -62,6 +64,17 @@ export default function VendorDisputeDetail() {
       const data = await r.json();
       setDispute(data.dispute);
       setMessages(data.messages || []);
+      // Resolve caller's vendor_id for the attachments storage folder.
+      // RLS guarantees the dispute belongs to this vendor.
+      if (!vendorId) {
+        const { data: userRes } = await supabaseVendor.auth.getUser();
+        const uid = userRes.user?.id;
+        if (uid) {
+          const { data: vu } = await supabaseVendor.from("vendor_users")
+            .select("vendor_id").eq("auth_id", uid).maybeSingle();
+          setVendorId((vu as { vendor_id: string } | null)?.vendor_id || null);
+        }
+      }
       window.setTimeout(() => {
         if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
       }, 0);
@@ -160,6 +173,18 @@ export default function VendorDisputeDetail() {
           </div>
         )}
       </div>
+
+      {vendorId && (
+        <div style={{ marginTop: 14 }}>
+          <AttachmentsManager
+            entityType="dispute"
+            entityId={dispute.id}
+            storageFolder={`${vendorId}/disputes`}
+            readOnly={dispute.status === "closed" || dispute.status === "resolved"}
+            label="Evidence / supporting documents"
+          />
+        </div>
+      )}
     </div>
   );
 }
