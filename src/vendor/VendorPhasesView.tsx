@@ -225,6 +225,13 @@ export default function VendorPhasesView({ poId }: Props = {}) {
     return requestIndex.get(`${poId}::${phase}::${lineKey ?? "__master"}::${field}`)?.[0] || null;
   }
 
+  // Prior reviewed requests on the same cell (excluding the latest one).
+  // Used to show review history — e.g. "previously REJECTED on 4/22".
+  function priorHistory(poId: string, phase: string, field: string, lineKey: string | null = null): ChangeRequest[] {
+    const all = requestIndex.get(`${poId}::${phase}::${lineKey ?? "__master"}::${field}`) || [];
+    return all.slice(1).filter((r) => r.reviewed_at && r.status !== "pending");
+  }
+
   // Notes CRUD. Direct supabase calls — RLS enforces ownership on update.
   function notesFor(poIdArg: string, phase: string, lineKey: string | null = null): PhaseNote[] {
     const list = Array.isArray(notes) ? notes : [];
@@ -284,14 +291,22 @@ export default function VendorPhasesView({ poId }: Props = {}) {
 
   const banner = useMemo(() => {
     // Surface recent reviewer activity (last 24h) in a top banner so the
-    // vendor notices if a proposed change got approved or rejected.
+    // vendor notices if a proposed change got approved or rejected. When
+    // the view is scoped to a single PO (poId passed), only count that
+    // PO's activity — otherwise approvals from other POs leak into the
+    // banner on an unrelated PO's page.
     const cutoff = Date.now() - 24 * 3600 * 1000;
-    const recent = requests.filter((r) => r.reviewed_at && new Date(r.reviewed_at).getTime() > cutoff);
+    const recent = requests.filter((r) => {
+      if (!r.reviewed_at) return false;
+      if (new Date(r.reviewed_at).getTime() <= cutoff) return false;
+      if (poId && r.po_id !== poId) return false;
+      return true;
+    });
     if (recent.length === 0) return null;
     const approved = recent.filter((r) => r.status === "approved").length;
     const rejected = recent.filter((r) => r.status === "rejected").length;
     return { approved, rejected, total: recent.length };
-  }, [requests]);
+  }, [requests, poId]);
 
   const visiblePOs = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -558,19 +573,46 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                 </div>
                 <div></div>{/* spacer column — matches header, pushes review state + notes right */}
                 <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, lineHeight: 1.35 }}>
-                  {pending && <div style={{ color: "#92400E" }}>⏳ Pending review</div>}
-                  {rejected && !pending && (
-                    <div style={{ color: "#991B1B" }} title={r.dateReq?.review_note || r.statusReq?.review_note || ""}>✗ Rejected</div>
-                  )}
-                  {!pending && !rejected && (r.dateReq?.status === "approved" || r.statusReq?.status === "approved") && (
-                    <div style={{ color: "#065F46" }}>✓ Approved</div>
-                  )}
-                  {hasMismatch && (
-                    <div style={{ color: "#7C3AED" }}>⚠ Lines differ</div>
-                  )}
-                  {!pending && !rejected && !r.dateReq?.status && !r.statusReq?.status && !hasMismatch && (
-                    <div style={{ color: TH.textMuted, fontWeight: 500 }}>—</div>
-                  )}
+                  {(() => {
+                    // Pick the latest reviewed request that is driving this cell's chip.
+                    const latestReviewed = [r.statusReq, r.dateReq].find((x) => x && x.reviewed_at) || null;
+                    const history = [
+                      ...priorHistory(r.po.uuid_id, r.phase.name, "status"),
+                      ...priorHistory(r.po.uuid_id, r.phase.name, "expected_date"),
+                    ]
+                      .sort((a, b) => new Date(b.reviewed_at || 0).getTime() - new Date(a.reviewed_at || 0).getTime())
+                      .slice(0, 3);
+                    const historyTitle = history.length
+                      ? history.map((h) => `${h.status === "approved" ? "✓" : "✗"} ${h.field_name} → ${h.new_value ?? "(cleared)"} on ${new Date(h.reviewed_at!).toLocaleDateString()}${h.review_note ? ` — ${h.review_note}` : ""}`).join("\n")
+                      : "";
+                    const reviewedDate = latestReviewed?.reviewed_at ? new Date(latestReviewed.reviewed_at).toLocaleDateString() : "";
+                    return (
+                      <>
+                        {pending && <div style={{ color: "#92400E" }}>⏳ Pending review</div>}
+                        {rejected && !pending && (
+                          <div style={{ color: "#991B1B" }} title={latestReviewed?.review_note || r.dateReq?.review_note || r.statusReq?.review_note || ""}>
+                            ✗ Rejected{reviewedDate && <span style={{ color: TH.textMuted, fontWeight: 500, marginLeft: 4 }}>{reviewedDate}</span>}
+                          </div>
+                        )}
+                        {!pending && !rejected && (r.dateReq?.status === "approved" || r.statusReq?.status === "approved") && (
+                          <div style={{ color: "#065F46" }} title={latestReviewed?.review_note || ""}>
+                            ✓ Approved{reviewedDate && <span style={{ color: TH.textMuted, fontWeight: 500, marginLeft: 4 }}>{reviewedDate}</span>}
+                          </div>
+                        )}
+                        {hasMismatch && (
+                          <div style={{ color: "#7C3AED" }}>⚠ Lines differ</div>
+                        )}
+                        {!pending && !rejected && !r.dateReq?.status && !r.statusReq?.status && !hasMismatch && (
+                          <div style={{ color: TH.textMuted, fontWeight: 500 }}>—</div>
+                        )}
+                        {history.length > 0 && (
+                          <div style={{ color: TH.textMuted, fontWeight: 500, marginTop: 2, fontSize: 9 }} title={historyTitle}>
+                            + {history.length} earlier
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
                 <div style={{ display: "flex", justifyContent: "center" }}>
                   <NotesButton
