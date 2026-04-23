@@ -4,11 +4,14 @@
 // Key formula (kept visible so anyone can verify a cell in the grid):
 //
 //   total_available_supply_qty =
-//     beginning_on_hand_qty + inbound_receipts_qty + inbound_po_qty + wip_qty
+//     available_qty + inbound_receipts_qty + inbound_po_qty + wip_qty
 //
-//   (ATS is NOT added — it overlaps with on_hand in most ERPs.
-//    We surface it on the row for planner visibility, but the total
-//    is an explicit sum of non-overlapping buckets.)
+//   where available_qty =
+//     ats_qty  (month 1 — snapshot value, net of existing SO commitments)
+//     OR beginning_on_hand_qty  (months 2+ — rolled ending balance, already net)
+//
+//   Using ATS rather than raw on_hand ensures inventory already committed to
+//   existing SOs is not double-counted against new forecasted demand.
 //
 // The allocation waterfall is handled by allocationEngine.ts; this
 // module just supplies the inputs and computes derived fields.
@@ -23,11 +26,13 @@ import type {
 import { computeAllocation } from "./allocationEngine";
 
 export function totalAvailableSupply(s: SupplyInputsForSku): number {
-  // Guard against negatives from dirty data — the exception engine
-  // still flags `negative_ats` separately so the planner sees it.
   const safe = (n: number) => (Number.isFinite(n) && n > 0 ? n : 0);
+  // Month 1: ats_qty is set from the Xoro snapshot (net of existing SO commitments).
+  // Months 2+: ats_qty is 0 and beginning_on_hand_qty is the rolled ending balance,
+  // which is already net. Either way we pick the right available figure.
+  const onHand = s.ats_qty > 0 ? safe(s.ats_qty) : safe(s.beginning_on_hand_qty);
   return (
-    safe(s.beginning_on_hand_qty) +
+    onHand +
     safe(s.inbound_receipts_qty) +
     safe(s.inbound_po_qty) +
     safe(s.wip_qty)
