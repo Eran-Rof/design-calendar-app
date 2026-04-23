@@ -55,7 +55,7 @@ export default async function handler(req, res) {
 
   const {
     po_id, invoice_number, invoice_date, due_date, currency,
-    subtotal, tax, total, notes, file_url, payment_terms,
+    subtotal, tax, total, notes, file_url, file_description, payment_terms,
     from_asn_id, discrepancies,
     line_items,
   } = body || {};
@@ -97,6 +97,7 @@ export default async function handler(req, res) {
     total: total != null ? Number(total) : null,
     status: "submitted",
     file_url: file_url || null,
+    file_description: file_description ? String(file_description).trim() : null,
     submitted_by: caller.id,
     notes: notes ? String(notes).trim() : null,
     payment_terms: payment_terms ? String(payment_terms).trim() : null,

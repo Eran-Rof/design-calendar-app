@@ -46,7 +46,7 @@ export default async function handler(req, res) {
   if (typeof body === "string") { try { body = JSON.parse(body); } catch { return send(400, { error: "Invalid JSON" }); } }
   const {
     invoice_number, invoice_date, due_date, currency,
-    subtotal, tax, total, notes, file_url, payment_terms, line_items,
+    subtotal, tax, total, notes, file_url, file_description, payment_terms, line_items,
   } = body || {};
 
   // Reject an explicit empty array — callers should omit the key to
@@ -89,6 +89,7 @@ export default async function handler(req, res) {
   if (total !== undefined) patch.total = total != null && Number.isFinite(Number(total)) ? Number(total) : null;
   if (notes !== undefined) patch.notes = notes ? String(notes).trim() : null;
   if (file_url !== undefined) patch.file_url = file_url || null;
+  if (file_description !== undefined) patch.file_description = file_description ? String(file_description).trim() : null;
   if (payment_terms !== undefined) patch.payment_terms = payment_terms ? String(payment_terms).trim() : null;
 
   if (Object.keys(patch).length > 1) {

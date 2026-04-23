@@ -24,6 +24,7 @@ interface Invoice {
   rejection_reason: string | null;
   notes: string | null;
   file_url: string | null;
+  file_description: string | null;
 }
 
 interface LineRow {
@@ -56,7 +57,7 @@ export default function InvoiceDetail() {
   // Edit mode state
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [editHeader, setEditHeader] = useState({ invoice_number: "", invoice_date: "", due_date: "", notes: "", tax: "0" });
+  const [editHeader, setEditHeader] = useState({ invoice_number: "", invoice_date: "", due_date: "", notes: "", tax: "0", file_description: "" });
   const [editLines, setEditLines] = useState<LineRow[]>([]);
   const [replacementFile, setReplacementFile] = useState<File | null>(null);
 
@@ -109,6 +110,7 @@ export default function InvoiceDetail() {
       due_date: invoice.due_date || "",
       notes: invoice.notes || "",
       tax: invoice.tax != null ? String(invoice.tax) : "0",
+      file_description: invoice.file_description || "",
     });
     setEditLines(lines.map((l) => ({ ...l })));
     setReplacementFile(null);
@@ -163,6 +165,7 @@ export default function InvoiceDetail() {
           subtotal,
           total,
           ...(fileUrlPatch !== undefined ? { file_url: fileUrlPatch } : {}),
+          file_description: editHeader.file_description.trim() || null,
           line_items: editLines.map((l, idx) => ({
             po_line_item_id: l.po_line_item_id,
             line_index: idx + 1,
@@ -229,12 +232,44 @@ export default function InvoiceDetail() {
         </div>
 
         {invoice.file_url && (
-          <div style={{ marginTop: 14, padding: "10px 14px", background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ color: TH.textSub2 }}>
-              <strong style={{ color: TH.text }}>Attachment:</strong>{" "}
-              <span style={{ fontFamily: "Menlo, monospace", fontSize: 12 }}>{invoice.file_url.split("/").pop()}</span>
+          <div style={{ marginTop: 14, padding: "10px 14px", background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+            <div style={{ color: TH.textSub2, flex: 1, minWidth: 0 }}>
+              {editing ? (
+                <>
+                  <div style={{ fontSize: 10, color: TH.textMuted, textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.4, marginBottom: 4 }}>Document description</div>
+                  <input
+                    type="text"
+                    list="invoice-detail-file-description-options"
+                    value={editHeader.file_description}
+                    onChange={(e) => setEditHeader((h) => ({ ...h, file_description: e.target.value }))}
+                    placeholder="e.g. Invoice PDF, Packing list…"
+                    style={{ width: "100%", padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, background: TH.bg, color: TH.text, fontSize: 13, fontFamily: "inherit", boxSizing: "border-box" }}
+                  />
+                  <datalist id="invoice-detail-file-description-options">
+                    <option value="Invoice PDF" />
+                    <option value="Packing list" />
+                    <option value="Bill of lading" />
+                    <option value="Commercial invoice" />
+                    <option value="Certificate of origin" />
+                    <option value="Inspection certificate" />
+                    <option value="Credit memo" />
+                    <option value="Supporting Excel" />
+                    <option value="Other" />
+                  </datalist>
+                  <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4, fontFamily: "Menlo, monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {invoice.file_url.split("/").pop()}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <strong style={{ color: TH.text }}>{invoice.file_description || "Document"}</strong>
+                  <span style={{ fontFamily: "Menlo, monospace", fontSize: 12, marginLeft: 8, color: TH.textMuted }}>
+                    {invoice.file_url.split("/").pop()}
+                  </span>
+                </>
+              )}
             </div>
-            <button onClick={() => void openAttachment()} style={{ padding: "4px 12px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}>
+            <button onClick={() => void openAttachment()} style={{ padding: "4px 12px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit", flexShrink: 0 }}>
               Download
             </button>
           </div>

@@ -82,6 +82,7 @@ export default function InvoiceSubmit() {
   const [tax, setTax] = useState("0");
   const [notes, setNotes] = useState(prefill?.notes || "");
   const [file, setFile] = useState<File | null>(null);
+  const [fileDescription, setFileDescription] = useState<string>("Invoice PDF");
   const [paymentTerms, setPaymentTerms] = useState<string>("");
 
   const [vendorUserId, setVendorUserId] = useState<string | null>(null);
@@ -327,6 +328,7 @@ export default function InvoiceSubmit() {
           total,
           notes: notes.trim() || null,
           file_url: fileUrl,
+          file_description: fileUrl ? (fileDescription.trim() || null) : null,
           payment_terms: paymentTerms || null,
           from_asn_id: fromAsnId || undefined,
           discrepancies: discrepancies.length > 0 ? discrepancies : undefined,
@@ -479,16 +481,38 @@ export default function InvoiceSubmit() {
               <div>
                 <label style={labelStyle}>Notes (optional)</label>
                 <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} style={{ ...inputStyle, fontFamily: "inherit", resize: "vertical" }} />
-                <label style={{ ...labelStyle, marginTop: 10 }}>Attachment (PDF or Excel, optional)</label>
+                <label style={{ ...labelStyle, marginTop: 10 }}>Upload document (PDF or Excel, optional)</label>
                 <input
                   type="file"
                   accept="application/pdf,.pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xls,.xlsx"
                   onChange={(e) => setFile(e.target.files?.[0] || null)}
                 />
                 {file && (
-                  <div style={{ fontSize: 12, color: TH.textMuted, marginTop: 4 }}>
-                    {file.name} · {(file.size / 1024).toFixed(0)} KB
-                  </div>
+                  <>
+                    <div style={{ fontSize: 12, color: TH.textMuted, marginTop: 4 }}>
+                      {file.name} · {(file.size / 1024).toFixed(0)} KB
+                    </div>
+                    <label style={{ ...labelStyle, marginTop: 10 }}>Document description</label>
+                    <input
+                      type="text"
+                      list="invoice-file-description-options"
+                      value={fileDescription}
+                      onChange={(e) => setFileDescription(e.target.value)}
+                      placeholder="e.g. Invoice PDF, Packing list, Certificate…"
+                      style={inputStyle}
+                    />
+                    <datalist id="invoice-file-description-options">
+                      <option value="Invoice PDF" />
+                      <option value="Packing list" />
+                      <option value="Bill of lading" />
+                      <option value="Commercial invoice" />
+                      <option value="Certificate of origin" />
+                      <option value="Inspection certificate" />
+                      <option value="Credit memo" />
+                      <option value="Supporting Excel" />
+                      <option value="Other" />
+                    </datalist>
+                  </>
                 )}
               </div>
               <div style={{ background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 6, padding: "14px 18px" }}>
