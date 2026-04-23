@@ -15,6 +15,8 @@ function run(snapshot: string): IpPlanningRun {
     id: "r", name: "t", planning_scope: "all", status: "active",
     source_snapshot_date: snapshot,
     horizon_start: null, horizon_end: null,
+    forecast_method_preference: "ly_sales",
+    wholesale_source_run_id: null, ecom_source_run_id: null,
     note: null, created_by: null,
     created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z",
   };
