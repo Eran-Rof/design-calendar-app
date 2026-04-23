@@ -108,8 +108,8 @@ const APPS = [
   },
   {
     id: "gs1" as const,
-    name: "Prepack Labels",
-    description: "GS1 GTIN generation, packing list parsing and prepack carton label printing",
+    name: "GTIN Creation",
+    description: "GS1 prepack GTIN generation, packing list upload, label batch printing and CSV export",
     icon: "🏷️",
     color: "#0891B2",
     path: "/gs1",
