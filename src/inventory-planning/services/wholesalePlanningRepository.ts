@@ -98,6 +98,10 @@ export const wholesaleRepo = {
       `ip_planning_runs?select=*&planning_scope=eq.${scope}&order=created_at.desc&limit=200`,
     );
   },
+  async getPlanningRun(id: string): Promise<IpPlanningRun | null> {
+    const rows = await sbGet<IpPlanningRun>(`ip_planning_runs?select=*&id=eq.${id}&limit=1`);
+    return rows[0] ?? null;
+  },
   async createPlanningRun(row: Omit<IpPlanningRun, "id" | "created_at" | "updated_at">): Promise<IpPlanningRun> {
     const [created] = await sbPost<IpPlanningRun>("ip_planning_runs", [row]);
     return created;

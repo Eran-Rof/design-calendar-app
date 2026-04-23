@@ -31,7 +31,6 @@
 import type { IpPlanningRun } from "../../types/wholesale";
 import type { IpProjectedInventory } from "../../supply/types/supply";
 import type { IpScenario, IpScenarioType } from "../types/scenarios";
-import { SB_HEADERS, SB_URL } from "../../../utils/supabase";
 import { wholesaleRepo } from "../../services/wholesalePlanningRepository";
 import { ecomRepo } from "../../ecom/services/ecomForecastRepo";
 import { supplyRepo } from "../../supply/services/supplyReconciliationRepo";
@@ -402,11 +401,7 @@ export async function recomputeScenarioOutputs(scenarioId: string): Promise<{
 
 // ── helpers ────────────────────────────────────────────────────────────────
 async function fetchRun(id: string): Promise<IpPlanningRun | null> {
-  if (!SB_URL) return null;
-  const r = await fetch(`${SB_URL}/rest/v1/ip_planning_runs?select=*&id=eq.${id}`, { headers: SB_HEADERS });
-  if (!r.ok) return null;
-  const rows = (await r.json()) as IpPlanningRun[];
-  return rows[0] ?? null;
+  return wholesaleRepo.getPlanningRun(id);
 }
 function earlierIso(iso: string, months: number): string {
   const d = new Date(iso + "T00:00:00Z");
