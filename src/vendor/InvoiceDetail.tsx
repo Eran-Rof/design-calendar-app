@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate, fmtMoney } from "./utils";
+import AttachmentsManager from "./ui/AttachmentsManager";
 
 interface Invoice {
   id: string;
@@ -51,6 +52,7 @@ export default function InvoiceDetail() {
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [lines, setLines] = useState<LineRow[]>([]);
   const [poNumber, setPoNumber] = useState<string | null>(null);
+  const [vendorId, setVendorId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -80,6 +82,7 @@ export default function InvoiceDetail() {
         if (!inv) throw new Error("Invoice not found.");
         setInvoice(inv as Invoice);
         setLines((lineData ?? []) as LineRow[]);
+        setVendorId((inv as { vendor_id?: string }).vendor_id || null);
 
         if (inv.po_id) {
           const { data: po } = await supabaseVendor
@@ -276,6 +279,21 @@ export default function InvoiceDetail() {
                 Download
               </button>
             )}
+          </div>
+        )}
+
+        {/* Multi-file attachments — independent of the legacy single
+            file_url column above. Shown view-only when not editing,
+            fully editable (add/rename/remove) in edit mode. */}
+        {vendorId && (
+          <div style={{ marginTop: 12 }}>
+            <AttachmentsManager
+              entityType="invoice"
+              entityId={invoice.id}
+              storageFolder={`${vendorId}/invoices`}
+              readOnly={!editing}
+              label="Additional documents"
+            />
           </div>
         )}
 

@@ -223,6 +223,8 @@ import h217 from "./internal/phase-change-requests/[id]/approve.js";
 import h218 from "./internal/phase-change-requests/[id]/reject.js";
 import h219 from "./internal/phase-notes/index.js";
 import h220 from "./internal/phase-change-requests/[id]/set-status.js";
+import h221 from "./vendor/attachments/index.js";
+import h222 from "./vendor/attachments/[id].js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -425,6 +427,8 @@ export const ROUTES = [
   { pattern: "/api/internal/phase-change-requests/:id/set-status", handler: h220 },
   { pattern: "/api/internal/phase-change-requests", handler: h216 },
   { pattern: "/api/internal/phase-notes", handler: h219 },
+  { pattern: "/api/vendor/attachments/:id", handler: h222 },
+  { pattern: "/api/vendor/attachments", handler: h221 },
   { pattern: "/api/vendor/invoices/:id", handler: h212 },
   { pattern: "/api/vendor/invoices", handler: h192 },
   { pattern: "/api/vendor/payments", handler: h193 },
