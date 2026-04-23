@@ -18,6 +18,7 @@ const LABEL: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: TH.te
 const INPUT: React.CSSProperties = {
   padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6,
   fontSize: 13, color: TH.text, background: "#fff", outline: "none",
+  width: "100%", boxSizing: "border-box",
 };
 
 const EMPTY_FORM: ManualCartonInput = {
@@ -126,12 +127,13 @@ export default function CartonPanel() {
           <form onSubmit={handleCreate}>
             <div style={FIELD}>
               <label style={LABEL}>Packing List Upload (optional)</label>
-              <select style={INPUT} value={form.upload_id ?? ""} onChange={e => set("upload_id", e.target.value || undefined)}>
+              <select style={{ ...INPUT, appearance: "auto" }} value={form.upload_id ?? ""} onChange={e => set("upload_id", e.target.value || undefined)}>
                 <option value="">— None —</option>
                 {uploads.map(u => (
                   <option key={u.id} value={u.id}>{u.file_name}</option>
                 ))}
               </select>
+
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -155,15 +157,17 @@ export default function CartonPanel() {
                 <label style={LABEL}>Channel</label>
                 <input style={INPUT} value={form.channel ?? ""} onChange={e => set("channel", e.target.value)} placeholder="e.g. HAF" />
               </div>
-              <div style={FIELD}>
-                <label style={LABEL}>Total Packs</label>
-                <input style={INPUT} type="number" min={1} value={form.total_packs ?? ""}
-                  onChange={e => set("total_packs", e.target.value ? parseInt(e.target.value) : undefined)} />
-              </div>
-              <div style={FIELD}>
-                <label style={LABEL}>Total Units</label>
-                <input style={INPUT} type="number" min={1} value={form.total_units ?? ""}
-                  onChange={e => set("total_units", e.target.value ? parseInt(e.target.value) : undefined)} />
+              <div style={{ ...FIELD, gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 0 }}>
+                <div style={FIELD}>
+                  <label style={LABEL}>Total Packs</label>
+                  <input style={INPUT} type="number" min={1} value={form.total_packs ?? ""}
+                    onChange={e => set("total_packs", e.target.value ? parseInt(e.target.value) : undefined)} />
+                </div>
+                <div style={FIELD}>
+                  <label style={LABEL}>Total Units</label>
+                  <input style={INPUT} type="number" min={1} value={form.total_units ?? ""}
+                    onChange={e => set("total_units", e.target.value ? parseInt(e.target.value) : undefined)} />
+                </div>
               </div>
             </div>
 
