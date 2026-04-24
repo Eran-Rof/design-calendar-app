@@ -36,10 +36,22 @@ export default async function handler(req, res) {
   const email = String(body?.email || "").trim().toLowerCase();
   const display_name = String(body?.display_name || "").trim();
   const legacy_blob_id = String(body?.legacy_blob_id || "").trim();
-  const site_url = String(body?.site_url || "").trim().replace(/\/$/, "");
+  const vendor_name = String(body?.vendor_name || "").trim();
+  // Fall back to current origin for callers that don't pass site_url —
+  // the Onboarding panel in TandA doesn't know the absolute URL.
+  const site_url = (() => {
+    const s = String(body?.site_url || "").trim().replace(/\/$/, "");
+    if (s && /^https?:\/\//.test(s)) return s;
+    const proto = (req.headers["x-forwarded-proto"] || "https").toString().split(",")[0];
+    const host = (req.headers["x-forwarded-host"] || req.headers.host || "").toString().split(",")[0];
+    return host ? `${proto}://${host}` : "";
+  })();
 
-  if (!email || !legacy_blob_id) {
-    return res.status(400).json({ error: "email and legacy_blob_id are required" });
+  if (!email) {
+    return res.status(400).json({ error: "email is required" });
+  }
+  if (!legacy_blob_id && !vendor_name) {
+    return res.status(400).json({ error: "Either legacy_blob_id or vendor_name is required" });
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ error: "Invalid email" });
@@ -51,15 +63,32 @@ export default async function handler(req, res) {
   const admin = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
   try {
-    const { data: vendor, error: vErr } = await admin
-      .from("vendors")
-      .select("id, name")
-      .eq("legacy_blob_id", legacy_blob_id)
-      .maybeSingle();
-    if (vErr) return res.status(500).json({ error: "Vendor lookup failed: " + vErr.message });
+    // Resolve vendor by legacy_blob_id (preferred) OR vendor_name
+    // (Onboarding flow that doesn't know the blob id). If nothing
+    // matches and vendor_name was provided, create a new vendors row.
+    let vendor = null;
+    if (legacy_blob_id) {
+      const { data, error: vErr } = await admin
+        .from("vendors").select("id, name")
+        .eq("legacy_blob_id", legacy_blob_id).maybeSingle();
+      if (vErr) return res.status(500).json({ error: "Vendor lookup failed: " + vErr.message });
+      vendor = data;
+    } else if (vendor_name) {
+      const { data, error: vErr } = await admin
+        .from("vendors").select("id, name")
+        .ilike("name", vendor_name).maybeSingle();
+      if (vErr) return res.status(500).json({ error: "Vendor lookup failed: " + vErr.message });
+      vendor = data;
+      if (!vendor) {
+        const { data: created, error: cErr } = await admin
+          .from("vendors").insert({ name: vendor_name }).select("id, name").single();
+        if (cErr) return res.status(500).json({ error: "Could not create vendor: " + cErr.message });
+        vendor = created;
+      }
+    }
     if (!vendor) {
       return res.status(404).json({
-        error: "Vendor not found in vendors table. The mirror trigger may not have synced yet — try again in a moment.",
+        error: "Vendor not found and no vendor_name provided to create one.",
       });
     }
 

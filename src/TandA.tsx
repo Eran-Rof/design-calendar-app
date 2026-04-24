@@ -132,6 +132,7 @@ const VENDOR_MENU_GROUPS: { group: string; items: MenuItem[] }[] = [
     { view: "shipments",          label: "Shipments",       emoji: "🚢" },
     { view: "match",              label: "3-Way Match",     emoji: "🔍" },
     { view: "messages",           label: "Messages",        emoji: "💬" },
+    { view: "phase_reviews",      label: "Phase reviews",   emoji: "🧭" },
     { view: "anomalies",          label: "Anomalies",       emoji: "🚨" },
     { view: "workspaces",         label: "Workspaces",      emoji: "🗂️" },
   ]},
@@ -1411,6 +1412,13 @@ function TandAApp() {
           })}>📧 Email</button>
           <button style={view === "activity" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("activity"); })}>📋 Activity</button>
           <VendorsMenu view={view} onSelect={(v) => guardedNav(() => {
+            // "phase_reviews" is the ROF approval page — it lives at
+            // a top-level route outside TandA, so we navigate hard
+            // instead of changing the in-app view.
+            if (v === "phase_reviews") {
+              window.location.href = "/rof/phase-reviews";
+              return;
+            }
             setSelected(null);
             setView(v);
             if (v === "vendors") loadArchivedPOs();
