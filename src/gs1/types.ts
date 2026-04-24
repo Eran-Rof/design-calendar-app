@@ -369,6 +369,59 @@ export interface LabelData {
   source_sheet_name?: string | null;
 }
 
+// ── Label template types ──────────────────────────────────────────────────────
+
+export type PrinterType = "pdf" | "zebra_zpl" | "csv";
+export type LabelTemplateType = "pack_gtin" | "sscc";
+
+export interface HumanReadableFields {
+  show_style:   boolean;
+  show_color:   boolean;
+  show_scale:   boolean;
+  show_channel: boolean;  // GTIN labels
+  show_po:      boolean;  // SSCC labels
+  show_carton:  boolean;  // SSCC labels
+  show_units:   boolean;  // SSCC labels
+}
+
+export interface LabelTemplate {
+  id: string;
+  label_type: LabelTemplateType;
+  template_name: string;
+  label_width: string | null;
+  label_height: string | null;
+  printer_type: PrinterType;
+  barcode_format: string;
+  human_readable_fields: HumanReadableFields | null;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LabelTemplateInput {
+  label_type: LabelTemplateType;
+  template_name: string;
+  label_width: string;
+  label_height: string;
+  printer_type: PrinterType;
+  barcode_format: string;
+  human_readable_fields: HumanReadableFields;
+  is_default: boolean;
+}
+
+export interface LabelPrintLog {
+  id: string;
+  label_batch_id: string | null;
+  label_type: string;
+  printed_by: string | null;
+  print_method: string | null;
+  labels_printed: number;
+  output_file_path: string | null;
+  status: "printed" | "reprint" | "failed";
+  reprint_reason: string | null;
+  created_at: string;
+}
+
 // ── Known scale codes (for parser detection) ──────────────────────────────────
 export const KNOWN_SCALE_CODES = new Set([
   "CA","CB","CC","CD","CE","CF","CG","CH","CI",

@@ -46,6 +46,9 @@ import type {
   LabelBatchLine,
   LabelData,
   LabelMode,
+  LabelTemplate,
+  LabelTemplateInput,
+  LabelPrintLog,
   Carton,
   CartonContent,
   ManualCartonInput,
@@ -54,7 +57,7 @@ import type {
   XoroSyncLog,
 } from "../types";
 
-export type GS1Tab = "company" | "upc" | "scale" | "gtins" | "upload" | "labels" | "cartons" | "receiving";
+export type GS1Tab = "company" | "upc" | "scale" | "gtins" | "upload" | "labels" | "cartons" | "receiving" | "templates";
 
 interface GS1State {
   activeTab: GS1Tab;
@@ -107,6 +110,15 @@ interface GS1State {
   xoroSyncError: string | null;
   xoroSyncLogs: XoroSyncLog[];
 
+  // Label templates
+  labelTemplates: LabelTemplate[];
+  templateLoading: boolean;
+  templateError: string | null;
+
+  // Print logs (for current batch)
+  printLogs: LabelPrintLog[];
+  printLogsLoading: boolean;
+
   // BOM builder
   bomBuilding: boolean;
   bomBuildError: string | null;
@@ -158,6 +170,25 @@ interface GS1Actions {
   loadAllCartons: () => Promise<void>;
   createManualSscc: (data: ManualCartonInput) => Promise<Carton>;
   clearLastCreatedSscc: () => void;
+
+  // Label template actions
+  loadLabelTemplates: () => Promise<void>;
+  saveLabelTemplate: (data: LabelTemplateInput) => Promise<LabelTemplate>;
+  updateLabelTemplate: (id: string, data: Partial<LabelTemplateInput>) => Promise<LabelTemplate>;
+  deleteLabelTemplate: (id: string) => Promise<void>;
+  setDefaultTemplate: (id: string, labelType: string) => Promise<void>;
+  seedDefaultTemplates: () => Promise<void>;
+
+  // Print log actions
+  logPrintEvent: (data: {
+    label_batch_id: string | null;
+    label_type: string;
+    print_method: string;
+    labels_printed: number;
+    status: "printed" | "reprint" | "failed";
+    reprint_reason?: string | null;
+  }) => Promise<void>;
+  loadPrintLogs: (batchId?: string) => Promise<void>;
 
   // Xoro sync actions
   testXoroConnection: () => Promise<void>;
@@ -222,6 +253,13 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
   cartonLoading: false,
   cartonError: null,
   lastCreatedSscc: null,
+
+  labelTemplates: [],
+  templateLoading: false,
+  templateError: null,
+
+  printLogs: [],
+  printLogsLoading: false,
 
   xoroConnecting: false,
   xoroConnectionResult: null,
@@ -582,7 +620,7 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
     }));
   },
 
-  clearCurrentBatch: () => set({ currentBatch: null, batchLines: [], cartons: [] }),
+  clearCurrentBatch: () => set({ currentBatch: null, batchLines: [], cartons: [], printLogs: [] }),
 
   // ── Carton tab ────────────────────────────────────────────────────────────────
   loadAllCartons: async () => {
@@ -613,6 +651,94 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
   },
 
   clearLastCreatedSscc: () => set({ lastCreatedSscc: null }),
+
+  // ── Label templates ───────────────────────────────────────────────────────────
+  loadLabelTemplates: async () => {
+    set({ templateLoading: true, templateError: null });
+    try {
+      const templates = await db.loadLabelTemplates();
+      set({ labelTemplates: templates, templateLoading: false });
+    } catch (e) {
+      set({ templateError: String(e), templateLoading: false });
+    }
+  },
+
+  saveLabelTemplate: async (data) => {
+    set({ templateLoading: true, templateError: null });
+    try {
+      const tmpl = await db.saveLabelTemplate(data);
+      const templates = await db.loadLabelTemplates();
+      set({ labelTemplates: templates, templateLoading: false });
+      return tmpl;
+    } catch (e) {
+      set({ templateError: String(e), templateLoading: false });
+      throw e;
+    }
+  },
+
+  updateLabelTemplate: async (id, data) => {
+    set({ templateLoading: true, templateError: null });
+    try {
+      const tmpl = await db.updateLabelTemplate(id, data);
+      const templates = await db.loadLabelTemplates();
+      set({ labelTemplates: templates, templateLoading: false });
+      return tmpl;
+    } catch (e) {
+      set({ templateError: String(e), templateLoading: false });
+      throw e;
+    }
+  },
+
+  deleteLabelTemplate: async (id) => {
+    set({ templateLoading: true });
+    try {
+      await db.deleteLabelTemplate(id);
+      set(s => ({ labelTemplates: s.labelTemplates.filter(t => t.id !== id), templateLoading: false }));
+    } catch (e) {
+      set({ templateError: String(e), templateLoading: false });
+      throw e;
+    }
+  },
+
+  setDefaultTemplate: async (id, labelType) => {
+    await db.setDefaultTemplate(id, labelType);
+    const templates = await db.loadLabelTemplates();
+    set({ labelTemplates: templates });
+  },
+
+  seedDefaultTemplates: async () => {
+    // Create built-in defaults if none exist for each label type
+    const existing = await db.loadLabelTemplates();
+    const allFields = { show_style: true, show_color: true, show_scale: true, show_channel: true, show_po: true, show_carton: true, show_units: true };
+    if (!existing.some(t => t.label_type === "pack_gtin")) {
+      await db.saveLabelTemplate({ label_type: "pack_gtin", template_name: "Standard 4×6 PDF", label_width: "4", label_height: "6", printer_type: "pdf", barcode_format: "gtin14", human_readable_fields: allFields, is_default: true });
+    }
+    if (!existing.some(t => t.label_type === "sscc")) {
+      await db.saveLabelTemplate({ label_type: "sscc", template_name: "Standard 4×6 PDF", label_width: "4", label_height: "6", printer_type: "pdf", barcode_format: "sscc18", human_readable_fields: allFields, is_default: true });
+    }
+    const templates = await db.loadLabelTemplates();
+    set({ labelTemplates: templates });
+  },
+
+  // ── Print logs ────────────────────────────────────────────────────────────────
+  logPrintEvent: async (data) => {
+    try {
+      const log = await db.createPrintLog(data);
+      set(s => ({ printLogs: [log, ...s.printLogs] }));
+    } catch {
+      // Log failures are non-fatal
+    }
+  },
+
+  loadPrintLogs: async (batchId) => {
+    set({ printLogsLoading: true });
+    try {
+      const logs = await db.loadPrintLogs(batchId);
+      set({ printLogs: logs, printLogsLoading: false });
+    } catch {
+      set({ printLogsLoading: false });
+    }
+  },
 
   // ── Xoro sync ─────────────────────────────────────────────────────────────────
   testXoroConnection: async () => {

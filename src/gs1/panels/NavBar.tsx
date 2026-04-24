@@ -3,13 +3,14 @@ import { TH } from "../../utils/theme";
 import { useGS1Store, type GS1Tab } from "../store/gs1Store";
 
 const TABS: Array<{ id: GS1Tab; label: string }> = [
-  { id: "company",  label: "Company Setup" },
-  { id: "upc",      label: "UPC Master" },
-  { id: "scale",    label: "Scale Master" },
-  { id: "gtins",    label: "Pack GTINs" },
-  { id: "upload",   label: "Packing List" },
-  { id: "labels",   label: "Label Batches" },
-  { id: "cartons",  label: "Carton Labels" },
+  { id: "company",   label: "Company Setup" },
+  { id: "upc",       label: "UPC Master" },
+  { id: "scale",     label: "Scale Master" },
+  { id: "gtins",     label: "Pack GTINs" },
+  { id: "upload",    label: "Packing List" },
+  { id: "labels",    label: "Label Batches" },
+  { id: "templates", label: "Label Templates" },
+  { id: "cartons",   label: "Carton Labels" },
   { id: "receiving", label: "Receiving" },
 ];
 

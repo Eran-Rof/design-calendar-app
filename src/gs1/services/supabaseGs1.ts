@@ -24,6 +24,9 @@ import type {
   LabelBatchLine,
   LabelData,
   LabelMode,
+  LabelTemplate,
+  LabelTemplateInput,
+  LabelPrintLog,
   Carton,
   CartonInput,
   CartonContent,
@@ -716,4 +719,91 @@ export async function updateBatchStatus(batchId: string, status: LabelBatch["sta
       headers: { Prefer: "return=minimal" },
     }
   );
+}
+
+// ── label_templates ───────────────────────────────────────────────────────────
+
+export async function loadLabelTemplates(): Promise<LabelTemplate[]> {
+  return sbFetch<LabelTemplate[]>(
+    `${rpc("label_templates")}?order=label_type.asc,template_name.asc`
+  );
+}
+
+export async function saveLabelTemplate(data: LabelTemplateInput): Promise<LabelTemplate> {
+  const payload = {
+    label_type:            data.label_type,
+    template_name:         data.template_name,
+    label_width:           data.label_width  || null,
+    label_height:          data.label_height || null,
+    printer_type:          data.printer_type,
+    barcode_format:        data.barcode_format,
+    human_readable_fields: data.human_readable_fields ?? null,
+    is_default:            data.is_default ?? false,
+    updated_at:            new Date().toISOString(),
+  };
+  const [row] = await sbFetch<LabelTemplate[]>(
+    rpc("label_templates"),
+    { method: "POST", body: JSON.stringify(payload), headers: { Prefer: "return=representation" } }
+  );
+  return row;
+}
+
+export async function updateLabelTemplate(id: string, data: Partial<LabelTemplateInput>): Promise<LabelTemplate> {
+  const payload = { ...data, updated_at: new Date().toISOString() };
+  const [row] = await sbFetch<LabelTemplate[]>(
+    `${rpc("label_templates")}?id=eq.${id}`,
+    { method: "PATCH", body: JSON.stringify(payload), headers: { Prefer: "return=representation" } }
+  );
+  return row;
+}
+
+export async function deleteLabelTemplate(id: string): Promise<void> {
+  await sbFetch<void>(`${rpc("label_templates")}?id=eq.${id}`, { method: "DELETE" });
+}
+
+export async function setDefaultTemplate(id: string, labelType: string): Promise<void> {
+  // Clear existing defaults for this label type, then set the new one
+  await sbFetch<void>(
+    `${rpc("label_templates")}?label_type=eq.${encodeURIComponent(labelType)}&is_default=eq.true`,
+    { method: "PATCH", body: JSON.stringify({ is_default: false }), headers: { Prefer: "return=minimal" } }
+  );
+  await sbFetch<void>(
+    `${rpc("label_templates")}?id=eq.${id}`,
+    { method: "PATCH", body: JSON.stringify({ is_default: true, updated_at: new Date().toISOString() }), headers: { Prefer: "return=minimal" } }
+  );
+}
+
+// ── label_print_logs ──────────────────────────────────────────────────────────
+
+export async function createPrintLog(data: {
+  label_batch_id: string | null;
+  label_type: string;
+  print_method: string;
+  labels_printed: number;
+  status: "printed" | "reprint" | "failed";
+  reprint_reason?: string | null;
+}): Promise<LabelPrintLog> {
+  const [row] = await sbFetch<LabelPrintLog[]>(
+    rpc("label_print_logs"),
+    {
+      method: "POST",
+      body: JSON.stringify({
+        label_batch_id:  data.label_batch_id ?? null,
+        label_type:      data.label_type,
+        print_method:    data.print_method,
+        labels_printed:  data.labels_printed,
+        status:          data.status,
+        reprint_reason:  data.reprint_reason ?? null,
+      }),
+      headers: { Prefer: "return=representation" },
+    }
+  );
+  return row;
+}
+
+export async function loadPrintLogs(batchId?: string, limit = 50): Promise<LabelPrintLog[]> {
+  const filter = batchId
+    ? `?label_batch_id=eq.${batchId}&order=created_at.desc&limit=${limit}`
+    : `?order=created_at.desc&limit=${limit}`;
+  return sbFetch<LabelPrintLog[]>(`${rpc("label_print_logs")}${filter}`);
 }
