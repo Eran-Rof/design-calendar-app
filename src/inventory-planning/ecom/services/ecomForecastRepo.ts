@@ -112,8 +112,9 @@ export const ecomRepo = {
     forecastId: string,
     flags: { promo_flag?: boolean; launch_flag?: boolean; markdown_flag?: boolean; notes?: string | null },
   ): Promise<IpEcomForecast> {
-    const [updated] = await sbPatch<IpEcomForecast>(`ip_ecom_forecast?id=eq.${forecastId}`, flags);
-    return updated;
+    const rows = await sbPatch<IpEcomForecast>(`ip_ecom_forecast?id=eq.${forecastId}`, flags);
+    if (!rows[0]) throw new Error(`patchForecastFlags: no row returned for ${forecastId}`);
+    return rows[0];
   },
 
   // ── override audit ───────────────────────────────────────────────────────

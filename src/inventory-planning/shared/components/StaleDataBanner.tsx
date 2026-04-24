@@ -30,7 +30,7 @@ export default function StaleDataBanner({ watch, dismissKey }: StaleDataBannerPr
 
   useEffect(() => {
     let cancelled = false;
-    loadFreshnessSignals().then((s) => { if (!cancelled) setSignals(s); });
+    loadFreshnessSignals().then((s) => { if (!cancelled) setSignals(s); }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
 

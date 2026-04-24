@@ -44,7 +44,7 @@ export default function EcomOverrideDrawer({ row, overrides, onClose, onSaveOver
     setError(null);
     setBuyStr(row?.planned_buy_qty != null ? String(row.planned_buy_qty) : "");
     setBuyError(null);
-  }, [row?.forecast_id, row?.planned_buy_qty]);
+  }, [row?.forecast_id, row?.planned_buy_qty, row?.override_qty]);
 
   if (!row) return null;
 
