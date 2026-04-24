@@ -47,6 +47,7 @@ export interface IpEcomForecast {
   markdown_factor: number | null;
   trailing_4w_qty: number | null;
   trailing_13w_qty: number | null;
+  planned_buy_qty: number | null;
   notes: string | null;
   created_at: IpIsoDateTime;
   updated_at: IpIsoDateTime;
@@ -114,6 +115,7 @@ export interface IpEcomGridRow {
   is_active: boolean;
   return_rate: number | null;
   forecast_method: IpEcomForecastMethod;
+  planned_buy_qty: number | null;
   notes: string | null;
 }
 

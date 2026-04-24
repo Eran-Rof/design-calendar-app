@@ -256,7 +256,8 @@ function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number
   return (
     <input
       data-buycell="1"
-      type="number"
+      type="text"
+      inputMode="numeric"
       value={str}
       onChange={(e) => { setStr(e.target.value); setErr(false); }}
       onBlur={(e) => void commit(e.target.value)}

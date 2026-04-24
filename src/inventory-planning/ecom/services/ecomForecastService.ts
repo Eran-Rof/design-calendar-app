@@ -211,6 +211,7 @@ export async function buildEcomGridRows(run: IpPlanningRun): Promise<IpEcomGridR
       is_active: status?.is_active ?? true,
       return_rate: f.return_rate ?? null,
       forecast_method: f.forecast_method,
+      planned_buy_qty: f.planned_buy_qty ?? null,
       notes: f.notes,
     };
   });

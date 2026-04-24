@@ -74,14 +74,28 @@ export const ecomRepo = {
   },
   async upsertForecast(rows: Array<Omit<IpEcomForecast, "id" | "created_at" | "updated_at">>): Promise<void> {
     if (rows.length === 0) return;
+    const url = "ip_ecom_forecast?on_conflict=planning_run_id,channel_id,sku_id,week_start";
+    const prefer = "return=minimal,resolution=merge-duplicates";
     for (let i = 0; i < rows.length; i += 500) {
       const chunk = rows.slice(i, i + 500);
-      await sbPost<IpEcomForecast>(
-        "ip_ecom_forecast?on_conflict=planning_run_id,channel_id,sku_id,week_start",
-        chunk,
-        "return=minimal,resolution=merge-duplicates",
-      );
+      try {
+        await sbPost<IpEcomForecast>(url, chunk, prefer);
+      } catch (e) {
+        if (e instanceof Error && e.message.includes("PGRST204") && e.message.includes("planned_buy_qty")) {
+          const stripped = chunk.map(({ planned_buy_qty: _a, ...rest }) => rest);
+          await sbPost<IpEcomForecast>(url, stripped, prefer);
+        } else {
+          throw e;
+        }
+      }
     }
+  },
+  async patchForecastBuyQty(forecastId: string, planned_buy_qty: number | null): Promise<IpEcomForecast> {
+    const [updated] = await sbPatch<IpEcomForecast>(
+      `ip_ecom_forecast?id=eq.${forecastId}`,
+      { planned_buy_qty },
+    );
+    return updated;
   },
   async patchForecastOverride(
     forecastId: string,

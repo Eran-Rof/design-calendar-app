@@ -126,6 +126,14 @@ export default function EcomPlanningWorkbench() {
     setToast({ text: "Override saved", kind: "success" });
   }
 
+  async function saveBuyQty(forecastId: string, qty: number | null) {
+    await ecomRepo.patchForecastBuyQty(forecastId, qty);
+    const refreshed = await buildEcomGridRows(selectedRun!);
+    setRows(refreshed);
+    setSelectedRow((prev) => prev ? (refreshed.find((r) => r.forecast_id === prev.forecast_id) ?? prev) : null);
+    setToast({ text: qty != null ? `Buy qty set to ${qty.toLocaleString()}` : "Buy qty cleared", kind: "success" });
+  }
+
   async function toggleFlag(flag: "promo_flag" | "launch_flag" | "markdown_flag", value: boolean) {
     if (!selectedRow) return;
     await ecomRepo.patchForecastFlags(selectedRow.forecast_id, { [flag]: value });
@@ -220,7 +228,7 @@ export default function EcomPlanningWorkbench() {
         </div>
 
         {tab === "grid" && (
-          <EcomPlanningGrid rows={rows} loading={loading} onSelectRow={setSelectedRow} />
+          <EcomPlanningGrid rows={rows} loading={loading} onSelectRow={setSelectedRow} onUpdateBuyQty={saveBuyQty} />
         )}
         {tab === "chart" && (
           <EcomForecastChart run={selectedRun} row={selectedRow} />
@@ -234,6 +242,7 @@ export default function EcomPlanningWorkbench() {
           onClose={() => setSelectedRow(null)}
           onSaveOverride={saveOverride}
           onToggleFlag={toggleFlag}
+          onUpdateBuyQty={saveBuyQty}
         />
       )}
 

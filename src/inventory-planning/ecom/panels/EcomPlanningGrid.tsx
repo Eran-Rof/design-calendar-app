@@ -2,13 +2,14 @@
 // SKU, category, channel, 4W, 13W, trend %, system, override, final,
 // promo / launch / markdown flags, plus protected qty + return rate.
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { IpEcomGridRow } from "../types/ecom";
 import { S, PAL, formatQty, formatPeriodCode } from "../../components/styles";
 
 export interface EcomPlanningGridProps {
   rows: IpEcomGridRow[];
   onSelectRow: (row: IpEcomGridRow) => void;
+  onUpdateBuyQty: (forecastId: string, qty: number | null) => Promise<void>;
   loading?: boolean;
 }
 
@@ -16,7 +17,7 @@ type SortKey = "channel" | "sku" | "period" | "final" | "trend" | "trailing4";
 
 const PAGE_SIZE = 500; // safety for very wide horizons; planner sees a summary + can filter
 
-export default function EcomPlanningGrid({ rows, onSelectRow, loading }: EcomPlanningGridProps) {
+export default function EcomPlanningGrid({ rows, onSelectRow, onUpdateBuyQty, loading }: EcomPlanningGridProps) {
   const [search, setSearch] = useState("");
   const [filterChannel, setFilterChannel] = useState("all");
   const [filterCategory, setFilterCategory] = useState("all");
@@ -130,6 +131,7 @@ export default function EcomPlanningGrid({ rows, onSelectRow, loading }: EcomPla
               <Th label="Final" k="final" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
               <th style={{ ...S.th, textAlign: "right" }}>Protected</th>
               <th style={{ ...S.th, textAlign: "right" }}>Return</th>
+              <th style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy</th>
               <th style={S.th}>Flags</th>
             </tr>
           </thead>
@@ -154,6 +156,9 @@ export default function EcomPlanningGrid({ rows, onSelectRow, loading }: EcomPla
                 <td style={{ ...S.tdNum, color: r.return_rate && r.return_rate > 0.2 ? PAL.red : PAL.textDim }}>
                   {r.return_rate == null ? "–" : `${(r.return_rate * 100).toFixed(0)}%`}
                 </td>
+                <td onClick={(e) => e.stopPropagation()} style={{ ...S.td, padding: "2px 4px" }}>
+                  <BuyCell value={r.planned_buy_qty} onSave={(qty) => onUpdateBuyQty(r.forecast_id, qty)} />
+                </td>
                 <td style={S.td}>
                   <FlagChip on={r.promo_flag} color={PAL.accent} label="P" />
                   <FlagChip on={r.launch_flag} color={PAL.green} label="L" />
@@ -163,14 +168,14 @@ export default function EcomPlanningGrid({ rows, onSelectRow, loading }: EcomPla
               </tr>
             ))}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={13} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={14} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No forecast rows yet. Click \"Build forecast\" above to populate the grid."
                   : "No rows match your filters."}
               </td></tr>
             )}
             {loading && (
-              <tr><td colSpan={13} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={14} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 Loading…
               </td></tr>
             )}
@@ -230,6 +235,62 @@ function trendColor(pct: number | null): string {
   if (pct > 0.1) return PAL.green;
   if (pct < -0.1) return PAL.red;
   return PAL.textDim;
+}
+
+function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number | null) => Promise<void> }) {
+  const [str, setStr] = useState(value != null ? String(value) : "");
+  const [saving, setSaving] = useState(false);
+  const [errored, setErrored] = useState(false);
+  const prev = useRef(str);
+
+  async function commit() {
+    const trimmed = str.trim();
+    const qty = trimmed === "" ? null : parseInt(trimmed, 10);
+    if (qty !== null && !Number.isFinite(qty)) { setErrored(true); return; }
+    if (trimmed === prev.current) return;
+    setSaving(true); setErrored(false);
+    try {
+      await onSave(qty);
+      prev.current = trimmed;
+    } catch {
+      setErrored(true);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      value={str}
+      placeholder="–"
+      onChange={(e) => { setStr(e.target.value); setErrored(false); }}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+      disabled={saving}
+      style={{
+        width: 72,
+        textAlign: "right",
+        fontFamily: "monospace",
+        fontSize: 12,
+        padding: "3px 6px",
+        borderRadius: 4,
+        border: `1px solid ${errored ? PAL.red : "transparent"}`,
+        background: "transparent",
+        color: str.trim() ? PAL.green : PAL.textMuted,
+        outline: "none",
+      }}
+      onFocus={(e) => {
+        (e.target as HTMLInputElement).style.border = `1px solid ${PAL.green}`;
+        (e.target as HTMLInputElement).style.background = PAL.panel;
+      }}
+      onBlurCapture={(e) => {
+        (e.target as HTMLInputElement).style.border = errored ? `1px solid ${PAL.red}` : "1px solid transparent";
+        (e.target as HTMLInputElement).style.background = "transparent";
+      }}
+    />
+  );
 }
 
 function cmp(a: IpEcomGridRow, b: IpEcomGridRow, k: SortKey, d: "asc" | "desc"): number {
