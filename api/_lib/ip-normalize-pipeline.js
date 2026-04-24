@@ -126,7 +126,7 @@ function reconcileVendorId(src, vendors) {
 function reconcileCategoryId(name, categories) {
   const canon = canonicalizeCategory(name);
   if (!canon) return null;
-  const byCode = categories.find((c) => c.category_code.toUpperCase() === canon);
+  const byCode = categories.find((c) => c.category_code?.toUpperCase() === canon);
   if (byCode) return byCode.id;
   const byName = categories.find((c) => canonicalizeCategory(c.name) === canon);
   return byName?.id ?? null;
@@ -138,7 +138,7 @@ function reconcileChannelId(storefrontCode, channels) {
   if (byStore) return byStore.id;
   const canon = canonicalizeChannelCode(storefrontCode);
   if (!canon) return null;
-  const byCode = channels.find((c) => c.channel_code.toUpperCase() === canon);
+  const byCode = channels.find((c) => c.channel_code?.toUpperCase() === canon);
   return byCode?.id ?? null;
 }
 

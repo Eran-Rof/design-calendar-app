@@ -179,7 +179,7 @@ export default function AIDemandPanel({ planningRunId, onToast }: AIDemandPanelP
                       ) : <span style={{ color: PAL.textMuted, fontSize: 11 }}>—</span>}
                     </td>
                     <td style={{ ...S.td, color: PAL.textMuted, fontSize: 11, maxWidth: 200 }}>
-                      {p.key_signals[0] ?? "—"}
+                      {p.key_signals?.[0] ?? "—"}
                     </td>
                   </tr>
                 ))}
@@ -217,7 +217,7 @@ export default function AIDemandPanel({ planningRunId, onToast }: AIDemandPanelP
             <div style={{ marginTop: 16, marginBottom: 4, fontSize: 11, fontWeight: 700, color: PAL.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Rationale</div>
             <div style={{ fontSize: 12, color: PAL.text, lineHeight: 1.6 }}>{selected.rationale}</div>
 
-            {selected.key_signals.length > 0 && (
+            {(selected.key_signals?.length ?? 0) > 0 && (
               <>
                 <div style={{ marginTop: 16, marginBottom: 4, fontSize: 11, fontWeight: 700, color: PAL.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Data Signals</div>
                 <ul style={{ margin: 0, padding: "0 0 0 16px" }}>
