@@ -651,7 +651,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                       return (
                         <div key={h.id} style={{ color, display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "baseline", whiteSpace: "nowrap" }} title={tooltip}>
                           <span>{icon} {label}</span>
-                          {date && <span style={{ color: TH.textMuted, fontWeight: 500, textAlign: "right" }}>{date}</span>}
+                          {date && <span style={{ color: TH.textMuted, fontWeight: 500, textAlign: "right", paddingRight: 24 }}>{date}</span>}
                         </div>
                       );
                     });
@@ -674,7 +674,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                         style={{ color, display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "baseline", whiteSpace: "nowrap" }}
                       >
                         <span>{icon} {label}{countSuffix}</span>
-                        {date && <span style={{ color: TH.textMuted, fontWeight: 500, textAlign: "right" }}>{date}</span>}
+                        {date && <span style={{ color: TH.textMuted, fontWeight: 500, textAlign: "right", paddingRight: 24 }}>{date}</span>}
                       </div>
                     );
                   })}
@@ -763,7 +763,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                                 return (
                                   <div key={rv.id} title={tooltip} style={{ color, display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "baseline", whiteSpace: "nowrap" }}>
                                     <span>{icon} {label}</span>
-                                    {date && <span style={{ color: TH.textMuted, fontWeight: 500, textAlign: "right" }}>{date}</span>}
+                                    {date && <span style={{ color: TH.textMuted, fontWeight: 500, textAlign: "right", paddingRight: 24 }}>{date}</span>}
                                   </div>
                                 );
                               })}
