@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, Fragment, lazy, Suspense } from "react";
+import NotificationsShell from "./components/notifications/NotificationsShell";
+import { supabaseClient } from "./utils/supabase";
 import { useIdleLogout } from "./hooks/useIdleLogout";
 import { useAppStore } from "./store";
 import { sbLoad as sbLoadSvc, sbSaveTask as sbSaveTaskSvc, sbLoadTasks as sbLoadTasksSvc, sbLoadCollections as sbLoadCollectionsSvc } from "./store/supabaseService";
@@ -1231,6 +1233,14 @@ function App() {
           </button>
         </div>
       </div>
+      {supabaseClient && currentUser && (
+        <NotificationsShell
+          kind="internal"
+          supabase={supabaseClient}
+          userId={currentUser.id}
+          sessionKey="rof_notif_dismissed_internal"
+        />
+      )}
     </div>
   );
 }

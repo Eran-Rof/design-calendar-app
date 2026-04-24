@@ -1,6 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
 import XLSXStyle from "xlsx-js-style";
-import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
+import { SB_URL, SB_KEY, SB_HEADERS, supabaseClient } from "./utils/supabase";
+import NotificationsShell from "./components/notifications/NotificationsShell";
 import type { ATSRow, ATSSnapshot, ATSSkuData, ATSPoEvent, ATSSoEvent, UploadWarning, ExcelData, CtxMenu, SummaryCtxMenu } from "./ats/types";
 import { addDays, fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, skuSimilarity } from "./ats/helpers";
 import { computeRowsFromExcelData } from "./ats/compute";
@@ -20,8 +21,29 @@ import type { ATSState, ATSAction } from "./ats/state/atsTypes";
 import { atsRenderPanel } from "./ats/renderPanel";
 
 // ── Main Component ────────────────────────────────────────────────────────────
+function readPlmUserId(): string | null {
+  try {
+    const raw = sessionStorage.getItem("plm_user");
+    if (!raw) return null;
+    return (JSON.parse(raw) as { id?: string }).id || null;
+  } catch { return null; }
+}
+
 export default function ATSReportWrapper() {
-  return <ATSProvider><ATSReport /></ATSProvider>;
+  const userId = readPlmUserId();
+  return (
+    <ATSProvider>
+      <ATSReport />
+      {supabaseClient && userId && (
+        <NotificationsShell
+          kind="internal"
+          supabase={supabaseClient}
+          userId={userId}
+          sessionKey="rof_notif_dismissed_internal"
+        />
+      )}
+    </ATSProvider>
+  );
 }
 
 function ATSReport() {
