@@ -64,8 +64,8 @@ export default function EcomOverrideDrawer({ row, overrides, onClose, onSaveOver
 
   async function saveBuy() {
     const trimmed = buyStr.trim();
-    const qty = trimmed === "" ? null : parseInt(trimmed, 10);
-    if (qty !== null && !Number.isFinite(qty)) { setBuyError("Must be a whole number"); return; }
+    const qty = trimmed === "" ? null : Number(trimmed);
+    if (qty !== null && (!Number.isFinite(qty) || !Number.isInteger(qty))) { setBuyError("Must be a whole number"); return; }
     setBuyingSaving(true); setBuyError(null);
     try {
       await onUpdateBuyQty(row!.forecast_id, qty);

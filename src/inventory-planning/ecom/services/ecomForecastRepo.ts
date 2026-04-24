@@ -91,28 +91,22 @@ export const ecomRepo = {
     }
   },
   async patchForecastBuyQty(forecastId: string, planned_buy_qty: number | null): Promise<IpEcomForecast> {
-    const [updated] = await sbPatch<IpEcomForecast>(
-      `ip_ecom_forecast?id=eq.${forecastId}`,
-      { planned_buy_qty },
-    );
-    return updated;
+    const rows = await sbPatch<IpEcomForecast>(`ip_ecom_forecast?id=eq.${forecastId}`, { planned_buy_qty });
+    if (!rows[0]) throw new Error(`patchForecastBuyQty: no row returned for ${forecastId}`);
+    return rows[0];
   },
   async patchForecastOverride(
     forecastId: string,
     override_qty: number,
     final_forecast_qty: number,
   ): Promise<IpEcomForecast> {
-    const [updated] = await sbPatch<IpEcomForecast>(
-      `ip_ecom_forecast?id=eq.${forecastId}`,
-      {
-        override_qty,
-        final_forecast_qty,
-        // Phase 2 policy: protected tracks final. Phase 3 allocation layer
-        // will write this column independently.
-        protected_ecom_qty: final_forecast_qty,
-      },
-    );
-    return updated;
+    const rows = await sbPatch<IpEcomForecast>(`ip_ecom_forecast?id=eq.${forecastId}`, {
+      override_qty,
+      final_forecast_qty,
+      protected_ecom_qty: final_forecast_qty,
+    });
+    if (!rows[0]) throw new Error(`patchForecastOverride: no row returned for ${forecastId}`);
+    return rows[0];
   },
   async patchForecastFlags(
     forecastId: string,
@@ -129,8 +123,9 @@ export const ecomRepo = {
     );
   },
   async createOverride(row: Omit<IpEcomOverrideEvent, "id" | "created_at">): Promise<IpEcomOverrideEvent> {
-    const [created] = await sbPost<IpEcomOverrideEvent>("ip_ecom_override_events", [row]);
-    return created;
+    const rows = await sbPost<IpEcomOverrideEvent>("ip_ecom_override_events", [row]);
+    if (!rows[0]) throw new Error("createOverride: no row returned");
+    return rows[0];
   },
 };
 
