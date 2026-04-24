@@ -2,7 +2,7 @@
 // SKU, category, channel, 4W, 13W, trend %, system, override, final,
 // promo / launch / markdown flags, plus protected qty + return rate.
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { IpEcomGridRow } from "../types/ecom";
 import { S, PAL, formatQty, formatPeriodCode } from "../../components/styles";
 
