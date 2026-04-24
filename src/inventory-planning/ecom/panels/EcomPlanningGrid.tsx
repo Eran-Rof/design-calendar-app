@@ -136,6 +136,7 @@ export default function EcomPlanningGrid({ rows, onSelectRow, onUpdateBuyQty, lo
               <th style={{ ...S.th, textAlign: "right", color: PAL.red }}>Short</th>
               <th style={{ ...S.th, textAlign: "right", color: PAL.yellow }}>Excess</th>
               <th style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy</th>
+              <th style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy $</th>
               <th style={S.th}>Flags</th>
             </tr>
           </thead>
@@ -171,6 +172,9 @@ export default function EcomPlanningGrid({ rows, onSelectRow, onUpdateBuyQty, lo
                 <td onClick={(e) => e.stopPropagation()} style={{ ...S.td, padding: "2px 4px" }}>
                   <BuyCell value={r.planned_buy_qty} onSave={(qty) => onUpdateBuyQty(r.forecast_id, qty)} />
                 </td>
+                <td style={{ ...S.tdNum, color: r.planned_buy_qty && r.item_cost ? PAL.green : PAL.textMuted, fontFamily: "monospace" }}>
+                  {r.planned_buy_qty && r.item_cost ? `$${(r.planned_buy_qty * r.item_cost).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "–"}
+                </td>
                 <td style={S.td}>
                   <FlagChip on={r.promo_flag} color={PAL.accent} label="P" />
                   <FlagChip on={r.launch_flag} color={PAL.green} label="L" />
@@ -180,14 +184,14 @@ export default function EcomPlanningGrid({ rows, onSelectRow, onUpdateBuyQty, lo
               </tr>
             ))}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={18} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={19} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No forecast rows yet. Click \"Build forecast\" above to populate the grid."
                   : "No rows match your filters."}
               </td></tr>
             )}
             {loading && (
-              <tr><td colSpan={18} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={19} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 Loading…
               </td></tr>
             )}

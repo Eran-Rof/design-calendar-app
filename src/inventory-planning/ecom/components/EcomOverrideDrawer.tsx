@@ -160,6 +160,7 @@ export default function EcomOverrideDrawer({ row, overrides, onClose, onSaveOver
               {row.planned_buy_qty != null && (
                 <span style={{ fontFamily: "monospace", fontSize: 13, color: PAL.green }}>
                   Current: {row.planned_buy_qty.toLocaleString()} units
+                  {row.item_cost != null && ` · $${(row.planned_buy_qty * row.item_cost).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
                 </span>
               )}
             </div>

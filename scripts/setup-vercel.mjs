@@ -5,6 +5,7 @@ import { build } from 'esbuild';
 mkdirSync('.vercel/output/functions/api/xoro-proxy.func', { recursive: true });
 mkdirSync('.vercel/output/functions/api/dropbox-proxy.func', { recursive: true });
 mkdirSync('.vercel/output/functions/api/parse-excel.func', { recursive: true });
+mkdirSync('.vercel/output/functions/api/run-migrations.func', { recursive: true });
 
 // Copy simple functions (no npm deps)
 copyFileSync('api/xoro-proxy.js', '.vercel/output/functions/api/xoro-proxy.func/index.js');
@@ -21,11 +22,23 @@ await build({
   external: ['fs', 'path', 'os', 'stream', 'crypto', 'events', 'buffer', 'util', 'http', 'https', 'net', 'tls', 'zlib'],
 });
 
+// Bundle run-migrations with pg (needs native node modules)
+await build({
+  entryPoints: ['api/run-migrations.js'],
+  outfile: '.vercel/output/functions/api/run-migrations.func/index.js',
+  bundle: true,
+  platform: 'node',
+  target: 'node20',
+  format: 'cjs',
+  external: ['fs', 'path', 'os', 'stream', 'crypto', 'events', 'buffer', 'util', 'http', 'https', 'net', 'tls', 'zlib', 'dns', 'dgram', 'child_process'],
+});
+
 // Write Vercel function config for each
 const vcConfig = JSON.stringify({ runtime: 'nodejs20.x', handler: 'index.js', launcherType: 'Nodejs', shouldAddHelpers: true });
 writeFileSync('.vercel/output/functions/api/xoro-proxy.func/.vc-config.json', vcConfig);
 writeFileSync('.vercel/output/functions/api/dropbox-proxy.func/.vc-config.json', vcConfig);
 writeFileSync('.vercel/output/functions/api/parse-excel.func/.vc-config.json', vcConfig);
+writeFileSync('.vercel/output/functions/api/run-migrations.func/.vc-config.json', vcConfig);
 
 // Copy static build output
 cpSync('dist', '.vercel/output/static', { recursive: true });
@@ -37,6 +50,7 @@ const config = {
     { src: '/api/xoro-proxy(.*)', dest: '/api/xoro-proxy$1' },
     { src: '/api/dropbox-proxy(.*)', dest: '/api/dropbox-proxy$1' },
     { src: '/api/parse-excel(.*)', dest: '/api/parse-excel$1' },
+    { src: '/api/run-migrations(.*)', dest: '/api/run-migrations$1' },
     { src: '/assets/(.*)', headers: { 'cache-control': 'public, max-age=31536000, immutable' }, continue: true },
     { handle: 'filesystem' },
     { src: '/(.*)', dest: '/index.html' }

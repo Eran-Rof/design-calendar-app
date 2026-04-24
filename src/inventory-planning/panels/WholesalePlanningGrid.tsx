@@ -136,6 +136,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               <th style={{ ...S.th, textAlign: "right" }}>Receipts</th>
               <th style={{ ...S.th, textAlign: "right" }}>ATS</th>
               <th style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy</th>
+              <th style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy $</th>
               <Th label="Short" k="shortage" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
               <Th label="Excess" k="excess" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
               <Th label="Action" k="action" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
@@ -187,6 +188,9 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                     onSave={(qty) => onUpdateBuyQty(r.forecast_id, qty)}
                   />
                 </td>
+                <td style={{ ...S.tdNum, color: r.planned_buy_qty && r.item_cost ? PAL.green : PAL.textMuted, fontFamily: "monospace" }}>
+                  {r.planned_buy_qty && r.item_cost ? `$${(r.planned_buy_qty * r.item_cost).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "–"}
+                </td>
                 <td style={{ ...S.tdNum, color: r.projected_shortage_qty > 0 ? PAL.red : PAL.textMuted }}>
                   {formatQty(r.projected_shortage_qty)}
                 </td>
@@ -201,14 +205,14 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               </tr>
             ))}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={21} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={22} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No forecast rows yet. Click \"Build forecast\" above to populate the grid."
                   : "No rows match your filters."}
               </td></tr>
             )}
             {loading && (
-              <tr><td colSpan={21} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={22} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 Loading…
               </td></tr>
             )}

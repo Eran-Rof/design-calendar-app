@@ -241,6 +241,7 @@ export async function buildEcomGridRows(run: IpPlanningRun): Promise<IpEcomGridR
       is_active: status?.is_active ?? true,
       return_rate: f.return_rate ?? null,
       forecast_method: f.forecast_method,
+      item_cost: item?.unit_cost ?? null,
       planned_buy_qty: f.planned_buy_qty ?? null,
       on_hand_qty: supply?.beginning_balance_qty ?? onHand.get(f.sku_id) ?? 0,
       available_supply_qty: avail,

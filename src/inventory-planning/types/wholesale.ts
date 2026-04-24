@@ -166,6 +166,7 @@ export interface IpPlanningGridRow {
   confidence_level: IpConfidenceLevel;
   forecast_method: IpForecastMethod;
   ly_reference_qty: number | null;
+  item_cost: number | null;
   planned_buy_qty: number | null;
   on_hand_qty: number | null;
   on_so_qty: number;

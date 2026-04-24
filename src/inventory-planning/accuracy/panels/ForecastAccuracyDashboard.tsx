@@ -48,7 +48,7 @@ export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryN
       .filter((x) => !q || x.label.toUpperCase().includes(q))
       .sort((a, b) => b.metrics.wape_final - a.metrics.wape_final)
       .slice(0, 200);
-  }, [filtered, groupBy, search, skuCodeById, categoryNameById]);
+  }, [filtered, groupBy, search, skuCodeById, categoryNameById, customerNameById, channelNameById]);
 
   return (
     <div>

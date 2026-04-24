@@ -115,6 +115,7 @@ export interface IpEcomGridRow {
   is_active: boolean;
   return_rate: number | null;
   forecast_method: IpEcomForecastMethod;
+  item_cost: number | null;
   planned_buy_qty: number | null;
   on_hand_qty: number;
   available_supply_qty: number;
