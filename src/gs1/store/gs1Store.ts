@@ -27,6 +27,11 @@ import {
   syncUpcItemsFromXoro,
   type XoroConnectionResult,
 } from "../services/xoroSyncService";
+import {
+  runDataQualityChecks,
+  buildExceptionGroups,
+  type DQCheckInput,
+} from "../services/dataQualityService";
 import type {
   CompanySettings,
   CompanySettingsInput,
@@ -55,9 +60,13 @@ import type {
   ReceivingSession,
   ReceivingSessionLine,
   XoroSyncLog,
+  AuditLog,
+  AuditLogInput,
+  DataQualityIssue,
+  ExceptionGroup,
 } from "../types";
 
-export type GS1Tab = "company" | "upc" | "scale" | "gtins" | "upload" | "labels" | "cartons" | "receiving" | "templates";
+export type GS1Tab = "company" | "upc" | "scale" | "gtins" | "upload" | "labels" | "cartons" | "receiving" | "templates" | "exceptions";
 
 interface GS1State {
   activeTab: GS1Tab;
@@ -118,6 +127,17 @@ interface GS1State {
   // Print logs (for current batch)
   printLogs: LabelPrintLog[];
   printLogsLoading: boolean;
+
+  // Audit log
+  auditLogs: AuditLog[];
+  auditLoading: boolean;
+
+  // Data quality / exceptions
+  dataQualityIssues: DataQualityIssue[];
+  exceptionGroups: ExceptionGroup[];
+  dqLoading: boolean;
+  dqError: string | null;
+  dqLastRunAt: string | null;
 
   // BOM builder
   bomBuilding: boolean;
@@ -202,6 +222,13 @@ interface GS1Actions {
   buildBomForReceiving: () => Promise<void>;
   checkUpcCoverageForStyleColor: (styleNo: string, color: string, scaleCode: string) => Promise<BomCheckResult>;
 
+  // Audit + data quality actions
+  writeAuditLog: (entry: AuditLogInput) => Promise<void>;
+  loadAuditLogs: (filters?: { entity_type?: string; entity_id?: string }) => Promise<void>;
+  runDataQualityChecks: () => Promise<void>;
+  loadDataQualityIssues: () => Promise<void>;
+  resolveDataQualityIssue: (id: string, note?: string) => Promise<void>;
+
   // Receiving tab actions
   searchBySscc: (sscc: string) => Promise<void>;
   setReceivingEditedQty: (upc: string, qty: number) => void;
@@ -254,6 +281,15 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
   cartonError: null,
   lastCreatedSscc: null,
 
+  auditLogs: [],
+  auditLoading: false,
+
+  dataQualityIssues: [],
+  exceptionGroups: [],
+  dqLoading: false,
+  dqError: null,
+  dqLastRunAt: null,
+
   labelTemplates: [],
   templateLoading: false,
   templateError: null,
@@ -298,8 +334,10 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
   saveCompanySettings: async (data) => {
     set({ settingsLoading: true, settingsError: null });
     try {
+      const prev = get().companySettings;
       const s = await db.saveCompanySettings(data);
       set({ companySettings: s, settingsLoading: false });
+      await get().writeAuditLog({ entity_type: "company_settings", entity_id: s.id, action: prev ? "update" : "create", old_values: prev ? { gs1_prefix: prev.gs1_prefix, xoro_enabled: prev.xoro_enabled } : null, new_values: { gs1_prefix: s.gs1_prefix, xoro_enabled: s.xoro_enabled } });
     } catch (e) {
       set({ settingsError: String(e), settingsLoading: false });
       throw e;
@@ -388,7 +426,9 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
     if (!settings) throw new Error("Company settings not configured.");
     set({ gtinLoading: true, gtinError: null });
     try {
+      const existed = await db.findPackGtin(styleNo, color, scaleCode);
       const gtin = await db.getOrCreatePackGtin(styleNo, color, scaleCode, settings);
+      if (!existed) await get().writeAuditLog({ entity_type: "pack_gtin", entity_id: gtin.pack_gtin, action: "create", new_values: { style_no: styleNo, color, scale_code: scaleCode, pack_gtin: gtin.pack_gtin } });
       const gtins = await db.loadPackGtins();
       set({ packGtins: gtins, gtinLoading: false });
       return gtin;
@@ -465,6 +505,7 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
 
       set({ currentUpload: updated, uploadBlocks: blocks, parseIssues: issues,
             pendingRows: result.allRows, uploads, uploadLoading: false });
+      await get().writeAuditLog({ entity_type: "packing_list", entity_id: uploadRecord!.id, action: "parse", new_values: { file_name: file.name, rows: result.allRows.length, issues: result.issues.length } });
     } catch (e) {
       if (uploadRecord) await db.updateUploadStatus(uploadRecord.id, "error").catch(() => {});
       set({ uploadError: String(e), uploadLoading: false });
@@ -533,6 +574,7 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
       }
 
       const batch = await db.createLabelBatch(batchName, currentUpload.id, lines, labelMode);
+      await get().writeAuditLog({ entity_type: "label_batch", entity_id: batch.id, action: "create", new_values: { batch_name: batchName, label_mode: labelMode, line_count: lines.length } });
       let batchLines = await db.loadBatchLines(batch.id);
 
       // ── Generate SSCCs if mode includes sscc ────────────────────────────────
@@ -641,6 +683,7 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
       const serialRef = await db.claimOneSsccSerial();
       const sscc = buildSsccFromSettings(companySettings, serialRef);
       const carton = await db.createSingleCarton(sscc, serialRef, data);
+      await get().writeAuditLog({ entity_type: "carton", entity_id: carton.id, action: "create", new_values: { sscc, serial_reference: serialRef, po_number: data.po_number ?? null } });
       const allCartons = await db.loadAllCartons(200);
       set({ allCartons, cartonLoading: false, lastCreatedSscc: sscc });
       return carton;
@@ -725,6 +768,7 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
     try {
       const log = await db.createPrintLog(data);
       if (log) set(s => ({ printLogs: [log, ...s.printLogs] }));
+      await get().writeAuditLog({ entity_type: "label_print", entity_id: data.label_batch_id, action: data.status, new_values: { label_type: data.label_type, method: data.print_method, labels_printed: data.labels_printed, reprint_reason: data.reprint_reason ?? null } });
     } catch {
       // Log failures are non-fatal
     }
@@ -738,6 +782,80 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
     } catch {
       set({ printLogsLoading: false });
     }
+  },
+
+  // ── Audit + data quality ──────────────────────────────────────────────────────
+
+  writeAuditLog: async (entry) => {
+    try {
+      await db.insertAuditLog(entry);
+    } catch {
+      // Audit failures are non-fatal
+    }
+  },
+
+  loadAuditLogs: async (filters) => {
+    set({ auditLoading: true });
+    try {
+      const logs = await db.loadAuditLogs(filters);
+      set({ auditLogs: logs, auditLoading: false });
+    } catch {
+      set({ auditLoading: false });
+    }
+  },
+
+  runDataQualityChecks: async () => {
+    set({ dqLoading: true, dqError: null });
+    try {
+      const { packGtins, upcItems, scales, batchLines, allCartons, receivingSessions } = get();
+      const input: DQCheckInput = {
+        packGtins,
+        upcItems,
+        scales,
+        batchLines,
+        cartons: allCartons,
+        receivingSessions,
+      };
+      const found = runDataQualityChecks(input);
+
+      // Replace open issues: delete all open, re-insert fresh findings
+      await db.clearOpenDataQualityIssues();
+      if (found.length > 0) await db.insertDataQualityIssues(found);
+
+      const issues = await db.loadDataQualityIssues();
+      set({
+        dataQualityIssues: issues,
+        exceptionGroups:   buildExceptionGroups(issues),
+        dqLoading:         false,
+        dqLastRunAt:       new Date().toISOString(),
+      });
+    } catch (e) {
+      set({ dqError: String(e), dqLoading: false });
+    }
+  },
+
+  loadDataQualityIssues: async () => {
+    set({ dqLoading: true, dqError: null });
+    try {
+      const issues = await db.loadDataQualityIssues();
+      set({
+        dataQualityIssues: issues,
+        exceptionGroups:   buildExceptionGroups(issues),
+        dqLoading:         false,
+      });
+    } catch (e) {
+      set({ dqError: String(e), dqLoading: false });
+    }
+  },
+
+  resolveDataQualityIssue: async (id, note) => {
+    await db.resolveDataQualityIssue(id, note);
+    set(s => {
+      const updated = s.dataQualityIssues.map(i =>
+        i.id === id ? { ...i, status: "resolved" as const, resolved_at: new Date().toISOString(), resolution_note: note ?? null } : i
+      );
+      return { dataQualityIssues: updated, exceptionGroups: buildExceptionGroups(updated) };
+    });
   },
 
   // ── Xoro sync ─────────────────────────────────────────────────────────────────
@@ -796,6 +914,7 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
       });
 
       const [upcItems, logs] = await Promise.all([db.loadUpcItems(), db.loadSyncLogs()]);
+      await get().writeAuditLog({ entity_type: "upc_sync", entity_id: logId, action: "xoro_sync", new_values: { processed: syncResult.processed, inserted, normalized: syncResult.normalized } });
       set({ upcItems, xoroSyncLogs: logs, xoroSyncing: false });
     } catch (e) {
       if (logId) await db.updateSyncLog(logId, { status: "error", error_message: String(e) }).catch(() => {});
@@ -1054,6 +1173,7 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
       });
 
       await db.markCartonReceived(receivingCarton.id);
+      await get().writeAuditLog({ entity_type: "receiving_session", entity_id: session.id, action: sessionStatus, new_values: { sscc: receivingCarton.sscc, status: sessionStatus, notes: notes ?? null } });
 
       const [updatedCarton, sessions] = await Promise.all([
         db.loadCartonBySscc(receivingCarton.sscc),

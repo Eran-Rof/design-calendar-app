@@ -35,6 +35,10 @@ import type {
   ReceivingSessionLine,
   ReceivingSessionInput,
   XoroSyncLog,
+  AuditLog,
+  AuditLogInput,
+  DataQualityIssue,
+  DataQualityIssueInput,
 } from "../types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -825,6 +829,122 @@ export async function loadPrintLogs(batchId?: string, limit = 50): Promise<Label
     return await sbFetch<LabelPrintLog[]>(`${rpc("label_print_logs")}${filter}`);
   } catch (e) {
     if (isTableMissing(e)) return [];
+    throw e;
+  }
+}
+
+// ── audit_logs ────────────────────────────────────────────────────────────────
+
+export async function insertAuditLog(entry: AuditLogInput): Promise<void> {
+  try {
+    await sbFetch<void>(
+      rpc("audit_logs"),
+      {
+        method: "POST",
+        body: JSON.stringify({
+          entity_type: entry.entity_type,
+          entity_id:   entry.entity_id   ?? null,
+          action:      entry.action,
+          old_values:  entry.old_values  ?? null,
+          new_values:  entry.new_values  ?? null,
+          user_label:  entry.user_label  ?? null,
+          source:      entry.source      ?? "gs1_app",
+        }),
+        headers: { Prefer: "return=minimal" },
+      }
+    );
+  } catch (e) {
+    if (isTableMissing(e)) return;
+    throw e;
+  }
+}
+
+export async function loadAuditLogs(
+  filters?: { entity_type?: string; entity_id?: string },
+  limit = 100
+): Promise<AuditLog[]> {
+  let qs = `?order=created_at.desc&limit=${limit}`;
+  if (filters?.entity_type) qs += `&entity_type=eq.${encodeURIComponent(filters.entity_type)}`;
+  if (filters?.entity_id)   qs += `&entity_id=eq.${encodeURIComponent(filters.entity_id)}`;
+  try {
+    return await sbFetch<AuditLog[]>(`${rpc("audit_logs")}${qs}`);
+  } catch (e) {
+    if (isTableMissing(e)) return [];
+    throw e;
+  }
+}
+
+// ── data_quality_issues ───────────────────────────────────────────────────────
+
+export async function insertDataQualityIssues(issues: DataQualityIssueInput[]): Promise<void> {
+  if (issues.length === 0) return;
+  try {
+    await sbFetch<void>(
+      rpc("data_quality_issues"),
+      {
+        method: "POST",
+        body: JSON.stringify(issues.map(i => ({
+          issue_type:  i.issue_type,
+          severity:    i.severity,
+          entity_type: i.entity_type ?? null,
+          entity_id:   i.entity_id   ?? null,
+          message:     i.message,
+          context:     i.context     ?? null,
+          status:      "open",
+        }))),
+        headers: { Prefer: "return=minimal" },
+      }
+    );
+  } catch (e) {
+    if (isTableMissing(e)) return;
+    throw e;
+  }
+}
+
+export async function loadDataQualityIssues(
+  filters?: { status?: string; issue_type?: string; entity_type?: string },
+  limit = 500
+): Promise<DataQualityIssue[]> {
+  let qs = `?order=created_at.desc&limit=${limit}`;
+  if (filters?.status)      qs += `&status=eq.${encodeURIComponent(filters.status)}`;
+  if (filters?.issue_type)  qs += `&issue_type=eq.${encodeURIComponent(filters.issue_type)}`;
+  if (filters?.entity_type) qs += `&entity_type=eq.${encodeURIComponent(filters.entity_type)}`;
+  try {
+    return await sbFetch<DataQualityIssue[]>(`${rpc("data_quality_issues")}${qs}`);
+  } catch (e) {
+    if (isTableMissing(e)) return [];
+    throw e;
+  }
+}
+
+export async function resolveDataQualityIssue(id: string, note?: string): Promise<void> {
+  try {
+    await sbFetch<void>(
+      `${rpc("data_quality_issues")}?id=eq.${id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          status:          "resolved",
+          resolved_at:     new Date().toISOString(),
+          resolution_note: note ?? null,
+        }),
+        headers: { Prefer: "return=minimal" },
+      }
+    );
+  } catch (e) {
+    if (isTableMissing(e)) return;
+    throw e;
+  }
+}
+
+export async function clearOpenDataQualityIssues(): Promise<void> {
+  try {
+    await sbFetch<void>(
+      `${rpc("data_quality_issues")}?status=eq.open`,
+      { method: "DELETE" }
+    );
+  } catch (e) {
+    if (isTableMissing(e)) return;
     throw e;
   }
 }

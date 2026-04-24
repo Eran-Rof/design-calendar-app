@@ -101,6 +101,14 @@ export default function PackingListUploadPanel() {
         Upload a .xls or .xlsx packing list. The parser extracts style / color / scale / channel / qty blocks.
       </p>
 
+      {/* Unresolved parse issue warning */}
+      {parseIssues.filter(i => i.severity === "error").length > 0 && (
+        <div style={{ background: "#FFF5F5", border: "1px solid #FEB2B2", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#C53030", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontWeight: 700 }}>⚠ {parseIssues.filter(i => i.severity === "error").length} parse error{parseIssues.filter(i => i.severity === "error").length > 1 ? "s" : ""}</span>
+          — Some blocks failed to parse. Review the issues below before generating GTINs or creating batches.
+        </div>
+      )}
+
       {!companySettings && (
         <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#92400E" }}>
           Company Setup must be saved before generating GTINs from this upload.

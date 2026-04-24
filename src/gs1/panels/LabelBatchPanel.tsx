@@ -181,6 +181,14 @@ export default function LabelBatchPanel() {
         Create a printable batch from a parsed packing list. Export as PDF (browser print), ZPL (Zebra), or CSV.
       </p>
 
+      {/* Invalid batch line warning */}
+      {batchLines.filter(l => l.label_qty <= 0).length > 0 && (
+        <div style={{ background: "#FFFBEB", border: "1px solid #FCD34D", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#92400E", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontWeight: 700 }}>⚠ {batchLines.filter(l => l.label_qty <= 0).length} batch line{batchLines.filter(l => l.label_qty <= 0).length > 1 ? "s" : ""} with label_qty ≤ 0</span>
+          — These lines will be skipped during export. Fix the source packing list and regenerate the batch.
+        </div>
+      )}
+
       {batchError && (
         <div style={{ background: "#FFF5F5", border: `1px solid ${TH.accentBdr}`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, color: TH.primary, fontSize: 13 }}>
           {batchError}

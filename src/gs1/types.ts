@@ -422,6 +422,68 @@ export interface LabelPrintLog {
   created_at: string;
 }
 
+// ── Audit log types ───────────────────────────────────────────────────────────
+
+export interface AuditLog {
+  id: string;
+  entity_type: string;
+  entity_id: string | null;
+  action: string;
+  old_values: Record<string, unknown> | null;
+  new_values: Record<string, unknown> | null;
+  user_label: string | null;
+  source: string | null;
+  created_at: string;
+}
+
+export interface AuditLogInput {
+  entity_type: string;
+  entity_id?: string | null;
+  action: string;
+  old_values?: Record<string, unknown> | null;
+  new_values?: Record<string, unknown> | null;
+  user_label?: string | null;
+  source?: string | null;
+}
+
+// ── Data quality types ────────────────────────────────────────────────────────
+
+export type DQSeverity = "info" | "warning" | "error";
+export type DQStatus   = "open" | "resolved";
+
+export interface DataQualityIssue {
+  id: string;
+  issue_type: string;
+  severity: DQSeverity;
+  entity_type: string | null;
+  entity_id: string | null;
+  message: string;
+  status: DQStatus;
+  context: Record<string, unknown> | null;
+  created_at: string;
+  resolved_at: string | null;
+  resolution_note: string | null;
+}
+
+export interface DataQualityIssueInput {
+  issue_type: string;
+  severity: DQSeverity;
+  entity_type?: string | null;
+  entity_id?: string | null;
+  message: string;
+  context?: Record<string, unknown> | null;
+}
+
+export interface ExceptionGroup {
+  key: string;
+  label: string;
+  description: string;
+  count: number;
+  severity: DQSeverity;
+  newest_at: string | null;
+  tab?: string;
+}
+
 // ── Known scale codes (for parser detection) ──────────────────────────────────
 export const KNOWN_SCALE_CODES = new Set([
   "CA","CB","CC","CD","CE","CF","CG","CH","CI",

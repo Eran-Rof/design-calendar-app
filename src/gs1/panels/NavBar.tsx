@@ -11,7 +11,8 @@ const TABS: Array<{ id: GS1Tab; label: string }> = [
   { id: "labels",    label: "Label Batches" },
   { id: "templates", label: "Label Templates" },
   { id: "cartons",   label: "Carton Labels" },
-  { id: "receiving", label: "Receiving" },
+  { id: "receiving",   label: "Receiving" },
+  { id: "exceptions",  label: "Exceptions" },
 ];
 
 export default function GS1NavBar() {

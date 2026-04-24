@@ -229,6 +229,25 @@ export default function UpcMasterPanel() {
         Import via Excel or sync directly from Xoro.
       </p>
 
+      {/* Duplicate UPC warning */}
+      {(() => {
+        const seen = new Map<string, string[]>();
+        for (const u of upcItems) {
+          const key = `${u.style_no}|${u.color}|${u.size}`;
+          const arr = seen.get(key);
+          if (arr) arr.push(u.upc);
+          else seen.set(key, [u.upc]);
+        }
+        const dupes = [...seen.values()].filter(v => v.length > 1).length;
+        if (dupes === 0) return null;
+        return (
+          <div style={{ background: "#FFF5F5", border: "1px solid #FEB2B2", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#C53030", display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontWeight: 700 }}>⚠ {dupes} duplicate UPC conflict{dupes > 1 ? "s" : ""}</span>
+            — Multiple UPCs exist for the same style/color/size combination. BOMs will be unreliable until resolved.
+          </div>
+        );
+      })()}
+
       {/* Xoro sync section */}
       <XoroSection />
 

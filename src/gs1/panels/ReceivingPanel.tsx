@@ -108,6 +108,20 @@ export default function ReceivingPanel() {
         Scan or enter an SSCC-18 to look up carton contents and confirm receipt.
       </p>
 
+      {/* Already-received / variance warning */}
+      {receivingAlreadyReceived && receivingCarton && (
+        <div style={{ background: "#FFFBEB", border: "1px solid #FCD34D", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#92400E", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontWeight: 700 }}>⚠ Already received</span>
+          — Carton {receivingCarton.sscc} was previously marked {receivingCarton.status}. Receiving again will create a duplicate session.
+        </div>
+      )}
+      {receivingSession?.status === "variance" && (
+        <div style={{ background: "#FFF5F5", border: "1px solid #FEB2B2", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#C53030", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontWeight: 700 }}>⚠ Variance recorded</span>
+          — This session has qty mismatches. Review the lines below and investigate before signing off.
+        </div>
+      )}
+
       {/* ── Search bar ─────────────────────────────────────────────────────── */}
       <form onSubmit={handleSearch} style={{ display: "flex", gap: 10, marginBottom: 20, maxWidth: 640 }}>
         <input

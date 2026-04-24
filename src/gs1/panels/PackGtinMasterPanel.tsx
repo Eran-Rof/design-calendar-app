@@ -196,6 +196,18 @@ export default function PackGtinMasterPanel() {
         One GTIN per unique Style + Color + Scale. BOMs map each pack GTIN to child UPCs via Scale Master ratios.
       </p>
 
+      {/* Incomplete BOM warning */}
+      {(() => {
+        const incomplete = packGtins.filter(g => g.bom_status === "incomplete");
+        if (incomplete.length === 0) return null;
+        return (
+          <div style={{ background: "#FFF5F5", border: "1px solid #FEB2B2", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#C53030", display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontWeight: 700 }}>⚠ {incomplete.length} incomplete BOM{incomplete.length > 1 ? "s" : ""}</span>
+            — These pack GTINs are missing UPC mappings and cannot be used for label export. Click the BOM icon on each row to review.
+          </div>
+        );
+      })()}
+
       {!companySettings && (
         <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#92400E" }}>
           Company Setup must be saved before generating GTINs.{" "}

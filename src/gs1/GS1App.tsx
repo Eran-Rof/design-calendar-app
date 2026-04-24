@@ -11,6 +11,7 @@ import LabelBatchPanel from "./panels/LabelBatchPanel";
 import CartonPanel from "./panels/CartonPanel";
 import ReceivingPanel from "./panels/ReceivingPanel";
 import LabelTemplatesPanel from "./panels/LabelTemplatesPanel";
+import ExceptionsPanel from "./panels/ExceptionsPanel";
 
 export default function GS1App() {
   const activeTab = useGS1Store(s => s.activeTab);
@@ -27,7 +28,8 @@ export default function GS1App() {
         {activeTab === "labels"   && <LabelBatchPanel />}
         {activeTab === "templates" && <LabelTemplatesPanel />}
         {activeTab === "cartons"  && <CartonPanel />}
-        {activeTab === "receiving" && <ReceivingPanel />}
+        {activeTab === "receiving"   && <ReceivingPanel />}
+        {activeTab === "exceptions"  && <ExceptionsPanel />}
       </div>
     </div>
   );
