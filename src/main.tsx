@@ -68,7 +68,13 @@ async function mount() {
       planning: { href: "/planning", label: "Back to Planning" },
       rof: { href: "/rof/phase-reviews", label: "Back to Phase Reviews" },
     };
-    const backLink = backByFrom[from] || { href: "/", label: "Back to PLM" };
+    // Default: when a signed-in user lands here without a source hint,
+    // assume PO WIP (the primary internal app that drives notifications).
+    // Fall back to PLM only for unauthenticated visitors.
+    const defaultBack = plm?.id
+      ? { href: "/tanda", label: "Back to PO WIP" }
+      : { href: "/", label: "Back to PLM" };
+    const backLink = backByFrom[from] || defaultBack;
     root.render(
       <StrictMode>
         <ErrorBoundary appName="Notifications">

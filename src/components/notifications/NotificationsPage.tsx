@@ -139,11 +139,16 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
       .sort(([, a], [, b]) => new Date(b[0].created_at).getTime() - new Date(a[0].created_at).getTime());
   }, [filtered]);
 
+  function emitChanged() {
+    try { window.dispatchEvent(new CustomEvent("rof_notif_changed")); } catch { /* noop */ }
+  }
+
   async function markRead(id: string) {
     const now = new Date().toISOString();
     setItems((xs) => xs.map((n) => (n.id === id ? { ...n, read_at: now } : n)));
     const { error } = await supabase.from("notifications").update({ read_at: now }).eq("id", id);
     if (error) void load();
+    else emitChanged();
   }
 
   async function markGroupRead(eventType: string) {
@@ -153,6 +158,7 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
     setItems((xs) => xs.map((n) => (ids.includes(n.id) ? { ...n, read_at: now } : n)));
     const { error } = await supabase.from("notifications").update({ read_at: now }).in("id", ids);
     if (error) void load();
+    else emitChanged();
   }
 
   async function markAllRead() {
@@ -162,6 +168,7 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
     setItems((xs) => xs.map((n) => (n.read_at ? n : { ...n, read_at: now })));
     const { error } = await supabase.from("notifications").update({ read_at: now }).in("id", ids);
     if (error) void load();
+    else emitChanged();
   }
 
   function onRowClick(n: NotificationRow) {

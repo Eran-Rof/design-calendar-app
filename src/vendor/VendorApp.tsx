@@ -270,8 +270,14 @@ function NotificationsTabLink() {
     }
     void load();
     const i = window.setInterval(load, 30_000);
-    return () => { cancelled = true; window.clearInterval(i); };
-  }, [session]);
+    const onChanged = () => { void load(); };
+    window.addEventListener("rof_notif_changed", onChanged);
+    return () => {
+      cancelled = true;
+      window.clearInterval(i);
+      window.removeEventListener("rof_notif_changed", onChanged);
+    };
+  }, [session, loc.pathname]);
 
   if (!session) return null;
   return (
