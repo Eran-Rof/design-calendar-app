@@ -724,7 +724,7 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
   logPrintEvent: async (data) => {
     try {
       const log = await db.createPrintLog(data);
-      set(s => ({ printLogs: [log, ...s.printLogs] }));
+      if (log) set(s => ({ printLogs: [log, ...s.printLogs] }));
     } catch {
       // Log failures are non-fatal
     }

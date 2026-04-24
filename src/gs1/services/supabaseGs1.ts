@@ -56,6 +56,12 @@ async function sbFetch<T>(url: string, init: RequestInit = {}): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+// Returns true when the error is a PostgREST "table not in schema cache" error
+// (PGRST205 / 404). Used to degrade gracefully before migrations are applied.
+function isTableMissing(e: unknown): boolean {
+  return String(e).includes("PGRST205") || String(e).includes("schema cache");
+}
+
 // ── company_settings ──────────────────────────────────────────────────────────
 
 export async function loadCompanySettings(): Promise<CompanySettings | null> {
@@ -724,9 +730,14 @@ export async function updateBatchStatus(batchId: string, status: LabelBatch["sta
 // ── label_templates ───────────────────────────────────────────────────────────
 
 export async function loadLabelTemplates(): Promise<LabelTemplate[]> {
-  return sbFetch<LabelTemplate[]>(
-    `${rpc("label_templates")}?order=label_type.asc,template_name.asc`
-  );
+  try {
+    return await sbFetch<LabelTemplate[]>(
+      `${rpc("label_templates")}?order=label_type.asc,template_name.asc`
+    );
+  } catch (e) {
+    if (isTableMissing(e)) return [];
+    throw e;
+  }
 }
 
 export async function saveLabelTemplate(data: LabelTemplateInput): Promise<LabelTemplate> {
@@ -782,28 +793,38 @@ export async function createPrintLog(data: {
   labels_printed: number;
   status: "printed" | "reprint" | "failed";
   reprint_reason?: string | null;
-}): Promise<LabelPrintLog> {
-  const [row] = await sbFetch<LabelPrintLog[]>(
-    rpc("label_print_logs"),
-    {
-      method: "POST",
-      body: JSON.stringify({
-        label_batch_id:  data.label_batch_id ?? null,
-        label_type:      data.label_type,
-        print_method:    data.print_method,
-        labels_printed:  data.labels_printed,
-        status:          data.status,
-        reprint_reason:  data.reprint_reason ?? null,
-      }),
-      headers: { Prefer: "return=representation" },
-    }
-  );
-  return row;
+}): Promise<LabelPrintLog | null> {
+  try {
+    const [row] = await sbFetch<LabelPrintLog[]>(
+      rpc("label_print_logs"),
+      {
+        method: "POST",
+        body: JSON.stringify({
+          label_batch_id:  data.label_batch_id ?? null,
+          label_type:      data.label_type,
+          print_method:    data.print_method,
+          labels_printed:  data.labels_printed,
+          status:          data.status,
+          reprint_reason:  data.reprint_reason ?? null,
+        }),
+        headers: { Prefer: "return=representation" },
+      }
+    );
+    return row;
+  } catch (e) {
+    if (isTableMissing(e)) return null;
+    throw e;
+  }
 }
 
 export async function loadPrintLogs(batchId?: string, limit = 50): Promise<LabelPrintLog[]> {
   const filter = batchId
     ? `?label_batch_id=eq.${batchId}&order=created_at.desc&limit=${limit}`
     : `?order=created_at.desc&limit=${limit}`;
-  return sbFetch<LabelPrintLog[]>(`${rpc("label_print_logs")}${filter}`);
+  try {
+    return await sbFetch<LabelPrintLog[]>(`${rpc("label_print_logs")}${filter}`);
+  } catch (e) {
+    if (isTableMissing(e)) return [];
+    throw e;
+  }
 }

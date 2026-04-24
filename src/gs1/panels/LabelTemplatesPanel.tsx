@@ -174,6 +174,14 @@ export default function LabelTemplatesPanel() {
         </div>
       )}
 
+      {/* Migration pending hint — shown when table queries return nothing due to missing schema */}
+      {!templateLoading && !templateError && labelTemplates.length === 0 && (
+        <div style={{ background: "#FFFBEB", border: "1px solid #F6E05E", borderRadius: 8, padding: "12px 16px", marginBottom: 20, fontSize: 13 }}>
+          <strong>Migration required.</strong> Apply <code>20260428000000_label_templates.sql</code> in the Supabase SQL editor for both projects, then click <strong>Create Defaults</strong> above.
+          &nbsp;<a href="https://supabase.com/dashboard/project/qcvqvxxoperiurauoxmp/sql" target="_blank" rel="noreferrer" style={{ color: TH.primary, fontWeight: 600 }}>Open SQL editor →</a>
+        </div>
+      )}
+
       {/* ── Create / Edit form ─────────────────────────────────────────────── */}
       {showNew && (
         <div style={{ ...SECTION, border: `2px solid ${TH.primary}` }}>
