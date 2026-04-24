@@ -108,6 +108,15 @@ export default function EcomOverrideDrawer({ row, overrides, onClose, onSaveOver
             final = max(0, system + override). Protected ecom qty = final (MVP policy).
           </div>
 
+          {/* Supply context */}
+          <SectionLabel>Supply context</SectionLabel>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
+            <MiniCell label="On Hand" value={formatQty(row.on_hand_qty)} />
+            <MiniCell label="ATS" value={formatQty(row.available_supply_qty)} accent={PAL.accent} />
+            <MiniCell label="Short" value={row.projected_shortage_qty > 0 ? formatQty(row.projected_shortage_qty) : "–"} accent={row.projected_shortage_qty > 0 ? PAL.red : undefined} />
+            <MiniCell label="Excess" value={row.projected_excess_qty > 0 ? formatQty(row.projected_excess_qty) : "–"} accent={row.projected_excess_qty > 0 ? PAL.yellow : undefined} />
+          </div>
+
           {/* Factors */}
           <SectionLabel>Factors</SectionLabel>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8 }}>

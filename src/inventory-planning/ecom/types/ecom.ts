@@ -116,6 +116,10 @@ export interface IpEcomGridRow {
   return_rate: number | null;
   forecast_method: IpEcomForecastMethod;
   planned_buy_qty: number | null;
+  on_hand_qty: number;
+  available_supply_qty: number;
+  projected_shortage_qty: number;
+  projected_excess_qty: number;
   notes: string | null;
 }
 

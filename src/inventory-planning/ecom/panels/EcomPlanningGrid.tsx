@@ -131,6 +131,10 @@ export default function EcomPlanningGrid({ rows, onSelectRow, onUpdateBuyQty, lo
               <Th label="Final" k="final" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
               <th style={{ ...S.th, textAlign: "right" }}>Protected</th>
               <th style={{ ...S.th, textAlign: "right" }}>Return</th>
+              <th style={{ ...S.th, textAlign: "right" }}>On Hand</th>
+              <th style={{ ...S.th, textAlign: "right", color: PAL.accent }}>ATS</th>
+              <th style={{ ...S.th, textAlign: "right", color: PAL.red }}>Short</th>
+              <th style={{ ...S.th, textAlign: "right", color: PAL.yellow }}>Excess</th>
               <th style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy</th>
               <th style={S.th}>Flags</th>
             </tr>
@@ -156,6 +160,14 @@ export default function EcomPlanningGrid({ rows, onSelectRow, onUpdateBuyQty, lo
                 <td style={{ ...S.tdNum, color: r.return_rate && r.return_rate > 0.2 ? PAL.red : PAL.textDim }}>
                   {r.return_rate == null ? "–" : `${(r.return_rate * 100).toFixed(0)}%`}
                 </td>
+                <td style={S.tdNum}>{formatQty(r.on_hand_qty)}</td>
+                <td style={{ ...S.tdNum, color: PAL.accent }}>{formatQty(r.available_supply_qty)}</td>
+                <td style={{ ...S.tdNum, color: r.projected_shortage_qty > 0 ? PAL.red : PAL.textMuted, fontWeight: r.projected_shortage_qty > 0 ? 700 : 400 }}>
+                  {r.projected_shortage_qty > 0 ? formatQty(r.projected_shortage_qty) : "–"}
+                </td>
+                <td style={{ ...S.tdNum, color: r.projected_excess_qty > 0 ? PAL.yellow : PAL.textMuted }}>
+                  {r.projected_excess_qty > 0 ? formatQty(r.projected_excess_qty) : "–"}
+                </td>
                 <td onClick={(e) => e.stopPropagation()} style={{ ...S.td, padding: "2px 4px" }}>
                   <BuyCell value={r.planned_buy_qty} onSave={(qty) => onUpdateBuyQty(r.forecast_id, qty)} />
                 </td>
@@ -168,14 +180,14 @@ export default function EcomPlanningGrid({ rows, onSelectRow, onUpdateBuyQty, lo
               </tr>
             ))}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={14} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={18} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No forecast rows yet. Click \"Build forecast\" above to populate the grid."
                   : "No rows match your filters."}
               </td></tr>
             )}
             {loading && (
-              <tr><td colSpan={14} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={18} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 Loading…
               </td></tr>
             )}
