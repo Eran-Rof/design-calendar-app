@@ -223,6 +223,7 @@ export async function getOrCreatePackGtin(
     { method: "POST", body: JSON.stringify({}) }
   );
   const itemRef = Array.isArray(rpcRes) ? rpcRes[0]?.gs1_claim_next_item_reference : rpcRes;
+  if (itemRef == null || isNaN(Number(itemRef))) throw new Error("gs1_claim_next_item_reference RPC returned invalid value");
 
   const gtin = buildGtinFromSettings(settings, Number(itemRef));
 
@@ -406,6 +407,7 @@ export async function claimSsccSerialRange(count: number): Promise<{ start: numb
     { method: "POST", body: JSON.stringify({ p_count: count }) }
   );
   const r = rows[0];
+  if (!r) throw new Error("claimSsccSerialRange: RPC returned empty response");
   return { start: Number(r.serial_start), end: Number(r.serial_end) };
 }
 

@@ -174,7 +174,7 @@ export default async function handler(req, res) {
     const chunk = rows.slice(i, i + 500);
     const { error } = await admin
       .from("ip_sales_history_wholesale")
-      .upsert(chunk, { onConflict: "source_line_key", ignoreDuplicates: false });
+      .upsert(chunk, { onConflict: "source,source_line_key", ignoreDuplicates: false });
     if (error) result.errors.push(error.message);
     else result.inserted += chunk.length;
   }

@@ -100,6 +100,8 @@ export async function cloneBaseIntoScenario(args: {
       forecast_method: r.forecast_method,
       history_months_used: r.history_months_used,
       notes: r.notes,
+      ly_reference_qty: r.ly_reference_qty ?? null,
+      planned_buy_qty: r.planned_buy_qty ?? null,
     })));
   }
   // Ecom

@@ -61,7 +61,7 @@ function weekCodeOf(mondayIso: IpIsoDate): string {
   const firstDow = (firstThursday.getUTCDay() + 6) % 7;
   firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDow + 3);
   const diff = target.getTime() - firstThursday.getTime();
-  const week = 1 + Math.round(diff / (7 * 86_400_000));
+  const week = 1 + Math.floor(diff / (7 * 86_400_000));
   return `${target.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 function earlierIso(iso: string, months: number): string {
