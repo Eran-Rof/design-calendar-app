@@ -169,9 +169,9 @@ export default function FutureDemandRequestsPanel({
           onClose={() => setShowForm(false)}
           onToast={onToast}
           onSaved={async () => {
+            await onChange();
             setShowForm(false);
             onToast({ text: "Request created", kind: "success" });
-            await onChange();
           }}
         />
       )}
