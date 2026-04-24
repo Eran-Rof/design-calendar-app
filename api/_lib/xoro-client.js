@@ -79,6 +79,7 @@ export async function fetchXoroAll({ path, params = {}, maxPages = 50 }) {
     }
     if (dataLen <= 0) break;
     all = all.concat(attempt.body.Data);
+    if (page >= totalPages) break;
   }
 
   return {

@@ -112,7 +112,7 @@ export default function WholesalePlanningWorkbench() {
   useEffect(() => {
     if (selectedRun) void loadRunData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRunId]);
+  }, [selectedRun]);
 
   const overridesForRow = useMemo(() => {
     if (!selectedRow) return [];
