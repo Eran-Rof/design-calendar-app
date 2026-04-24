@@ -107,21 +107,24 @@ export default function LabelBatchPanel() {
     const batchId = currentBatch.id;
     const batchNameSafe = currentBatch.batch_name.replace(/[^a-z0-9]/gi, "_");
 
+    // Validate everything before printing anything so errors from both
+    // sections are shown together and neither section prints on failure.
+    const gtinErrors = batchMode !== "sscc" && batchLines.length > 0 ? validateBatchForPrint(batchLines) : [];
+    const ssccErrors = hasSSCC && cartons.length > 0 ? validateCartonsForPrint(cartons) : [];
+    const allErrors  = [...gtinErrors, ...ssccErrors];
+    if (allErrors.length > 0) { setValidationErrors(allErrors); return; }
+    setValidationErrors([]);
+
     // GTIN labels
     if (batchMode !== "sscc" && batchLines.length > 0) {
       const template = resolveGtinTemplate();
-      const errors   = validateBatchForPrint(batchLines);
-      if (errors.length > 0) { setValidationErrors(errors); return; }
-      setValidationErrors([]);
-
-      let totalLabels = batchLines.reduce((s, l) => s + l.label_qty, 0);
+      const totalLabels = batchLines.reduce((s, l) => s + l.label_qty, 0);
       if (method === "pdf") {
         openPrintWindow(buildGtinPrintHtml(currentBatch.batch_name, batchLines, template));
       } else if (method === "zpl") {
         downloadTextFile(`${batchNameSafe}_gtin_labels.zpl`, generateBatchZpl(batchLines, template), "text/plain");
       } else {
         downloadTextFile(`${batchNameSafe}_gtin_labels.csv`, generateGtinCsvData(batchLines), "text/csv");
-        totalLabels = batchLines.length;
       }
       logPrintEvent({ label_batch_id: batchId, label_type: "pack_gtin", print_method: method, labels_printed: totalLabels, status: isReprint ? "reprint" : "printed", reprint_reason: reason ?? null });
     }
@@ -129,8 +132,6 @@ export default function LabelBatchPanel() {
     // SSCC labels
     if (hasSSCC && cartons.length > 0) {
       const template = resolveSsccTemplate();
-      const errors   = validateCartonsForPrint(cartons);
-      if (errors.length > 0) { setValidationErrors(prev => [...prev, ...errors]); return; }
 
       const totalCartons = cartons.length;
       if (method === "pdf") {
