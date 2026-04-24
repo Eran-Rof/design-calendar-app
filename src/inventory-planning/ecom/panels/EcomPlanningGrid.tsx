@@ -257,17 +257,20 @@ function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number
   const [str, setStr] = useState(value != null ? String(value) : "");
   const [saving, setSaving] = useState(false);
   const [errored, setErrored] = useState(false);
-  const prev = useRef(str);
+  const focused = useRef(false);
+
+  useEffect(() => {
+    if (!focused.current) setStr(value != null ? String(value) : "");
+  }, [value]);
 
   async function commit() {
     const trimmed = str.trim();
     const qty = trimmed === "" ? null : parseInt(trimmed, 10);
     if (qty !== null && !Number.isFinite(qty)) { setErrored(true); return; }
-    if (trimmed === prev.current) return;
+    if (qty === value || (qty == null && value == null)) return;
     setSaving(true); setErrored(false);
     try {
       await onSave(qty);
-      prev.current = trimmed;
     } catch {
       setErrored(true);
     } finally {
@@ -298,10 +301,12 @@ function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number
         outline: "none",
       }}
       onFocus={(e) => {
+        focused.current = true;
         (e.target as HTMLInputElement).style.border = `1px solid ${PAL.green}`;
         (e.target as HTMLInputElement).style.background = PAL.panel;
       }}
       onBlurCapture={(e) => {
+        focused.current = false;
         (e.target as HTMLInputElement).style.border = errored ? `1px solid ${PAL.red}` : "1px solid transparent";
         (e.target as HTMLInputElement).style.background = "transparent";
       }}

@@ -2,7 +2,7 @@
 // so planners can scan a row end-to-end without scrolling. Click a row to
 // open the detail drawer.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { IpPlanningGridRow } from "../types/wholesale";
 import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, formatQty, formatPeriodCode } from "../components/styles";
 
@@ -240,12 +240,11 @@ function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number
   const [str, setStr] = useState(value != null ? String(value) : "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState(false);
+  const focused = useRef(false);
 
-  // Keep local str in sync when the row refreshes after a save.
-  const committed = value != null ? String(value) : "";
-  if (!saving && str !== committed && document.activeElement?.getAttribute("data-buycell") !== "1") {
-    // Only reset if the cell is not focused — avoids clobbering mid-edit.
-  }
+  useEffect(() => {
+    if (!focused.current) setStr(value != null ? String(value) : "");
+  }, [value]);
 
   async function commit(raw: string) {
     const trimmed = raw.trim();
@@ -280,8 +279,8 @@ function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number
         outline: "none",
         opacity: saving ? 0.5 : 1,
       }}
-      onFocus={(e) => { e.target.style.borderColor = err ? PAL.red : PAL.green; e.target.style.background = PAL.panel; }}
-      onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
+      onFocus={(e) => { focused.current = true; e.target.style.borderColor = err ? PAL.red : PAL.green; e.target.style.background = PAL.panel; }}
+      onBlurCapture={(e) => { focused.current = false; e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
     />
   );
 }
