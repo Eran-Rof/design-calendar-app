@@ -400,7 +400,7 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
   },
 
   deleteScale: async (scaleCode) => {
-    set({ scaleLoading: true });
+    set({ scaleLoading: true, scaleError: null });
     try {
       await db.deleteScale(scaleCode);
       await get().loadScales();
