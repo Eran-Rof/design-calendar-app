@@ -14,18 +14,170 @@ const TD_STYLE: React.CSSProperties = {
   borderBottom: `1px solid ${TH.border}`,
 };
 
-// Column mapping for Excel import
 interface ColMap { upc: number; style_no: number; color: number; size: number; description: number }
 const DEFAULT_COL_MAP: ColMap = { upc: 0, style_no: 1, color: 2, size: 3, description: 4 };
+
+// ── Xoro section component ────────────────────────────────────────────────────
+
+function XoroSection() {
+  const {
+    companySettings,
+    xoroConnecting, xoroConnectionResult,
+    xoroSyncing, xoroSyncError, xoroSyncLogs,
+    testXoroConnection, syncUpcFromXoro, loadXoroSyncLogs,
+    setActiveTab,
+  } = useGS1Store();
+
+  useEffect(() => { loadXoroSyncLogs(); }, []);
+
+  const isConfigured = !!(
+    companySettings?.xoro_enabled &&
+    companySettings?.xoro_api_base_url &&
+    companySettings?.xoro_api_key_ref &&
+    companySettings?.xoro_item_endpoint
+  );
+
+  const lastLog = xoroSyncLogs[0] ?? null;
+
+  return (
+    <div style={{ background: TH.surface, borderRadius: 10, padding: "20px 24px", boxShadow: `0 1px 4px ${TH.shadow}`, marginBottom: 24 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+        <div>
+          <h3 style={{ margin: "0 0 4px", fontSize: 15, color: TH.textSub }}>Sync from Xoro</h3>
+          <p style={{ margin: 0, fontSize: 13, color: TH.textMuted }}>
+            Pull UPC item master data directly from your Xoro ERP instance. Upserts by UPC — Excel-imported records are preserved unless overwritten.
+          </p>
+        </div>
+        {isConfigured && (
+          <span style={{ background: "#F0FFF4", color: "#276749", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 10, whiteSpace: "nowrap" }}>
+            Xoro enabled
+          </span>
+        )}
+      </div>
+
+      {!companySettings?.xoro_enabled ? (
+        <div style={{ background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "12px 16px", fontSize: 13, color: TH.textMuted }}>
+          Xoro sync is disabled.{" "}
+          <button onClick={() => setActiveTab("company")}
+            style={{ border: "none", background: "none", color: TH.primary, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>
+            Enable it in Company Setup →
+          </button>
+        </div>
+      ) : !isConfigured ? (
+        <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "12px 16px", fontSize: 13, color: "#92400E" }}>
+          Xoro is enabled but not fully configured. Base URL, item endpoint, and API key are all required.{" "}
+          <button onClick={() => setActiveTab("company")}
+            style={{ border: "none", background: "none", color: TH.primary, cursor: "pointer", fontWeight: 600 }}>
+            Go to Company Setup →
+          </button>
+        </div>
+      ) : (
+        <>
+          {/* Connection test + sync controls */}
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 14 }}>
+            <button onClick={() => testXoroConnection()} disabled={xoroConnecting || xoroSyncing}
+              style={{ background: "transparent", border: `1px solid ${TH.border}`, borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+              {xoroConnecting ? "Testing…" : "Test Connection"}
+            </button>
+            <button onClick={() => syncUpcFromXoro()} disabled={xoroSyncing || xoroConnecting}
+              style={{ background: TH.primary, color: "#fff", border: "none", borderRadius: 7, padding: "8px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+              {xoroSyncing ? "Syncing…" : "Sync UPCs from Xoro"}
+            </button>
+            <span style={{ fontSize: 12, color: TH.textMuted }}>
+              {companySettings.xoro_api_base_url}/{companySettings.xoro_item_endpoint?.replace(/^\//, "")}
+            </span>
+          </div>
+
+          {/* Connection test result */}
+          {xoroConnectionResult && (
+            <div style={{
+              marginBottom: 14, padding: "10px 14px", borderRadius: 7, fontSize: 13, fontWeight: 600,
+              background: xoroConnectionResult.ok ? "#F0FFF4" : "#FFF5F5",
+              border: `1px solid ${xoroConnectionResult.ok ? "#C6F6D5" : TH.accentBdr}`,
+              color: xoroConnectionResult.ok ? "#276749" : TH.primary,
+            }}>
+              {xoroConnectionResult.ok ? "✓" : "✗"} {xoroConnectionResult.message}
+            </div>
+          )}
+
+          {/* Sync error */}
+          {xoroSyncError && (
+            <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 7, fontSize: 13, background: "#FFF5F5", border: `1px solid ${TH.accentBdr}`, color: TH.primary }}>
+              {xoroSyncError}
+            </div>
+          )}
+
+          {/* Last sync summary */}
+          {lastLog && (
+            <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 7, fontSize: 13, background: TH.surfaceHi, border: `1px solid ${TH.border}` }}>
+              <span style={{ fontWeight: 600, color: TH.textSub }}>Last sync: </span>
+              <span style={{
+                fontWeight: 700, marginRight: 8,
+                color: lastLog.status === "complete" ? "#276749" : lastLog.status === "error" ? TH.primary : "#92400E",
+              }}>
+                {lastLog.status}
+              </span>
+              {lastLog.status === "complete" && (
+                <span style={{ color: TH.textMuted }}>
+                  {lastLog.records_processed} processed &nbsp;·&nbsp;
+                  {lastLog.records_inserted} inserted &nbsp;·&nbsp;
+                  {lastLog.records_updated} updated
+                </span>
+              )}
+              {lastLog.error_message && (
+                <span style={{ color: TH.primary }}> — {lastLog.error_message}</span>
+              )}
+              <span style={{ marginLeft: 12, fontSize: 11, color: TH.textMuted }}>
+                {new Date(lastLog.started_at).toLocaleString()}
+              </span>
+            </div>
+          )}
+
+          {/* Sync log history */}
+          {xoroSyncLogs.length > 1 && (
+            <details style={{ fontSize: 12 }}>
+              <summary style={{ cursor: "pointer", color: TH.textMuted, marginBottom: 8 }}>
+                Sync history ({xoroSyncLogs.length} runs)
+              </summary>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    {["Started", "Status", "Processed", "Inserted", "Updated", "Error"].map(h => (
+                      <th key={h} style={TH_STYLE}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {xoroSyncLogs.map(l => (
+                    <tr key={l.id}>
+                      <td style={{ ...TD_STYLE, fontSize: 11 }}>{new Date(l.started_at).toLocaleString()}</td>
+                      <td style={{ ...TD_STYLE, fontWeight: 600, color: l.status === "complete" ? "#276749" : l.status === "error" ? TH.primary : "#92400E" }}>{l.status}</td>
+                      <td style={TD_STYLE}>{l.records_processed}</td>
+                      <td style={TD_STYLE}>{l.records_inserted}</td>
+                      <td style={TD_STYLE}>{l.records_updated}</td>
+                      <td style={{ ...TD_STYLE, color: TH.primary, fontSize: 11 }}>{l.error_message ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Main panel ────────────────────────────────────────────────────────────────
 
 export default function UpcMasterPanel() {
   const { upcItems, upcLoading, upcError, loadUpcItems, importUpcItems, deleteUpcItem } = useGS1Store();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [preview, setPreview]   = useState<UpcItemInput[]>([]);
-  const [colMap, setColMap]     = useState<ColMap>(DEFAULT_COL_MAP);
-  const [headers, setHeaders]   = useState<string[]>([]);
+  const [preview, setPreview]     = useState<UpcItemInput[]>([]);
+  const [colMap, setColMap]       = useState<ColMap>(DEFAULT_COL_MAP);
+  const [headers, setHeaders]     = useState<string[]>([]);
   const [importMsg, setImportMsg] = useState("");
-  const [search, setSearch]     = useState("");
+  const [search, setSearch]       = useState("");
 
   useEffect(() => { loadUpcItems(); }, []);
 
@@ -34,17 +186,17 @@ export default function UpcMasterPanel() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = ev => {
-      const buf = ev.target?.result;
-      const wb  = XLSX.read(buf, { type: "array" });
-      const ws  = wb.Sheets[wb.SheetNames[0]];
+      const buf  = ev.target?.result;
+      const wb   = XLSX.read(buf, { type: "array" });
+      const ws   = wb.Sheets[wb.SheetNames[0]];
       const data: string[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }) as string[][];
       if (data.length < 2) return;
       setHeaders(data[0].map(String));
       const rows: UpcItemInput[] = data.slice(1).map(row => ({
-        upc: String(row[colMap.upc] ?? "").trim(),
-        style_no: String(row[colMap.style_no] ?? "").trim(),
-        color: String(row[colMap.color] ?? "").trim(),
-        size: String(row[colMap.size] ?? "").trim(),
+        upc:         String(row[colMap.upc]         ?? "").trim(),
+        style_no:    String(row[colMap.style_no]    ?? "").trim(),
+        color:       String(row[colMap.color]       ?? "").trim(),
+        size:        String(row[colMap.size]        ?? "").trim(),
         description: String(row[colMap.description] ?? "").trim() || undefined,
       })).filter(r => r.upc && r.style_no);
       setPreview(rows);
@@ -73,10 +225,14 @@ export default function UpcMasterPanel() {
     <div style={{ padding: "24px 16px", maxWidth: 1100, margin: "0 auto" }}>
       <h2 style={{ margin: "0 0 4px", fontSize: 20, color: TH.text }}>UPC Item Master</h2>
       <p style={{ margin: "0 0 20px", color: TH.textMuted, fontSize: 13 }}>
-        Import child UPCs by style / color / size. Used for pack BOM composition (Phase 2 receiving).
+        Child UPCs keyed by style / color / size. Powers BOM auto-build and one-scan carton receiving.
+        Import via Excel or sync directly from Xoro.
       </p>
 
-      {/* Import section */}
+      {/* Xoro sync section */}
+      <XoroSection />
+
+      {/* Excel import section */}
       <div style={{ background: TH.surface, borderRadius: 10, padding: "20px 24px", boxShadow: `0 1px 4px ${TH.shadow}`, marginBottom: 24 }}>
         <h3 style={{ margin: "0 0 12px", fontSize: 15, color: TH.textSub }}>Import from Excel / CSV</h3>
 
@@ -140,10 +296,6 @@ export default function UpcMasterPanel() {
             </div>
           </>
         )}
-
-        <div style={{ marginTop: 16, padding: "10px 14px", background: "#FFFBEB", borderRadius: 6, border: "1px solid #FDE68A", fontSize: 12, color: "#92400E" }}>
-          <strong>Xoro Sync (Phase 2 stub)</strong> — A "Sync from Xoro" button will appear here once Xoro API credentials are saved in Company Setup.
-        </div>
       </div>
 
       {upcError && (
@@ -163,7 +315,7 @@ export default function UpcMasterPanel() {
         {upcLoading
           ? <p style={{ color: TH.textMuted, fontSize: 13 }}>Loading…</p>
           : filtered.length === 0
-            ? <p style={{ color: TH.textMuted, fontSize: 13 }}>No UPC records. Import an Excel file above.</p>
+            ? <p style={{ color: TH.textMuted, fontSize: 13 }}>No UPC records. Import an Excel file or sync from Xoro above.</p>
             : (
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -176,13 +328,21 @@ export default function UpcMasterPanel() {
                   </thead>
                   <tbody>
                     {filtered.slice(0, 500).map(u => (
-                      <tr key={u.id} style={{ background: "#fff" }}>
+                      <tr key={u.id}>
                         <td style={{ ...TD_STYLE, fontFamily: "monospace" }}>{u.upc}</td>
                         <td style={TD_STYLE}>{u.style_no}</td>
                         <td style={TD_STYLE}>{u.color}</td>
                         <td style={TD_STYLE}>{u.size}</td>
                         <td style={{ ...TD_STYLE, color: TH.textMuted }}>{u.description}</td>
-                        <td style={{ ...TD_STYLE, color: TH.textMuted, fontSize: 11 }}>{u.source_method}</td>
+                        <td style={{ ...TD_STYLE, fontSize: 11 }}>
+                          <span style={{
+                            padding: "2px 7px", borderRadius: 8, fontSize: 11, fontWeight: 600,
+                            background: u.source_method === "xoro" ? "#EBF8FF" : TH.surfaceHi,
+                            color: u.source_method === "xoro" ? "#2B6CB0" : TH.textMuted,
+                          }}>
+                            {u.source_method}
+                          </span>
+                        </td>
                         <td style={TD_STYLE}>
                           <button onClick={() => { if (confirm("Delete this UPC?")) deleteUpcItem(u.id); }}
                             style={{ background: "transparent", border: "none", cursor: "pointer", color: "#E02B10", fontSize: 12 }}>
@@ -193,7 +353,11 @@ export default function UpcMasterPanel() {
                     ))}
                   </tbody>
                 </table>
-                {filtered.length > 500 && <p style={{ fontSize: 12, color: TH.textMuted, marginTop: 8 }}>Showing 500 of {filtered.length} — use search to narrow.</p>}
+                {filtered.length > 500 && (
+                  <p style={{ fontSize: 12, color: TH.textMuted, marginTop: 8 }}>
+                    Showing 500 of {filtered.length} — use search to narrow.
+                  </p>
+                )}
               </div>
             )
         }

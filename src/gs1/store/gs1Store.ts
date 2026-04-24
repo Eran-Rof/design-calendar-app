@@ -22,6 +22,11 @@ import {
   type BomBuildResult,
   type BomCheckResult,
 } from "../services/bomBuilderService";
+import {
+  testXoroConnection as svcTestXoro,
+  syncUpcItemsFromXoro,
+  type XoroConnectionResult,
+} from "../services/xoroSyncService";
 import type {
   CompanySettings,
   CompanySettingsInput,
@@ -46,6 +51,7 @@ import type {
   ManualCartonInput,
   ReceivingSession,
   ReceivingSessionLine,
+  XoroSyncLog,
 } from "../types";
 
 export type GS1Tab = "company" | "upc" | "scale" | "gtins" | "upload" | "labels" | "cartons" | "receiving";
@@ -93,6 +99,13 @@ interface GS1State {
   cartonLoading: boolean;
   cartonError: string | null;
   lastCreatedSscc: string | null;
+
+  // Xoro sync
+  xoroConnecting: boolean;
+  xoroConnectionResult: XoroConnectionResult | null;
+  xoroSyncing: boolean;
+  xoroSyncError: string | null;
+  xoroSyncLogs: XoroSyncLog[];
 
   // BOM builder
   bomBuilding: boolean;
@@ -145,6 +158,11 @@ interface GS1Actions {
   loadAllCartons: () => Promise<void>;
   createManualSscc: (data: ManualCartonInput) => Promise<Carton>;
   clearLastCreatedSscc: () => void;
+
+  // Xoro sync actions
+  testXoroConnection: () => Promise<void>;
+  syncUpcFromXoro: () => Promise<void>;
+  loadXoroSyncLogs: () => Promise<void>;
 
   // BOM builder actions
   buildBomForGtin: (packGtinRow: PackGtin) => Promise<BomBuildResult>;
@@ -204,6 +222,12 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
   cartonLoading: false,
   cartonError: null,
   lastCreatedSscc: null,
+
+  xoroConnecting: false,
+  xoroConnectionResult: null,
+  xoroSyncing: false,
+  xoroSyncError: null,
+  xoroSyncLogs: [],
 
   bomBuilding: false,
   bomBuildError: null,
@@ -589,6 +613,76 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
   },
 
   clearLastCreatedSscc: () => set({ lastCreatedSscc: null }),
+
+  // ── Xoro sync ─────────────────────────────────────────────────────────────────
+  testXoroConnection: async () => {
+    const { companySettings } = get();
+    if (!companySettings) {
+      set({ xoroConnectionResult: { ok: false, message: "Company settings not loaded." } });
+      return;
+    }
+    set({ xoroConnecting: true, xoroConnectionResult: null });
+    const result = await svcTestXoro(companySettings);
+    set({ xoroConnectionResult: result, xoroConnecting: false });
+  },
+
+  syncUpcFromXoro: async () => {
+    const { companySettings } = get();
+    if (!companySettings) return;
+    set({ xoroSyncing: true, xoroSyncError: null });
+    let logId: string | null = null;
+    try {
+      const log = await db.createSyncLog("upc_items");
+      logId = log.id;
+
+      const syncResult = await syncUpcItemsFromXoro(companySettings);
+
+      if (syncResult.errors.length > 0 && syncResult.items.length === 0) {
+        await db.updateSyncLog(logId, {
+          status: "error",
+          records_processed: syncResult.processed,
+          error_message: syncResult.errors.join("; "),
+          raw_summary: { errors: syncResult.errors, skipped: syncResult.skipped },
+        });
+        set({ xoroSyncError: syncResult.errors.join("; "), xoroSyncing: false });
+        const logs = await db.loadSyncLogs();
+        set({ xoroSyncLogs: logs });
+        return;
+      }
+
+      let inserted = 0;
+      if (syncResult.items.length > 0) {
+        const r = await db.upsertUpcItems(syncResult.items);
+        inserted = r.inserted;
+      }
+
+      await db.updateSyncLog(logId, {
+        status: "complete",
+        records_processed: syncResult.processed,
+        records_inserted: inserted,
+        records_updated: syncResult.normalized - inserted,
+        error_message: syncResult.errors.length > 0 ? syncResult.errors.join("; ") : null,
+        raw_summary: {
+          normalized: syncResult.normalized,
+          skipped: syncResult.skipped,
+          errors: syncResult.errors,
+        },
+      });
+
+      const [upcItems, logs] = await Promise.all([db.loadUpcItems(), db.loadSyncLogs()]);
+      set({ upcItems, xoroSyncLogs: logs, xoroSyncing: false });
+    } catch (e) {
+      if (logId) await db.updateSyncLog(logId, { status: "error", error_message: String(e) }).catch(() => {});
+      set({ xoroSyncError: String(e), xoroSyncing: false });
+      const logs = await db.loadSyncLogs().catch(() => []);
+      set({ xoroSyncLogs: logs });
+    }
+  },
+
+  loadXoroSyncLogs: async () => {
+    const logs = await db.loadSyncLogs();
+    set({ xoroSyncLogs: logs });
+  },
 
   // ── BOM builder ───────────────────────────────────────────────────────────────
   buildBomForGtin: async (packGtinRow) => {

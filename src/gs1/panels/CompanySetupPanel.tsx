@@ -42,6 +42,8 @@ export default function CompanySetupPanel() {
     default_label_format: "",
     xoro_api_base_url: "",
     xoro_api_key_ref: "",
+    xoro_item_endpoint: "",
+    xoro_enabled: false,
     sscc_extension_digit: "0",
     sscc_starting_serial_reference: 1,
     sscc_next_serial_reference_counter: 1,
@@ -63,6 +65,8 @@ export default function CompanySetupPanel() {
         default_label_format: companySettings.default_label_format ?? "",
         xoro_api_base_url: companySettings.xoro_api_base_url ?? "",
         xoro_api_key_ref: companySettings.xoro_api_key_ref ?? "",
+        xoro_item_endpoint: companySettings.xoro_item_endpoint ?? "",
+        xoro_enabled: companySettings.xoro_enabled ?? false,
         sscc_extension_digit: companySettings.sscc_extension_digit ?? "0",
         sscc_starting_serial_reference: companySettings.sscc_starting_serial_reference ?? 1,
         sscc_next_serial_reference_counter: companySettings.sscc_next_serial_reference_counter ?? 1,
@@ -107,6 +111,7 @@ export default function CompanySetupPanel() {
         ...form,
         id: "", created_at: "", updated_at: "",
         default_label_format: null, xoro_api_base_url: null, xoro_api_key_ref: null,
+        xoro_item_endpoint: null, xoro_enabled: false,
       } as Parameters<typeof buildSsccFromSettings>[0];
       ssccPreview = buildSsccFromSettings(fakeSettings, form.sscc_next_serial_reference_counter);
     }
@@ -227,18 +232,45 @@ export default function CompanySetupPanel() {
           </div>
         </Section>
 
-        <Section title="Xoro API (Optional — Phase 2)">
-          <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 6, padding: "8px 12px", marginBottom: 12, fontSize: 12, color: "#92400E" }}>
-            Xoro integration is stubbed for Phase 2. Enter credentials now to prepare.
+        <Section title="Xoro API (Optional)">
+          <div style={FIELD}>
+            <label style={LABEL}>
+              <span>Enable Xoro Sync</span>
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={form.xoro_enabled}
+                onChange={e => setForm(f => ({ ...f, xoro_enabled: e.target.checked }))}
+                style={{ width: 16, height: 16 }}
+              />
+              <span style={{ fontSize: 13, color: TH.text }}>
+                Allow UPC sync from Xoro API
+              </span>
+            </label>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div style={FIELD}>
+              <label style={LABEL}>Xoro API Base URL</label>
+              <input style={INPUT} value={form.xoro_api_base_url}
+                onChange={e => set("xoro_api_base_url", e.target.value)}
+                placeholder="https://api.xorosoft.com/api/xoro" />
+              <span style={HINT}>Root URL — no trailing slash</span>
+            </div>
+            <div style={FIELD}>
+              <label style={LABEL}>Item Endpoint Path</label>
+              <input style={INPUT} value={form.xoro_item_endpoint}
+                onChange={e => set("xoro_item_endpoint", e.target.value)}
+                placeholder="/v1/items" />
+              <span style={HINT}>Appended to base URL (e.g. /v1/items or ItemMasterList)</span>
+            </div>
           </div>
           <div style={FIELD}>
-            <label style={LABEL}>Xoro API Base URL</label>
-            <input style={INPUT} value={form.xoro_api_base_url} onChange={e => set("xoro_api_base_url", e.target.value)} placeholder="https://api.xoro.com" />
-          </div>
-          <div style={FIELD}>
-            <label style={LABEL}>Xoro API Key Reference</label>
-            <input style={INPUT} value={form.xoro_api_key_ref} onChange={e => set("xoro_api_key_ref", e.target.value)} placeholder="Key name or vault reference" />
-            <span style={HINT}>Store the actual key in a secrets manager — enter only the reference name here.</span>
+            <label style={LABEL}>API Key</label>
+            <input style={INPUT} value={form.xoro_api_key_ref}
+              onChange={e => set("xoro_api_key_ref", e.target.value)}
+              placeholder="xoro_live_xxxxxxxxxxxx" type="password" />
+            <span style={HINT}>Sent as Bearer token. Stored in DB — use a read-only API key.</span>
           </div>
         </Section>
 

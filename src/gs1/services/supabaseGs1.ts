@@ -31,6 +31,7 @@ import type {
   ReceivingSession,
   ReceivingSessionLine,
   ReceivingSessionInput,
+  XoroSyncLog,
 } from "../types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -70,6 +71,8 @@ export async function saveCompanySettings(data: CompanySettingsInput): Promise<C
     default_label_format: data.default_label_format || null,
     xoro_api_base_url: data.xoro_api_base_url || null,
     xoro_api_key_ref: data.xoro_api_key_ref || null,
+    xoro_item_endpoint: data.xoro_item_endpoint || null,
+    xoro_enabled: data.xoro_enabled ?? false,
     sscc_extension_digit: data.sscc_extension_digit || "0",
     sscc_starting_serial_reference: data.sscc_starting_serial_reference ?? 1,
     sscc_next_serial_reference_counter: data.sscc_next_serial_reference_counter ?? 1,
@@ -660,6 +663,47 @@ export async function insertPackGtinBomIssues(
 export async function loadBatchLines(batchId: string): Promise<LabelBatchLine[]> {
   return sbFetch<LabelBatchLine[]>(
     `${rpc("label_batch_lines")}?batch_id=eq.${batchId}&order=style_no.asc,color.asc,scale_code.asc`
+  );
+}
+
+// ── Xoro sync log ─────────────────────────────────────────────────────────────
+
+export async function createSyncLog(syncType: string): Promise<XoroSyncLog> {
+  const [row] = await sbFetch<XoroSyncLog[]>(
+    rpc("xoro_sync_logs"),
+    {
+      method: "POST",
+      body: JSON.stringify({ sync_type: syncType, status: "running" }),
+      headers: { Prefer: "return=representation" },
+    }
+  );
+  return row;
+}
+
+export async function updateSyncLog(
+  id: string,
+  data: {
+    status: "complete" | "error";
+    records_processed?: number;
+    records_inserted?: number;
+    records_updated?: number;
+    error_message?: string | null;
+    raw_summary?: Record<string, unknown> | null;
+  }
+): Promise<void> {
+  await sbFetch<void>(
+    `${rpc("xoro_sync_logs")}?id=eq.${id}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ ...data, completed_at: new Date().toISOString() }),
+      headers: { Prefer: "return=minimal" },
+    }
+  );
+}
+
+export async function loadSyncLogs(limit = 20): Promise<XoroSyncLog[]> {
+  return sbFetch<XoroSyncLog[]>(
+    `${rpc("xoro_sync_logs")}?order=started_at.desc&limit=${limit}`
   );
 }
 

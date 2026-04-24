@@ -13,12 +13,27 @@ export interface CompanySettings {
   default_label_format: string | null;
   xoro_api_base_url: string | null;
   xoro_api_key_ref: string | null;
-  // SSCC fields (added in 20260423 migration)
+  xoro_item_endpoint: string | null;
+  xoro_enabled: boolean;
+  // SSCC fields
   sscc_extension_digit: string;
   sscc_starting_serial_reference: number;
   sscc_next_serial_reference_counter: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface XoroSyncLog {
+  id: string;
+  sync_type: string;
+  status: "running" | "complete" | "error";
+  started_at: string;
+  completed_at: string | null;
+  records_processed: number;
+  records_inserted: number;
+  records_updated: number;
+  error_message: string | null;
+  raw_summary: Record<string, unknown> | null;
 }
 
 export interface UpcItem {
@@ -287,6 +302,8 @@ export interface CompanySettingsInput {
   default_label_format: string;
   xoro_api_base_url: string;
   xoro_api_key_ref: string;
+  xoro_item_endpoint: string;
+  xoro_enabled: boolean;
   sscc_extension_digit: string;
   sscc_starting_serial_reference: number;
   sscc_next_serial_reference_counter: number;
@@ -298,6 +315,7 @@ export interface UpcItemInput {
   color: string;
   size: string;
   description?: string;
+  source_method?: string;
 }
 
 export interface ScaleInput {
