@@ -220,6 +220,7 @@ export default function PhaseReviews() {
   const [rows, setRows] = useState<Req[]>([]);
   const [notesByPoPhase, setNotesByPoPhase] = useState<Record<string, Note[]>>({});
   const [statusFilter, setStatusFilter] = useState<"pending" | "all" | "approved" | "rejected">("pending");
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [dialog, setDialog] = useState<ActionDialogState | null>(null);
@@ -295,6 +296,28 @@ export default function PhaseReviews() {
     await load();
   }
 
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) => {
+      const haystack = [
+        r.po_number,
+        r.phase_name,
+        r.vendor_name,
+        r.field_name,
+        r.old_value,
+        r.new_value,
+        r.requested_by_display_name,
+        r.reviewed_by_internal_id,
+        r.review_note,
+        r.line_label,
+        r.line_description,
+        r.status,
+      ].filter(Boolean).join(" ").toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [rows, search]);
+
   const counts = useMemo(() => {
     const out = { pending: 0, approved: 0, rejected: 0 };
     for (const r of rows) out[r.status] += 1;
@@ -311,7 +334,32 @@ export default function PhaseReviews() {
               Reviewer: <strong style={{ color: C.textSub }}>{reviewer}</strong> · Approvals and rejections auto-post to the PO message thread.
             </div>
           </div>
-          <div style={{ display: "flex", gap: 6 }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ position: "relative" }}>
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search PO, phase, vendor, note…"
+                style={{
+                  width: 260, padding: "7px 30px 7px 12px", borderRadius: 6,
+                  border: `1px solid ${C.borderLt}`, background: C.surface, color: C.text,
+                  fontSize: 12, fontFamily: "inherit", boxSizing: "border-box",
+                }}
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch("")}
+                  aria-label="Clear search"
+                  style={{
+                    position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)",
+                    width: 22, height: 22, border: "none", borderRadius: 4,
+                    background: "transparent", color: C.textMuted, cursor: "pointer",
+                    fontSize: 14, lineHeight: 1, padding: 0, fontFamily: "inherit",
+                  }}
+                >×</button>
+              )}
+            </div>
             {(["pending", "approved", "rejected", "all"] as const).map((f) => (
               <button key={f} onClick={() => setStatusFilter(f)}
                 style={{
@@ -334,13 +382,15 @@ export default function PhaseReviews() {
 
         {loading ? (
           <div style={{ color: C.textMuted, padding: 40, textAlign: "center" }}>Loading…</div>
-        ) : rows.length === 0 ? (
+        ) : filteredRows.length === 0 ? (
           <div style={{ background: C.surface, border: `1px solid ${C.border}`, padding: 40, borderRadius: 10, textAlign: "center", color: C.textMuted }}>
-            No {statusFilter === "all" ? "" : statusFilter} requests.
+            {search.trim()
+              ? `No requests match "${search.trim()}".`
+              : `No ${statusFilter === "all" ? "" : statusFilter} requests.`}
           </div>
         ) : (
           <div style={{ display: "grid", gap: 10 }}>
-            {rows.map((r) => {
+            {filteredRows.map((r) => {
               const notes = notesByPoPhase[`${r.po_id}::${r.phase_name}`] || [];
               const isResubmission = r.status === "pending" && (r.prior_reviews_count ?? 0) > 0;
               return (
