@@ -23,6 +23,7 @@ import type {
 import { FORECAST_METHOD_LABELS } from "../types/wholesale";
 import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { applyOverride, buildGridRows } from "../services/wholesaleForecastService";
+import { ingestXoroSales } from "../services/xoroSalesIngestService";
 import { S, PAL } from "../components/styles";
 import { SB_HEADERS, SB_URL } from "../../utils/supabase";
 import PlanningRunControls from "./PlanningRunControls";
@@ -53,6 +54,10 @@ export default function WholesalePlanningWorkbench() {
   const [overrides, setOverrides] = useState<IpPlannerOverride[]>([]);
   const [tab, setTab] = useState<TabKey>("grid");
   const [loading, setLoading] = useState(true);
+  const [ingesting, setIngesting] = useState(false);
+  const defaultFrom = new Date(Date.now() - 395 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const [ingestFrom, setIngestFrom] = useState(defaultFrom);
+  const [ingestTo, setIngestTo] = useState(new Date().toISOString().slice(0, 10));
   const [selectedRow, setSelectedRow] = useState<IpPlanningGridRow | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
@@ -118,6 +123,26 @@ export default function WholesalePlanningWorkbench() {
     );
   }, [overrides, selectedRow]);
 
+  async function ingestSales() {
+    setIngesting(true);
+    try {
+      const r = await ingestXoroSales({ dateFrom: ingestFrom, dateTo: ingestTo });
+      if (r.error) {
+        setToast({ text: `Ingest error: ${r.error}`, kind: "error" });
+      } else {
+        setToast({
+          text: `Xoro sales: ${r.xoro_lines_fetched} lines fetched · ${r.inserted} rows upserted${r.skipped_no_sku > 0 ? ` · ${r.skipped_no_sku} skipped (no SKU match)` : ""}`,
+          kind: r.inserted > 0 ? "success" : "info",
+        });
+        if (r.inserted > 0) await loadRunData();
+      }
+    } catch (e) {
+      setToast({ text: "Ingest failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    } finally {
+      setIngesting(false);
+    }
+  }
+
   async function handleMethodChange(pref: IpForecastMethodPreference) {
     if (!selectedRun || selectedRun.forecast_method_preference === pref) return;
     await wholesaleRepo.updatePlanningRun(selectedRun.id, { forecast_method_preference: pref });
@@ -176,6 +201,21 @@ export default function WholesalePlanningWorkbench() {
           watch={["xoro_sales_history", "xoro_inventory", "wholesale_forecast"]}
           dismissKey="wholesale_workbench"
         />
+        <div style={{ ...S.card, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <strong style={{ color: PAL.text, fontSize: 13 }}>Sales history:</strong>
+          <input type="date" value={ingestFrom} onChange={(e) => setIngestFrom(e.target.value)}
+                 style={{ ...S.input, width: 140 }} />
+          <span style={{ color: PAL.textDim, fontSize: 12 }}>to</span>
+          <input type="date" value={ingestTo} onChange={(e) => setIngestTo(e.target.value)}
+                 style={{ ...S.input, width: 140 }} />
+          <button style={S.btnPrimary} onClick={ingestSales} disabled={ingesting}>
+            {ingesting ? "Ingesting…" : "Ingest Xoro sales"}
+          </button>
+          <span style={{ color: PAL.textMuted, fontSize: 12 }}>
+            Pulls invoices from Xoro → ip_sales_history_wholesale. Rebuild forecast after ingesting.
+          </span>
+        </div>
+
         <PlanningRunControls
           runs={runs}
           selectedRunId={selectedRunId}
