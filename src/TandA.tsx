@@ -1410,7 +1410,7 @@ function TandAApp() {
         </div>
         <div style={S.navRight}>
           <a
-            href="/notifications"
+            href="/notifications?from=tanda"
             title="Notifications"
             style={{
               ...S.navBtn,

@@ -324,9 +324,23 @@ export default function PhaseReviews() {
     return out;
   }, [rows]);
 
+  const backHref = (() => {
+    try {
+      const from = new URLSearchParams(window.location.search).get("from");
+      if (from === "tanda") return { href: "/tanda", label: "Back to PO WIP" };
+      if (from === "notifications") return { href: "/notifications?from=tanda", label: "Back to Notifications" };
+    } catch { /* noop */ }
+    return { href: "/tanda", label: "Back to PO WIP" };
+  })();
+
   return (
     <div style={{ minHeight: "100vh", background: C.bg, color: C.text, padding: 24, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
       <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+        <div style={{ marginBottom: 10 }}>
+          <a href={backHref.href} style={{ color: C.textMuted, fontSize: 13, textDecoration: "none" }}>
+            ← {backHref.label}
+          </a>
+        </div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 16, flexWrap: "wrap" }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: C.text }}>Vendor phase reviews</h1>

@@ -59,6 +59,16 @@ async function mount() {
       import("./utils/supabase"),
     ]);
     const plm = (() => { try { return JSON.parse(sessionStorage.getItem("plm_user") || "null"); } catch { return null; } })();
+    const from = new URLSearchParams(window.location.search).get("from") || "";
+    const backByFrom: Record<string, { href: string; label: string }> = {
+      tanda: { href: "/tanda", label: "Back to PO WIP" },
+      design: { href: "/design", label: "Back to Design Calendar" },
+      techpack: { href: "/techpack", label: "Back to Tech Packs" },
+      ats: { href: "/ats", label: "Back to ATS" },
+      planning: { href: "/planning", label: "Back to Planning" },
+      rof: { href: "/rof/phase-reviews", label: "Back to Phase Reviews" },
+    };
+    const backLink = backByFrom[from] || { href: "/", label: "Back to PLM" };
     root.render(
       <StrictMode>
         <ErrorBoundary appName="Notifications">
@@ -68,7 +78,7 @@ async function mount() {
               supabase={supabaseClient}
               userId={plm.id}
               title="Notifications"
-              backLink={{ href: "/", label: "Back to PLM" }}
+              backLink={backLink}
             />
           ) : (
             <div style={{ padding: 24, color: "#F1F5F9", background: "#0F172A", minHeight: "100vh" }}>
