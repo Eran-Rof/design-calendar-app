@@ -2,8 +2,9 @@
 //
 // Drop once per app. No UI overlay. Responsibilities:
 //   1. Poll the notifications table every 30 s.
-//   2. If unread > 0 on the first mount of this browser session and
-//      the user hasn't already dismissed, navigate to `notificationsUrl`.
+//   2. If unread > 0 on the first mount after a full page load and the
+//      user is not already on the notifications page, navigate to
+//      `notificationsUrl` so pending items are the first thing seen.
 //   3. Show a "🔔 New notification · View / Close" toast when a new
 //      notification arrives while the user is already in the app and
 //      not already on the notifications page.
@@ -26,13 +27,12 @@ interface Props {
   /** Current path — used to suppress toast + auto-redirect while the
    *  user is already viewing the notifications page. */
   currentPath?: string;
+  /** Kept for backwards compatibility; no longer used to suppress auto-open. */
   sessionKey?: string;
 }
 
-const DEFAULT_SESSION_KEY = "rof_notifications_auto_open_dismissed";
-
 export default function NotificationsShell({
-  kind, supabase, userId, notificationsUrl, currentPath, sessionKey = DEFAULT_SESSION_KEY,
+  kind, supabase, userId, notificationsUrl, currentPath,
 }: Props) {
   const [toast, setToast] = useState<NotificationRow | null>(null);
   const lastSeenCreatedAt = useRef<string | null>(null);
@@ -65,14 +65,14 @@ export default function NotificationsShell({
       }
       if (list.length > 0) lastSeenCreatedAt.current = list[0].created_at;
 
-      // One-shot auto-redirect to the notifications page on first load
-      // of this browser session when unread > 0.
+      // Auto-redirect to the notifications page on the first mount
+      // (i.e. first fetch after a fresh page load) when unread > 0.
+      // Fires once per mount — SPA navigation away from notifications
+      // won't pull the user back because the shell doesn't remount.
       if (!autoRedirectedThisMount.current) {
         autoRedirectedThisMount.current = true;
-        const dismissed = sessionStorage.getItem(sessionKey) === "1";
         const unread = list.filter((n) => !n.read_at).length;
-        if (unread > 0 && !dismissed && !onNotificationsPage) {
-          try { sessionStorage.setItem(sessionKey, "1"); } catch { /* noop */ }
+        if (unread > 0 && !onNotificationsPage) {
           window.location.href = notificationsUrl;
         }
       }

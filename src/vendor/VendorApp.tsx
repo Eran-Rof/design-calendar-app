@@ -280,7 +280,7 @@ function NotificationsTabLink() {
       title="Notifications"
       style={{
         position: "relative",
-        padding: "10px 16px",
+        padding: "10px 14px",
         fontSize: 13, fontWeight: 600,
         color: active ? "#FFFFFF" : "rgba(255,255,255,0.65)",
         textDecoration: "none",
@@ -289,7 +289,8 @@ function NotificationsTabLink() {
         display: "inline-flex", alignItems: "center", gap: 6,
       }}
     >
-      🔔
+      <span style={{ fontSize: 15, lineHeight: 1 }}>🔔</span>
+      <span>Notifications</span>
       {unread > 0 && (
         <span style={{
           minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
@@ -306,6 +307,7 @@ function TabNav() {
   const p = loc.pathname;
   return (
     <nav style={{ display: "flex", gap: 2, padding: "0 24px", background: "rgba(255,255,255,0.05)", borderBottom: `1px solid rgba(255,255,255,0.12)`, alignItems: "center" }}>
+      <NotificationsTabLink />
       <TabLink to="/vendor/reports" active={p.startsWith("/vendor/reports")}>Dashboard</TabLink>
       <TabLink to="/vendor" active={p === "/vendor"}>Purchase Orders</TabLink>
       <TabLink to="/vendor/shipments" active={p.startsWith("/vendor/shipments")}>Shipments</TabLink>
@@ -314,7 +316,6 @@ function TabNav() {
       <TabLink to="/vendor/messages" active={p.startsWith("/vendor/messages")}>Messages</TabLink>
       <TabLink to="/vendor/compliance" active={p.startsWith("/vendor/compliance")}>Compliance</TabLink>
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 2 }}>
-        <NotificationsTabLink />
         <MoreMenu activePath={p} />
       </div>
     </nav>

@@ -746,6 +746,24 @@ function TandAApp() {
     setSessionChecked(true);
   }, []);
 
+  // ── Unread notifications count (drives the nav bell badge) ───────────────
+  const [unreadNotifs, setUnreadNotifs] = useState(0);
+  useEffect(() => {
+    if (!supabaseClient || !user?.id) return;
+    let cancelled = false;
+    async function load() {
+      const { count } = await supabaseClient
+        .from("notifications")
+        .select("*", { count: "exact", head: true })
+        .eq("recipient_internal_id", user!.id)
+        .is("read_at", null);
+      if (!cancelled) setUnreadNotifs(count || 0);
+    }
+    void load();
+    const i = window.setInterval(load, 30_000);
+    return () => { cancelled = true; window.clearInterval(i); };
+  }, [user?.id]);
+
   // Load XLSX library dynamically
   useEffect(() => {
     if ((window as any).XLSX) return;
@@ -1391,6 +1409,27 @@ function TandAApp() {
           <span style={S.navSub}>via XoroERP</span>
         </div>
         <div style={S.navRight}>
+          <a
+            href="/notifications"
+            title="Notifications"
+            style={{
+              ...S.navBtn,
+              textDecoration: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              position: "relative",
+            }}
+          >
+            🔔 Notifications
+            {unreadNotifs > 0 && (
+              <span style={{
+                minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
+                background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 700,
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+              }}>{unreadNotifs > 9 ? "9+" : unreadNotifs}</span>
+            )}
+          </a>
           <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("dashboard"); })}>🏠 Dashboard</button>
           <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("list"); })}>All POs</button>
           <button style={view === "grid"      ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("grid"); })}>🗂 Grid</button>
@@ -1916,6 +1955,8 @@ function TandAApp() {
           kind="internal"
           supabase={supabaseClient}
           userId={user.id}
+          notificationsUrl="/notifications"
+          currentPath={typeof window !== "undefined" ? window.location.pathname : undefined}
           sessionKey="rof_notif_dismissed_internal"
         />
       )}
