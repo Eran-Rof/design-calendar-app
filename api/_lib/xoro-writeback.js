@@ -15,12 +15,31 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-export const WRITEBACK_ENABLED_ENV = process.env.XORO_WRITEBACK_ENABLED === "1";
+// Writeback requires explicit opt-in (XORO_WRITEBACK_ENABLED=1) AND the app
+// must not be running in staging. Staging always stays in dry-run mode even
+// if the flag is accidentally set.
+export const WRITEBACK_ENABLED_ENV =
+  process.env.XORO_WRITEBACK_ENABLED === "1" &&
+  process.env.VITE_APP_ENV !== "staging";
 
 export function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+}
+
+// Hard guard for writeback handlers. Returns true (and writes a 503) if
+// writeback is blocked — callers should return immediately when true.
+// Staging is permanently blocked regardless of XORO_WRITEBACK_ENABLED.
+export function assertWritebackDisabled(res) {
+  if (WRITEBACK_ENABLED_ENV) return false;
+  const env = process.env.VITE_APP_ENV ?? "unset";
+  const hint = env === "staging"
+    ? "Writeback is permanently disabled in staging. Use production credentials to enable."
+    : "Set XORO_WRITEBACK_ENABLED=1 in production environment variables to enable.";
+  console.warn(`[xoro-writeback] blocked in env=${env}: ${hint}`);
+  res.status(503).json({ ok: false, error: "Writeback disabled in this environment", env, hint });
+  return true;
 }
 
 export function isDryRun(req) {

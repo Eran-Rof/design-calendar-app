@@ -2,13 +2,14 @@
 // SKU, category, channel, 4W, 13W, trend %, system, override, final,
 // promo / launch / markdown flags, plus protected qty + return rate.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { IpEcomGridRow } from "../types/ecom";
 import { S, PAL, formatQty, formatPeriodCode } from "../../components/styles";
 
 export interface EcomPlanningGridProps {
   rows: IpEcomGridRow[];
   onSelectRow: (row: IpEcomGridRow) => void;
+  onUpdateBuyQty: (forecastId: string, qty: number | null) => Promise<void>;
   loading?: boolean;
 }
 
@@ -16,7 +17,7 @@ type SortKey = "channel" | "sku" | "period" | "final" | "trend" | "trailing4";
 
 const PAGE_SIZE = 500; // safety for very wide horizons; planner sees a summary + can filter
 
-export default function EcomPlanningGrid({ rows, onSelectRow, loading }: EcomPlanningGridProps) {
+export default function EcomPlanningGrid({ rows, onSelectRow, onUpdateBuyQty, loading }: EcomPlanningGridProps) {
   const [search, setSearch] = useState("");
   const [filterChannel, setFilterChannel] = useState("all");
   const [filterCategory, setFilterCategory] = useState("all");
@@ -56,7 +57,7 @@ export default function EcomPlanningGrid({ rows, onSelectRow, loading }: EcomPla
   }, [rows, search, filterChannel, filterCategory, filterActive, filterLaunch, filterPromo, sortKey, sortDir]);
 
   const totals = useMemo(() => {
-    const t = { final: 0, protected: 0, shortage: 0, promo: 0, launch: 0, markdown: 0 };
+    const t = { final: 0, protected: 0, promo: 0, launch: 0, markdown: 0 };
     for (const r of filtered) {
       t.final += r.final_forecast_qty;
       t.protected += r.protected_ecom_qty;
@@ -75,7 +76,7 @@ export default function EcomPlanningGrid({ rows, onSelectRow, loading }: EcomPla
   return (
     <div>
       <div style={S.statsRow}>
-        <StatCell label="Rows" value={filtered.length.toLocaleString()} />
+        <StatCell label="Rows" value={filtered.length > 500 ? `500 / ${filtered.length.toLocaleString()}` : filtered.length.toLocaleString()} accent={filtered.length > 500 ? PAL.yellow : undefined} />
         <StatCell label="Σ Final" value={formatQty(totals.final)} accent={PAL.green} />
         <StatCell label="Σ Protected" value={formatQty(totals.protected)} accent={PAL.accent} />
         <StatCell label="Promo weeks" value={String(totals.promo)} accent={PAL.accent} />
@@ -130,11 +131,17 @@ export default function EcomPlanningGrid({ rows, onSelectRow, loading }: EcomPla
               <Th label="Final" k="final" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
               <th style={{ ...S.th, textAlign: "right" }}>Protected</th>
               <th style={{ ...S.th, textAlign: "right" }}>Return</th>
+              <th style={{ ...S.th, textAlign: "right" }}>On Hand</th>
+              <th style={{ ...S.th, textAlign: "right", color: PAL.accent }}>ATS</th>
+              <th style={{ ...S.th, textAlign: "right", color: PAL.red }}>Short</th>
+              <th style={{ ...S.th, textAlign: "right", color: PAL.yellow }}>Excess</th>
+              <th style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy</th>
+              <th style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy $</th>
               <th style={S.th}>Flags</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r) => (
+            {filtered.slice(0, 500).map((r) => (
               <tr key={r.forecast_id} style={{ cursor: "pointer" }} onClick={() => onSelectRow(r)}>
                 <td style={S.td}>{r.channel_name}</td>
                 <td style={{ ...S.td, color: PAL.textDim }}>{r.category_name ?? "–"}</td>
@@ -154,6 +161,20 @@ export default function EcomPlanningGrid({ rows, onSelectRow, loading }: EcomPla
                 <td style={{ ...S.tdNum, color: r.return_rate && r.return_rate > 0.2 ? PAL.red : PAL.textDim }}>
                   {r.return_rate == null ? "–" : `${(r.return_rate * 100).toFixed(0)}%`}
                 </td>
+                <td style={S.tdNum}>{formatQty(r.on_hand_qty)}</td>
+                <td style={{ ...S.tdNum, color: PAL.accent }}>{formatQty(r.available_supply_qty)}</td>
+                <td style={{ ...S.tdNum, color: r.projected_shortage_qty > 0 ? PAL.red : PAL.textMuted, fontWeight: r.projected_shortage_qty > 0 ? 700 : 400 }}>
+                  {r.projected_shortage_qty > 0 ? formatQty(r.projected_shortage_qty) : "–"}
+                </td>
+                <td style={{ ...S.tdNum, color: r.projected_excess_qty > 0 ? PAL.yellow : PAL.textMuted }}>
+                  {r.projected_excess_qty > 0 ? formatQty(r.projected_excess_qty) : "–"}
+                </td>
+                <td onClick={(e) => e.stopPropagation()} style={{ ...S.td, padding: "2px 4px" }}>
+                  <BuyCell value={r.planned_buy_qty} onSave={(qty) => onUpdateBuyQty(r.forecast_id, qty)} />
+                </td>
+                <td style={{ ...S.tdNum, color: r.planned_buy_qty && r.item_cost ? PAL.green : PAL.textMuted, fontFamily: "monospace" }}>
+                  {r.planned_buy_qty && r.item_cost ? `$${(r.planned_buy_qty * r.item_cost).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "–"}
+                </td>
                 <td style={S.td}>
                   <FlagChip on={r.promo_flag} color={PAL.accent} label="P" />
                   <FlagChip on={r.launch_flag} color={PAL.green} label="L" />
@@ -163,14 +184,14 @@ export default function EcomPlanningGrid({ rows, onSelectRow, loading }: EcomPla
               </tr>
             ))}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={13} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={19} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No forecast rows yet. Click \"Build forecast\" above to populate the grid."
                   : "No rows match your filters."}
               </td></tr>
             )}
             {loading && (
-              <tr><td colSpan={13} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={19} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 Loading…
               </td></tr>
             )}
@@ -230,6 +251,67 @@ function trendColor(pct: number | null): string {
   if (pct > 0.1) return PAL.green;
   if (pct < -0.1) return PAL.red;
   return PAL.textDim;
+}
+
+function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number | null) => Promise<void> }) {
+  const [str, setStr] = useState(value != null ? String(value) : "");
+  const [saving, setSaving] = useState(false);
+  const [errored, setErrored] = useState(false);
+  const focused = useRef(false);
+
+  useEffect(() => {
+    if (!focused.current) setStr(value != null ? String(value) : "");
+  }, [value]);
+
+  async function commit() {
+    const trimmed = str.trim();
+    const qty = trimmed === "" ? null : Number(trimmed);
+    if (qty !== null && (!Number.isFinite(qty) || !Number.isInteger(qty))) { setErrored(true); focused.current = false; return; }
+    if (qty === value || (qty == null && value == null)) { focused.current = false; return; }
+    setSaving(true); setErrored(false);
+    try {
+      await onSave(qty);
+    } catch {
+      setErrored(true);
+    } finally {
+      setSaving(false);
+      focused.current = false;
+    }
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      value={str}
+      placeholder="–"
+      onChange={(e) => { setStr(e.target.value); setErrored(false); }}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+      disabled={saving}
+      style={{
+        width: 72,
+        textAlign: "right",
+        fontFamily: "monospace",
+        fontSize: 12,
+        padding: "3px 6px",
+        borderRadius: 4,
+        border: `1px solid ${errored ? PAL.red : "transparent"}`,
+        background: "transparent",
+        color: str.trim() ? PAL.green : PAL.textMuted,
+        outline: "none",
+      }}
+      onFocus={(e) => {
+        focused.current = true;
+        (e.target as HTMLInputElement).style.border = `1px solid ${PAL.green}`;
+        (e.target as HTMLInputElement).style.background = PAL.panel;
+      }}
+      onBlurCapture={(e) => {
+        (e.target as HTMLInputElement).style.border = errored ? `1px solid ${PAL.red}` : "1px solid transparent";
+        (e.target as HTMLInputElement).style.background = "transparent";
+      }}
+    />
+  );
 }
 
 function cmp(a: IpEcomGridRow, b: IpEcomGridRow, k: SortKey, d: "asc" | "desc"): number {

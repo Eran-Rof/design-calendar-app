@@ -2,7 +2,7 @@
 // week (method, factors, trailing numbers), the flag toggles, and the
 // override form.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { IpEcomGridRow, IpEcomOverrideEvent, IpEcomOverrideReason } from "../types/ecom";
 import { S, PAL, formatDate, formatDateTime, formatQty } from "../../components/styles";
 
@@ -24,21 +24,27 @@ export interface EcomOverrideDrawerProps {
     flag: "promo_flag" | "launch_flag" | "markdown_flag",
     value: boolean,
   ) => Promise<void>;
+  onUpdateBuyQty: (forecastId: string, qty: number | null) => Promise<void>;
 }
 
-export default function EcomOverrideDrawer({ row, overrides, onClose, onSaveOverride, onToggleFlag }: EcomOverrideDrawerProps) {
+export default function EcomOverrideDrawer({ row, overrides, onClose, onSaveOverride, onToggleFlag, onUpdateBuyQty }: EcomOverrideDrawerProps) {
   const [qtyStr, setQtyStr] = useState("");
   const [reason, setReason] = useState<IpEcomOverrideReason>("planner_estimate");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [buyStr, setBuyStr] = useState("");
+  const [buyingSaving, setBuyingSaving] = useState(false);
+  const [buyError, setBuyError] = useState<string | null>(null);
 
   useEffect(() => {
     setQtyStr(row ? String(row.override_qty ?? 0) : "");
     setReason("planner_estimate");
     setNote("");
     setError(null);
-  }, [row?.forecast_id]);
+    setBuyStr(row?.planned_buy_qty != null ? String(row.planned_buy_qty) : "");
+    setBuyError(null);
+  }, [row?.forecast_id, row?.planned_buy_qty, row?.override_qty]);
 
   if (!row) return null;
 
@@ -53,6 +59,20 @@ export default function EcomOverrideDrawer({ row, overrides, onClose, onSaveOver
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveBuy() {
+    const trimmed = buyStr.trim();
+    const qty = trimmed === "" ? null : Number(trimmed);
+    if (qty !== null && (!Number.isFinite(qty) || !Number.isInteger(qty))) { setBuyError("Must be a whole number"); return; }
+    setBuyingSaving(true); setBuyError(null);
+    try {
+      await onUpdateBuyQty(row!.forecast_id, qty);
+    } catch (e) {
+      setBuyError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBuyingSaving(false);
     }
   }
 
@@ -88,6 +108,15 @@ export default function EcomOverrideDrawer({ row, overrides, onClose, onSaveOver
             final = max(0, system + override). Protected ecom qty = final (MVP policy).
           </div>
 
+          {/* Supply context */}
+          <SectionLabel>Supply context</SectionLabel>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
+            <MiniCell label="On Hand" value={formatQty(row.on_hand_qty)} />
+            <MiniCell label="ATS" value={formatQty(row.available_supply_qty)} accent={PAL.accent} />
+            <MiniCell label="Short" value={row.projected_shortage_qty > 0 ? formatQty(row.projected_shortage_qty) : "–"} accent={row.projected_shortage_qty > 0 ? PAL.red : undefined} />
+            <MiniCell label="Excess" value={row.projected_excess_qty > 0 ? formatQty(row.projected_excess_qty) : "–"} accent={row.projected_excess_qty > 0 ? PAL.yellow : undefined} />
+          </div>
+
           {/* Factors */}
           <SectionLabel>Factors</SectionLabel>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8 }}>
@@ -109,6 +138,33 @@ export default function EcomOverrideDrawer({ row, overrides, onClose, onSaveOver
             <FlagToggle label="Markdown" value={row.markdown_flag}
                         onChange={(v) => onToggleFlag("markdown_flag", v)}
                         color={PAL.yellow} />
+          </div>
+
+          {/* Buy plan */}
+          <SectionLabel>Buy plan</SectionLabel>
+          <div style={S.infoCell}>
+            <div style={{ fontSize: 12, color: PAL.textMuted, marginBottom: 8 }}>
+              Units you intend to buy for this week. Clear to remove.
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                style={{ ...S.input, width: 120 }}
+                value={buyStr}
+                inputMode="numeric"
+                placeholder="e.g. 60"
+                onChange={(e) => setBuyStr(e.target.value)}
+              />
+              <button style={S.btnPrimary} onClick={saveBuy} disabled={buyingSaving}>
+                {buyingSaving ? "Saving…" : "Save buy qty"}
+              </button>
+              {row.planned_buy_qty != null && (
+                <span style={{ fontFamily: "monospace", fontSize: 13, color: PAL.green }}>
+                  Current: {row.planned_buy_qty.toLocaleString()} units
+                  {row.item_cost != null && ` · $${(row.planned_buy_qty * row.item_cost).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+                </span>
+              )}
+            </div>
+            {buyError && <div style={{ color: PAL.red, marginTop: 6, fontSize: 12 }}>{buyError}</div>}
           </div>
 
           {/* Override form */}

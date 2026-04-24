@@ -180,6 +180,73 @@ describe("applyPlannerOverrides", () => {
   });
 });
 
+describe("methodPreference", () => {
+  // Snapshot "2026-04-30" → LY codes: 2025-03 (13 back), 2025-04 (12 back), 2025-05 (11 back).
+  // Standard 12-month lookback covers months 11-0 back = 2025-05 → 2026-04.
+  // So 2025-04 and 2025-03 are only visible to the LY method.
+
+  it("ly_sales uses data outside the standard lookback window", () => {
+    // History exists only at month 12 back (2025-04) — invisible to standard waterfall.
+    const history = [h(CUST, SKU_A, "2025-04", 120)];
+    const withoutPref = buildWholesaleBaselineForecast(baseInput({ history }));
+    expect(withoutPref[0].forecast_method).toBe("zero_floor"); // standard sees nothing
+
+    const withPref = buildWholesaleBaselineForecast(baseInput({ history, methodPreference: "ly_sales" }));
+    expect(withPref[0].forecast_method).toBe("ly_sales");
+    expect(withPref[0].system_forecast_qty).toBe(120);
+    expect(withPref[0].confidence_level).toBe("possible"); // 1 nonzero LY month
+  });
+
+  it("ly_sales with two LY months produces probable confidence", () => {
+    const history = [h(CUST, SKU_A, "2025-03", 80), h(CUST, SKU_A, "2025-04", 120)];
+    const rows = buildWholesaleBaselineForecast(baseInput({ history, methodPreference: "ly_sales" }));
+    expect(rows[0].forecast_method).toBe("ly_sales");
+    expect(rows[0].system_forecast_qty).toBe(100); // avg(80, 120)
+    expect(rows[0].confidence_level).toBe("probable"); // ≥ 2 nonzero LY months
+  });
+
+  it("ly_sales falls through to standard waterfall when no LY data exists", () => {
+    // Dense recent history but nothing 11-13 months back.
+    const months = ["2025-06","2025-07","2025-08","2025-09","2025-10","2025-11","2025-12","2026-01","2026-02","2026-03","2026-04"];
+    const history = months.map((m) => h(CUST, SKU_A, m, 50));
+    const rows = buildWholesaleBaselineForecast(baseInput({ history, methodPreference: "ly_sales" }));
+    expect(rows[0].forecast_method).toBe("trailing_avg_sku"); // LY null → fell through
+    expect(rows[0].system_forecast_qty).toBe(46); // 11 months × 50 / 12 = 45.8 → 46
+  });
+
+  it("weighted_recent forces recent-3 result even when below the 30% recency gate", () => {
+    // 9 months of 90, last 3 months of 10 → last3/last12 = 3.6% (below 30% gate).
+    // Standard: trailing_avg (70). weighted_recent: forces recent3/3 = 10.
+    const history = [
+      h(CUST, SKU_A, "2025-05", 90), h(CUST, SKU_A, "2025-06", 90), h(CUST, SKU_A, "2025-07", 90),
+      h(CUST, SKU_A, "2025-08", 90), h(CUST, SKU_A, "2025-09", 90), h(CUST, SKU_A, "2025-10", 90),
+      h(CUST, SKU_A, "2025-11", 90), h(CUST, SKU_A, "2025-12", 90), h(CUST, SKU_A, "2026-01", 90),
+      h(CUST, SKU_A, "2026-02", 10), h(CUST, SKU_A, "2026-03", 10), h(CUST, SKU_A, "2026-04", 10),
+    ];
+    const standard = buildWholesaleBaselineForecast(baseInput({ history }));
+    expect(standard[0].forecast_method).toBe("trailing_avg_sku");
+    expect(standard[0].system_forecast_qty).toBe(70);
+
+    const withPref = buildWholesaleBaselineForecast(baseInput({ history, methodPreference: "weighted_recent" }));
+    expect(withPref[0].forecast_method).toBe("weighted_recent_sku");
+    expect(withPref[0].system_forecast_qty).toBe(10);
+  });
+
+  it("cadence pref skips step 1 and falls to cadence_sku even with dense history", () => {
+    // 12 months of 100 → standard gives trailing_avg_sku/probable.
+    // cadence pref: step 1 skipped → cadence_sku/possible.
+    const months = ["2025-05","2025-06","2025-07","2025-08","2025-09","2025-10","2025-11","2025-12","2026-01","2026-02","2026-03","2026-04"];
+    const history = months.map((m) => h(CUST, SKU_A, m, 100));
+    const standard = buildWholesaleBaselineForecast(baseInput({ history }));
+    expect(standard[0].forecast_method).toBe("trailing_avg_sku");
+    expect(standard[0].confidence_level).toBe("probable");
+
+    const withPref = buildWholesaleBaselineForecast(baseInput({ history, methodPreference: "cadence" }));
+    expect(withPref[0].forecast_method).toBe("cadence_sku");
+    expect(withPref[0].confidence_level).toBe("possible");
+  });
+});
+
 describe("buildFinalWholesaleForecast", () => {
   it("layers system + request + override end-to-end", () => {
     const out = buildFinalWholesaleForecast(baseInput({

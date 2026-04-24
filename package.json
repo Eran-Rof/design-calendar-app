@@ -15,6 +15,7 @@
     "staging:reset": "node scripts/staging-setup.mjs --local --reset"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.90.0",
     "@supabase/supabase-js": "^2.99.2",
     "@tiptap/extension-bullet-list": "^3.22.3",
     "@tiptap/extension-color": "^3.22.3",
@@ -27,6 +28,7 @@
     "@tiptap/react": "^3.22.3",
     "@tiptap/starter-kit": "^3.22.3",
     "formidable": "^3.5.4",
+    "pg": "^8.20.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.14.2",

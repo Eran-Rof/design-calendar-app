@@ -84,7 +84,7 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
   return (
     <div>
       <div style={S.statsRow}>
-        <StatCell label="Rows" value={filtered.length.toLocaleString()} />
+        <StatCell label="Rows" value={filtered.length > 500 ? `500 / ${filtered.length.toLocaleString()}` : filtered.length.toLocaleString()} accent={filtered.length > 500 ? PAL.yellow : undefined} />
         <StatCell label="Σ Supply" value={formatQty(totals.supply)} accent={PAL.accent} />
         <StatCell label="Σ Demand" value={formatQty(totals.demand)} accent={PAL.text} />
         <StatCell label="Σ Shortage" value={formatQty(totals.shortage)} accent={PAL.red} />
@@ -145,7 +145,7 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r) => (
+            {filtered.slice(0, 500).map((r) => (
               <tr key={r.projected_id}
                   style={{ cursor: "pointer", background: r.projected_stockout_flag ? "#3f1d1d22" : undefined }}
                   onClick={() => onSelectRow(r)}>

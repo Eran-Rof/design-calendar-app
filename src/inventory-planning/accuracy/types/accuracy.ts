@@ -32,6 +32,7 @@ export interface IpForecastAccuracy {
   period_start: IpIsoDate;
   period_end: IpIsoDate;
   period_code: string;
+  forecast_method: string | null;
   system_forecast_qty: number;
   final_forecast_qty: number;
   actual_qty: number;

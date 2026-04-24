@@ -63,7 +63,11 @@ export default async function handler(req, res) {
         const val = v.replace("eq.", "");
         q = q.eq(k, val);
       }
-      const { data } = await q;
+      const { data, error: qErr } = await q;
+      if (qErr) {
+        signals.push({ entity: src.entity, last: null, age_hours: null, severity: "warning", threshold: tByEntity.get(src.entity)?.max_age_hours ?? null });
+        continue;
+      }
       const last = data?.[0]?.[src.column] ?? null;
       const age = last ? Math.round((Date.now() - Date.parse(last)) / HOUR) : null;
       const t = tByEntity.get(src.entity);

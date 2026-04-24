@@ -1,11 +1,63 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { appConfig } from "./config/env";
+import { canAccessInventoryPlanning, getPlmSessionEmail } from "./config/planningAccess";
 
 // Simple path-based routing — no router library needed
 const path = window.location.pathname;
 
+// ── Planning access gate ───────────────────────────────────────────────────────
+// Evaluated once at mount. Beta-only mode reads the PLM session from
+// sessionStorage (written by PLM.tsx after login).
+function planningAccessAllowed(): boolean {
+  return canAccessInventoryPlanning(getPlmSessionEmail());
+}
+
+// Shown when planning is disabled or the user is not in the beta allowlist.
+function PlanningBlocked() {
+  const reason = !appConfig.inventoryPlanningEnabled
+    ? "Inventory Planning is not enabled in this environment."
+    : "Your account is not on the Inventory Planning beta access list.";
+
+  return (
+    <div
+      style={{
+        display:        "flex",
+        flexDirection:  "column",
+        alignItems:     "center",
+        justifyContent: "center",
+        height:         "100vh",
+        fontFamily:     "system-ui, -apple-system, sans-serif",
+        color:          "#6B7280",
+        textAlign:      "center",
+        padding:        "0 24px",
+      }}
+    >
+      <div style={{ fontSize: 48, marginBottom: 16 }}>📊</div>
+      <h1 style={{ margin: 0, fontSize: 20, color: "#111827" }}>Inventory Planning</h1>
+      <p style={{ margin: "10px 0 24px", maxWidth: 360 }}>{reason}</p>
+      <a href="/" style={{ color: "#CC2200", fontSize: 14, textDecoration: "none" }}>
+        ← Back to launcher
+      </a>
+    </div>
+  );
+}
+
 async function mount() {
+  // ── Staging banner ────────────────────────────────────────────────────────
+  // Mounted in its own div so it's independent of whichever sub-app loads.
+  if (appConfig.isStaging) {
+    const { default: StagingBanner } = await import("./components/StagingBanner");
+    const bannerDiv = document.createElement("div");
+    bannerDiv.id = "staging-banner-root";
+    document.body.prepend(bannerDiv);
+    // Push the main root down so the banner doesn't overlap app headers.
+    const rootEl = document.getElementById("root");
+    if (rootEl) rootEl.style.paddingTop = "34px";
+    createRoot(bannerDiv).render(<StrictMode><StagingBanner /></StrictMode>);
+  }
+
   const root = createRoot(document.getElementById("root")!);
 
   if (path.startsWith("/vendor")) {
@@ -13,42 +65,68 @@ async function mount() {
     // Sub-routing (/vendor/login, /vendor/setup, /vendor) lives inside VendorApp via react-router-dom.
     const { default: VendorApp } = await import("./vendor/VendorApp");
     root.render(<StrictMode><ErrorBoundary appName="Vendor Portal"><VendorApp /></ErrorBoundary></StrictMode>);
+
   } else if (path.startsWith("/design")) {
     const { default: App } = await import("./App");
     root.render(<StrictMode><ErrorBoundary appName="Design Calendar"><App /></ErrorBoundary></StrictMode>);
+
   } else if (path.startsWith("/tanda")) {
     const { default: TandA } = await import("./TandA");
     root.render(<StrictMode><ErrorBoundary appName="PO WIP"><TandA /></ErrorBoundary></StrictMode>);
+
   } else if (path.startsWith("/techpack")) {
     const { default: TechPack } = await import("./TechPack");
     root.render(<StrictMode><ErrorBoundary appName="Tech Packs"><TechPack /></ErrorBoundary></StrictMode>);
+
   } else if (path.startsWith("/ats")) {
     const { default: ATS } = await import("./ATS");
     root.render(<StrictMode><ErrorBoundary appName="ATS"><ATS /></ErrorBoundary></StrictMode>);
-  } else if (path.startsWith("/planning/data-quality")) {
-    const { default: DataQualityReport } = await import("./inventory-planning/admin/DataQualityReport");
-    root.render(<StrictMode><ErrorBoundary appName="Planning DQ"><DataQualityReport /></ErrorBoundary></StrictMode>);
-  } else if (path.startsWith("/planning/ecom")) {
-    const { default: EcomPlanningWorkbench } = await import("./inventory-planning/ecom/panels/EcomPlanningWorkbench");
-    root.render(<StrictMode><ErrorBoundary appName="Ecom Planning"><EcomPlanningWorkbench /></ErrorBoundary></StrictMode>);
-  } else if (path.startsWith("/planning/supply")) {
-    const { default: ReconciliationWorkbench } = await import("./inventory-planning/supply/panels/ReconciliationWorkbench");
-    root.render(<StrictMode><ErrorBoundary appName="Supply Reconciliation"><ReconciliationWorkbench /></ErrorBoundary></StrictMode>);
-  } else if (path.startsWith("/planning/accuracy")) {
-    const { default: AccuracyWorkbench } = await import("./inventory-planning/accuracy/panels/AccuracyWorkbench");
-    root.render(<StrictMode><ErrorBoundary appName="Accuracy & AI"><AccuracyWorkbench /></ErrorBoundary></StrictMode>);
-  } else if (path.startsWith("/planning/scenarios")) {
-    const { default: ScenarioManager } = await import("./inventory-planning/scenarios/panels/ScenarioManager");
-    root.render(<StrictMode><ErrorBoundary appName="Scenarios & Exports"><ScenarioManager /></ErrorBoundary></StrictMode>);
-  } else if (path.startsWith("/planning/execution")) {
-    const { default: ExecutionBatchManager } = await import("./inventory-planning/execution/panels/ExecutionBatchManager");
-    root.render(<StrictMode><ErrorBoundary appName="Execution"><ExecutionBatchManager /></ErrorBoundary></StrictMode>);
-  } else if (path.startsWith("/planning/admin")) {
-    const { default: AdminWorkbench } = await import("./inventory-planning/admin/panels/AdminWorkbench");
-    root.render(<StrictMode><ErrorBoundary appName="Admin"><AdminWorkbench /></ErrorBoundary></StrictMode>);
-  } else if (path.startsWith("/planning/wholesale") || path.startsWith("/planning")) {
-    const { default: WholesalePlanningWorkbench } = await import("./inventory-planning/panels/WholesalePlanningWorkbench");
-    root.render(<StrictMode><ErrorBoundary appName="Wholesale Planning"><WholesalePlanningWorkbench /></ErrorBoundary></StrictMode>);
+
+  } else if (path.startsWith("/gs1")) {
+    const { default: GS1 } = await import("./GS1");
+    root.render(<StrictMode><ErrorBoundary appName="GS1 Labels"><GS1 /></ErrorBoundary></StrictMode>);
+
+  } else if (path.startsWith("/planning")) {
+    // ── Planning gate ─────────────────────────────────────────────────────
+    // All /planning/* sub-routes share the same access check so it only
+    // needs to live in one place.
+    if (!planningAccessAllowed()) {
+      root.render(<StrictMode><ErrorBoundary appName="Planning"><PlanningBlocked /></ErrorBoundary></StrictMode>);
+
+    } else if (path.startsWith("/planning/data-quality")) {
+      const { default: DataQualityReport } = await import("./inventory-planning/admin/DataQualityReport");
+      root.render(<StrictMode><ErrorBoundary appName="Planning DQ"><DataQualityReport /></ErrorBoundary></StrictMode>);
+
+    } else if (path.startsWith("/planning/ecom")) {
+      const { default: EcomPlanningWorkbench } = await import("./inventory-planning/ecom/panels/EcomPlanningWorkbench");
+      root.render(<StrictMode><ErrorBoundary appName="Ecom Planning"><EcomPlanningWorkbench /></ErrorBoundary></StrictMode>);
+
+    } else if (path.startsWith("/planning/supply")) {
+      const { default: ReconciliationWorkbench } = await import("./inventory-planning/supply/panels/ReconciliationWorkbench");
+      root.render(<StrictMode><ErrorBoundary appName="Supply Reconciliation"><ReconciliationWorkbench /></ErrorBoundary></StrictMode>);
+
+    } else if (path.startsWith("/planning/accuracy")) {
+      const { default: AccuracyWorkbench } = await import("./inventory-planning/accuracy/panels/AccuracyWorkbench");
+      root.render(<StrictMode><ErrorBoundary appName="Accuracy & AI"><AccuracyWorkbench /></ErrorBoundary></StrictMode>);
+
+    } else if (path.startsWith("/planning/scenarios")) {
+      const { default: ScenarioManager } = await import("./inventory-planning/scenarios/panels/ScenarioManager");
+      root.render(<StrictMode><ErrorBoundary appName="Scenarios & Exports"><ScenarioManager /></ErrorBoundary></StrictMode>);
+
+    } else if (path.startsWith("/planning/execution")) {
+      const { default: ExecutionBatchManager } = await import("./inventory-planning/execution/panels/ExecutionBatchManager");
+      root.render(<StrictMode><ErrorBoundary appName="Execution"><ExecutionBatchManager /></ErrorBoundary></StrictMode>);
+
+    } else if (path.startsWith("/planning/admin")) {
+      const { default: AdminWorkbench } = await import("./inventory-planning/admin/panels/AdminWorkbench");
+      root.render(<StrictMode><ErrorBoundary appName="Admin"><AdminWorkbench /></ErrorBoundary></StrictMode>);
+
+    } else {
+      // /planning or /planning/wholesale
+      const { default: WholesalePlanningWorkbench } = await import("./inventory-planning/panels/WholesalePlanningWorkbench");
+      root.render(<StrictMode><ErrorBoundary appName="Wholesale Planning"><WholesalePlanningWorkbench /></ErrorBoundary></StrictMode>);
+    }
+
   } else {
     // Root "/" — PLM Launcher
     const { default: PLMApp } = await import("./PLM");
