@@ -53,6 +53,7 @@ import { SettingsModal } from "./tanda/views/SettingsModal";
 
 import { SB_URL, SB_KEY, SB_HEADERS, supabaseClient } from "./utils/supabase";
 import NotificationsShell from "./components/notifications/NotificationsShell";
+import NotificationsPage from "./components/notifications/NotificationsPage";
 import { type XoroPO, type Milestone, type WipTemplate, type LocalNote, type User, type DCVendor, type DmConversation, type SyncFilters, type View, ALL_PO_STATUSES, ACTIVE_PO_STATUSES, STATUS_COLORS, STATUS_OPTIONS, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, DEFAULT_WIP_TEMPLATES, milestoneUid, itemQty, poTotal, normalizeSize, sizeSort, mapXoroRaw, fmtDate, fmtCurrency } from "./utils/tandaTypes";
 import S from "./tanda/styles";
 // generateMilestones and mergeMilestones moved to useMilestoneOps
@@ -1409,17 +1410,16 @@ function TandAApp() {
           <span style={S.navSub}>via XoroERP</span>
         </div>
         <div style={S.navRight}>
-          <a
-            href="/notifications?from=tanda"
-            title="Notifications"
+          <button
             style={{
-              ...S.navBtn,
-              textDecoration: "none",
+              ...(view === "notifications" ? S.navBtnActive : S.navBtn),
               display: "inline-flex",
               alignItems: "center",
               gap: 6,
               position: "relative",
             }}
+            onClick={() => guardedNav(() => { setSelected(null); setView("notifications"); })}
+            title="Notifications"
           >
             🔔 Notifications
             {unreadNotifs > 0 && (
@@ -1429,7 +1429,7 @@ function TandAApp() {
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
               }}>{unreadNotifs > 9 ? "9+" : unreadNotifs}</span>
             )}
-          </a>
+          </button>
           <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("dashboard"); })}>🏠 Dashboard</button>
           <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("list"); })}>All POs</button>
           <button style={view === "grid"      ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("grid"); })}>🗂 Grid</button>
@@ -1586,6 +1586,17 @@ function TandAApp() {
 
         {/* ── COMPLIANCE REVIEW ── */}
         {view === "compliance" && <ComplianceReview />}
+
+        {/* ── NOTIFICATIONS (in-app) ── */}
+        {view === "notifications" && supabaseClient && user && (
+          <NotificationsPage
+            embed
+            kind="internal"
+            supabase={supabaseClient}
+            userId={user.id}
+            title="Notifications"
+          />
+        )}
 
         {/* ── MESSAGES ── */}
         {view === "messages" && <MessagesView />}
@@ -1955,9 +1966,11 @@ function TandAApp() {
           kind="internal"
           supabase={supabaseClient}
           userId={user.id}
-          notificationsUrl="/notifications"
+          notificationsUrl="/notifications?from=tanda"
           currentPath={typeof window !== "undefined" ? window.location.pathname : undefined}
+          isViewingNotifications={view === "notifications"}
           sessionKey="rof_notif_dismissed_internal"
+          onOpen={() => { setSelected(null); setView("notifications"); }}
         />
       )}
     </div>

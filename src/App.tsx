@@ -1238,6 +1238,8 @@ function App() {
           kind="internal"
           supabase={supabaseClient}
           userId={currentUser.id}
+          notificationsUrl="/notifications?from=design"
+          currentPath={typeof window !== "undefined" ? window.location.pathname : undefined}
           sessionKey="rof_notif_dismissed_internal"
         />
       )}

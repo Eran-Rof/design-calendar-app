@@ -16,6 +16,10 @@ interface Props {
   userId: string;
   title?: string;
   backLink?: { href: string; label: string };
+  /** When true, render without the full-screen dark chrome — the host
+   *  app provides background/padding. Use when embedding the page as
+   *  a view inside another app (e.g. PO WIP). */
+  embed?: boolean;
 }
 
 const C = {
@@ -90,7 +94,7 @@ function timeAgo(iso: string): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-export default function NotificationsPage({ kind, supabase, userId, title = "Notifications", backLink }: Props) {
+export default function NotificationsPage({ kind, supabase, userId, title = "Notifications", backLink, embed = false }: Props) {
   const [items, setItems] = useState<NotificationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"unread" | "all">("unread");
@@ -165,8 +169,12 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
     if (n.link) window.location.href = n.link;
   }
 
+  const outerStyle: React.CSSProperties = embed
+    ? { color: C.text, fontFamily: "system-ui, -apple-system, sans-serif" }
+    : { minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "system-ui, -apple-system, sans-serif", padding: 24 };
+
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "system-ui, -apple-system, sans-serif", padding: 24 }}>
+    <div style={outerStyle}>
       <div style={{ maxWidth: 1400, margin: "0 auto" }}>
         {backLink && (
           <div style={{ marginBottom: 10 }}>

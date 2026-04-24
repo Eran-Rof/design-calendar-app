@@ -2,16 +2,18 @@
 //
 // Drop once per app. No UI overlay. Responsibilities:
 //   1. Poll the notifications table every 30 s.
-//   2. If unread > 0 on the first mount after a full page load and the
-//      user is not already on the notifications page, navigate to
-//      `notificationsUrl` so pending items are the first thing seen.
+//   2. On the first load of a browser session, when unread > 0 and the
+//      user isn't already viewing notifications, open them — either via
+//      the in-app `onOpen` callback (preferred) or a full-page redirect
+//      to `notificationsUrl`. Fires once per session (sessionStorage
+//      keyed by `sessionKey`) so that clicking a notification doesn't
+//      bounce the user back to the inbox in a loop.
 //   3. Show a "🔔 New notification · View / Close" toast when a new
-//      notification arrives while the user is already in the app and
-//      not already on the notifications page.
+//      notification arrives while the user is in the app and not on
+//      the notifications view.
 //
-// The bell / counter / list UI now live in a dedicated route
-// (see NotificationsPage.tsx) — this component does not render a
-// floating overlay anymore.
+// The bell / counter / list UI live in NotificationsPage — the shell
+// never renders one itself.
 
 import { useEffect, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -22,26 +24,50 @@ interface Props {
   supabase: SupabaseClient;
   userId: string | null;
   /** URL of the dedicated notifications page, e.g. "/vendor/notifications"
-   *  for vendor, "/notifications" for internal apps. */
+   *  or "/notifications?from=tanda". Used by the full-redirect fallback
+   *  when `onOpen` isn't provided. */
   notificationsUrl: string;
-  /** Current path — used to suppress toast + auto-redirect while the
-   *  user is already viewing the notifications page. */
+  /** Current path — used to suppress toast + auto-open while the user
+   *  is already viewing the notifications page. Query strings in
+   *  `notificationsUrl` are ignored for this match. */
   currentPath?: string;
-  /** Kept for backwards compatibility; no longer used to suppress auto-open. */
+  /** Optional flag for in-app views: true when the host app has
+   *  switched to its in-app notifications view (no URL change). */
+  isViewingNotifications?: boolean;
+  /** sessionStorage key used to remember that auto-open already fired
+   *  this browser session. */
   sessionKey?: string;
+  /** If provided, called to open notifications in-app instead of doing
+   *  a full-page redirect to `notificationsUrl`. Used for both the
+   *  once-per-session auto-open and the toast "View" button. */
+  onOpen?: () => void;
 }
 
+const DEFAULT_SESSION_KEY = "rof_notifications_auto_open_dismissed";
+
 export default function NotificationsShell({
-  kind, supabase, userId, notificationsUrl, currentPath,
+  kind, supabase, userId, notificationsUrl, currentPath, isViewingNotifications,
+  sessionKey = DEFAULT_SESSION_KEY, onOpen,
 }: Props) {
   const [toast, setToast] = useState<NotificationRow | null>(null);
   const lastSeenCreatedAt = useRef<string | null>(null);
-  const autoRedirectedThisMount = useRef(false);
+  const autoOpenedThisMount = useRef(false);
 
   const recipientColumn = kind === "vendor" ? "recipient_auth_id" : "recipient_internal_id";
+  const notifUrlPath = notificationsUrl.split("?")[0];
   const onNotificationsPage =
-    !!currentPath &&
-    (currentPath === notificationsUrl || currentPath.startsWith(notificationsUrl + "/") || currentPath.startsWith(notificationsUrl + "?"));
+    isViewingNotifications ||
+    (!!currentPath && (
+      currentPath === notifUrlPath ||
+      currentPath.startsWith(notifUrlPath + "/") ||
+      currentPath.startsWith(notifUrlPath + "?")
+    ));
+
+  const openNotifications = () => {
+    try { sessionStorage.setItem(sessionKey, "1"); } catch { /* noop */ }
+    if (onOpen) onOpen();
+    else window.location.href = notificationsUrl;
+  };
 
   useEffect(() => {
     if (!userId) return;
@@ -65,15 +91,17 @@ export default function NotificationsShell({
       }
       if (list.length > 0) lastSeenCreatedAt.current = list[0].created_at;
 
-      // Auto-redirect to the notifications page on the first mount
-      // (i.e. first fetch after a fresh page load) when unread > 0.
-      // Fires once per mount — SPA navigation away from notifications
-      // won't pull the user back because the shell doesn't remount.
-      if (!autoRedirectedThisMount.current) {
-        autoRedirectedThisMount.current = true;
+      // One-shot-per-session auto-open to notifications when unread > 0.
+      // The sessionStorage guard prevents a redirect loop: after the user
+      // clicks an item and navigates to its target, the shell on the new
+      // page sees the flag is set and leaves them there.
+      if (!autoOpenedThisMount.current) {
+        autoOpenedThisMount.current = true;
+        let dismissed = false;
+        try { dismissed = sessionStorage.getItem(sessionKey) === "1"; } catch { /* noop */ }
         const unread = list.filter((n) => !n.read_at).length;
-        if (unread > 0 && !onNotificationsPage) {
-          window.location.href = notificationsUrl;
+        if (unread > 0 && !dismissed && !onNotificationsPage) {
+          openNotifications();
         }
       }
     }
@@ -85,7 +113,7 @@ export default function NotificationsShell({
 
   if (!userId || !toast || onNotificationsPage) return null;
 
-  return <NewNotificationToast notification={toast} onView={() => { window.location.href = notificationsUrl; }} onClose={() => setToast(null)} />;
+  return <NewNotificationToast notification={toast} onView={openNotifications} onClose={() => setToast(null)} />;
 }
 
 function NewNotificationToast({
