@@ -4,7 +4,8 @@ import { styledEmailHtml } from "./utils/emailHtml";
 // v2026-03-24b
 
 // ── Supabase ─────────────────────────────────────────────────────────────────
-import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
+import { SB_URL, SB_KEY, SB_HEADERS, supabaseClient } from "./utils/supabase";
+import NotificationsShell from "./components/notifications/NotificationsShell";
 
 // ── Supabase helpers ──────────────────────────────────────────────────────────
 const sb = {
@@ -1716,6 +1717,15 @@ export default function TechPackApp() {
             </div>
           </div>
         </div>
+      )}
+
+      {supabaseClient && user && (
+        <NotificationsShell
+          kind="internal"
+          supabase={supabaseClient}
+          userId={user.id}
+          sessionKey="rof_notif_dismissed_internal"
+        />
       )}
     </div>
   );

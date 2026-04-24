@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
-import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
+import { SB_URL, SB_KEY, SB_HEADERS, supabaseClient } from "./utils/supabase";
 import { sha256, isHashed } from "./utils/hash";
+import NotificationsShell from "./components/notifications/NotificationsShell";
 
 // ── Session storage key ───────────────────────────────────────────────────────
 const SESSION_KEY = "plm_user";
@@ -292,6 +293,15 @@ export default function PLMApp() {
 
       {/* Admin User Manager Modal */}
       {showAdmin && <UserManagerModal onClose={() => setShowAdmin(false)} currentUser={user} />}
+
+      {supabaseClient && (
+        <NotificationsShell
+          kind="internal"
+          supabase={supabaseClient}
+          userId={user.id}
+          sessionKey="rof_notif_dismissed_internal"
+        />
+      )}
     </div>
   );
 }

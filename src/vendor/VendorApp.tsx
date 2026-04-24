@@ -21,7 +21,7 @@ import ShipmentSubmit from "./ShipmentSubmit";
 import InvoicesList from "./InvoicesList";
 import InvoiceSubmit from "./InvoiceSubmit";
 import InvoiceDetail from "./InvoiceDetail";
-import NotificationBell from "./NotificationBell";
+import NotificationsShell from "../components/notifications/NotificationsShell";
 import ComplianceList from "./ComplianceList";
 import POMessages from "./POMessages";
 import VendorScorecard from "./VendorScorecard";
@@ -300,7 +300,6 @@ function VendorShell({ children, withTabs = false }: { children: ReactNode; with
         </div>
         {session && (
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <NotificationBell />
             <span style={{ fontSize: 13, color: "#FFFFFF" }}>{session.user.email}</span>
             <button
               onClick={async () => {
@@ -316,6 +315,14 @@ function VendorShell({ children, withTabs = false }: { children: ReactNode; with
       </header>
       {withTabs && session && <TabNav />}
       <main style={{ padding: "24px" }}>{children}</main>
+      {session && (
+        <NotificationsShell
+          kind="vendor"
+          supabase={supabaseVendor}
+          userId={session.user.id}
+          sessionKey="rof_notif_dismissed_vendor"
+        />
+      )}
     </div>
   );
 }

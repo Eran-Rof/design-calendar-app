@@ -51,7 +51,8 @@ import InternalTax from "./tanda/InternalTax";
 import { SyncModals } from "./tanda/views/SyncModal";
 import { SettingsModal } from "./tanda/views/SettingsModal";
 
-import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
+import { SB_URL, SB_KEY, SB_HEADERS, supabaseClient } from "./utils/supabase";
+import NotificationsShell from "./components/notifications/NotificationsShell";
 import { type XoroPO, type Milestone, type WipTemplate, type LocalNote, type User, type DCVendor, type DmConversation, type SyncFilters, type View, ALL_PO_STATUSES, ACTIVE_PO_STATUSES, STATUS_COLORS, STATUS_OPTIONS, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, DEFAULT_WIP_TEMPLATES, milestoneUid, itemQty, poTotal, normalizeSize, sizeSort, mapXoroRaw, fmtDate, fmtCurrency } from "./utils/tandaTypes";
 import S from "./tanda/styles";
 // generateMilestones and mergeMilestones moved to useMilestoneOps
@@ -1901,6 +1902,15 @@ function TandAApp() {
           {askMeOpen ? "✕" : "💬"}
         </button>
       </div>
+
+      {supabaseClient && user && (
+        <NotificationsShell
+          kind="internal"
+          supabase={supabaseClient}
+          userId={user.id}
+          sessionKey="rof_notif_dismissed_internal"
+        />
+      )}
     </div>
   );
 
