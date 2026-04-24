@@ -248,8 +248,8 @@ function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number
 
   async function commit(raw: string) {
     const trimmed = raw.trim();
-    const qty = trimmed === "" ? null : parseInt(trimmed, 10);
-    if (qty !== null && !Number.isFinite(qty)) { setErr(true); focused.current = false; return; }
+    const qty = trimmed === "" ? null : Number(trimmed);
+    if (qty !== null && (!Number.isFinite(qty) || !Number.isInteger(qty))) { setErr(true); focused.current = false; return; }
     if (qty === value || (qty == null && value == null)) { focused.current = false; return; }
     setErr(false);
     setSaving(true);

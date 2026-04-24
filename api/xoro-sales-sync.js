@@ -127,7 +127,7 @@ export default async function handler(req, res) {
     if (!txnDate) { result.skipped_no_date++; continue; }
 
     const qty = toNum(ln.QtyInvoiced ?? ln.QtyShipped ?? ln.Qty) ?? 0;
-    if (qty === 0) { result.skipped_zero_qty++; continue; }
+    if (qty <= 0) { result.skipped_zero_qty++; continue; }
 
     const customerId =
       customerCodeToId.get(canonSku(ln.CustomerNumber ?? ln.CustomerCode)) ??

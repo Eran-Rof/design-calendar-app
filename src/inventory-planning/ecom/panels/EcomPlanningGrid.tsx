@@ -57,7 +57,7 @@ export default function EcomPlanningGrid({ rows, onSelectRow, onUpdateBuyQty, lo
   }, [rows, search, filterChannel, filterCategory, filterActive, filterLaunch, filterPromo, sortKey, sortDir]);
 
   const totals = useMemo(() => {
-    const t = { final: 0, protected: 0, shortage: 0, promo: 0, launch: 0, markdown: 0 };
+    const t = { final: 0, protected: 0, promo: 0, launch: 0, markdown: 0 };
     for (const r of filtered) {
       t.final += r.final_forecast_qty;
       t.protected += r.protected_ecom_qty;
@@ -265,8 +265,8 @@ function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number
 
   async function commit() {
     const trimmed = str.trim();
-    const qty = trimmed === "" ? null : parseInt(trimmed, 10);
-    if (qty !== null && !Number.isFinite(qty)) { setErrored(true); focused.current = false; return; }
+    const qty = trimmed === "" ? null : Number(trimmed);
+    if (qty !== null && (!Number.isFinite(qty) || !Number.isInteger(qty))) { setErrored(true); focused.current = false; return; }
     if (qty === value || (qty == null && value == null)) { focused.current = false; return; }
     setSaving(true); setErrored(false);
     try {
