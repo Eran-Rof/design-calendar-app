@@ -16,6 +16,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateVendor } from "../../_lib/vendor-auth.js";
+import { notifyInternal } from "../../_lib/phase-notifications.js";
 
 export const config = { maxDuration: 15 };
 
@@ -130,6 +131,19 @@ export default async function handler(req, res) {
       });
     } catch { /* non-blocking */ }
   }
+
+  // Notify internal reviewers so their bell + email lights up. Skip
+  // silently if the fan-out errors — the po_message + grid are the
+  // authoritative record.
+  try {
+    await notifyInternal(admin, {
+      event_type: "phase_change_proposed",
+      title: `Phase change proposed · ${po.po_number}`,
+      body: `"${phase_name}"${po_line_key ? ` (line-level)` : ""}: ${field_name} → ${new_value ?? "(cleared)"} (was ${old_value ?? "(empty)"}). Needs your review.`,
+      link: "/rof/phase-reviews",
+      metadata: { po_id, po_number: po.po_number, phase_name, field_name, po_line_key, request_id: inserted?.id },
+    });
+  } catch { /* non-blocking */ }
 
   return send(201, inserted);
 }

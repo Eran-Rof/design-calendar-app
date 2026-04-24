@@ -22,6 +22,7 @@ import InvoicesList from "./InvoicesList";
 import InvoiceSubmit from "./InvoiceSubmit";
 import InvoiceDetail from "./InvoiceDetail";
 import NotificationsShell from "../components/notifications/NotificationsShell";
+import NotificationsPage from "../components/notifications/NotificationsPage";
 import ComplianceList from "./ComplianceList";
 import POMessages from "./POMessages";
 import VendorScorecard from "./VendorScorecard";
@@ -250,6 +251,56 @@ function MoreMenu({ activePath }: { activePath: string }) {
   );
 }
 
+function NotificationsTabLink() {
+  const { session } = useVendorSession();
+  const loc = useLocation();
+  const active = loc.pathname.startsWith("/vendor/notifications");
+  const [unread, setUnread] = useState(0);
+
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    async function load() {
+      const { count } = await supabaseVendor
+        .from("notifications")
+        .select("*", { count: "exact", head: true })
+        .eq("recipient_auth_id", session!.user.id)
+        .is("read_at", null);
+      if (!cancelled) setUnread(count || 0);
+    }
+    void load();
+    const i = window.setInterval(load, 30_000);
+    return () => { cancelled = true; window.clearInterval(i); };
+  }, [session]);
+
+  if (!session) return null;
+  return (
+    <Link
+      to="/vendor/notifications"
+      title="Notifications"
+      style={{
+        position: "relative",
+        padding: "10px 16px",
+        fontSize: 13, fontWeight: 600,
+        color: active ? "#FFFFFF" : "rgba(255,255,255,0.65)",
+        textDecoration: "none",
+        borderBottom: `3px solid ${active ? TH.primary : "transparent"}`,
+        marginBottom: -1,
+        display: "inline-flex", alignItems: "center", gap: 6,
+      }}
+    >
+      🔔
+      {unread > 0 && (
+        <span style={{
+          minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
+          background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 700,
+          display: "inline-flex", alignItems: "center", justifyContent: "center",
+        }}>{unread > 9 ? "9+" : unread}</span>
+      )}
+    </Link>
+  );
+}
+
 function TabNav() {
   const loc = useLocation();
   const p = loc.pathname;
@@ -262,7 +313,10 @@ function TabNav() {
       <TabLink to="/vendor/payments" active={p.startsWith("/vendor/payments")}>Payments</TabLink>
       <TabLink to="/vendor/messages" active={p.startsWith("/vendor/messages")}>Messages</TabLink>
       <TabLink to="/vendor/compliance" active={p.startsWith("/vendor/compliance")}>Compliance</TabLink>
-      <div style={{ marginLeft: "auto" }}><MoreMenu activePath={p} /></div>
+      <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 2 }}>
+        <NotificationsTabLink />
+        <MoreMenu activePath={p} />
+      </div>
     </nav>
   );
 }
@@ -286,9 +340,24 @@ function TabLink({ to, active, children }: { to: string; active: boolean; childr
   );
 }
 
+function VendorNotificationsPage() {
+  const { session } = useVendorSession();
+  if (!session) return null;
+  return (
+    <NotificationsPage
+      kind="vendor"
+      supabase={supabaseVendor}
+      userId={session.user.id}
+      title="Notifications"
+      backLink={{ href: "/vendor/reports", label: "Back to dashboard" }}
+    />
+  );
+}
+
 function VendorShell({ children, withTabs = false }: { children: ReactNode; withTabs?: boolean }) {
   const { session } = useVendorSession();
   const nav = useNavigate();
+  const loc = useLocation();
   return (
     <div style={{ minHeight: "100vh", background: TH.bg, fontFamily: "system-ui, -apple-system, sans-serif", color: TH.text, colorScheme: "dark" }}>
       <header style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 24px", background: TH.header, borderBottom: `1px solid ${TH.border}`, boxShadow: `0 1px 2px ${TH.shadowMd}` }}>
@@ -320,6 +389,8 @@ function VendorShell({ children, withTabs = false }: { children: ReactNode; with
           kind="vendor"
           supabase={supabaseVendor}
           userId={session.user.id}
+          notificationsUrl="/vendor/notifications"
+          currentPath={loc.pathname}
           sessionKey="rof_notif_dismissed_vendor"
         />
       )}
@@ -465,6 +536,10 @@ export default function VendorApp() {
         <Route
           path="/vendor/phases"
           element={<Protected><VendorShell withTabs><VendorPhasesView /></VendorShell></Protected>}
+        />
+        <Route
+          path="/vendor/notifications"
+          element={<Protected><VendorShell withTabs><VendorNotificationsPage /></VendorShell></Protected>}
         />
         <Route path="/vendor/contracts"     element={<Protected><VendorShell withTabs><VendorContracts /></VendorShell></Protected>} />
         <Route path="/vendor/contracts/:id" element={<Protected><VendorShell withTabs><VendorContractDetail /></VendorShell></Protected>} />

@@ -53,6 +53,31 @@ async function mount() {
   } else if (path.startsWith("/planning/wholesale") || path.startsWith("/planning")) {
     const { default: WholesalePlanningWorkbench } = await import("./inventory-planning/panels/WholesalePlanningWorkbench");
     root.render(<StrictMode><ErrorBoundary appName="Wholesale Planning"><WithNotifications><WholesalePlanningWorkbench /></WithNotifications></ErrorBoundary></StrictMode>);
+  } else if (path.startsWith("/notifications")) {
+    const [{ default: NotificationsPage }, { supabaseClient }] = await Promise.all([
+      import("./components/notifications/NotificationsPage"),
+      import("./utils/supabase"),
+    ]);
+    const plm = (() => { try { return JSON.parse(sessionStorage.getItem("plm_user") || "null"); } catch { return null; } })();
+    root.render(
+      <StrictMode>
+        <ErrorBoundary appName="Notifications">
+          {supabaseClient && plm?.id ? (
+            <NotificationsPage
+              kind="internal"
+              supabase={supabaseClient}
+              userId={plm.id}
+              title="Notifications"
+              backLink={{ href: "/", label: "Back to PLM" }}
+            />
+          ) : (
+            <div style={{ padding: 24, color: "#F1F5F9", background: "#0F172A", minHeight: "100vh" }}>
+              Sign in first — <a href="/" style={{ color: "#60A5FA" }}>go to PLM launcher</a>.
+            </div>
+          )}
+        </ErrorBoundary>
+      </StrictMode>,
+    );
   } else {
     // Root "/" — PLM Launcher
     const { default: PLMApp } = await import("./PLM");

@@ -10,6 +10,7 @@
 // body: { status: "pending"|"approved"|"rejected", reviewer_name: string, note?: string }
 
 import { createClient } from "@supabase/supabase-js";
+import { notifyVendor } from "../../../../_lib/phase-notifications.js";
 
 export const config = { maxDuration: 10 };
 
@@ -94,6 +95,20 @@ export default async function handler(req, res) {
       body: `${verb}${scope} ${cr.phase_name} · ${cr.field_name} → ${cr.new_value ?? "(cleared)"} (was ${cr.status})${note ? `\n\n${note}` : ""}`,
       read_by_vendor: false,
       read_by_internal: true,
+    });
+  } catch { /* non-blocking */ }
+
+  try {
+    const evt = status === "pending" ? "phase_change_reopened"
+      : status === "approved" ? "phase_change_approved"
+      : "phase_change_rejected";
+    const titleVerb = status === "pending" ? "Change reopened" : status === "approved" ? "Change approved" : "Change rejected";
+    await notifyVendor(admin, cr.vendor_id, {
+      event_type: evt,
+      title: `${titleVerb} · ${cr.po_number}`,
+      body: `${reviewer} set "${cr.phase_name}"${cr.po_line_key ? ` (line-level)` : ""}: ${cr.field_name} → ${cr.new_value ?? "(cleared)"} to ${status} (was ${cr.status})${note ? `\n\nNote: ${note}` : ""}`,
+      link: `/vendor/pos/${cr.po_id}?tab=phases`,
+      metadata: { po_id: cr.po_id, po_number: cr.po_number, phase_name: cr.phase_name, field_name: cr.field_name, request_id: cr.id, new_status: status },
     });
   } catch { /* non-blocking */ }
 

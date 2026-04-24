@@ -1,6 +1,5 @@
 // Wrapper that mounts NotificationsShell for any internal-app route
-// that doesn't manage its own auth state. Reads plm_user from
-// sessionStorage and only renders the shell when a user is resolved.
+// that doesn't manage its own auth state.
 
 import { useEffect, useState, type ReactNode } from "react";
 import NotificationsShell from "./NotificationsShell";
@@ -15,7 +14,6 @@ function readPlmUserId(): string | null {
 }
 
 export default function WithNotifications({ children }: { children: ReactNode }) {
-  // Read lazily; some apps set plm_user on first mount after login.
   const [userId, setUserId] = useState<string | null>(() => readPlmUserId());
   useEffect(() => {
     if (userId) return;
@@ -34,6 +32,8 @@ export default function WithNotifications({ children }: { children: ReactNode })
           kind="internal"
           supabase={supabaseClient}
           userId={userId}
+          notificationsUrl="/notifications"
+          currentPath={typeof window !== "undefined" ? window.location.pathname : undefined}
           sessionKey="rof_notif_dismissed_internal"
         />
       )}

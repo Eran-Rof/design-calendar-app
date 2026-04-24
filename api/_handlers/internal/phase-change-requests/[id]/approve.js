@@ -7,6 +7,7 @@
 // body: { reviewer_name: string, note?: string }
 
 import { createClient } from "@supabase/supabase-js";
+import { notifyVendor } from "../../../../_lib/phase-notifications.js";
 
 export const config = { maxDuration: 10 };
 
@@ -69,6 +70,17 @@ export default async function handler(req, res) {
       body: `✓ Approved ${cr.phase_name}${cr.po_line_key ? ` (line ${cr.po_line_key})` : ""} · ${cr.field_name} → ${cr.new_value ?? "(cleared)"}${note ? `\n\n${note}` : ""}`,
       read_by_vendor: false,
       read_by_internal: true,
+    });
+  } catch { /* non-blocking */ }
+
+  // Notify vendor users so their bell lights up + email fires.
+  try {
+    await notifyVendor(admin, cr.vendor_id, {
+      event_type: "phase_change_approved",
+      title: `Change approved · ${cr.po_number}`,
+      body: `${reviewer} approved "${cr.phase_name}"${cr.po_line_key ? ` (line-level)` : ""}: ${cr.field_name} → ${cr.new_value ?? "(cleared)"}${note ? `\n\nNote: ${note}` : ""}`,
+      link: `/vendor/pos/${cr.po_id}?tab=phases`,
+      metadata: { po_id: cr.po_id, po_number: cr.po_number, phase_name: cr.phase_name, field_name: cr.field_name, request_id: cr.id },
     });
   } catch { /* non-blocking */ }
 
