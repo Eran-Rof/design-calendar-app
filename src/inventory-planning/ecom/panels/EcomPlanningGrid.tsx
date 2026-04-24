@@ -266,8 +266,8 @@ function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number
   async function commit() {
     const trimmed = str.trim();
     const qty = trimmed === "" ? null : parseInt(trimmed, 10);
-    if (qty !== null && !Number.isFinite(qty)) { setErrored(true); return; }
-    if (qty === value || (qty == null && value == null)) return;
+    if (qty !== null && !Number.isFinite(qty)) { setErrored(true); focused.current = false; return; }
+    if (qty === value || (qty == null && value == null)) { focused.current = false; return; }
     setSaving(true); setErrored(false);
     try {
       await onSave(qty);
@@ -275,6 +275,7 @@ function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number
       setErrored(true);
     } finally {
       setSaving(false);
+      focused.current = false;
     }
   }
 
@@ -306,7 +307,6 @@ function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number
         (e.target as HTMLInputElement).style.background = PAL.panel;
       }}
       onBlurCapture={(e) => {
-        focused.current = false;
         (e.target as HTMLInputElement).style.border = errored ? `1px solid ${PAL.red}` : "1px solid transparent";
         (e.target as HTMLInputElement).style.background = "transparent";
       }}

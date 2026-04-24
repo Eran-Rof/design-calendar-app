@@ -249,11 +249,11 @@ function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number
   async function commit(raw: string) {
     const trimmed = raw.trim();
     const qty = trimmed === "" ? null : parseInt(trimmed, 10);
-    if (qty !== null && !Number.isFinite(qty)) { setErr(true); return; }
-    if (qty === value || (qty == null && value == null)) return;
+    if (qty !== null && !Number.isFinite(qty)) { setErr(true); focused.current = false; return; }
+    if (qty === value || (qty == null && value == null)) { focused.current = false; return; }
     setErr(false);
     setSaving(true);
-    try { await onSave(qty); } catch { setErr(true); } finally { setSaving(false); }
+    try { await onSave(qty); } catch { setErr(true); } finally { setSaving(false); focused.current = false; }
   }
 
   return (
@@ -280,7 +280,7 @@ function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number
         opacity: saving ? 0.5 : 1,
       }}
       onFocus={(e) => { focused.current = true; e.target.style.borderColor = err ? PAL.red : PAL.green; e.target.style.background = PAL.panel; }}
-      onBlurCapture={(e) => { focused.current = false; e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
+      onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
     />
   );
 }
