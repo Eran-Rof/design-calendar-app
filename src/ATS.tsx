@@ -2,6 +2,8 @@ import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } fr
 import XLSXStyle from "xlsx-js-style";
 import { SB_URL, SB_KEY, SB_HEADERS, supabaseClient } from "./utils/supabase";
 import NotificationsShell from "./components/notifications/NotificationsShell";
+import NotificationsPage from "./components/notifications/NotificationsPage";
+import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import type { ATSRow, ATSSnapshot, ATSSkuData, ATSPoEvent, ATSSoEvent, UploadWarning, ExcelData, CtxMenu, SummaryCtxMenu } from "./ats/types";
 import { addDays, fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, skuSimilarity } from "./ats/helpers";
 import { computeRowsFromExcelData } from "./ats/compute";
@@ -39,7 +41,11 @@ export default function ATSReportWrapper() {
           kind="internal"
           supabase={supabaseClient}
           userId={userId}
+          notificationsUrl="/notifications?from=ats"
+          currentPath={typeof window !== "undefined" ? window.location.pathname : undefined}
           sessionKey="rof_notif_dismissed_internal"
+          appFilter="ats"
+          autoOpen={false}
         />
       )}
     </ATSProvider>
@@ -791,6 +797,27 @@ function ATSReport() {
   useEffect(() => { setPage(0); }, [search, filterCategory, filterGender, filterStatus, minATS, poStores, soStores, rows, activeSort, sortCol, sortDir, customerFilter]);
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Notifications: in-app view + bell badge (ATS-relevant events only)
+  const atsUserId = readPlmUserId();
+  const [showingNotifications, setShowingNotifications] = useState(false);
+  const unreadNotifs = useAppUnreadCount({
+    supabase: supabaseClient,
+    userId: atsUserId,
+    recipientColumn: "recipient_internal_id",
+    app: "ats",
+  });
+  const notificationsView = supabaseClient && atsUserId ? (
+    <NotificationsPage
+      embed
+      kind="internal"
+      supabase={supabaseClient}
+      userId={atsUserId}
+      title="Notifications"
+      appFilter="ats"
+    />
+  ) : null;
+
+  // ─────────────────────────────────────────────────────────────────────────
   // RENDER — see ats/renderPanel.tsx
   return atsRenderPanel({
     startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue,
@@ -816,5 +843,9 @@ function ATSReport() {
     pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
     mergeHistory, setMergeHistory, saveMergeHistory, undoLastMerge, clearMergeAndNavigate,
     atShip, setAtShip, onNegInven, onAgedInven,
+    unreadNotifs,
+    showingNotifications,
+    onToggleNotifications: () => setShowingNotifications((v) => !v),
+    notificationsView,
   });
 }

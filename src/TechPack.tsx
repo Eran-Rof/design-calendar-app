@@ -6,6 +6,8 @@ import { styledEmailHtml } from "./utils/emailHtml";
 // ── Supabase ─────────────────────────────────────────────────────────────────
 import { SB_URL, SB_KEY, SB_HEADERS, supabaseClient } from "./utils/supabase";
 import NotificationsShell from "./components/notifications/NotificationsShell";
+import NotificationsPage from "./components/notifications/NotificationsPage";
+import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 
 // ── Supabase helpers ──────────────────────────────────────────────────────────
 const sb = {
@@ -66,7 +68,7 @@ interface SpecSheetRow { id: string; pointOfMeasure: string; tolerance: string; 
 interface SpecSheet { id: string; styleName: string; styleNumber: string; brand: string; season: string; category: string; subCategory?: string; gender?: string; vendor?: string; description: string; sizes: string[]; rows: SpecSheetRow[]; createdAt: string; updatedAt: string; }
 interface SpecTemplate { id: string; name: string; category: string; description: string; sizes: string[]; rows: SpecSheetRow[]; createdAt: string; isBuiltin?: boolean; }
 
-type View = "dashboard" | "list" | "detail" | "libraries" | "samples" | "teams" | "email";
+type View = "dashboard" | "list" | "detail" | "libraries" | "samples" | "teams" | "email" | "notifications";
 type DetailTab = "sketch" | "spec" | "construction" | "bom" | "costing" | "approvals" | "samples" | "images";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -174,6 +176,12 @@ export default function TechPackApp() {
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [view, setView] = useState<View>("dashboard");
+  const unreadTechpackNotifs = useAppUnreadCount({
+    supabase: supabaseClient,
+    userId: (() => { try { const u = sessionStorage.getItem("plm_user"); return u ? (JSON.parse(u) as { id?: string }).id || null : null; } catch { return null; } })(),
+    recipientColumn: "recipient_internal_id",
+    app: "techpack",
+  });
   const [techPacks, setTechPacks] = useState<TechPack[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [selected, setSelected] = useState<TechPack | null>(null);
@@ -1490,6 +1498,23 @@ export default function TechPackApp() {
           <button style={view === "samples" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("samples"); }}>Samples</button>
           <button style={view === "teams" ? { ...S.navBtnActive, borderColor: TEAMS_PURPLE, color: TEAMS_PURPLE_LT } : { ...S.navBtn, color: TEAMS_PURPLE_LT }} onClick={() => { setSelected(null); setView("teams"); }}>💬 Teams</button>
           <button style={view === "email" ? { ...S.navBtnActive, borderColor: "#0078D4", color: "#60A5FA" } : S.navBtn} onClick={() => { setSelected(null); setView("email"); }}>📧 Email</button>
+          <button
+            style={{
+              ...(view === "notifications" ? S.navBtnActive : S.navBtn),
+              display: "inline-flex", alignItems: "center", gap: 6, position: "relative",
+            }}
+            onClick={() => { setSelected(null); setView("notifications"); }}
+            title="Notifications"
+          >
+            🔔 Notifications
+            {unreadTechpackNotifs > 0 && (
+              <span style={{
+                minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
+                background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 700,
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+              }}>{unreadTechpackNotifs > 9 ? "9+" : unreadTechpackNotifs}</span>
+            )}
+          </button>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 8 }}>
             {user.avatar ? (
               <img src={user.avatar} alt={user.name || ""} style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
@@ -1665,6 +1690,18 @@ export default function TechPackApp() {
 
             {/* ═══════════ EMAIL ═══════════ */}
             {view === "email" && tpEmailPanel()}
+
+            {/* ═══════════ NOTIFICATIONS ═══════════ */}
+            {view === "notifications" && supabaseClient && (user as any)?.id && (
+              <NotificationsPage
+                embed
+                kind="internal"
+                supabase={supabaseClient}
+                userId={(user as any).id}
+                title="Notifications"
+                appFilter="techpack"
+              />
+            )}
           </>
         )}
       </div>
@@ -1719,12 +1756,17 @@ export default function TechPackApp() {
         </div>
       )}
 
-      {supabaseClient && user && (
+      {supabaseClient && (user as any)?.id && (
         <NotificationsShell
           kind="internal"
           supabase={supabaseClient}
-          userId={user.id}
+          userId={(user as any).id}
+          notificationsUrl="/notifications?from=techpack"
+          currentPath={typeof window !== "undefined" ? window.location.pathname : undefined}
+          isViewingNotifications={view === "notifications"}
           sessionKey="rof_notif_dismissed_internal"
+          autoOpen={false}
+          appFilter="techpack"
         />
       )}
     </div>

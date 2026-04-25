@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NotificationRow } from "./types";
+import { eventMatchesApp, type AppKey } from "./notificationApps";
 
 interface Props {
   kind: "vendor" | "internal";
@@ -20,6 +21,9 @@ interface Props {
    *  app provides background/padding. Use when embedding the page as
    *  a view inside another app (e.g. PO WIP). */
   embed?: boolean;
+  /** When set, only notifications whose event_type is associated with
+   *  this app are shown. See notificationApps.ts. */
+  appFilter?: AppKey;
 }
 
 const C = {
@@ -94,7 +98,7 @@ function timeAgo(iso: string): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-export default function NotificationsPage({ kind, supabase, userId, title = "Notifications", backLink, embed = false }: Props) {
+export default function NotificationsPage({ kind, supabase, userId, title = "Notifications", backLink, embed = false, appFilter }: Props) {
   const [items, setItems] = useState<NotificationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"unread" | "all">("unread");
@@ -112,12 +116,14 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
         .order("created_at", { ascending: false })
         .limit(500);
       if (error) return;
-      setItems((data ?? []) as NotificationRow[]);
+      const all = (data ?? []) as NotificationRow[];
+      const scoped = appFilter ? all.filter((n) => eventMatchesApp(n.event_type, appFilter)) : all;
+      setItems(scoped);
     } finally {
       setLoading(false);
     }
   }
-  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [userId, kind]);
+  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [userId, kind, appFilter]);
 
   const unreadCount = useMemo(() => items.filter((n) => !n.read_at).length, [items]);
 

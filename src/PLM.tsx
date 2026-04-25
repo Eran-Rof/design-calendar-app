@@ -1,9 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
 import { SB_URL, SB_KEY, SB_HEADERS, supabaseClient } from "./utils/supabase";
 import { sha256, isHashed } from "./utils/hash";
 import NotificationsShell from "./components/notifications/NotificationsShell";
+import NotificationsPage from "./components/notifications/NotificationsPage";
+import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import { appConfig } from "./config/env";
 
 // ── Session storage key ───────────────────────────────────────────────────────
@@ -136,6 +138,28 @@ export default function PLMApp() {
   const [loginErr, setLoginErr]   = useState("");
   const [loggingIn, setLoggingIn] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [view, setView] = useState<"launcher" | "notifications">("launcher");
+  const unreadAll = useAppUnreadCount({
+    supabase: supabaseClient,
+    userId: user?.id,
+    recipientColumn: "recipient_internal_id",
+    app: "plm",
+  });
+  // First-login auto-open: if the user has unread notifications and
+  // hasn't dismissed yet this session, land on the notifications view
+  // so they see what's waiting.
+  const autoOpenChecked = useRef(false);
+  useEffect(() => {
+    if (!user?.id || autoOpenChecked.current) return;
+    if (unreadAll <= 0) return;
+    autoOpenChecked.current = true;
+    let dismissed = false;
+    try { dismissed = sessionStorage.getItem("rof_notif_dismissed_internal") === "1"; } catch { /* noop */ }
+    if (!dismissed) {
+      try { sessionStorage.setItem("rof_notif_dismissed_internal", "1"); } catch { /* noop */ }
+      setView("notifications");
+    }
+  }, [user?.id, unreadAll]);
 
   // Restore session
   useEffect(() => {
@@ -173,7 +197,10 @@ export default function PLMApp() {
 
   function handleSignOut() {
     sessionStorage.removeItem(SESSION_KEY);
+    try { sessionStorage.removeItem("rof_notif_dismissed_internal"); } catch { /* noop */ }
+    autoOpenChecked.current = false;
     setUser(null);
+    setView("launcher");
     setLoginName(localStorage.getItem("plm_last_user") || localStorage.getItem("last_username") || "");
     setLoginPass("");
   }
@@ -244,6 +271,27 @@ export default function PLMApp() {
             <span style={{ color: "#374151", fontSize: 14, fontWeight: 500 }}>{user.name ?? user.username}</span>
             {isAdmin && <span style={S.adminBadge}>Admin</span>}
           </div>
+          <button
+            style={{
+              ...S.headerBtn,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              position: "relative",
+              ...(view === "notifications" ? { color: "#CC2200", borderColor: "#FCA5A5", background: "#FEF2F2" } : null),
+            }}
+            onClick={() => setView(view === "notifications" ? "launcher" : "notifications")}
+            title="Notifications"
+          >
+            🔔 Notifications
+            {unreadAll > 0 && (
+              <span style={{
+                minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
+                background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 700,
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+              }}>{unreadAll > 9 ? "9+" : unreadAll}</span>
+            )}
+          </button>
           {isAdmin && (
             <button style={S.headerBtn} onClick={() => setShowAdmin(true)}>⚙️ Manage Users</button>
           )}
@@ -252,7 +300,18 @@ export default function PLMApp() {
         </div>
       </header>
 
-      {/* App Cards */}
+      {/* Main: launcher OR notifications */}
+      {view === "notifications" && supabaseClient ? (
+        <main style={{ ...S.main, padding: "24px 24px 60px" }}>
+          <NotificationsPage
+            embed
+            kind="internal"
+            supabase={supabaseClient}
+            userId={user.id}
+            title="Your notifications"
+          />
+        </main>
+      ) : (
       <main style={S.main}>
         <h2 style={S.greeting}>Welcome back, {user.name?.split(" ")[0] ?? user.username} 👋</h2>
         <p style={S.greetingSub}>Select an application to get started</p>
@@ -309,6 +368,7 @@ export default function PLMApp() {
           })}
         </div>
       </main>
+      )}
 
       {/* Admin User Manager Modal */}
       {showAdmin && <UserManagerModal onClose={() => setShowAdmin(false)} currentUser={user} />}
@@ -318,7 +378,11 @@ export default function PLMApp() {
           kind="internal"
           supabase={supabaseClient}
           userId={user.id}
+          notificationsUrl="/notifications"
+          currentPath={typeof window !== "undefined" ? window.location.pathname : undefined}
+          isViewingNotifications={view === "notifications"}
           sessionKey="rof_notif_dismissed_internal"
+          autoOpen={false}
         />
       )}
     </div>

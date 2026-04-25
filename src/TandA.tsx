@@ -54,6 +54,7 @@ import { SettingsModal } from "./tanda/views/SettingsModal";
 import { SB_URL, SB_KEY, SB_HEADERS, supabaseClient } from "./utils/supabase";
 import NotificationsShell from "./components/notifications/NotificationsShell";
 import NotificationsPage from "./components/notifications/NotificationsPage";
+import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import { type XoroPO, type Milestone, type WipTemplate, type LocalNote, type User, type DCVendor, type DmConversation, type SyncFilters, type View, ALL_PO_STATUSES, ACTIVE_PO_STATUSES, STATUS_COLORS, STATUS_OPTIONS, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, DEFAULT_WIP_TEMPLATES, milestoneUid, itemQty, poTotal, normalizeSize, sizeSort, mapXoroRaw, fmtDate, fmtCurrency } from "./utils/tandaTypes";
 import S from "./tanda/styles";
 // generateMilestones and mergeMilestones moved to useMilestoneOps
@@ -747,48 +748,30 @@ function TandAApp() {
     setSessionChecked(true);
   }, []);
 
-  // ── Unread notifications count (drives the nav bell badge + auto-open) ──
-  const [unreadNotifs, setUnreadNotifs] = useState(0);
+  // ── Unread notifications count (drives the nav bell badge) ──────────────
+  // Filtered to PO WIP-relevant events only.
+  const unreadNotifs = useAppUnreadCount({
+    supabase: supabaseClient,
+    userId: user?.id,
+    recipientColumn: "recipient_internal_id",
+    app: "tanda",
+  });
+  // First-load-of-session auto-open. Switches the in-app view instead
+  // of redirecting to a separate page. sessionStorage flag prevents
+  // bouncing the user back after they click into a target item.
   const autoOpenChecked = useRef(false);
   useEffect(() => {
-    if (!supabaseClient || !user?.id) return;
-    let cancelled = false;
-    async function load() {
-      const { count } = await supabaseClient
-        .from("notifications")
-        .select("*", { count: "exact", head: true })
-        .eq("recipient_internal_id", user!.id)
-        .is("read_at", null);
-      if (cancelled) return;
-      const next = count || 0;
-      setUnreadNotifs(next);
-
-      // First-load-of-session auto-open. Switches the in-app view
-      // instead of redirecting to a separate page so the user stays
-      // inside PO WIP. sessionStorage flag prevents bouncing the user
-      // back to notifications after they click an item and navigate
-      // to its target.
-      if (!autoOpenChecked.current) {
-        autoOpenChecked.current = true;
-        let dismissed = false;
-        try { dismissed = sessionStorage.getItem("rof_notif_dismissed_internal") === "1"; } catch { /* noop */ }
-        if (next > 0 && !dismissed && useTandaStore.getState().view !== "notifications") {
-          try { sessionStorage.setItem("rof_notif_dismissed_internal", "1"); } catch { /* noop */ }
-          coreSet("selected", null);
-          coreSet("view", "notifications");
-        }
-      }
+    if (!user?.id || autoOpenChecked.current) return;
+    if (unreadNotifs <= 0) return;
+    autoOpenChecked.current = true;
+    let dismissed = false;
+    try { dismissed = sessionStorage.getItem("rof_notif_dismissed_internal") === "1"; } catch { /* noop */ }
+    if (!dismissed && useTandaStore.getState().view !== "notifications") {
+      try { sessionStorage.setItem("rof_notif_dismissed_internal", "1"); } catch { /* noop */ }
+      coreSet("selected", null);
+      coreSet("view", "notifications");
     }
-    void load();
-    const i = window.setInterval(load, 30_000);
-    const onChanged = () => { void load(); };
-    window.addEventListener("rof_notif_changed", onChanged);
-    return () => {
-      cancelled = true;
-      window.clearInterval(i);
-      window.removeEventListener("rof_notif_changed", onChanged);
-    };
-  }, [user?.id]);
+  }, [user?.id, unreadNotifs]);
 
   // Load XLSX library dynamically
   useEffect(() => {
@@ -1620,6 +1603,7 @@ function TandAApp() {
             supabase={supabaseClient}
             userId={user.id}
             title="Notifications"
+            appFilter="tanda"
           />
         )}
 
@@ -1997,6 +1981,7 @@ function TandAApp() {
           sessionKey="rof_notif_dismissed_internal"
           onOpen={() => { setSelected(null); setView("notifications"); }}
           autoOpen={false}
+          appFilter="tanda"
         />
       )}
     </div>

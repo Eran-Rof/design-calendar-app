@@ -18,6 +18,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NotificationRow } from "./types";
+import { eventMatchesApp, type AppKey } from "./notificationApps";
 
 interface Props {
   kind: "vendor" | "internal";
@@ -45,13 +46,16 @@ interface Props {
    *  mount — the host app is responsible for handling that itself.
    *  The new-arrival toast still fires. Defaults to true. */
   autoOpen?: boolean;
+  /** When set, the shell only counts/toasts notifications whose
+   *  event_type is associated with this app. */
+  appFilter?: AppKey;
 }
 
 const DEFAULT_SESSION_KEY = "rof_notifications_auto_open_dismissed";
 
 export default function NotificationsShell({
   kind, supabase, userId, notificationsUrl, currentPath, isViewingNotifications,
-  sessionKey = DEFAULT_SESSION_KEY, onOpen, autoOpen = true,
+  sessionKey = DEFAULT_SESSION_KEY, onOpen, autoOpen = true, appFilter,
 }: Props) {
   const [toast, setToast] = useState<NotificationRow | null>(null);
   const lastSeenCreatedAt = useRef<string | null>(null);
@@ -84,7 +88,8 @@ export default function NotificationsShell({
         .order("created_at", { ascending: false })
         .limit(20);
       if (cancelled || error) return;
-      const list = (data ?? []) as NotificationRow[];
+      const all = (data ?? []) as NotificationRow[];
+      const list = appFilter ? all.filter((n) => eventMatchesApp(n.event_type, appFilter)) : all;
 
       // New-arrival toast — anything unread AND newer than the last
       // created_at we've observed since mount.

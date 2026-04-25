@@ -19,6 +19,9 @@ interface NavBarProps {
   onAgedInven: (days: number, category: string) => "ok" | "empty";
   categories: string[];
   filterCategory: string;
+  unreadNotifs: number;
+  showingNotifications: boolean;
+  onToggleNotifications: () => void;
 }
 
 export const NavBar: React.FC<NavBarProps> = ({
@@ -26,6 +29,7 @@ export const NavBar: React.FC<NavBarProps> = ({
   uploadingFile, invFile, purFile, ordFile,
   exportToExcel, filtered, displayPeriods, atShip, onNegInven, onAgedInven,
   categories, filterCategory,
+  unreadNotifs, showingNotifications, onToggleNotifications,
 }) => {
   const [agedOpen, setAgedOpen] = useState(false);
   const [agedDays, setAgedDays] = useState("365");
@@ -88,6 +92,27 @@ export const NavBar: React.FC<NavBarProps> = ({
           <path d="M11 10l3-4.5h-2.1L10 8.3 8.1 5.5H6l3 4.5L6 14.5h2.1L10 11.7l1.9 2.8H14L11 10z" fill="white" />
         </svg>
         Aged Inven
+      </button>
+      <button
+        style={{
+          ...S.navBtn,
+          cursor: "pointer",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          ...(showingNotifications ? { background: "#3B82F620", border: "1px solid #3B82F6", color: "#60A5FA" } : null),
+        }}
+        onClick={onToggleNotifications}
+        title="Notifications"
+      >
+        🔔 Notifications
+        {unreadNotifs > 0 && (
+          <span style={{
+            minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
+            background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 700,
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+          }}>{unreadNotifs > 9 ? "9+" : unreadNotifs}</span>
+        )}
       </button>
       <button style={{ ...S.navBtn, cursor: "pointer" }} onClick={onNavigateHome}>← PLM Home</button>
     </div>
