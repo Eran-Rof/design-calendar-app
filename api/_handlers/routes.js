@@ -220,13 +220,14 @@ import h214 from "./vendor/erp.js";
 import h215 from "./xoro/items.js";
 import h216 from "./xoro-receipts-sync.js";
 import h217 from "./send-notification.js";
-import h218 from "./xoro-sales-sync.js";
-import h219 from "./searates-proxy.js";
-import h220 from "./dropbox-proxy.js";
-import h221 from "./vendor-invite.js";
-import h222 from "./xoro-ap-sync.js";
-import h223 from "./parse-excel.js";
-import h224 from "./xoro-proxy.js";
+import h218 from "./xoro-items-sync.js";
+import h219 from "./xoro-sales-sync.js";
+import h220 from "./searates-proxy.js";
+import h221 from "./dropbox-proxy.js";
+import h222 from "./vendor-invite.js";
+import h223 from "./xoro-ap-sync.js";
+import h224 from "./parse-excel.js";
+import h225 from "./xoro-proxy.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -447,13 +448,14 @@ export const ROUTES = [
   { pattern: "/api/xoro/items", handler: h215 },
   { pattern: "/api/xoro-receipts-sync", handler: h216 },
   { pattern: "/api/send-notification", handler: h217 },
-  { pattern: "/api/xoro-sales-sync", handler: h218 },
-  { pattern: "/api/searates-proxy", handler: h219 },
-  { pattern: "/api/dropbox-proxy", handler: h220 },
-  { pattern: "/api/vendor-invite", handler: h221 },
-  { pattern: "/api/xoro-ap-sync", handler: h222 },
-  { pattern: "/api/parse-excel", handler: h223 },
-  { pattern: "/api/xoro-proxy", handler: h224 },
+  { pattern: "/api/xoro-items-sync", handler: h218 },
+  { pattern: "/api/xoro-sales-sync", handler: h219 },
+  { pattern: "/api/searates-proxy", handler: h220 },
+  { pattern: "/api/dropbox-proxy", handler: h221 },
+  { pattern: "/api/vendor-invite", handler: h222 },
+  { pattern: "/api/xoro-ap-sync", handler: h223 },
+  { pattern: "/api/parse-excel", handler: h224 },
+  { pattern: "/api/xoro-proxy", handler: h225 },
 ];
 
 export function compileRoutes(routes) {
