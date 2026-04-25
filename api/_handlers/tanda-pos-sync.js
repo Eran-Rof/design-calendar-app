@@ -148,15 +148,10 @@ export default async function handler(req, res) {
     }
   }
 
-  // 4. Replace the active set: clear existing source='xoro' rows for this
-  //    sync and re-insert. POs in the source that have closed (no open qty)
-  //    drop out of the planning grid this way.
-  const { error: clearErr } = await admin
-    .from("ip_open_purchase_orders")
-    .delete()
-    .eq("source", "xoro");
-  if (clearErr) return res.status(500).json({ error: "clear existing failed", details: clearErr.message });
-
+  // 4. Upsert new rows first, then trim stale ones. Doing it in this order
+  //    avoids a window where the planning grid would see an empty PO table
+  //    (delete-then-insert had that gap, and a mid-sync failure would have
+  //    wiped the source-of-truth open-PO data).
   for (let i = 0; i < rows.length; i += 500) {
     const chunk = rows.slice(i, i + 500);
     const { error } = await admin
@@ -164,6 +159,39 @@ export default async function handler(req, res) {
       .upsert(chunk, { onConflict: "source,source_line_key", ignoreDuplicates: false });
     if (error) result.errors.push(error.message);
     else result.inserted += chunk.length;
+  }
+
+  // Delete rows whose source_line_key isn't in the freshly-synced set —
+  // these are POs that closed since the last sync.
+  const newKeys = new Set(rows.map((r) => r.source_line_key));
+  result.cleaned = 0;
+  let staleOffset = 0;
+  while (true) {
+    const { data: existing, error: fetchErr } = await admin
+      .from("ip_open_purchase_orders")
+      .select("source_line_key")
+      .eq("source", "xoro")
+      .range(staleOffset, staleOffset + 999);
+    if (fetchErr) { result.errors.push(`stale lookup: ${fetchErr.message}`); break; }
+    if (!existing || existing.length === 0) break;
+
+    const staleKeys = existing
+      .map((r) => r.source_line_key)
+      .filter((k) => k && !newKeys.has(k));
+
+    for (let i = 0; i < staleKeys.length; i += 100) {
+      const chunk = staleKeys.slice(i, i + 100);
+      const { error } = await admin
+        .from("ip_open_purchase_orders")
+        .delete()
+        .eq("source", "xoro")
+        .in("source_line_key", chunk);
+      if (error) result.errors.push(`stale cleanup: ${error.message}`);
+      else result.cleaned += chunk.length;
+    }
+
+    if (existing.length < 1000) break;
+    staleOffset += 1000;
   }
 
   return res.status(200).json(result);
