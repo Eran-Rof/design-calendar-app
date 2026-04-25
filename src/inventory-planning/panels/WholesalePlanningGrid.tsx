@@ -147,9 +147,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           </thead>
           <tbody>
             {filtered.slice(0, 500).map((r) => (
-              <tr key={r.forecast_id}
-                  style={{ cursor: "pointer" }}
-                  onClick={() => onSelectRow(r)}>
+              <tr key={r.forecast_id}>
                 <td style={S.td}>{r.customer_name}</td>
                 <td style={{ ...S.td, color: PAL.textDim }}>{r.category_name ?? "–"}</td>
                 <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>{r.sku_code}</td>
@@ -159,10 +157,18 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   {r.ly_reference_qty != null ? formatQty(r.ly_reference_qty) : "—"}
                 </td>
                 <td style={S.tdNum}>{formatQty(r.system_forecast_qty)}</td>
-                <td style={{ ...S.tdNum, color: r.buyer_request_qty > 0 ? PAL.accent : PAL.textMuted }}>
+                <td
+                  style={{ ...S.tdNum, color: r.buyer_request_qty > 0 ? PAL.accent : PAL.textMuted, cursor: "pointer" }}
+                  title="Open detail drawer"
+                  onClick={() => onSelectRow(r)}
+                >
                   {formatQty(r.buyer_request_qty)}
                 </td>
-                <td style={{ ...S.tdNum, color: r.override_qty !== 0 ? PAL.yellow : PAL.textMuted }}>
+                <td
+                  style={{ ...S.tdNum, color: r.override_qty !== 0 ? PAL.yellow : PAL.textMuted, cursor: "pointer" }}
+                  title="Open detail drawer"
+                  onClick={() => onSelectRow(r)}
+                >
                   {r.override_qty > 0 ? "+" : ""}{formatQty(r.override_qty)}
                 </td>
                 <td style={{ ...S.tdNum, color: PAL.green, fontWeight: 700 }}>
