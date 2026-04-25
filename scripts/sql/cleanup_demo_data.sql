@@ -30,7 +30,8 @@ DELETE FROM ip_planner_overrides         WHERE sku_id IN (SELECT id FROM _demo_s
 DELETE FROM ip_future_demand_requests    WHERE sku_id IN (SELECT id FROM _demo_sku_ids) OR customer_id IN (SELECT id FROM _demo_customer_ids);
 DELETE FROM ip_ecom_forecast             WHERE sku_id IN (SELECT id FROM _demo_sku_ids);
 DELETE FROM ip_ecom_override_events      WHERE sku_id IN (SELECT id FROM _demo_sku_ids);
-DELETE FROM ip_scenario_assumptions      WHERE sku_id IN (SELECT id FROM _demo_sku_ids);
+-- ip_scenario_assumptions / ip_allocation_rules use applies_to_sku_id
+-- with ON DELETE CASCADE — they auto-clean when the master drops.
 
 -- 3. Fact rows. Match by source/source_line_key too — seeded rows
 -- carry source='demo' or source_line_key LIKE 'demo:%' even if their
