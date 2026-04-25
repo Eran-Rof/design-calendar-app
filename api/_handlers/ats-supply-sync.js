@@ -6,10 +6,15 @@
 //
 // Writes to ip_inventory_snapshot (one row per SKU per snapshot date).
 // Uses today's date so successive runs roll forward.
+//
+// Performance: the auto-create-missing-items path used to run one
+// upsert per SKU which timed out on multi-thousand catalogs. Now we
+// bulk-upsert all missing items in 500-row chunks, then bulk-upsert
+// all snapshot rows.
 
 import { createClient } from "@supabase/supabase-js";
 
-export const config = { maxDuration: 120 };
+export const config = { maxDuration: 300 };
 
 function canonSku(s) {
   return (s ?? "").toString().trim().toUpperCase().replace(/\s+/g, "");
@@ -49,23 +54,6 @@ export default async function handler(req, res) {
   const skus = Array.isArray(parsed?.skus) ? parsed.skus : [];
   if (skus.length === 0) return res.status(200).json({ error: "ATS snapshot has no SKU array", parsed_keys: Object.keys(parsed ?? {}) });
 
-  // 2. Load item master so we can resolve sku_code → sku_id.
-  const itemMap = new Map();
-  const PAGE = 1000;
-  for (let offset = 0; ; offset += PAGE) {
-    const { data, error } = await admin
-      .from("ip_item_master")
-      .select("id, sku_code")
-      .order("sku_code", { ascending: true })
-      .range(offset, offset + PAGE - 1);
-    if (error) return res.status(500).json({ error: "item_master fetch failed", details: error.message });
-    if (!data || data.length === 0) break;
-    for (const r of data) itemMap.set(canonSku(r.sku_code), r.id);
-    if (data.length < PAGE) break;
-  }
-
-  // 3. Auto-create missing items (so we don't drop SKUs the planner has
-  //    in inventory but hasn't sold yet).
   const today = new Date().toISOString().slice(0, 10);
   const result = {
     ats_skus: skus.length,
@@ -77,56 +65,85 @@ export default async function handler(req, res) {
     errors: [],
   };
 
-  const rows = [];
+  // 2. Pre-canonicalize and filter to only SKUs with non-zero state.
+  //    Saves us touching ip_item_master for SKUs we'd skip anyway.
+  const candidates = [];
   for (const s of skus) {
     const sku = canonSku(s.sku);
     if (!sku) { result.skipped_no_sku++; continue; }
-
     const onHand = toNum(s.onHand);
     const onPO = toNum(s.onPO);
     const onSo = toNum(s.onSO ?? s.onOrder);
     if (onHand === 0 && onPO === 0 && onSo === 0) { result.skipped_zero_state++; continue; }
+    candidates.push({ sku, src: s, onHand, onPO, onSo });
+  }
 
-    let skuId = itemMap.get(sku);
-    if (!skuId) {
-      const { data: created, error: createErr } = await admin
+  // 3. Load existing item master into a sku → id map (paged 1000 at a time).
+  const itemMap = new Map();
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await admin
+      .from("ip_item_master")
+      .select("id, sku_code")
+      .order("sku_code", { ascending: true })
+      .range(offset, offset + 999);
+    if (error) return res.status(500).json({ error: "item_master fetch failed", details: error.message });
+    if (!data || data.length === 0) break;
+    for (const r of data) itemMap.set(canonSku(r.sku_code), r.id);
+    if (data.length < 1000) break;
+  }
+
+  // 4. Bulk-create missing items in 500-row chunks (was per-SKU before;
+  //    that hit the 60s timeout on large catalogs).
+  const missing = candidates.filter((c) => !itemMap.has(c.sku));
+  if (missing.length > 0) {
+    const newItems = missing.map((c) => ({
+      sku_code: c.sku,
+      description: c.src.description ?? null,
+      unit_cost: toNum(c.src.avgCost) || null,
+      uom: "each",
+      active: true,
+      external_refs: { ats_category: c.src.category ?? null },
+    }));
+    for (let i = 0; i < newItems.length; i += 500) {
+      const chunk = newItems.slice(i, i + 500);
+      const { data: created, error } = await admin
         .from("ip_item_master")
-        .upsert({
-          sku_code: sku,
-          description: s.description ?? null,
-          unit_cost: toNum(s.avgCost) || null,
-          uom: "each",
-          active: true,
-          external_refs: { ats_category: s.category ?? null },
-        }, { onConflict: "sku_code", ignoreDuplicates: false })
-        .select("id")
-        .single();
-      if (createErr || !created) { result.errors.push(`item create ${sku}: ${createErr?.message ?? "no row"}`); continue; }
-      skuId = created.id;
-      itemMap.set(sku, skuId);
-      result.auto_created_skus++;
+        .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: false })
+        .select("id, sku_code");
+      if (error) {
+        result.errors.push(`item bulk create chunk ${i}: ${error.message}`);
+        continue;
+      }
+      for (const row of created ?? []) itemMap.set(canonSku(row.sku_code), row.id);
+      result.auto_created_skus += chunk.length;
     }
+  }
 
+  // 5. Build snapshot rows now that every candidate has a sku_id.
+  const rows = [];
+  for (const c of candidates) {
+    const skuId = itemMap.get(c.sku);
+    if (!skuId) { result.errors.push(`no id for ${c.sku} after bulk create`); continue; }
     rows.push({
       sku_id: skuId,
       warehouse_code: "DEFAULT",
       snapshot_date: today,
-      qty_on_hand: onHand,
-      qty_committed: onSo,
-      qty_on_order: onPO,
-      qty_available: Math.max(0, onHand - onSo),
+      qty_on_hand: c.onHand,
+      qty_committed: c.onSo,
+      qty_on_order: c.onPO,
+      qty_available: Math.max(0, c.onHand - c.onSo),
       source: "manual",
     });
   }
 
-  // 4. Upsert in 500-row chunks. Unique index is
-  // (sku_id, warehouse_code, snapshot_date, source).
+  // 6. Bulk-upsert snapshot rows. Unique index =
+  //    (sku_id, warehouse_code, snapshot_date, source).
   for (let i = 0; i < rows.length; i += 500) {
     const chunk = rows.slice(i, i + 500);
     const { error } = await admin
       .from("ip_inventory_snapshot")
       .upsert(chunk, { onConflict: "sku_id,warehouse_code,snapshot_date,source", ignoreDuplicates: false });
-    if (error) result.errors.push(error.message);
+    if (error) result.errors.push(`snapshot chunk ${i}: ${error.message}`);
     else result.inserted += chunk.length;
   }
 

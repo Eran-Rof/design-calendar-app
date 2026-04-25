@@ -24,7 +24,7 @@ const COLORS: Record<ToastKind, { bg: string; icon: string }> = {
   info:    { bg: "#3B82F6", icon: "i" },
 };
 
-export default function Toast({ toast, onDismiss, autoDismissMs = 2400 }: ToastProps) {
+export default function Toast({ toast, onDismiss, autoDismissMs = 2000 }: ToastProps) {
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(onDismiss, autoDismissMs);

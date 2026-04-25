@@ -80,9 +80,11 @@ export default async function handler(req, res) {
     errors: [],
   };
 
-  // 3. Flatten PO → one ip_open_purchase_orders row per line. Skip
-  //    archived POs and lines with no open qty (already received).
-  const rows = [];
+  // 3. First pass: flatten PO → candidates and collect all unique
+  //    SKUs that need to be auto-created. Bulk create in step 4 so we
+  //    don't time out on per-SKU sequential upserts.
+  const candidates = [];
+  const missingSkus = new Map(); // canon sku → sample line for description
   for (const r of allPos) {
     const po = r.data;
     if (!po) { result.skipped_no_lines++; continue; }
@@ -111,41 +113,62 @@ export default async function handler(req, res) {
       const qtyOpen = toNum(ln.QtyRemaining ?? (qtyOrdered - qtyReceived));
       if (qtyOpen <= 0) { result.skipped_zero_open++; continue; }
 
-      let skuId = itemMap.get(sku);
-      if (!skuId) {
-        const { data: created, error: createErr } = await admin
-          .from("ip_item_master")
-          .upsert({
-            sku_code: sku,
-            description: ln.Description ?? null,
-            uom: "each",
-            active: true,
-          }, { onConflict: "sku_code", ignoreDuplicates: false })
-          .select("id")
-          .single();
-        if (createErr || !created) { result.errors.push(`item create ${sku}: ${createErr?.message ?? "no row"}`); continue; }
-        skuId = created.id;
-        itemMap.set(sku, skuId);
-        result.auto_created_skus++;
-      }
+      if (!itemMap.has(sku) && !missingSkus.has(sku)) missingSkus.set(sku, ln);
 
       const lineNum = String(ln.LineNumber ?? ln.Id ?? "").trim() || sku;
-      rows.push({
-        sku_id: skuId,
-        po_number: poNumber,
-        po_line_number: lineNum,
-        order_date: orderDate,
-        expected_date: expectedDate,
-        qty_ordered: qtyOrdered,
-        qty_received: qtyReceived,
-        qty_open: qtyOpen,
+      candidates.push({
+        sku, poNumber, lineNum,
+        order_date: orderDate, expected_date: expectedDate,
+        qtyOrdered, qtyReceived, qtyOpen,
         unit_cost: toNum(ln.UnitPrice) || null,
-        currency,
-        status,
-        source: "xoro",
-        source_line_key: `tanda:${poNumber}:${lineNum}`,
+        currency, status,
       });
     }
+  }
+
+  // 4. Bulk create missing items in 500-row chunks.
+  if (missingSkus.size > 0) {
+    const newItems = Array.from(missingSkus.entries()).map(([sku, ln]) => ({
+      sku_code: sku,
+      description: ln.Description ?? null,
+      uom: "each",
+      active: true,
+    }));
+    for (let i = 0; i < newItems.length; i += 500) {
+      const chunk = newItems.slice(i, i + 500);
+      const { data: created, error } = await admin
+        .from("ip_item_master")
+        .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: false })
+        .select("id, sku_code");
+      if (error) {
+        result.errors.push(`item bulk create chunk ${i}: ${error.message}`);
+        continue;
+      }
+      for (const row of created ?? []) itemMap.set(canonSku(row.sku_code), row.id);
+      result.auto_created_skus += chunk.length;
+    }
+  }
+
+  // 5. Build final upsert rows now that every candidate has a sku_id.
+  const rows = [];
+  for (const c of candidates) {
+    const skuId = itemMap.get(c.sku);
+    if (!skuId) { result.errors.push(`no id for ${c.sku} after bulk create`); continue; }
+    rows.push({
+      sku_id: skuId,
+      po_number: c.poNumber,
+      po_line_number: c.lineNum,
+      order_date: c.order_date,
+      expected_date: c.expected_date,
+      qty_ordered: c.qtyOrdered,
+      qty_received: c.qtyReceived,
+      qty_open: c.qtyOpen,
+      unit_cost: c.unit_cost,
+      currency: c.currency,
+      status: c.status,
+      source: "xoro",
+      source_line_key: `tanda:${c.poNumber}:${c.lineNum}`,
+    });
   }
 
   // 4. Upsert new rows first, then trim stale ones. Doing it in this order
