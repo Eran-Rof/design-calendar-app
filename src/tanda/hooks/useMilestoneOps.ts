@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { type XoroPO, type Milestone, type WipTemplate, WIP_CATEGORIES, DEFAULT_WIP_TEMPLATES } from "../../utils/tandaTypes";
+import { type XoroPO, type Milestone, type WipTemplate, WIP_CATEGORIES, DEFAULT_WIP_TEMPLATES, todayLocalIso } from "../../utils/tandaTypes";
 import { generateMilestones as _generateMilestones, mergeMilestones } from "../milestones";
 import { useTandaStore } from "../store/index";
 
@@ -70,7 +70,7 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
         coreSet("milestones", merged);
 
         // Auto-mark overdue milestones as Delayed
-        const today = new Date().toISOString().split("T")[0];
+        const today = todayLocalIso();
         const toAutoDelay: Milestone[] = [];
         Object.values(merged).forEach(msArr => {
           msArr.forEach(m => {
@@ -126,7 +126,7 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
     const existing = (milestones[m.po_number] || []).find(x => x.id === m.id);
     // When status changes, store date per status in status_dates map
     if (existing && existing.status !== m.status) {
-      const today = new Date().toISOString().split("T")[0];
+      const today = todayLocalIso();
       const dates = { ...(m.status_dates || existing.status_dates || {}) };
       // Record today for the new status (if it doesn't already have a date)
       if (!dates[m.status]) dates[m.status] = today;

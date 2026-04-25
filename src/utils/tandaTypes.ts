@@ -274,6 +274,16 @@ export function mapXoroRaw(raw: any[]): XoroPO[] {
   });
 }
 
+// Local "today" as YYYY-MM-DD. new Date().toISOString().slice(0, 10) returns
+// the UTC date — for users in UTC- zones it rolls to tomorrow once UTC
+// midnight passes (after ~5 pm Pacific), so a status flipped to "Done" at
+// 6 pm gets recorded with tomorrow's date.
+export function todayLocalIso(now: Date = new Date()): string {
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${mm}-${dd}`;
+}
+
 export function fmtDate(d?: string): string {
   if (!d) return "—";
   // Bare YYYY-MM-DD strings must be parsed as local midnight, not UTC midnight.
