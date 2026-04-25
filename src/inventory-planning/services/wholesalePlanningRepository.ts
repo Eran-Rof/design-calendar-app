@@ -74,7 +74,18 @@ export const wholesaleRepo = {
     return sbGet<IpCategory>("ip_category_master?select=*&order=name.asc&limit=5000");
   },
   async listItems(): Promise<IpItem[]> {
-    return sbGet<IpItem>("ip_item_master?select=*&limit=20000");
+    // Paginate so a 20k+ catalog (Xoro items-sync + auto-create from
+    // invoice ingest can easily exceed the previous 20000 cap) doesn't
+    // truncate. PostgREST limit caps at 1000/req on most configurations.
+    const out: IpItem[] = [];
+    const PAGE = 1000;
+    for (let offset = 0; ; offset += PAGE) {
+      const chunk = await sbGet<IpItem>(`ip_item_master?select=*&order=sku_code.asc&limit=${PAGE}&offset=${offset}`);
+      out.push(...chunk);
+      if (chunk.length < PAGE) break;
+      if (offset > 200_000) break; // safety cap
+    }
+    return out;
   },
   // Canonical avg cost per SKU — fed by Xoro/Excel ingest. Covers SKUs
   // not currently in ATS inventory. Returns an empty map (not an error)
