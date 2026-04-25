@@ -170,6 +170,17 @@ export default function WholesalePlanningWorkbench() {
     setToast({ text: qty != null ? `Buy qty set to ${qty.toLocaleString()}` : "Buy qty cleared", kind: "success" });
   }
 
+  async function saveUnitCost(forecastId: string, cost: number | null) {
+    await wholesaleRepo.patchForecastUnitCostOverride(forecastId, cost);
+    const refreshed = await buildGridRows(selectedRun!);
+    setRows(refreshed);
+    setSelectedRow((prev) => prev ? (refreshed.find((r) => r.forecast_id === prev.forecast_id) ?? prev) : null);
+    setToast({
+      text: cost != null ? `Unit cost set to $${cost.toFixed(2)}` : "Unit cost reset to ATS avg",
+      kind: "success",
+    });
+  }
+
   async function saveOverride(args: { override_qty: number; reason_code: IpOverrideReasonCode; note: string | null }) {
     if (!selectedRow) return;
     // Find the underlying forecast row (grid row carries the id).
@@ -277,6 +288,7 @@ export default function WholesalePlanningWorkbench() {
             loading={loading}
             onSelectRow={setSelectedRow}
             onUpdateBuyQty={saveBuyQty}
+            onUpdateUnitCost={saveUnitCost}
           />
         )}
 

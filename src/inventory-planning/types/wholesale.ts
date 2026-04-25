@@ -86,6 +86,7 @@ export interface IpWholesaleForecast {
   history_months_used: number | null;
   ly_reference_qty: number | null;
   planned_buy_qty: number | null;
+  unit_cost_override: number | null;
   notes: string | null;
   created_at: IpIsoDateTime;
   updated_at: IpIsoDateTime;
@@ -168,6 +169,8 @@ export interface IpPlanningGridRow {
   ly_reference_qty: number | null;
   item_cost: number | null;
   ats_avg_cost: number | null;
+  unit_cost_override: number | null;
+  unit_cost: number | null;
   planned_buy_qty: number | null;
   on_hand_qty: number | null;
   on_so_qty: number;

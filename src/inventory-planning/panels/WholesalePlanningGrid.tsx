@@ -10,13 +10,14 @@ export interface WholesalePlanningGridProps {
   rows: IpPlanningGridRow[];
   onSelectRow: (row: IpPlanningGridRow) => void;
   onUpdateBuyQty: (forecastId: string, qty: number | null) => Promise<void>;
+  onUpdateUnitCost: (forecastId: string, cost: number | null) => Promise<void>;
   loading?: boolean;
 }
 
 type SortKey =
   | "customer" | "sku" | "period" | "final" | "shortage" | "excess" | "action" | "method";
 
-export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, loading }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateUnitCost, loading }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
   const [filterCustomer, setFilterCustomer] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
@@ -136,7 +137,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               <th style={{ ...S.th, textAlign: "right" }}>Receipts</th>
               <th style={{ ...S.th, textAlign: "right" }}>ATS</th>
               <th style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy</th>
-              <th style={{ ...S.th, textAlign: "right", color: PAL.accent2 }}>ATS Avg Cost</th>
+              <th style={{ ...S.th, textAlign: "right", color: PAL.accent2 }} title="Auto-filled from ATS avg cost — editable">Unit Cost</th>
               <th style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy $</th>
               <Th label="Short" k="shortage" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
               <Th label="Excess" k="excess" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
@@ -189,15 +190,18 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                     onSave={(qty) => onUpdateBuyQty(r.forecast_id, qty)}
                   />
                 </td>
-                <td style={{ ...S.tdNum, color: r.ats_avg_cost ? PAL.accent2 : PAL.textMuted, fontFamily: "monospace" }}>
-                  {r.ats_avg_cost ? `$${r.ats_avg_cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "–"}
+                <td style={{ ...S.tdNum, padding: "0 4px" }} onClick={(e) => e.stopPropagation()}>
+                  <UnitCostCell
+                    value={r.unit_cost}
+                    overridden={r.unit_cost_override != null}
+                    onSave={(cost) => onUpdateUnitCost(r.forecast_id, cost)}
+                  />
                 </td>
                 {(() => {
-                  const unitCost = r.ats_avg_cost ?? r.item_cost;
-                  const hasCost = !!(r.planned_buy_qty && unitCost);
+                  const hasCost = !!(r.planned_buy_qty && r.unit_cost);
                   return (
                     <td style={{ ...S.tdNum, color: hasCost ? PAL.green : PAL.textMuted, fontFamily: "monospace" }}>
-                      {hasCost ? `$${(r.planned_buy_qty! * unitCost!).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "–"}
+                      {hasCost ? `$${(r.planned_buy_qty! * r.unit_cost!).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "–"}
                     </td>
                   );
                 })()}
@@ -290,6 +294,66 @@ function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number
         opacity: saving ? 0.5 : 1,
       }}
       onFocus={(e) => { focused.current = true; e.target.style.borderColor = err ? PAL.red : PAL.green; e.target.style.background = PAL.panel; }}
+      onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
+    />
+  );
+}
+
+// Editable per-row unit cost. Blank input → clears the override and reverts
+// to the auto-derived ATS avg cost (or item_cost) on the next refresh.
+// `overridden` controls the visual hint so planners can see at a glance
+// which rows have a manual cost vs. the auto-fill.
+function UnitCostCell({ value, overridden, onSave }: {
+  value: number | null;
+  overridden: boolean;
+  onSave: (cost: number | null) => Promise<void>;
+}) {
+  const [str, setStr] = useState(value != null ? value.toFixed(2) : "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(false);
+  const focused = useRef(false);
+
+  useEffect(() => {
+    if (!focused.current) setStr(value != null ? value.toFixed(2) : "");
+  }, [value]);
+
+  async function commit(raw: string) {
+    const trimmed = raw.trim();
+    const cost = trimmed === "" ? null : Number(trimmed);
+    if (cost !== null && (!Number.isFinite(cost) || cost < 0)) { setErr(true); focused.current = false; return; }
+    if (cost === value) { focused.current = false; return; }
+    setErr(false);
+    setSaving(true);
+    try { await onSave(cost); } catch { setErr(true); } finally { setSaving(false); focused.current = false; }
+  }
+
+  const baseColor = err ? PAL.red : overridden ? PAL.accent2 : PAL.textDim;
+  return (
+    <input
+      data-unitcost="1"
+      type="text"
+      inputMode="decimal"
+      value={str}
+      onChange={(e) => { setStr(e.target.value); setErr(false); }}
+      onBlur={(e) => void commit(e.target.value)}
+      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+      placeholder="—"
+      title={overridden ? "Planner override — clear to revert to ATS avg" : "Auto-filled from ATS avg cost — type to override"}
+      style={{
+        width: 72,
+        background: "transparent",
+        color: baseColor,
+        border: `1px solid ${err ? PAL.red : "transparent"}`,
+        borderRadius: 4,
+        padding: "2px 4px",
+        fontFamily: "monospace",
+        fontSize: 13,
+        textAlign: "right",
+        outline: "none",
+        opacity: saving ? 0.5 : 1,
+        fontStyle: overridden ? "normal" : "italic",
+      }}
+      onFocus={(e) => { focused.current = true; e.target.style.borderColor = err ? PAL.red : PAL.accent2; e.target.style.background = PAL.panel; }}
       onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
     />
   );
