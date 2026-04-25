@@ -89,7 +89,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     <div>
       {/* Stats row */}
       <div style={{ ...S.statsRow, gridTemplateColumns: "repeat(6,1fr)" }}>
-        <StatCell label="Rows" value={filtered.length > 500 ? `500 / ${filtered.length.toLocaleString()}` : filtered.length.toLocaleString()} accent={filtered.length > 500 ? PAL.yellow : undefined} />
+        <StatCell label="Rows" value={filtered.length > pageSize ? `${pageSize.toLocaleString()} / ${filtered.length.toLocaleString()}` : filtered.length.toLocaleString()} accent={filtered.length > pageSize ? PAL.yellow : undefined} />
         <StatCell label="Σ Final forecast" value={formatQty(totals.final)} accent={PAL.green} />
         <StatCell label="Σ Shortage" value={formatQty(totals.shortage)} accent={PAL.red} />
         <StatCell label="Σ Excess" value={formatQty(totals.excess)} accent={PAL.yellow} />
