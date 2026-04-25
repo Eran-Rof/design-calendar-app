@@ -9,7 +9,7 @@
 // Keeps state flat (plain React). Grid dataset is small enough in Phase 1
 // that a rebuild on each change is acceptable.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { IpCategory, IpCustomer, IpItem } from "../types/entities";
 import type {
   IpForecastMethodPreference,
@@ -23,7 +23,7 @@ import type {
 import { FORECAST_METHOD_LABELS } from "../types/wholesale";
 import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { applyOverride, buildGridRows } from "../services/wholesaleForecastService";
-import { ingestXoroSales, ingestXoroItems } from "../services/xoroSalesIngestService";
+import { ingestXoroSales, ingestXoroItems, syncAtsSupply, syncTandaPos } from "../services/xoroSalesIngestService";
 import { ingestSalesExcel, ingestAvgCostExcel, type ExcelIngestResult } from "../services/excelIngestService";
 import { S, PAL } from "../components/styles";
 import { SB_HEADERS, SB_URL } from "../../utils/supabase";
@@ -147,6 +147,28 @@ export default function WholesalePlanningWorkbench() {
       }
     } catch (e) {
       setToast({ text: "Items ingest failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    } finally {
+      setIngesting(false);
+    }
+  }
+
+  async function runSupplySync(kind: "ats" | "tanda") {
+    setIngesting(true);
+    try {
+      const r = kind === "ats" ? await syncAtsSupply() : await syncTandaPos();
+      if ((r as { error?: string }).error) {
+        setToast({ text: `${kind === "ats" ? "ATS" : "TandA POs"} sync error: ${(r as { error: string }).error}`, kind: "error" });
+      } else {
+        const inserted = (r as { inserted?: number }).inserted ?? 0;
+        const newSkus = (r as { auto_created_skus?: number }).auto_created_skus ?? 0;
+        setToast({
+          text: `${kind === "ats" ? "ATS supply" : "TandA POs"}: ${inserted} upserted${newSkus ? ` · ${newSkus} new SKUs` : ""}`,
+          kind: inserted > 0 ? "success" : "info",
+        });
+        if (inserted > 0) await loadRunData();
+      }
+    } catch (e) {
+      setToast({ text: `${kind} sync failed — ${e instanceof Error ? e.message : String(e)}`, kind: "error" });
     } finally {
       setIngesting(false);
     }
@@ -456,6 +478,12 @@ export default function WholesalePlanningWorkbench() {
             <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
                    onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("avgcost", f); e.target.value = ""; } }} />
           </label>
+          <button style={S.btnSecondary} onClick={() => void runSupplySync("ats")} disabled={ingesting || autoWalking} title="Pulls on-hand / on-SO from the ATS app's persisted Excel snapshot into ip_inventory_snapshot">
+            {ingesting ? "Working…" : "Sync on-hand (ATS)"}
+          </button>
+          <button style={S.btnSecondary} onClick={() => void runSupplySync("tanda")} disabled={ingesting || autoWalking} title="Pulls open POs from the PO WIP app's tanda_pos table into ip_open_purchase_orders">
+            {ingesting ? "Working…" : "Sync open POs (TandA)"}
+          </button>
           <span style={{ color: PAL.textMuted, fontSize: 12, flexBasis: "100%" }}>
             Sales columns: SKU, Customer, Date, Qty (UnitPrice/InvoiceNumber optional). Avg-cost columns: SKU, AvgCost. Rebuild forecast after upload.
           </span>

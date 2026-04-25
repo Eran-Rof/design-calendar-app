@@ -59,3 +59,15 @@ export async function ingestXoroItems(opts: { pageStart?: number; pageLimit?: nu
   if (!r.ok) throw new Error(`Items ingest API returned ${r.status}`);
   return r.json();
 }
+
+export async function syncAtsSupply(): Promise<Record<string, unknown>> {
+  const r = await fetch(`/api/ats-supply-sync`);
+  if (!r.ok) throw new Error(`ATS supply sync returned ${r.status}`);
+  return r.json();
+}
+
+export async function syncTandaPos(): Promise<Record<string, unknown>> {
+  const r = await fetch(`/api/tanda-pos-sync`);
+  if (!r.ok) throw new Error(`TandA POs sync returned ${r.status}`);
+  return r.json();
+}
