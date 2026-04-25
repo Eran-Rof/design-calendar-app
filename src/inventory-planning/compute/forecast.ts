@@ -358,6 +358,7 @@ export function applyBuyerRequests(
       confidence_level: r.confidence_level,
       forecast_method: "zero_floor",
       history_months_used: null,
+      ly_reference_qty: null,
       notes: "Synthesized from buyer request — no prior history.",
     });
     matched.add(key); // avoid double-appending if multiple requests share a key
