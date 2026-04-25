@@ -268,8 +268,12 @@ export default function WholesalePlanningWorkbench() {
     let pagesWalked = 0;
     try {
       while (!autoWalkAbort.current) {
-        const r = await ingestXoroSales({ dateFrom: ingestFrom, dateTo: ingestTo, pageStart: page });
-        pagesWalked++;
+        // Fetch 5 Xoro pages per call (~500 invoices) so backfilling
+        // through years of older history doesn't require thousands of
+        // round-trips. Each call must still finish within the function
+        // timeout — 5 pages × ~5s each + normalize + upsert ≈ 30-45s.
+        const r = await ingestXoroSales({ dateFrom: ingestFrom, dateTo: ingestTo, pageStart: page, pageLimit: 5 });
+        pagesWalked += 5;
         if (r.error) {
           setToast({ text: `Auto-walk stopped on page ${page}: ${r.error}`, kind: "error" });
           break;
@@ -286,16 +290,30 @@ export default function WholesalePlanningWorkbench() {
           setSalesPageStart(1);
           break;
         }
-        if (r.xoro_lines_fetched < 100) {
-          // End of catalog reached before window — nothing more to fetch.
+        // Don't early-exit on a short batch if we haven't reached the
+        // window yet — Xoro sometimes returns sparser batches mid-catalog
+        // and the next page may still have data. Only stop on a short
+        // batch once we're inside or past the window.
+        // Each call fetches 5 Xoro pages of 100 → up to 500 lines.
+        if (r.xoro_lines_fetched < 500 && !r.before_window && r.xoro_lines_fetched > 0) {
           setSalesPageStart(1);
           break;
         }
-        page++;
+        // Truly empty batch = end of catalog.
+        if (r.xoro_lines_fetched === 0) {
+          setSalesPageStart(1);
+          break;
+        }
+        // Hard ceiling so a runaway loop can't churn forever (max 200 calls × 5 pages each = 1000 Xoro pages).
+        if (pagesWalked >= 1000) {
+          setSalesPageStart(page);
+          break;
+        }
+        page += 5;
       }
       setSalesPageStart(autoWalkAbort.current ? page : 1);
       setToast({
-        text: `Auto-walk done · ${pagesWalked} pages · ${totalInserted} upserted · ${totalAutoSku} new SKUs · ${totalAutoCust} new customers${autoWalkAbort.current ? " · cancelled" : ""}`,
+        text: `✓ Auto-walk DONE — ${pagesWalked} pages walked · ${totalInserted.toLocaleString()} upserted · ${totalAutoSku} new SKUs · ${totalAutoCust} new customers${autoWalkAbort.current ? " · cancelled" : ""}`,
         kind: totalInserted > 0 ? "success" : "info",
       });
       if (totalInserted > 0) await loadRunData();

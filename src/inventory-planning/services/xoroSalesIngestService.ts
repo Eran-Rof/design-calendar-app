@@ -27,6 +27,7 @@ export async function ingestXoroSales(opts: {
   dateTo: string;
   path?: string;
   pageStart?: number;
+  pageLimit?: number;
 }): Promise<XoroSalesIngestResult> {
   const p = new URLSearchParams({
     date_from: opts.dateFrom,
@@ -34,6 +35,7 @@ export async function ingestXoroSales(opts: {
   });
   if (opts.path) p.set("path", opts.path);
   if (opts.pageStart != null) p.set("page_start", String(opts.pageStart));
+  if (opts.pageLimit != null) p.set("page_limit", String(opts.pageLimit));
   const r = await fetch(`/api/xoro-sales-sync?${p.toString()}`);
   if (!r.ok) throw new Error(`Sales ingest API returned ${r.status}`);
   return r.json();
