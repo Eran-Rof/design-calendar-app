@@ -267,12 +267,20 @@ export default function WholesalePlanningWorkbench() {
     let totalAutoCust = 0;
     let pagesWalked = 0;
     try {
+      // Auto-walk fetches the entire Xoro invoice catalog — date params
+      // on the endpoint don't actually filter results, so we ingest
+      // everything and let the forecast layer (which always trims to
+      // snapshot - 12 months) decide what's in scope for planning.
       while (!autoWalkAbort.current) {
-        // Fetch 5 Xoro pages per call (~500 invoices) so backfilling
-        // through years of older history doesn't require thousands of
-        // round-trips. Each call must still finish within the function
-        // timeout — 5 pages × ~5s each + normalize + upsert ≈ 30-45s.
-        const r = await ingestXoroSales({ dateFrom: ingestFrom, dateTo: ingestTo, pageStart: page, pageLimit: 5 });
+        // 5 Xoro pages per call (~500 invoices). Each call must finish
+        // within the function timeout — 5 pages × ~5s + normalize +
+        // upsert ≈ 30-45s.
+        const r = await ingestXoroSales({
+          dateFrom: "1900-01-01",
+          dateTo: "2100-12-31",
+          pageStart: page,
+          pageLimit: 5,
+        });
         pagesWalked += 5;
         if (r.error) {
           setToast({ text: `Auto-walk stopped on page ${page}: ${r.error}`, kind: "error" });
@@ -286,25 +294,12 @@ export default function WholesalePlanningWorkbench() {
           text: `Auto-walk: page ${page} · ${r.oldest_invoice_in_batch ?? "?"}…${r.newest_invoice_in_batch ?? "?"} · running totals ${totalInserted} upserted, ${totalAutoSku} new SKUs`,
           kind: "info",
         });
-        if (r.past_window) {
-          setSalesPageStart(1);
-          break;
-        }
-        // Don't early-exit on a short batch if we haven't reached the
-        // window yet — Xoro sometimes returns sparser batches mid-catalog
-        // and the next page may still have data. Only stop on a short
-        // batch once we're inside or past the window.
-        // Each call fetches 5 Xoro pages of 100 → up to 500 lines.
-        if (r.xoro_lines_fetched < 500 && !r.before_window && r.xoro_lines_fetched > 0) {
-          setSalesPageStart(1);
-          break;
-        }
-        // Truly empty batch = end of catalog.
+        // End of catalog: empty batch.
         if (r.xoro_lines_fetched === 0) {
           setSalesPageStart(1);
           break;
         }
-        // Hard ceiling so a runaway loop can't churn forever (max 200 calls × 5 pages each = 1000 Xoro pages).
+        // Hard ceiling — 1000 pages × 100 invoices = 100k cap.
         if (pagesWalked >= 1000) {
           setSalesPageStart(page);
           break;
@@ -520,12 +515,12 @@ export default function WholesalePlanningWorkbench() {
           <input type="date" value={ingestTo} onChange={(e) => setIngestTo(e.target.value)}
                  style={{ ...S.input, width: 140 }} />
           {!autoWalking ? (
-            <button style={S.btnPrimary} onClick={autoWalkSales} disabled={ingesting} title="Pulls Xoro invoices in chunks until past date_to. Auto-creates SKUs + customers as it goes.">
-              {runningKind === "autowalk" ? "Working…" : "▶ Auto-walk Xoro sales"}
+            <button style={S.btnPrimary} onClick={autoWalkSales} disabled={ingesting} title="Pulls every invoice in your Xoro catalog. Forecast layer will trim to last 12 months from snapshot when building.">
+              {runningKind === "autowalk" ? "Working…" : "▶ Fetch all Xoro sales"}
             </button>
           ) : (
             <button style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }} onClick={() => { autoWalkAbort.current = true; }}>
-              ■ Stop auto-walk
+              ■ Stop fetch
             </button>
           )}
           <button style={S.btnSecondary} onClick={ingestItems} disabled={ingesting || autoWalking} title="Pulls Xoro item catalog into ip_item_master. Click repeatedly to chunk through 20k items — page tracker advances automatically.">
