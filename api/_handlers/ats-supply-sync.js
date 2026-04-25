@@ -51,12 +51,25 @@ export default async function handler(req, res) {
   try { parsed = typeof appRow.value === "string" ? JSON.parse(appRow.value) : appRow.value; }
   catch (e) { return res.status(500).json({ error: "ATS snapshot is not valid JSON", details: String(e) }); }
 
-  const skus = Array.isArray(parsed?.skus) ? parsed.skus : [];
-  if (skus.length === 0) return res.status(200).json({ error: "ATS snapshot has no SKU array", parsed_keys: Object.keys(parsed ?? {}) });
+  const allSkus = Array.isArray(parsed?.skus) ? parsed.skus : [];
+  if (allSkus.length === 0) return res.status(200).json({ error: "ATS snapshot has no SKU array", parsed_keys: Object.keys(parsed ?? {}) });
+
+  // Chunked processing — large catalogs (10k+ SKUs) blow the Vercel
+  // gateway timeout in a single call. Caller passes ?start=0 and the
+  // handler returns next_start so the UI can keep clicking.
+  const url = new URL(req.url, `https://${req.headers.host}`);
+  const start = Math.max(parseInt(url.searchParams.get("start") || "0", 10), 0);
+  const batchSize = Math.min(parseInt(url.searchParams.get("limit") || "2000", 10), 10000);
+  const skus = allSkus.slice(start, start + batchSize);
+  const nextStart = start + batchSize >= allSkus.length ? null : start + batchSize;
 
   const today = new Date().toISOString().slice(0, 10);
   const result = {
-    ats_skus: skus.length,
+    ats_skus_total: allSkus.length,
+    ats_skus_in_batch: skus.length,
+    start, batch_size: batchSize,
+    next_start: nextStart,
+    done: nextStart === null,
     inserted: 0,
     auto_created_skus: 0,
     skipped_no_sku: 0,
@@ -78,18 +91,19 @@ export default async function handler(req, res) {
     candidates.push({ sku, src: s, onHand, onPO, onSo });
   }
 
-  // 3. Load existing item master into a sku → id map (paged 1000 at a time).
+  // 3. Resolve only the SKUs in this batch (instead of pulling the full
+  //    20k-row item master). Postgres `in.` accepts long lists; chunk to
+  //    stay under URL length limits.
   const itemMap = new Map();
-  for (let offset = 0; ; offset += 1000) {
+  const candidateSkus = candidates.map((c) => c.sku);
+  for (let i = 0; i < candidateSkus.length; i += 200) {
+    const chunk = candidateSkus.slice(i, i + 200);
     const { data, error } = await admin
       .from("ip_item_master")
       .select("id, sku_code")
-      .order("sku_code", { ascending: true })
-      .range(offset, offset + 999);
+      .in("sku_code", chunk);
     if (error) return res.status(500).json({ error: "item_master fetch failed", details: error.message });
-    if (!data || data.length === 0) break;
-    for (const r of data) itemMap.set(canonSku(r.sku_code), r.id);
-    if (data.length < 1000) break;
+    for (const r of data ?? []) itemMap.set(canonSku(r.sku_code), r.id);
   }
 
   // 4. Bulk-create missing items in 500-row chunks (was per-SKU before;

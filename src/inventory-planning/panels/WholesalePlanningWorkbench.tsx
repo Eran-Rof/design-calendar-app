@@ -155,17 +155,43 @@ export default function WholesalePlanningWorkbench() {
   async function runSupplySync(kind: "ats" | "tanda") {
     setIngesting(true); setRunningKind(kind === "ats" ? "ats" : "tanda");
     try {
-      const r = kind === "ats" ? await syncAtsSupply() : await syncTandaPos();
-      if ((r as { error?: string }).error) {
-        setToast({ text: `${kind === "ats" ? "ATS" : "TandA POs"} sync error: ${(r as { error: string }).error}`, kind: "error" });
-      } else {
-        const inserted = (r as { inserted?: number }).inserted ?? 0;
-        const newSkus = (r as { auto_created_skus?: number }).auto_created_skus ?? 0;
+      if (kind === "tanda") {
+        const r = await syncTandaPos();
+        const err = (r as { error?: string }).error;
+        if (err) setToast({ text: `TandA POs sync error: ${err}`, kind: "error" });
+        else {
+          const inserted = (r as { inserted?: number }).inserted ?? 0;
+          const newSkus = (r as { auto_created_skus?: number }).auto_created_skus ?? 0;
+          setToast({ text: `TandA POs: ${inserted} upserted${newSkus ? ` · ${newSkus} new SKUs` : ""}`, kind: inserted > 0 ? "success" : "info" });
+          if (inserted > 0) await loadRunData();
+        }
+        return;
+      }
+      // ATS — chunked: keep clicking through nextStart until done.
+      let start = 0;
+      let totalInserted = 0;
+      let totalNew = 0;
+      let totalAts = 0;
+      while (true) {
+        const r = await syncAtsSupply({ start, limit: 2000 });
+        if ((r as { error?: string }).error) {
+          setToast({ text: `ATS sync error: ${(r as { error: string }).error}`, kind: "error" });
+          break;
+        }
+        totalInserted += (r as { inserted?: number }).inserted ?? 0;
+        totalNew += (r as { auto_created_skus?: number }).auto_created_skus ?? 0;
+        totalAts = (r as { ats_skus_total?: number }).ats_skus_total ?? totalAts;
         setToast({
-          text: `${kind === "ats" ? "ATS supply" : "TandA POs"}: ${inserted} upserted${newSkus ? ` · ${newSkus} new SKUs` : ""}`,
-          kind: inserted > 0 ? "success" : "info",
+          text: `ATS supply: ${start + ((r as { ats_skus_in_batch?: number }).ats_skus_in_batch ?? 0)}/${totalAts} processed · running totals ${totalInserted} upserted, ${totalNew} new SKUs`,
+          kind: "info",
         });
-        if (inserted > 0) await loadRunData();
+        const next = (r as { next_start?: number | null }).next_start;
+        if (next == null) {
+          setToast({ text: `ATS supply done · ${totalInserted} upserted · ${totalNew} new SKUs · ${totalAts} SKUs scanned`, kind: totalInserted > 0 ? "success" : "info" });
+          if (totalInserted > 0) await loadRunData();
+          break;
+        }
+        start = next;
       }
     } catch (e) {
       setToast({ text: `${kind} sync failed — ${e instanceof Error ? e.message : String(e)}`, kind: "error" });

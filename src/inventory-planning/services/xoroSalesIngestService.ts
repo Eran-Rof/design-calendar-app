@@ -60,8 +60,11 @@ export async function ingestXoroItems(opts: { pageStart?: number; pageLimit?: nu
   return r.json();
 }
 
-export async function syncAtsSupply(): Promise<Record<string, unknown>> {
-  const r = await fetch(`/api/ats-supply-sync`);
+export async function syncAtsSupply(opts: { start?: number; limit?: number } = {}): Promise<Record<string, unknown>> {
+  const p = new URLSearchParams();
+  if (opts.start != null) p.set("start", String(opts.start));
+  if (opts.limit != null) p.set("limit", String(opts.limit));
+  const r = await fetch(`/api/ats-supply-sync${p.toString() ? "?" + p.toString() : ""}`);
   if (!r.ok) throw new Error(`ATS supply sync returned ${r.status}`);
   return r.json();
 }
