@@ -58,12 +58,13 @@ DELETE FROM ip_receipts_history
           OR source_line_key LIKE 'demo:%';
 
 -- 4. Misc dependents.
-DELETE FROM ip_allocation_rules          WHERE sku_id IN (SELECT id FROM _demo_sku_ids);
+-- Skipped (ON DELETE CASCADE — auto-clean on master drop):
+--   ip_allocation_rules (applies_to_sku_id),
+--   ip_product_channel_status (sku_id),
+--   ip_vendor_timing_signals (sku_id).
 DELETE FROM ip_ai_suggestions            WHERE sku_id IN (SELECT id FROM _demo_sku_ids) OR customer_id IN (SELECT id FROM _demo_customer_ids);
 DELETE FROM ip_planning_anomalies        WHERE sku_id IN (SELECT id FROM _demo_sku_ids);
-DELETE FROM ip_product_channel_status    WHERE sku_id IN (SELECT id FROM _demo_sku_ids);
 DELETE FROM ip_supply_exceptions         WHERE sku_id IN (SELECT id FROM _demo_sku_ids);
-DELETE FROM ip_vendor_timing_signals     WHERE sku_id IN (SELECT id FROM _demo_sku_ids);
 DELETE FROM ip_execution_actions         WHERE sku_id IN (SELECT id FROM _demo_sku_ids);
 DELETE FROM ip_item_avg_cost             WHERE sku_code LIKE 'DEMO-%';
 
