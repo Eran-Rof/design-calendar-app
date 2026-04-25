@@ -14,7 +14,10 @@ import { fetchXoroAll } from "../_lib/xoro-client.js";
 
 export const config = { maxDuration: 300 };
 
-const SALES_PATH = "salesinvoice/getsalesinvoice";
+// Default Xoro path. Matches the working TandA `purchaseorder/getpurchaseorder`
+// naming pattern. If Xoro support confirms a different sales endpoint, swap
+// here or override via ?path=<module>/<action> query param.
+const SALES_PATH = "salesorder/getsalesorder";
 
 function toIsoDate(raw) {
   if (!raw) return null;
