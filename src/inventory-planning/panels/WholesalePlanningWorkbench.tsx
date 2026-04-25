@@ -24,6 +24,7 @@ import { FORECAST_METHOD_LABELS } from "../types/wholesale";
 import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { applyOverride, buildGridRows } from "../services/wholesaleForecastService";
 import { ingestXoroSales } from "../services/xoroSalesIngestService";
+import { ingestSalesExcel, ingestAvgCostExcel, type ExcelIngestResult } from "../services/excelIngestService";
 import { S, PAL } from "../components/styles";
 import { SB_HEADERS, SB_URL } from "../../utils/supabase";
 import PlanningRunControls from "./PlanningRunControls";
@@ -122,6 +123,29 @@ export default function WholesalePlanningWorkbench() {
              o.period_start === selectedRow.period_start,
     );
   }, [overrides, selectedRow]);
+
+  async function ingestExcel(kind: "sales" | "avgcost", file: File) {
+    setIngesting(true);
+    try {
+      const r: ExcelIngestResult = kind === "sales"
+        ? await ingestSalesExcel(file)
+        : await ingestAvgCostExcel(file);
+      const skipped = r.skipped_no_sku + r.skipped_no_date + r.skipped_zero_qty + r.skipped_bad_cost;
+      setToast({
+        text: `${kind === "sales" ? "Sales" : "Avg costs"}: ${r.parsed} parsed · ${r.inserted} upserted${skipped > 0 ? ` · ${skipped} skipped` : ""}`,
+        kind: r.inserted > 0 ? "success" : "info",
+      });
+      if (r.inserted > 0 && kind === "sales") await loadRunData();
+      if (r.inserted > 0 && kind === "avgcost" && selectedRun) {
+        const refreshed = await buildGridRows(selectedRun);
+        setRows(refreshed);
+      }
+    } catch (e) {
+      setToast({ text: `${kind} upload failed — ${e instanceof Error ? e.message : String(e)}`, kind: "error" });
+    } finally {
+      setIngesting(false);
+    }
+  }
 
   async function ingestSales() {
     setIngesting(true);
@@ -301,11 +325,21 @@ export default function WholesalePlanningWorkbench() {
           <span style={{ color: PAL.textDim, fontSize: 12 }}>to</span>
           <input type="date" value={ingestTo} onChange={(e) => setIngestTo(e.target.value)}
                  style={{ ...S.input, width: 140 }} />
-          <button style={S.btnPrimary} onClick={ingestSales} disabled={ingesting}>
-            {ingesting ? "Ingesting…" : "Ingest Xoro sales"}
+          <button style={S.btnSecondary} onClick={ingestSales} disabled={ingesting} title="Requires Xoro invoices API endpoint to be provisioned">
+            {ingesting ? "Working…" : "Ingest Xoro sales"}
           </button>
-          <span style={{ color: PAL.textMuted, fontSize: 12 }}>
-            Pulls invoices from Xoro → ip_sales_history_wholesale. Rebuild forecast after ingesting.
+          <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }}>
+            {ingesting ? "Working…" : "Upload sales (Excel)"}
+            <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
+                   onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("sales", f); e.target.value = ""; } }} />
+          </label>
+          <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }}>
+            {ingesting ? "Working…" : "Upload avg costs (Excel)"}
+            <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
+                   onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("avgcost", f); e.target.value = ""; } }} />
+          </label>
+          <span style={{ color: PAL.textMuted, fontSize: 12, flexBasis: "100%" }}>
+            Sales columns: SKU, Customer, Date, Qty (UnitPrice/InvoiceNumber optional). Avg-cost columns: SKU, AvgCost. Rebuild forecast after upload.
           </span>
         </div>
 
