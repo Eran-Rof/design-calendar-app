@@ -284,6 +284,8 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       ly_reference_qty: f.ly_reference_qty ?? null,
       item_cost: item?.unit_cost ?? null,
       ats_avg_cost: item?.sku_code ? (atsCostBySku.get(item.sku_code) ?? null) : null,
+      unit_cost_override: f.unit_cost_override ?? null,
+      unit_cost: f.unit_cost_override ?? (item?.sku_code ? atsCostBySku.get(item.sku_code) ?? null : null) ?? item?.unit_cost ?? null,
       planned_buy_qty: f.planned_buy_qty ?? null,
       on_hand_qty: supply?.beginning_balance_qty ?? onHand.get(f.sku_id) ?? 0,
       on_so_qty: onSo.get(f.sku_id) ?? 0,

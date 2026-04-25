@@ -102,6 +102,7 @@ export async function cloneBaseIntoScenario(args: {
       notes: r.notes,
       ly_reference_qty: r.ly_reference_qty ?? null,
       planned_buy_qty: r.planned_buy_qty ?? null,
+      unit_cost_override: r.unit_cost_override ?? null,
     })));
   }
   // Ecom

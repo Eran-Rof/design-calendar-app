@@ -149,10 +149,11 @@ export const wholesaleRepo = {
         await sbPost<IpWholesaleForecast>(url, chunk, prefer);
       } catch (e) {
         // PGRST204 = column not in schema cache (migration pending). Retry
-        // without ly_reference_qty so builds survive before the ALTER TABLE runs.
-        if (e instanceof Error && e.message.includes("PGRST204") && (e.message.includes("ly_reference_qty") || e.message.includes("planned_buy_qty"))) {
+        // without the optional planner-editable columns so builds survive
+        // before the ALTER TABLEs run on the target environment.
+        if (e instanceof Error && e.message.includes("PGRST204") && (e.message.includes("ly_reference_qty") || e.message.includes("planned_buy_qty") || e.message.includes("unit_cost_override"))) {
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const stripped = chunk.map(({ ly_reference_qty: _a, planned_buy_qty: _b, ...rest }) => rest);
+          const stripped = chunk.map(({ ly_reference_qty: _a, planned_buy_qty: _b, unit_cost_override: _c, ...rest }) => rest);
           await sbPost<IpWholesaleForecast>(url, stripped, prefer);
         } else {
           throw e;
@@ -178,6 +179,13 @@ export const wholesaleRepo = {
       { planned_buy_qty },
     );
     if (!rows[0]) throw new Error(`patchForecastBuyQty: no row returned for ${forecastId}`);
+  },
+  async patchForecastUnitCostOverride(forecastId: string, unit_cost_override: number | null): Promise<void> {
+    const rows = await sbPatch<IpWholesaleForecast>(
+      `ip_wholesale_forecast?id=eq.${forecastId}`,
+      { unit_cost_override },
+    );
+    if (!rows[0]) throw new Error(`patchForecastUnitCostOverride: no row returned for ${forecastId}`);
   },
 
   // ── Future demand requests ───────────────────────────────────────────────
