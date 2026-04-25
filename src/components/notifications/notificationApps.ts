@@ -15,6 +15,7 @@ export type AppKey =
   | "ats"
   | "techpack"
   | "gs1"
+  | "planning"
   | "rof"
   | "plm"
   | "vendor";
@@ -69,6 +70,21 @@ const GS1_EVENTS = [
   "gs1_label_generated", "gs1_export_complete",
 ];
 
+// Inventory Planning — forecast / scenario / batch / data-quality events.
+const PLANNING_EVENTS = [
+  "planning_forecast_ready", "planning_forecast_failed",
+  "planning_run_complete", "planning_run_failed",
+  "planning_scenario_created", "planning_scenario_approved", "planning_scenario_rejected",
+  "planning_execution_batch_ready", "planning_execution_batch_committed",
+  "planning_data_quality_alert", "planning_data_quality_resolved",
+  "planning_recommendation_ready", "planning_recommendation_overridden",
+  "planning_reconciliation_complete",
+  "planning_accuracy_report_ready",
+  "planning_approval_requested", "planning_approval_granted", "planning_approval_rejected",
+  "planning_export_complete",
+  "inventory_anomaly",
+];
+
 // ROF Phase Reviews — only the pending-review event.
 const ROF_EVENTS = [
   "phase_change_proposed",
@@ -80,6 +96,7 @@ const APP_EVENTS: Record<AppKey, string[] | null> = {
   ats: ATS_EVENTS,
   techpack: TECHPACK_EVENTS,
   gs1: GS1_EVENTS,
+  planning: PLANNING_EVENTS,
   rof: ROF_EVENTS,
   plm: null,
   vendor: null,

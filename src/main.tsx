@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import ErrorBoundary from "./components/ErrorBoundary";
 import WithNotifications from "./components/notifications/WithNotifications";
+import PlanningShell from "./inventory-planning/shared/components/PlanningShell";
 import { appConfig } from "./config/env";
 import { canAccessInventoryPlanning, getPlmSessionEmail } from "./config/planningAccess";
 
@@ -99,36 +100,36 @@ async function mount() {
 
     } else if (path.startsWith("/planning/data-quality")) {
       const { default: DataQualityReport } = await import("./inventory-planning/admin/DataQualityReport");
-      root.render(<StrictMode><ErrorBoundary appName="Planning DQ"><WithNotifications><DataQualityReport /></WithNotifications></ErrorBoundary></StrictMode>);
+      root.render(<StrictMode><ErrorBoundary appName="Planning DQ"><PlanningShell title="Data Quality"><DataQualityReport /></PlanningShell></ErrorBoundary></StrictMode>);
 
     } else if (path.startsWith("/planning/ecom")) {
       const { default: EcomPlanningWorkbench } = await import("./inventory-planning/ecom/panels/EcomPlanningWorkbench");
-      root.render(<StrictMode><ErrorBoundary appName="Ecom Planning"><WithNotifications><EcomPlanningWorkbench /></WithNotifications></ErrorBoundary></StrictMode>);
+      root.render(<StrictMode><ErrorBoundary appName="Ecom Planning"><PlanningShell title="Ecom Planning"><EcomPlanningWorkbench /></PlanningShell></ErrorBoundary></StrictMode>);
 
     } else if (path.startsWith("/planning/supply")) {
       const { default: ReconciliationWorkbench } = await import("./inventory-planning/supply/panels/ReconciliationWorkbench");
-      root.render(<StrictMode><ErrorBoundary appName="Supply Reconciliation"><WithNotifications><ReconciliationWorkbench /></WithNotifications></ErrorBoundary></StrictMode>);
+      root.render(<StrictMode><ErrorBoundary appName="Supply Reconciliation"><PlanningShell title="Supply Reconciliation"><ReconciliationWorkbench /></PlanningShell></ErrorBoundary></StrictMode>);
 
     } else if (path.startsWith("/planning/accuracy")) {
       const { default: AccuracyWorkbench } = await import("./inventory-planning/accuracy/panels/AccuracyWorkbench");
-      root.render(<StrictMode><ErrorBoundary appName="Accuracy & AI"><WithNotifications><AccuracyWorkbench /></WithNotifications></ErrorBoundary></StrictMode>);
+      root.render(<StrictMode><ErrorBoundary appName="Accuracy & AI"><PlanningShell title="Accuracy & AI"><AccuracyWorkbench /></PlanningShell></ErrorBoundary></StrictMode>);
 
     } else if (path.startsWith("/planning/scenarios")) {
       const { default: ScenarioManager } = await import("./inventory-planning/scenarios/panels/ScenarioManager");
-      root.render(<StrictMode><ErrorBoundary appName="Scenarios & Exports"><WithNotifications><ScenarioManager /></WithNotifications></ErrorBoundary></StrictMode>);
+      root.render(<StrictMode><ErrorBoundary appName="Scenarios & Exports"><PlanningShell title="Scenarios & Exports"><ScenarioManager /></PlanningShell></ErrorBoundary></StrictMode>);
 
     } else if (path.startsWith("/planning/execution")) {
       const { default: ExecutionBatchManager } = await import("./inventory-planning/execution/panels/ExecutionBatchManager");
-      root.render(<StrictMode><ErrorBoundary appName="Execution"><WithNotifications><ExecutionBatchManager /></WithNotifications></ErrorBoundary></StrictMode>);
+      root.render(<StrictMode><ErrorBoundary appName="Execution"><PlanningShell title="Execution"><ExecutionBatchManager /></PlanningShell></ErrorBoundary></StrictMode>);
 
     } else if (path.startsWith("/planning/admin")) {
       const { default: AdminWorkbench } = await import("./inventory-planning/admin/panels/AdminWorkbench");
-      root.render(<StrictMode><ErrorBoundary appName="Admin"><WithNotifications><AdminWorkbench /></WithNotifications></ErrorBoundary></StrictMode>);
+      root.render(<StrictMode><ErrorBoundary appName="Admin"><PlanningShell title="Planning Admin"><AdminWorkbench /></PlanningShell></ErrorBoundary></StrictMode>);
 
     } else {
       // /planning or /planning/wholesale
       const { default: WholesalePlanningWorkbench } = await import("./inventory-planning/panels/WholesalePlanningWorkbench");
-      root.render(<StrictMode><ErrorBoundary appName="Wholesale Planning"><WithNotifications><WholesalePlanningWorkbench /></WithNotifications></ErrorBoundary></StrictMode>);
+      root.render(<StrictMode><ErrorBoundary appName="Wholesale Planning"><PlanningShell title="Wholesale Planning"><WholesalePlanningWorkbench /></PlanningShell></ErrorBoundary></StrictMode>);
     }
 
   } else if (path.startsWith("/notifications")) {
