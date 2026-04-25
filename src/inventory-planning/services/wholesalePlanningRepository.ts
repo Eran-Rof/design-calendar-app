@@ -34,6 +34,26 @@ async function sbGet<T>(path: string): Promise<T[]> {
   return r.json();
 }
 
+// Paginated GET — PostgREST caps single-fetch responses at db_role.max_rows
+// (default 1000) regardless of the &limit= value. Walks through the table
+// in 1000-row pages using Range headers.
+async function sbGetAll<T>(pathWithoutLimit: string): Promise<T[]> {
+  assertSupabase();
+  const out: T[] = [];
+  const PAGE = 1000;
+  for (let offset = 0; ; offset += PAGE) {
+    const sep = pathWithoutLimit.includes("?") ? "&" : "?";
+    const url = `${SB_URL}/rest/v1/${pathWithoutLimit}${sep}limit=${PAGE}&offset=${offset}`;
+    const r = await fetch(url, { headers: SB_HEADERS });
+    if (!r.ok) throw new Error(`Supabase GET ${url} failed: ${r.status} ${await r.text()}`);
+    const chunk = (await r.json()) as T[];
+    out.push(...chunk);
+    if (chunk.length < PAGE) break;
+    if (offset > 1_000_000) break;
+  }
+  return out;
+}
+
 async function sbPost<T>(path: string, body: unknown, prefer = "return=representation"): Promise<T[]> {
   assertSupabase();
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, {
@@ -136,19 +156,19 @@ export const wholesaleRepo = {
     return out;
   },
   async listWholesaleSales(sinceIso: string): Promise<IpSalesWholesaleRow[]> {
-    return sbGet<IpSalesWholesaleRow>(
-      `ip_sales_history_wholesale?select=*&txn_date=gte.${sinceIso}&limit=200000`,
+    return sbGetAll<IpSalesWholesaleRow>(
+      `ip_sales_history_wholesale?select=*&txn_date=gte.${sinceIso}&order=txn_date.asc`,
     );
   },
   async listInventorySnapshots(): Promise<IpInventorySnapshot[]> {
-    return sbGet<IpInventorySnapshot>("ip_inventory_snapshot?select=*&order=snapshot_date.desc&limit=100000");
+    return sbGetAll<IpInventorySnapshot>("ip_inventory_snapshot?select=*&order=snapshot_date.desc");
   },
   async listOpenPos(): Promise<IpOpenPoRow[]> {
-    return sbGet<IpOpenPoRow>("ip_open_purchase_orders?select=*&limit=100000");
+    return sbGetAll<IpOpenPoRow>("ip_open_purchase_orders?select=*&order=expected_date.asc");
   },
   async listReceipts(sinceIso: string): Promise<IpReceiptRow[]> {
-    return sbGet<IpReceiptRow>(
-      `ip_receipts_history?select=*&received_date=gte.${sinceIso}&limit=100000`,
+    return sbGetAll<IpReceiptRow>(
+      `ip_receipts_history?select=*&received_date=gte.${sinceIso}&order=received_date.asc`,
     );
   },
 

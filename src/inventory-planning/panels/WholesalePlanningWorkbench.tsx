@@ -129,7 +129,7 @@ export default function WholesalePlanningWorkbench() {
   // duration cap.
   const [itemsPageStart, setItemsPageStart] = useState(1);
   async function ingestItems() {
-    setIngesting(true);
+    setIngesting(true); setRunningKind("items");
     try {
       const r = await ingestXoroItems({ pageStart: itemsPageStart, pageLimit: 5 });
       if (r.error) {
@@ -148,12 +148,12 @@ export default function WholesalePlanningWorkbench() {
     } catch (e) {
       setToast({ text: "Items ingest failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
     } finally {
-      setIngesting(false);
+      setIngesting(false); setRunningKind(null);
     }
   }
 
   async function runSupplySync(kind: "ats" | "tanda") {
-    setIngesting(true);
+    setIngesting(true); setRunningKind(kind === "ats" ? "ats" : "tanda");
     try {
       const r = kind === "ats" ? await syncAtsSupply() : await syncTandaPos();
       if ((r as { error?: string }).error) {
@@ -170,12 +170,12 @@ export default function WholesalePlanningWorkbench() {
     } catch (e) {
       setToast({ text: `${kind} sync failed — ${e instanceof Error ? e.message : String(e)}`, kind: "error" });
     } finally {
-      setIngesting(false);
+      setIngesting(false); setRunningKind(null);
     }
   }
 
   async function ingestExcel(kind: "sales" | "avgcost", file: File) {
-    setIngesting(true);
+    setIngesting(true); setRunningKind(`excel-${kind}`);
     try {
       const r: ExcelIngestResult = kind === "sales"
         ? await ingestSalesExcel(file)
@@ -193,7 +193,7 @@ export default function WholesalePlanningWorkbench() {
     } catch (e) {
       setToast({ text: `${kind} upload failed — ${e instanceof Error ? e.message : String(e)}`, kind: "error" });
     } finally {
-      setIngesting(false);
+      setIngesting(false); setRunningKind(null);
     }
   }
 
@@ -203,6 +203,10 @@ export default function WholesalePlanningWorkbench() {
   const [salesPageStart, setSalesPageStart] = useState(1);
   const [autoWalking, setAutoWalking] = useState(false);
   const autoWalkAbort = useRef(false);
+  // Per-button running state — only the actively-running button shows
+  // "Working…" so the planner can see which sync is in flight.
+  // ingesting (boolean) still gates concurrent kicks of the same group.
+  const [runningKind, setRunningKind] = useState<string | null>(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { setSalesPageStart(1); }, [ingestFrom, ingestTo]);
 
@@ -211,7 +215,7 @@ export default function WholesalePlanningWorkbench() {
   // (Xoro returns oldest-first; reaching last year's August requires
   // walking through every page since the first invoice ever).
   async function autoWalkSales() {
-    setAutoWalking(true);
+    setAutoWalking(true); setRunningKind("autowalk");
     autoWalkAbort.current = false;
     let page = salesPageStart;
     let totalInserted = 0;
@@ -252,13 +256,13 @@ export default function WholesalePlanningWorkbench() {
       });
       if (totalInserted > 0) await loadRunData();
     } finally {
-      setAutoWalking(false);
+      setAutoWalking(false); setRunningKind(null);
       autoWalkAbort.current = false;
     }
   }
 
   async function ingestSales() {
-    setIngesting(true);
+    setIngesting(true); setRunningKind("sales");
     try {
       const r = await ingestXoroSales({ dateFrom: ingestFrom, dateTo: ingestTo, pageStart: salesPageStart });
       if (r.error) {
@@ -297,7 +301,7 @@ export default function WholesalePlanningWorkbench() {
     } catch (e) {
       setToast({ text: "Ingest failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
     } finally {
-      setIngesting(false);
+      setIngesting(false); setRunningKind(null);
     }
   }
 
@@ -453,36 +457,33 @@ export default function WholesalePlanningWorkbench() {
           <span style={{ color: PAL.textDim, fontSize: 12 }}>to</span>
           <input type="date" value={ingestTo} onChange={(e) => setIngestTo(e.target.value)}
                  style={{ ...S.input, width: 140 }} />
-          <button style={S.btnPrimary} onClick={ingestSales} disabled={ingesting || autoWalking} title="Pulls one page (~100 invoices) per click. Page tracker advances automatically.">
-            {ingesting ? "Working…" : `Ingest Xoro sales (page ${salesPageStart})`}
-          </button>
           {!autoWalking ? (
-            <button style={S.btnPrimary} onClick={autoWalkSales} disabled={ingesting} title="Loops the page-by-page ingest until it walks past the date_to. Long backfills can take many minutes.">
-              ▶ Auto-walk to date_to
+            <button style={S.btnPrimary} onClick={autoWalkSales} disabled={ingesting} title="Pulls Xoro invoices in chunks until past date_to. Auto-creates SKUs + customers as it goes.">
+              {runningKind === "autowalk" ? "Working…" : "▶ Auto-walk Xoro sales"}
             </button>
           ) : (
             <button style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }} onClick={() => { autoWalkAbort.current = true; }}>
               ■ Stop auto-walk
             </button>
           )}
-          <button style={S.btnSecondary} onClick={ingestItems} disabled={ingesting} title="Pulls Xoro item catalog into ip_item_master. Click repeatedly to chunk through 20k items — page tracker advances automatically.">
-            {ingesting ? "Working…" : `Ingest Xoro items (pages ${itemsPageStart}-${itemsPageStart + 4})`}
+          <button style={S.btnSecondary} onClick={ingestItems} disabled={ingesting || autoWalking} title="Pulls Xoro item catalog into ip_item_master. Click repeatedly to chunk through 20k items — page tracker advances automatically.">
+            {runningKind === "items" ? "Working…" : `Ingest Xoro items (pages ${itemsPageStart}-${itemsPageStart + 4})`}
           </button>
           <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }}>
-            {ingesting ? "Working…" : "Upload sales (Excel)"}
+            {runningKind === "excel-sales" ? "Working…" : "Upload sales (Excel)"}
             <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
                    onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("sales", f); e.target.value = ""; } }} />
           </label>
           <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }}>
-            {ingesting ? "Working…" : "Upload avg costs (Excel)"}
+            {runningKind === "excel-avgcost" ? "Working…" : "Upload avg costs (Excel)"}
             <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
                    onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("avgcost", f); e.target.value = ""; } }} />
           </label>
           <button style={S.btnSecondary} onClick={() => void runSupplySync("ats")} disabled={ingesting || autoWalking} title="Pulls on-hand / on-SO from the ATS app's persisted Excel snapshot into ip_inventory_snapshot">
-            {ingesting ? "Working…" : "Sync on-hand (ATS)"}
+            {runningKind === "ats" ? "Working…" : "Sync on-hand (ATS)"}
           </button>
           <button style={S.btnSecondary} onClick={() => void runSupplySync("tanda")} disabled={ingesting || autoWalking} title="Pulls open POs from the PO WIP app's tanda_pos table into ip_open_purchase_orders">
-            {ingesting ? "Working…" : "Sync open POs (TandA)"}
+            {runningKind === "tanda" ? "Working…" : "Sync open POs (TandA)"}
           </button>
           <span style={{ color: PAL.textMuted, fontSize: 12, flexBasis: "100%" }}>
             Sales columns: SKU, Customer, Date, Qty (UnitPrice/InvoiceNumber optional). Avg-cost columns: SKU, AvgCost. Rebuild forecast after upload.
