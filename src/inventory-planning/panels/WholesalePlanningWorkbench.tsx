@@ -179,8 +179,61 @@ export default function WholesalePlanningWorkbench() {
   // pages 1, 2, 3 … within the same date window. Resets when the user
   // changes either date picker.
   const [salesPageStart, setSalesPageStart] = useState(1);
+  const [autoWalking, setAutoWalking] = useState(false);
+  const autoWalkAbort = useRef(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { setSalesPageStart(1); }, [ingestFrom, ingestTo]);
+
+  // Auto-walk: loops the ingest call until past_window fires, so the
+  // planner doesn't need to click 100+ times to backfill a window
+  // (Xoro returns oldest-first; reaching last year's August requires
+  // walking through every page since the first invoice ever).
+  async function autoWalkSales() {
+    setAutoWalking(true);
+    autoWalkAbort.current = false;
+    let page = salesPageStart;
+    let totalInserted = 0;
+    let totalAutoSku = 0;
+    let totalAutoCust = 0;
+    let pagesWalked = 0;
+    try {
+      while (!autoWalkAbort.current) {
+        const r = await ingestXoroSales({ dateFrom: ingestFrom, dateTo: ingestTo, pageStart: page });
+        pagesWalked++;
+        if (r.error) {
+          setToast({ text: `Auto-walk stopped on page ${page}: ${r.error}`, kind: "error" });
+          break;
+        }
+        totalInserted += r.inserted;
+        totalAutoSku += r.auto_created_skus ?? 0;
+        totalAutoCust += r.auto_created_customers ?? 0;
+        // Live progress so the planner sees something is happening.
+        setToast({
+          text: `Auto-walk: page ${page} · ${r.oldest_invoice_in_batch ?? "?"}…${r.newest_invoice_in_batch ?? "?"} · running totals ${totalInserted} upserted, ${totalAutoSku} new SKUs`,
+          kind: "info",
+        });
+        if (r.past_window) {
+          setSalesPageStart(1);
+          break;
+        }
+        if (r.xoro_lines_fetched < 100) {
+          // End of catalog reached before window — nothing more to fetch.
+          setSalesPageStart(1);
+          break;
+        }
+        page++;
+      }
+      setSalesPageStart(autoWalkAbort.current ? page : 1);
+      setToast({
+        text: `Auto-walk done · ${pagesWalked} pages · ${totalInserted} upserted · ${totalAutoSku} new SKUs · ${totalAutoCust} new customers${autoWalkAbort.current ? " · cancelled" : ""}`,
+        kind: totalInserted > 0 ? "success" : "info",
+      });
+      if (totalInserted > 0) await loadRunData();
+    } finally {
+      setAutoWalking(false);
+      autoWalkAbort.current = false;
+    }
+  }
 
   async function ingestSales() {
     setIngesting(true);
@@ -378,9 +431,18 @@ export default function WholesalePlanningWorkbench() {
           <span style={{ color: PAL.textDim, fontSize: 12 }}>to</span>
           <input type="date" value={ingestTo} onChange={(e) => setIngestTo(e.target.value)}
                  style={{ ...S.input, width: 140 }} />
-          <button style={S.btnPrimary} onClick={ingestSales} disabled={ingesting} title="Pulls one page (~100 invoices) per click. Page tracker advances automatically.">
+          <button style={S.btnPrimary} onClick={ingestSales} disabled={ingesting || autoWalking} title="Pulls one page (~100 invoices) per click. Page tracker advances automatically.">
             {ingesting ? "Working…" : `Ingest Xoro sales (page ${salesPageStart})`}
           </button>
+          {!autoWalking ? (
+            <button style={S.btnPrimary} onClick={autoWalkSales} disabled={ingesting} title="Loops the page-by-page ingest until it walks past the date_to. Long backfills can take many minutes.">
+              ▶ Auto-walk to date_to
+            </button>
+          ) : (
+            <button style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }} onClick={() => { autoWalkAbort.current = true; }}>
+              ■ Stop auto-walk
+            </button>
+          )}
           <button style={S.btnSecondary} onClick={ingestItems} disabled={ingesting} title="Pulls Xoro item catalog into ip_item_master. Click repeatedly to chunk through 20k items — page tracker advances automatically.">
             {ingesting ? "Working…" : `Ingest Xoro items (pages ${itemsPageStart}-${itemsPageStart + 4})`}
           </button>
