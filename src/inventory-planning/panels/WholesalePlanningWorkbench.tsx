@@ -162,23 +162,42 @@ export default function WholesalePlanningWorkbench() {
     }
   }
 
+  // Optimistic local update so Buy $ reflects the typed value immediately
+  // — the DB roundtrip is fire-and-forget; a failure toasts and reverts.
   async function saveBuyQty(forecastId: string, qty: number | null) {
-    await wholesaleRepo.patchForecastBuyQty(forecastId, qty);
-    const refreshed = await buildGridRows(selectedRun!);
-    setRows(refreshed);
-    setSelectedRow((prev) => prev ? (refreshed.find((r) => r.forecast_id === prev.forecast_id) ?? prev) : null);
-    setToast({ text: qty != null ? `Buy qty set to ${qty.toLocaleString()}` : "Buy qty cleared", kind: "success" });
+    setRows((prev) => prev.map((r) => r.forecast_id === forecastId ? { ...r, planned_buy_qty: qty } : r));
+    try {
+      await wholesaleRepo.patchForecastBuyQty(forecastId, qty);
+      setToast({ text: qty != null ? `Buy qty set to ${qty.toLocaleString()}` : "Buy qty cleared", kind: "success" });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `Buy qty save failed — ${msg}`, kind: "error" });
+      // Revert from authoritative DB state.
+      const refreshed = await buildGridRows(selectedRun!);
+      setRows(refreshed);
+      setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
+    }
   }
 
   async function saveUnitCost(forecastId: string, cost: number | null) {
-    await wholesaleRepo.patchForecastUnitCostOverride(forecastId, cost);
-    const refreshed = await buildGridRows(selectedRun!);
-    setRows(refreshed);
-    setSelectedRow((prev) => prev ? (refreshed.find((r) => r.forecast_id === prev.forecast_id) ?? prev) : null);
-    setToast({
-      text: cost != null ? `Unit cost set to $${cost.toFixed(2)}` : "Unit cost reset to ATS avg",
-      kind: "success",
-    });
+    setRows((prev) => prev.map((r) => {
+      if (r.forecast_id !== forecastId) return r;
+      const effective = cost ?? r.avg_cost ?? r.ats_avg_cost ?? r.item_cost ?? null;
+      return { ...r, unit_cost_override: cost, unit_cost: effective };
+    }));
+    try {
+      await wholesaleRepo.patchForecastUnitCostOverride(forecastId, cost);
+      setToast({
+        text: cost != null ? `Unit cost set to $${cost.toFixed(2)}` : "Unit cost reset to auto-fill",
+        kind: "success",
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `Unit cost save failed — ${msg}`, kind: "error" });
+      const refreshed = await buildGridRows(selectedRun!);
+      setRows(refreshed);
+      setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
+    }
   }
 
   async function saveOverride(args: { override_qty: number; reason_code: IpOverrideReasonCode; note: string | null }) {
