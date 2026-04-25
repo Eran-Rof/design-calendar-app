@@ -206,7 +206,7 @@ export async function applyOverride(args: {
 // trailing, supply context, and recommendations in memory (dataset is
 // small enough in Phase 1; server-side view is Phase 2+).
 export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridRow[]> {
-  const [items, customers, categories, forecast, recs, sales, inv, pos, receipts] = await Promise.all([
+  const [items, customers, categories, forecast, recs, sales, inv, pos, receipts, atsCostBySku] = await Promise.all([
     wholesaleRepo.listItems(),
     wholesaleRepo.listCustomers(),
     wholesaleRepo.listCategories(),
@@ -216,6 +216,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     wholesaleRepo.listInventorySnapshots(),
     wholesaleRepo.listOpenPos(),
     wholesaleRepo.listReceipts(historySince(run.source_snapshot_date, 3)),
+    wholesaleRepo.listAtsAvgCostBySku(),
   ]);
 
   const itemById = new Map(items.map((i) => [i.id, i]));
@@ -282,6 +283,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       forecast_method: f.forecast_method,
       ly_reference_qty: f.ly_reference_qty ?? null,
       item_cost: item?.unit_cost ?? null,
+      ats_avg_cost: item?.sku_code ? (atsCostBySku.get(item.sku_code) ?? null) : null,
       planned_buy_qty: f.planned_buy_qty ?? null,
       on_hand_qty: supply?.beginning_balance_qty ?? onHand.get(f.sku_id) ?? 0,
       on_so_qty: onSo.get(f.sku_id) ?? 0,
