@@ -5,7 +5,11 @@ export interface XoroSalesIngestResult {
   skipped_no_date: number;
   skipped_zero_qty: number;
   skipped_ecom_store?: number;
+  skipped_outside_window?: number;
+  oldest_invoice_in_batch?: string | null;
+  past_window?: boolean;
   auto_created_skus?: number;
+  auto_created_customers?: number;
   errors: string[];
   path: string;
   date_from: string;

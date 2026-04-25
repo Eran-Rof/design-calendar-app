@@ -195,13 +195,19 @@ export default function WholesalePlanningWorkbench() {
           ?? "see DevTools console for full Xoro response";
         setToast({ text: `Ingest error (path=${r.path}): ${xoroMsg}`, kind: "error" });
       } else {
+        const skipParts = [];
+        if (r.skipped_outside_window) skipParts.push(`${r.skipped_outside_window} outside window`);
+        if (r.skipped_ecom_store) skipParts.push(`${r.skipped_ecom_store} ecom`);
+        if (r.skipped_no_sku) skipParts.push(`${r.skipped_no_sku} no SKU`);
         setToast({
-          text: `Xoro sales (page ${salesPageStart}): ${r.xoro_lines_fetched} fetched · ${r.inserted} upserted${r.auto_created_skus ? ` · ${r.auto_created_skus} new SKUs` : ""}${r.skipped_no_sku > 0 ? ` · ${r.skipped_no_sku} skipped` : ""}`,
-          kind: r.inserted > 0 ? "success" : "info",
+          text: `Xoro sales (page ${salesPageStart}): ${r.xoro_lines_fetched} fetched · ${r.inserted} upserted${r.auto_created_skus ? ` · ${r.auto_created_skus} new SKUs` : ""}${skipParts.length ? ` · ${skipParts.join(", ")}` : ""}${r.past_window ? " · ⚠ past window — stopping" : ""}`,
+          kind: r.inserted > 0 ? "success" : r.past_window ? "info" : "info",
         });
-        // Advance to next page if we got a full page; reset to 1 if we
-        // got an empty page (end of date window).
-        if (r.xoro_lines_fetched >= 100) setSalesPageStart((p) => p + 1);
+        // Reset to page 1 once we paginate past the requested window
+        // (Xoro is newest-first; older invoices won't appear later).
+        // Otherwise advance for the next click.
+        if (r.past_window) setSalesPageStart(1);
+        else if (r.xoro_lines_fetched >= 100) setSalesPageStart((p) => p + 1);
         else setSalesPageStart(1);
         if (r.inserted > 0) await loadRunData();
       }

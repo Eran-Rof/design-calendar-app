@@ -146,6 +146,7 @@ export default async function handler(req, res) {
     skipped_no_date: 0,
     skipped_zero_qty: 0,
     skipped_ecom_store: 0,
+    skipped_outside_window: 0,
     errors: [],
     path,
     date_from: dateFrom,
@@ -162,6 +163,16 @@ export default async function handler(req, res) {
   for (const inv of lines) {
     const header = inv.invoiceHeader ?? inv;
     const itemLines = Array.isArray(inv.invoiceItemLineArr) ? inv.invoiceItemLineArr : [];
+
+    // Client-side date filter — Xoro's invoice/getinvoice endpoint does
+    // not honor date_from/date_to params (TandA's PO sync hit the same
+    // wall and filters client-side too). So we always paginate from
+    // newest, then drop invoices outside the requested window.
+    const headerDate = toIsoDate(header.ShipDate ?? header.TxnDate ?? header.DateOrder ?? header.InvoiceDate);
+    if (headerDate && (headerDate < dateFrom || headerDate > dateTo)) {
+      result.skipped_outside_window++;
+      continue;
+    }
 
     // Track store codes seen so the response can help the planner
     // configure include/exclude lists without guessing.
@@ -318,6 +329,17 @@ export default async function handler(req, res) {
     if (error) result.errors.push(error.message);
     else result.inserted += chunk.length;
   }
+
+  // Detect when we've paginated past the requested window so the UI can
+  // tell the user to stop clicking. True when every invoice in this batch
+  // was older than date_from.
+  const oldestInBatch = lines.reduce((oldest, inv) => {
+    const h = inv.invoiceHeader ?? inv;
+    const d = toIsoDate(h.ShipDate ?? h.TxnDate ?? h.DateOrder ?? h.InvoiceDate);
+    return d && (oldest == null || d < oldest) ? d : oldest;
+  }, null);
+  result.oldest_invoice_in_batch = oldestInBatch;
+  result.past_window = oldestInBatch != null && oldestInBatch < dateFrom;
 
   // Always surface the store-code breakdown so the planner can tune the
   // wholesale include/exclude lists without guessing.
