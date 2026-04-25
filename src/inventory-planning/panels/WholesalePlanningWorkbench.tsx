@@ -144,10 +144,22 @@ export default function WholesalePlanningWorkbench() {
   }
 
   async function handleMethodChange(pref: IpForecastMethodPreference) {
-    if (!selectedRun || selectedRun.forecast_method_preference === pref) return;
-    await wholesaleRepo.updatePlanningRun(selectedRun.id, { forecast_method_preference: pref });
-    setRuns((prev) => prev.map((r) => r.id === selectedRun.id ? { ...r, forecast_method_preference: pref } : r));
-    setToast({ text: `Method set to "${FORECAST_METHOD_LABELS[pref]}" — rebuild forecast to apply`, kind: "info" });
+    if (!selectedRun) {
+      setToast({ text: "Pick a planning run first", kind: "error" });
+      return;
+    }
+    if (selectedRun.forecast_method_preference === pref) {
+      setToast({ text: `Already set to "${FORECAST_METHOD_LABELS[pref]}"`, kind: "info" });
+      return;
+    }
+    try {
+      await wholesaleRepo.updatePlanningRun(selectedRun.id, { forecast_method_preference: pref });
+      setRuns((prev) => prev.map((r) => r.id === selectedRun.id ? { ...r, forecast_method_preference: pref } : r));
+      setToast({ text: `Method set to "${FORECAST_METHOD_LABELS[pref]}" — rebuild forecast to apply`, kind: "info" });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `Method change failed — ${msg}`, kind: "error" });
+    }
   }
 
   async function saveBuyQty(forecastId: string, qty: number | null) {
