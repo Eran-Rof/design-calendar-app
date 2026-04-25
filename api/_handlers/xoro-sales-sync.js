@@ -122,66 +122,79 @@ export default async function handler(req, res) {
   };
 
   const rows = [];
-  // Track unmatched SKUs so the response can show why nothing got upserted.
+  // Track skip reasons so the response can show what's blocking ingest.
   const unmatchedSkuSamples = [];
-  for (const ln of lines) {
-    const skuRaw = ln.Sku ?? ln.ItemNumber ?? ln.Item ?? ln.ItemCode ?? ln.Product ?? ln.ProductCode ?? ln.SkuCode;
-    const sku = canonSku(skuRaw);
-    if (!sku) {
-      if (unmatchedSkuSamples.length < 3) unmatchedSkuSamples.push({ reason: "no SKU field on line", line_keys: Object.keys(ln).slice(0, 30) });
-      result.skipped_no_sku++; continue;
-    }
+  // Each Xoro "line" is actually an invoice envelope with invoiceHeader +
+  // invoiceItemLineArr. Flatten: one sales-history row per item line.
+  for (const inv of lines) {
+    const header = inv.invoiceHeader ?? inv;
+    const itemLines = Array.isArray(inv.invoiceItemLineArr) ? inv.invoiceItemLineArr : [];
 
-    const skuId = skuToId.get(sku);
-    if (!skuId) {
-      if (unmatchedSkuSamples.length < 3) unmatchedSkuSamples.push({ reason: "SKU not in ip_item_master", sku, raw: skuRaw });
-      result.skipped_no_sku++; continue;
-    }
-
-    const txnDate = toIsoDate(ln.InvoiceDate ?? ln.ShipDate ?? ln.TxnDate ?? ln.OrderDate);
-    if (!txnDate) { result.skipped_no_date++; continue; }
-
-    const qty = toNum(ln.QtyInvoiced ?? ln.QtyShipped ?? ln.Qty) ?? 0;
-    if (qty <= 0) { result.skipped_zero_qty++; continue; }
-
+    const txnDate = toIsoDate(header.ShipDate ?? header.TxnDate ?? header.DateOrder ?? header.InvoiceDate);
+    const invoice = String(header.InvoiceNumber ?? "").trim() || null;
+    const order = String(header.SoNumber ?? header.RefNo ?? header.OrderNumber ?? "").trim() || null;
     const customerId =
-      customerCodeToId.get(canonSku(ln.CustomerNumber ?? ln.CustomerCode)) ??
-      customerNameToId.get(canonName(ln.CustomerName)) ??
+      customerCodeToId.get(canonSku(header.CustomerAccountNumber ?? header.CustomerNumber)) ??
+      customerNameToId.get(canonName(header.CustomerName ?? header.CustomerFullName ?? header.BillToCompanyName)) ??
       null;
+    const currency = header.CurrencyCode ?? null;
 
-    const catRaw = ln.CategoryName ?? null;
-    const categoryId =
-      catCodeToId.get(canonSku(catRaw)) ??
-      catNameToId.get(canonName(catRaw)) ??
-      null;
+    if (itemLines.length === 0) {
+      if (unmatchedSkuSamples.length < 3) unmatchedSkuSamples.push({ reason: "invoiceItemLineArr empty", invoice });
+      result.skipped_no_sku++; continue;
+    }
 
-    const invoice = String(ln.InvoiceNumber ?? "").trim() || null;
-    const order = String(ln.OrderNumber ?? "").trim() || null;
-    const id = String(ln.Id ?? "").trim();
-    const source_line_key =
-      invoice && id ? `xoro:inv:${invoice}:${id}` :
-      order && id   ? `xoro:ord:${order}:${id}` :
-                      `xoro:${sku}:${txnDate}:${id || "nil"}`;
+    for (const il of itemLines) {
+      const skuRaw = il.ItemNumber ?? il.Sku ?? il.ItemCode ?? il.Item ?? il.Product ?? il.ProductCode;
+      const sku = canonSku(skuRaw);
+      if (!sku) {
+        if (unmatchedSkuSamples.length < 3) unmatchedSkuSamples.push({ reason: "no SKU on item line", invoice, line_keys: Object.keys(il).slice(0, 30) });
+        result.skipped_no_sku++; continue;
+      }
 
-    rows.push({
-      sku_id: skuId,
-      customer_id: customerId,
-      category_id: categoryId,
-      channel_id: null,
-      order_number: order,
-      invoice_number: invoice,
-      txn_type: "invoice",
-      txn_date: txnDate,
-      qty,
-      unit_price: toNum(ln.UnitPrice),
-      gross_amount: toNum(ln.LineAmount),
-      discount_amount: toNum(ln.DiscountAmount),
-      net_amount: toNum(ln.NetAmount),
-      currency: ln.Currency ?? null,
-      source: "xoro",
-      raw_payload_id: null,
-      source_line_key,
-    });
+      const skuId = skuToId.get(sku);
+      if (!skuId) {
+        if (unmatchedSkuSamples.length < 3) unmatchedSkuSamples.push({ reason: "SKU not in ip_item_master", sku, invoice });
+        result.skipped_no_sku++; continue;
+      }
+
+      if (!txnDate) { result.skipped_no_date++; continue; }
+
+      const qty = toNum(il.Qty ?? il.QtyInvoiced ?? il.QtyShipped) ?? 0;
+      if (qty <= 0) { result.skipped_zero_qty++; continue; }
+
+      const catRaw = il.ItemCategoryName ?? null;
+      const categoryId =
+        catCodeToId.get(canonSku(catRaw)) ??
+        catNameToId.get(canonName(catRaw)) ??
+        null;
+
+      const lineId = String(il.Id ?? il.SoLineId ?? "").trim();
+      const source_line_key =
+        invoice && lineId ? `xoro:inv:${invoice}:${lineId}` :
+        order && lineId   ? `xoro:ord:${order}:${lineId}` :
+                            `xoro:${sku}:${txnDate}:${lineId || "nil"}`;
+
+      rows.push({
+        sku_id: skuId,
+        customer_id: customerId,
+        category_id: categoryId,
+        channel_id: null,
+        order_number: order,
+        invoice_number: invoice,
+        txn_type: "invoice",
+        txn_date: txnDate,
+        qty,
+        unit_price: toNum(il.UnitPrice ?? il.EffectiveUnitPrice),
+        gross_amount: toNum(il.TotalAmount),
+        discount_amount: toNum(il.Discount),
+        net_amount: toNum(il.TotalAmount),
+        currency,
+        source: "xoro",
+        raw_payload_id: null,
+        source_line_key,
+      });
+    }
   }
 
   // ── Upsert in 500-row chunks ───────────────────────────────────────────────
