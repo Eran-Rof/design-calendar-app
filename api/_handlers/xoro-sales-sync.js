@@ -113,6 +113,26 @@ export default async function handler(req, res) {
   const catCodeToId = new Map((categories ?? []).map((c) => [canonSku(c.category_code), c.id]));
   const catNameToId = new Map((categories ?? []).map((c) => [canonName(c.name), c.id]));
 
+  // ── Wholesale-only filter ──────────────────────────────────────────────────
+  // Xoro's invoice list spans every channel (wholesale + DTC + Shopify etc.).
+  // For the wholesale planning grid we only want wholesale invoices.
+  //
+  // Two filter dimensions, configurable via query (overrides env):
+  //   Store codes:
+  //     ?include_stores=PT,WH         — allowlist
+  //     ?exclude_stores=SHOPIFY,AMZ   — denylist
+  //   Customer name substring (case-insensitive, comma-separated):
+  //     ?exclude_customer_contains=shopify,amazon
+  //
+  // Env defaults: XORO_WHOLESALE_INCLUDE_STORES / EXCLUDE_STORES /
+  // EXCLUDE_CUSTOMER_CONTAINS. Customer-name denylist defaults to
+  // "shopify" since that's the ecom-channel indicator on this account.
+  const parseList = (s) => (s ? s.split(",").map((x) => x.trim().toUpperCase()).filter(Boolean) : []);
+  const includeStores = new Set(parseList(url.searchParams.get("include_stores") || process.env.XORO_WHOLESALE_INCLUDE_STORES || ""));
+  const excludeStores = new Set(parseList(url.searchParams.get("exclude_stores") || process.env.XORO_WHOLESALE_EXCLUDE_STORES || ""));
+  const excludeCustomerContains = parseList(url.searchParams.get("exclude_customer_contains") || process.env.XORO_WHOLESALE_EXCLUDE_CUSTOMER_CONTAINS || "shopify");
+  const seenStoreCodes = new Map();
+
   // ── Normalize ──────────────────────────────────────────────────────────────
   const result = {
     xoro_lines_fetched: lines.length,
@@ -120,6 +140,7 @@ export default async function handler(req, res) {
     skipped_no_sku: 0,
     skipped_no_date: 0,
     skipped_zero_qty: 0,
+    skipped_ecom_store: 0,
     errors: [],
     path,
     date_from: dateFrom,
@@ -134,6 +155,30 @@ export default async function handler(req, res) {
   for (const inv of lines) {
     const header = inv.invoiceHeader ?? inv;
     const itemLines = Array.isArray(inv.invoiceItemLineArr) ? inv.invoiceItemLineArr : [];
+
+    // Track store codes seen so the response can help the planner
+    // configure include/exclude lists without guessing.
+    const storeCode = String(header.StoreCode ?? header.SaleStoreCode ?? "").trim().toUpperCase();
+    const storeName = String(header.StoreName ?? header.SaleStoreName ?? "").trim();
+    if (storeCode) {
+      const cur = seenStoreCodes.get(storeCode);
+      seenStoreCodes.set(storeCode, { name: cur?.name ?? storeName, count: (cur?.count ?? 0) + 1 });
+    }
+
+    // Apply store filter — allowlist wins if set, otherwise denylist.
+    if (includeStores.size > 0) {
+      if (!storeCode || !includeStores.has(storeCode)) { result.skipped_ecom_store++; continue; }
+    } else if (excludeStores.size > 0 && storeCode && excludeStores.has(storeCode)) {
+      result.skipped_ecom_store++; continue;
+    }
+
+    // Apply customer-name substring denylist (defaults to "shopify").
+    if (excludeCustomerContains.length > 0) {
+      const customerHaystack = `${header.CustomerName ?? ""} ${header.CustomerFullName ?? ""} ${header.BillToCompanyName ?? ""}`.toUpperCase();
+      if (excludeCustomerContains.some((needle) => customerHaystack.includes(needle))) {
+        result.skipped_ecom_store++; continue;
+      }
+    }
 
     const txnDate = toIsoDate(header.ShipDate ?? header.TxnDate ?? header.DateOrder ?? header.InvoiceDate);
     const invoice = String(header.InvoiceNumber ?? "").trim() || null;
@@ -212,12 +257,25 @@ export default async function handler(req, res) {
     else result.inserted += chunk.length;
   }
 
+  // Always surface the store-code breakdown so the planner can tune the
+  // wholesale include/exclude lists without guessing.
+  result.seen_stores = Object.fromEntries(
+    Array.from(seenStoreCodes.entries())
+      .sort((a, b) => b[1].count - a[1].count)
+      .map(([code, info]) => [code, { name: info.name, invoices: info.count }])
+  );
+  result.store_filter = {
+    include: Array.from(includeStores),
+    exclude: Array.from(excludeStores),
+    exclude_customer_contains: excludeCustomerContains,
+  };
+
   // When nothing matched, surface the diagnostic so the planner can see
   // what Xoro actually returned (field names + sample SKU values) and
   // either add the missing items to ip_item_master or rename SKUs.
   if (rows.length === 0 && lines.length > 0) {
     result.diagnostic = {
-      hint: "All Xoro lines skipped — check that the SKU field is mapped and present in ip_item_master.",
+      hint: "All Xoro lines skipped — check store filter, SKU mapping, and ip_item_master.",
       sample_unmatched: unmatchedSkuSamples,
       first_line_field_names: Object.keys(lines[0]).slice(0, 40),
       first_line_preview: lines[0],
