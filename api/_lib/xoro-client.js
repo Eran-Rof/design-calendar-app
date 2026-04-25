@@ -13,13 +13,15 @@
 //   • fetchXoroAll paginates sequentially with retries — the same
 //     throttling behaviour documented in xoro-proxy.js.
 
-// Xoro provisions per-module API credentials (the sales-history endpoint
-// has its own key+secret pair separate from the default purchase-order
-// creds). Pass `module: "sales"` to use VITE_XORO_SALES_API_KEY/SECRET;
-// falls back to the default key/secret if the sales-specific pair isn't
-// set so the same call works in dev envs without the extra vars.
+// Xoro provisions per-module API credentials (each Private App has its
+// own permission scope). Pass `module: "sales"` or `module: "items"` to
+// use VITE_XORO_<MODULE>_API_KEY/SECRET; falls back to the default
+// key/secret so dev envs without the extra vars still work.
 export function xoroCredsFromEnv(module) {
-  const prefix = module === "sales" ? "VITE_XORO_SALES_" : "VITE_XORO_";
+  const prefix =
+    module === "sales" ? "VITE_XORO_SALES_" :
+    module === "items" ? "VITE_XORO_ITEMS_" :
+    "VITE_XORO_";
   const key = process.env[`${prefix}API_KEY`] || process.env.VITE_XORO_API_KEY;
   const secret = process.env[`${prefix}API_SECRET`] || process.env.VITE_XORO_API_SECRET;
   if (!key || !secret) {

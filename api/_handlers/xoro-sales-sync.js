@@ -69,6 +69,9 @@ export default async function handler(req, res) {
   // (~1k row upserts). Default to 1 page so the function finishes in
   // ~10-20s even when Xoro is slow; use ?page_limit= to backfill more.
   const pageLimit = Math.min(parseInt(url.searchParams.get("page_limit") || "1", 10), 50);
+  // Page tracker so successive UI clicks step through pages 1, 2, 3 …
+  // within the same date window without reprocessing the same invoices.
+  const pageStart = Math.max(parseInt(url.searchParams.get("page_start") || "1", 10), 1);
 
   // ── Fetch from Xoro ────────────────────────────────────────────────────────
   // module: "sales" → uses VITE_XORO_SALES_API_KEY/SECRET (separate creds
@@ -85,6 +88,7 @@ export default async function handler(req, res) {
     },
     maxPages: pageLimit,
     module: "sales",
+    pageStart,
   });
 
   if (!xoroResult.ok) {
@@ -146,6 +150,8 @@ export default async function handler(req, res) {
     path,
     date_from: dateFrom,
     date_to: dateTo,
+    page_start: pageStart,
+    page_limit: pageLimit,
   };
 
   const rows = [];
@@ -184,10 +190,32 @@ export default async function handler(req, res) {
     const txnDate = toIsoDate(header.ShipDate ?? header.TxnDate ?? header.DateOrder ?? header.InvoiceDate);
     const invoice = String(header.InvoiceNumber ?? "").trim() || null;
     const order = String(header.SoNumber ?? header.RefNo ?? header.OrderNumber ?? "").trim() || null;
-    const customerId =
+    let customerId =
       customerCodeToId.get(canonSku(header.CustomerAccountNumber ?? header.CustomerNumber)) ??
       customerNameToId.get(canonName(header.CustomerName ?? header.CustomerFullName ?? header.BillToCompanyName)) ??
       null;
+    // Auto-create missing customers — runForecastPass filters out sales
+    // rows with customer_id=null, so invoices without a master row would
+    // never count toward history. ip_customer_master keys on customer_code
+    // (we use the Xoro CustomerId as the stable code).
+    if (!customerId) {
+      const xCustomerId = header.CustomerId ?? header.CustomerNumber ?? null;
+      const customerCode = xCustomerId != null ? `XORO:${xCustomerId}` : null;
+      const customerName = header.CustomerName ?? header.CustomerFullName ?? header.BillToCompanyName ?? null;
+      if (customerCode && customerName) {
+        const { data: createdCust, error: custErr } = await admin
+          .from("ip_customer_master")
+          .upsert({ customer_code: customerCode, name: customerName }, { onConflict: "customer_code", ignoreDuplicates: false })
+          .select("id, customer_code, name")
+          .single();
+        if (!custErr && createdCust) {
+          customerId = createdCust.id;
+          customerCodeToId.set(canonSku(customerCode), customerId);
+          customerNameToId.set(canonName(customerName), customerId);
+          result.auto_created_customers = (result.auto_created_customers ?? 0) + 1;
+        }
+      }
+    }
     const currency = header.CurrencyCode ?? null;
 
     if (itemLines.length === 0) {
@@ -250,6 +278,15 @@ export default async function handler(req, res) {
         order && lineId   ? `xoro:ord:${order}:${lineId}` :
                             `xoro:${sku}:${txnDate}:${lineId || "nil"}`;
 
+      // gross = pre-discount line total; net = post-discount. Falls back to
+      // gross − discount when Xoro doesn't return an explicit NetAmount.
+      // Matches ip-normalize-pipeline.js so ip-ai-demand reads net_amount
+      // as actual revenue rather than gross overstated by the discount.
+      const grossAmount = toNum(il.LineAmount ?? il.TotalAmount);
+      const discountAmount = toNum(il.DiscountAmount ?? il.Discount);
+      const netAmount = toNum(il.NetAmount)
+        ?? (grossAmount != null ? grossAmount - (discountAmount ?? 0) : null);
+
       rows.push({
         sku_id: skuId,
         customer_id: customerId,
@@ -261,9 +298,9 @@ export default async function handler(req, res) {
         txn_date: txnDate,
         qty,
         unit_price: toNum(il.UnitPrice ?? il.EffectiveUnitPrice),
-        gross_amount: toNum(il.TotalAmount),
-        discount_amount: toNum(il.Discount),
-        net_amount: toNum(il.TotalAmount),
+        gross_amount: grossAmount,
+        discount_amount: discountAmount,
+        net_amount: netAmount,
         currency,
         source: "xoro",
         raw_payload_id: null,

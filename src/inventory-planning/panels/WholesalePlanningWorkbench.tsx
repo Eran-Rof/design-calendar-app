@@ -175,10 +175,17 @@ export default function WholesalePlanningWorkbench() {
     }
   }
 
+  // Page tracker for sales ingest — successive clicks advance through
+  // pages 1, 2, 3 … within the same date window. Resets when the user
+  // changes either date picker.
+  const [salesPageStart, setSalesPageStart] = useState(1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setSalesPageStart(1); }, [ingestFrom, ingestTo]);
+
   async function ingestSales() {
     setIngesting(true);
     try {
-      const r = await ingestXoroSales({ dateFrom: ingestFrom, dateTo: ingestTo });
+      const r = await ingestXoroSales({ dateFrom: ingestFrom, dateTo: ingestTo, pageStart: salesPageStart });
       if (r.error) {
         // Surface the actual Xoro response so the user can see whether it's
         // a path mismatch, auth failure, or empty data window.
@@ -189,9 +196,13 @@ export default function WholesalePlanningWorkbench() {
         setToast({ text: `Ingest error (path=${r.path}): ${xoroMsg}`, kind: "error" });
       } else {
         setToast({
-          text: `Xoro sales: ${r.xoro_lines_fetched} lines fetched · ${r.inserted} rows upserted${r.skipped_no_sku > 0 ? ` · ${r.skipped_no_sku} skipped (no SKU match)` : ""}`,
+          text: `Xoro sales (page ${salesPageStart}): ${r.xoro_lines_fetched} fetched · ${r.inserted} upserted${r.auto_created_skus ? ` · ${r.auto_created_skus} new SKUs` : ""}${r.skipped_no_sku > 0 ? ` · ${r.skipped_no_sku} skipped` : ""}`,
           kind: r.inserted > 0 ? "success" : "info",
         });
+        // Advance to next page if we got a full page; reset to 1 if we
+        // got an empty page (end of date window).
+        if (r.xoro_lines_fetched >= 100) setSalesPageStart((p) => p + 1);
+        else setSalesPageStart(1);
         if (r.inserted > 0) await loadRunData();
       }
     } catch (e) {
@@ -353,8 +364,8 @@ export default function WholesalePlanningWorkbench() {
           <span style={{ color: PAL.textDim, fontSize: 12 }}>to</span>
           <input type="date" value={ingestTo} onChange={(e) => setIngestTo(e.target.value)}
                  style={{ ...S.input, width: 140 }} />
-          <button style={S.btnSecondary} onClick={ingestSales} disabled={ingesting} title="Requires Xoro invoices API endpoint to be provisioned">
-            {ingesting ? "Working…" : "Ingest Xoro sales"}
+          <button style={S.btnPrimary} onClick={ingestSales} disabled={ingesting} title="Pulls one page (~100 invoices) per click. Page tracker advances automatically.">
+            {ingesting ? "Working…" : `Ingest Xoro sales (page ${salesPageStart})`}
           </button>
           <button style={S.btnSecondary} onClick={ingestItems} disabled={ingesting} title="Pulls Xoro item catalog into ip_item_master. Click repeatedly to chunk through 20k items — page tracker advances automatically.">
             {ingesting ? "Working…" : `Ingest Xoro items (pages ${itemsPageStart}-${itemsPageStart + 4})`}

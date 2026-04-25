@@ -53,6 +53,7 @@ export default async function handler(req, res) {
     params: { per_page: "500" },
     maxPages: pageLimit,
     pageStart,
+    module: "items",
   });
   if (!xoroResult.ok) {
     return res.status(200).json({

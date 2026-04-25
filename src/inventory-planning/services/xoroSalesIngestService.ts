@@ -4,10 +4,14 @@ export interface XoroSalesIngestResult {
   skipped_no_sku: number;
   skipped_no_date: number;
   skipped_zero_qty: number;
+  skipped_ecom_store?: number;
+  auto_created_skus?: number;
   errors: string[];
   path: string;
   date_from: string;
   date_to: string;
+  page_start?: number;
+  page_limit?: number;
   error?: string;
   debug?: unknown;
 }
@@ -16,12 +20,14 @@ export async function ingestXoroSales(opts: {
   dateFrom: string;
   dateTo: string;
   path?: string;
+  pageStart?: number;
 }): Promise<XoroSalesIngestResult> {
   const p = new URLSearchParams({
     date_from: opts.dateFrom,
     date_to: opts.dateTo,
   });
   if (opts.path) p.set("path", opts.path);
+  if (opts.pageStart != null) p.set("page_start", String(opts.pageStart));
   const r = await fetch(`/api/xoro-sales-sync?${p.toString()}`);
   if (!r.ok) throw new Error(`Sales ingest API returned ${r.status}`);
   return r.json();
