@@ -206,7 +206,7 @@ export async function applyOverride(args: {
 // trailing, supply context, and recommendations in memory (dataset is
 // small enough in Phase 1; server-side view is Phase 2+).
 export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridRow[]> {
-  const [items, customers, categories, forecast, recs, sales, inv, pos, receipts, atsCostBySku] = await Promise.all([
+  const [items, customers, categories, forecast, recs, sales, inv, pos, receipts, atsCostBySku, avgCostBySku] = await Promise.all([
     wholesaleRepo.listItems(),
     wholesaleRepo.listCustomers(),
     wholesaleRepo.listCategories(),
@@ -217,6 +217,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     wholesaleRepo.listOpenPos(),
     wholesaleRepo.listReceipts(historySince(run.source_snapshot_date, 3)),
     wholesaleRepo.listAtsAvgCostBySku(),
+    wholesaleRepo.listItemAvgCostBySku(),
   ]);
 
   const itemById = new Map(items.map((i) => [i.id, i]));
@@ -284,8 +285,14 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       ly_reference_qty: f.ly_reference_qty ?? null,
       item_cost: item?.unit_cost ?? null,
       ats_avg_cost: item?.sku_code ? (atsCostBySku.get(item.sku_code) ?? null) : null,
+      avg_cost: item?.sku_code ? (avgCostBySku.get(item.sku_code) ?? null) : null,
       unit_cost_override: f.unit_cost_override ?? null,
-      unit_cost: f.unit_cost_override ?? (item?.sku_code ? atsCostBySku.get(item.sku_code) ?? null : null) ?? item?.unit_cost ?? null,
+      unit_cost:
+        f.unit_cost_override
+        ?? (item?.sku_code ? avgCostBySku.get(item.sku_code) ?? null : null)
+        ?? (item?.sku_code ? atsCostBySku.get(item.sku_code) ?? null : null)
+        ?? item?.unit_cost
+        ?? null,
       planned_buy_qty: f.planned_buy_qty ?? null,
       on_hand_qty: supply?.beginning_balance_qty ?? onHand.get(f.sku_id) ?? 0,
       on_so_qty: onSo.get(f.sku_id) ?? 0,

@@ -169,7 +169,11 @@ export interface IpPlanningGridRow {
   ly_reference_qty: number | null;
   item_cost: number | null;
   ats_avg_cost: number | null;
+  // Canonical avg cost from ip_item_avg_cost (Xoro/Excel ingest). Static
+  // in the grid; auto-fills the editable Unit Cost cell.
+  avg_cost: number | null;
   unit_cost_override: number | null;
+  // Effective unit cost used for Buy $: override → avg_cost → ats_avg_cost → item_cost.
   unit_cost: number | null;
   planned_buy_qty: number | null;
   on_hand_qty: number | null;

@@ -10,7 +10,7 @@
 //   page_limit  max pages to fetch (default: 50)
 
 import { createClient } from "@supabase/supabase-js";
-import { fetchXoroAll } from "./_lib/xoro-client.js";
+import { fetchXoroAll } from "../_lib/xoro-client.js";
 
 export const config = { maxDuration: 300 };
 

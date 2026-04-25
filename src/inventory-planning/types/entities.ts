@@ -115,6 +115,18 @@ export interface IpItem {
   attributes: Record<string, unknown>;
 }
 
+// All-SKU avg cost lookup (table: ip_item_avg_cost). Loaded via Xoro API
+// or Excel upload — the planning grid's static "Avg Cost" column reads
+// from this so it covers SKUs not currently in stock (which the ATS
+// snapshot's avgCost misses).
+export interface IpItemAvgCost {
+  sku_code: string;
+  avg_cost: number;
+  source: "xoro" | "excel" | "manual";
+  source_ref: string | null;
+  updated_at: string;
+}
+
 // ── Delivery / planning period ──────────────────────────────────────────────
 // A planning period is an inclusive date window with a granularity label.
 // We don't store these as rows in Phase 0 — they're computed on read — but

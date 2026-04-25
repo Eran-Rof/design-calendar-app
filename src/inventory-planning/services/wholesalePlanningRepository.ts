@@ -10,6 +10,7 @@ import type {
   IpCustomer,
   IpInventorySnapshot,
   IpItem,
+  IpItemAvgCost,
   IpOpenPoRow,
   IpReceiptRow,
   IpSalesWholesaleRow,
@@ -75,10 +76,36 @@ export const wholesaleRepo = {
   async listItems(): Promise<IpItem[]> {
     return sbGet<IpItem>("ip_item_master?select=*&limit=20000");
   },
+  // Canonical avg cost per SKU — fed by Xoro/Excel ingest. Covers SKUs
+  // not currently in ATS inventory. Returns an empty map (not an error)
+  // when the table is empty or the migration hasn't been applied yet.
+  async listItemAvgCostBySku(): Promise<Map<string, number>> {
+    try {
+      const rows = await sbGet<IpItemAvgCost>("ip_item_avg_cost?select=sku_code,avg_cost&limit=50000");
+      const out = new Map<string, number>();
+      for (const r of rows) {
+        if (r.sku_code && typeof r.avg_cost === "number" && r.avg_cost > 0) {
+          out.set(r.sku_code, r.avg_cost);
+        }
+      }
+      return out;
+    } catch {
+      return new Map();
+    }
+  },
+  async upsertItemAvgCost(rows: Array<Omit<IpItemAvgCost, "updated_at">>): Promise<void> {
+    if (rows.length === 0) return;
+    const url = "ip_item_avg_cost?on_conflict=sku_code";
+    const prefer = "return=minimal,resolution=merge-duplicates";
+    for (let i = 0; i < rows.length; i += 500) {
+      await sbPost<IpItemAvgCost>(url, rows.slice(i, i + 500), prefer);
+    }
+  },
   // Read avg unit cost per SKU from the ATS app's persisted Excel snapshot.
   // Stored as a JSON-stringified blob in app_data under key=ats_excel_data;
-  // the relevant slice is `skus[i] = { sku, avgCost }`. Returns an empty map
-  // (not an error) if ATS data hasn't been uploaded yet.
+  // the relevant slice is `skus[i] = { sku, avgCost }`. ATS only carries
+  // costs for in-stock SKUs — used as a fallback when ip_item_avg_cost
+  // has no row.
   async listAtsAvgCostBySku(): Promise<Map<string, number>> {
     const rows = await sbGet<{ value: string }>("app_data?key=eq.ats_excel_data&select=value");
     const raw = rows[0]?.value;

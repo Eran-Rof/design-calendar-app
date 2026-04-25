@@ -137,7 +137,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               <th style={{ ...S.th, textAlign: "right" }}>Receipts</th>
               <th style={{ ...S.th, textAlign: "right" }}>ATS</th>
               <th style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy</th>
-              <th style={{ ...S.th, textAlign: "right", color: PAL.accent2 }} title="Auto-filled from ATS avg cost — editable">Unit Cost</th>
+              <th style={{ ...S.th, textAlign: "right", color: PAL.textMuted }} title="From ip_item_avg_cost (Xoro / Excel ingest)">Avg Cost</th>
+              <th style={{ ...S.th, textAlign: "right", color: PAL.accent2 }} title="Auto-filled from Avg Cost — editable">Unit Cost</th>
               <th style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy $</th>
               <Th label="Short" k="shortage" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
               <Th label="Excess" k="excess" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
@@ -190,6 +191,9 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                     onSave={(qty) => onUpdateBuyQty(r.forecast_id, qty)}
                   />
                 </td>
+                <td style={{ ...S.tdNum, color: r.avg_cost ? PAL.text : PAL.textMuted, fontFamily: "monospace" }}>
+                  {r.avg_cost ? `$${r.avg_cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "–"}
+                </td>
                 <td style={{ ...S.tdNum, padding: "0 4px" }} onClick={(e) => e.stopPropagation()}>
                   <UnitCostCell
                     value={r.unit_cost}
@@ -198,10 +202,12 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   />
                 </td>
                 {(() => {
-                  const hasCost = !!(r.planned_buy_qty && r.unit_cost);
+                  const qty = r.planned_buy_qty;
+                  const cost = r.unit_cost;
+                  const hasCost = qty != null && qty > 0 && cost != null && cost > 0;
                   return (
                     <td style={{ ...S.tdNum, color: hasCost ? PAL.green : PAL.textMuted, fontFamily: "monospace" }}>
-                      {hasCost ? `$${(r.planned_buy_qty! * r.unit_cost!).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "–"}
+                      {hasCost ? `$${(qty * cost).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "–"}
                     </td>
                   );
                 })()}
@@ -219,14 +225,14 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               </tr>
             ))}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={23} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={24} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No forecast rows yet. Click \"Build forecast\" above to populate the grid."
                   : "No rows match your filters."}
               </td></tr>
             )}
             {loading && (
-              <tr><td colSpan={23} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={24} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 Loading…
               </td></tr>
             )}
