@@ -41,13 +41,17 @@ interface Props {
    *  a full-page redirect to `notificationsUrl`. Used for both the
    *  once-per-session auto-open and the toast "View" button. */
   onOpen?: () => void;
+  /** When false, the shell does NOT auto-open notifications on first
+   *  mount — the host app is responsible for handling that itself.
+   *  The new-arrival toast still fires. Defaults to true. */
+  autoOpen?: boolean;
 }
 
 const DEFAULT_SESSION_KEY = "rof_notifications_auto_open_dismissed";
 
 export default function NotificationsShell({
   kind, supabase, userId, notificationsUrl, currentPath, isViewingNotifications,
-  sessionKey = DEFAULT_SESSION_KEY, onOpen,
+  sessionKey = DEFAULT_SESSION_KEY, onOpen, autoOpen = true,
 }: Props) {
   const [toast, setToast] = useState<NotificationRow | null>(null);
   const lastSeenCreatedAt = useRef<string | null>(null);
@@ -94,8 +98,9 @@ export default function NotificationsShell({
       // One-shot-per-session auto-open to notifications when unread > 0.
       // The sessionStorage guard prevents a redirect loop: after the user
       // clicks an item and navigates to its target, the shell on the new
-      // page sees the flag is set and leaves them there.
-      if (!autoOpenedThisMount.current) {
+      // page sees the flag is set and leaves them there. Skipped entirely
+      // when `autoOpen` is false (host app manages this itself).
+      if (autoOpen && !autoOpenedThisMount.current) {
         autoOpenedThisMount.current = true;
         let dismissed = false;
         try { dismissed = sessionStorage.getItem(sessionKey) === "1"; } catch { /* noop */ }
