@@ -98,6 +98,10 @@ export const wholesaleRepo = {
       `ip_planning_runs?select=*&planning_scope=eq.${scope}&order=created_at.desc&limit=200`,
     );
   },
+  async getPlanningRun(id: string): Promise<IpPlanningRun | null> {
+    const rows = await sbGet<IpPlanningRun>(`ip_planning_runs?select=*&id=eq.${id}&limit=1`);
+    return rows[0] ?? null;
+  },
   async createPlanningRun(row: Omit<IpPlanningRun, "id" | "created_at" | "updated_at">): Promise<IpPlanningRun> {
     const [created] = await sbPost<IpPlanningRun>("ip_planning_runs", [row]);
     return created;
@@ -115,15 +119,23 @@ export const wholesaleRepo = {
   },
   async upsertForecast(rows: Array<Omit<IpWholesaleForecast, "id" | "created_at" | "updated_at">>): Promise<void> {
     if (rows.length === 0) return;
-    // Upsert via the uq_ip_wholesale_forecast_grain unique index. Chunk
-    // to keep the payload manageable.
+    const url = "ip_wholesale_forecast?on_conflict=planning_run_id,customer_id,sku_id,period_start";
+    const prefer = "return=minimal,resolution=merge-duplicates";
     for (let i = 0; i < rows.length; i += 500) {
       const chunk = rows.slice(i, i + 500);
-      await sbPost<IpWholesaleForecast>(
-        "ip_wholesale_forecast?on_conflict=planning_run_id,customer_id,sku_id,period_start",
-        chunk,
-        "return=minimal,resolution=merge-duplicates",
-      );
+      try {
+        await sbPost<IpWholesaleForecast>(url, chunk, prefer);
+      } catch (e) {
+        // PGRST204 = column not in schema cache (migration pending). Retry
+        // without ly_reference_qty so builds survive before the ALTER TABLE runs.
+        if (e instanceof Error && e.message.includes("PGRST204") && (e.message.includes("ly_reference_qty") || e.message.includes("planned_buy_qty"))) {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const stripped = chunk.map(({ ly_reference_qty: _a, planned_buy_qty: _b, ...rest }) => rest);
+          await sbPost<IpWholesaleForecast>(url, stripped, prefer);
+        } else {
+          throw e;
+        }
+      }
     }
   },
   async patchForecastOverride(
@@ -131,11 +143,19 @@ export const wholesaleRepo = {
     override_qty: number,
     final_forecast_qty: number,
   ): Promise<IpWholesaleForecast> {
-    const [updated] = await sbPatch<IpWholesaleForecast>(
+    const rows = await sbPatch<IpWholesaleForecast>(
       `ip_wholesale_forecast?id=eq.${forecastId}`,
       { override_qty, final_forecast_qty },
     );
-    return updated;
+    if (!rows[0]) throw new Error(`patchForecastOverride: no row returned for ${forecastId}`);
+    return rows[0];
+  },
+  async patchForecastBuyQty(forecastId: string, planned_buy_qty: number | null): Promise<void> {
+    const rows = await sbPatch<IpWholesaleForecast>(
+      `ip_wholesale_forecast?id=eq.${forecastId}`,
+      { planned_buy_qty },
+    );
+    if (!rows[0]) throw new Error(`patchForecastBuyQty: no row returned for ${forecastId}`);
   },
 
   // ── Future demand requests ───────────────────────────────────────────────

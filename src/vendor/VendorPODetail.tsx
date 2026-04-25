@@ -106,7 +106,7 @@ export default function VendorPODetail() {
           supabaseVendor.from("tanda_pos").select("uuid_id, po_number, data, buyer_name, date_expected_delivery, vendor_id").eq("uuid_id", id).maybeSingle(),
           supabaseVendor.from("po_line_items").select("id, line_index, item_number, description, qty_ordered, qty_received, unit_price, line_total").eq("po_id", id).order("line_index"),
           supabaseVendor.from("shipments").select("id, number, number_type, asn_number, carrier, ship_date, estimated_delivery, current_status, workflow_status").eq("po_id", id).order("created_at", { ascending: false }),
-          null as unknown as Promise<unknown>,
+          Promise.resolve(null),
           vu ? supabaseVendor.from("po_acknowledgments").select("id").eq("vendor_user_id", vu.id).maybeSingle() : Promise.resolve({ data: null, error: null }),
           supabaseVendor.from("po_messages").select("id, sender_type, read_by_vendor").eq("po_id", id),
         ]);

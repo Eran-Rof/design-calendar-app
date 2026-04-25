@@ -55,8 +55,10 @@ export default function EcomPlanningWorkbench() {
   const loadRuns = useCallback(async () => {
     // Accept both 'ecom' and 'all' scopes; the Phase 1 UI filtered to
     // 'wholesale' only, so here we show the ecom-appropriate runs.
-    const rs = await wholesaleRepo.listPlanningRuns("ecom");
-    const allRs = await wholesaleRepo.listPlanningRuns("all");
+    const [rs, allRs] = await Promise.all([
+      wholesaleRepo.listPlanningRuns("ecom"),
+      wholesaleRepo.listPlanningRuns("all"),
+    ]);
     const combined = [...rs, ...allRs];
     const dedup = Array.from(new Map(combined.map((r) => [r.id, r])).values());
     setRuns(dedup);
@@ -96,7 +98,7 @@ export default function EcomPlanningWorkbench() {
   useEffect(() => {
     if (selectedRun) void loadRunData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRunId]);
+  }, [selectedRun]);
 
   const overridesForRow = useMemo(() => {
     if (!selectedRow) return [];
@@ -122,6 +124,14 @@ export default function EcomPlanningWorkbench() {
     const refreshed = await buildEcomGridRows(selectedRun!);
     setSelectedRow(refreshed.find((r) => r.forecast_id === selectedRow.forecast_id) ?? null);
     setToast({ text: "Override saved", kind: "success" });
+  }
+
+  async function saveBuyQty(forecastId: string, qty: number | null) {
+    await ecomRepo.patchForecastBuyQty(forecastId, qty);
+    const refreshed = await buildEcomGridRows(selectedRun!);
+    setRows(refreshed);
+    setSelectedRow((prev) => prev ? (refreshed.find((r) => r.forecast_id === prev.forecast_id) ?? prev) : null);
+    setToast({ text: qty != null ? `Buy qty set to ${qty.toLocaleString()}` : "Buy qty cleared", kind: "success" });
   }
 
   async function toggleFlag(flag: "promo_flag" | "launch_flag" | "markdown_flag", value: boolean) {
@@ -218,7 +228,7 @@ export default function EcomPlanningWorkbench() {
         </div>
 
         {tab === "grid" && (
-          <EcomPlanningGrid rows={rows} loading={loading} onSelectRow={setSelectedRow} />
+          <EcomPlanningGrid rows={rows} loading={loading} onSelectRow={setSelectedRow} onUpdateBuyQty={saveBuyQty} />
         )}
         {tab === "chart" && (
           <EcomForecastChart run={selectedRun} row={selectedRow} />
@@ -232,6 +242,7 @@ export default function EcomPlanningWorkbench() {
           onClose={() => setSelectedRow(null)}
           onSaveOverride={saveOverride}
           onToggleFlag={toggleFlag}
+          onUpdateBuyQty={saveBuyQty}
         />
       )}
 

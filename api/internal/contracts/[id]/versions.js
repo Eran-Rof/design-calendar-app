@@ -65,14 +65,15 @@ export default async function handler(req, res) {
   if (vErr) return res.status(500).json({ error: vErr.message });
 
   // Reset status to 'sent' so the vendor reviews+re-signs
-  await admin.from("contracts").update({
+  const { error: cUpdateErr } = await admin.from("contracts").update({
     status: "sent",
     signed_file_url: null,
     signed_at: null,
     signed_by_vendor: null,
     updated_at: new Date().toISOString(),
-    file_url, // latest version's file is the headline file too
+    file_url,
   }).eq("id", contractId);
+  if (cUpdateErr) return res.status(500).json({ error: "Version created but contract status reset failed", detail: cUpdateErr.message, version_id: ver.id });
 
   // Fire vendor notification
   try {

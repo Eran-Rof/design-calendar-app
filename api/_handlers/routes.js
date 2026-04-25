@@ -225,6 +225,7 @@ import h219 from "./internal/phase-notes/index.js";
 import h220 from "./internal/phase-change-requests/[id]/set-status.js";
 import h221 from "./vendor/attachments/index.js";
 import h222 from "./vendor/attachments/[id].js";
+import h223 from "./internal/ip-ai-demand/index.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -450,6 +451,7 @@ export const ROUTES = [
   { pattern: "/api/xoro-ap-sync", handler: h209 },
   { pattern: "/api/parse-excel", handler: h210 },
   { pattern: "/api/xoro-proxy", handler: h211 },
+  { pattern: "/api/internal/ip-ai-demand", handler: h223 },
 ];
 
 export function compileRoutes(routes) {

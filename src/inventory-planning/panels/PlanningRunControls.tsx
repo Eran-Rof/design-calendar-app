@@ -39,8 +39,10 @@ export default function PlanningRunControls({
     setBuilding(true);
     try {
       const result = await runForecastPass(selected);
+      const lyCount = result.methods.ly_sales ?? 0;
+      const lyNote = lyCount > 0 ? ` · ${lyCount} Same Period LY` : "";
       onToast({
-        text: `Forecast built — ${result.forecast_rows_written} rows, ${result.recommendations_written} recs`,
+        text: `Forecast built — ${result.forecast_rows_written} rows, ${result.recommendations_written} recs${lyNote}`,
         kind: "success",
       });
       await onChange();
@@ -145,6 +147,9 @@ function NewRunModal({ onClose, onCreated, onToast, scope }: {
         source_snapshot_date: snapshot,
         horizon_start: horizonStart,
         horizon_end: horizonEnd,
+        forecast_method_preference: "ly_sales",
+        wholesale_source_run_id: null,
+        ecom_source_run_id: null,
         note: note.trim() || null,
         created_by: null,
       });

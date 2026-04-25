@@ -100,7 +100,7 @@ export default async function handler(req, res) {
       .eq("metadata->>expiry_date", doc.expiry_date)
       .limit(1);
     if (existing && existing.length > 0) {
-      result.notifications_skipped_dedup++;
+      result.expiring_notifications_skipped_dedup++;
       continue;
     }
 

@@ -78,8 +78,8 @@ export default function VendorScorecard() {
   if (loading) return <div style={{ color: "#FFFFFF" }}>Loading scorecard…</div>;
   if (err) return <div style={{ color: TH.primary, padding: "10px 12px", background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6 }}>Error: {err}</div>;
 
-  const cards = periods.slice(0, 4);
-  while (cards.length < 4) cards.push(null as unknown as ScorecardRow);
+  const cards: (ScorecardRow | null)[] = periods.slice(0, 4);
+  while (cards.length < 4) cards.push(null);
 
   return (
     <div>

@@ -141,9 +141,7 @@ export default async function handler(req, res) {
       continue;
     }
 
-    // Count prior attempts via error_message presence heuristic — use
-    // metadata.attempts if schema supports it; fall back to status flips.
-    const attemptsSoFar = row.status === "queued" ? 0 : 1;
+    const attemptsSoFar = (row.metadata?.attempts ?? 0);
 
     const target = { ...row, device_token: sess.device_token, platform: sess.platform };
     const result = sess.platform === "ios" ? await sendApns(target) : await sendFcm(target);
@@ -178,9 +176,10 @@ export default async function handler(req, res) {
       continue;
     }
 
-    // Leave queued for retry on next cron tick; record last error
+    // Leave queued for retry on next cron tick; record last error + bump attempt counter
     await admin.from("push_notifications").update({
       error_message: result.error,
+      metadata: { ...(row.metadata ?? {}), attempts: attemptsSoFar + 1 },
     }).eq("id", row.id);
     retried++;
   }

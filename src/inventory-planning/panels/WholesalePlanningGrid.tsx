@@ -2,25 +2,27 @@
 // so planners can scan a row end-to-end without scrolling. Click a row to
 // open the detail drawer.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { IpPlanningGridRow } from "../types/wholesale";
-import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, formatQty, formatPeriodCode } from "../components/styles";
+import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, formatQty, formatPeriodCode } from "../components/styles";
 
 export interface WholesalePlanningGridProps {
   rows: IpPlanningGridRow[];
   onSelectRow: (row: IpPlanningGridRow) => void;
+  onUpdateBuyQty: (forecastId: string, qty: number | null) => Promise<void>;
   loading?: boolean;
 }
 
 type SortKey =
-  | "customer" | "sku" | "period" | "final" | "shortage" | "excess" | "action";
+  | "customer" | "sku" | "period" | "final" | "shortage" | "excess" | "action" | "method";
 
-export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, loading }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
   const [filterCustomer, setFilterCustomer] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [filterAction, setFilterAction] = useState<string>("all");
   const [filterConfidence, setFilterConfidence] = useState<string>("all");
+  const [filterMethod, setFilterMethod] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("customer");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
@@ -43,19 +45,21 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
       if (filterCategory !== "all" && r.category_id !== filterCategory) return false;
       if (filterAction !== "all" && r.recommended_action !== filterAction) return false;
       if (filterConfidence !== "all" && r.confidence_level !== filterConfidence) return false;
+      if (filterMethod !== "all" && r.forecast_method !== filterMethod) return false;
       if (q && !(r.sku_code.includes(q) || r.customer_name.toUpperCase().includes(q))) return false;
       return true;
     });
     return out.sort((a, b) => cmp(a, b, sortKey, sortDir));
-  }, [rows, search, filterCustomer, filterCategory, filterAction, filterConfidence, sortKey, sortDir]);
+  }, [rows, search, filterCustomer, filterCategory, filterAction, filterConfidence, filterMethod, sortKey, sortDir]);
 
   const totals = useMemo(() => {
-    const t = { final: 0, shortage: 0, excess: 0, actions: {} as Record<string, number> };
+    const t = { final: 0, shortage: 0, excess: 0, actions: {} as Record<string, number>, methods: {} as Record<string, number> };
     for (const r of filtered) {
       t.final += r.final_forecast_qty;
       t.shortage += r.projected_shortage_qty;
       t.excess += r.projected_excess_qty;
       t.actions[r.recommended_action] = (t.actions[r.recommended_action] ?? 0) + 1;
+      t.methods[r.forecast_method] = (t.methods[r.forecast_method] ?? 0) + 1;
     }
     return t;
   }, [filtered]);
@@ -68,14 +72,17 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
   return (
     <div>
       {/* Stats row */}
-      <div style={S.statsRow}>
-        <StatCell label="Rows" value={filtered.length.toLocaleString()} />
+      <div style={{ ...S.statsRow, gridTemplateColumns: "repeat(6,1fr)" }}>
+        <StatCell label="Rows" value={filtered.length > 500 ? `500 / ${filtered.length.toLocaleString()}` : filtered.length.toLocaleString()} accent={filtered.length > 500 ? PAL.yellow : undefined} />
         <StatCell label="Σ Final forecast" value={formatQty(totals.final)} accent={PAL.green} />
         <StatCell label="Σ Shortage" value={formatQty(totals.shortage)} accent={PAL.red} />
         <StatCell label="Σ Excess" value={formatQty(totals.excess)} accent={PAL.yellow} />
         <StatCell label="Buy / Expedite"
                   value={`${totals.actions.buy ?? 0} / ${totals.actions.expedite ?? 0}`}
                   accent={PAL.accent} />
+        <StatCell label="Same Period LY rows"
+                  value={(totals.methods.ly_sales ?? 0).toLocaleString()}
+                  accent={PAL.accent2} />
       </div>
 
       <div style={S.toolbar}>
@@ -97,9 +104,13 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
           <option value="all">All confidence</option>
           {["committed", "probable", "possible", "estimate"].map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
+        <select style={S.select} value={filterMethod} onChange={(e) => setFilterMethod(e.target.value)}>
+          <option value="all">All methods</option>
+          {Object.keys(METHOD_LABEL).map((m) => <option key={m} value={m}>{METHOD_LABEL[m]}</option>)}
+        </select>
         <button style={S.btnSecondary} onClick={() => {
           setSearch(""); setFilterCustomer("all"); setFilterCategory("all");
-          setFilterAction("all"); setFilterConfidence("all");
+          setFilterAction("all"); setFilterConfidence("all"); setFilterMethod("all");
         }}>Clear</button>
       </div>
 
@@ -112,22 +123,27 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
               <Th label="SKU" k="sku" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <Th label="Period" k="period" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th style={{ ...S.th, textAlign: "right" }}>Hist T3</th>
+              <th style={{ ...S.th, textAlign: "right" }}>Hist LY</th>
               <th style={{ ...S.th, textAlign: "right" }}>System</th>
               <th style={{ ...S.th, textAlign: "right" }}>Buyer</th>
               <th style={{ ...S.th, textAlign: "right" }}>Override</th>
               <Th label="Final" k="final" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
               <th style={S.th}>Conf.</th>
+              <Th label="Method" k="method" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th style={{ ...S.th, textAlign: "right" }}>On hand</th>
+              <th style={{ ...S.th, textAlign: "right" }}>On SO</th>
               <th style={{ ...S.th, textAlign: "right" }}>On PO</th>
               <th style={{ ...S.th, textAlign: "right" }}>Receipts</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Available</th>
+              <th style={{ ...S.th, textAlign: "right" }}>ATS</th>
+              <th style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy</th>
+              <th style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy $</th>
               <Th label="Short" k="shortage" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
               <Th label="Excess" k="excess" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
               <Th label="Action" k="action" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r) => (
+            {filtered.slice(0, 500).map((r) => (
               <tr key={r.forecast_id}
                   style={{ cursor: "pointer" }}
                   onClick={() => onSelectRow(r)}>
@@ -136,6 +152,9 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
                 <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>{r.sku_code}</td>
                 <td style={S.td}>{formatPeriodCode(r.period_code)}</td>
                 <td style={S.tdNum}>{formatQty(r.historical_trailing_qty)}</td>
+                <td style={{ ...S.tdNum, color: r.forecast_method === "ly_sales" && r.ly_reference_qty != null ? PAL.accent2 : PAL.textMuted }}>
+                  {r.ly_reference_qty != null ? formatQty(r.ly_reference_qty) : "—"}
+                </td>
                 <td style={S.tdNum}>{formatQty(r.system_forecast_qty)}</td>
                 <td style={{ ...S.tdNum, color: r.buyer_request_qty > 0 ? PAL.accent : PAL.textMuted }}>
                   {formatQty(r.buyer_request_qty)}
@@ -151,10 +170,27 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
                     {r.confidence_level}
                   </span>
                 </td>
+                <td style={S.td}>
+                  <span style={{ ...S.chip, background: (METHOD_COLOR[r.forecast_method] ?? PAL.textMuted) + "22", color: METHOD_COLOR[r.forecast_method] ?? PAL.textMuted }}>
+                    {METHOD_LABEL[r.forecast_method] ?? r.forecast_method}
+                  </span>
+                </td>
                 <td style={S.tdNum}>{formatQty(r.on_hand_qty)}</td>
+                <td style={{ ...S.tdNum, color: r.on_so_qty > 0 ? PAL.yellow : PAL.textMuted }}>
+                  {r.on_so_qty > 0 ? formatQty(r.on_so_qty) : "—"}
+                </td>
                 <td style={S.tdNum}>{formatQty(r.on_po_qty)}</td>
                 <td style={S.tdNum}>{formatQty(r.receipts_due_qty)}</td>
                 <td style={{ ...S.tdNum, color: PAL.text }}>{formatQty(r.available_supply_qty)}</td>
+                <td style={{ ...S.tdNum, padding: "0 4px" }} onClick={(e) => e.stopPropagation()}>
+                  <BuyCell
+                    value={r.planned_buy_qty}
+                    onSave={(qty) => onUpdateBuyQty(r.forecast_id, qty)}
+                  />
+                </td>
+                <td style={{ ...S.tdNum, color: r.planned_buy_qty && r.item_cost ? PAL.green : PAL.textMuted, fontFamily: "monospace" }}>
+                  {r.planned_buy_qty && r.item_cost ? `$${(r.planned_buy_qty * r.item_cost).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "–"}
+                </td>
                 <td style={{ ...S.tdNum, color: r.projected_shortage_qty > 0 ? PAL.red : PAL.textMuted }}>
                   {formatQty(r.projected_shortage_qty)}
                 </td>
@@ -169,14 +205,14 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, loading }: Wh
               </tr>
             ))}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={17} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={22} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No forecast rows yet. Click \"Build forecast\" above to populate the grid."
                   : "No rows match your filters."}
               </td></tr>
             )}
             {loading && (
-              <tr><td colSpan={17} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={22} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 Loading…
               </td></tr>
             )}
@@ -200,6 +236,55 @@ function Th({ label, k, sortKey, sortDir, onSort, numeric }: {
   );
 }
 
+function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number | null) => Promise<void> }) {
+  const [str, setStr] = useState(value != null ? String(value) : "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(false);
+  const focused = useRef(false);
+
+  useEffect(() => {
+    if (!focused.current) setStr(value != null ? String(value) : "");
+  }, [value]);
+
+  async function commit(raw: string) {
+    const trimmed = raw.trim();
+    const qty = trimmed === "" ? null : Number(trimmed);
+    if (qty !== null && (!Number.isFinite(qty) || !Number.isInteger(qty))) { setErr(true); focused.current = false; return; }
+    if (qty === value || (qty == null && value == null)) { focused.current = false; return; }
+    setErr(false);
+    setSaving(true);
+    try { await onSave(qty); } catch { setErr(true); } finally { setSaving(false); focused.current = false; }
+  }
+
+  return (
+    <input
+      data-buycell="1"
+      type="text"
+      inputMode="numeric"
+      value={str}
+      onChange={(e) => { setStr(e.target.value); setErr(false); }}
+      onBlur={(e) => void commit(e.target.value)}
+      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+      placeholder="—"
+      style={{
+        width: 64,
+        background: "transparent",
+        color: err ? PAL.red : str ? PAL.green : PAL.textDim,
+        border: `1px solid ${err ? PAL.red : "transparent"}`,
+        borderRadius: 4,
+        padding: "2px 4px",
+        fontFamily: "monospace",
+        fontSize: 13,
+        textAlign: "right",
+        outline: "none",
+        opacity: saving ? 0.5 : 1,
+      }}
+      onFocus={(e) => { focused.current = true; e.target.style.borderColor = err ? PAL.red : PAL.green; e.target.style.background = PAL.panel; }}
+      onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
+    />
+  );
+}
+
 function StatCell({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
     <div style={S.statCard}>
@@ -219,5 +304,6 @@ function cmp(a: IpPlanningGridRow, b: IpPlanningGridRow, k: SortKey, d: "asc" | 
     case "shortage": return (a.projected_shortage_qty - b.projected_shortage_qty) * sign;
     case "excess":   return (a.projected_excess_qty - b.projected_excess_qty) * sign;
     case "action":   return a.recommended_action.localeCompare(b.recommended_action) * sign;
+    case "method":   return a.forecast_method.localeCompare(b.forecast_method) * sign;
   }
 }

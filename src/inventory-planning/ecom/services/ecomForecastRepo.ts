@@ -74,38 +74,47 @@ export const ecomRepo = {
   },
   async upsertForecast(rows: Array<Omit<IpEcomForecast, "id" | "created_at" | "updated_at">>): Promise<void> {
     if (rows.length === 0) return;
+    const url = "ip_ecom_forecast?on_conflict=planning_run_id,channel_id,sku_id,week_start";
+    const prefer = "return=minimal,resolution=merge-duplicates";
     for (let i = 0; i < rows.length; i += 500) {
       const chunk = rows.slice(i, i + 500);
-      await sbPost<IpEcomForecast>(
-        "ip_ecom_forecast?on_conflict=planning_run_id,channel_id,sku_id,week_start",
-        chunk,
-        "return=minimal,resolution=merge-duplicates",
-      );
+      try {
+        await sbPost<IpEcomForecast>(url, chunk, prefer);
+      } catch (e) {
+        if (e instanceof Error && e.message.includes("PGRST204") && e.message.includes("planned_buy_qty")) {
+          const stripped = chunk.map(({ planned_buy_qty: _a, ...rest }) => rest);
+          await sbPost<IpEcomForecast>(url, stripped, prefer);
+        } else {
+          throw e;
+        }
+      }
     }
+  },
+  async patchForecastBuyQty(forecastId: string, planned_buy_qty: number | null): Promise<IpEcomForecast> {
+    const rows = await sbPatch<IpEcomForecast>(`ip_ecom_forecast?id=eq.${forecastId}`, { planned_buy_qty });
+    if (!rows[0]) throw new Error(`patchForecastBuyQty: no row returned for ${forecastId}`);
+    return rows[0];
   },
   async patchForecastOverride(
     forecastId: string,
     override_qty: number,
     final_forecast_qty: number,
   ): Promise<IpEcomForecast> {
-    const [updated] = await sbPatch<IpEcomForecast>(
-      `ip_ecom_forecast?id=eq.${forecastId}`,
-      {
-        override_qty,
-        final_forecast_qty,
-        // Phase 2 policy: protected tracks final. Phase 3 allocation layer
-        // will write this column independently.
-        protected_ecom_qty: final_forecast_qty,
-      },
-    );
-    return updated;
+    const rows = await sbPatch<IpEcomForecast>(`ip_ecom_forecast?id=eq.${forecastId}`, {
+      override_qty,
+      final_forecast_qty,
+      protected_ecom_qty: final_forecast_qty,
+    });
+    if (!rows[0]) throw new Error(`patchForecastOverride: no row returned for ${forecastId}`);
+    return rows[0];
   },
   async patchForecastFlags(
     forecastId: string,
     flags: { promo_flag?: boolean; launch_flag?: boolean; markdown_flag?: boolean; notes?: string | null },
   ): Promise<IpEcomForecast> {
-    const [updated] = await sbPatch<IpEcomForecast>(`ip_ecom_forecast?id=eq.${forecastId}`, flags);
-    return updated;
+    const rows = await sbPatch<IpEcomForecast>(`ip_ecom_forecast?id=eq.${forecastId}`, flags);
+    if (!rows[0]) throw new Error(`patchForecastFlags: no row returned for ${forecastId}`);
+    return rows[0];
   },
 
   // ── override audit ───────────────────────────────────────────────────────
@@ -115,8 +124,9 @@ export const ecomRepo = {
     );
   },
   async createOverride(row: Omit<IpEcomOverrideEvent, "id" | "created_at">): Promise<IpEcomOverrideEvent> {
-    const [created] = await sbPost<IpEcomOverrideEvent>("ip_ecom_override_events", [row]);
-    return created;
+    const rows = await sbPost<IpEcomOverrideEvent>("ip_ecom_override_events", [row]);
+    if (!rows[0]) throw new Error("createOverride: no row returned");
+    return rows[0];
   },
 };
 

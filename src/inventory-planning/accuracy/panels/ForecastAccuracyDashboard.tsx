@@ -4,17 +4,19 @@
 import { useMemo, useState } from "react";
 import type { IpForecastAccuracy } from "../types/accuracy";
 import { aggregateAccuracy } from "../compute/accuracyMetrics";
-import { S, PAL, formatQty, formatPeriodCode } from "../../components/styles";
+import { S, PAL, METHOD_LABEL, formatQty, formatPeriodCode } from "../../components/styles";
 
 export interface ForecastAccuracyDashboardProps {
   rows: IpForecastAccuracy[];
   skuCodeById: Map<string, string>;
   categoryNameById: Map<string, string>;
+  customerNameById: Map<string, string>;
+  channelNameById: Map<string, string>;
 }
 
-type GroupBy = "sku" | "category" | "customer" | "channel";
+type GroupBy = "sku" | "category" | "customer" | "channel" | "method";
 
-export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryNameById }: ForecastAccuracyDashboardProps) {
+export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryNameById, customerNameById, channelNameById }: ForecastAccuracyDashboardProps) {
   const [lane, setLane] = useState<"all" | "wholesale" | "ecom">("all");
   const [groupBy, setGroupBy] = useState<GroupBy>("sku");
   const [search, setSearch] = useState("");
@@ -32,8 +34,9 @@ export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryN
       switch (groupBy) {
         case "sku": key = r.sku_id; label = skuCodeById.get(r.sku_id) ?? r.sku_id.slice(0, 8); break;
         case "category": key = r.category_id ?? "(none)"; label = categoryNameById.get(r.category_id ?? "") ?? "—"; break;
-        case "customer": key = r.customer_id ?? "(none)"; label = r.customer_id ? r.customer_id.slice(0, 8) : "—"; break;
-        case "channel": key = r.channel_id ?? "(none)"; label = r.channel_id ? r.channel_id.slice(0, 8) : "—"; break;
+        case "customer": key = r.customer_id ?? "(none)"; label = (r.customer_id ? customerNameById.get(r.customer_id) ?? r.customer_id.slice(0, 8) : "—"); break;
+        case "channel": key = r.channel_id ?? "(none)"; label = (r.channel_id ? channelNameById.get(r.channel_id) ?? r.channel_id.slice(0, 8) : "—"); break;
+        case "method": key = r.forecast_method ?? "(none)"; label = r.forecast_method ? (METHOD_LABEL[r.forecast_method] ?? r.forecast_method) : "—"; break;
       }
       const bucket = m.get(key) ?? { label, rows: [] };
       bucket.rows.push(r);
@@ -45,7 +48,7 @@ export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryN
       .filter((x) => !q || x.label.toUpperCase().includes(q))
       .sort((a, b) => b.metrics.wape_final - a.metrics.wape_final)
       .slice(0, 200);
-  }, [filtered, groupBy, search, skuCodeById, categoryNameById]);
+  }, [filtered, groupBy, search, skuCodeById, categoryNameById, customerNameById, channelNameById]);
 
   return (
     <div>
@@ -69,6 +72,7 @@ export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryN
           <option value="category">Group by category</option>
           <option value="customer">Group by customer</option>
           <option value="channel">Group by channel</option>
+          <option value="method">Group by method</option>
         </select>
         <input style={{ ...S.input, width: 220 }} placeholder="Search label"
                value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -81,7 +85,7 @@ export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryN
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th}>{groupBy}</th>
+              <th style={S.th}>{{ sku: "SKU", category: "Category", customer: "Customer", channel: "Channel", method: "Method" }[groupBy]}</th>
               <th style={{ ...S.th, textAlign: "right" }}>Rows</th>
               <th style={{ ...S.th, textAlign: "right" }}>Σ actual</th>
               <th style={{ ...S.th, textAlign: "right" }}>WAPE sys</th>

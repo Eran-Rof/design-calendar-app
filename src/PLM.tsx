@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { SB_URL, SB_KEY, SB_HEADERS, supabaseClient } from "./utils/supabase";
 import { sha256, isHashed } from "./utils/hash";
 import NotificationsShell from "./components/notifications/NotificationsShell";
+import { appConfig } from "./config/env";
 
 // ── Session storage key ───────────────────────────────────────────────────────
 const SESSION_KEY = "plm_user";
@@ -105,6 +106,14 @@ const APPS = [
     icon: "📊",
     color: "#F59E0B",
     path: "/planning/wholesale",
+  },
+  {
+    id: "gs1" as const,
+    name: "GTIN Creation",
+    description: "GS1 prepack GTIN generation, packing list upload, label batch printing and CSV export",
+    icon: "🏷️",
+    color: "#0891B2",
+    path: "/gs1",
   },
 ];
 
@@ -249,7 +258,9 @@ export default function PLMApp() {
         <p style={S.greetingSub}>Select an application to get started</p>
 
         <div style={S.grid}>
-          {APPS.map(app => {
+          {APPS.filter(app =>
+            app.id !== "planning" || appConfig.inventoryPlanningEnabled
+          ).map(app => {
             const perm = getPermission(user, app.id);
             const locked = !perm.access;
 
@@ -268,8 +279,16 @@ export default function PLMApp() {
                 }}>
 
                 <div style={{ fontSize: 40, marginBottom: 12 }}>{app.icon}</div>
-                <h3 style={{ ...S.appName, color: locked ? "#9CA3AF" : "#111827" }}>
+                <h3 style={{ ...S.appName, color: locked ? "#9CA3AF" : "#111827", display: "flex", alignItems: "center", gap: 6 }}>
                   {app.name}
+                  {app.id === "planning" && appConfig.inventoryPlanningBetaOnly && (
+                    <span style={{
+                      fontSize: 10, fontWeight: 600, padding: "1px 6px",
+                      background: "#FEF3C7", color: "#92400E",
+                      border: "1px solid #F59E0B", borderRadius: 4,
+                      letterSpacing: "0.04em",
+                    }}>Beta</span>
+                  )}
                 </h3>
                 <p style={S.appDesc}>{app.description}</p>
 

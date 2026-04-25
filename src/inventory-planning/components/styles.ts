@@ -74,6 +74,26 @@ export const CONFIDENCE_COLOR: Record<string, string> = {
   estimate:  PAL.textMuted,
 };
 
+export const METHOD_COLOR: Record<string, string> = {
+  ly_sales:                    PAL.accent2,
+  trailing_avg_sku:            PAL.accent,
+  weighted_recent_sku:         PAL.green,
+  cadence_sku:                 PAL.yellow,
+  category_fallback:           PAL.textDim,
+  customer_category_fallback:  PAL.textMuted,
+  zero_floor:                  PAL.textMuted,
+};
+
+export const METHOD_LABEL: Record<string, string> = {
+  ly_sales:                    "Same Period LY",
+  trailing_avg_sku:            "Trailing",
+  weighted_recent_sku:         "Weighted",
+  cadence_sku:                 "Cadence",
+  category_fallback:           "Cat. FB",
+  customer_category_fallback:  "Cust. FB",
+  zero_floor:                  "Zero",
+};
+
 export function formatQty(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return "–";
   return Math.round(n).toLocaleString();

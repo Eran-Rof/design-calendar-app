@@ -93,7 +93,7 @@ export default async function handler(req, res) {
           file_mime_type: a.file_mime_type || null,
         }))
       );
-      if (attErr) return res.status(200).json({ ...msg, attachment_error: attErr.message });
+      if (attErr) return res.status(500).json({ error: "Message created but attachment insert failed", attachment_error: attErr.message, message_id: msg.id });
     }
 
     // Notify the vendor primary user. Digest: if 3+ new_message emails

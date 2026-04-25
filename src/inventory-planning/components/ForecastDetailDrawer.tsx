@@ -8,7 +8,7 @@ import type {
   IpPlannerOverride,
   IpPlanningGridRow,
 } from "../types/wholesale";
-import { S, ACTION_COLOR, CONFIDENCE_COLOR, PAL, formatQty, formatDate, formatDateTime, formatPeriodCode } from "./styles";
+import { S, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, PAL, formatQty, formatDate, formatDateTime, formatPeriodCode } from "./styles";
 
 const REASON_CODES: IpOverrideReasonCode[] = [
   "buyer_request",
@@ -28,22 +28,28 @@ export interface ForecastDetailDrawerProps {
     reason_code: IpOverrideReasonCode;
     note: string | null;
   }) => Promise<void>;
+  onUpdateBuyQty: (forecastId: string, qty: number | null) => Promise<void>;
 }
 
 export default function ForecastDetailDrawer({
-  row, overrides, onClose, onSaveOverride,
+  row, overrides, onClose, onSaveOverride, onUpdateBuyQty,
 }: ForecastDetailDrawerProps) {
   const [qtyStr, setQtyStr] = useState("");
   const [reason, setReason] = useState<IpOverrideReasonCode>("planner_estimate");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [buyStr, setBuyStr] = useState("");
+  const [buyingSaving, setBuyingSaving] = useState(false);
+  const [buyError, setBuyError] = useState<string | null>(null);
 
   useEffect(() => {
     setQtyStr(row ? String(row.override_qty ?? 0) : "");
     setReason("planner_estimate");
     setNote("");
     setError(null);
+    setBuyStr(row?.planned_buy_qty != null ? String(row.planned_buy_qty) : "");
+    setBuyError(null);
   }, [row?.forecast_id]);
 
   if (!row) return null;
@@ -64,6 +70,20 @@ export default function ForecastDetailDrawer({
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveBuy() {
+    const trimmed = buyStr.trim();
+    const qty = trimmed === "" ? null : Number(trimmed);
+    if (qty !== null && (!Number.isFinite(qty) || !Number.isInteger(qty))) { setBuyError("Must be a whole number"); return; }
+    setBuyingSaving(true); setBuyError(null);
+    try {
+      await onUpdateBuyQty(row.forecast_id, qty);
+    } catch (e) {
+      setBuyError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBuyingSaving(false);
     }
   }
 
@@ -104,16 +124,24 @@ export default function ForecastDetailDrawer({
           {/* Method + confidence */}
           <SectionLabel>Method</SectionLabel>
           <div style={S.infoCell}>
-            <div style={{ ...S.infoValue, fontFamily: "monospace", fontSize: 13 }}>{row.forecast_method}</div>
-            <div style={{ marginTop: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+              <span style={{ ...S.chip, background: (METHOD_COLOR[row.forecast_method] ?? PAL.textMuted) + "22", color: METHOD_COLOR[row.forecast_method] ?? PAL.textMuted, fontSize: 13 }}>
+                {METHOD_LABEL[row.forecast_method] ?? row.forecast_method}
+              </span>
+              <span style={{ fontSize: 11, color: PAL.textMuted, fontFamily: "monospace" }}>{row.forecast_method}</span>
               <span style={{ ...S.chip, background: CONFIDENCE_COLOR[row.confidence_level] + "33", color: CONFIDENCE_COLOR[row.confidence_level] }}>
                 {row.confidence_level}
               </span>
             </div>
+            {row.history_months_used != null && (
+              <div style={{ fontSize: 12, color: PAL.textMuted }}>
+                Based on {row.history_months_used} month{row.history_months_used !== 1 ? "s" : ""} of history
+              </div>
+            )}
           </div>
 
           {/* Trailing history */}
-          <SectionLabel>History (trailing 3 mo)</SectionLabel>
+          <SectionLabel>History T3 (trailing 3 mo)</SectionLabel>
           <div style={S.infoCell}>
             <div style={S.infoValue}>{formatQty(row.historical_trailing_qty)} units</div>
             <div style={{ fontSize: 12, color: PAL.textMuted }}>
@@ -121,13 +149,30 @@ export default function ForecastDetailDrawer({
             </div>
           </div>
 
+          {/* Same Period LY reference — only shown when method = ly_sales */}
+          {row.forecast_method === "ly_sales" && (
+            <>
+              <SectionLabel>Same Period LY reference</SectionLabel>
+              <div style={S.infoCell}>
+                <div style={S.infoValue}>
+                  {row.ly_reference_qty != null ? `${formatQty(row.ly_reference_qty)} units` : "—"}
+                </div>
+                <div style={{ fontSize: 12, color: PAL.textMuted }}>
+                  Total shipped across the non-zero months in the LY ±1 window (LY−1, LY, LY+1).
+                  System = average of non-zero months in that window.
+                </div>
+              </div>
+            </>
+          )}
+
           {/* Supply */}
           <SectionLabel>Supply context</SectionLabel>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 8 }}>
             <MiniCell label="On hand" value={formatQty(row.on_hand_qty)} />
+            <MiniCell label="On SO" value={row.on_so_qty > 0 ? formatQty(row.on_so_qty) : "—"} accent={row.on_so_qty > 0 ? PAL.yellow : undefined} />
             <MiniCell label="On PO" value={formatQty(row.on_po_qty)} />
             <MiniCell label="Receipts due" value={formatQty(row.receipts_due_qty)} />
-            <MiniCell label="Available" value={formatQty(row.available_supply_qty)} accent={PAL.accent} />
+            <MiniCell label="ATS" value={formatQty(row.available_supply_qty)} accent={PAL.accent} />
           </div>
 
           {/* Recommendation */}
@@ -144,6 +189,34 @@ export default function ForecastDetailDrawer({
               )}
             </div>
             <div style={{ fontSize: 12, color: PAL.textMuted }}>{row.action_reason ?? ""}</div>
+          </div>
+
+          {/* Buy plan */}
+          <SectionLabel>Buy plan</SectionLabel>
+          <div style={S.infoCell}>
+            <div style={{ fontSize: 12, color: PAL.textMuted, marginBottom: 8 }}>
+              Units you intend to buy for this period. Adds to ATS and rolls the surplus forward to the next month.
+              Clear to remove.
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                style={{ ...S.input, width: 120 }}
+                value={buyStr}
+                inputMode="numeric"
+                placeholder="e.g. 60"
+                onChange={(e) => setBuyStr(e.target.value)}
+              />
+              <button style={S.btnPrimary} onClick={saveBuy} disabled={buyingSaving}>
+                {buyingSaving ? "Saving…" : "Save buy qty"}
+              </button>
+              {row.planned_buy_qty != null && (
+                <span style={{ fontFamily: "monospace", fontSize: 13, color: PAL.green }}>
+                  Current: {row.planned_buy_qty.toLocaleString()} units
+                  {row.item_cost != null && ` · $${(row.planned_buy_qty * row.item_cost).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+                </span>
+              )}
+            </div>
+            {buyError && <div style={{ color: PAL.red, marginTop: 6, fontSize: 12 }}>{buyError}</div>}
           </div>
 
           {/* Override form */}
@@ -218,6 +291,7 @@ function SectionLabel({ children }: { children: string }) {
     </div>
   );
 }
+
 
 function MiniCell({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (

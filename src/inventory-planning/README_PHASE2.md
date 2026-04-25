@@ -45,8 +45,8 @@ Xoro is not consulted here.
 - **Seed** `supabase/seed/inventory_planning_phase2_fixtures.sql` — demo
   channel + items covering every forecast branch.
 - **Tests** 26 new vitest cases (periods weekly, factor functions, every
-  forecast branch, stability). Full suite now: **TODO N passing** (run
-  `npm test` to get the current total).
+  forecast branch, stability). Full suite as of Phase 7+: **1172 passing**
+  across 73 test files (`npm test`).
 
 ## Forecast stack (authoritative order)
 

@@ -63,8 +63,8 @@ export async function runReconciliationPass(run: IpPlanningRun): Promise<RunReco
   if (!run.horizon_start || !run.horizon_end) {
     throw new Error("Reconciliation run has no horizon — set horizon_start + horizon_end.");
   }
-  const wholesaleSrc = (run as unknown as { wholesale_source_run_id?: string | null }).wholesale_source_run_id ?? null;
-  const ecomSrc      = (run as unknown as { ecom_source_run_id?: string | null }).ecom_source_run_id ?? null;
+  const wholesaleSrc = run.wholesale_source_run_id ?? null;
+  const ecomSrc      = run.ecom_source_run_id ?? null;
 
   // ── masters + supply + rules + demand ─────────────────────────────
   const [

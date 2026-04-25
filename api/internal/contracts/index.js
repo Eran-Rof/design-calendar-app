@@ -127,7 +127,7 @@ export default async function handler(req, res) {
       uploaded_by_type: "internal",
       uploaded_by_internal_id: uploaded_by_internal_id || internal_owner || "internal",
     });
-    if (vErr) return res.status(200).json({ ...contract, version_error: vErr.message });
+    if (vErr) return res.status(500).json({ error: "Contract created but version insert failed", version_error: vErr.message, contract_id: contract.id });
 
     // Notify vendor primary user
     try {

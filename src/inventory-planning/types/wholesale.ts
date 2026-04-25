@@ -27,12 +27,23 @@ export type IpOverrideReasonCode =
   | "supply_adjustment";
 
 export type IpForecastMethod =
+  | "ly_sales"
   | "trailing_avg_sku"
   | "weighted_recent_sku"
   | "cadence_sku"
   | "category_fallback"
   | "customer_category_fallback"
   | "zero_floor";
+
+// The three planner-visible method choices stored on ip_planning_runs.
+// Maps to the compute layer's preferred first-branch; fallbacks are automatic.
+export type IpForecastMethodPreference = "ly_sales" | "weighted_recent" | "cadence";
+
+export const FORECAST_METHOD_LABELS: Record<IpForecastMethodPreference, string> = {
+  ly_sales:        "Same Period LY",
+  weighted_recent: "Weighted Recent Demand",
+  cadence:         "Reorder Cadence",
+};
 
 export type IpRecommendedAction = "buy" | "hold" | "monitor" | "reduce" | "expedite";
 
@@ -47,6 +58,10 @@ export interface IpPlanningRun {
   source_snapshot_date: IpIsoDate;
   horizon_start: IpIsoDate | null;
   horizon_end: IpIsoDate | null;
+  forecast_method_preference: IpForecastMethodPreference;
+  // Phase 3 cross-scope pointers (non-null on "all"-scope runs).
+  wholesale_source_run_id: string | null;
+  ecom_source_run_id: string | null;
   note: string | null;
   created_by: string | null;
   created_at: IpIsoDateTime;
@@ -69,6 +84,8 @@ export interface IpWholesaleForecast {
   confidence_level: IpConfidenceLevel;
   forecast_method: IpForecastMethod;
   history_months_used: number | null;
+  ly_reference_qty: number | null;
+  planned_buy_qty: number | null;
   notes: string | null;
   created_at: IpIsoDateTime;
   updated_at: IpIsoDateTime;
@@ -148,7 +165,11 @@ export interface IpPlanningGridRow {
   final_forecast_qty: number;
   confidence_level: IpConfidenceLevel;
   forecast_method: IpForecastMethod;
+  ly_reference_qty: number | null;
+  item_cost: number | null;
+  planned_buy_qty: number | null;
   on_hand_qty: number | null;
+  on_so_qty: number;
   on_po_qty: number | null;
   receipts_due_qty: number | null;
   available_supply_qty: number;
@@ -166,6 +187,10 @@ export interface IpPlanningGridRow {
 export interface IpForecastComputeInput {
   planning_run_id: string;
   source_snapshot_date: IpIsoDate;
+  // Planner-selected method preference. The compute layer attempts this
+  // branch first; if data is insufficient it falls through the normal
+  // waterfall and records the method that was actually used.
+  methodPreference?: IpForecastMethodPreference;
   // Inclusive horizon the caller wants filled. The compute iterates every
   // month in [horizon_start, horizon_end].
   horizon_start: IpIsoDate;

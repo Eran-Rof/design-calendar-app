@@ -191,7 +191,7 @@ export async function updateExecutionAction(args: {
   const updated = await executionRepo.updateAction(action.id, patch);
 
   for (const [field, newValue] of Object.entries(patch)) {
-    const oldValue = (action as unknown as Record<string, unknown>)[field];
+    const oldValue = action[field as keyof IpExecutionAction];
     if (oldValue === newValue) continue;
     await executionRepo.insertAudit({
       execution_batch_id: batch.id,
@@ -269,13 +269,14 @@ function actionTypeFilter(r: IpInventoryRecommendation, bt: IpExecutionBatchType
   return actionTypeToBatchType(at) === bt;
 }
 
-async function loadOpenPosBySku(): Promise<Map<string, { po_number: string; vendor_id: string | null }>> {
+async function loadOpenPosBySku(): Promise<Map<string, { po_number: string; vendor_id: string | null; last_seen_at: string }>> {
   const pos = await wholesaleRepo.listOpenPos();
   const m = new Map<string, { po_number: string; vendor_id: string | null }>();
   for (const p of pos) {
-    // Keep the most-recent (latest last_seen_at) per sku.
     const existing = m.get(p.sku_id);
-    if (!existing) m.set(p.sku_id, { po_number: p.po_number, vendor_id: p.vendor_id });
+    if (!existing || p.last_seen_at > existing.last_seen_at) {
+      m.set(p.sku_id, { po_number: p.po_number, vendor_id: p.vendor_id, last_seen_at: p.last_seen_at });
+    }
   }
   return m;
 }

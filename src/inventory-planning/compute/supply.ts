@@ -27,7 +27,8 @@ export interface SupplyInputs {
 }
 
 export interface PeriodSupply {
-  on_hand_qty: number;
+  on_hand_qty: number;       // raw snapshot (always the Xoro value)
+  beginning_balance_qty: number; // rolling start-of-period balance (period 1 = ATS, period 2+ = prior ending)
   on_po_qty: number;
   receipts_due_qty: number;
   available_supply_qty: number;
@@ -46,6 +47,20 @@ export function latestOnHandBySku(snapshots: IpInventorySnapshot[]): Map<string,
   for (const s of snapshots) {
     if (latestDateBySku.get(s.sku_id) !== s.snapshot_date) continue;
     out.set(s.sku_id, (out.get(s.sku_id) ?? 0) + (s.qty_on_hand ?? 0));
+  }
+  return out;
+}
+
+export function committedSoBySku(snapshots: IpInventorySnapshot[]): Map<string, number> {
+  const latestDateBySku = new Map<string, string>();
+  for (const s of snapshots) {
+    const prev = latestDateBySku.get(s.sku_id);
+    if (!prev || s.snapshot_date > prev) latestDateBySku.set(s.sku_id, s.snapshot_date);
+  }
+  const out = new Map<string, number>();
+  for (const s of snapshots) {
+    if (latestDateBySku.get(s.sku_id) !== s.snapshot_date) continue;
+    out.set(s.sku_id, (out.get(s.sku_id) ?? 0) + (s.qty_committed ?? 0));
   }
   return out;
 }
@@ -90,12 +105,73 @@ export function supplyForPeriod(
   periodEnd: IpIsoDate,
 ): PeriodSupply {
   const on_hand_qty = latestOnHandBySku(inputs.inventorySnapshots).get(skuId) ?? 0;
+  const committed_qty = committedSoBySku(inputs.inventorySnapshots).get(skuId) ?? 0;
   const on_po_qty = openPoQtyBySku(inputs.openPos).get(skuId) ?? 0;
   const receipts_due_qty = receiptsDueInPeriod(inputs, skuId, periodStart, periodEnd);
+  const beginning_balance_qty = Math.max(0, on_hand_qty - committed_qty);
   return {
     on_hand_qty,
+    beginning_balance_qty,
     on_po_qty,
     receipts_due_qty,
-    available_supply_qty: on_hand_qty + receipts_due_qty,
+    available_supply_qty: beginning_balance_qty + receipts_due_qty,
   };
+}
+
+// Rolling supply across an ordered horizon. Each period's ending balance
+// (available − total demand) becomes the next period's beginning. This is
+// the correct model for multi-period planning: a PO landing in May is
+// consumed in May and only the surplus rolls forward to June.
+//
+// forecasts must cover all customers for each (sku, period) — demand is
+// summed across customers before the roll so shared SKU supply depletes once.
+//
+// plannedBuyByGrain: optional map of `skuId:periodStart` → planned_buy_qty.
+// When set, the planner's intended buy is added to available supply for that
+// period and the resulting surplus rolls forward to the next month.
+export function buildRollingWholesaleSupply(
+  forecasts: Array<{ sku_id: string; period_start: IpIsoDate; final_forecast_qty: number; planned_buy_qty?: number | null }>,
+  inputs: SupplyInputs,
+  periods: Array<{ period_start: IpIsoDate; period_end: IpIsoDate }>,
+): Map<string, PeriodSupply> {
+  const onHandMap = latestOnHandBySku(inputs.inventorySnapshots);
+  const committedMap = committedSoBySku(inputs.inventorySnapshots);
+  const onPoMap = openPoQtyBySku(inputs.openPos);
+
+  // Total demand per (sku, period) — summed across all customers.
+  const demandByGrain = new Map<string, number>();
+  for (const f of forecasts) {
+    const k = `${f.sku_id}:${f.period_start}`;
+    demandByGrain.set(k, (demandByGrain.get(k) ?? 0) + f.final_forecast_qty);
+  }
+
+  // Planned buy per (sku, period) — summed across customers (buy is SKU-level).
+  const buyByGrain = new Map<string, number>();
+  for (const f of forecasts) {
+    if (f.planned_buy_qty == null) continue;
+    const k = `${f.sku_id}:${f.period_start}`;
+    // Use max across customers — the buy applies to the SKU for that period.
+    buyByGrain.set(k, Math.max(buyByGrain.get(k) ?? 0, f.planned_buy_qty));
+  }
+
+  const skuIds = new Set(forecasts.map((f) => f.sku_id));
+  const out = new Map<string, PeriodSupply>();
+
+  for (const skuId of skuIds) {
+    const on_hand_qty = onHandMap.get(skuId) ?? 0;
+    const on_po_qty = onPoMap.get(skuId) ?? 0;
+    let rolling = Math.max(0, on_hand_qty - (committedMap.get(skuId) ?? 0));
+
+    for (const p of periods) {
+      const receipts_due_qty = receiptsDueInPeriod(inputs, skuId, p.period_start, p.period_end);
+      const planned_buy = buyByGrain.get(`${skuId}:${p.period_start}`) ?? 0;
+      const beginning_balance_qty = rolling;
+      const available_supply_qty = rolling + receipts_due_qty + planned_buy;
+      out.set(`${skuId}:${p.period_start}`, { on_hand_qty, beginning_balance_qty, on_po_qty, receipts_due_qty, available_supply_qty });
+      const demand = demandByGrain.get(`${skuId}:${p.period_start}`) ?? 0;
+      rolling = Math.max(0, available_supply_qty - demand);
+    }
+  }
+
+  return out;
 }

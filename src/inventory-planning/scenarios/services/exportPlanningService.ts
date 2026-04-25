@@ -24,16 +24,16 @@ import { scenarioRepo } from "./scenarioRepo";
 import { logChange } from "./auditLogService";
 
 // Shared styles — keep them modest; this isn't the ATS deck.
-const HDR: any = {
+const HDR: XLSXStyle.CellStyle = {
   font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
   fill: { fgColor: { rgb: "1F497D" }, patternType: "solid" },
   alignment: { horizontal: "center", vertical: "center" },
 };
-const CELL: any = {
+const CELL: XLSXStyle.CellStyle = {
   font: { sz: 10, name: "Calibri" },
   alignment: { horizontal: "left", vertical: "center" },
 };
-const NUM: any = { ...CELL, alignment: { horizontal: "right", vertical: "center" } };
+const NUM: XLSXStyle.CellStyle = { ...CELL, alignment: { horizontal: "right", vertical: "center" } };
 
 function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");

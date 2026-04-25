@@ -10,7 +10,7 @@ import { executionRepo } from "./executionRepo";
 function slug(s: string): string { return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""); }
 function today(): string { return new Date().toISOString().slice(0, 10); }
 
-const HDR: any = {
+const HDR: XLSXStyle.CellStyle = {
   font: { bold: true, color: { rgb: "FFFFFF" } },
   fill: { fgColor: { rgb: "1F497D" }, patternType: "solid" },
   alignment: { horizontal: "center" },

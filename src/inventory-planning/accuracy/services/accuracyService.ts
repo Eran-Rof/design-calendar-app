@@ -61,7 +61,7 @@ function weekCodeOf(mondayIso: IpIsoDate): string {
   const firstDow = (firstThursday.getUTCDay() + 6) % 7;
   firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDow + 3);
   const diff = target.getTime() - firstThursday.getTime();
-  const week = 1 + Math.round(diff / (7 * 86_400_000));
+  const week = 1 + Math.floor(diff / (7 * 86_400_000));
   return `${target.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 function earlierIso(iso: string, months: number): string {
@@ -78,14 +78,12 @@ function countTrailingTrue(xs: boolean[]): number {
   return n;
 }
 function ecomSrcForRun(run: IpPlanningRun): string | null {
-  const r = run as unknown as { ecom_source_run_id?: string | null };
-  if (r.ecom_source_run_id) return r.ecom_source_run_id;
+  if (run.ecom_source_run_id) return run.ecom_source_run_id;
   if (run.planning_scope === "ecom") return run.id;
   return null;
 }
 function wholesaleSrcForRun(run: IpPlanningRun): string | null {
-  const r = run as unknown as { wholesale_source_run_id?: string | null };
-  if (r.wholesale_source_run_id) return r.wholesale_source_run_id;
+  if (run.wholesale_source_run_id) return run.wholesale_source_run_id;
   if (run.planning_scope === "wholesale") return run.id;
   return null;
 }
@@ -214,6 +212,7 @@ export async function calculateForecastAccuracy(run: IpPlanningRun): Promise<{
       period_start: f.period_start,
       period_end: f.period_end,
       period_code: f.period_code,
+      forecast_method: f.forecast_method,
       system_forecast_qty: f.system_forecast_qty,
       final_forecast_qty: f.final_forecast_qty,
       actual_qty: a.actual_qty,
@@ -261,6 +260,7 @@ export async function calculateForecastAccuracy(run: IpPlanningRun): Promise<{
       period_start: f.week_start,
       period_end: f.week_end,
       period_code: f.period_code,
+      forecast_method: f.forecast_method,
       system_forecast_qty: f.system_forecast_qty,
       final_forecast_qty: f.final_forecast_qty,
       actual_qty: a.actual_qty,

@@ -18,18 +18,22 @@ export default async function handler(req, res) {
 
   const form = formidable({ maxFileSize: 20 * 1024 * 1024, multiples: true });
 
-  form.parse(req, async (err, _fields, files) => {
-    if (err) return res.status(400).json({ error: "File parse error" });
+  let files;
+  try {
+    [, files] = await form.parse(req);
+  } catch (err) {
+    return res.status(400).json({ error: "File parse error" });
+  }
 
-    const inv = Array.isArray(files.inventory) ? files.inventory[0] : files.inventory;
-    const pur = Array.isArray(files.purchases)  ? files.purchases[0]  : files.purchases;
-    const ord = Array.isArray(files.orders)     ? files.orders[0]     : files.orders;
+  const inv = Array.isArray(files.inventory) ? files.inventory[0] : files.inventory;
+  const pur = Array.isArray(files.purchases)  ? files.purchases[0]  : files.purchases;
+  const ord = Array.isArray(files.orders)     ? files.orders[0]     : files.orders;
 
-    if (!inv || !ord) {
-      return res.status(400).json({ error: "Inventory and Orders files are required" });
-    }
+  if (!inv || !ord) {
+    return res.status(400).json({ error: "Inventory and Orders files are required" });
+  }
 
-    try {
+  try {
       const invRows = readSheet(inv.filepath);
       const purRows = pur ? readSheet(pur.filepath) : [];
       const ordRows = readSheet(ord.filepath);
@@ -309,10 +313,9 @@ export default async function handler(req, res) {
         warnings,
         columnNames,
       });
-    } catch (e) {
-      res.status(500).json({ error: e.message });
-    }
-  });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

@@ -19,13 +19,14 @@ import type {
 } from "../types/wholesale";
 import {
   buildFinalWholesaleForecast,
+  buildRollingWholesaleSupply,
+  committedSoBySku,
   generateWholesaleRecommendations,
   latestOnHandBySku,
   monthOf,
   monthsBetween,
   openPoQtyBySku,
-  supplyForPeriod,
-  supplyKey,
+  recommendForRow,
 } from "../compute";
 import { wholesaleRepo } from "./wholesalePlanningRepository";
 
@@ -122,6 +123,7 @@ export async function runForecastPass(run: IpPlanningRun): Promise<RunForecastPa
   const computeInput: IpForecastComputeInput = {
     planning_run_id: run.id,
     source_snapshot_date: snapshotDate,
+    methodPreference: run.forecast_method_preference ?? "ly_sales",
     horizon_start: run.horizon_start,
     horizon_end: run.horizon_end,
     pairs,
@@ -138,29 +140,22 @@ export async function runForecastPass(run: IpPlanningRun): Promise<RunForecastPa
   const forecastRows = buildFinalWholesaleForecast(computeInput);
   await wholesaleRepo.upsertForecast(forecastRows);
 
-  // Recompute supply × forecast to land recommendations.
-  const horizon = monthsBetween(run.horizon_start, run.horizon_end);
-  const supplyBySkuPeriod = new Map<string, ReturnType<typeof supplyForPeriod>>();
-  const skuSet = new Set(forecastRows.map((r) => r.sku_id));
-  for (const skuId of skuSet) {
-    for (const p of horizon) {
-      supplyBySkuPeriod.set(supplyKey(skuId, p.period_start), supplyForPeriod(
-        { inventorySnapshots: inv, openPos: pos, receipts },
-        skuId,
-        p.period_start,
-        p.period_end,
-      ));
-    }
-  }
-  const asOf = new Date().toISOString().slice(0, 10);
-
-  // The forecast rows we just wrote need ids to persist recommendations;
-  // re-read them so recommendations carry proper grain back.
+  // Read persisted rows — they carry planned_buy_qty from prior planner saves
+  // (upsert preserves the column). Rolling supply must use these so buy qty
+  // is reflected in recommendations.
   const persisted = await wholesaleRepo.listForecast(run.id);
+  const horizon = monthsBetween(run.horizon_start, run.horizon_end);
+  const supplyBySkuPeriod = buildRollingWholesaleSupply(
+    persisted,
+    { inventorySnapshots: inv, openPos: pos, receipts },
+    horizon,
+  );
+  const asOf = new Date().toISOString().slice(0, 10);
   const recs = generateWholesaleRecommendations(persisted, supplyBySkuPeriod, asOf);
   await wholesaleRepo.replaceRecommendations(run.id, recs);
 
   const methods: Record<IpForecastMethod, number> = {
+    ly_sales: 0,
     trailing_avg_sku: 0,
     weighted_recent_sku: 0,
     cadence_sku: 0,
@@ -232,6 +227,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
   ]));
 
   const onHand = latestOnHandBySku(inv);
+  const onSo = committedSoBySku(inv);
   const onPo = openPoQtyBySku(pos);
 
   // Trailing-3 per (customer, sku).
@@ -241,20 +237,29 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     trailing.set(key, (trailing.get(key) ?? 0) + s.qty);
   }
 
+  const asOf = new Date().toISOString().slice(0, 10);
+
+  // Rolling supply: PO receipts in a period drain the pool for subsequent periods.
+  const rollingSupply = buildRollingWholesaleSupply(
+    forecast,
+    { inventorySnapshots: inv, openPos: pos, receipts },
+    Array.from(new Map(forecast.map((f) => [f.period_start, { period_start: f.period_start, period_end: f.period_end }])).values())
+      .sort((a, b) => a.period_start.localeCompare(b.period_start)),
+  );
+
   const rows: IpPlanningGridRow[] = forecast.map((f) => {
     const item = itemById.get(f.sku_id);
     const customer = customerById.get(f.customer_id);
     const category = f.category_id ? categoryById.get(f.category_id) : null;
     const rec = recByGrain.get(`${f.customer_id}:${f.sku_id}:${f.period_start}`);
-    const supply = supplyForPeriod(
-      { inventorySnapshots: inv, openPos: pos, receipts },
-      f.sku_id,
-      f.period_start,
-      f.period_end,
-    );
-    const avail = rec?.available_supply_qty ?? supply.available_supply_qty;
-    const shortage = rec?.projected_shortage_qty ?? Math.max(0, f.final_forecast_qty - avail);
-    const excess = rec?.projected_excess_qty ?? Math.max(0, avail - f.final_forecast_qty);
+    const supply = rollingSupply.get(`${f.sku_id}:${f.period_start}`);
+    // Always derive avail/shortage/excess from the rolling supply so that
+    // planned_buy_qty and the month-to-month roll are always current.
+    // rec is kept only for action/reason labels (rebuilt on next forecast run).
+    const avail = supply?.available_supply_qty ?? 0;
+    const shortage = Math.max(0, f.final_forecast_qty - avail);
+    const excess = Math.max(0, avail - f.final_forecast_qty);
+    const liveRec = recommendForRow(f, { on_hand_qty: supply?.on_hand_qty ?? 0, on_po_qty: supply?.on_po_qty ?? 0, receipts_due_qty: supply?.receipts_due_qty ?? 0, available_supply_qty: avail }, asOf);
     return {
       forecast_id: f.id,
       planning_run_id: f.planning_run_id,
@@ -275,15 +280,19 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       final_forecast_qty: f.final_forecast_qty,
       confidence_level: f.confidence_level,
       forecast_method: f.forecast_method,
-      on_hand_qty: onHand.get(f.sku_id) ?? 0,
+      ly_reference_qty: f.ly_reference_qty ?? null,
+      item_cost: item?.unit_cost ?? null,
+      planned_buy_qty: f.planned_buy_qty ?? null,
+      on_hand_qty: supply?.beginning_balance_qty ?? onHand.get(f.sku_id) ?? 0,
+      on_so_qty: onSo.get(f.sku_id) ?? 0,
       on_po_qty: onPo.get(f.sku_id) ?? 0,
-      receipts_due_qty: supply.receipts_due_qty,
+      receipts_due_qty: supply?.receipts_due_qty ?? 0,
       available_supply_qty: avail,
       projected_shortage_qty: shortage,
       projected_excess_qty: excess,
-      recommended_action: rec?.recommended_action ?? "hold",
-      recommended_qty: rec?.recommended_qty ?? null,
-      action_reason: rec?.action_reason ?? null,
+      recommended_action: liveRec.recommended_action,
+      recommended_qty: liveRec.recommended_qty,
+      action_reason: liveRec.action_reason,
       notes: f.notes,
     };
   });

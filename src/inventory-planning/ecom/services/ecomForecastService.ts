@@ -10,6 +10,7 @@
 import type { IpIsoDate } from "../../types/entities";
 import type { IpPlanningRun } from "../../types/wholesale";
 import { weekOf, weeksBetween, weekOffset } from "../../compute/periods";
+import { buildRollingWholesaleSupply, latestOnHandBySku } from "../../compute/supply";
 import type {
   IpEcomForecast,
   IpEcomForecastComputeInput,
@@ -163,18 +164,44 @@ export async function applyEcomOverride(args: {
 
 // ── Grid assembly ──────────────────────────────────────────────────────────
 export async function buildEcomGridRows(run: IpPlanningRun): Promise<IpEcomGridRow[]> {
-  const [items, channels, categories, forecast, statuses] = await Promise.all([
+  const receiptsFrom = lookbackSince(run.source_snapshot_date, 13);
+  const [items, channels, categories, forecast, statuses, inv, pos, receipts] = await Promise.all([
     wholesaleRepo.listItems(),
     ecomRepo.listChannels(),
     ecomRepo.listCategories(),
     ecomRepo.listForecast(run.id),
     ecomRepo.listProductChannelStatus(),
+    wholesaleRepo.listInventorySnapshots(),
+    wholesaleRepo.listOpenPos(),
+    wholesaleRepo.listReceipts(receiptsFrom),
   ]);
 
   const itemById = new Map(items.map((i) => [i.id, i]));
   const channelById = new Map(channels.map((c) => [c.id, c]));
   const categoryById = new Map(categories.map((c) => [c.id, c]));
   const statusByGrain = new Map(statuses.map((s) => [`${s.channel_id}:${s.sku_id}`, s]));
+
+  // Ordered unique weekly periods across the horizon.
+  const periods = Array.from(
+    new Map(forecast.map((f) => [f.week_start, { period_start: f.week_start, period_end: f.week_end }])).values(),
+  ).sort((a, b) => a.period_start.localeCompare(b.period_start));
+
+  // Map ecom forecast to the shape buildRollingWholesaleSupply expects
+  // (week_start → period_start). Demand is summed across all channels per SKU.
+  const supplyInputForecast = forecast.map((f) => ({
+    sku_id: f.sku_id,
+    period_start: f.week_start,
+    final_forecast_qty: f.final_forecast_qty,
+    planned_buy_qty: f.planned_buy_qty ?? null,
+  }));
+
+  const rollingSupply = buildRollingWholesaleSupply(
+    supplyInputForecast,
+    { inventorySnapshots: inv, openPos: pos, receipts },
+    periods,
+  );
+
+  const onHand = latestOnHandBySku(inv);
 
   return forecast.map((f) => {
     const item = itemById.get(f.sku_id);
@@ -183,8 +210,11 @@ export async function buildEcomGridRows(run: IpPlanningRun): Promise<IpEcomGridR
     const status = statusByGrain.get(`${f.channel_id}:${f.sku_id}`);
     const t4 = f.trailing_4w_qty ?? 0;
     const t13 = f.trailing_13w_qty ?? 0;
-    // trend_pct = (4-week run rate / 13-week run rate) - 1, only when 13w has data
     const trend_pct = t13 > 0 ? (t4 / 4) / (t13 / 13) - 1 : null;
+    const supply = rollingSupply.get(`${f.sku_id}:${f.week_start}`);
+    const avail = supply?.available_supply_qty ?? 0;
+    const shortage = Math.max(0, f.final_forecast_qty - avail);
+    const excess = Math.max(0, avail - f.final_forecast_qty);
     return {
       forecast_id: f.id,
       planning_run_id: f.planning_run_id,
@@ -211,6 +241,12 @@ export async function buildEcomGridRows(run: IpPlanningRun): Promise<IpEcomGridR
       is_active: status?.is_active ?? true,
       return_rate: f.return_rate ?? null,
       forecast_method: f.forecast_method,
+      item_cost: item?.unit_cost ?? null,
+      planned_buy_qty: f.planned_buy_qty ?? null,
+      on_hand_qty: supply?.beginning_balance_qty ?? onHand.get(f.sku_id) ?? 0,
+      available_supply_qty: avail,
+      projected_shortage_qty: shortage,
+      projected_excess_qty: excess,
       notes: f.notes,
     };
   });

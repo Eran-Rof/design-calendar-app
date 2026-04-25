@@ -49,11 +49,17 @@ function rule(partial: Partial<IpAllocationRule> = {}): IpAllocationRule {
 
 // ── totalAvailableSupply ────────────────────────────────────────────────────
 describe("totalAvailableSupply", () => {
-  it("sums the four buckets, excluding ATS", () => {
+  it("uses ats_qty when set (month 1), beginning_on_hand_qty otherwise (months 2+)", () => {
+    // ats_qty > 0 → use it (net of existing SO commitments)
     expect(totalAvailableSupply(supply({
-      beginning_on_hand_qty: 100, ats_qty: 999,
+      beginning_on_hand_qty: 100, ats_qty: 80,
       inbound_receipts_qty: 20, inbound_po_qty: 30, wip_qty: 10,
-    }))).toBe(160);
+    }))).toBe(140); // 80 + 20 + 30 + 10
+    // ats_qty = 0 → use beginning_on_hand_qty (rolled ending balance)
+    expect(totalAvailableSupply(supply({
+      beginning_on_hand_qty: 100, ats_qty: 0,
+      inbound_receipts_qty: 20, inbound_po_qty: 30, wip_qty: 10,
+    }))).toBe(160); // 100 + 20 + 30 + 10
   });
   it("clamps negatives", () => {
     expect(totalAvailableSupply(supply({ beginning_on_hand_qty: -5, inbound_po_qty: 10 }))).toBe(10);

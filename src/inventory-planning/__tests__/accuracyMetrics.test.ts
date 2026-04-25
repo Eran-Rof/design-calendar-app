@@ -17,6 +17,7 @@ function baseAccuracy(partial: Partial<IpForecastAccuracy>): IpForecastAccuracy 
     sku_id: "sku-a",
     customer_id: null, channel_id: null, category_id: null,
     period_start: "2026-05-01", period_end: "2026-05-31", period_code: "2026-05",
+    forecast_method: null,
     system_forecast_qty: 0, final_forecast_qty: 0, actual_qty: 0,
     abs_error_system: 0, abs_error_final: 0,
     pct_error_system: null, pct_error_final: null,
