@@ -128,7 +128,13 @@ export default function WholesalePlanningWorkbench() {
     try {
       const r = await ingestXoroSales({ dateFrom: ingestFrom, dateTo: ingestTo });
       if (r.error) {
-        setToast({ text: `Ingest error: ${r.error}`, kind: "error" });
+        // Surface the actual Xoro response so the user can see whether it's
+        // a path mismatch, auth failure, or empty data window.
+        console.error("[xoro-sales-sync] ingest failed", { error: r.error, path: r.path, debug: r.debug });
+        const xoroMsg = (r.debug as { Message?: string; error?: string } | null | undefined)?.Message
+          ?? (r.debug as { error?: string } | null | undefined)?.error
+          ?? "see DevTools console for full Xoro response";
+        setToast({ text: `Ingest error (path=${r.path}): ${xoroMsg}`, kind: "error" });
       } else {
         setToast({
           text: `Xoro sales: ${r.xoro_lines_fetched} lines fetched · ${r.inserted} rows upserted${r.skipped_no_sku > 0 ? ` · ${r.skipped_no_sku} skipped (no SKU match)` : ""}`,
