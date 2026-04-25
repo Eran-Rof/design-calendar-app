@@ -46,10 +46,8 @@ DELETE FROM ip_sales_history_ecom
           OR customer_id IN (SELECT id FROM _demo_customer_ids)
           OR source = 'demo'
           OR source_line_key LIKE 'demo:%';
-DELETE FROM ip_inventory_snapshot
-       WHERE sku_id IN (SELECT id FROM _demo_sku_ids)
-          OR source = 'demo'
-          OR source_line_key LIKE 'demo:%';
+-- ip_inventory_snapshot: no source_line_key column, source CHECK excludes
+-- 'demo', and FK is CASCADE — auto-cleans when masters drop.
 DELETE FROM ip_open_purchase_orders
        WHERE sku_id IN (SELECT id FROM _demo_sku_ids)
           OR source = 'demo'
