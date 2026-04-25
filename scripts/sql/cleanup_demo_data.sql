@@ -53,6 +53,11 @@ DELETE FROM ip_item_avg_cost             WHERE sku_code LIKE 'DEMO-%';
 DELETE FROM ip_item_master      WHERE sku_code      LIKE 'DEMO-%';
 DELETE FROM ip_customer_master  WHERE customer_code LIKE 'DEMO-%';
 
+-- 6. Demo categories. Some real items may still reference these via
+-- category_id (FK is ON DELETE SET NULL by design), so a plain DELETE
+-- works — categories nullify on dependents instead of restricting.
+DELETE FROM ip_category_master  WHERE category_code LIKE 'DEMO-%';
+
 DROP TABLE _demo_sku_ids;
 DROP TABLE _demo_customer_ids;
 

@@ -26,8 +26,14 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   const [filterAction, setFilterAction] = useState<string>("all");
   const [filterConfidence, setFilterConfidence] = useState<string>("all");
   const [filterMethod, setFilterMethod] = useState<string>("all");
-  const [sortKey, setSortKey] = useState<SortKey>("customer");
+  const [sortKey, setSortKey] = useState<SortKey>("period");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [filterPeriod, setFilterPeriod] = useState<string>("all");
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(500);
+  // Reset to first page whenever filters/sort change so the user doesn't
+  // wonder why an empty page is showing.
+  useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterPeriod, filterAction, filterConfidence, filterMethod, sortKey, sortDir, pageSize]);
 
   const customers = useMemo(() => {
     const s = new Map<string, string>();
@@ -41,11 +47,18 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     return Array.from(s, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   }, [rows]);
 
+  const periods = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of rows) s.add(r.period_code);
+    return Array.from(s).sort();
+  }, [rows]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toUpperCase();
     const out = rows.filter((r) => {
       if (filterCustomer !== "all" && r.customer_id !== filterCustomer) return false;
       if (filterCategory !== "all" && r.category_id !== filterCategory) return false;
+      if (filterPeriod !== "all" && r.period_code !== filterPeriod) return false;
       if (filterAction !== "all" && r.recommended_action !== filterAction) return false;
       if (filterConfidence !== "all" && r.confidence_level !== filterConfidence) return false;
       if (filterMethod !== "all" && r.forecast_method !== filterMethod) return false;
@@ -53,7 +66,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       return true;
     });
     return out.sort((a, b) => cmp(a, b, sortKey, sortDir));
-  }, [rows, search, filterCustomer, filterCategory, filterAction, filterConfidence, filterMethod, sortKey, sortDir]);
+  }, [rows, search, filterCustomer, filterCategory, filterPeriod, filterAction, filterConfidence, filterMethod, sortKey, sortDir]);
 
   const totals = useMemo(() => {
     const t = { final: 0, shortage: 0, excess: 0, actions: {} as Record<string, number>, methods: {} as Record<string, number> };
@@ -111,8 +124,12 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           <option value="all">All methods</option>
           {Object.keys(METHOD_LABEL).map((m) => <option key={m} value={m}>{METHOD_LABEL[m]}</option>)}
         </select>
+        <select style={S.select} value={filterPeriod} onChange={(e) => setFilterPeriod(e.target.value)}>
+          <option value="all">All periods</option>
+          {periods.map((p) => <option key={p} value={p}>{formatPeriodCode(p)}</option>)}
+        </select>
         <button style={S.btnSecondary} onClick={() => {
-          setSearch(""); setFilterCustomer("all"); setFilterCategory("all");
+          setSearch(""); setFilterCustomer("all"); setFilterCategory("all"); setFilterPeriod("all");
           setFilterAction("all"); setFilterConfidence("all"); setFilterMethod("all");
         }}>Clear</button>
       </div>
@@ -148,7 +165,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
             </tr>
           </thead>
           <tbody>
-            {filtered.slice(0, 500).map((r) => (
+            {filtered.slice(page * pageSize, (page + 1) * pageSize).map((r) => (
               <tr
                 key={r.forecast_id}
                 onContextMenu={(e) => { e.preventDefault(); onSelectRow(r); }}
@@ -252,6 +269,24 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
             )}
           </tbody>
         </table>
+        {filtered.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderTop: `1px solid ${PAL.border}`, color: PAL.textDim, fontSize: 12 }}>
+            <span>
+              {(page * pageSize + 1).toLocaleString()}–{Math.min((page + 1) * pageSize, filtered.length).toLocaleString()} of {filtered.length.toLocaleString()}
+            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span>Rows per page:</span>
+              <select style={S.select} value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}>
+                {[100, 250, 500, 1000, 2000].map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+              <button style={S.btnSecondary} disabled={page === 0} onClick={() => setPage(0)}>« First</button>
+              <button style={S.btnSecondary} disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>‹ Prev</button>
+              <span>Page {page + 1} / {Math.max(1, Math.ceil(filtered.length / pageSize))}</span>
+              <button style={S.btnSecondary} disabled={(page + 1) * pageSize >= filtered.length} onClick={() => setPage((p) => p + 1)}>Next ›</button>
+              <button style={S.btnSecondary} disabled={(page + 1) * pageSize >= filtered.length} onClick={() => setPage(Math.max(0, Math.ceil(filtered.length / pageSize) - 1))}>Last »</button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
