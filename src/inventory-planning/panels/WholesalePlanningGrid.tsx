@@ -11,13 +11,15 @@ export interface WholesalePlanningGridProps {
   onSelectRow: (row: IpPlanningGridRow) => void;
   onUpdateBuyQty: (forecastId: string, qty: number | null) => Promise<void>;
   onUpdateUnitCost: (forecastId: string, cost: number | null) => Promise<void>;
+  onUpdateBuyerRequest: (forecastId: string, qty: number) => Promise<void>;
+  onUpdateOverride: (forecastId: string, qty: number) => Promise<void>;
   loading?: boolean;
 }
 
 type SortKey =
   | "customer" | "sku" | "period" | "final" | "shortage" | "excess" | "action" | "method";
 
-export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateUnitCost, loading }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, loading }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
   const [filterCustomer, setFilterCustomer] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
@@ -147,7 +149,11 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           </thead>
           <tbody>
             {filtered.slice(0, 500).map((r) => (
-              <tr key={r.forecast_id}>
+              <tr
+                key={r.forecast_id}
+                onContextMenu={(e) => { e.preventDefault(); onSelectRow(r); }}
+                title="Right-click for more info"
+              >
                 <td style={S.td}>{r.customer_name}</td>
                 <td style={{ ...S.td, color: PAL.textDim }}>{r.category_name ?? "–"}</td>
                 <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>{r.sku_code}</td>
@@ -157,19 +163,21 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   {r.ly_reference_qty != null ? formatQty(r.ly_reference_qty) : "—"}
                 </td>
                 <td style={S.tdNum}>{formatQty(r.system_forecast_qty)}</td>
-                <td
-                  style={{ ...S.tdNum, color: r.buyer_request_qty > 0 ? PAL.accent : PAL.textMuted, cursor: "pointer" }}
-                  title="Open detail drawer"
-                  onClick={() => onSelectRow(r)}
-                >
-                  {formatQty(r.buyer_request_qty)}
+                <td style={{ ...S.tdNum, padding: "0 4px" }}>
+                  <IntCell
+                    value={r.buyer_request_qty}
+                    accent={PAL.accent}
+                    allowNegative={false}
+                    onSave={(qty) => onUpdateBuyerRequest(r.forecast_id, qty)}
+                  />
                 </td>
-                <td
-                  style={{ ...S.tdNum, color: r.override_qty !== 0 ? PAL.yellow : PAL.textMuted, cursor: "pointer" }}
-                  title="Open detail drawer"
-                  onClick={() => onSelectRow(r)}
-                >
-                  {r.override_qty > 0 ? "+" : ""}{formatQty(r.override_qty)}
+                <td style={{ ...S.tdNum, padding: "0 4px" }}>
+                  <IntCell
+                    value={r.override_qty}
+                    accent={PAL.yellow}
+                    allowNegative={true}
+                    onSave={(qty) => onUpdateOverride(r.forecast_id, qty)}
+                  />
                 </td>
                 <td style={{ ...S.tdNum, color: PAL.green, fontWeight: 700 }}>
                   {formatQty(r.final_forecast_qty)}
@@ -306,6 +314,65 @@ function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number
         opacity: saving ? 0.5 : 1,
       }}
       onFocus={(e) => { focused.current = true; e.target.style.borderColor = err ? PAL.red : PAL.green; e.target.style.background = PAL.panel; }}
+      onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
+    />
+  );
+}
+
+// Reusable integer cell for inline qty edits (Buyer / Override). Blank
+// or non-numeric input commits 0. Negative values allowed when the column
+// permits it (Override can subtract).
+function IntCell({ value, accent, allowNegative, onSave }: {
+  value: number;
+  accent: string;
+  allowNegative: boolean;
+  onSave: (qty: number) => Promise<void>;
+}) {
+  const [str, setStr] = useState(value === 0 ? "" : (allowNegative && value > 0 ? "+" : "") + String(value));
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(false);
+  const focused = useRef(false);
+
+  useEffect(() => {
+    if (!focused.current) setStr(value === 0 ? "" : (allowNegative && value > 0 ? "+" : "") + String(value));
+  }, [value, allowNegative]);
+
+  async function commit(raw: string) {
+    const trimmed = raw.trim().replace(/^\+/, "");
+    const qty = trimmed === "" ? 0 : Number(trimmed);
+    if (!Number.isFinite(qty) || !Number.isInteger(qty) || (!allowNegative && qty < 0)) {
+      setErr(true); focused.current = false; return;
+    }
+    if (qty === value) { focused.current = false; return; }
+    setErr(false);
+    setSaving(true);
+    try { await onSave(qty); } catch { setErr(true); } finally { setSaving(false); focused.current = false; }
+  }
+
+  const color = err ? PAL.red : value !== 0 ? accent : PAL.textMuted;
+  return (
+    <input
+      type="text"
+      inputMode={allowNegative ? "text" : "numeric"}
+      value={str}
+      onChange={(e) => { setStr(e.target.value); setErr(false); }}
+      onBlur={(e) => void commit(e.target.value)}
+      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+      placeholder="—"
+      style={{
+        width: 64,
+        background: "transparent",
+        color,
+        border: `1px solid ${err ? PAL.red : "transparent"}`,
+        borderRadius: 4,
+        padding: "2px 4px",
+        fontFamily: "monospace",
+        fontSize: 13,
+        textAlign: "right",
+        outline: "none",
+        opacity: saving ? 0.5 : 1,
+      }}
+      onFocus={(e) => { focused.current = true; e.target.style.borderColor = err ? PAL.red : accent; e.target.style.background = PAL.panel; }}
       onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
     />
   );

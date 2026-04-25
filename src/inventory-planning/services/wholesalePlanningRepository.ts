@@ -200,6 +200,17 @@ export const wholesaleRepo = {
     if (!rows[0]) throw new Error(`patchForecastOverride: no row returned for ${forecastId}`);
     return rows[0];
   },
+  async patchForecastBuyerRequest(
+    forecastId: string,
+    buyer_request_qty: number,
+    final_forecast_qty: number,
+  ): Promise<void> {
+    const rows = await sbPatch<IpWholesaleForecast>(
+      `ip_wholesale_forecast?id=eq.${forecastId}`,
+      { buyer_request_qty, final_forecast_qty },
+    );
+    if (!rows[0]) throw new Error(`patchForecastBuyerRequest: no row returned for ${forecastId}`);
+  },
   async patchForecastBuyQty(forecastId: string, planned_buy_qty: number | null): Promise<void> {
     const rows = await sbPatch<IpWholesaleForecast>(
       `ip_wholesale_forecast?id=eq.${forecastId}`,
