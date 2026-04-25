@@ -58,11 +58,16 @@ export default async function handler(req, res) {
   const url = new URL(req.url, `https://${req.headers.host}`);
 
   const today = new Date().toISOString().slice(0, 10);
-  const defaultFrom = new Date(Date.now() - 395 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  // Default to 30 days to keep a single invocation under the function
+  // duration cap. Use the date pickers in the UI to widen, or call this
+  // route in chunks (e.g. month at a time).
+  const defaultFrom = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const dateFrom = url.searchParams.get("date_from") || defaultFrom;
   const dateTo = url.searchParams.get("date_to") || today;
   const path = url.searchParams.get("path") || SALES_PATH;
-  const pageLimit = Math.min(parseInt(url.searchParams.get("page_limit") || "50", 10), 200);
+  // Each page = 100 invoices ≈ ~1k line items. Cap default at 5 pages so
+  // a single ingest finishes within ~60s; bump via ?page_limit= for backfills.
+  const pageLimit = Math.min(parseInt(url.searchParams.get("page_limit") || "5", 10), 50);
 
   // ── Fetch from Xoro ────────────────────────────────────────────────────────
   // module: "sales" → uses VITE_XORO_SALES_API_KEY/SECRET (separate creds
