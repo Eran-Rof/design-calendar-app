@@ -122,12 +122,21 @@ export default async function handler(req, res) {
   };
 
   const rows = [];
+  // Track unmatched SKUs so the response can show why nothing got upserted.
+  const unmatchedSkuSamples = [];
   for (const ln of lines) {
-    const sku = canonSku(ln.Sku ?? ln.ItemNumber);
-    if (!sku) { result.skipped_no_sku++; continue; }
+    const skuRaw = ln.Sku ?? ln.ItemNumber ?? ln.Item ?? ln.ItemCode ?? ln.Product ?? ln.ProductCode ?? ln.SkuCode;
+    const sku = canonSku(skuRaw);
+    if (!sku) {
+      if (unmatchedSkuSamples.length < 3) unmatchedSkuSamples.push({ reason: "no SKU field on line", line_keys: Object.keys(ln).slice(0, 30) });
+      result.skipped_no_sku++; continue;
+    }
 
     const skuId = skuToId.get(sku);
-    if (!skuId) { result.skipped_no_sku++; continue; }
+    if (!skuId) {
+      if (unmatchedSkuSamples.length < 3) unmatchedSkuSamples.push({ reason: "SKU not in ip_item_master", sku, raw: skuRaw });
+      result.skipped_no_sku++; continue;
+    }
 
     const txnDate = toIsoDate(ln.InvoiceDate ?? ln.ShipDate ?? ln.TxnDate ?? ln.OrderDate);
     if (!txnDate) { result.skipped_no_date++; continue; }
@@ -183,6 +192,18 @@ export default async function handler(req, res) {
       .upsert(chunk, { onConflict: "source,source_line_key", ignoreDuplicates: false });
     if (error) result.errors.push(error.message);
     else result.inserted += chunk.length;
+  }
+
+  // When nothing matched, surface the diagnostic so the planner can see
+  // what Xoro actually returned (field names + sample SKU values) and
+  // either add the missing items to ip_item_master or rename SKUs.
+  if (rows.length === 0 && lines.length > 0) {
+    result.diagnostic = {
+      hint: "All Xoro lines skipped — check that the SKU field is mapped and present in ip_item_master.",
+      sample_unmatched: unmatchedSkuSamples,
+      first_line_field_names: Object.keys(lines[0]).slice(0, 40),
+      first_line_preview: lines[0],
+    };
   }
 
   return res.status(200).json(result);
