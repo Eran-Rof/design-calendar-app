@@ -171,27 +171,45 @@ export default function WholesalePlanningWorkbench() {
       let start = 0;
       let totalInserted = 0;
       let totalNew = 0;
+      let totalSkipped = 0;
       let totalAts = 0;
+      let chunks = 0;
       while (true) {
-        const r = await syncAtsSupply({ start, limit: 2000 });
-        if ((r as { error?: string }).error) {
-          setToast({ text: `ATS sync error: ${(r as { error: string }).error}`, kind: "error" });
+        const r = (await syncAtsSupply({ start, limit: 2000 })) as {
+          error?: string;
+          inserted?: number;
+          auto_created_skus?: number;
+          ats_skus_total?: number;
+          ats_skus_in_batch?: number;
+          skipped_zero_state?: number;
+          skipped_no_sku?: number;
+          next_start?: number | null;
+          done?: boolean;
+        };
+        console.log("[ats-supply-sync] chunk response", { start, response: r });
+        if (r.error) {
+          setToast({ text: `ATS sync error: ${r.error}`, kind: "error" });
           break;
         }
-        totalInserted += (r as { inserted?: number }).inserted ?? 0;
-        totalNew += (r as { auto_created_skus?: number }).auto_created_skus ?? 0;
-        totalAts = (r as { ats_skus_total?: number }).ats_skus_total ?? totalAts;
+        chunks++;
+        totalInserted += r.inserted ?? 0;
+        totalNew += r.auto_created_skus ?? 0;
+        totalSkipped += (r.skipped_zero_state ?? 0) + (r.skipped_no_sku ?? 0);
+        totalAts = r.ats_skus_total ?? totalAts;
+        const processed = Math.min(start + (r.ats_skus_in_batch ?? 0), totalAts);
         setToast({
-          text: `ATS supply: ${start + ((r as { ats_skus_in_batch?: number }).ats_skus_in_batch ?? 0)}/${totalAts} processed · running totals ${totalInserted} upserted, ${totalNew} new SKUs`,
+          text: `ATS supply: chunk ${chunks} · ${processed.toLocaleString()}/${totalAts.toLocaleString()} SKUs · ${totalInserted} upserted · ${totalNew} new SKUs`,
           kind: "info",
         });
-        const next = (r as { next_start?: number | null }).next_start;
-        if (next == null) {
-          setToast({ text: `ATS supply done · ${totalInserted} upserted · ${totalNew} new SKUs · ${totalAts} SKUs scanned`, kind: totalInserted > 0 ? "success" : "info" });
+        if (r.done || r.next_start == null) {
+          setToast({
+            text: `✓ ATS supply DONE — ${totalInserted.toLocaleString()} upserted · ${totalNew} new SKUs · ${totalSkipped.toLocaleString()} skipped (zero state) · ${totalAts.toLocaleString()} total scanned in ${chunks} chunk(s)`,
+            kind: "success",
+          });
           if (totalInserted > 0) await loadRunData();
           break;
         }
-        start = next;
+        start = r.next_start;
       }
     } catch (e) {
       setToast({ text: `${kind} sync failed — ${e instanceof Error ? e.message : String(e)}`, kind: "error" });
