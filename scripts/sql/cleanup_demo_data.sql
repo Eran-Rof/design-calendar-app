@@ -32,12 +32,31 @@ DELETE FROM ip_ecom_forecast             WHERE sku_id IN (SELECT id FROM _demo_s
 DELETE FROM ip_ecom_override_events      WHERE sku_id IN (SELECT id FROM _demo_sku_ids);
 DELETE FROM ip_scenario_assumptions      WHERE sku_id IN (SELECT id FROM _demo_sku_ids);
 
--- 3. Fact rows.
-DELETE FROM ip_sales_history_wholesale   WHERE sku_id IN (SELECT id FROM _demo_sku_ids) OR customer_id IN (SELECT id FROM _demo_customer_ids);
-DELETE FROM ip_sales_history_ecom        WHERE sku_id IN (SELECT id FROM _demo_sku_ids) OR customer_id IN (SELECT id FROM _demo_customer_ids);
-DELETE FROM ip_inventory_snapshot        WHERE sku_id IN (SELECT id FROM _demo_sku_ids);
-DELETE FROM ip_open_purchase_orders      WHERE sku_id IN (SELECT id FROM _demo_sku_ids);
-DELETE FROM ip_receipts_history          WHERE sku_id IN (SELECT id FROM _demo_sku_ids);
+-- 3. Fact rows. Match by source/source_line_key too — seeded rows
+-- carry source='demo' or source_line_key LIKE 'demo:%' even if their
+-- sku/customer FKs got remapped to real masters by later operations.
+DELETE FROM ip_sales_history_wholesale
+       WHERE sku_id IN (SELECT id FROM _demo_sku_ids)
+          OR customer_id IN (SELECT id FROM _demo_customer_ids)
+          OR source = 'demo'
+          OR source_line_key LIKE 'demo:%';
+DELETE FROM ip_sales_history_ecom
+       WHERE sku_id IN (SELECT id FROM _demo_sku_ids)
+          OR customer_id IN (SELECT id FROM _demo_customer_ids)
+          OR source = 'demo'
+          OR source_line_key LIKE 'demo:%';
+DELETE FROM ip_inventory_snapshot
+       WHERE sku_id IN (SELECT id FROM _demo_sku_ids)
+          OR source = 'demo'
+          OR source_line_key LIKE 'demo:%';
+DELETE FROM ip_open_purchase_orders
+       WHERE sku_id IN (SELECT id FROM _demo_sku_ids)
+          OR source = 'demo'
+          OR source_line_key LIKE 'demo:%';
+DELETE FROM ip_receipts_history
+       WHERE sku_id IN (SELECT id FROM _demo_sku_ids)
+          OR source = 'demo'
+          OR source_line_key LIKE 'demo:%';
 
 -- 4. Misc dependents.
 DELETE FROM ip_allocation_rules          WHERE sku_id IN (SELECT id FROM _demo_sku_ids);
