@@ -75,6 +75,28 @@ export const wholesaleRepo = {
   async listItems(): Promise<IpItem[]> {
     return sbGet<IpItem>("ip_item_master?select=*&limit=20000");
   },
+  // Read avg unit cost per SKU from the ATS app's persisted Excel snapshot.
+  // Stored as a JSON-stringified blob in app_data under key=ats_excel_data;
+  // the relevant slice is `skus[i] = { sku, avgCost }`. Returns an empty map
+  // (not an error) if ATS data hasn't been uploaded yet.
+  async listAtsAvgCostBySku(): Promise<Map<string, number>> {
+    const rows = await sbGet<{ value: string }>("app_data?key=eq.ats_excel_data&select=value");
+    const raw = rows[0]?.value;
+    if (!raw) return new Map();
+    let parsed: unknown;
+    try {
+      parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    } catch {
+      return new Map();
+    }
+    const skus = (parsed as { skus?: Array<{ sku?: string; avgCost?: number }> } | null)?.skus;
+    if (!Array.isArray(skus)) return new Map();
+    const out = new Map<string, number>();
+    for (const s of skus) {
+      if (s?.sku && typeof s.avgCost === "number" && s.avgCost > 0) out.set(s.sku, s.avgCost);
+    }
+    return out;
+  },
   async listWholesaleSales(sinceIso: string): Promise<IpSalesWholesaleRow[]> {
     return sbGet<IpSalesWholesaleRow>(
       `ip_sales_history_wholesale?select=*&txn_date=gte.${sinceIso}&limit=200000`,
