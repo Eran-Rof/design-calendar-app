@@ -49,7 +49,11 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
     return Array.from(m, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   }, [rows]);
 
-  const filtered = useMemo(() => {
+  // Two-step memo: first the full filtered+sorted set, then the page-cap
+  // slice. The pre-cap count drives the "showing first N of M" indicator —
+  // collapsing them lost that signal because filtered.length was already
+  // capped at PAGE_SIZE.
+  const filteredAll = useMemo(() => {
     const q = search.trim().toUpperCase();
     const out = rows.filter((r) => {
       if (filterCategory !== "all" && r.category_id !== filterCategory) return false;
@@ -60,8 +64,9 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
       if (q && !(r.sku_code.includes(q) || (r.sku_description ?? "").toUpperCase().includes(q))) return false;
       return true;
     });
-    return out.sort((a, b) => cmp(a, b, sortKey, sortDir)).slice(0, PAGE_SIZE);
+    return out.sort((a, b) => cmp(a, b, sortKey, sortDir));
   }, [rows, search, filterCategory, filterPriority, filterAction, filterStockout, sortKey, sortDir]);
+  const filtered = useMemo(() => filteredAll.slice(0, PAGE_SIZE), [filteredAll]);
 
   const totals = useMemo(() => {
     const t = { supply: 0, demand: 0, shortage: 0, excess: 0, stockouts: 0, critical: 0 };
@@ -84,7 +89,7 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
   return (
     <div>
       <div style={S.statsRow}>
-        <StatCell label="Rows" value={filtered.length > 500 ? `500 / ${filtered.length.toLocaleString()}` : filtered.length.toLocaleString()} accent={filtered.length > 500 ? PAL.yellow : undefined} />
+        <StatCell label="Rows" value={filteredAll.length > PAGE_SIZE ? `${PAGE_SIZE.toLocaleString()} / ${filteredAll.length.toLocaleString()}` : filteredAll.length.toLocaleString()} accent={filteredAll.length > PAGE_SIZE ? PAL.yellow : undefined} />
         <StatCell label="Σ Supply" value={formatQty(totals.supply)} accent={PAL.accent} />
         <StatCell label="Σ Demand" value={formatQty(totals.demand)} accent={PAL.text} />
         <StatCell label="Σ Shortage" value={formatQty(totals.shortage)} accent={PAL.red} />
@@ -145,7 +150,7 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
             </tr>
           </thead>
           <tbody>
-            {filtered.slice(0, 500).map((r) => (
+            {filtered.map((r) => (
               <tr key={r.projected_id}
                   style={{ cursor: "pointer", background: r.projected_stockout_flag ? "#3f1d1d22" : undefined }}
                   onClick={() => onSelectRow(r)}>
@@ -211,9 +216,9 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
         </table>
       </div>
 
-      {rows.length > PAGE_SIZE && (
+      {filteredAll.length > PAGE_SIZE && (
         <div style={{ padding: 8, color: PAL.textMuted, fontSize: 12, textAlign: "right" }}>
-          Showing first {PAGE_SIZE.toLocaleString()} rows — use filters to narrow.
+          Showing first {PAGE_SIZE.toLocaleString()} of {filteredAll.length.toLocaleString()} — use filters to narrow.
         </div>
       )}
     </div>
