@@ -172,10 +172,22 @@ export const wholesaleRepo = {
   },
 
   // ── Forecast rows ────────────────────────────────────────────────────────
+  // PostgREST caps single-fetch responses (typically 1000 rows on default
+  // configurations) regardless of the limit= value, so paginate explicitly.
+  // Without this, multi-month horizons silently truncated to the earliest
+  // periods only — the user saw "only Apr/May" when the run spanned Apr–Aug.
   async listForecast(planningRunId: string): Promise<IpWholesaleForecast[]> {
-    return sbGet<IpWholesaleForecast>(
-      `ip_wholesale_forecast?select=*&planning_run_id=eq.${planningRunId}&order=period_start.asc,customer_id.asc,sku_id.asc&limit=200000`,
-    );
+    const out: IpWholesaleForecast[] = [];
+    const PAGE = 1000;
+    for (let offset = 0; ; offset += PAGE) {
+      const chunk = await sbGet<IpWholesaleForecast>(
+        `ip_wholesale_forecast?select=*&planning_run_id=eq.${planningRunId}&order=period_start.asc,customer_id.asc,sku_id.asc&limit=${PAGE}&offset=${offset}`,
+      );
+      out.push(...chunk);
+      if (chunk.length < PAGE) break;
+      if (offset > 1_000_000) break;
+    }
+    return out;
   },
   async upsertForecast(rows: Array<Omit<IpWholesaleForecast, "id" | "created_at" | "updated_at">>): Promise<void> {
     if (rows.length === 0) return;
