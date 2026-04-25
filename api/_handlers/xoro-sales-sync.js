@@ -203,10 +203,34 @@ export default async function handler(req, res) {
         result.skipped_no_sku++; continue;
       }
 
-      const skuId = skuToId.get(sku);
+      // Auto-create missing items from invoice line metadata so the
+      // forecast grid resolves real SKUs without a separate items sync.
+      // Cheaper than the full Xoro item endpoint and means new SKUs land
+      // in the master the moment they show up on a real invoice.
+      let skuId = skuToId.get(sku);
       if (!skuId) {
-        if (unmatchedSkuSamples.length < 3) unmatchedSkuSamples.push({ reason: "SKU not in ip_item_master", sku, invoice });
-        result.skipped_no_sku++; continue;
+        const desc = il.Description ?? il.Title ?? null;
+        const sellPrice = toNum(il.UnitPrice ?? il.EffectiveUnitPrice);
+        const newRow = {
+          sku_code: sku,
+          description: desc,
+          unit_price: sellPrice,
+          uom: (il.SellUomCode ?? "each").toLowerCase(),
+          external_refs: { xoro_item_id: il.ItemId ?? null, xoro_upc: il.ItemUpc ?? null },
+          active: true,
+        };
+        const { data: created, error: itemErr } = await admin
+          .from("ip_item_master")
+          .upsert(newRow, { onConflict: "sku_code", ignoreDuplicates: false })
+          .select("id, sku_code")
+          .single();
+        if (itemErr || !created) {
+          if (unmatchedSkuSamples.length < 3) unmatchedSkuSamples.push({ reason: "auto-create failed", sku, error: itemErr?.message });
+          result.skipped_no_sku++; continue;
+        }
+        skuId = created.id;
+        skuToId.set(sku, skuId);
+        result.auto_created_skus = (result.auto_created_skus ?? 0) + 1;
       }
 
       if (!txnDate) { result.skipped_no_date++; continue; }
