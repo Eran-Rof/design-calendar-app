@@ -65,6 +65,8 @@ export default async function handler(req, res) {
   const pageLimit = Math.min(parseInt(url.searchParams.get("page_limit") || "50", 10), 200);
 
   // ── Fetch from Xoro ────────────────────────────────────────────────────────
+  // module: "sales" → uses VITE_XORO_SALES_API_KEY/SECRET (separate creds
+  // Xoro provisions for the sales-history endpoint).
   const xoroResult = await fetchXoroAll({
     path,
     params: {
@@ -76,6 +78,7 @@ export default async function handler(req, res) {
       InvoiceDateTo: dateTo,
     },
     maxPages: pageLimit,
+    module: "sales",
   });
 
   if (!xoroResult.ok) {

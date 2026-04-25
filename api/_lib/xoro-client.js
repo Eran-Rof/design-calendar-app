@@ -13,11 +13,17 @@
 //   • fetchXoroAll paginates sequentially with retries — the same
 //     throttling behaviour documented in xoro-proxy.js.
 
-export function xoroCredsFromEnv() {
-  const key = process.env.VITE_XORO_API_KEY;
-  const secret = process.env.VITE_XORO_API_SECRET;
+// Xoro provisions per-module API credentials (the sales-history endpoint
+// has its own key+secret pair separate from the default purchase-order
+// creds). Pass `module: "sales"` to use VITE_XORO_SALES_API_KEY/SECRET;
+// falls back to the default key/secret if the sales-specific pair isn't
+// set so the same call works in dev envs without the extra vars.
+export function xoroCredsFromEnv(module) {
+  const prefix = module === "sales" ? "VITE_XORO_SALES_" : "VITE_XORO_";
+  const key = process.env[`${prefix}API_KEY`] || process.env.VITE_XORO_API_KEY;
+  const secret = process.env[`${prefix}API_SECRET`] || process.env.VITE_XORO_API_SECRET;
   if (!key || !secret) {
-    return { ok: false, error: "XORO_CREDENTIALS_MISSING", keyPresent: !!key, secretPresent: !!secret };
+    return { ok: false, error: "XORO_CREDENTIALS_MISSING", keyPresent: !!key, secretPresent: !!secret, module: module ?? "default" };
   }
   const basic = Buffer.from(`${key}:${secret}`).toString("base64");
   return { ok: true, authHeader: `Basic ${basic}` };
@@ -45,14 +51,14 @@ async function xoroFetchPage({ path, params, page, authHeader }) {
   }
 }
 
-export async function fetchXoro({ path, params = {} }) {
-  const creds = xoroCredsFromEnv();
+export async function fetchXoro({ path, params = {}, module }) {
+  const creds = xoroCredsFromEnv(module);
   if (!creds.ok) return { ok: false, status: 500, body: { error: creds.error, keyPresent: creds.keyPresent, secretPresent: creds.secretPresent } };
   return xoroFetchPage({ path, params, page: 1, authHeader: creds.authHeader });
 }
 
-export async function fetchXoroAll({ path, params = {}, maxPages = 50 }) {
-  const creds = xoroCredsFromEnv();
+export async function fetchXoroAll({ path, params = {}, maxPages = 50, module }) {
+  const creds = xoroCredsFromEnv(module);
   if (!creds.ok) return { ok: false, status: 500, body: { error: creds.error } };
 
   const delays = [0, 800, 2000, 4000];
