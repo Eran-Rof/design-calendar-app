@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
-import { fmtDate, fmtMoney } from "./utils";
+import { fmtDate, fmtMoney, todayLocalIso, dateToLocalIso } from "./utils";
 import { PHASES, computeExpectedDate } from "./VendorPhasesView";
 
 interface Summary {
@@ -80,7 +80,7 @@ const PRESETS = [
 type Preset = typeof PRESETS[number];
 
 function iso(d: Date): string {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString().slice(0, 10);
+  return dateToLocalIso(d);
 }
 
 function resolvePreset(preset: Preset): { from: string; to: string } {
@@ -147,9 +147,9 @@ export default function VendorReports() {
   // Default to rolling last 12 months
   const [fromDate, setFromDate] = useState(() => {
     const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth() - 12, d.getDate()).toISOString().slice(0, 10);
+    return dateToLocalIso(new Date(d.getFullYear(), d.getMonth() - 12, d.getDate()));
   });
-  const [toDate, setToDate] = useState(new Date().toISOString().slice(0, 10));
+  const [toDate, setToDate] = useState(todayLocalIso());
   const [poStatus, setPoStatus] = useState("");
   const [invStatus, setInvStatus] = useState("");
   // Lookups so we can link row-level po_number / invoice_number to

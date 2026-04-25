@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
-import { fmtMoney } from "./utils";
+import { fmtMoney, todayLocalIso } from "./utils";
 import { showConfirm } from "./ui/AppDialog";
 
 const PAYMENT_TERMS = [
@@ -76,7 +76,7 @@ export default function InvoiceSubmit() {
   const [linesPrefilledFromExtract, setLinesPrefilledFromExtract] = useState(false);
 
   const [invoiceNumber, setInvoiceNumber] = useState(prefill?.invoice_number || "");
-  const [invoiceDate, setInvoiceDate] = useState(prefill?.invoice_date || new Date().toISOString().slice(0, 10));
+  const [invoiceDate, setInvoiceDate] = useState(prefill?.invoice_date || todayLocalIso());
   const [dueDate, setDueDate] = useState(prefill?.due_date || "");
   const [currency, setCurrency] = useState(prefill?.currency || "USD");
   const [tax, setTax] = useState("0");

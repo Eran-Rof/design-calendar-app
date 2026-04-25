@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
-import { fmtMoney } from "./utils";
+import { fmtMoney, todayLocalIso } from "./utils";
 import { isValidContainerNumber } from "./shipmentUtils";
 
 type SubmitMode = "asn_only" | "asn_and_invoice";
@@ -72,7 +72,7 @@ export default function ShipmentSubmit() {
   const [shipVia, setShipVia] = useState<string>("Ocean");
   const [trackingType, setTrackingType] = useState<TrackingType>("");
   const [trackingNumber, setTrackingNumber] = useState("");
-  const [shipDate, setShipDate] = useState(new Date().toISOString().slice(0, 10));
+  const [shipDate, setShipDate] = useState(todayLocalIso());
   const [estimatedPortDate, setEstimatedPortDate] = useState("");
   const [estimatedDelivery, setEstimatedDelivery] = useState("");
   const [notes, setNotes] = useState("");
