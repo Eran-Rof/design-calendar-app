@@ -57,7 +57,7 @@ export async function fetchXoro({ path, params = {}, module }) {
   return xoroFetchPage({ path, params, page: 1, authHeader: creds.authHeader });
 }
 
-export async function fetchXoroAll({ path, params = {}, maxPages = 50, module }) {
+export async function fetchXoroAll({ path, params = {}, maxPages = 50, module, pageStart = 1 }) {
   const creds = xoroCredsFromEnv(module);
   if (!creds.ok) return { ok: false, status: 500, body: { error: creds.error } };
 
@@ -66,7 +66,11 @@ export async function fetchXoroAll({ path, params = {}, maxPages = 50, module })
   let totalPages = 1;
   const pageNotes = [];
 
-  for (let page = 1; page <= maxPages; page++) {
+  // Iterate from pageStart for `maxPages` consecutive pages so callers can
+  // chunk huge catalogs across multiple invocations (e.g. 20k items at
+  // 500/page = 40 pages → 8 calls of pageStart=1,6,11,…).
+  for (let i = 0; i < maxPages; i++) {
+    const page = pageStart + i;
     let attempt;
     for (const d of delays) {
       if (d) await new Promise((r) => setTimeout(r, d));
@@ -77,7 +81,7 @@ export async function fetchXoroAll({ path, params = {}, maxPages = 50, module })
     }
     const dataLen = Array.isArray(attempt.body?.Data) ? attempt.body.Data.length : -1;
     pageNotes.push({ page, result: attempt.body?.Result, dataLen, totalPages: attempt.body?.TotalPages });
-    if (page === 1) {
+    if (i === 0) {
       totalPages = attempt.body?.TotalPages ?? 1;
       if (!Array.isArray(attempt.body?.Data)) {
         return { ok: false, status: attempt.status || 502, body: attempt.body, pages: pageNotes };

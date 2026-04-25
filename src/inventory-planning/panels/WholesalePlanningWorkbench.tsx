@@ -23,7 +23,7 @@ import type {
 import { FORECAST_METHOD_LABELS } from "../types/wholesale";
 import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { applyOverride, buildGridRows } from "../services/wholesaleForecastService";
-import { ingestXoroSales } from "../services/xoroSalesIngestService";
+import { ingestXoroSales, ingestXoroItems } from "../services/xoroSalesIngestService";
 import { ingestSalesExcel, ingestAvgCostExcel, type ExcelIngestResult } from "../services/excelIngestService";
 import { S, PAL } from "../components/styles";
 import { SB_HEADERS, SB_URL } from "../../utils/supabase";
@@ -123,6 +123,34 @@ export default function WholesalePlanningWorkbench() {
              o.period_start === selectedRow.period_start,
     );
   }, [overrides, selectedRow]);
+
+  // Pull Xoro items into ip_item_master in 5-page chunks so a 20k-item
+  // catalog can be ingested across 8 clicks without hitting the function
+  // duration cap.
+  const [itemsPageStart, setItemsPageStart] = useState(1);
+  async function ingestItems() {
+    setIngesting(true);
+    try {
+      const r = await ingestXoroItems({ pageStart: itemsPageStart, pageLimit: 5 });
+      if (r.error) {
+        console.error("[xoro-items-sync] ingest failed", r);
+        setToast({ text: `Items ingest error: ${r.error}`, kind: "error" });
+      } else {
+        setToast({
+          text: `Xoro items: ${r.xoro_items_fetched} fetched · ${r.inserted} upserted (pages ${itemsPageStart}-${itemsPageStart + 4})`,
+          kind: r.inserted > 0 ? "success" : "info",
+        });
+        // Bump the next chunk's start. If the call returned fewer than a
+        // full chunk, reset — there's nothing more to fetch.
+        if (r.xoro_items_fetched >= 5 * 500) setItemsPageStart((p) => p + 5);
+        else setItemsPageStart(1);
+      }
+    } catch (e) {
+      setToast({ text: "Items ingest failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    } finally {
+      setIngesting(false);
+    }
+  }
 
   async function ingestExcel(kind: "sales" | "avgcost", file: File) {
     setIngesting(true);
@@ -327,6 +355,9 @@ export default function WholesalePlanningWorkbench() {
                  style={{ ...S.input, width: 140 }} />
           <button style={S.btnSecondary} onClick={ingestSales} disabled={ingesting} title="Requires Xoro invoices API endpoint to be provisioned">
             {ingesting ? "Working…" : "Ingest Xoro sales"}
+          </button>
+          <button style={S.btnSecondary} onClick={ingestItems} disabled={ingesting} title="Pulls Xoro item catalog into ip_item_master. Click repeatedly to chunk through 20k items — page tracker advances automatically.">
+            {ingesting ? "Working…" : `Ingest Xoro items (pages ${itemsPageStart}-${itemsPageStart + 4})`}
           </button>
           <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }}>
             {ingesting ? "Working…" : "Upload sales (Excel)"}
