@@ -65,9 +65,10 @@ export default async function handler(req, res) {
   const dateFrom = url.searchParams.get("date_from") || defaultFrom;
   const dateTo = url.searchParams.get("date_to") || today;
   const path = url.searchParams.get("path") || SALES_PATH;
-  // Each page = 100 invoices ≈ ~1k line items. Cap default at 5 pages so
-  // a single ingest finishes within ~60s; bump via ?page_limit= for backfills.
-  const pageLimit = Math.min(parseInt(url.searchParams.get("page_limit") || "5", 10), 50);
+  // Each page = 100 invoices, each fanning out to ~10 line items each
+  // (~1k row upserts). Default to 1 page so the function finishes in
+  // ~10-20s even when Xoro is slow; use ?page_limit= to backfill more.
+  const pageLimit = Math.min(parseInt(url.searchParams.get("page_limit") || "1", 10), 50);
 
   // ── Fetch from Xoro ────────────────────────────────────────────────────────
   // module: "sales" → uses VITE_XORO_SALES_API_KEY/SECRET (separate creds
