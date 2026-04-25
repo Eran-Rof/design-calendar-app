@@ -162,17 +162,20 @@ export default function WholesalePlanningWorkbench() {
     }
   }
 
-  // Optimistic local update so Buy $ reflects the typed value immediately
-  // — the DB roundtrip is fire-and-forget; a failure toasts and reverts.
+  // Optimistic local update so Buy $ reflects the typed value immediately,
+  // then refresh from DB so derived columns (Short, Excess, rolling supply)
+  // recompute. A failure toasts and reverts via the same refresh path.
   async function saveBuyQty(forecastId: string, qty: number | null) {
     setRows((prev) => prev.map((r) => r.forecast_id === forecastId ? { ...r, planned_buy_qty: qty } : r));
     try {
       await wholesaleRepo.patchForecastBuyQty(forecastId, qty);
       setToast({ text: qty != null ? `Buy qty set to ${qty.toLocaleString()}` : "Buy qty cleared", kind: "success" });
+      const refreshed = await buildGridRows(selectedRun!);
+      setRows(refreshed);
+      setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setToast({ text: `Buy qty save failed — ${msg}`, kind: "error" });
-      // Revert from authoritative DB state.
       const refreshed = await buildGridRows(selectedRun!);
       setRows(refreshed);
       setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
