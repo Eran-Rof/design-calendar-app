@@ -330,16 +330,24 @@ export default async function handler(req, res) {
     else result.inserted += chunk.length;
   }
 
-  // Detect when we've paginated past the requested window so the UI can
-  // tell the user to stop clicking. True when every invoice in this batch
-  // was older than date_from.
-  const oldestInBatch = lines.reduce((oldest, inv) => {
+  // Compute date span of this batch so the UI can tell the user where
+  // we are in the pagination relative to the requested window. Xoro
+  // returns oldest-first, so:
+  //   before_window  → newest invoice in batch < date_from
+  //                    (still walking the early years; keep clicking)
+  //   past_window    → oldest invoice in batch > date_to
+  //                    (we've walked past the window; stop)
+  //   in_window      → otherwise (some hits expected; keep clicking)
+  const batchDates = lines.map((inv) => {
     const h = inv.invoiceHeader ?? inv;
-    const d = toIsoDate(h.ShipDate ?? h.TxnDate ?? h.DateOrder ?? h.InvoiceDate);
-    return d && (oldest == null || d < oldest) ? d : oldest;
-  }, null);
+    return toIsoDate(h.ShipDate ?? h.TxnDate ?? h.DateOrder ?? h.InvoiceDate);
+  }).filter((d) => d != null).sort();
+  const oldestInBatch = batchDates[0] ?? null;
+  const newestInBatch = batchDates[batchDates.length - 1] ?? null;
   result.oldest_invoice_in_batch = oldestInBatch;
-  result.past_window = oldestInBatch != null && oldestInBatch < dateFrom;
+  result.newest_invoice_in_batch = newestInBatch;
+  result.before_window = newestInBatch != null && newestInBatch < dateFrom;
+  result.past_window   = oldestInBatch != null && oldestInBatch > dateTo;
 
   // Always surface the store-code breakdown so the planner can tune the
   // wholesale include/exclude lists without guessing.

@@ -7,6 +7,8 @@ export interface XoroSalesIngestResult {
   skipped_ecom_store?: number;
   skipped_outside_window?: number;
   oldest_invoice_in_batch?: string | null;
+  newest_invoice_in_batch?: string | null;
+  before_window?: boolean;
   past_window?: boolean;
   auto_created_skus?: number;
   auto_created_customers?: number;

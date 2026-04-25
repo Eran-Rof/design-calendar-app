@@ -199,13 +199,21 @@ export default function WholesalePlanningWorkbench() {
         if (r.skipped_outside_window) skipParts.push(`${r.skipped_outside_window} outside window`);
         if (r.skipped_ecom_store) skipParts.push(`${r.skipped_ecom_store} ecom`);
         if (r.skipped_no_sku) skipParts.push(`${r.skipped_no_sku} no SKU`);
+        // Xoro paginates oldest-first. Three states:
+        //   before_window: still walking the early years → keep clicking
+        //   in_window:     some hits expected → keep clicking
+        //   past_window:   walked past the date_to → stop
+        const span = r.oldest_invoice_in_batch && r.newest_invoice_in_batch
+          ? ` · batch ${r.oldest_invoice_in_batch}…${r.newest_invoice_in_batch}`
+          : "";
+        const stateNote =
+          r.past_window   ? " · ✓ past window — stopping" :
+          r.before_window ? " · ↻ before window — keep clicking" :
+          "";
         setToast({
-          text: `Xoro sales (page ${salesPageStart}): ${r.xoro_lines_fetched} fetched · ${r.inserted} upserted${r.auto_created_skus ? ` · ${r.auto_created_skus} new SKUs` : ""}${skipParts.length ? ` · ${skipParts.join(", ")}` : ""}${r.past_window ? " · ⚠ past window — stopping" : ""}`,
-          kind: r.inserted > 0 ? "success" : r.past_window ? "info" : "info",
+          text: `Xoro sales (page ${salesPageStart}): ${r.xoro_lines_fetched} fetched · ${r.inserted} upserted${r.auto_created_skus ? ` · ${r.auto_created_skus} new SKUs` : ""}${skipParts.length ? ` · ${skipParts.join(", ")}` : ""}${span}${stateNote}`,
+          kind: r.inserted > 0 ? "success" : "info",
         });
-        // Reset to page 1 once we paginate past the requested window
-        // (Xoro is newest-first; older invoices won't appear later).
-        // Otherwise advance for the next click.
         if (r.past_window) setSalesPageStart(1);
         else if (r.xoro_lines_fetched >= 100) setSalesPageStart((p) => p + 1);
         else setSalesPageStart(1);
