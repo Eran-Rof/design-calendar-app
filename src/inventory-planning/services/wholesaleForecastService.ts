@@ -74,7 +74,7 @@ export async function runForecastPass(run: IpPlanningRun): Promise<RunForecastPa
   const snapshotDate = run.source_snapshot_date;
   const lookbackFrom = historySince(snapshotDate, 12);
 
-  const [items, sales, requests, overrides, inv, pos, receipts] = await Promise.all([
+  const [items, sales, requests, overrides, inv, pos, receipts, supplyPlaceholder] = await Promise.all([
     wholesaleRepo.listItems(),
     wholesaleRepo.listWholesaleSales(lookbackFrom),
     wholesaleRepo.listOpenRequests(),
@@ -82,6 +82,7 @@ export async function runForecastPass(run: IpPlanningRun): Promise<RunForecastPa
     wholesaleRepo.listInventorySnapshots(),
     wholesaleRepo.listOpenPos(),
     wholesaleRepo.listReceipts(lookbackFrom),
+    wholesaleRepo.ensureSupplyPlaceholderCustomer(),
   ]);
 
   // De-dup overrides to the latest per grain (createdAt desc from repo).
@@ -118,7 +119,28 @@ export async function runForecastPass(run: IpPlanningRun): Promise<RunForecastPa
     };
   });
 
-  const pairs = resolvePairs(historyInput, requestInput, itemCategoryBySku);
+  let pairs = resolvePairs(historyInput, requestInput, itemCategoryBySku);
+
+  // Supply-only pairs: any SKU with open PO qty or on-SO qty but no
+  // sales-history pair gets a synthetic forecast row under a "(Supply Only)"
+  // placeholder customer so the planner can see incoming inventory.
+  const skusWithSalesPair = new Set(pairs.map((p) => p.sku_id));
+  const supplyOnlySkus = new Set<string>();
+  for (const p of pos) {
+    if (p.qty_open > 0 && !skusWithSalesPair.has(p.sku_id)) supplyOnlySkus.add(p.sku_id);
+  }
+  for (const s of inv) {
+    if (((s.qty_committed ?? 0) > 0 || (s.qty_on_hand ?? 0) > 0) && !skusWithSalesPair.has(s.sku_id)) {
+      supplyOnlySkus.add(s.sku_id);
+    }
+  }
+  for (const skuId of supplyOnlySkus) {
+    pairs.push({
+      customer_id: supplyPlaceholder,
+      sku_id: skuId,
+      category_id: itemCategoryBySku.get(skuId) ?? null,
+    });
+  }
 
   const computeInput: IpForecastComputeInput = {
     planning_run_id: run.id,

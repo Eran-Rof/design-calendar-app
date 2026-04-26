@@ -90,6 +90,25 @@ export const wholesaleRepo = {
   async listCustomers(): Promise<IpCustomer[]> {
     return sbGet<IpCustomer>("ip_customer_master?select=*&order=name.asc&limit=5000");
   },
+  // Placeholder customer for "supply only" forecast rows — items with
+  // open POs or on-SO but no sales-history pair show up under this
+  // customer in the grid so the planner can see incoming inventory.
+  // Idempotent: returns the existing id on subsequent calls.
+  async ensureSupplyPlaceholderCustomer(): Promise<string> {
+    const code = "INTERNAL:SUPPLY_ONLY";
+    const existing = await sbGet<{ id: string }>(`ip_customer_master?select=id&customer_code=eq.${encodeURIComponent(code)}&limit=1`);
+    if (existing[0]?.id) return existing[0].id;
+    const created = await sbPost<{ id: string }>(
+      "ip_customer_master?on_conflict=customer_code",
+      [{ customer_code: code, name: "(Supply Only)" }],
+      "resolution=merge-duplicates,return=representation",
+    );
+    if (created[0]?.id) return created[0].id;
+    // Fallback fetch in case Supabase didn't return the id on a merge.
+    const refetch = await sbGet<{ id: string }>(`ip_customer_master?select=id&customer_code=eq.${encodeURIComponent(code)}&limit=1`);
+    if (!refetch[0]?.id) throw new Error("ensureSupplyPlaceholderCustomer: could not resolve id");
+    return refetch[0].id;
+  },
   async listCategories(): Promise<IpCategory[]> {
     return sbGet<IpCategory>("ip_category_master?select=*&order=name.asc&limit=5000");
   },
