@@ -49,7 +49,10 @@ export default async function handler(req, res) {
     updated_at: nowIso,
   };
   if (note && String(note).trim()) {
-    updates.description = `${existing.description}\n\n— ${status} by ${reviewed_by || "Internal"}: ${String(note).trim()}`;
+    // Guard against existing.description being null — would otherwise
+    // produce a literal "null\n\n— …" prefix in the saved string.
+    const prefix = existing.description ?? "";
+    updates.description = `${prefix}${prefix ? "\n\n" : ""}— ${status} by ${reviewed_by || "Internal"}: ${String(note).trim()}`;
   }
 
   const { error } = await admin.from("anomaly_flags").update(updates).eq("id", id);

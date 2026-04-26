@@ -60,11 +60,14 @@ export default async function handler(req, res) {
     const { error } = await admin.from("payments").update(updates).eq("id", id);
     if (error) return res.status(500).json({ error: error.message });
 
-    // If this payment is linked to a discount offer, flip that offer to 'paid'
+    // If this payment is linked to a discount offer, flip that offer to 'paid'.
+    // Filter on status='accepted' so we don't accidentally resurrect an expired
+    // or already-paid offer if the linked offer drifted out of state.
     if (next === "completed" && payment.metadata?.discount_offer_id) {
       await admin.from("dynamic_discount_offers")
         .update({ status: "paid", paid_at: nowIso, updated_at: nowIso })
-        .eq("id", payment.metadata.discount_offer_id);
+        .eq("id", payment.metadata.discount_offer_id)
+        .eq("status", "accepted");
     }
 
     return res.status(200).json({ ok: true, id, status: next });
