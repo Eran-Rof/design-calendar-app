@@ -65,8 +65,17 @@ function toNum(v: unknown): number | null {
 // insensitive AND ignoring punctuation/whitespace differences. Excel
 // templates use spaces, code uses underscores — normalize both so
 // "Txn Date" / "txn_date" / "TXN-DATE" all match the same key.
+// Also splits camelCase + letter↔digit boundaries so Xoro/Shopify-style
+// PascalCase headers like "BasePartNumber" / "Option1Value" /
+// "StandardUnitCost" match the spaced aliases.
 function normHeader(s: string): string {
-  return s.trim().toLowerCase().replace(/[\s_\-.]+/g, " ").trim();
+  return s.trim()
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([a-zA-Z])(\d)/g, "$1 $2")
+    .replace(/(\d)([a-zA-Z])/g, "$1 $2")
+    .toLowerCase()
+    .replace(/[\s_\-.]+/g, " ")
+    .trim();
 }
 function pick(row: Record<string, unknown>, names: string[]): unknown {
   const lower = new Map(Object.entries(row).map(([k, v]) => [normHeader(k), v]));
@@ -392,10 +401,12 @@ export async function ingestItemMasterExcel(
   // Expanded aliases — common Excel column names from Xoro / TandA / ATS
   // exports plus typical planner spreadsheets. normHeader (in pick) strips
   // whitespace/punctuation so case + space variations all collapse.
+  // NOTE: do NOT include "upc" / "barcode" — those are external identifiers,
+  // not item codes, and treating them as SKUs corrupts the master.
   const SKU_ALIASES = [
     "sku", "sku code", "sku_code", "item number", "item_number", "itemnumber",
     "item", "item code", "item_code", "variant sku", "variant_sku",
-    "product sku", "upc", "sku id", "style sku",
+    "product sku", "sku id", "style sku",
   ];
   const STYLE_ALIASES = [
     "style", "style code", "style_code", "style number", "style_number",
@@ -411,11 +422,13 @@ export async function ingestItemMasterExcel(
     "description", "desc", "item description", "product description",
     "long description", "short description", "title", "name",
     "item name", "product name", "style name",
+    "body html", "bodyhtml", "body (html)",
   ];
   const COST_ALIASES = [
     "avg cost", "avg_cost", "avgcost", "average cost", "average_cost",
     "cost", "unit cost", "unit_cost", "unitcost", "std cost", "std_cost",
-    "standard cost", "standard_cost", "moving avg cost", "moving average cost",
+    "standard cost", "standard_cost", "standard unit cost",
+    "moving avg cost", "moving average cost",
     "weighted cost", "wac", "fifo cost", "last cost",
   ];
 
@@ -444,7 +457,11 @@ export async function ingestItemMasterExcel(
     // Prefer the explicit color cell (preserves spacing) over the
     // suffix parsed from sku_code.
     const color = explicitColor || (dash > 0 ? sku.substring(dash + 1) : null);
-    const description = String(pick(r, DESC_ALIASES) ?? "").trim();
+    const descRaw = String(pick(r, DESC_ALIASES) ?? "").trim();
+    // Strip HTML when description came from a BodyHtml column.
+    const description = descRaw.includes("<")
+      ? descRaw.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim()
+      : descRaw;
     const cost = toNum(pick(r, COST_ALIASES));
 
     const item: Record<string, unknown> = {

@@ -272,6 +272,16 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       avgCostByStyle.set(i.style_code, cost);
     }
   }
+  // Separate cost index: any master row in the same style with a real
+  // unit_cost wins. masterByStyle prefers shortest sku_code (best for
+  // description) but that row may have no cost — without this second
+  // index, RYO0659FP-BLACK/BLACK (desc set, cost null) would shadow
+  // RYO0659FP-SLATE/OFFWHITE (desc set, cost 11.90).
+  const unitCostByStyle = new Map<string, number>();
+  for (const i of items) {
+    if (!i.style_code || i.unit_cost == null || i.unit_cost <= 0) continue;
+    if (!unitCostByStyle.has(i.style_code)) unitCostByStyle.set(i.style_code, i.unit_cost);
+  }
   const recByGrain = new Map(recs.map((r) => [
     `${r.customer_id}:${r.sku_id}:${r.period_start}`,
     r,
@@ -327,13 +337,13 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     const styleFallback = item?.style_code ? masterByStyle.get(item.style_code) : null;
     const description = item?.description ?? styleFallback?.description ?? null;
     const colorDisplay = item?.color ?? styleFallback?.color ?? null;
-    // Resolved master cost: variant.unit_cost > variant avg_cost > style-level
-    // master.unit_cost > style-level avg_cost. Falls back to PO weighted
-    // avg, then ATS snapshot avg.
+    // Resolved master cost: variant.unit_cost > variant avg_cost > any
+    // sibling-variant unit_cost in the same style > any sibling avg_cost.
+    // Then PO weighted avg, then ATS snapshot avg.
     const masterCost =
       item?.unit_cost
       ?? (item?.sku_code ? avgCostBySku.get(item.sku_code) ?? null : null)
-      ?? styleFallback?.unit_cost
+      ?? (item?.style_code ? unitCostByStyle.get(item.style_code) ?? null : null)
       ?? (item?.style_code ? avgCostByStyle.get(item.style_code) ?? null : null);
     const fallbackCost = poCostBySku.get(f.sku_id) ?? (item?.sku_code ? atsCostBySku.get(item.sku_code) ?? null : null);
     const resolvedCost = masterCost ?? fallbackCost ?? null;
@@ -367,7 +377,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       confidence_level: f.confidence_level,
       forecast_method: f.forecast_method,
       ly_reference_qty: f.ly_reference_qty ?? null,
-      item_cost: item?.unit_cost ?? styleFallback?.unit_cost ?? null,
+      item_cost: item?.unit_cost ?? (item?.style_code ? unitCostByStyle.get(item.style_code) ?? null : null) ?? null,
       ats_avg_cost: item?.sku_code ? (atsCostBySku.get(item.sku_code) ?? null) : null,
       avg_cost: resolvedCost,
       unit_cost_override: f.unit_cost_override ?? null,
