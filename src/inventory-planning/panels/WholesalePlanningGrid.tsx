@@ -19,10 +19,18 @@ export interface WholesalePlanningGridProps {
 type SortKey =
   | "customer" | "style" | "period" | "final" | "shortage" | "excess" | "action" | "method";
 
+interface CollapseModes {
+  customers: boolean;
+  colors: boolean;
+  category: boolean;
+  subCat: boolean;
+}
+
 export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, loading }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
   const [filterCustomer, setFilterCustomer] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [filterSubCat, setFilterSubCat] = useState<string>("all");
   const [filterAction, setFilterAction] = useState<string>("all");
   const [filterConfidence, setFilterConfidence] = useState<string>("all");
   const [filterMethod, setFilterMethod] = useState<string>("all");
@@ -31,9 +39,16 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   const [filterPeriod, setFilterPeriod] = useState<string>("all");
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(500);
+  // Collapse / aggregation modes — independent toggles that change the
+  // grouping key of the displayed rows. When any are on, grids show
+  // aggregate rows and inline editing is disabled on those rows.
+  const [collapse, setCollapse] = useState<CollapseModes>({
+    customers: false, colors: false, category: false, subCat: false,
+  });
+  const anyCollapsed = collapse.customers || collapse.colors || collapse.category || collapse.subCat;
   // Reset to first page whenever filters/sort change so the user doesn't
   // wonder why an empty page is showing.
-  useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterPeriod, filterAction, filterConfidence, filterMethod, sortKey, sortDir, pageSize]);
+  useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterPeriod, filterAction, filterConfidence, filterMethod, sortKey, sortDir, pageSize, collapse]);
 
   const customers = useMemo(() => {
     const s = new Map<string, string>();
@@ -41,10 +56,18 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     return Array.from(s, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   }, [rows]);
 
-  const categories = useMemo(() => {
-    const s = new Map<string, string>();
-    for (const r of rows) if (r.category_id) s.set(r.category_id, r.category_name ?? r.category_id);
-    return Array.from(s, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  // Categories are now sourced from the item master GroupName attribute
+  // (text, no FK), so the filter operates on the string directly.
+  const groupNames = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of rows) if (r.group_name) s.add(r.group_name);
+    return Array.from(s).sort();
+  }, [rows]);
+
+  const subCategoryNames = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of rows) if (r.sub_category_name) s.add(r.sub_category_name);
+    return Array.from(s).sort();
   }, [rows]);
 
   const periods = useMemo(() => {
@@ -55,9 +78,10 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
 
   const filtered = useMemo(() => {
     const q = search.trim().toUpperCase();
-    const out = rows.filter((r) => {
+    const base = rows.filter((r) => {
       if (filterCustomer !== "all" && r.customer_id !== filterCustomer) return false;
-      if (filterCategory !== "all" && r.category_id !== filterCategory) return false;
+      if (filterCategory !== "all" && (r.group_name ?? "—") !== filterCategory) return false;
+      if (filterSubCat !== "all" && (r.sub_category_name ?? "—") !== filterSubCat) return false;
       if (filterPeriod !== "all" && r.period_code !== filterPeriod) return false;
       if (filterAction !== "all" && r.recommended_action !== filterAction) return false;
       if (filterConfidence !== "all" && r.confidence_level !== filterConfidence) return false;
@@ -67,11 +91,14 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         || (r.sku_style ?? "").toUpperCase().includes(q)
         || (r.sku_color ?? "").toUpperCase().includes(q)
         || r.customer_name.toUpperCase().includes(q)
+        || (r.group_name ?? "").toUpperCase().includes(q)
+        || (r.sub_category_name ?? "").toUpperCase().includes(q)
       )) return false;
       return true;
     });
-    return out.sort((a, b) => cmp(a, b, sortKey, sortDir));
-  }, [rows, search, filterCustomer, filterCategory, filterPeriod, filterAction, filterConfidence, filterMethod, sortKey, sortDir]);
+    const collapsed = anyCollapsed ? aggregateRows(base, collapse) : base;
+    return collapsed.sort((a, b) => cmp(a, b, sortKey, sortDir));
+  }, [rows, search, filterCustomer, filterCategory, filterSubCat, filterPeriod, filterAction, filterConfidence, filterMethod, sortKey, sortDir, collapse, anyCollapsed]);
 
   const totals = useMemo(() => {
     const t = { final: 0, shortage: 0, excess: 0, actions: {} as Record<string, number>, methods: {} as Record<string, number> };
@@ -107,7 +134,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       </div>
 
       <div style={S.toolbar}>
-        <input style={{ ...S.input, width: 240 }} placeholder="Search customer or SKU"
+        <input style={{ ...S.input, width: 240 }} placeholder="Search customer / SKU / category"
                value={search} onChange={(e) => setSearch(e.target.value)} />
         <select style={S.select} value={filterCustomer} onChange={(e) => setFilterCustomer(e.target.value)}>
           <option value="all">All customers</option>
@@ -115,7 +142,11 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         </select>
         <select style={S.select} value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
           <option value="all">All categories</option>
-          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          {groupNames.map((g) => <option key={g} value={g}>{g}</option>)}
+        </select>
+        <select style={S.select} value={filterSubCat} onChange={(e) => setFilterSubCat(e.target.value)}>
+          <option value="all">All sub cats</option>
+          {subCategoryNames.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
         <select style={S.select} value={filterAction} onChange={(e) => setFilterAction(e.target.value)}>
           <option value="all">All actions</option>
@@ -134,20 +165,40 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           {periods.map((p) => <option key={p} value={p}>{formatPeriodCode(p)}</option>)}
         </select>
         <button style={S.btnSecondary} onClick={() => {
-          setSearch(""); setFilterCustomer("all"); setFilterCategory("all"); setFilterPeriod("all");
+          setSearch(""); setFilterCustomer("all"); setFilterCategory("all"); setFilterSubCat("all"); setFilterPeriod("all");
           setFilterAction("all"); setFilterConfidence("all"); setFilterMethod("all");
         }}>Clear</button>
+      </div>
+
+      <div style={{ ...S.toolbar, marginTop: -4, paddingTop: 0, gap: 14, fontSize: 12, color: PAL.textDim }}>
+        <span style={{ fontWeight: 600 }}>Collapse:</span>
+        <CollapseToggle label="All customers" active={collapse.customers} onToggle={() => setCollapse((c) => ({ ...c, customers: !c.customers }))} />
+        <CollapseToggle label="All colors per style" active={collapse.colors} onToggle={() => setCollapse((c) => ({ ...c, colors: !c.colors }))} />
+        <CollapseToggle label="By category" active={collapse.category} onToggle={() => setCollapse((c) => ({ ...c, category: !c.category, subCat: c.category ? c.subCat : false }))} />
+        <CollapseToggle label="By sub cat" active={collapse.subCat} onToggle={() => setCollapse((c) => ({ ...c, subCat: !c.subCat, category: c.subCat ? c.category : false }))} />
+        {anyCollapsed && (
+          <button style={{ ...S.btnSecondary, fontSize: 11, padding: "2px 8px" }}
+                  onClick={() => setCollapse({ customers: false, colors: false, category: false, subCat: false })}>
+            Reset
+          </button>
+        )}
+        {anyCollapsed && (
+          <span style={{ color: PAL.textMuted, fontStyle: "italic" }}>
+            Aggregate rows are read-only — drill in by clearing the toggles.
+          </span>
+        )}
       </div>
 
       <div style={S.tableWrap}>
         <table style={S.table}>
           <thead>
             <tr>
-              <Th label="Customer" k="customer" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th style={S.th}>Category</th>
+              <th style={S.th}>Sub Cat</th>
               <Th label="Style" k="style" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th style={S.th}>Color</th>
               <th style={S.th}>Description</th>
+              <Th label="Customer" k="customer" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <Th label="Period" k="period" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th style={{ ...S.th, textAlign: "right" }}>Hist T3</th>
               <th style={{ ...S.th, textAlign: "right" }}>Hist LY</th>
@@ -175,16 +226,18 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
             {filtered.slice(page * pageSize, (page + 1) * pageSize).map((r) => (
               <tr
                 key={r.forecast_id}
-                onContextMenu={(e) => { e.preventDefault(); onSelectRow(r); }}
-                title="Right-click for more info"
+                onContextMenu={(e) => { e.preventDefault(); if (!r.is_aggregate) onSelectRow(r); }}
+                title={r.is_aggregate ? `Aggregate of ${r.aggregate_count ?? 1} rows — toggle off Collapse to drill in` : "Right-click for more info"}
+                style={r.is_aggregate ? { background: PAL.panelMuted ?? "rgba(255,255,255,0.03)" } : undefined}
               >
-                <td style={S.td}>{r.customer_name}</td>
-                <td style={{ ...S.td, color: PAL.textDim }}>{r.category_name ?? "–"}</td>
+                <td style={{ ...S.td, color: PAL.textDim }}>{r.group_name ?? "–"}</td>
+                <td style={{ ...S.td, color: PAL.textDim }}>{r.sub_category_name ?? "–"}</td>
                 <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>{r.sku_style ?? r.sku_code}</td>
                 <td style={{ ...S.td, color: PAL.textDim }}>{r.sku_color ?? "—"}</td>
                 <td style={{ ...S.td, color: PAL.textDim, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.sku_description ?? ""}>
                   {r.sku_description ?? "—"}
                 </td>
+                <td style={S.td}>{r.customer_name}</td>
                 <td style={S.td}>{formatPeriodCode(r.period_code)}</td>
                 <td style={S.tdNum}>{formatQty(r.historical_trailing_qty)}</td>
                 <td style={{ ...S.tdNum, color: r.forecast_method === "ly_sales" && r.ly_reference_qty != null ? PAL.accent2 : PAL.textMuted }}>
@@ -192,20 +245,32 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 </td>
                 <td style={S.tdNum}>{formatQty(r.system_forecast_qty)}</td>
                 <td style={{ ...S.tdNum, padding: "0 4px" }}>
-                  <IntCell
-                    value={r.buyer_request_qty}
-                    accent={PAL.accent}
-                    allowNegative={false}
-                    onSave={(qty) => onUpdateBuyerRequest(r.forecast_id, qty)}
-                  />
+                  {r.is_aggregate ? (
+                    <span style={{ fontFamily: "monospace", color: r.buyer_request_qty !== 0 ? PAL.accent : PAL.textMuted }}>
+                      {formatQty(r.buyer_request_qty)}
+                    </span>
+                  ) : (
+                    <IntCell
+                      value={r.buyer_request_qty}
+                      accent={PAL.accent}
+                      allowNegative={false}
+                      onSave={(qty) => onUpdateBuyerRequest(r.forecast_id, qty)}
+                    />
+                  )}
                 </td>
                 <td style={{ ...S.tdNum, padding: "0 4px" }}>
-                  <IntCell
-                    value={r.override_qty}
-                    accent={PAL.yellow}
-                    allowNegative={true}
-                    onSave={(qty) => onUpdateOverride(r.forecast_id, qty)}
-                  />
+                  {r.is_aggregate ? (
+                    <span style={{ fontFamily: "monospace", color: r.override_qty !== 0 ? PAL.yellow : PAL.textMuted }}>
+                      {formatQty(r.override_qty)}
+                    </span>
+                  ) : (
+                    <IntCell
+                      value={r.override_qty}
+                      accent={PAL.yellow}
+                      allowNegative={true}
+                      onSave={(qty) => onUpdateOverride(r.forecast_id, qty)}
+                    />
+                  )}
                 </td>
                 <td style={{ ...S.tdNum, color: PAL.green, fontWeight: 700 }}>
                   {formatQty(r.final_forecast_qty)}
@@ -228,20 +293,32 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 <td style={S.tdNum}>{formatQty(r.receipts_due_qty)}</td>
                 <td style={{ ...S.tdNum, color: PAL.text }}>{formatQty(r.available_supply_qty)}</td>
                 <td style={{ ...S.tdNum, padding: "0 4px" }} onClick={(e) => e.stopPropagation()}>
-                  <BuyCell
-                    value={r.planned_buy_qty}
-                    onSave={(qty) => onUpdateBuyQty(r.forecast_id, qty)}
-                  />
+                  {r.is_aggregate ? (
+                    <span style={{ fontFamily: "monospace", color: (r.planned_buy_qty ?? 0) > 0 ? PAL.green : PAL.textMuted }}>
+                      {r.planned_buy_qty != null ? formatQty(r.planned_buy_qty) : "—"}
+                    </span>
+                  ) : (
+                    <BuyCell
+                      value={r.planned_buy_qty}
+                      onSave={(qty) => onUpdateBuyQty(r.forecast_id, qty)}
+                    />
+                  )}
                 </td>
                 <td style={{ ...S.tdNum, color: r.avg_cost ? PAL.text : PAL.textMuted, fontFamily: "monospace" }}>
                   {r.avg_cost ? `$${r.avg_cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "–"}
                 </td>
                 <td style={{ ...S.tdNum, padding: "0 4px" }} onClick={(e) => e.stopPropagation()}>
-                  <UnitCostCell
-                    value={r.unit_cost}
-                    overridden={r.unit_cost_override != null}
-                    onSave={(cost) => onUpdateUnitCost(r.forecast_id, cost)}
-                  />
+                  {r.is_aggregate ? (
+                    <span style={{ fontFamily: "monospace", color: r.unit_cost != null ? PAL.accent2 : PAL.textMuted }}>
+                      {r.unit_cost != null ? `$${r.unit_cost.toFixed(2)}` : "—"}
+                    </span>
+                  ) : (
+                    <UnitCostCell
+                      value={r.unit_cost}
+                      overridden={r.unit_cost_override != null}
+                      onSave={(cost) => onUpdateUnitCost(r.forecast_id, cost)}
+                    />
+                  )}
                 </td>
                 {(() => {
                   const qty = r.planned_buy_qty;
@@ -267,14 +344,14 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               </tr>
             ))}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={26} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={27} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No forecast rows yet. Click \"Build forecast\" above to populate the grid."
                   : "No rows match your filters."}
               </td></tr>
             )}
             {loading && (
-              <tr><td colSpan={26} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={27} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 Loading…
               </td></tr>
             )}
@@ -493,6 +570,15 @@ function StatCell({ label, value, accent }: { label: string; value: string; acce
   );
 }
 
+function CollapseToggle({ label, active, onToggle }: { label: string; active: boolean; onToggle: () => void }) {
+  return (
+    <label style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer", padding: "2px 6px", borderRadius: 4, background: active ? `${PAL.accent}22` : "transparent", border: `1px solid ${active ? PAL.accent : PAL.border}`, color: active ? PAL.accent : PAL.textDim }}>
+      <input type="checkbox" checked={active} onChange={onToggle} style={{ accentColor: PAL.accent }} />
+      {label}
+    </label>
+  );
+}
+
 function cmp(a: IpPlanningGridRow, b: IpPlanningGridRow, k: SortKey, d: "asc" | "desc"): number {
   const sign = d === "asc" ? 1 : -1;
   switch (k) {
@@ -505,4 +591,120 @@ function cmp(a: IpPlanningGridRow, b: IpPlanningGridRow, k: SortKey, d: "asc" | 
     case "action":   return a.recommended_action.localeCompare(b.recommended_action) * sign;
     case "method":   return a.forecast_method.localeCompare(b.forecast_method) * sign;
   }
+}
+
+// Aggregate rows by the active collapse modes. Each toggle changes the
+// grouping key independently:
+//   customers  → drop customer_id from key (sum across customers)
+//   colors     → use sku_style instead of sku_id (sum across colors)
+//   category   → use group_name; ignore SKU/color/customer
+//   subCat     → use sub_category_name; ignore SKU/color/customer
+// Category and subCat are mutually exclusive — turning one on clears the
+// other (handled at toggle time). When customers/colors are also on, the
+// numeric totals are still by period within the chosen rollup.
+function aggregateRows(rows: IpPlanningGridRow[], modes: CollapseModes): IpPlanningGridRow[] {
+  const groups = new Map<string, IpPlanningGridRow[]>();
+  for (const r of rows) {
+    let key: string;
+    if (modes.subCat) {
+      key = `sub:${r.sub_category_name ?? "—"}:${r.period_code}`;
+    } else if (modes.category) {
+      key = `cat:${r.group_name ?? "—"}:${r.period_code}`;
+    } else {
+      const skuPart = modes.colors ? `style:${r.sku_style ?? r.sku_code}` : `sku:${r.sku_id}`;
+      const custPart = modes.customers ? "all" : r.customer_id;
+      key = `${skuPart}:${custPart}:${r.period_code}`;
+    }
+    let bucket = groups.get(key);
+    if (!bucket) { bucket = []; groups.set(key, bucket); }
+    bucket.push(r);
+  }
+  const out: IpPlanningGridRow[] = [];
+  for (const [, bucket] of groups) {
+    out.push(bucket.length === 1 ? bucket[0] : mergeBucket(bucket, modes));
+  }
+  return out;
+}
+
+function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): IpPlanningGridRow {
+  const head = bucket[0];
+  const sum = (k: keyof IpPlanningGridRow) =>
+    bucket.reduce((a, r) => a + ((r[k] as number) ?? 0), 0);
+  const sumNullable = (k: keyof IpPlanningGridRow): number | null => {
+    let total = 0;
+    let found = false;
+    for (const r of bucket) {
+      const v = r[k] as number | null | undefined;
+      if (v != null) { total += v; found = true; }
+    }
+    return found ? total : null;
+  };
+  // Weighted-avg unit cost over planned_buy_qty (defaults to plain mean
+  // when no buy qty present).
+  const buyQtyTotal = bucket.reduce((a, r) => a + (r.planned_buy_qty ?? 0), 0);
+  let weightedCost: number | null = null;
+  if (buyQtyTotal > 0) {
+    let num = 0, den = 0;
+    for (const r of bucket) {
+      const q = r.planned_buy_qty ?? 0;
+      if (q > 0 && r.unit_cost != null) { num += r.unit_cost * q; den += q; }
+    }
+    weightedCost = den > 0 ? num / den : null;
+  } else {
+    const costs = bucket.map((r) => r.unit_cost).filter((c): c is number => c != null);
+    weightedCost = costs.length > 0 ? costs.reduce((a, c) => a + c, 0) / costs.length : null;
+  }
+  const customerSet = new Set(bucket.map((r) => r.customer_name));
+  const styleSet = new Set(bucket.map((r) => r.sku_style ?? r.sku_code));
+  const colorSet = new Set(bucket.map((r) => r.sku_color ?? "—"));
+
+  let label = head.customer_name;
+  let style: string | null = head.sku_style;
+  let color: string | null = head.sku_color;
+  let description = head.sku_description;
+
+  if (modes.subCat) {
+    label = `(${customerSet.size} cust · ${styleSet.size} styles)`;
+    style = head.sub_category_name ?? "(no sub cat)";
+    color = null;
+    description = `Sub Cat rollup — ${bucket.length} forecast rows`;
+  } else if (modes.category) {
+    label = `(${customerSet.size} cust · ${styleSet.size} styles)`;
+    style = head.group_name ?? "(no category)";
+    color = null;
+    description = `Category rollup — ${bucket.length} forecast rows`;
+  } else {
+    if (modes.customers && customerSet.size > 1) label = `(${customerSet.size} customers)`;
+    if (modes.colors && colorSet.size > 1) color = `(${colorSet.size} colors)`;
+  }
+
+  return {
+    ...head,
+    forecast_id: `agg:${head.forecast_id}:${bucket.length}`,
+    is_aggregate: true,
+    aggregate_count: bucket.length,
+    customer_id: modes.customers ? "*" : head.customer_id,
+    customer_name: label,
+    sku_style: style,
+    sku_color: color,
+    sku_description: description,
+    historical_trailing_qty: sum("historical_trailing_qty"),
+    system_forecast_qty: sum("system_forecast_qty"),
+    buyer_request_qty: sum("buyer_request_qty"),
+    override_qty: sum("override_qty"),
+    final_forecast_qty: sum("final_forecast_qty"),
+    ly_reference_qty: sumNullable("ly_reference_qty"),
+    on_hand_qty: sumNullable("on_hand_qty"),
+    on_so_qty: sum("on_so_qty"),
+    on_po_qty: sumNullable("on_po_qty"),
+    receipts_due_qty: sumNullable("receipts_due_qty"),
+    available_supply_qty: sum("available_supply_qty"),
+    projected_shortage_qty: sum("projected_shortage_qty"),
+    projected_excess_qty: sum("projected_excess_qty"),
+    planned_buy_qty: sumNullable("planned_buy_qty"),
+    unit_cost: weightedCost,
+    avg_cost: weightedCost ?? head.avg_cost,
+    item_cost: weightedCost ?? head.item_cost,
+    unit_cost_override: null,
+  };
 }

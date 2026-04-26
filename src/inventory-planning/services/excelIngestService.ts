@@ -431,6 +431,17 @@ export async function ingestItemMasterExcel(
     "moving avg cost", "moving average cost",
     "weighted cost", "wac", "fifo cost", "last cost",
   ];
+  // Xoro item export: GroupName → category (top level), CategoryName → sub
+  // category. Stored in ip_item_master.attributes JSONB so no migration is
+  // required; the grid reads them via item.attributes.group_name /
+  // item.attributes.category_name.
+  const GROUP_NAME_ALIASES = [
+    "group name", "groupname", "group", "department", "dept",
+  ];
+  const CATEGORY_NAME_ALIASES = [
+    "category name", "categoryname", "category", "sub category",
+    "subcategory", "sub_category", "sub cat", "subcat",
+  ];
 
   for (const r of rows) {
     // SKU: direct column or compose from Style + Color.
@@ -464,6 +475,9 @@ export async function ingestItemMasterExcel(
       : descRaw;
     const cost = toNum(pick(r, COST_ALIASES));
 
+    const groupName = String(pick(r, GROUP_NAME_ALIASES) ?? "").trim() || null;
+    const subCategoryName = String(pick(r, CATEGORY_NAME_ALIASES) ?? "").trim() || null;
+
     const item: Record<string, unknown> = {
       sku_code: sku,
       style_code: style || null,
@@ -472,6 +486,17 @@ export async function ingestItemMasterExcel(
       active: true,
     };
     if (description) item.description = description;
+    // GroupName + CategoryName from Xoro/Excel land in attributes JSONB so
+    // the grid renders Category / Sub Cat without a schema migration. The
+    // upsert replaces the column wholesale, so always send a complete object
+    // (or omit it entirely when both are blank, to avoid clobbering an
+    // existing row's values).
+    if (groupName || subCategoryName) {
+      item.attributes = {
+        ...(groupName ? { group_name: groupName } : {}),
+        ...(subCategoryName ? { category_name: subCategoryName } : {}),
+      };
+    }
     // Avg Cost in the spreadsheet drives both unit_cost on the master row
     // AND ip_item_avg_cost — the grid displays a single resolved cost so
     // Avg Cost and Unit Cost columns match by default.

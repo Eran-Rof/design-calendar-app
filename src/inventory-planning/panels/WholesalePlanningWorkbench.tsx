@@ -9,7 +9,7 @@
 // Keeps state flat (plain React). Grid dataset is small enough in Phase 1
 // that a rebuild on each change is acceptable.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { IpCategory, IpCustomer, IpItem } from "../types/entities";
 import type {
   IpForecastMethodPreference,
@@ -23,9 +23,9 @@ import type {
 import { FORECAST_METHOD_LABELS } from "../types/wholesale";
 import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { applyOverride, buildGridRows } from "../services/wholesaleForecastService";
-import { ingestXoroSales, syncAtsSupply, syncTandaPos } from "../services/xoroSalesIngestService";
+import { ingestXoroSales, syncAtsSupply, syncMissingItems, syncTandaPos } from "../services/xoroSalesIngestService";
 import { ingestSalesExcel, ingestItemMasterExcel, type ExcelIngestResult } from "../services/excelIngestService";
-import { S, PAL } from "../components/styles";
+import { S, PAL, formatPeriodCode } from "../components/styles";
 import { SB_HEADERS, SB_URL } from "../../utils/supabase";
 import PlanningRunControls from "./PlanningRunControls";
 import WholesalePlanningGrid from "./WholesalePlanningGrid";
@@ -123,6 +123,32 @@ export default function WholesalePlanningWorkbench() {
              o.period_start === selectedRow.period_start,
     );
   }, [overrides, selectedRow]);
+
+  // "Add new items" — Xoro item catalog → ip_item_master (insert-only).
+  // Existing master rows protected by on_conflict do_nothing on server side.
+  async function runMissingItemsSync() {
+    setIngesting(true); setRunningKind("missing-items");
+    try {
+      const r = await syncMissingItems({ pageLimit: 100 });
+      if (r.error) {
+        setToast({ text: `Add new items failed — ${r.error}${r.hint ? ` (${r.hint})` : ""}`, kind: "error" });
+        console.error("[xoro-items-missing-sync] failed", r);
+      } else {
+        const errSummary = r.errors.length > 0 ? ` · ⚠ ${r.errors.length} errors (see console)` : "";
+        if (r.errors.length > 0) console.error("[xoro-items-missing-sync] errors:", r.errors);
+        setToast({
+          text: `✓ Add new items DONE — fetched ${r.xoro_items_fetched.toLocaleString()} · ${r.already_in_master.toLocaleString()} already in master · inserted ${r.inserted.toLocaleString()} new SKUs${errSummary}`,
+          kind: r.inserted > 0 ? "success" : "info",
+        });
+        if (r.inserted > 0) await loadMasters();
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `Add new items failed — ${msg}`, kind: "error" });
+    } finally {
+      setIngesting(false); setRunningKind(null);
+    }
+  }
 
   async function runSupplySync(kind: "ats" | "tanda") {
     setIngesting(true); setRunningKind(kind === "ats" ? "ats" : "tanda");
@@ -626,6 +652,9 @@ export default function WholesalePlanningWorkbench() {
             <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
                    onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("sales", f); e.target.value = ""; } }} />
           </label>
+          <button style={S.btnSecondary} onClick={() => void runMissingItemsSync()} disabled={ingesting || autoWalking} title="Pulls the Xoro item catalog and inserts only SKUs not already in the item master. Existing rows are never modified.">
+            {runningKind === "missing-items" ? "Working…" : "+ Add new items (Xoro)"}
+          </button>
           <button style={S.btnSecondary} onClick={() => void runSupplySync("ats")} disabled={ingesting || autoWalking} title="Pulls on-hand / on-SO from the ATS app's persisted Excel snapshot into ip_inventory_snapshot">
             {runningKind === "ats" ? "Working…" : "Sync on-hand (ATS)"}
           </button>
@@ -681,15 +710,18 @@ export default function WholesalePlanningWorkbench() {
         </div>
 
         {tab === "grid" && (
-          <WholesalePlanningGrid
-            rows={rows}
-            loading={loading}
-            onSelectRow={setSelectedRow}
-            onUpdateBuyQty={saveBuyQty}
-            onUpdateUnitCost={saveUnitCost}
-            onUpdateBuyerRequest={saveBuyerRequest}
-            onUpdateOverride={saveOverrideQty}
-          />
+          <>
+            <MonthlyTotalsCards rows={rows} />
+            <WholesalePlanningGrid
+              rows={rows}
+              loading={loading}
+              onSelectRow={setSelectedRow}
+              onUpdateBuyQty={saveBuyQty}
+              onUpdateUnitCost={saveUnitCost}
+              onUpdateBuyerRequest={saveBuyerRequest}
+              onUpdateOverride={saveOverrideQty}
+            />
+          </>
         )}
 
         {tab === "requests" && (
@@ -715,6 +747,118 @@ export default function WholesalePlanningWorkbench() {
       )}
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
+    </div>
+  );
+}
+
+// Month-by-month rollup of Total Buy and Final Forecast — units + $.
+// Sourced from the same `rows` the grid renders (post-build), so what
+// you see here matches the grid totals.
+function MonthlyTotalsCards({ rows }: { rows: IpPlanningGridRow[] }) {
+  const totals = useMemo(() => {
+    type Bucket = {
+      buyQty: number; buyDollars: number;
+      forecastQty: number; forecastDollars: number;
+    };
+    const months = new Map<string, Bucket>();
+    let totalBuyQty = 0, totalBuyD = 0, totalFcQty = 0, totalFcD = 0;
+    for (const r of rows) {
+      const m = r.period_code;
+      let b = months.get(m);
+      if (!b) { b = { buyQty: 0, buyDollars: 0, forecastQty: 0, forecastDollars: 0 }; months.set(m, b); }
+      const buy = r.planned_buy_qty ?? 0;
+      const cost = r.unit_cost ?? r.avg_cost ?? 0;
+      b.buyQty += buy;
+      b.buyDollars += buy * cost;
+      b.forecastQty += r.final_forecast_qty;
+      b.forecastDollars += r.final_forecast_qty * cost;
+      totalBuyQty += buy;
+      totalBuyD += buy * cost;
+      totalFcQty += r.final_forecast_qty;
+      totalFcD += r.final_forecast_qty * cost;
+    }
+    const sorted = Array.from(months.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    return { sorted, totalBuyQty, totalBuyD, totalFcQty, totalFcD };
+  }, [rows]);
+
+  const fmtUnits = (n: number) => Math.round(n).toLocaleString();
+  const fmtUsd = (n: number) =>
+    n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(2)}M`
+      : n >= 10_000 ? `$${(n / 1000).toFixed(1)}k`
+      : `$${Math.round(n).toLocaleString()}`;
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+      <SummaryCard
+        title="Total Buy"
+        accent={PAL.green}
+        totalUnits={totals.totalBuyQty}
+        totalDollars={totals.totalBuyD}
+        rows={totals.sorted.map(([m, b]) => ({ month: m, units: b.buyQty, dollars: b.buyDollars }))}
+        fmtUnits={fmtUnits}
+        fmtUsd={fmtUsd}
+      />
+      <SummaryCard
+        title="Final Forecast"
+        accent={PAL.accent2}
+        totalUnits={totals.totalFcQty}
+        totalDollars={totals.totalFcD}
+        rows={totals.sorted.map(([m, b]) => ({ month: m, units: b.forecastQty, dollars: b.forecastDollars }))}
+        fmtUnits={fmtUnits}
+        fmtUsd={fmtUsd}
+      />
+    </div>
+  );
+}
+
+function SummaryCard({
+  title, accent, totalUnits, totalDollars, rows, fmtUnits, fmtUsd,
+}: {
+  title: string;
+  accent: string;
+  totalUnits: number;
+  totalDollars: number;
+  rows: Array<{ month: string; units: number; dollars: number }>;
+  fmtUnits: (n: number) => string;
+  fmtUsd: (n: number) => string;
+}) {
+  return (
+    <div style={{ ...S.card, padding: 14 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
+        <div style={{ fontSize: 12, color: PAL.textMuted, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>{title}</div>
+        <div style={{ display: "flex", gap: 16 }}>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 10, color: PAL.textMuted }}>Total units</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: accent, fontFamily: "monospace" }}>{fmtUnits(totalUnits)}</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 10, color: PAL.textMuted }}>Total $</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: accent, fontFamily: "monospace" }}>{fmtUsd(totalDollars)}</div>
+          </div>
+        </div>
+      </div>
+      {rows.length === 0 ? (
+        <div style={{ color: PAL.textMuted, fontSize: 12, fontStyle: "italic", padding: 8 }}>
+          No data yet — build a forecast and add Buy quantities.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "1.2fr repeat(2, 1fr)", gap: 4, fontSize: 12 }}>
+          <div style={{ color: PAL.textMuted, fontWeight: 600 }}>Month</div>
+          <div style={{ color: PAL.textMuted, fontWeight: 600, textAlign: "right" }}>Units</div>
+          <div style={{ color: PAL.textMuted, fontWeight: 600, textAlign: "right" }}>$</div>
+          {rows.map((r) => (
+            <Fragment key={r.month}>
+              <div style={{ color: PAL.textDim }}>{formatPeriodCode(r.month)}</div>
+              <div style={{ textAlign: "right", fontFamily: "monospace", color: r.units > 0 ? PAL.text : PAL.textMuted }}>
+                {r.units > 0 ? fmtUnits(r.units) : "—"}
+              </div>
+              <div style={{ textAlign: "right", fontFamily: "monospace", color: r.dollars > 0 ? PAL.text : PAL.textMuted }}>
+                {r.dollars > 0 ? fmtUsd(r.dollars) : "—"}
+              </div>
+            </Fragment>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

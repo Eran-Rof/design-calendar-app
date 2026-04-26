@@ -57,3 +57,34 @@ export async function syncTandaPos(): Promise<Record<string, unknown>> {
   if (!r.ok) throw new Error(`TandA POs sync returned ${r.status}`);
   return r.json();
 }
+
+export interface XoroItemsMissingResult {
+  xoro_path: string;
+  pages_fetched: number;
+  xoro_items_fetched: number;
+  deduped_to_unique_skus: number;
+  already_in_master: number;
+  inserted: number;
+  new_skus: number;
+  skipped_no_sku: number;
+  errors: string[];
+  message?: string;
+  hint?: string;
+  error?: string;
+  xoro?: unknown;
+}
+
+// "Add new items" — pulls the Xoro item catalog and inserts only the SKUs
+// that aren't already in ip_item_master. Existing master rows are never
+// touched. Use this when you've added items in Xoro between Excel master
+// uploads.
+export async function syncMissingItems(opts: { path?: string; pageStart?: number; pageLimit?: number } = {}): Promise<XoroItemsMissingResult> {
+  const p = new URLSearchParams();
+  if (opts.path) p.set("path", opts.path);
+  if (opts.pageStart != null) p.set("page_start", String(opts.pageStart));
+  if (opts.pageLimit != null) p.set("page_limit", String(opts.pageLimit));
+  const url = `/api/xoro-items-missing-sync${p.toString() ? "?" + p.toString() : ""}`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`Missing-items sync returned ${r.status}`);
+  return r.json();
+}

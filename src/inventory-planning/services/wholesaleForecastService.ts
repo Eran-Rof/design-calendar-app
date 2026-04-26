@@ -30,6 +30,18 @@ import {
 } from "../compute";
 import { wholesaleRepo } from "./wholesalePlanningRepository";
 
+// Item-master attributes JSONB pulls — keep null-safe so the grid never
+// breaks when an item was created by a sync stub before the Excel master
+// upload populated these.
+function readGroupName(item: { attributes?: Record<string, unknown> | null } | null | undefined): string | null {
+  const v = item?.attributes && (item.attributes as Record<string, unknown>).group_name;
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+function readSubCategoryName(item: { attributes?: Record<string, unknown> | null } | null | undefined): string | null {
+  const v = item?.attributes && (item.attributes as Record<string, unknown>).category_name;
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
 // Trim history to the forecast lookback window (default: 12 months before
 // the snapshot date). Keeps the compute payload small.
 function historySince(snapshotDate: IpIsoDate, lookbackMonths = 12): IpIsoDate {
@@ -366,6 +378,10 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       sku_description: description,
       sku_style: item?.style_code ?? null,
       sku_color: colorDisplay,
+      // Item-master classification — falls back to a sibling variant in
+      // the same style if the variant master row hasn't been populated yet.
+      group_name: readGroupName(item) ?? readGroupName(styleFallback) ?? null,
+      sub_category_name: readSubCategoryName(item) ?? readSubCategoryName(styleFallback) ?? null,
       period_code: f.period_code,
       period_start: f.period_start,
       period_end: f.period_end,

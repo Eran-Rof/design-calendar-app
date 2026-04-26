@@ -153,11 +153,20 @@ export interface IpPlanningGridRow {
   customer_name: string;
   category_id: string | null;
   category_name: string | null;
+  // Item-master derived classification (Xoro: GroupName / CategoryName).
+  // Rendered in the grid as the "Category" and "Sub Cat" columns. Optional
+  // because legacy rows may not have these populated yet.
+  group_name: string | null;
+  sub_category_name: string | null;
   sku_id: string;
   sku_code: string;
   sku_description: string | null;
   sku_style: string | null;
   sku_color: string | null;
+  // Set on rows produced by the grid's collapse/aggregate modes — disables
+  // inline-edit cells and renders read-only tallies.
+  is_aggregate?: boolean;
+  aggregate_count?: number;
   period_code: string;
   period_start: IpIsoDate;
   period_end: IpIsoDate;
