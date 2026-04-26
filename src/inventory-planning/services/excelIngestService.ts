@@ -87,13 +87,32 @@ async function sbPost(path: string, body: unknown[], prefer: string): Promise<vo
 
 // ── Sales history ──────────────────────────────────────────────────────────
 //
-// Expected columns (any of these names — case insensitive):
-//   SKU         (or sku_code, item_number, item)
-//   Customer    (or customer_name, customer_code, account)
-//   Date        (or txn_date, ship_date, invoice_date, order_date)
-//   Qty         (or quantity, qty_shipped, qty_invoiced)
-//   UnitPrice   (optional)
-//   InvoiceNumber / OrderNumber (optional, for source_line_key)
+// Expected columns (case-insensitive; multiple aliases supported):
+//   SKU              ("sku", "sku_code", "item_number", "item", "itemnumber")
+//                    OR composite "Base Part Number" + "Option 1 Value"
+//                    OR "Base Part Number" + "Option 1 Value" + "Option 2 Value"
+//   Customer         ("customer", "customer_name", "customer_code", "account")
+//   Date             ("date", "txn_date", "invoice_date", "ship_date", "order_date")
+//   Qty              ("qty", "quantity", "total sum of qty", "qty_shipped", "qty_invoiced")
+//   UnitPrice        ("unit_price", "unit price - 2", "price", "unitprice") — optional
+//   InvoiceNumber    ("invoice_number", "invoice number", "invoice") — optional
+//   OrderNumber      ("order_number", "order") — optional
+//   Sale Store       ("sale_store", "sale store", "store") — optional, used to skip
+//                    "Grand Total" summary rows + filter ecom
+
+// Pulls out a SKU from a row. Tries direct columns first, then composes
+// from "Base Part Number" + "Option 1 Value" (+ optional "Option 2 Value")
+// the way Xoro report exports lay it out.
+function extractSku(r: Record<string, unknown>): string {
+  const direct = canon(pick(r, ["sku", "sku_code", "item_number", "itemnumber", "item"]) as string);
+  if (direct) return direct;
+  const base = String(pick(r, ["base_part_number", "base part number", "base_part", "style_code", "style"]) ?? "").trim();
+  if (!base) return "";
+  const opt1 = String(pick(r, ["option_1_value", "option 1 value", "color", "colour"]) ?? "").trim();
+  const opt2 = String(pick(r, ["option_2_value", "option 2 value", "size"]) ?? "").trim();
+  const parts = [base, opt1, opt2].filter(Boolean);
+  return canon(parts.join("-"));
+}
 
 export async function ingestSalesExcel(file: File): Promise<ExcelIngestResult> {
   const result = empty();
@@ -109,46 +128,129 @@ export async function ingestSalesExcel(file: File): Promise<ExcelIngestResult> {
   const customerCodeToId = new Map(customers.map((c) => [canon(c.customer_code), c.id]));
   const customerNameToId = new Map(customers.map((c) => [canon(c.name), c.id]));
 
-  const out: Array<Record<string, unknown>> = [];
+  // First pass — collect candidates + dedupe missing items/customers
+  // for bulk-create. Doing per-row .upsert().select().single() on 21k
+  // rows would take many minutes; bulk-create finishes in ~5s.
+  type Candidate = {
+    sku: string;
+    skuSrc: Record<string, unknown>;
+    customerName: string | null;
+    customerKey: string | null;
+    txnDate: string;
+    qty: number;
+    unitPrice: number | null;
+    invoice: string | null;
+    order: string | null;
+    saleStore: string | null;
+  };
+  const candidates: Candidate[] = [];
+  const missingSkus = new Map<string, Record<string, unknown>>();
+  const missingCustomers = new Map<string, string>(); // canonName → name
+
   for (const r of rows) {
-    const sku = canon(pick(r, ["sku", "sku_code", "item_number", "itemnumber", "item"]) as string);
+    const saleStore = String(pick(r, ["sale_store", "sale store", "store"]) ?? "").trim();
+    // Skip pivot/summary rows (Xoro exports often append a "Grand Total" row).
+    if (saleStore.toLowerCase() === "grand total") continue;
+
+    const sku = extractSku(r);
     if (!sku) { result.skipped_no_sku++; continue; }
-    const skuId = skuToId.get(sku);
-    if (!skuId) { result.skipped_no_sku++; continue; }
 
     const txnDate = toIsoDate(pick(r, ["date", "txn_date", "invoice_date", "ship_date", "order_date"]));
     if (!txnDate) { result.skipped_no_date++; continue; }
 
-    const qty = toNum(pick(r, ["qty", "quantity", "qty_shipped", "qty_invoiced"]));
+    const qty = toNum(pick(r, ["qty", "quantity", "total_sum_of_qty", "total sum of qty", "qty_shipped", "qty_invoiced"]));
     if (qty == null || qty <= 0) { result.skipped_zero_qty++; continue; }
 
-    const customerKey = pick(r, ["customer_code", "customer", "customer_name", "account"]);
-    const customerId =
-      customerCodeToId.get(canon(customerKey as string)) ??
-      customerNameToId.get(canon(customerKey as string)) ??
-      null;
-
-    const invoice = String(pick(r, ["invoice_number", "invoice"]) ?? "").trim() || null;
+    const customerKeyRaw = String(pick(r, ["customer_code", "customer", "customer_name", "account"]) ?? "").trim();
+    const customerKey = customerKeyRaw || null;
+    const unitPrice = toNum(pick(r, ["unit_price", "unit price - 2", "unit_price_-_2", "price", "unitprice"]));
+    const invoice = String(pick(r, ["invoice_number", "invoice number", "invoice"]) ?? "").trim() || null;
     const order = String(pick(r, ["order_number", "order"]) ?? "").trim() || null;
-    const lineKey = invoice ? `excel:inv:${invoice}:${sku}:${txnDate}`
-                  : order   ? `excel:ord:${order}:${sku}:${txnDate}`
-                            : `excel:${sku}:${txnDate}:${qty}`;
 
+    if (!skuToId.has(sku) && !missingSkus.has(sku)) missingSkus.set(sku, r);
+    if (customerKey && !customerCodeToId.has(canon(customerKey)) && !customerNameToId.has(canon(customerKey)) && !missingCustomers.has(canon(customerKey))) {
+      missingCustomers.set(canon(customerKey), customerKey);
+    }
+
+    candidates.push({ sku, skuSrc: r, customerName: customerKey, customerKey, txnDate, qty, unitPrice, invoice, order, saleStore: saleStore || null });
+  }
+
+  // Bulk-create missing items
+  if (missingSkus.size > 0) {
+    const newItems = Array.from(missingSkus.entries()).map(([sku, src]) => ({
+      sku_code: sku,
+      style_code: String(pick(src, ["base_part_number", "base part number", "style_code", "style"]) ?? "").trim() || null,
+      description: String(pick(src, ["description", "title"]) ?? "").trim() || null,
+      color: String(pick(src, ["option_1_value", "option 1 value", "color", "colour"]) ?? "").trim() || null,
+      size: String(pick(src, ["option_2_value", "option 2 value", "size"]) ?? "").trim() || null,
+      uom: "each",
+      active: true,
+    }));
+    for (let i = 0; i < newItems.length; i += 500) {
+      const chunk = newItems.slice(i, i + 500);
+      await sbPost(
+        "ip_item_master?on_conflict=sku_code",
+        chunk,
+        "resolution=merge-duplicates,return=representation",
+      );
+    }
+    // Re-fetch items to get fresh ids.
+    const refreshed = await wholesaleRepo.listItems();
+    skuToId.clear();
+    for (const i of refreshed) skuToId.set(canon(i.sku_code), i.id);
+    result.errors = result.errors;
+  }
+
+  // Bulk-create missing customers (use name as customer_code so dedupe is stable)
+  if (missingCustomers.size > 0) {
+    const newCusts = Array.from(missingCustomers.values()).map((name) => ({
+      customer_code: `EXCEL:${canon(name)}`,
+      name,
+    }));
+    for (let i = 0; i < newCusts.length; i += 500) {
+      const chunk = newCusts.slice(i, i + 500);
+      await sbPost(
+        "ip_customer_master?on_conflict=customer_code",
+        chunk,
+        "resolution=merge-duplicates,return=representation",
+      );
+    }
+    const refreshedC = await wholesaleRepo.listCustomers();
+    customerCodeToId.clear();
+    customerNameToId.clear();
+    for (const c of refreshedC) {
+      customerCodeToId.set(canon(c.customer_code), c.id);
+      customerNameToId.set(canon(c.name), c.id);
+    }
+  }
+
+  // Second pass — build sales rows now that all ids exist
+  const out: Array<Record<string, unknown>> = [];
+  for (const c of candidates) {
+    const skuId = skuToId.get(c.sku);
+    if (!skuId) { result.skipped_no_sku++; continue; }
+    const customerId = c.customerKey
+      ? (customerCodeToId.get(canon(c.customerKey)) ?? customerNameToId.get(canon(c.customerKey)) ?? null)
+      : null;
+
+    const lineKey = c.invoice ? `excel:inv:${c.invoice}:${c.sku}:${c.txnDate}`
+                  : c.order   ? `excel:ord:${c.order}:${c.sku}:${c.txnDate}`
+                              : `excel:${c.sku}:${c.txnDate}:${c.qty}`;
     out.push({
       sku_id: skuId,
       customer_id: customerId,
       category_id: null,
       channel_id: null,
-      order_number: order,
-      invoice_number: invoice,
-      txn_type: invoice ? "invoice" : "ship",
-      txn_date: txnDate,
-      qty,
-      unit_price: toNum(pick(r, ["unit_price", "price", "unitprice"])),
-      gross_amount: null,
+      order_number: c.order,
+      invoice_number: c.invoice,
+      txn_type: c.invoice ? "invoice" : "ship",
+      txn_date: c.txnDate,
+      qty: c.qty,
+      unit_price: c.unitPrice,
+      gross_amount: c.unitPrice != null ? c.unitPrice * c.qty : null,
       discount_amount: null,
-      net_amount: null,
-      currency: null,
+      net_amount: c.unitPrice != null ? c.unitPrice * c.qty : null,
+      currency: "USD",
       source: "excel",
       raw_payload_id: null,
       source_line_key: lineKey,
