@@ -62,11 +62,12 @@ export default async function handler(req, res) {
   }).select("*").single();
   if (mErr) return res.status(500).json({ error: mErr.message });
 
-  // Update viewed-at and dispute.updated_at
+  // Update viewed-at and dispute.updated_at (scope on vendor_id too —
+  // defense in depth in case the row's owner changed between read and write).
   await admin.from("disputes").update({
     last_viewed_by_vendor_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-  }).eq("id", disputeId);
+  }).eq("id", disputeId).eq("vendor_id", caller.vendor_id);
 
   // Notify internal team
   try {
