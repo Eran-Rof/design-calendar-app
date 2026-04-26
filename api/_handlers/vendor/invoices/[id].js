@@ -88,7 +88,12 @@ export default async function handler(req, res) {
   if (tax !== undefined) patch.tax = tax != null && Number.isFinite(Number(tax)) ? Number(tax) : 0;
   if (total !== undefined) patch.total = total != null && Number.isFinite(Number(total)) ? Number(total) : null;
   if (notes !== undefined) patch.notes = notes ? String(notes).trim() : null;
-  if (file_url !== undefined) patch.file_url = file_url || null;
+  if (file_url !== undefined) {
+    if (file_url && (typeof file_url !== "string" || !file_url.startsWith(`${vendorId}/`))) {
+      return send(403, { error: "file_url must be under the caller's vendor folder" });
+    }
+    patch.file_url = file_url || null;
+  }
   if (file_description !== undefined) patch.file_description = file_description ? String(file_description).trim() : null;
   if (payment_terms !== undefined) patch.payment_terms = payment_terms ? String(payment_terms).trim() : null;
 

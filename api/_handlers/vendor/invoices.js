@@ -84,6 +84,13 @@ export default async function handler(req, res) {
     .eq("uuid_id", po_id).eq("vendor_id", caller.vendor_id).maybeSingle();
   if (!po) return send(403, { error: "PO not found or not yours" });
 
+  // Path-injection guard — file_url must live under the caller's folder
+  // when supplied. Without this, a vendor could submit an invoice whose
+  // attachment points at another vendor's storage path.
+  if (file_url && (typeof file_url !== "string" || !file_url.startsWith(`${caller.vendor_id}/`))) {
+    return send(403, { error: "file_url must be under the caller's vendor folder" });
+  }
+
   // Insert invoice header
   const { data: inv, error: invErr } = await admin.from("invoices").insert({
     vendor_id: caller.vendor_id,

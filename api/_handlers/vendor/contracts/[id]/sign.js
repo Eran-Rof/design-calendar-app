@@ -59,6 +59,12 @@ export default async function handler(req, res) {
   if (!file_url) return res.status(400).json({ error: "file_url is required" });
   if (file_mime_type && !/^application\/pdf/i.test(file_mime_type)) return res.status(400).json({ error: "Only PDF files are allowed" });
   if (file_size_bytes && Number(file_size_bytes) > 20 * 1024 * 1024) return res.status(400).json({ error: "File exceeds 20MB limit" });
+  // Path-injection guard — file_url must live under the caller's folder.
+  // Without this, a vendor could "sign" their contract with another vendor's
+  // file by submitting the other vendor's storage path here.
+  if (typeof file_url !== "string" || !file_url.startsWith(`${caller.vendor_id}/`)) {
+    return res.status(403).json({ error: "file_url must be under the caller's vendor folder" });
+  }
 
   const { data: contract } = await admin
     .from("contracts")
@@ -69,13 +75,15 @@ export default async function handler(req, res) {
   if (["expired", "terminated"].includes(contract.status)) return res.status(409).json({ error: `Contract is ${contract.status}; cannot sign` });
 
   const nowIso = new Date().toISOString();
+  // Filter on vendor_id too — defense in depth in case the row's owner
+  // changed between the read above and the update below.
   const { error: updErr } = await admin.from("contracts").update({
     signed_file_url: file_url,
     signed_at: nowIso,
     signed_by_vendor: caller.id,
     status: "signed",
     updated_at: nowIso,
-  }).eq("id", contractId);
+  }).eq("id", contractId).eq("vendor_id", caller.vendor_id);
   if (updErr) return res.status(500).json({ error: updErr.message });
 
   // Append as a new version

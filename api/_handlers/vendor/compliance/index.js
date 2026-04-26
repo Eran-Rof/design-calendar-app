@@ -114,6 +114,10 @@ export default async function handler(req, res) {
     } = body || {};
     if (!document_type_id) return res.status(400).json({ error: "document_type_id is required" });
     if (!file_url)         return res.status(400).json({ error: "file_url (Supabase Storage path) is required" });
+    // Path-injection guard — file_url must live under the caller's folder.
+    if (typeof file_url !== "string" || !file_url.startsWith(`${caller.vendor_id}/`)) {
+      return res.status(403).json({ error: "file_url must be under the caller's vendor folder" });
+    }
 
     if (file_mime_type && !/^(application\/pdf|image\/)/i.test(file_mime_type)) {
       return res.status(400).json({ error: "Only PDF or image files are allowed" });

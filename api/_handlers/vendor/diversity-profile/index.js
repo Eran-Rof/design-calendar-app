@@ -33,6 +33,11 @@ export default async function handler(req, res) {
   if (req.method === "POST") {
     let body = req.body;
     if (typeof body === "string") { try { body = JSON.parse(body); } catch { return res.status(400).json({ error: "Invalid JSON" }); } }
+    // Path-injection guard — certificate_file_url must live under the caller's folder.
+    const cert = body?.certificate_file_url;
+    if (cert && (typeof cert !== "string" || !cert.startsWith(`${vendorId}/`))) {
+      return res.status(403).json({ error: "certificate_file_url must be under the caller's vendor folder" });
+    }
     const types = Array.isArray(body?.business_type) ? body.business_type.filter((t) => KNOWN_BUSINESS_TYPES.includes(t)) : [];
     const payload = {
       business_type: types,

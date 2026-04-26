@@ -95,6 +95,10 @@ export default async function handler(req, res) {
     if (attachments.length > 5) return res.status(400).json({ error: "Max 5 attachments per message" });
     for (const a of attachments) {
       if (!a.file_url || !a.file_name) return res.status(400).json({ error: "Each attachment needs file_url and file_name" });
+      // Path-injection guard — attachments must live under this PO's folder.
+      if (typeof a.file_url !== "string" || !a.file_url.startsWith(`${poId}/`)) {
+        return res.status(403).json({ error: "Attachment file_url must live under this PO's folder" });
+      }
       if (a.file_size_bytes && Number(a.file_size_bytes) > 10 * 1024 * 1024) return res.status(400).json({ error: `Attachment ${a.file_name} exceeds 10MB` });
       if (a.file_mime_type && !/^(application\/pdf|image\/)/i.test(a.file_mime_type)) return res.status(400).json({ error: "Attachments must be PDF or image" });
     }
