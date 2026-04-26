@@ -145,14 +145,23 @@ export default async function handler(req, res) {
     }
   }
 
-  // 4. Bulk create missing items in 500-row chunks.
+  // 4. Bulk create missing items in 500-row chunks. Parse style_code +
+  //    color from the rolled-up sku_code so the grid's Style/Color
+  //    columns populate without relying on Excel-only fields.
   if (missingSkus.size > 0) {
-    const newItems = Array.from(missingSkus.entries()).map(([sku, ln]) => ({
-      sku_code: sku,
-      description: ln.Description ?? null,
-      uom: "each",
-      active: true,
-    }));
+    const newItems = Array.from(missingSkus.entries()).map(([sku, ln]) => {
+      const dash = sku.indexOf("-");
+      const style = dash > 0 ? sku.substring(0, dash) : sku;
+      const color = dash > 0 ? sku.substring(dash + 1) : null;
+      return {
+        sku_code: sku,
+        style_code: style,
+        color,
+        description: ln.Description ?? null,
+        uom: "each",
+        active: true,
+      };
+    });
     for (let i = 0; i < newItems.length; i += 500) {
       const chunk = newItems.slice(i, i + 500);
       const { data: created, error } = await admin

@@ -129,17 +129,26 @@ export default async function handler(req, res) {
   }
 
   // 4. Bulk-create missing items in 500-row chunks (was per-SKU before;
-  //    that hit the 60s timeout on large catalogs).
+  //    that hit the 60s timeout on large catalogs). Parse style_code +
+  //    color from the rolled-up sku_code so the grid's Style/Color
+  //    columns populate.
   const missing = candidates.filter((c) => !itemMap.has(c.sku));
   if (missing.length > 0) {
-    const newItems = missing.map((c) => ({
-      sku_code: c.sku,
-      description: c.src.description ?? null,
-      unit_cost: toNum(c.src.avgCost) || null,
-      uom: "each",
-      active: true,
-      external_refs: { ats_category: c.src.category ?? null },
-    }));
+    const newItems = missing.map((c) => {
+      const dash = c.sku.indexOf("-");
+      const style = dash > 0 ? c.sku.substring(0, dash) : c.sku;
+      const color = dash > 0 ? c.sku.substring(dash + 1) : null;
+      return {
+        sku_code: c.sku,
+        style_code: style,
+        color,
+        description: c.src.description ?? null,
+        unit_cost: toNum(c.src.avgCost) || null,
+        uom: "each",
+        active: true,
+        external_refs: { ats_category: c.src.category ?? null },
+      };
+    });
     for (let i = 0; i < newItems.length; i += 500) {
       const chunk = newItems.slice(i, i + 500);
       const { data: created, error } = await admin
