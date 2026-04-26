@@ -467,12 +467,28 @@ export default function WholesalePlanningWorkbench() {
     }
   }
 
-  // Optimistic local update so Buy $ reflects the typed value immediately,
-  // then refresh from DB so derived columns (Short, Excess, rolling supply)
-  // recompute. The refresh runs in the background (no await) so the user
-  // doesn't sit through a 2-3s grid rebuild after every keystroke.
+  // Optimistic local update so Buy $, Short, and Excess on the typed
+  // row all snap immediately. Downstream periods of the same SKU still
+  // wait for the background grid rebuild to pick up rolling supply,
+  // but the cell the planner is looking at updates without lag.
   async function saveBuyQty(forecastId: string, qty: number | null) {
-    setRows((prev) => prev.map((r) => r.forecast_id === forecastId ? { ...r, planned_buy_qty: qty } : r));
+    setRows((prev) => prev.map((r) => {
+      if (r.forecast_id !== forecastId) return r;
+      const newBuy = qty ?? 0;
+      const oldBuy = r.planned_buy_qty ?? 0;
+      const delta = newBuy - oldBuy;
+      // available_supply already includes the prior buy, so just shift it.
+      const newAvail = (r.available_supply_qty ?? 0) + delta;
+      const newShortage = Math.max(0, r.final_forecast_qty - newAvail);
+      const newExcess = Math.max(0, newAvail - r.final_forecast_qty);
+      return {
+        ...r,
+        planned_buy_qty: qty,
+        available_supply_qty: newAvail,
+        projected_shortage_qty: newShortage,
+        projected_excess_qty: newExcess,
+      };
+    }));
     try {
       await wholesaleRepo.patchForecastBuyQty(forecastId, qty);
       setToast({ text: qty != null ? `Buy qty set to ${qty.toLocaleString()}` : "Buy qty cleared", kind: "success" });
