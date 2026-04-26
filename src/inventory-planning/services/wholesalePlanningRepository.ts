@@ -319,8 +319,10 @@ export const wholesaleRepo = {
 
   // ── Recommendations ──────────────────────────────────────────────────────
   async listRecommendations(planningRunId: string): Promise<IpWholesaleRecommendation[]> {
-    return sbGet<IpWholesaleRecommendation>(
-      `ip_wholesale_recommendations?select=*&planning_run_id=eq.${planningRunId}&limit=200000`,
+    // Paginate — limit=200000 hits Supabase's 8s statement timeout
+    // once recommendations grow past a few thousand rows.
+    return sbGetAll<IpWholesaleRecommendation>(
+      `ip_wholesale_recommendations?select=*&planning_run_id=eq.${planningRunId}&order=customer_id.asc,sku_id.asc`,
     );
   },
   async replaceRecommendations(
