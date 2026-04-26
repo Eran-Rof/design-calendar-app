@@ -61,11 +61,16 @@ function toNum(v: unknown): number | null {
 }
 
 // Look up a value across multiple possible column name spellings, case-
-// insensitive. Excel templates vary — let users name columns naturally.
+// insensitive AND ignoring punctuation/whitespace differences. Excel
+// templates use spaces, code uses underscores — normalize both so
+// "Txn Date" / "txn_date" / "TXN-DATE" all match the same key.
+function normHeader(s: string): string {
+  return s.trim().toLowerCase().replace(/[\s_\-.]+/g, " ").trim();
+}
 function pick(row: Record<string, unknown>, names: string[]): unknown {
-  const lower = new Map(Object.entries(row).map(([k, v]) => [k.trim().toLowerCase(), v]));
+  const lower = new Map(Object.entries(row).map(([k, v]) => [normHeader(k), v]));
   for (const n of names) {
-    const v = lower.get(n.toLowerCase());
+    const v = lower.get(normHeader(n));
     if (v != null && v !== "") return v;
   }
   return null;

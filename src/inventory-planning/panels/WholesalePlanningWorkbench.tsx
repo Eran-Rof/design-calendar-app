@@ -225,11 +225,16 @@ export default function WholesalePlanningWorkbench() {
       const r: ExcelIngestResult = kind === "sales"
         ? await ingestSalesExcel(file, onProgress)
         : await ingestAvgCostExcel(file);
-      const skipped = r.skipped_no_sku + r.skipped_no_date + r.skipped_zero_qty + r.skipped_bad_cost;
+      const skipParts = [];
+      if (r.skipped_no_sku) skipParts.push(`${r.skipped_no_sku} no-SKU`);
+      if (r.skipped_no_date) skipParts.push(`${r.skipped_no_date} no-date`);
+      if (r.skipped_zero_qty) skipParts.push(`${r.skipped_zero_qty} zero-qty`);
+      if (r.skipped_bad_cost) skipParts.push(`${r.skipped_bad_cost} bad-cost`);
+      const skipSummary = skipParts.length > 0 ? ` · skipped ${skipParts.join(", ")}` : "";
       const errSummary = r.errors.length > 0 ? ` · ⚠ ${r.errors.length} errors (see console)` : "";
       if (r.errors.length > 0) console.error(`[excel-${kind}] errors:`, r.errors);
       setToast({
-        text: `✓ ${kind === "sales" ? "Sales" : "Avg costs"} upload DONE — parsed ${r.parsed.toLocaleString()} rows · upserted ${r.inserted.toLocaleString()} · skipped ${skipped.toLocaleString()}${errSummary}`,
+        text: `✓ ${kind === "sales" ? "Sales" : "Avg costs"} upload DONE — parsed ${r.parsed.toLocaleString()} rows · upserted ${r.inserted.toLocaleString()}${skipSummary}${errSummary}`,
         kind: r.errors.length > 0 ? "error" : r.inserted > 0 ? "success" : "info",
       });
       if (r.inserted > 0 && kind === "sales") await loadRunData();
