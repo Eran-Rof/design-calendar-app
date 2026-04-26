@@ -389,3 +389,122 @@ export async function ingestAvgCostExcel(file: File): Promise<ExcelIngestResult>
   result.inserted = out.length;
   return result;
 }
+
+// ── Item master ────────────────────────────────────────────────────────────
+//
+// Authoritative source for style, color, description, and avg cost.
+// Excel master row → ip_item_master AND ip_item_avg_cost. Sync handlers
+// (Xoro sales, TandA POs, ATS supply) only auto-create stub items if
+// missing — they no longer overwrite master fields.
+//
+// Expected columns (case-insensitive, multiple aliases):
+//   SKU              ("sku", "sku_code", "item_number", "item")
+//                    OR composite "Style" + "Color" (Style required)
+//   Description      ("description", "title", "name")
+//   Style            ("style", "style_code", "base_part_number")
+//   Color            ("color", "colour", "option_1_value", "option 1 value")
+//   AvgCost          ("avg_cost", "avg cost", "cost", "unit_cost", "unitcost")
+//
+// SKU resolution: explicit SKU column wins; otherwise compose from
+// Style + Color and canonicalize.
+
+export async function ingestItemMasterExcel(
+  file: File,
+  onProgress?: (msg: string) => void,
+): Promise<ExcelIngestResult> {
+  const log = (m: string) => { console.log("[excel-master]", m); onProgress?.(m); };
+  const result = empty();
+  log(`Parsing ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)…`);
+  const rows = await parseWorkbook(file);
+  result.parsed = rows.length;
+  log(`Parsed ${rows.length.toLocaleString()} rows`);
+  if (rows.length === 0) return result;
+
+  const itemPayload: Array<Record<string, unknown>> = [];
+  const costPayload: Array<Record<string, unknown>> = [];
+  const seenSkus = new Set<string>();
+
+  for (const r of rows) {
+    // SKU: direct column or compose from Style + Color.
+    let sku = canon(pick(r, ["sku", "sku_code", "item_number", "itemnumber", "item"]) as string);
+    if (!sku) {
+      const style = String(pick(r, ["style", "style_code", "base_part_number", "base part number"]) ?? "").trim();
+      const color = String(pick(r, ["color", "colour", "option_1_value", "option 1 value"]) ?? "").trim();
+      if (!style) { result.skipped_no_sku++; continue; }
+      sku = canon([style, color].filter(Boolean).join("-"));
+    } else {
+      // If user pasted an existing variant SKU with size, strip it.
+      sku = stripSizeSuffix(sku);
+    }
+    if (!sku || seenSkus.has(sku)) {
+      if (!sku) result.skipped_no_sku++;
+      continue;
+    }
+    seenSkus.add(sku);
+
+    const explicitStyle = String(pick(r, ["style", "style_code", "base_part_number", "base part number"]) ?? "").trim();
+    const explicitColor = String(pick(r, ["color", "colour", "option_1_value", "option 1 value"]) ?? "").trim();
+    const dash = sku.indexOf("-");
+    const style = explicitStyle || (dash > 0 ? sku.substring(0, dash) : sku);
+    // Prefer the explicit color cell (preserves spacing) over the
+    // suffix parsed from sku_code.
+    const color = explicitColor || (dash > 0 ? sku.substring(dash + 1) : null);
+    const description = String(pick(r, ["description", "title", "name"]) ?? "").trim();
+    const cost = toNum(pick(r, ["avg_cost", "avg cost", "avgcost", "cost", "unit_cost", "unitcost"]));
+
+    const item: Record<string, unknown> = {
+      sku_code: sku,
+      style_code: style || null,
+      color: color || null,
+      uom: "each",
+      active: true,
+    };
+    if (description) item.description = description;
+    if (cost != null && cost >= 0) {
+      item.unit_cost = cost;
+      // Mirror to ip_item_avg_cost so the static Avg Cost grid column populates.
+      costPayload.push({
+        sku_code: sku,
+        avg_cost: cost,
+        source: "excel",
+        source_ref: file.name,
+      });
+    }
+    itemPayload.push(item);
+  }
+
+  log(`Upserting ${itemPayload.length.toLocaleString()} item-master rows…`);
+  for (let i = 0; i < itemPayload.length; i += 500) {
+    try {
+      await sbPost(
+        "ip_item_master?on_conflict=sku_code",
+        itemPayload.slice(i, i + 500),
+        "resolution=merge-duplicates,return=minimal",
+      );
+      result.inserted += Math.min(500, itemPayload.length - i);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      result.errors.push(`item chunk ${i}: ${msg}`);
+      log(`✗ item chunk ${i} failed: ${msg}`);
+    }
+  }
+
+  if (costPayload.length > 0) {
+    log(`Upserting ${costPayload.length.toLocaleString()} avg-cost rows…`);
+    for (let i = 0; i < costPayload.length; i += 500) {
+      try {
+        await sbPost(
+          "ip_item_avg_cost?on_conflict=sku_code",
+          costPayload.slice(i, i + 500),
+          "resolution=merge-duplicates,return=minimal",
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        result.errors.push(`cost chunk ${i}: ${msg}`);
+      }
+    }
+  }
+
+  log(`✓ DONE — ${result.inserted.toLocaleString()} items, ${costPayload.length.toLocaleString()} avg costs, ${result.errors.length} errors`);
+  return result;
+}

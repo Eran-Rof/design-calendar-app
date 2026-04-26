@@ -24,7 +24,7 @@ import { FORECAST_METHOD_LABELS } from "../types/wholesale";
 import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { applyOverride, buildGridRows } from "../services/wholesaleForecastService";
 import { ingestXoroSales, ingestXoroItems, syncAtsSupply, syncTandaPos } from "../services/xoroSalesIngestService";
-import { ingestSalesExcel, ingestAvgCostExcel, type ExcelIngestResult } from "../services/excelIngestService";
+import { ingestSalesExcel, ingestAvgCostExcel, ingestItemMasterExcel, type ExcelIngestResult } from "../services/excelIngestService";
 import { S, PAL } from "../components/styles";
 import { SB_HEADERS, SB_URL } from "../../utils/supabase";
 import PlanningRunControls from "./PlanningRunControls";
@@ -218,13 +218,15 @@ export default function WholesalePlanningWorkbench() {
     }
   }
 
-  async function ingestExcel(kind: "sales" | "avgcost", file: File) {
+  async function ingestExcel(kind: "sales" | "avgcost" | "master", file: File) {
     setIngesting(true); setRunningKind(`excel-${kind}`);
+    const label = kind === "sales" ? "Sales" : kind === "avgcost" ? "Avg costs" : "Item master";
     try {
-      const onProgress = (msg: string) => setToast({ text: `${kind === "sales" ? "Sales" : "Avg costs"} upload: ${msg}`, kind: "info" });
-      const r: ExcelIngestResult = kind === "sales"
-        ? await ingestSalesExcel(file, onProgress)
-        : await ingestAvgCostExcel(file);
+      const onProgress = (msg: string) => setToast({ text: `${label} upload: ${msg}`, kind: "info" });
+      const r: ExcelIngestResult =
+        kind === "sales"   ? await ingestSalesExcel(file, onProgress) :
+        kind === "avgcost" ? await ingestAvgCostExcel(file) :
+                             await ingestItemMasterExcel(file, onProgress);
       const skipParts = [];
       if (r.skipped_no_sku) skipParts.push(`${r.skipped_no_sku} no-SKU`);
       if (r.skipped_no_date) skipParts.push(`${r.skipped_no_date} no-date`);
@@ -234,17 +236,17 @@ export default function WholesalePlanningWorkbench() {
       const errSummary = r.errors.length > 0 ? ` · ⚠ ${r.errors.length} errors (see console)` : "";
       if (r.errors.length > 0) console.error(`[excel-${kind}] errors:`, r.errors);
       setToast({
-        text: `✓ ${kind === "sales" ? "Sales" : "Avg costs"} upload DONE — parsed ${r.parsed.toLocaleString()} rows · upserted ${r.inserted.toLocaleString()}${skipSummary}${errSummary}`,
+        text: `✓ ${label} upload DONE — parsed ${r.parsed.toLocaleString()} rows · upserted ${r.inserted.toLocaleString()}${skipSummary}${errSummary}`,
         kind: r.errors.length > 0 ? "error" : r.inserted > 0 ? "success" : "info",
       });
       if (r.inserted > 0 && kind === "sales") await loadRunData();
-      if (r.inserted > 0 && kind === "avgcost" && selectedRun) {
+      if (r.inserted > 0 && (kind === "avgcost" || kind === "master") && selectedRun) {
         const refreshed = await buildGridRows(selectedRun);
         setRows(refreshed);
       }
     } catch (e) {
       console.error(`[excel-${kind}] failed`, e);
-      setToast({ text: `✗ ${kind} upload FAILED — ${e instanceof Error ? e.message : String(e)} (see DevTools console)`, kind: "error" });
+      setToast({ text: `✗ ${label} upload FAILED — ${e instanceof Error ? e.message : String(e)} (see DevTools console)`, kind: "error" });
     } finally {
       setIngesting(false); setRunningKind(null);
     }
@@ -646,6 +648,11 @@ export default function WholesalePlanningWorkbench() {
           <button style={S.btnSecondary} onClick={ingestItems} disabled={ingesting || autoWalking} title="Pulls Xoro item catalog into ip_item_master. Click repeatedly to chunk through 20k items — page tracker advances automatically.">
             {runningKind === "items" ? "Working…" : `Ingest Xoro items (pages ${itemsPageStart}-${itemsPageStart + 4})`}
           </button>
+          <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }} title="Authoritative source of truth for SKU, Style, Color, Description, Avg Cost. Sync handlers won't overwrite these fields.">
+            {runningKind === "excel-master" ? "Working…" : "Upload item master (Excel)"}
+            <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
+                   onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("master", f); e.target.value = ""; } }} />
+          </label>
           <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }}>
             {runningKind === "excel-sales" ? "Working…" : "Upload sales (Excel)"}
             <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}

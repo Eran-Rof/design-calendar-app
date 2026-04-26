@@ -45,25 +45,32 @@ export function parseStyleColor(canonicalSku) {
   };
 }
 
-// Build an ip_item_master row payload for a given SKU + optional source-
-// specific overrides. Always sets style_code + color from sku_code so the
-// grid's Style/Color columns populate consistently.
+// Build an ip_item_master row payload for a given SKU.
 //
-// `description` is only included when non-empty so we don't clobber a
-// real description (e.g. from ATS) with null on a subsequent sync.
+// Default mode (`minimal: true`) — for sync handlers (Xoro sales, TandA
+// POs, ATS supply). Writes ONLY sku_code + sku-derived style_code +
+// active=true. Does NOT include description, color (display), unit_cost,
+// or unit_price even if overrides has them — so an existing master row
+// keeps its authoritative values from the Item Master Excel upload.
+//
+// Set `minimal: false` only from the Item Master Excel uploader, which
+// IS the authoritative source.
 export function buildItemRow(canonicalSku, overrides = {}) {
   const { style, color } = parseStyleColor(canonicalSku);
+  const minimal = overrides.minimal !== false; // default true
   const row = {
     sku_code: canonicalSku,
     style_code: style,
-    color: overrides.colorDisplay ?? color, // colorDisplay preserves source spacing
     uom: overrides.uom ?? "each",
     active: true,
-    ...(overrides.unit_cost != null ? { unit_cost: overrides.unit_cost } : {}),
-    ...(overrides.unit_price != null ? { unit_price: overrides.unit_price } : {}),
-    ...(overrides.external_refs ? { external_refs: overrides.external_refs } : {}),
   };
-  const desc = overrides.description != null ? String(overrides.description).trim() : "";
-  if (desc) row.description = desc;
+  if (!minimal) {
+    row.color = overrides.colorDisplay ?? color;
+    if (overrides.unit_cost != null) row.unit_cost = overrides.unit_cost;
+    if (overrides.unit_price != null) row.unit_price = overrides.unit_price;
+    if (overrides.external_refs) row.external_refs = overrides.external_refs;
+    const desc = overrides.description != null ? String(overrides.description).trim() : "";
+    if (desc) row.description = desc;
+  }
   return row;
 }
