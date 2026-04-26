@@ -93,7 +93,9 @@ export default async function handler(req, res) {
   if (payment_terms !== undefined) patch.payment_terms = payment_terms ? String(payment_terms).trim() : null;
 
   if (Object.keys(patch).length > 1) {
-    const { error: upErr } = await admin.from("invoices").update(patch).eq("id", invoiceId);
+    // Filter on vendor_id too — defense in depth in case the row's owner
+    // changed between the read above and the update below.
+    const { error: upErr } = await admin.from("invoices").update(patch).eq("id", invoiceId).eq("vendor_id", vendorId);
     if (upErr) {
       if (upErr.code === "23505") return send(409, { error: "Invoice number already in use for this vendor" });
       return send(500, { error: upErr.message });
