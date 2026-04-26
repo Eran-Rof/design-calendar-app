@@ -17,7 +17,7 @@ export interface WholesalePlanningGridProps {
 }
 
 type SortKey =
-  | "customer" | "sku" | "period" | "final" | "shortage" | "excess" | "action" | "method";
+  | "customer" | "style" | "period" | "final" | "shortage" | "excess" | "action" | "method";
 
 export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, loading }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
@@ -62,7 +62,12 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       if (filterAction !== "all" && r.recommended_action !== filterAction) return false;
       if (filterConfidence !== "all" && r.confidence_level !== filterConfidence) return false;
       if (filterMethod !== "all" && r.forecast_method !== filterMethod) return false;
-      if (q && !(r.sku_code.includes(q) || r.customer_name.toUpperCase().includes(q))) return false;
+      if (q && !(
+        r.sku_code.includes(q)
+        || (r.sku_style ?? "").toUpperCase().includes(q)
+        || (r.sku_color ?? "").toUpperCase().includes(q)
+        || r.customer_name.toUpperCase().includes(q)
+      )) return false;
       return true;
     });
     return out.sort((a, b) => cmp(a, b, sortKey, sortDir));
@@ -140,8 +145,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
             <tr>
               <Th label="Customer" k="customer" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th style={S.th}>Category</th>
-              <Th label="SKU" k="sku" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <th style={S.th}>Style</th>
+              <Th label="Style" k="style" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th style={S.th}>Color</th>
               <th style={S.th}>Description</th>
               <Th label="Period" k="period" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
@@ -176,8 +180,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               >
                 <td style={S.td}>{r.customer_name}</td>
                 <td style={{ ...S.td, color: PAL.textDim }}>{r.category_name ?? "–"}</td>
-                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>{r.sku_code}</td>
-                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.textDim }}>{r.sku_style ?? "—"}</td>
+                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>{r.sku_style ?? r.sku_code}</td>
                 <td style={{ ...S.td, color: PAL.textDim }}>{r.sku_color ?? "—"}</td>
                 <td style={{ ...S.td, color: PAL.textDim, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.sku_description ?? ""}>
                   {r.sku_description ?? "—"}
@@ -264,14 +267,14 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               </tr>
             ))}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={27} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={26} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No forecast rows yet. Click \"Build forecast\" above to populate the grid."
                   : "No rows match your filters."}
               </td></tr>
             )}
             {loading && (
-              <tr><td colSpan={27} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={26} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 Loading…
               </td></tr>
             )}
@@ -494,7 +497,7 @@ function cmp(a: IpPlanningGridRow, b: IpPlanningGridRow, k: SortKey, d: "asc" | 
   const sign = d === "asc" ? 1 : -1;
   switch (k) {
     case "customer": return a.customer_name.localeCompare(b.customer_name) * sign;
-    case "sku":      return a.sku_code.localeCompare(b.sku_code) * sign;
+    case "style":    return ((a.sku_style ?? a.sku_code) + ":" + (a.sku_color ?? "")).localeCompare((b.sku_style ?? b.sku_code) + ":" + (b.sku_color ?? "")) * sign;
     case "period":   return a.period_start.localeCompare(b.period_start) * sign;
     case "final":    return (a.final_forecast_qty - b.final_forecast_qty) * sign;
     case "shortage": return (a.projected_shortage_qty - b.projected_shortage_qty) * sign;
