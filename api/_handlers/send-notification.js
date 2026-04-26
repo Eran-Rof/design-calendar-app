@@ -203,8 +203,14 @@ export default async function handler(req, res) {
 }
 
 function renderEmailHtml({ title, body, link }) {
-  const linkBlock = link
-    ? `<p style="margin:16px 0;"><a href="${link}" style="background:#C8210A;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block;">View details</a></p>`
+  // Escape link too — it's interpolated into an href attribute, so an
+  // unescaped quote would break out of the attribute and let a caller
+  // inject arbitrary HTML/JS into the email body. Also reject anything
+  // that doesn't look like an http(s) URL or absolute path so attackers
+  // can't smuggle a `javascript:` URL through.
+  const safeLink = isSafeLink(link) ? link : null;
+  const linkBlock = safeLink
+    ? `<p style="margin:16px 0;"><a href="${escapeHtml(safeLink)}" style="background:#C8210A;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block;">View details</a></p>`
     : "";
   return `
 <!DOCTYPE html>
@@ -222,4 +228,12 @@ function renderEmailHtml({ title, body, link }) {
 function escapeHtml(s) {
   if (s == null) return "";
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function isSafeLink(s) {
+  if (typeof s !== "string" || !s) return false;
+  // Allow http(s) URLs and root-anchored relative paths only — blocks
+  // javascript:, data:, mailto:, etc. as well as anything that doesn't
+  // look like a navigation target.
+  return /^https?:\/\//i.test(s) || /^\/[^\/]/.test(s) || s === "/";
 }
