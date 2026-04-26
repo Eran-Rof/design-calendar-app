@@ -258,6 +258,38 @@ export default function WholesalePlanningWorkbench() {
   // planner doesn't need to click 100+ times to backfill a window
   // (Xoro returns oldest-first; reaching last year's August requires
   // walking through every page since the first invoice ever).
+  // Daily/weekly delta sync — fetches only the last 10 Xoro pages
+  // (~1000 newest invoices). Idempotent on source_line_key so anything
+  // already in the DB is a no-op. Use this after the Excel bootstrap
+  // instead of "Fetch all" for routine updates.
+  async function syncNewestSales() {
+    setIngesting(true); setRunningKind("newest");
+    try {
+      const r = await ingestXoroSales({
+        dateFrom: "1900-01-01",
+        dateTo: "2100-12-31",
+        fromEnd: 10,
+        pageLimit: 10,
+      });
+      if (r.error) {
+        setToast({ text: `Sync newest error: ${r.error}`, kind: "error" });
+        return;
+      }
+      const span = r.oldest_invoice_in_batch && r.newest_invoice_in_batch
+        ? ` · covered ${r.oldest_invoice_in_batch}…${r.newest_invoice_in_batch}`
+        : "";
+      setToast({
+        text: `✓ Sync newest DONE — ${r.xoro_lines_fetched} fetched · ${r.inserted} upserted${r.auto_created_skus ? ` · ${r.auto_created_skus} new SKUs` : ""}${r.auto_created_customers ? ` · ${r.auto_created_customers} new customers` : ""}${span}`,
+        kind: r.inserted > 0 ? "success" : "info",
+      });
+      if (r.inserted > 0) await loadRunData();
+    } catch (e) {
+      setToast({ text: `Sync newest failed — ${e instanceof Error ? e.message : String(e)}`, kind: "error" });
+    } finally {
+      setIngesting(false); setRunningKind(null);
+    }
+  }
+
   async function autoWalkSales() {
     setAutoWalking(true); setRunningKind("autowalk");
     autoWalkAbort.current = false;
@@ -568,6 +600,9 @@ export default function WholesalePlanningWorkbench() {
               ■ Stop fetch
             </button>
           )}
+          <button style={S.btnSecondary} onClick={syncNewestSales} disabled={ingesting || autoWalking} title="Pulls only the LAST 10 Xoro pages (~1000 newest invoices). Use after the Excel bootstrap for daily/weekly updates.">
+            {runningKind === "newest" ? "Working…" : "↻ Sync newest sales"}
+          </button>
           <button style={S.btnSecondary} onClick={ingestItems} disabled={ingesting || autoWalking} title="Pulls Xoro item catalog into ip_item_master. Click repeatedly to chunk through 20k items — page tracker advances automatically.">
             {runningKind === "items" ? "Working…" : `Ingest Xoro items (pages ${itemsPageStart}-${itemsPageStart + 4})`}
           </button>

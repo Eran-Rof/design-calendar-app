@@ -71,7 +71,17 @@ export default async function handler(req, res) {
   const pageLimit = Math.min(parseInt(url.searchParams.get("page_limit") || "1", 10), 50);
   // Page tracker so successive UI clicks step through pages 1, 2, 3 …
   // within the same date window without reprocessing the same invoices.
-  const pageStart = Math.max(parseInt(url.searchParams.get("page_start") || "1", 10), 1);
+  let pageStart = Math.max(parseInt(url.searchParams.get("page_start") || "1", 10), 1);
+  // "Newest" mode — pull the last N pages instead of starting from
+  // page 1. Used by the "Sync newest" button for daily/weekly updates
+  // after an Excel bootstrap. Discovers totalPages with one cheap call,
+  // then sets pageStart = max(1, totalPages - from_end + 1).
+  const fromEnd = parseInt(url.searchParams.get("from_end") || "0", 10);
+  if (fromEnd > 0) {
+    const probe = await fetchXoroAll({ path, params: { per_page: "200" }, maxPages: 1, module: url.searchParams.get("module") || "items", pageStart: 1 });
+    const totalPages = probe.totalPages ?? probe.body?.TotalPages ?? 1;
+    pageStart = Math.max(1, totalPages - fromEnd + 1);
+  }
 
   // ── Fetch from Xoro ────────────────────────────────────────────────────────
   // Module override: ?module=items|sales|default (default falls back to
