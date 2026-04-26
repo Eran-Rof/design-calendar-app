@@ -74,8 +74,13 @@ export default async function handler(req, res) {
   const pageStart = Math.max(parseInt(url.searchParams.get("page_start") || "1", 10), 1);
 
   // ── Fetch from Xoro ────────────────────────────────────────────────────────
-  // module: "sales" → uses VITE_XORO_SALES_API_KEY/SECRET (separate creds
-  // Xoro provisions for the sales-history endpoint).
+  // Module override: ?module=items|sales|default (default falls back to
+  // VITE_XORO_API_KEY). The dedicated VITE_XORO_SALES_API_KEY was returning
+  // a permission-filtered subset (~2200 invoices out of a known 10k+
+  // catalog). The ATS App key (module=items) has Sales Order Management
+  // read access and likely sees the full catalog. Default flipped to "items"
+  // for that reason; planner can override per call if needed.
+  const moduleOverride = url.searchParams.get("module") || "items";
   const xoroResult = await fetchXoroAll({
     path,
     params: {
@@ -87,7 +92,7 @@ export default async function handler(req, res) {
       InvoiceDateTo: dateTo,
     },
     maxPages: pageLimit,
-    module: "sales",
+    module: moduleOverride,
     pageStart,
   });
 
@@ -153,6 +158,7 @@ export default async function handler(req, res) {
     date_to: dateTo,
     page_start: pageStart,
     page_limit: pageLimit,
+    module: moduleOverride,
   };
 
   // First pass — collect candidate rows + dedupe missing customers/SKUs
