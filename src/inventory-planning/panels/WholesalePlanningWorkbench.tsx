@@ -321,17 +321,21 @@ export default function WholesalePlanningWorkbench() {
         if (r.newest_invoice_in_batch && (!latestDate || r.newest_invoice_in_batch > latestDate)) latestDate = r.newest_invoice_in_batch;
         // (Resume marker removed — always start from page 1; no partial state.)
         // Live progress so the planner sees something is happening.
+        const emptyHint = consecutiveEmpty > 0 ? ` · ${consecutiveEmpty} empty in a row` : "";
         setToast({
-          text: `Auto-walk: page ${page} · ${r.oldest_invoice_in_batch ?? "?"}…${r.newest_invoice_in_batch ?? "?"} · running totals ${totalInserted} upserted, ${totalAutoSku} new SKUs`,
+          text: `Auto-walk: page ${page} · ${r.oldest_invoice_in_batch ?? "?"}…${r.newest_invoice_in_batch ?? "?"} · running totals ${totalInserted} upserted, ${totalAutoSku} new SKUs${emptyHint}`,
           kind: "info",
         });
-        // Tolerate up to 3 consecutive empty batches before declaring
-        // end-of-catalog — Xoro occasionally returns an empty page
-        // mid-catalog (transient pagination hiccup) and the next batch
-        // recovers. Reset the counter on any non-empty batch.
+        // Tolerate empty batches mid-catalog — Xoro returns plenty of
+        // sparse pages (permission filtering, internal partitioning)
+        // and the previous "3 empty in a row = stop" bail was killing
+        // walks before they reached older invoices the planner needed.
+        // Only stop after 25 consecutive empty calls (50 Xoro pages
+        // with no data) — at that point we genuinely are at end of
+        // catalog or hit a permission ceiling.
         if (r.xoro_lines_fetched === 0) {
           consecutiveEmpty++;
-          if (consecutiveEmpty >= 3) {
+          if (consecutiveEmpty >= 25) {
             setSalesPageStart(1);
             break;
           }
