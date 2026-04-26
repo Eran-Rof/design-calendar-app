@@ -122,13 +122,19 @@ export default async function handler(req, res) {
   // so we have the device token + platform without a second query.
   const { data: queue, error } = await admin
     .from("push_notifications")
-    .select("id, title, body, data, mobile_session_id, vendor_user_id, status, session:mobile_sessions(id, device_token, platform)")
+    .select("id, title, body, data, mobile_session_id, vendor_user_id, status, error_message, session:mobile_sessions(id, device_token, platform)")
     .eq("status", "queued")
     .order("created_at", { ascending: true })
     .limit(BATCH_SIZE);
   if (error) return res.status(500).json({ error: error.message });
 
   let sent = 0, failed = 0, retried = 0, tokensRemoved = 0;
+
+  // Encode the attempt count in the error_message prefix as "[N/MAX] reason"
+  // so we have a retry budget without a schema change. Without this the
+  // status='queued' filter above always returned a row that "looks fresh"
+  // and recoverable failures retried forever.
+  const ATTEMPT_RE = /^\[(\d+)\/\d+\]\s/;
 
   for (const row of queue || []) {
     const sess = row.session;
@@ -141,9 +147,8 @@ export default async function handler(req, res) {
       continue;
     }
 
-    // Count prior attempts via error_message presence heuristic — use
-    // metadata.attempts if schema supports it; fall back to status flips.
-    const attemptsSoFar = row.status === "queued" ? 0 : 1;
+    const m = row.error_message ? ATTEMPT_RE.exec(row.error_message) : null;
+    const attemptsSoFar = m ? Number(m[1]) : 0;
 
     const target = { ...row, device_token: sess.device_token, platform: sess.platform };
     const result = sess.platform === "ios" ? await sendApns(target) : await sendFcm(target);
@@ -178,9 +183,11 @@ export default async function handler(req, res) {
       continue;
     }
 
-    // Leave queued for retry on next cron tick; record last error
+    // Leave queued for retry on next cron tick; record last error with
+    // attempt counter prefix so the next pick-up can detect the budget.
+    const nextAttempt = attemptsSoFar + 1;
     await admin.from("push_notifications").update({
-      error_message: result.error,
+      error_message: `[${nextAttempt}/${MAX_ATTEMPTS}] ${result.error}`,
     }).eq("id", row.id);
     retried++;
   }
