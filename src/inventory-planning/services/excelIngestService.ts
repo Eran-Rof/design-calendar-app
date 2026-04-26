@@ -28,8 +28,13 @@ const empty = (): ExcelIngestResult => ({
   skipped_no_date: 0, skipped_zero_qty: 0, skipped_bad_cost: 0, errors: [],
 });
 
+// Match the Xoro sales-sync handler's canonSku exactly so a SKU created
+// via Excel resolves to the same row as the Xoro auto-create. Without
+// the whitespace strip, "RYB059430-ISLAND BREEZE LT WASH-30" (Excel)
+// and "RYB059430-ISLANDBREEZELTWASH-30" (Xoro) became two separate
+// items in ip_item_master.
 function canon(s: string | null | undefined): string {
-  return (s ?? "").toString().trim().toUpperCase();
+  return (s ?? "").toString().trim().toUpperCase().replace(/\s+/g, "");
 }
 
 function toIsoDate(v: unknown): string | null {
@@ -114,16 +119,24 @@ function extractSku(r: Record<string, unknown>): string {
   return canon(parts.join("-"));
 }
 
-export async function ingestSalesExcel(file: File): Promise<ExcelIngestResult> {
+export async function ingestSalesExcel(
+  file: File,
+  onProgress?: (msg: string) => void,
+): Promise<ExcelIngestResult> {
+  const log = (m: string) => { console.log("[excel-sales]", m); onProgress?.(m); };
   const result = empty();
+  log(`Parsing ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)…`);
   const rows = await parseWorkbook(file);
   result.parsed = rows.length;
+  log(`Parsed ${rows.length.toLocaleString()} rows`);
   if (rows.length === 0) return result;
 
+  log("Loading item + customer masters…");
   const [items, customers] = await Promise.all([
     wholesaleRepo.listItems(),
     wholesaleRepo.listCustomers(),
   ]);
+  log(`Masters loaded: ${items.length.toLocaleString()} items, ${customers.length.toLocaleString()} customers`);
   const skuToId = new Map(items.map((i) => [canon(i.sku_code), i.id]));
   const customerCodeToId = new Map(customers.map((c) => [canon(c.customer_code), c.id]));
   const customerNameToId = new Map(customers.map((c) => [canon(c.name), c.id]));
@@ -174,9 +187,11 @@ export async function ingestSalesExcel(file: File): Promise<ExcelIngestResult> {
 
     candidates.push({ sku, skuSrc: r, customerName: customerKey, customerKey, txnDate, qty, unitPrice, invoice, order, saleStore: saleStore || null });
   }
+  log(`First-pass: ${candidates.length.toLocaleString()} candidates · ${missingSkus.size} new SKUs · ${missingCustomers.size} new customers`);
 
   // Bulk-create missing items
   if (missingSkus.size > 0) {
+    log(`Bulk-creating ${missingSkus.size.toLocaleString()} new SKUs…`);
     const newItems = Array.from(missingSkus.entries()).map(([sku, src]) => ({
       sku_code: sku,
       style_code: String(pick(src, ["base_part_number", "base part number", "style_code", "style"]) ?? "").trim() || null,
@@ -188,32 +203,45 @@ export async function ingestSalesExcel(file: File): Promise<ExcelIngestResult> {
     }));
     for (let i = 0; i < newItems.length; i += 500) {
       const chunk = newItems.slice(i, i + 500);
-      await sbPost(
-        "ip_item_master?on_conflict=sku_code",
-        chunk,
-        "resolution=merge-duplicates,return=representation",
-      );
+      try {
+        await sbPost(
+          "ip_item_master?on_conflict=sku_code",
+          chunk,
+          "resolution=merge-duplicates,return=representation",
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        result.errors.push(`item bulk create chunk ${i}: ${msg}`);
+        log(`✗ item chunk ${i} failed: ${msg}`);
+      }
+      if (i % 2000 === 0 && i > 0) log(`  …items ${i.toLocaleString()}/${newItems.length.toLocaleString()}`);
     }
-    // Re-fetch items to get fresh ids.
+    log(`Re-fetching items to refresh id map…`);
     const refreshed = await wholesaleRepo.listItems();
     skuToId.clear();
     for (const i of refreshed) skuToId.set(canon(i.sku_code), i.id);
-    result.errors = result.errors;
   }
 
   // Bulk-create missing customers (use name as customer_code so dedupe is stable)
   if (missingCustomers.size > 0) {
+    log(`Bulk-creating ${missingCustomers.size.toLocaleString()} new customers…`);
     const newCusts = Array.from(missingCustomers.values()).map((name) => ({
       customer_code: `EXCEL:${canon(name)}`,
       name,
     }));
     for (let i = 0; i < newCusts.length; i += 500) {
       const chunk = newCusts.slice(i, i + 500);
-      await sbPost(
-        "ip_customer_master?on_conflict=customer_code",
-        chunk,
-        "resolution=merge-duplicates,return=representation",
-      );
+      try {
+        await sbPost(
+          "ip_customer_master?on_conflict=customer_code",
+          chunk,
+          "resolution=merge-duplicates,return=representation",
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        result.errors.push(`customer bulk create chunk ${i}: ${msg}`);
+        log(`✗ customer chunk ${i} failed: ${msg}`);
+      }
     }
     const refreshedC = await wholesaleRepo.listCustomers();
     customerCodeToId.clear();
@@ -225,6 +253,7 @@ export async function ingestSalesExcel(file: File): Promise<ExcelIngestResult> {
   }
 
   // Second pass — build sales rows now that all ids exist
+  log("Building final sales rows…");
   const out: Array<Record<string, unknown>> = [];
   for (const c of candidates) {
     const skuId = skuToId.get(c.sku);
@@ -257,14 +286,23 @@ export async function ingestSalesExcel(file: File): Promise<ExcelIngestResult> {
     });
   }
 
+  log(`Upserting ${out.length.toLocaleString()} sales rows in 500-row chunks…`);
   for (let i = 0; i < out.length; i += 500) {
-    await sbPost(
-      "ip_sales_history_wholesale?on_conflict=source,source_line_key",
-      out.slice(i, i + 500),
-      "return=minimal,resolution=merge-duplicates",
-    );
-    result.inserted += Math.min(500, out.length - i);
+    try {
+      await sbPost(
+        "ip_sales_history_wholesale?on_conflict=source,source_line_key",
+        out.slice(i, i + 500),
+        "return=minimal,resolution=merge-duplicates",
+      );
+      result.inserted += Math.min(500, out.length - i);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      result.errors.push(`sales chunk ${i}: ${msg}`);
+      log(`✗ sales chunk ${i} (rows ${i}-${i + 500}) failed: ${msg}`);
+    }
+    if ((i / 500) % 4 === 0) log(`  upsert progress ${i.toLocaleString()}/${out.length.toLocaleString()}`);
   }
+  log(`✓ DONE — parsed ${result.parsed.toLocaleString()}, upserted ${result.inserted.toLocaleString()}, errors ${result.errors.length}`);
   return result;
 }
 

@@ -221,13 +221,16 @@ export default function WholesalePlanningWorkbench() {
   async function ingestExcel(kind: "sales" | "avgcost", file: File) {
     setIngesting(true); setRunningKind(`excel-${kind}`);
     try {
+      const onProgress = (msg: string) => setToast({ text: `${kind === "sales" ? "Sales" : "Avg costs"} upload: ${msg}`, kind: "info" });
       const r: ExcelIngestResult = kind === "sales"
-        ? await ingestSalesExcel(file)
+        ? await ingestSalesExcel(file, onProgress)
         : await ingestAvgCostExcel(file);
       const skipped = r.skipped_no_sku + r.skipped_no_date + r.skipped_zero_qty + r.skipped_bad_cost;
+      const errSummary = r.errors.length > 0 ? ` · ⚠ ${r.errors.length} errors (see console)` : "";
+      if (r.errors.length > 0) console.error(`[excel-${kind}] errors:`, r.errors);
       setToast({
-        text: `${kind === "sales" ? "Sales" : "Avg costs"}: ${r.parsed} parsed · ${r.inserted} upserted${skipped > 0 ? ` · ${skipped} skipped` : ""}`,
-        kind: r.inserted > 0 ? "success" : "info",
+        text: `✓ ${kind === "sales" ? "Sales" : "Avg costs"} upload DONE — parsed ${r.parsed.toLocaleString()} rows · upserted ${r.inserted.toLocaleString()} · skipped ${skipped.toLocaleString()}${errSummary}`,
+        kind: r.errors.length > 0 ? "error" : r.inserted > 0 ? "success" : "info",
       });
       if (r.inserted > 0 && kind === "sales") await loadRunData();
       if (r.inserted > 0 && kind === "avgcost" && selectedRun) {
@@ -235,7 +238,8 @@ export default function WholesalePlanningWorkbench() {
         setRows(refreshed);
       }
     } catch (e) {
-      setToast({ text: `${kind} upload failed — ${e instanceof Error ? e.message : String(e)}`, kind: "error" });
+      console.error(`[excel-${kind}] failed`, e);
+      setToast({ text: `✗ ${kind} upload FAILED — ${e instanceof Error ? e.message : String(e)} (see DevTools console)`, kind: "error" });
     } finally {
       setIngesting(false); setRunningKind(null);
     }
