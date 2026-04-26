@@ -87,7 +87,11 @@ async function runForVendor(admin, vendor, globals) {
   const byPoAmount = new Map();
   for (const inv of vinvoices) {
     if (!inv.po_id) continue;
-    const key = `${inv.po_id}|${Number(inv.total).toFixed(2)}`;
+    // Skip invoices with no/invalid total — they would all collide on a
+    // "po_id|NaN" key and surface as fake duplicates.
+    const totalNum = Number(inv.total);
+    if (!Number.isFinite(totalNum)) continue;
+    const key = `${inv.po_id}|${totalNum.toFixed(2)}`;
     const prev = byPoAmount.get(key) || [];
     prev.push(inv);
     byPoAmount.set(key, prev);
