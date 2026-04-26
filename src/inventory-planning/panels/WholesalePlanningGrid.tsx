@@ -141,6 +141,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               <Th label="Customer" k="customer" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th style={S.th}>Category</th>
               <Th label="SKU" k="sku" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <th style={S.th}>Style</th>
+              <th style={S.th}>Color</th>
               <th style={S.th}>Description</th>
               <Th label="Period" k="period" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th style={{ ...S.th, textAlign: "right" }}>Hist T3</th>
@@ -175,6 +177,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 <td style={S.td}>{r.customer_name}</td>
                 <td style={{ ...S.td, color: PAL.textDim }}>{r.category_name ?? "–"}</td>
                 <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>{r.sku_code}</td>
+                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.textDim }}>{r.sku_style ?? "—"}</td>
+                <td style={{ ...S.td, color: PAL.textDim }}>{r.sku_color ?? "—"}</td>
                 <td style={{ ...S.td, color: PAL.textDim, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.sku_description ?? ""}>
                   {r.sku_description ?? "—"}
                 </td>
@@ -260,14 +264,14 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               </tr>
             ))}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={25} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={27} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No forecast rows yet. Click \"Build forecast\" above to populate the grid."
                   : "No rows match your filters."}
               </td></tr>
             )}
             {loading && (
-              <tr><td colSpan={25} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={27} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 Loading…
               </td></tr>
             )}

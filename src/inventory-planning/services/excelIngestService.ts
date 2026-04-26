@@ -105,17 +105,18 @@ async function sbPost(path: string, body: unknown[], prefer: string): Promise<vo
 //   Sale Store       ("sale_store", "sale store", "store") — optional, used to skip
 //                    "Grand Total" summary rows + filter ecom
 
-// Pulls out a SKU from a row. Tries direct columns first, then composes
-// from "Base Part Number" + "Option 1 Value" (+ optional "Option 2 Value")
-// the way Xoro report exports lay it out.
+// Pulls out a SKU from a row at the **style+color** grain (size is
+// intentionally dropped). Tries direct columns first, then composes
+// from "Base Part Number" + "Option 1 Value" the way Xoro report
+// exports lay it out. Multiple sizes of the same style+color are
+// aggregated into a single row downstream.
 function extractSku(r: Record<string, unknown>): string {
   const direct = canon(pick(r, ["sku", "sku_code", "item_number", "itemnumber", "item"]) as string);
   if (direct) return direct;
   const base = String(pick(r, ["base_part_number", "base part number", "base_part", "style_code", "style"]) ?? "").trim();
   if (!base) return "";
   const opt1 = String(pick(r, ["option_1_value", "option 1 value", "color", "colour"]) ?? "").trim();
-  const opt2 = String(pick(r, ["option_2_value", "option 2 value", "size"]) ?? "").trim();
-  const parts = [base, opt1, opt2].filter(Boolean);
+  const parts = [base, opt1].filter(Boolean);
   return canon(parts.join("-"));
 }
 
@@ -189,7 +190,9 @@ export async function ingestSalesExcel(
   }
   log(`First-pass: ${candidates.length.toLocaleString()} candidates · ${missingSkus.size} new SKUs · ${missingCustomers.size} new customers`);
 
-  // Bulk-create missing items
+  // Bulk-create missing items at style+color grain (size dropped per
+  // planner request — aggregating sizes into one row keeps the
+  // forecast grid focused on style-level demand signals).
   if (missingSkus.size > 0) {
     log(`Bulk-creating ${missingSkus.size.toLocaleString()} new SKUs…`);
     const newItems = Array.from(missingSkus.entries()).map(([sku, src]) => ({
@@ -197,7 +200,6 @@ export async function ingestSalesExcel(
       style_code: String(pick(src, ["base_part_number", "base part number", "style_code", "style"]) ?? "").trim() || null,
       description: String(pick(src, ["description", "title"]) ?? "").trim() || null,
       color: String(pick(src, ["option_1_value", "option 1 value", "color", "colour"]) ?? "").trim() || null,
-      size: String(pick(src, ["option_2_value", "option 2 value", "size"]) ?? "").trim() || null,
       uom: "each",
       active: true,
     }));
@@ -286,21 +288,49 @@ export async function ingestSalesExcel(
     });
   }
 
-  log(`Upserting ${out.length.toLocaleString()} sales rows in 500-row chunks…`);
-  for (let i = 0; i < out.length; i += 500) {
+  // Aggregate rows that share a source_line_key (same invoice +
+  // style+color + date — produced when size is dropped from the SKU).
+  // Sum qty, weight-average unit_price, recompute amounts.
+  const merged = new Map<string, Record<string, unknown>>();
+  for (const row of out) {
+    const key = String(row.source_line_key);
+    const existing = merged.get(key);
+    if (!existing) { merged.set(key, row); continue; }
+    const eQty = Number(existing.qty) || 0;
+    const rQty = Number(row.qty) || 0;
+    const totalQty = eQty + rQty;
+    const eUp = existing.unit_price != null ? Number(existing.unit_price) : null;
+    const rUp = row.unit_price != null ? Number(row.unit_price) : null;
+    let mergedUp: number | null = null;
+    if (eUp != null && rUp != null && totalQty > 0) {
+      mergedUp = (eUp * eQty + rUp * rQty) / totalQty;
+    } else if (eUp != null) mergedUp = eUp;
+    else if (rUp != null) mergedUp = rUp;
+    existing.qty = totalQty;
+    existing.unit_price = mergedUp;
+    existing.gross_amount = mergedUp != null ? mergedUp * totalQty : null;
+    existing.net_amount = mergedUp != null ? mergedUp * totalQty : null;
+  }
+  const aggregated = Array.from(merged.values());
+  if (aggregated.length < out.length) {
+    log(`Aggregated ${out.length.toLocaleString()} → ${aggregated.length.toLocaleString()} rows (collapsed by style+color per invoice/date)`);
+  }
+
+  log(`Upserting ${aggregated.length.toLocaleString()} sales rows in 500-row chunks…`);
+  for (let i = 0; i < aggregated.length; i += 500) {
     try {
       await sbPost(
         "ip_sales_history_wholesale?on_conflict=source,source_line_key",
-        out.slice(i, i + 500),
+        aggregated.slice(i, i + 500),
         "return=minimal,resolution=merge-duplicates",
       );
-      result.inserted += Math.min(500, out.length - i);
+      result.inserted += Math.min(500, aggregated.length - i);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       result.errors.push(`sales chunk ${i}: ${msg}`);
       log(`✗ sales chunk ${i} (rows ${i}-${i + 500}) failed: ${msg}`);
     }
-    if ((i / 500) % 4 === 0) log(`  upsert progress ${i.toLocaleString()}/${out.length.toLocaleString()}`);
+    if ((i / 500) % 4 === 0) log(`  upsert progress ${i.toLocaleString()}/${aggregated.length.toLocaleString()}`);
   }
   log(`✓ DONE — parsed ${result.parsed.toLocaleString()}, upserted ${result.inserted.toLocaleString()}, errors ${result.errors.length}`);
   return result;

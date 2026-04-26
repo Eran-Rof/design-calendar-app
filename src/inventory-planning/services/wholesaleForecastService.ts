@@ -272,6 +272,8 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       sku_id: f.sku_id,
       sku_code: item?.sku_code ?? "(unknown sku)",
       sku_description: item?.description ?? null,
+      sku_style: item?.style_code ?? null,
+      sku_color: item?.color ?? null,
       period_code: f.period_code,
       period_start: f.period_start,
       period_end: f.period_end,

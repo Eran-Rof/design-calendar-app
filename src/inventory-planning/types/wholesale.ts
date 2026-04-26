@@ -156,6 +156,8 @@ export interface IpPlanningGridRow {
   sku_id: string;
   sku_code: string;
   sku_description: string | null;
+  sku_style: string | null;
+  sku_color: string | null;
   period_code: string;
   period_start: IpIsoDate;
   period_end: IpIsoDate;
