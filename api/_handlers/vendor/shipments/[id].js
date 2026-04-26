@@ -74,11 +74,26 @@ export default async function handler(req, res) {
   if (number !== undefined) patch.number = number ? String(number).trim().toUpperCase() : null;
   if (number_type !== undefined) patch.number_type = number_type || null;
   if (notes !== undefined) patch.notes = notes ? String(notes).trim() : null;
-  if (packing_list_url !== undefined) patch.packing_list_url = packing_list_url || null;
-  if (bl_document_url !== undefined) patch.bl_document_url = bl_document_url || null;
+  // Path-injection guard — both URLs must live under the caller's folder
+  // when supplied. Without this, a vendor could attach another vendor's
+  // packing list / BL doc to their own shipment.
+  if (packing_list_url !== undefined) {
+    if (packing_list_url && (typeof packing_list_url !== "string" || !packing_list_url.startsWith(`${vendorId}/`))) {
+      return send(403, { error: "packing_list_url must be under the caller's vendor folder" });
+    }
+    patch.packing_list_url = packing_list_url || null;
+  }
+  if (bl_document_url !== undefined) {
+    if (bl_document_url && (typeof bl_document_url !== "string" || !bl_document_url.startsWith(`${vendorId}/`))) {
+      return send(403, { error: "bl_document_url must be under the caller's vendor folder" });
+    }
+    patch.bl_document_url = bl_document_url || null;
+  }
 
   if (Object.keys(patch).length > 1) {
-    const { error: upErr } = await admin.from("shipments").update(patch).eq("id", shipmentId);
+    // Filter on vendor_id too — defense in depth in case the row's owner
+    // changed between the read above and the update below.
+    const { error: upErr } = await admin.from("shipments").update(patch).eq("id", shipmentId).eq("vendor_id", vendorId);
     if (upErr) {
       if (upErr.code === "23505") return send(409, { error: "An ASN with this reference already exists for your vendor" });
       return send(500, { error: upErr.message });

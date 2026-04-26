@@ -66,6 +66,16 @@ export default async function handler(req, res) {
     .eq("uuid_id", po_id).eq("vendor_id", caller.vendor_id).maybeSingle();
   if (!po) return send(403, { error: "PO not found or not yours" });
 
+  // Path-injection guard — both URLs must live under the caller's folder
+  // when supplied. Without this, a vendor could attach another vendor's
+  // packing list / BL doc to their own shipment.
+  if (packing_list_url && (typeof packing_list_url !== "string" || !packing_list_url.startsWith(`${caller.vendor_id}/`))) {
+    return send(403, { error: "packing_list_url must be under the caller's vendor folder" });
+  }
+  if (bl_document_url && (typeof bl_document_url !== "string" || !bl_document_url.startsWith(`${caller.vendor_id}/`))) {
+    return send(403, { error: "bl_document_url must be under the caller's vendor folder" });
+  }
+
   const { data: ship, error: shipErr } = await admin.from("shipments").insert({
     vendor_id: caller.vendor_id,
     vendor_user_id: caller.id,
