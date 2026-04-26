@@ -109,6 +109,12 @@ export default async function handler(req, res) {
 
     const poNumber = String(po.PoNumber ?? r.po_number ?? "").trim();
     if (!poNumber) { result.skipped_no_lines++; continue; }
+    // Skip end-of-month placeholder POs — these are accounting buckets,
+    // not real incoming inventory.
+    if (poNumber.toUpperCase().includes("EOM")) {
+      result.skipped_eom = (result.skipped_eom ?? 0) + 1;
+      continue;
+    }
 
     const lines = Array.isArray(po.PoLineArr) ? po.PoLineArr
                 : Array.isArray(po.Items)     ? po.Items
