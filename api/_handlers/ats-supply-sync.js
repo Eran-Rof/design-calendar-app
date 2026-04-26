@@ -98,8 +98,12 @@ export default async function handler(req, res) {
     const sku = canonStyleColor(s.sku);
     if (!sku) { result.skipped_no_sku++; continue; }
     const onHand = toNum(s.onHand);
-    const onPO = toNum(s.onPO);
-    const onSo = toNum(s.onSO ?? s.onOrder);
+    // ATS parser saves PO under `onOrder` (qty incoming from vendor)
+    // and SO under `onCommitted` (qty committed to customer SOs).
+    // The compute layer uses different names (onPO/onOrder/onSO), so
+    // try all aliases to handle both raw-parser saves and compute saves.
+    const onPO = toNum(s.onPO ?? s.onOrder);
+    const onSo = toNum(s.onSO ?? s.onCommitted);
     if (onHand === 0 && onPO === 0 && onSo === 0) { result.skipped_zero_state++; continue; }
     const prev = aggMap.get(sku);
     if (!prev) {
@@ -128,13 +132,14 @@ export default async function handler(req, res) {
     for (const r of data ?? []) itemMap.set(canonSku(r.sku_code), r.id);
   }
 
-  // 4. Bulk-create missing items in 500-row chunks (was per-SKU before;
-  //    that hit the 60s timeout on large catalogs). Parse style_code +
-  //    color from the rolled-up sku_code so the grid's Style/Color
-  //    columns populate.
-  const missing = candidates.filter((c) => !itemMap.has(c.sku));
-  if (missing.length > 0) {
-    const newItems = missing.map((c) => {
+  // 4. Bulk-upsert ALL candidates (not just missing ones) so existing
+  //    items with null description / style / color get backfilled from
+  //    ATS source on every sync. Excel sales upload doesn't include
+  //    description; ATS does — this keeps the master consistent.
+  // Snapshot the pre-upsert keys so we can count true new SKUs.
+  const preExistingSkus = new Set(itemMap.keys());
+  if (candidates.length > 0) {
+    const newItems = candidates.map((c) => {
       const dash = c.sku.indexOf("-");
       const style = dash > 0 ? c.sku.substring(0, dash) : c.sku;
       const color = dash > 0 ? c.sku.substring(dash + 1) : null;
@@ -156,12 +161,13 @@ export default async function handler(req, res) {
         .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: false })
         .select("id, sku_code");
       if (error) {
-        result.errors.push(`item bulk create chunk ${i}: ${error.message}`);
+        result.errors.push(`item bulk upsert chunk ${i}: ${error.message}`);
         continue;
       }
       for (const row of created ?? []) itemMap.set(canonSku(row.sku_code), row.id);
-      result.auto_created_skus += chunk.length;
     }
+    // Count of items that were truly new (didn't exist before this run).
+    result.auto_created_skus = candidates.filter((c) => !preExistingSkus.has(c.sku)).length;
   }
 
   // 5. Build snapshot rows now that every candidate has a sku_id.
