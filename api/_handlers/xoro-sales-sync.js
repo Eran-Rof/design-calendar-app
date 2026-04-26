@@ -155,11 +155,16 @@ export default async function handler(req, res) {
     page_limit: pageLimit,
   };
 
+  // First pass — collect candidate rows + dedupe missing customers/SKUs
+  // so we can bulk-create them in one shot per kind. The previous
+  // per-invoice/per-line `.upsert().select().single()` was the 504 cause:
+  // 200 invoices × ~50 unique customers + 2000 line items × ~500 unique
+  // SKUs = hundreds of sequential round-trips per call.
   const rows = [];
-  // Track skip reasons so the response can show what's blocking ingest.
   const unmatchedSkuSamples = [];
-  // Each Xoro "line" is actually an invoice envelope with invoiceHeader +
-  // invoiceItemLineArr. Flatten: one sales-history row per item line.
+  const missingCustomers = new Map(); // code → { code, name }
+  const missingSkus = new Map();       // sku → sample line for description
+
   for (const inv of lines) {
     const header = inv.invoiceHeader ?? inv;
     const itemLines = Array.isArray(inv.invoiceItemLineArr) ? inv.invoiceItemLineArr : [];
@@ -201,30 +206,19 @@ export default async function handler(req, res) {
     const txnDate = toIsoDate(header.ShipDate ?? header.TxnDate ?? header.DateOrder ?? header.InvoiceDate);
     const invoice = String(header.InvoiceNumber ?? "").trim() || null;
     const order = String(header.SoNumber ?? header.RefNo ?? header.OrderNumber ?? "").trim() || null;
-    let customerId =
+    const customerLookup = () =>
       customerCodeToId.get(canonSku(header.CustomerAccountNumber ?? header.CustomerNumber)) ??
       customerNameToId.get(canonName(header.CustomerName ?? header.CustomerFullName ?? header.BillToCompanyName)) ??
       null;
-    // Auto-create missing customers — runForecastPass filters out sales
-    // rows with customer_id=null, so invoices without a master row would
-    // never count toward history. ip_customer_master keys on customer_code
-    // (we use the Xoro CustomerId as the stable code).
+    let customerId = customerLookup();
     if (!customerId) {
+      // Mark for bulk-create in step 4 — code key uses Xoro CustomerId
+      // for stability across re-ingests.
       const xCustomerId = header.CustomerId ?? header.CustomerNumber ?? null;
       const customerCode = xCustomerId != null ? `XORO:${xCustomerId}` : null;
       const customerName = header.CustomerName ?? header.CustomerFullName ?? header.BillToCompanyName ?? null;
-      if (customerCode && customerName) {
-        const { data: createdCust, error: custErr } = await admin
-          .from("ip_customer_master")
-          .upsert({ customer_code: customerCode, name: customerName }, { onConflict: "customer_code", ignoreDuplicates: false })
-          .select("id, customer_code, name")
-          .single();
-        if (!custErr && createdCust) {
-          customerId = createdCust.id;
-          customerCodeToId.set(canonSku(customerCode), customerId);
-          customerNameToId.set(canonName(customerName), customerId);
-          result.auto_created_customers = (result.auto_created_customers ?? 0) + 1;
-        }
+      if (customerCode && customerName && !missingCustomers.has(customerCode)) {
+        missingCustomers.set(customerCode, { customer_code: customerCode, name: customerName });
       }
     }
     const currency = header.CurrencyCode ?? null;
@@ -242,35 +236,10 @@ export default async function handler(req, res) {
         result.skipped_no_sku++; continue;
       }
 
-      // Auto-create missing items from invoice line metadata so the
-      // forecast grid resolves real SKUs without a separate items sync.
-      // Cheaper than the full Xoro item endpoint and means new SKUs land
-      // in the master the moment they show up on a real invoice.
-      let skuId = skuToId.get(sku);
-      if (!skuId) {
-        const desc = il.Description ?? il.Title ?? null;
-        const sellPrice = toNum(il.UnitPrice ?? il.EffectiveUnitPrice);
-        const newRow = {
-          sku_code: sku,
-          description: desc,
-          unit_price: sellPrice,
-          uom: (il.SellUomCode ?? "each").toLowerCase(),
-          external_refs: { xoro_item_id: il.ItemId ?? null, xoro_upc: il.ItemUpc ?? null },
-          active: true,
-        };
-        const { data: created, error: itemErr } = await admin
-          .from("ip_item_master")
-          .upsert(newRow, { onConflict: "sku_code", ignoreDuplicates: false })
-          .select("id, sku_code")
-          .single();
-        if (itemErr || !created) {
-          if (unmatchedSkuSamples.length < 3) unmatchedSkuSamples.push({ reason: "auto-create failed", sku, error: itemErr?.message });
-          result.skipped_no_sku++; continue;
-        }
-        skuId = created.id;
-        skuToId.set(sku, skuId);
-        result.auto_created_skus = (result.auto_created_skus ?? 0) + 1;
-      }
+      // Mark missing SKUs for bulk-create in step 4. (The actual sku_id
+      // resolution happens in step 5 after both customers and SKUs are
+      // bulk-created.)
+      if (!skuToId.has(sku) && !missingSkus.has(sku)) missingSkus.set(sku, il);
 
       if (!txnDate) { result.skipped_no_date++; continue; }
 
@@ -299,8 +268,11 @@ export default async function handler(req, res) {
         ?? (grossAmount != null ? grossAmount - (discountAmount ?? 0) : null);
 
       rows.push({
-        sku_id: skuId,
-        customer_id: customerId,
+        _sku: sku,
+        _customerLookup: () =>
+          customerCodeToId.get(canonSku(header.CustomerAccountNumber ?? header.CustomerNumber)) ??
+          customerNameToId.get(canonName(header.CustomerName ?? header.CustomerFullName ?? header.BillToCompanyName)) ??
+          null,
         category_id: categoryId,
         channel_id: null,
         order_number: order,
@@ -320,9 +292,61 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── Upsert in 500-row chunks ───────────────────────────────────────────────
-  for (let i = 0; i < rows.length; i += 500) {
-    const chunk = rows.slice(i, i + 500);
+  // ── 4. Bulk-create missing customers + items (was per-row, hit 504) ────────
+  if (missingCustomers.size > 0) {
+    const newCusts = Array.from(missingCustomers.values());
+    for (let i = 0; i < newCusts.length; i += 500) {
+      const chunk = newCusts.slice(i, i + 500);
+      const { data: created, error } = await admin
+        .from("ip_customer_master")
+        .upsert(chunk, { onConflict: "customer_code", ignoreDuplicates: false })
+        .select("id, customer_code, name");
+      if (error) { result.errors.push(`customer bulk create: ${error.message}`); continue; }
+      for (const c of created ?? []) {
+        customerCodeToId.set(canonSku(c.customer_code), c.id);
+        customerNameToId.set(canonName(c.name), c.id);
+      }
+      result.auto_created_customers = (result.auto_created_customers ?? 0) + chunk.length;
+    }
+  }
+
+  if (missingSkus.size > 0) {
+    const newItems = Array.from(missingSkus.entries()).map(([sku, il]) => ({
+      sku_code: sku,
+      description: il.Description ?? il.Title ?? null,
+      unit_price: toNum(il.UnitPrice ?? il.EffectiveUnitPrice),
+      uom: (il.SellUomCode ?? "each").toLowerCase(),
+      external_refs: { xoro_item_id: il.ItemId ?? null, xoro_upc: il.ItemUpc ?? null },
+      active: true,
+    }));
+    for (let i = 0; i < newItems.length; i += 500) {
+      const chunk = newItems.slice(i, i + 500);
+      const { data: created, error } = await admin
+        .from("ip_item_master")
+        .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: false })
+        .select("id, sku_code");
+      if (error) { result.errors.push(`item bulk create: ${error.message}`); continue; }
+      for (const it of created ?? []) skuToId.set(canonSku(it.sku_code), it.id);
+      result.auto_created_skus = (result.auto_created_skus ?? 0) + chunk.length;
+    }
+  }
+
+  // ── 5. Resolve sku_id + customer_id on each row, then bulk-upsert sales ────
+  const finalRows = [];
+  for (const r of rows) {
+    const skuId = skuToId.get(r._sku);
+    if (!skuId) {
+      if (unmatchedSkuSamples.length < 3) unmatchedSkuSamples.push({ reason: "no id after bulk create", sku: r._sku });
+      result.skipped_no_sku++;
+      continue;
+    }
+    const { _sku, _customerLookup, ...rest } = r;
+    void _sku;
+    finalRows.push({ ...rest, sku_id: skuId, customer_id: _customerLookup() });
+  }
+
+  for (let i = 0; i < finalRows.length; i += 500) {
+    const chunk = finalRows.slice(i, i + 500);
     const { error } = await admin
       .from("ip_sales_history_wholesale")
       .upsert(chunk, { onConflict: "source,source_line_key", ignoreDuplicates: false });
