@@ -117,16 +117,20 @@ export default async function handler(req, res) {
     for (const r of data ?? []) itemMap.set(canonSku(r.sku_code), r.id);
   }
 
-  // 4. Bulk-upsert ALL candidates (not just missing ones) so existing
-  //    items with null description / style / color get backfilled from
-  //    ATS source on every sync. Excel sales upload doesn't include
-  //    description; ATS does — this keeps the master consistent.
-  // Snapshot the pre-upsert keys so we can count true new SKUs.
+  // 4. Insert missing items WITH full descriptive data (description /
+  //    color / unit_cost from the ATS source), but NEVER touch existing
+  //    rows. Item Master Excel is the source of truth — this sync only
+  //    seeds new SKUs that haven't been added to the master yet.
+  //    `ignoreDuplicates: true` translates to ON CONFLICT DO NOTHING
+  //    in PostgREST, so master fields stay whatever the Excel set them to.
   const preExistingSkus = new Set(itemMap.keys());
-  if (candidates.length > 0) {
-    const newItems = candidates.map((c) =>
+  const missingCandidates = candidates.filter((c) => !preExistingSkus.has(c.sku));
+  if (missingCandidates.length > 0) {
+    const newItems = missingCandidates.map((c) =>
       buildItemRow(c.sku, {
+        minimal: false,
         description: c.src.description,
+        colorDisplay: c.src.color ?? c.src.colour,
         unit_cost: toNum(c.src.avgCost) || null,
         external_refs: { ats_category: c.src.category ?? null },
       }),
@@ -135,16 +139,28 @@ export default async function handler(req, res) {
       const chunk = newItems.slice(i, i + 500);
       const { data: created, error } = await admin
         .from("ip_item_master")
-        .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: false })
+        .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: true })
         .select("id, sku_code");
       if (error) {
-        result.errors.push(`item bulk upsert chunk ${i}: ${error.message}`);
+        result.errors.push(`item bulk insert chunk ${i}: ${error.message}`);
         continue;
       }
       for (const row of created ?? []) itemMap.set(canonSku(row.sku_code), row.id);
     }
-    // Count of items that were truly new (didn't exist before this run).
-    result.auto_created_skus = candidates.filter((c) => !preExistingSkus.has(c.sku)).length;
+    // ignoreDuplicates means .select() only returns truly inserted rows;
+    // re-fetch any still missing (shouldn't happen, but defensive).
+    const stillMissing = missingCandidates.filter((c) => !itemMap.has(c.sku)).map((c) => c.sku);
+    if (stillMissing.length > 0) {
+      for (let i = 0; i < stillMissing.length; i += 200) {
+        const chunk = stillMissing.slice(i, i + 200);
+        const { data } = await admin
+          .from("ip_item_master")
+          .select("id, sku_code")
+          .in("sku_code", chunk);
+        for (const r of data ?? []) itemMap.set(canonSku(r.sku_code), r.id);
+      }
+    }
+    result.auto_created_skus = missingCandidates.length;
   }
 
   // 5. Build snapshot rows now that every candidate has a sku_id.
@@ -180,12 +196,14 @@ export default async function handler(req, res) {
       });
     }
   }
+  // Avg cost: insert-only. Item Master Excel is authoritative for cost;
+  // ATS just fills in cost for SKUs the master hasn't covered yet.
   if (avgCostRows.length > 0) {
     for (let i = 0; i < avgCostRows.length; i += 500) {
       const chunk = avgCostRows.slice(i, i + 500);
       const { error } = await admin
         .from("ip_item_avg_cost")
-        .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: false });
+        .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: true });
       if (error) result.errors.push(`avg_cost chunk ${i}: ${error.message}`);
     }
     result.avg_costs_upserted = avgCostRows.length;

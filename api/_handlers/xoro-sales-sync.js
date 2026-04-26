@@ -332,9 +332,13 @@ export default async function handler(req, res) {
     }
   }
 
+  // Insert missing items WITH full descriptive data from the Xoro line,
+  // but never overwrite existing rows. Item Master Excel is authoritative
+  // — this sync only seeds new SKUs that haven't been added yet.
   if (missingSkus.size > 0) {
     const newItems = Array.from(missingSkus.entries()).map(([sku, il]) =>
       buildItemRow(sku, {
+        minimal: false,
         description: il.Description ?? il.Title,
         unit_price: toNum(il.UnitPrice ?? il.EffectiveUnitPrice),
         uom: (il.SellUomCode ?? "each").toLowerCase(),
@@ -345,11 +349,25 @@ export default async function handler(req, res) {
       const chunk = newItems.slice(i, i + 500);
       const { data: created, error } = await admin
         .from("ip_item_master")
-        .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: false })
+        .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: true })
         .select("id, sku_code");
-      if (error) { result.errors.push(`item bulk create: ${error.message}`); continue; }
+      if (error) { result.errors.push(`item bulk insert: ${error.message}`); continue; }
       for (const it of created ?? []) skuToId.set(canonSku(it.sku_code), it.id);
       result.auto_created_skus = (result.auto_created_skus ?? 0) + chunk.length;
+    }
+    // Re-fetch any new SKUs that PostgREST didn't return (they might have
+    // been inserted concurrently by a parallel sync). Without this, the
+    // sales rows for those SKUs would silently drop.
+    const stillMissing = Array.from(missingSkus.keys()).filter((s) => !skuToId.has(s));
+    if (stillMissing.length > 0) {
+      for (let i = 0; i < stillMissing.length; i += 200) {
+        const chunk = stillMissing.slice(i, i + 200);
+        const { data } = await admin
+          .from("ip_item_master")
+          .select("id, sku_code")
+          .in("sku_code", chunk);
+        for (const r of data ?? []) skuToId.set(canonSku(r.sku_code), r.id);
+      }
     }
   }
 

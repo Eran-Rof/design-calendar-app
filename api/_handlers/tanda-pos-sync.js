@@ -131,21 +131,26 @@ export default async function handler(req, res) {
     }
   }
 
-  // 4. Bulk create missing items in 500-row chunks. Parse style_code +
-  //    color from the rolled-up sku_code so the grid's Style/Color
-  //    columns populate without relying on Excel-only fields.
+  // 4. Insert missing items WITH full descriptive data from the PO line,
+  //    but never overwrite existing rows. Item Master Excel is the
+  //    source of truth — this sync only seeds new SKUs the master hasn't
+  //    covered yet. ON CONFLICT DO NOTHING via ignoreDuplicates: true.
   if (missingSkus.size > 0) {
     const newItems = Array.from(missingSkus.entries()).map(([sku, ln]) =>
-      buildItemRow(sku, { description: ln.Description }),
+      buildItemRow(sku, {
+        minimal: false,
+        description: ln.Description,
+        unit_cost: toNum(ln.UnitPrice) || null,
+      }),
     );
     for (let i = 0; i < newItems.length; i += 500) {
       const chunk = newItems.slice(i, i + 500);
       const { data: created, error } = await admin
         .from("ip_item_master")
-        .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: false })
+        .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: true })
         .select("id, sku_code");
       if (error) {
-        result.errors.push(`item bulk create chunk ${i}: ${error.message}`);
+        result.errors.push(`item bulk insert chunk ${i}: ${error.message}`);
         continue;
       }
       for (const row of created ?? []) itemMap.set(canonSku(row.sku_code), row.id);
