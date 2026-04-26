@@ -207,19 +207,31 @@ export async function ingestSalesExcel(
   }
   log(`First-pass: ${candidates.length.toLocaleString()} candidates · ${missingSkus.size} new SKUs · ${missingCustomers.size} new customers`);
 
-  // Bulk-create missing items at style+color grain (size dropped per
-  // planner request — aggregating sizes into one row keeps the
-  // forecast grid focused on style-level demand signals).
-  if (missingSkus.size > 0) {
-    log(`Bulk-creating ${missingSkus.size.toLocaleString()} new SKUs…`);
-    const newItems = Array.from(missingSkus.entries()).map(([sku, src]) => ({
-      sku_code: sku,
-      style_code: String(pick(src, ["base_part_number", "base part number", "style_code", "style"]) ?? "").trim() || null,
-      description: String(pick(src, ["description", "title"]) ?? "").trim() || null,
-      color: String(pick(src, ["option_1_value", "option 1 value", "color", "colour"]) ?? "").trim() || null,
-      uom: "each",
-      active: true,
-    }));
+  // Bulk-upsert ALL items at style+color grain — not just missing ones,
+  // so existing items get their style_code / color updated with the
+  // original-spaced values from the Excel report. (Earlier SQL backfills
+  // had set color from the no-space sku_code, losing the spaces.)
+  // Dedupe by sku to avoid duplicate payload rows.
+  const allSkuMap = new Map();
+  for (const c of candidates) {
+    if (!allSkuMap.has(c.sku)) allSkuMap.set(c.sku, c.skuSrc);
+  }
+  if (allSkuMap.size > 0) {
+    log(`Bulk-upserting ${allSkuMap.size.toLocaleString()} items (refreshing color/style on existing too)…`);
+    const newItems = Array.from(allSkuMap.entries()).map(([sku, src]) => {
+      const item = {
+        sku_code: sku,
+        style_code: String(pick(src, ["base_part_number", "base part number", "style_code", "style"]) ?? "").trim() || null,
+        color: String(pick(src, ["option_1_value", "option 1 value", "color", "colour"]) ?? "").trim() || null,
+        uom: "each",
+        active: true,
+      };
+      // Only set description if Excel actually has one — don't clobber
+      // descriptions that came from ATS sync with empty strings.
+      const desc = String(pick(src, ["description", "title"]) ?? "").trim();
+      if (desc) item.description = desc;
+      return item;
+    });
     for (let i = 0; i < newItems.length; i += 500) {
       const chunk = newItems.slice(i, i + 500);
       try {
@@ -230,7 +242,7 @@ export async function ingestSalesExcel(
         );
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        result.errors.push(`item bulk create chunk ${i}: ${msg}`);
+        result.errors.push(`item bulk upsert chunk ${i}: ${msg}`);
         log(`✗ item chunk ${i} failed: ${msg}`);
       }
       if (i % 2000 === 0 && i > 0) log(`  …items ${i.toLocaleString()}/${newItems.length.toLocaleString()}`);
