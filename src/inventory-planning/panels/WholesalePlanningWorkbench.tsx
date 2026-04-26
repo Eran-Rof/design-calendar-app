@@ -261,11 +261,14 @@ export default function WholesalePlanningWorkbench() {
   async function autoWalkSales() {
     setAutoWalking(true); setRunningKind("autowalk");
     autoWalkAbort.current = false;
-    // Resume from where the last walk stopped — backfill can take hours,
-    // and refreshing the tab shouldn't restart from page 1.
+    // Always start from page 1 so "Fetch all" actually fetches all.
+    // (We previously persisted a resume page in localStorage but that
+    // turned the button into a footgun — a partial walk + re-click
+    // would silently skip the older pages and the planner had no way
+    // to know data was missing for the un-walked range.)
     const resumeKey = "ip_xoro_sales_resume_page";
-    const saved = Number(localStorage.getItem(resumeKey) ?? salesPageStart);
-    let page = Number.isFinite(saved) && saved >= 1 ? saved : 1;
+    localStorage.removeItem(resumeKey);
+    let page = 1;
     let totalInserted = 0;
     let totalAutoSku = 0;
     let totalAutoCust = 0;
@@ -316,8 +319,7 @@ export default function WholesalePlanningWorkbench() {
         // Track overall date span covered.
         if (r.oldest_invoice_in_batch && (!earliestDate || r.oldest_invoice_in_batch < earliestDate)) earliestDate = r.oldest_invoice_in_batch;
         if (r.newest_invoice_in_batch && (!latestDate || r.newest_invoice_in_batch > latestDate)) latestDate = r.newest_invoice_in_batch;
-        // Persist progress so a refresh / browser close doesn't lose it.
-        localStorage.setItem(resumeKey, String(page + 2));
+        // (Resume marker removed — always start from page 1; no partial state.)
         // Live progress so the planner sees something is happening.
         setToast({
           text: `Auto-walk: page ${page} · ${r.oldest_invoice_in_batch ?? "?"}…${r.newest_invoice_in_batch ?? "?"} · running totals ${totalInserted} upserted, ${totalAutoSku} new SKUs`,
@@ -343,13 +345,11 @@ export default function WholesalePlanningWorkbench() {
         }
         page += 2;
       }
-      setSalesPageStart(autoWalkAbort.current ? page : 1);
-      // Clear resume marker only on a clean finish (not on user cancel
-      // or hard-ceiling stop) so re-clicking continues from where we left off.
-      const cleanFinish = !autoWalkAbort.current && pagesWalked < 2000;
-      if (cleanFinish) localStorage.removeItem(resumeKey);
+      setSalesPageStart(1);
+      const aborted = autoWalkAbort.current;
+      const ceilingHit = pagesWalked >= 2000;
       setToast({
-        text: `✓ Auto-walk DONE — ${pagesWalked} pages · covered ${earliestDate ?? "?"}…${latestDate ?? "?"} · ${totalInserted.toLocaleString()} upserted · ${totalAutoSku} new SKUs · ${totalAutoCust} new customers${autoWalkAbort.current ? " · cancelled (will resume from page " + page + ")" : (!cleanFinish ? " · stopped at hard ceiling (resume from page " + page + ")" : "")}`,
+        text: `✓ Auto-walk DONE — ${pagesWalked} pages · covered ${earliestDate ?? "?"}…${latestDate ?? "?"} · ${totalInserted.toLocaleString()} upserted · ${totalAutoSku} new SKUs · ${totalAutoCust} new customers${aborted ? " · cancelled" : ceilingHit ? " · stopped at hard ceiling — re-click to continue" : ""}`,
         kind: totalInserted > 0 ? "success" : "info",
       });
       if (totalInserted > 0) await loadRunData();
