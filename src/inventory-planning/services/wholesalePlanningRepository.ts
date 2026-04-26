@@ -143,14 +143,6 @@ export const wholesaleRepo = {
       return new Map();
     }
   },
-  async upsertItemAvgCost(rows: Array<Omit<IpItemAvgCost, "updated_at">>): Promise<void> {
-    if (rows.length === 0) return;
-    const url = "ip_item_avg_cost?on_conflict=sku_code";
-    const prefer = "return=minimal,resolution=merge-duplicates";
-    for (let i = 0; i < rows.length; i += 500) {
-      await sbPost<IpItemAvgCost>(url, rows.slice(i, i + 500), prefer);
-    }
-  },
   // Read avg unit cost per SKU from the ATS app's persisted Excel snapshot.
   // Stored as a JSON-stringified blob in app_data under key=ats_excel_data;
   // the relevant slice is `skus[i] = { sku, avgCost }`. ATS only carries

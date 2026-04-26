@@ -24,7 +24,7 @@ import { FORECAST_METHOD_LABELS } from "../types/wholesale";
 import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { applyOverride, buildGridRows } from "../services/wholesaleForecastService";
 import { ingestXoroSales, ingestXoroItems, syncAtsSupply, syncTandaPos } from "../services/xoroSalesIngestService";
-import { ingestSalesExcel, ingestAvgCostExcel, ingestItemMasterExcel, type ExcelIngestResult } from "../services/excelIngestService";
+import { ingestSalesExcel, ingestItemMasterExcel, type ExcelIngestResult } from "../services/excelIngestService";
 import { S, PAL } from "../components/styles";
 import { SB_HEADERS, SB_URL } from "../../utils/supabase";
 import PlanningRunControls from "./PlanningRunControls";
@@ -218,15 +218,14 @@ export default function WholesalePlanningWorkbench() {
     }
   }
 
-  async function ingestExcel(kind: "sales" | "avgcost" | "master", file: File) {
+  async function ingestExcel(kind: "sales" | "master", file: File) {
     setIngesting(true); setRunningKind(`excel-${kind}`);
-    const label = kind === "sales" ? "Sales" : kind === "avgcost" ? "Avg costs" : "Item master";
+    const label = kind === "sales" ? "Sales" : "Item master";
     try {
       const onProgress = (msg: string) => setToast({ text: `${label} upload: ${msg}`, kind: "info" });
       const r: ExcelIngestResult =
-        kind === "sales"   ? await ingestSalesExcel(file, onProgress) :
-        kind === "avgcost" ? await ingestAvgCostExcel(file) :
-                             await ingestItemMasterExcel(file, onProgress);
+        kind === "sales" ? await ingestSalesExcel(file, onProgress)
+                         : await ingestItemMasterExcel(file, onProgress);
       const skipParts = [];
       if (r.skipped_no_sku) skipParts.push(`${r.skipped_no_sku} no-SKU`);
       if (r.skipped_no_date) skipParts.push(`${r.skipped_no_date} no-date`);
@@ -240,7 +239,7 @@ export default function WholesalePlanningWorkbench() {
         kind: r.errors.length > 0 ? "error" : r.inserted > 0 ? "success" : "info",
       });
       if (r.inserted > 0 && kind === "sales") await loadRunData();
-      if (r.inserted > 0 && (kind === "avgcost" || kind === "master") && selectedRun) {
+      if (r.inserted > 0 && kind === "master" && selectedRun) {
         const refreshed = await buildGridRows(selectedRun);
         setRows(refreshed);
       }
@@ -658,11 +657,6 @@ export default function WholesalePlanningWorkbench() {
             <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
                    onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("sales", f); e.target.value = ""; } }} />
           </label>
-          <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }}>
-            {runningKind === "excel-avgcost" ? "Working…" : "Upload avg costs (Excel)"}
-            <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
-                   onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("avgcost", f); e.target.value = ""; } }} />
-          </label>
           <button style={S.btnSecondary} onClick={() => void runSupplySync("ats")} disabled={ingesting || autoWalking} title="Pulls on-hand / on-SO from the ATS app's persisted Excel snapshot into ip_inventory_snapshot">
             {runningKind === "ats" ? "Working…" : "Sync on-hand (ATS)"}
           </button>
@@ -670,7 +664,7 @@ export default function WholesalePlanningWorkbench() {
             {runningKind === "tanda" ? "Working…" : "Sync open POs (TandA)"}
           </button>
           <span style={{ color: PAL.textMuted, fontSize: 12, flexBasis: "100%" }}>
-            Sales columns: SKU, Customer, Date, Qty (UnitPrice/InvoiceNumber optional). Avg-cost columns: SKU, AvgCost. Rebuild forecast after upload.
+            Item master columns: SKU (or Style+Color), Description, Style, Color, AvgCost. Sales columns: SKU, Customer, Date, Qty (UnitPrice/InvoiceNumber optional). Rebuild forecast after upload.
           </span>
         </div>
 

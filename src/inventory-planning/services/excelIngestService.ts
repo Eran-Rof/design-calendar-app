@@ -3,8 +3,8 @@
 // not provisioned on the customer's Xoro account).
 //
 // Two flows:
-//   ingestSalesExcel(file)   — sales history → ip_sales_history_wholesale
-//   ingestAvgCostExcel(file) — per-SKU avg cost → ip_item_avg_cost
+//   ingestSalesExcel(file)      — sales history → ip_sales_history_wholesale
+//   ingestItemMasterExcel(file) — authoritative SKU/style/color/desc/avgCost
 //
 // Parsing happens in the browser via xlsx; persistence is direct Supabase
 // REST upsert so we don't pay another serverless cold start.
@@ -352,41 +352,6 @@ export async function ingestSalesExcel(
     if ((i / 500) % 4 === 0) log(`  upsert progress ${i.toLocaleString()}/${aggregated.length.toLocaleString()}`);
   }
   log(`✓ DONE — parsed ${result.parsed.toLocaleString()}, upserted ${result.inserted.toLocaleString()}, errors ${result.errors.length}`);
-  return result;
-}
-
-// ── Avg costs ──────────────────────────────────────────────────────────────
-//
-// Expected columns:
-//   SKU       (or sku_code, item_number)
-//   AvgCost   (or avg_cost, cost, unit_cost)
-//   [Source]  (optional — defaults to "excel")
-
-export async function ingestAvgCostExcel(file: File): Promise<ExcelIngestResult> {
-  const result = empty();
-  const rows = await parseWorkbook(file);
-  result.parsed = rows.length;
-  if (rows.length === 0) return result;
-
-  const out: Array<Record<string, unknown>> = [];
-  for (const r of rows) {
-    const sku = canon(pick(r, ["sku", "sku_code", "item_number", "itemnumber", "item"]) as string);
-    if (!sku) { result.skipped_no_sku++; continue; }
-
-    const cost = toNum(pick(r, ["avg_cost", "avgcost", "cost", "unit_cost", "unitcost"]));
-    if (cost == null || cost < 0) { result.skipped_bad_cost++; continue; }
-
-    out.push({
-      sku_code: sku,
-      avg_cost: cost,
-      source: "excel",
-      source_ref: file.name,
-    });
-  }
-
-  if (out.length === 0) return result;
-  await wholesaleRepo.upsertItemAvgCost(out as never);
-  result.inserted = out.length;
   return result;
 }
 
