@@ -332,19 +332,12 @@ export default async function handler(req, res) {
     }
   }
 
-  // Insert missing items WITH full descriptive data from the Xoro line,
-  // but never overwrite existing rows. Item Master Excel is authoritative
-  // — this sync only seeds new SKUs that haven't been added yet.
+  // Insert minimal stubs for SKUs not yet in master so each sales line
+  // has a sku_id. NEVER write description / color / unit_cost — Item
+  // Master Excel is the SOLE source of those fields. Existing master
+  // rows are not touched (ON CONFLICT DO NOTHING).
   if (missingSkus.size > 0) {
-    const newItems = Array.from(missingSkus.entries()).map(([sku, il]) =>
-      buildItemRow(sku, {
-        minimal: false,
-        description: il.Description ?? il.Title,
-        unit_price: toNum(il.UnitPrice ?? il.EffectiveUnitPrice),
-        uom: (il.SellUomCode ?? "each").toLowerCase(),
-        external_refs: { xoro_item_id: il.ItemId ?? null, xoro_upc: il.ItemUpc ?? null },
-      }),
-    );
+    const newItems = Array.from(missingSkus.keys()).map((sku) => buildItemRow(sku));
     for (let i = 0; i < newItems.length; i += 500) {
       const chunk = newItems.slice(i, i + 500);
       const { data: created, error } = await admin
@@ -355,9 +348,6 @@ export default async function handler(req, res) {
       for (const it of created ?? []) skuToId.set(canonSku(it.sku_code), it.id);
       result.auto_created_skus = (result.auto_created_skus ?? 0) + chunk.length;
     }
-    // Re-fetch any new SKUs that PostgREST didn't return (they might have
-    // been inserted concurrently by a parallel sync). Without this, the
-    // sales rows for those SKUs would silently drop.
     const stillMissing = Array.from(missingSkus.keys()).filter((s) => !skuToId.has(s));
     if (stillMissing.length > 0) {
       for (let i = 0; i < stillMissing.length; i += 200) {

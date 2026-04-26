@@ -117,24 +117,14 @@ export default async function handler(req, res) {
     for (const r of data ?? []) itemMap.set(canonSku(r.sku_code), r.id);
   }
 
-  // 4. Insert missing items WITH full descriptive data (description /
-  //    color / unit_cost from the ATS source), but NEVER touch existing
-  //    rows. Item Master Excel is the source of truth — this sync only
-  //    seeds new SKUs that haven't been added to the master yet.
-  //    `ignoreDuplicates: true` translates to ON CONFLICT DO NOTHING
-  //    in PostgREST, so master fields stay whatever the Excel set them to.
+  // 4. Insert minimal stubs for any SKU not yet in master so its supply
+  //    row has a sku_id to point at. NEVER write description / color /
+  //    unit_cost — Item Master Excel is the SOLE source of those fields.
+  //    Existing master rows are not touched (ON CONFLICT DO NOTHING).
   const preExistingSkus = new Set(itemMap.keys());
   const missingCandidates = candidates.filter((c) => !preExistingSkus.has(c.sku));
   if (missingCandidates.length > 0) {
-    const newItems = missingCandidates.map((c) =>
-      buildItemRow(c.sku, {
-        minimal: false,
-        description: c.src.description,
-        colorDisplay: c.src.color ?? c.src.colour,
-        unit_cost: toNum(c.src.avgCost) || null,
-        external_refs: { ats_category: c.src.category ?? null },
-      }),
-    );
+    const newItems = missingCandidates.map((c) => buildItemRow(c.sku));
     for (let i = 0; i < newItems.length; i += 500) {
       const chunk = newItems.slice(i, i + 500);
       const { data: created, error } = await admin
@@ -147,8 +137,6 @@ export default async function handler(req, res) {
       }
       for (const row of created ?? []) itemMap.set(canonSku(row.sku_code), row.id);
     }
-    // ignoreDuplicates means .select() only returns truly inserted rows;
-    // re-fetch any still missing (shouldn't happen, but defensive).
     const stillMissing = missingCandidates.filter((c) => !itemMap.has(c.sku)).map((c) => c.sku);
     if (stillMissing.length > 0) {
       for (let i = 0; i < stillMissing.length; i += 200) {
@@ -163,11 +151,11 @@ export default async function handler(req, res) {
     result.auto_created_skus = missingCandidates.length;
   }
 
-  // 5. Build snapshot rows now that every candidate has a sku_id.
+  // 5. Build snapshot rows.
   const rows = [];
   for (const c of candidates) {
     const skuId = itemMap.get(c.sku);
-    if (!skuId) { result.errors.push(`no id for ${c.sku} after bulk create`); continue; }
+    if (!skuId) { result.errors.push(`no id for ${c.sku} after stub insert`); continue; }
     rows.push({
       sku_id: skuId,
       warehouse_code: "DEFAULT",
@@ -180,34 +168,9 @@ export default async function handler(req, res) {
     });
   }
 
-  // 5b. Also write avg cost to ip_item_avg_cost so the static "Avg Cost"
-  //     column on the planning grid populates from ATS in addition to
-  //     the inventory snapshot. Unit Cost editor uses this as its
-  //     fallback default before the planner overrides.
-  const avgCostRows = [];
-  for (const c of candidates) {
-    const cost = toNum(c.src.avgCost);
-    if (cost > 0) {
-      avgCostRows.push({
-        sku_code: c.sku,
-        avg_cost: cost,
-        source: "manual",
-        source_ref: "ats_excel_data",
-      });
-    }
-  }
-  // Avg cost: insert-only. Item Master Excel is authoritative for cost;
-  // ATS just fills in cost for SKUs the master hasn't covered yet.
-  if (avgCostRows.length > 0) {
-    for (let i = 0; i < avgCostRows.length; i += 500) {
-      const chunk = avgCostRows.slice(i, i + 500);
-      const { error } = await admin
-        .from("ip_item_avg_cost")
-        .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: true });
-      if (error) result.errors.push(`avg_cost chunk ${i}: ${error.message}`);
-    }
-    result.avg_costs_upserted = avgCostRows.length;
-  }
+  // 5b. Avg-cost rows: Item Master Excel is authoritative, do NOT write
+  //     ip_item_avg_cost from ATS. The grid display layer falls back to
+  //     PO unit cost when master has no cost — no need to mirror ATS cost.
 
   // 6. Bulk-upsert snapshot rows. Unique index =
   //    (sku_id, warehouse_code, snapshot_date, source).

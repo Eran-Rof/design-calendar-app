@@ -131,18 +131,12 @@ export default async function handler(req, res) {
     }
   }
 
-  // 4. Insert missing items WITH full descriptive data from the PO line,
-  //    but never overwrite existing rows. Item Master Excel is the
-  //    source of truth — this sync only seeds new SKUs the master hasn't
-  //    covered yet. ON CONFLICT DO NOTHING via ignoreDuplicates: true.
+  // 4. Insert minimal stubs for SKUs not yet in master so the PO row has
+  //    a sku_id to point at. NEVER write description / color / unit_cost
+  //    — Item Master Excel is the SOLE source of those fields. Existing
+  //    master rows are not touched (ON CONFLICT DO NOTHING).
   if (missingSkus.size > 0) {
-    const newItems = Array.from(missingSkus.entries()).map(([sku, ln]) =>
-      buildItemRow(sku, {
-        minimal: false,
-        description: ln.Description,
-        unit_cost: toNum(ln.UnitPrice) || null,
-      }),
-    );
+    const newItems = Array.from(missingSkus.keys()).map((sku) => buildItemRow(sku));
     for (let i = 0; i < newItems.length; i += 500) {
       const chunk = newItems.slice(i, i + 500);
       const { data: created, error } = await admin

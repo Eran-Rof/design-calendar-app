@@ -389,12 +389,42 @@ export async function ingestItemMasterExcel(
   const costPayload: Array<Record<string, unknown>> = [];
   const seenSkus = new Set<string>();
 
+  // Expanded aliases — common Excel column names from Xoro / TandA / ATS
+  // exports plus typical planner spreadsheets. normHeader (in pick) strips
+  // whitespace/punctuation so case + space variations all collapse.
+  const SKU_ALIASES = [
+    "sku", "sku code", "sku_code", "item number", "item_number", "itemnumber",
+    "item", "item code", "item_code", "variant sku", "variant_sku",
+    "product sku", "upc", "sku id", "style sku",
+  ];
+  const STYLE_ALIASES = [
+    "style", "style code", "style_code", "style number", "style_number",
+    "base part number", "base_part_number", "base part", "base_part",
+    "parent sku", "parent_sku", "product code", "product_code",
+  ];
+  const COLOR_ALIASES = [
+    "color", "colour", "color name", "colour name", "color_name", "colour_name",
+    "option 1 value", "option_1_value", "option1value", "primary color",
+    "main color", "shade", "wash",
+  ];
+  const DESC_ALIASES = [
+    "description", "desc", "item description", "product description",
+    "long description", "short description", "title", "name",
+    "item name", "product name", "style name",
+  ];
+  const COST_ALIASES = [
+    "avg cost", "avg_cost", "avgcost", "average cost", "average_cost",
+    "cost", "unit cost", "unit_cost", "unitcost", "std cost", "std_cost",
+    "standard cost", "standard_cost", "moving avg cost", "moving average cost",
+    "weighted cost", "wac", "fifo cost", "last cost",
+  ];
+
   for (const r of rows) {
     // SKU: direct column or compose from Style + Color.
-    let sku = canon(pick(r, ["sku", "sku_code", "item_number", "itemnumber", "item"]) as string);
+    let sku = canon(pick(r, SKU_ALIASES) as string);
     if (!sku) {
-      const style = String(pick(r, ["style", "style_code", "base_part_number", "base part number"]) ?? "").trim();
-      const color = String(pick(r, ["color", "colour", "option_1_value", "option 1 value"]) ?? "").trim();
+      const style = String(pick(r, STYLE_ALIASES) ?? "").trim();
+      const color = String(pick(r, COLOR_ALIASES) ?? "").trim();
       if (!style) { result.skipped_no_sku++; continue; }
       sku = canon([style, color].filter(Boolean).join("-"));
     } else {
@@ -407,15 +437,15 @@ export async function ingestItemMasterExcel(
     }
     seenSkus.add(sku);
 
-    const explicitStyle = String(pick(r, ["style", "style_code", "base_part_number", "base part number"]) ?? "").trim();
-    const explicitColor = String(pick(r, ["color", "colour", "option_1_value", "option 1 value"]) ?? "").trim();
+    const explicitStyle = String(pick(r, STYLE_ALIASES) ?? "").trim();
+    const explicitColor = String(pick(r, COLOR_ALIASES) ?? "").trim();
     const dash = sku.indexOf("-");
     const style = explicitStyle || (dash > 0 ? sku.substring(0, dash) : sku);
     // Prefer the explicit color cell (preserves spacing) over the
     // suffix parsed from sku_code.
     const color = explicitColor || (dash > 0 ? sku.substring(dash + 1) : null);
-    const description = String(pick(r, ["description", "title", "name"]) ?? "").trim();
-    const cost = toNum(pick(r, ["avg_cost", "avg cost", "avgcost", "cost", "unit_cost", "unitcost"]));
+    const description = String(pick(r, DESC_ALIASES) ?? "").trim();
+    const cost = toNum(pick(r, COST_ALIASES));
 
     const item: Record<string, unknown> = {
       sku_code: sku,
@@ -425,9 +455,11 @@ export async function ingestItemMasterExcel(
       active: true,
     };
     if (description) item.description = description;
+    // Avg Cost in the spreadsheet drives both unit_cost on the master row
+    // AND ip_item_avg_cost — the grid displays a single resolved cost so
+    // Avg Cost and Unit Cost columns match by default.
     if (cost != null && cost >= 0) {
       item.unit_cost = cost;
-      // Mirror to ip_item_avg_cost so the static Avg Cost grid column populates.
       costPayload.push({
         sku_code: sku,
         avg_cost: cost,

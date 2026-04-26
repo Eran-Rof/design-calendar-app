@@ -245,6 +245,33 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
   const itemById = new Map(items.map((i) => [i.id, i]));
   const customerById = new Map(customers.map((c) => [c.id, c]));
   const categoryById = new Map(categories.map((c) => [c.id, c]));
+
+  // Style-level fallback. Planner's Item Master Excel often has one row
+  // per STYLE (e.g., "RYO0659" with description "MONEYMAKER Vrsty Jkt"),
+  // while ATS / TandA / Xoro see VARIANTS ("RYO0659-BLACK", "RYO0659-RED").
+  // Sync auto-stubs variants with no description, so joining grid →
+  // forecast.sku_id → variant master row produces blanks. Index master
+  // rows that have a description / unit_cost by style_code so the grid
+  // can promote those values up to all variants.
+  const masterByStyle = new Map<string, typeof items[number]>();
+  for (const i of items) {
+    if (!i.style_code) continue;
+    if (!i.description && i.unit_cost == null) continue;
+    const cur = masterByStyle.get(i.style_code);
+    // Prefer shorter sku_code (style-only beats variant) so "RYO0659"
+    // wins over "RYO0659-BLACK" when both have descriptions.
+    const ourLen = i.sku_code?.length ?? Number.MAX_SAFE_INTEGER;
+    const curLen = cur?.sku_code?.length ?? Number.MAX_SAFE_INTEGER;
+    if (!cur || ourLen < curLen) masterByStyle.set(i.style_code, i);
+  }
+  const avgCostByStyle = new Map<string, number>();
+  for (const i of items) {
+    if (!i.style_code || !i.sku_code) continue;
+    const cost = avgCostBySku.get(i.sku_code);
+    if (cost != null && cost > 0 && !avgCostByStyle.has(i.style_code)) {
+      avgCostByStyle.set(i.style_code, cost);
+    }
+  }
   const recByGrain = new Map(recs.map((r) => [
     `${r.customer_id}:${r.sku_id}:${r.period_start}`,
     r,
@@ -253,6 +280,26 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
   const onHand = latestOnHandBySku(inv);
   const onSo = committedSoBySku(inv);
   const onPo = openPoQtyBySku(pos);
+
+  // Weighted-avg unit cost across open POs per SKU. Used as a fallback
+  // when item master has no unit_cost / avg_cost (typical for SKUs the
+  // master Excel hasn't covered yet but TandA already has POs for).
+  const poCostBySku = new Map<string, number>();
+  {
+    const sumCostQty = new Map<string, { num: number; den: number }>();
+    for (const p of pos) {
+      const c = typeof p.unit_cost === "number" ? p.unit_cost : null;
+      const q = typeof p.qty_open === "number" ? p.qty_open : 0;
+      if (c == null || c <= 0 || q <= 0) continue;
+      const acc = sumCostQty.get(p.sku_id) ?? { num: 0, den: 0 };
+      acc.num += c * q;
+      acc.den += q;
+      sumCostQty.set(p.sku_id, acc);
+    }
+    for (const [skuId, { num, den }] of sumCostQty) {
+      if (den > 0) poCostBySku.set(skuId, num / den);
+    }
+  }
 
   // Trailing-3 per (customer, sku).
   const trailing = new Map<string, number>();
@@ -277,6 +324,19 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     const category = f.category_id ? categoryById.get(f.category_id) : null;
     const rec = recByGrain.get(`${f.customer_id}:${f.sku_id}:${f.period_start}`);
     const supply = rollingSupply.get(`${f.sku_id}:${f.period_start}`);
+    const styleFallback = item?.style_code ? masterByStyle.get(item.style_code) : null;
+    const description = item?.description ?? styleFallback?.description ?? null;
+    const colorDisplay = item?.color ?? styleFallback?.color ?? null;
+    // Resolved master cost: variant.unit_cost > variant avg_cost > style-level
+    // master.unit_cost > style-level avg_cost. Falls back to PO weighted
+    // avg, then ATS snapshot avg.
+    const masterCost =
+      item?.unit_cost
+      ?? (item?.sku_code ? avgCostBySku.get(item.sku_code) ?? null : null)
+      ?? styleFallback?.unit_cost
+      ?? (item?.style_code ? avgCostByStyle.get(item.style_code) ?? null : null);
+    const fallbackCost = poCostBySku.get(f.sku_id) ?? (item?.sku_code ? atsCostBySku.get(item.sku_code) ?? null : null);
+    const resolvedCost = masterCost ?? fallbackCost ?? null;
     // Always derive avail/shortage/excess from the rolling supply so that
     // planned_buy_qty and the month-to-month roll are always current.
     // rec is kept only for action/reason labels (rebuilt on next forecast run).
@@ -293,9 +353,9 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       category_name: category?.name ?? null,
       sku_id: f.sku_id,
       sku_code: item?.sku_code ?? "(unknown sku)",
-      sku_description: item?.description ?? null,
+      sku_description: description,
       sku_style: item?.style_code ?? null,
-      sku_color: item?.color ?? null,
+      sku_color: colorDisplay,
       period_code: f.period_code,
       period_start: f.period_start,
       period_end: f.period_end,
@@ -307,16 +367,11 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       confidence_level: f.confidence_level,
       forecast_method: f.forecast_method,
       ly_reference_qty: f.ly_reference_qty ?? null,
-      item_cost: item?.unit_cost ?? null,
+      item_cost: item?.unit_cost ?? styleFallback?.unit_cost ?? null,
       ats_avg_cost: item?.sku_code ? (atsCostBySku.get(item.sku_code) ?? null) : null,
-      avg_cost: item?.sku_code ? (avgCostBySku.get(item.sku_code) ?? null) : null,
+      avg_cost: resolvedCost,
       unit_cost_override: f.unit_cost_override ?? null,
-      unit_cost:
-        f.unit_cost_override
-        ?? (item?.sku_code ? avgCostBySku.get(item.sku_code) ?? null : null)
-        ?? (item?.sku_code ? atsCostBySku.get(item.sku_code) ?? null : null)
-        ?? item?.unit_cost
-        ?? null,
+      unit_cost: f.unit_cost_override ?? resolvedCost,
       planned_buy_qty: f.planned_buy_qty ?? null,
       on_hand_qty: supply?.beginning_balance_qty ?? onHand.get(f.sku_id) ?? 0,
       on_so_qty: onSo.get(f.sku_id) ?? 0,
