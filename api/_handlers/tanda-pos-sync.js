@@ -15,15 +15,20 @@ function canonSku(s) {
   return (s ?? "").toString().trim().toUpperCase().replace(/\s+/g, "");
 }
 // Drop the trailing size suffix from a Xoro ItemNumber so it matches
-// the Excel-grain SKUs (style+color). Examples:
-//   "RYB059430-ISLAND BREEZE LT WASH-30" → "RYB059430-ISLANDBREEZELTWASH"
-//   "PTYA0019-Blackberry-M"              → "PTYA0019-BLACKBERRY"
-//   "PTYA0019-Blackberry"                → "PTYA0019-BLACKBERRY" (no change)
+// the Excel-grain SKUs (style+color). Covers:
+//   numeric sizes: -30, -32, -2, -14
+//   single letter: -XS, -S, -M, -L, -XL, -XXL, -XXXL
+//   3-letter combos: -SML, -MED, -LRG
+//   one-size: -OS, -OSFA, -O/S
+//   parenthesized ranges: -L(14-16), -XL(18-20)
+//   multi-letter combos: -SM, -MD, -LG
 function canonStyleColor(rawSku) {
   let s = canonSku(rawSku);
   if (!s) return s;
-  // Trailing numeric (e.g., -30, -32, -2) OR letter size (XS-XXXL)
-  s = s.replace(/-(XS|S|M|L|XL|XXL|XXXL|[0-9]+)$/, "");
+  s = s.replace(
+    /-(XS|S|M|L|XL|XXL|XXXL|SM|MD|LG|SML|MED|LRG|OS|OSFA|O\/S|[0-9]+|[A-Z]+\([0-9X\-]+\))$/,
+    "",
+  );
   return s;
 }
 function toNum(v) {

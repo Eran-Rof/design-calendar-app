@@ -37,6 +37,17 @@ function canon(s: string | null | undefined): string {
   return (s ?? "").toString().trim().toUpperCase().replace(/\s+/g, "");
 }
 
+// Strips trailing size suffix — same regex as the API handlers'
+// canonStyleColor. Used when an Excel cell already has a size baked
+// into the value (e.g., a "SKU" column rather than separate Base
+// Part Number + Option 1 Value).
+function stripSizeSuffix(s: string): string {
+  return s.replace(
+    /-(XS|S|M|L|XL|XXL|XXXL|SM|MD|LG|SML|MED|LRG|OS|OSFA|O\/S|[0-9]+|[A-Z]+\([0-9X\-]+\))$/,
+    "",
+  );
+}
+
 function toIsoDate(v: unknown): string | null {
   if (v == null || v === "") return null;
   if (v instanceof Date) {
@@ -116,8 +127,9 @@ async function sbPost(path: string, body: unknown[], prefer: string): Promise<vo
 // exports lay it out. Multiple sizes of the same style+color are
 // aggregated into a single row downstream.
 function extractSku(r: Record<string, unknown>): string {
+  // Direct SKU column: strip size suffix to align with style+color grain.
   const direct = canon(pick(r, ["sku", "sku_code", "item_number", "itemnumber", "item"]) as string);
-  if (direct) return direct;
+  if (direct) return stripSizeSuffix(direct);
   const base = String(pick(r, ["base_part_number", "base part number", "base_part", "style_code", "style"]) ?? "").trim();
   if (!base) return "";
   const opt1 = String(pick(r, ["option_1_value", "option 1 value", "color", "colour"]) ?? "").trim();

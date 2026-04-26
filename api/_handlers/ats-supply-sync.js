@@ -20,11 +20,15 @@ function canonSku(s) {
   return (s ?? "").toString().trim().toUpperCase().replace(/\s+/g, "");
 }
 // Drop trailing size suffix so ATS items match the Excel-grain SKUs
-// (style+color). Mirrors tanda-pos-sync's canonStyleColor.
+// (style+color). Mirrors tanda-pos-sync's canonStyleColor — keep the
+// regex in sync.
 function canonStyleColor(rawSku) {
   let s = canonSku(rawSku);
   if (!s) return s;
-  s = s.replace(/-(XS|S|M|L|XL|XXL|XXXL|[0-9]+)$/, "");
+  s = s.replace(
+    /-(XS|S|M|L|XL|XXL|XXXL|SM|MD|LG|SML|MED|LRG|OS|OSFA|O\/S|[0-9]+|[A-Z]+\([0-9X\-]+\))$/,
+    "",
+  );
   return s;
 }
 function toNum(v) {
