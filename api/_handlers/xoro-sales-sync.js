@@ -11,6 +11,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { fetchXoroAll } from "../_lib/xoro-client.js";
+import { canonSku as sharedCanonSku, canonStyleColor, buildItemRow } from "../_lib/sku-canon.js";
 
 export const config = { maxDuration: 300 };
 
@@ -32,9 +33,12 @@ function toNum(raw) {
   return isNaN(n) ? null : n;
 }
 
+// Local wrapper preserves the previous null-return behaviour (shared
+// canonSku returns "" for empty input). Sales-sync code paths check
+// truthiness so both work but null is more obvious in logs.
 function canonSku(raw) {
   if (!raw) return null;
-  return String(raw).trim().toUpperCase().replace(/\s+/g, "");
+  return sharedCanonSku(raw) || null;
 }
 
 function canonName(raw) {
@@ -245,8 +249,10 @@ export default async function handler(req, res) {
     }
 
     for (const il of itemLines) {
+      // Roll up to style+color grain so sales rows join with the
+      // Excel-grain forecast pairs and supply data (POs, ATS).
       const skuRaw = il.ItemNumber ?? il.Sku ?? il.ItemCode ?? il.Item ?? il.Product ?? il.ProductCode;
-      const sku = canonSku(skuRaw);
+      const sku = canonStyleColor(skuRaw) || null;
       if (!sku) {
         if (unmatchedSkuSamples.length < 3) unmatchedSkuSamples.push({ reason: "no SKU on item line", invoice, line_keys: Object.keys(il).slice(0, 30) });
         result.skipped_no_sku++; continue;
@@ -327,14 +333,14 @@ export default async function handler(req, res) {
   }
 
   if (missingSkus.size > 0) {
-    const newItems = Array.from(missingSkus.entries()).map(([sku, il]) => ({
-      sku_code: sku,
-      description: il.Description ?? il.Title ?? null,
-      unit_price: toNum(il.UnitPrice ?? il.EffectiveUnitPrice),
-      uom: (il.SellUomCode ?? "each").toLowerCase(),
-      external_refs: { xoro_item_id: il.ItemId ?? null, xoro_upc: il.ItemUpc ?? null },
-      active: true,
-    }));
+    const newItems = Array.from(missingSkus.entries()).map(([sku, il]) =>
+      buildItemRow(sku, {
+        description: il.Description ?? il.Title,
+        unit_price: toNum(il.UnitPrice ?? il.EffectiveUnitPrice),
+        uom: (il.SellUomCode ?? "each").toLowerCase(),
+        external_refs: { xoro_item_id: il.ItemId ?? null, xoro_upc: il.ItemUpc ?? null },
+      }),
+    );
     for (let i = 0; i < newItems.length; i += 500) {
       const chunk = newItems.slice(i, i + 500);
       const { data: created, error } = await admin

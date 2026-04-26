@@ -12,6 +12,7 @@
 import * as XLSX from "xlsx";
 import { SB_HEADERS, SB_URL } from "../../utils/supabase";
 import { wholesaleRepo } from "./wholesalePlanningRepository";
+import { canonSku as sharedCanonSku, canonStyleColor } from "../utils/skuCanon";
 
 export interface ExcelIngestResult {
   parsed: number;
@@ -28,24 +29,13 @@ const empty = (): ExcelIngestResult => ({
   skipped_no_date: 0, skipped_zero_qty: 0, skipped_bad_cost: 0, errors: [],
 });
 
-// Match the Xoro sales-sync handler's canonSku exactly so a SKU created
-// via Excel resolves to the same row as the Xoro auto-create. Without
-// the whitespace strip, "RYB059430-ISLAND BREEZE LT WASH-30" (Excel)
-// and "RYB059430-ISLANDBREEZELTWASH-30" (Xoro) became two separate
-// items in ip_item_master.
-function canon(s: string | null | undefined): string {
-  return (s ?? "").toString().trim().toUpperCase().replace(/\s+/g, "");
-}
-
-// Strips trailing size suffix — same regex as the API handlers'
-// canonStyleColor. Used when an Excel cell already has a size baked
-// into the value (e.g., a "SKU" column rather than separate Base
-// Part Number + Option 1 Value).
+// Local thin wrapper so existing call sites don't need renaming.
+// Both delegate to the shared module so SKU normalization can't drift
+// between Excel ingest and the API handlers (xoro-sales-sync,
+// tanda-pos-sync, ats-supply-sync).
+const canon = sharedCanonSku;
 function stripSizeSuffix(s: string): string {
-  return s.replace(
-    /-(XS|XSM|S|SM|M|MD|L|LG|XL|XLG|XXL|XXLG|XXXL|XXXLG|SML|MED|LRG|OS|OSFA|O\/S|[0-9]+|[A-Z]+\([0-9X\-]+\))$/,
-    "",
-  );
+  return canonStyleColor(s);
 }
 
 function toIsoDate(v: unknown): string | null {

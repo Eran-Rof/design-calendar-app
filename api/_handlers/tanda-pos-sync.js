@@ -8,29 +8,9 @@
 // keyed by po_number). Each PO has a line array (PoLineArr or Items).
 
 import { createClient } from "@supabase/supabase-js";
+import { canonSku, canonStyleColor, buildItemRow } from "../_lib/sku-canon.js";
 
 export const config = { maxDuration: 300 };
-
-function canonSku(s) {
-  return (s ?? "").toString().trim().toUpperCase().replace(/\s+/g, "");
-}
-// Drop the trailing size suffix from a Xoro ItemNumber so it matches
-// the Excel-grain SKUs (style+color). Covers:
-//   numeric sizes: -30, -32, -2, -14
-//   single letter: -XS, -S, -M, -L, -XL, -XXL, -XXXL
-//   3-letter combos: -SML, -MED, -LRG
-//   one-size: -OS, -OSFA, -O/S
-//   parenthesized ranges: -L(14-16), -XL(18-20)
-//   multi-letter combos: -SM, -MD, -LG
-function canonStyleColor(rawSku) {
-  let s = canonSku(rawSku);
-  if (!s) return s;
-  s = s.replace(
-    /-(XS|XSM|S|SM|M|MD|L|LG|XL|XLG|XXL|XXLG|XXXL|XXXLG|SML|MED|LRG|OS|OSFA|O\/S|[0-9]+|[A-Z]+\([0-9X\-]+\))$/,
-    "",
-  );
-  return s;
-}
 function toNum(v) {
   if (v == null || v === "") return 0;
   const n = Number(v);
@@ -155,23 +135,9 @@ export default async function handler(req, res) {
   //    color from the rolled-up sku_code so the grid's Style/Color
   //    columns populate without relying on Excel-only fields.
   if (missingSkus.size > 0) {
-    const newItems = Array.from(missingSkus.entries()).map(([sku, ln]) => {
-      const dash = sku.indexOf("-");
-      const style = dash > 0 ? sku.substring(0, dash) : sku;
-      const color = dash > 0 ? sku.substring(dash + 1) : null;
-      const item = {
-        sku_code: sku,
-        style_code: style,
-        color,
-        uom: "each",
-        active: true,
-      };
-      // Only include description if Xoro actually had one — avoids
-      // clobbering an existing description (e.g. from ATS) with null.
-      const desc = ln.Description != null ? String(ln.Description).trim() : "";
-      if (desc) item.description = desc;
-      return item;
-    });
+    const newItems = Array.from(missingSkus.entries()).map(([sku, ln]) =>
+      buildItemRow(sku, { description: ln.Description }),
+    );
     for (let i = 0; i < newItems.length; i += 500) {
       const chunk = newItems.slice(i, i + 500);
       const { data: created, error } = await admin

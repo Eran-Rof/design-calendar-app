@@ -13,24 +13,9 @@
 // all snapshot rows.
 
 import { createClient } from "@supabase/supabase-js";
+import { canonSku, canonStyleColor, buildItemRow } from "../_lib/sku-canon.js";
 
 export const config = { maxDuration: 300 };
-
-function canonSku(s) {
-  return (s ?? "").toString().trim().toUpperCase().replace(/\s+/g, "");
-}
-// Drop trailing size suffix so ATS items match the Excel-grain SKUs
-// (style+color). Mirrors tanda-pos-sync's canonStyleColor — keep the
-// regex in sync.
-function canonStyleColor(rawSku) {
-  let s = canonSku(rawSku);
-  if (!s) return s;
-  s = s.replace(
-    /-(XS|XSM|S|SM|M|MD|L|LG|XL|XLG|XXL|XXLG|XXXL|XXXLG|SML|MED|LRG|OS|OSFA|O\/S|[0-9]+|[A-Z]+\([0-9X\-]+\))$/,
-    "",
-  );
-  return s;
-}
 function toNum(v) {
   if (v == null || v === "") return 0;
   const n = Number(v);
@@ -139,26 +124,13 @@ export default async function handler(req, res) {
   // Snapshot the pre-upsert keys so we can count true new SKUs.
   const preExistingSkus = new Set(itemMap.keys());
   if (candidates.length > 0) {
-    const newItems = candidates.map((c) => {
-      const dash = c.sku.indexOf("-");
-      const style = dash > 0 ? c.sku.substring(0, dash) : c.sku;
-      const color = dash > 0 ? c.sku.substring(dash + 1) : null;
-      const item = {
-        sku_code: c.sku,
-        style_code: style,
-        color,
+    const newItems = candidates.map((c) =>
+      buildItemRow(c.sku, {
+        description: c.src.description,
         unit_cost: toNum(c.src.avgCost) || null,
-        uom: "each",
-        active: true,
         external_refs: { ats_category: c.src.category ?? null },
-      };
-      // Only include description when ATS actually has one — otherwise
-      // the upsert would clobber a description set by another source
-      // (PO sync, manual edit) with NULL.
-      const desc = c.src.description != null ? String(c.src.description).trim() : "";
-      if (desc) item.description = desc;
-      return item;
-    });
+      }),
+    );
     for (let i = 0; i < newItems.length; i += 500) {
       const chunk = newItems.slice(i, i + 500);
       const { data: created, error } = await admin
