@@ -23,7 +23,7 @@ import type {
 import { FORECAST_METHOD_LABELS } from "../types/wholesale";
 import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { applyOverride, buildGridRows } from "../services/wholesaleForecastService";
-import { ingestXoroSales, ingestXoroItems, syncAtsSupply, syncTandaPos } from "../services/xoroSalesIngestService";
+import { ingestXoroSales, syncAtsSupply, syncTandaPos } from "../services/xoroSalesIngestService";
 import { ingestSalesExcel, ingestItemMasterExcel, type ExcelIngestResult } from "../services/excelIngestService";
 import { S, PAL } from "../components/styles";
 import { SB_HEADERS, SB_URL } from "../../utils/supabase";
@@ -123,34 +123,6 @@ export default function WholesalePlanningWorkbench() {
              o.period_start === selectedRow.period_start,
     );
   }, [overrides, selectedRow]);
-
-  // Pull Xoro items into ip_item_master in 5-page chunks so a 20k-item
-  // catalog can be ingested across 8 clicks without hitting the function
-  // duration cap.
-  const [itemsPageStart, setItemsPageStart] = useState(1);
-  async function ingestItems() {
-    setIngesting(true); setRunningKind("items");
-    try {
-      const r = await ingestXoroItems({ pageStart: itemsPageStart, pageLimit: 5 });
-      if (r.error) {
-        console.error("[xoro-items-sync] ingest failed", r);
-        setToast({ text: `Items ingest error: ${r.error}`, kind: "error" });
-      } else {
-        setToast({
-          text: `Xoro items: ${r.xoro_items_fetched} fetched · ${r.inserted} upserted (pages ${itemsPageStart}-${itemsPageStart + 4})`,
-          kind: r.inserted > 0 ? "success" : "info",
-        });
-        // Bump the next chunk's start. If the call returned fewer than a
-        // full chunk, reset — there's nothing more to fetch.
-        if (r.xoro_items_fetched >= 5 * 500) setItemsPageStart((p) => p + 5);
-        else setItemsPageStart(1);
-      }
-    } catch (e) {
-      setToast({ text: "Items ingest failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
-    } finally {
-      setIngesting(false); setRunningKind(null);
-    }
-  }
 
   async function runSupplySync(kind: "ats" | "tanda") {
     setIngesting(true); setRunningKind(kind === "ats" ? "ats" : "tanda");
@@ -644,10 +616,7 @@ export default function WholesalePlanningWorkbench() {
           <button style={S.btnSecondary} onClick={syncNewestSales} disabled={ingesting || autoWalking} title="Pulls only the LAST 10 Xoro pages (~1000 newest invoices). Use after the Excel bootstrap for daily/weekly updates.">
             {runningKind === "newest" ? "Working…" : "↻ Sync newest sales"}
           </button>
-          <button style={S.btnSecondary} onClick={ingestItems} disabled={ingesting || autoWalking} title="Pulls Xoro item catalog into ip_item_master. Click repeatedly to chunk through 20k items — page tracker advances automatically.">
-            {runningKind === "items" ? "Working…" : `Ingest Xoro items (pages ${itemsPageStart}-${itemsPageStart + 4})`}
-          </button>
-          <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }} title="Authoritative source of truth for SKU, Style, Color, Description, Avg Cost. Sync handlers won't overwrite these fields.">
+          <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }} title="Authoritative source of truth for SKU, Style, Color, Description, Avg Cost. New items are auto-stubbed by sales/PO/ATS sync; re-upload the master to refresh them.">
             {runningKind === "excel-master" ? "Working…" : "Upload item master (Excel)"}
             <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
                    onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("master", f); e.target.value = ""; } }} />

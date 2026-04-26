@@ -43,27 +43,6 @@ export async function ingestXoroSales(opts: {
   return r.json();
 }
 
-export interface XoroItemsIngestResult {
-  xoro_items_fetched: number;
-  inserted: number;
-  skipped_no_sku: number;
-  skipped_inactive: number;
-  errors: string[];
-  path: string;
-  error?: string;
-  debug?: unknown;
-  diagnostic?: unknown;
-}
-
-export async function ingestXoroItems(opts: { pageStart?: number; pageLimit?: number } = {}): Promise<XoroItemsIngestResult> {
-  const p = new URLSearchParams();
-  if (opts.pageStart != null) p.set("page_start", String(opts.pageStart));
-  if (opts.pageLimit != null) p.set("page_limit", String(opts.pageLimit));
-  const r = await fetch(`/api/xoro-items-sync${p.toString() ? "?" + p.toString() : ""}`);
-  if (!r.ok) throw new Error(`Items ingest API returned ${r.status}`);
-  return r.json();
-}
-
 export async function syncAtsSupply(opts: { start?: number; limit?: number } = {}): Promise<Record<string, unknown>> {
   const p = new URLSearchParams();
   if (opts.start != null) p.set("start", String(opts.start));

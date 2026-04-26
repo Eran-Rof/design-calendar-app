@@ -221,15 +221,14 @@ import h215 from "./xoro/items.js";
 import h216 from "./xoro-receipts-sync.js";
 import h217 from "./send-notification.js";
 import h218 from "./ats-supply-sync.js";
-import h219 from "./xoro-items-sync.js";
-import h220 from "./xoro-sales-sync.js";
-import h221 from "./searates-proxy.js";
-import h222 from "./tanda-pos-sync.js";
-import h223 from "./dropbox-proxy.js";
-import h224 from "./vendor-invite.js";
-import h225 from "./xoro-ap-sync.js";
-import h226 from "./parse-excel.js";
-import h227 from "./xoro-proxy.js";
+import h219 from "./xoro-sales-sync.js";
+import h220 from "./searates-proxy.js";
+import h221 from "./tanda-pos-sync.js";
+import h222 from "./dropbox-proxy.js";
+import h223 from "./vendor-invite.js";
+import h224 from "./xoro-ap-sync.js";
+import h225 from "./parse-excel.js";
+import h226 from "./xoro-proxy.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -451,15 +450,14 @@ export const ROUTES = [
   { pattern: "/api/xoro-receipts-sync", handler: h216 },
   { pattern: "/api/send-notification", handler: h217 },
   { pattern: "/api/ats-supply-sync", handler: h218 },
-  { pattern: "/api/xoro-items-sync", handler: h219 },
-  { pattern: "/api/xoro-sales-sync", handler: h220 },
-  { pattern: "/api/searates-proxy", handler: h221 },
-  { pattern: "/api/tanda-pos-sync", handler: h222 },
-  { pattern: "/api/dropbox-proxy", handler: h223 },
-  { pattern: "/api/vendor-invite", handler: h224 },
-  { pattern: "/api/xoro-ap-sync", handler: h225 },
-  { pattern: "/api/parse-excel", handler: h226 },
-  { pattern: "/api/xoro-proxy", handler: h227 },
+  { pattern: "/api/xoro-sales-sync", handler: h219 },
+  { pattern: "/api/searates-proxy", handler: h220 },
+  { pattern: "/api/tanda-pos-sync", handler: h221 },
+  { pattern: "/api/dropbox-proxy", handler: h222 },
+  { pattern: "/api/vendor-invite", handler: h223 },
+  { pattern: "/api/xoro-ap-sync", handler: h224 },
+  { pattern: "/api/parse-excel", handler: h225 },
+  { pattern: "/api/xoro-proxy", handler: h226 },
 ];
 
 export function compileRoutes(routes) {
