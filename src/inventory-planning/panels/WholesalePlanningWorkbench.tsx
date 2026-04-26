@@ -277,8 +277,8 @@ export default function WholesalePlanningWorkbench() {
       const r = await ingestXoroSales({
         dateFrom: "1900-01-01",
         dateTo: "2100-12-31",
-        fromEnd: 10,
-        pageLimit: 10,
+        fromEnd: 3,
+        pageLimit: 3,
       });
       if (r.error) {
         setToast({ text: `Sync newest error: ${r.error}`, kind: "error" });

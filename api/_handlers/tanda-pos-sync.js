@@ -14,6 +14,18 @@ export const config = { maxDuration: 300 };
 function canonSku(s) {
   return (s ?? "").toString().trim().toUpperCase().replace(/\s+/g, "");
 }
+// Drop the trailing size suffix from a Xoro ItemNumber so it matches
+// the Excel-grain SKUs (style+color). Examples:
+//   "RYB059430-ISLAND BREEZE LT WASH-30" → "RYB059430-ISLANDBREEZELTWASH"
+//   "PTYA0019-Blackberry-M"              → "PTYA0019-BLACKBERRY"
+//   "PTYA0019-Blackberry"                → "PTYA0019-BLACKBERRY" (no change)
+function canonStyleColor(rawSku) {
+  let s = canonSku(rawSku);
+  if (!s) return s;
+  // Trailing numeric (e.g., -30, -32, -2) OR letter size (XS-XXXL)
+  s = s.replace(/-(XS|S|M|L|XL|XXL|XXXL|[0-9]+)$/, "");
+  return s;
+}
 function toNum(v) {
   if (v == null || v === "") return 0;
   const n = Number(v);
@@ -105,7 +117,9 @@ export default async function handler(req, res) {
     const status = po.StatusName ?? null;
 
     for (const ln of lines) {
-      const sku = canonSku(ln.ItemNumber ?? ln.Sku ?? ln.ItemCode);
+      // Roll up to style+color grain so PO data joins with Excel-sourced
+      // forecast rows (which are at style+color, no size).
+      const sku = canonStyleColor(ln.ItemNumber ?? ln.Sku ?? ln.ItemCode);
       if (!sku) { result.skipped_no_sku++; continue; }
 
       const qtyOrdered = toNum(ln.QtyOrder ?? ln.QtyOrdered ?? ln.Qty);
@@ -149,27 +163,50 @@ export default async function handler(req, res) {
     }
   }
 
-  // 5. Build final upsert rows now that every candidate has a sku_id.
-  const rows = [];
+  // 5. Build final upsert rows. Aggregate candidates by (po, sku) so
+  //    multiple size lines for the same style+color in the same PO
+  //    collapse into a single row (qtys sum, unit_cost weighted-avg).
+  //    Without this, dropping size from canonStyleColor would create
+  //    rows with same source_line_key and silently overwrite.
+  const aggMap = new Map();
   for (const c of candidates) {
     const skuId = itemMap.get(c.sku);
     if (!skuId) { result.errors.push(`no id for ${c.sku} after bulk create`); continue; }
-    rows.push({
-      sku_id: skuId,
-      po_number: c.poNumber,
-      po_line_number: c.lineNum,
-      order_date: c.order_date,
-      expected_date: c.expected_date,
-      qty_ordered: c.qtyOrdered,
-      qty_received: c.qtyReceived,
-      qty_open: c.qtyOpen,
-      unit_cost: c.unit_cost,
-      currency: c.currency,
-      status: c.status,
-      source: "xoro",
-      source_line_key: `tanda:${c.poNumber}:${c.lineNum}`,
-    });
+    const key = `tanda:${c.poNumber}:${c.sku}`;
+    const prev = aggMap.get(key);
+    if (!prev) {
+      aggMap.set(key, {
+        sku_id: skuId,
+        po_number: c.poNumber,
+        po_line_number: c.sku, // style+color anchors the line; size dimension dropped
+        order_date: c.order_date,
+        expected_date: c.expected_date,
+        qty_ordered: c.qtyOrdered,
+        qty_received: c.qtyReceived,
+        qty_open: c.qtyOpen,
+        unit_cost: c.unit_cost,
+        currency: c.currency,
+        status: c.status,
+        source: "xoro",
+        source_line_key: key,
+      });
+      continue;
+    }
+    // Weighted-avg unit_cost on qty_ordered.
+    const totalOrdered = prev.qty_ordered + c.qtyOrdered;
+    if (prev.unit_cost != null && c.unit_cost != null && totalOrdered > 0) {
+      prev.unit_cost = (prev.unit_cost * prev.qty_ordered + c.unit_cost * c.qtyOrdered) / totalOrdered;
+    } else if (c.unit_cost != null) {
+      prev.unit_cost = c.unit_cost;
+    }
+    prev.qty_ordered += c.qtyOrdered;
+    prev.qty_received += c.qtyReceived;
+    prev.qty_open += c.qtyOpen;
+    // Keep earliest order_date, latest expected_date for safety.
+    if (c.order_date && (!prev.order_date || c.order_date < prev.order_date)) prev.order_date = c.order_date;
+    if (c.expected_date && (!prev.expected_date || c.expected_date > prev.expected_date)) prev.expected_date = c.expected_date;
   }
+  const rows = Array.from(aggMap.values());
 
   // 4. Upsert new rows first, then trim stale ones. Doing it in this order
   //    avoids a window where the planning grid would see an empty PO table

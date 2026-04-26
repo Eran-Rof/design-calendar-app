@@ -19,6 +19,14 @@ export const config = { maxDuration: 300 };
 function canonSku(s) {
   return (s ?? "").toString().trim().toUpperCase().replace(/\s+/g, "");
 }
+// Drop trailing size suffix so ATS items match the Excel-grain SKUs
+// (style+color). Mirrors tanda-pos-sync's canonStyleColor.
+function canonStyleColor(rawSku) {
+  let s = canonSku(rawSku);
+  if (!s) return s;
+  s = s.replace(/-(XS|S|M|L|XL|XXL|XXXL|[0-9]+)$/, "");
+  return s;
+}
 function toNum(v) {
   if (v == null || v === "") return 0;
   const n = Number(v);
@@ -78,18 +86,28 @@ export default async function handler(req, res) {
     errors: [],
   };
 
-  // 2. Pre-canonicalize and filter to only SKUs with non-zero state.
-  //    Saves us touching ip_item_master for SKUs we'd skip anyway.
-  const candidates = [];
+  // 2. Pre-canonicalize at style+color grain (drop size) and aggregate
+  //    so multiple ATS rows for the same style+color (different sizes)
+  //    sum into one snapshot row. Matches Excel-sourced grid SKUs.
+  const aggMap = new Map();
   for (const s of skus) {
-    const sku = canonSku(s.sku);
+    const sku = canonStyleColor(s.sku);
     if (!sku) { result.skipped_no_sku++; continue; }
     const onHand = toNum(s.onHand);
     const onPO = toNum(s.onPO);
     const onSo = toNum(s.onSO ?? s.onOrder);
     if (onHand === 0 && onPO === 0 && onSo === 0) { result.skipped_zero_state++; continue; }
-    candidates.push({ sku, src: s, onHand, onPO, onSo });
+    const prev = aggMap.get(sku);
+    if (!prev) {
+      aggMap.set(sku, { sku, src: s, onHand, onPO, onSo });
+    } else {
+      prev.onHand += onHand;
+      prev.onPO += onPO;
+      prev.onSo += onSo;
+      // Keep first src for description/cost — they should match across sizes anyway.
+    }
   }
+  const candidates = Array.from(aggMap.values());
 
   // 3. Resolve only the SKUs in this batch (instead of pulling the full
   //    20k-row item master). Postgres `in.` accepts long lists; chunk to
@@ -148,6 +166,33 @@ export default async function handler(req, res) {
       qty_available: Math.max(0, c.onHand - c.onSo),
       source: "manual",
     });
+  }
+
+  // 5b. Also write avg cost to ip_item_avg_cost so the static "Avg Cost"
+  //     column on the planning grid populates from ATS in addition to
+  //     the inventory snapshot. Unit Cost editor uses this as its
+  //     fallback default before the planner overrides.
+  const avgCostRows = [];
+  for (const c of candidates) {
+    const cost = toNum(c.src.avgCost);
+    if (cost > 0) {
+      avgCostRows.push({
+        sku_code: c.sku,
+        avg_cost: cost,
+        source: "manual",
+        source_ref: "ats_excel_data",
+      });
+    }
+  }
+  if (avgCostRows.length > 0) {
+    for (let i = 0; i < avgCostRows.length; i += 500) {
+      const chunk = avgCostRows.slice(i, i + 500);
+      const { error } = await admin
+        .from("ip_item_avg_cost")
+        .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: false });
+      if (error) result.errors.push(`avg_cost chunk ${i}: ${error.message}`);
+    }
+    result.avg_costs_upserted = avgCostRows.length;
   }
 
   // 6. Bulk-upsert snapshot rows. Unique index =
