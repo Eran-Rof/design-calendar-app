@@ -23,6 +23,14 @@ function priorMonthBounds(now = new Date()) {
 }
 
 export default async function handler(req, res) {
+  // Match the auth pattern of every other cron — without this anyone
+  // could hit this endpoint and trigger vendor_flag inserts + email
+  // blasts to internal ops and vendor admins.
+  const expectedSecret = process.env.CRON_SECRET;
+  if (expectedSecret && req.headers.authorization !== `Bearer ${expectedSecret}`) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
   const SB_URL = process.env.VITE_SUPABASE_URL;
   const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!SB_URL || !SERVICE_KEY) return res.status(500).json({ error: "Server not configured" });

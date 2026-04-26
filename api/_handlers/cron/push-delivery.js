@@ -113,6 +113,13 @@ async function sendFcm(row) {
 }
 
 export default async function handler(req, res) {
+  // Match the auth pattern of every other cron — without this anyone
+  // could drain the push queue on demand and burn APNs/FCM credits.
+  const expectedSecret = process.env.CRON_SECRET;
+  if (expectedSecret && req.headers.authorization !== `Bearer ${expectedSecret}`) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
   const SB_URL = process.env.VITE_SUPABASE_URL;
   const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!SB_URL || !SERVICE_KEY) return res.status(500).json({ error: "Server not configured" });
