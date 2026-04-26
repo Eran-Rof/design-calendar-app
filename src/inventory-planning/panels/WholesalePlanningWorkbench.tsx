@@ -278,17 +278,34 @@ export default function WholesalePlanningWorkbench() {
       // everything and let the forecast layer (which always trims to
       // snapshot - 12 months) decide what's in scope for planning.
       let consecutiveEmpty = 0;
+      let consecutiveErrors = 0;
       while (!autoWalkAbort.current) {
-        // 5 Xoro pages per call (~500 invoices). Each call must finish
-        // within the function timeout — 5 pages × ~5s + normalize +
-        // upsert ≈ 30-45s.
-        const r = await ingestXoroSales({
-          dateFrom: "1900-01-01",
-          dateTo: "2100-12-31",
-          pageStart: page,
-          pageLimit: 5,
-        });
-        pagesWalked += 5;
+        // 2 Xoro pages per call (~200 invoices). Bigger batches blew
+        // the 60s gateway when Xoro responded slowly + heavy upserts
+        // ran. With auto-resume + retry on 504, walking more calls is
+        // safer than packing more into each.
+        let r;
+        try {
+          r = await ingestXoroSales({
+            dateFrom: "1900-01-01",
+            dateTo: "2100-12-31",
+            pageStart: page,
+            pageLimit: 2,
+          });
+          consecutiveErrors = 0;
+        } catch (err) {
+          consecutiveErrors++;
+          const msg = err instanceof Error ? err.message : String(err);
+          setToast({ text: `Auto-walk transient error (page ${page}): ${msg} · retrying ${consecutiveErrors}/3`, kind: "info" });
+          if (consecutiveErrors >= 3) {
+            setToast({ text: `Auto-walk stopped on page ${page} after 3 retries: ${msg}`, kind: "error" });
+            break;
+          }
+          // Brief backoff before retrying the same page.
+          await new Promise((res) => setTimeout(res, 5000));
+          continue;
+        }
+        pagesWalked += 2;
         if (r.error) {
           setToast({ text: `Auto-walk stopped on page ${page}: ${r.error}`, kind: "error" });
           break;
@@ -300,7 +317,7 @@ export default function WholesalePlanningWorkbench() {
         if (r.oldest_invoice_in_batch && (!earliestDate || r.oldest_invoice_in_batch < earliestDate)) earliestDate = r.oldest_invoice_in_batch;
         if (r.newest_invoice_in_batch && (!latestDate || r.newest_invoice_in_batch > latestDate)) latestDate = r.newest_invoice_in_batch;
         // Persist progress so a refresh / browser close doesn't lose it.
-        localStorage.setItem(resumeKey, String(page + 5));
+        localStorage.setItem(resumeKey, String(page + 2));
         // Live progress so the planner sees something is happening.
         setToast({
           text: `Auto-walk: page ${page} · ${r.oldest_invoice_in_batch ?? "?"}…${r.newest_invoice_in_batch ?? "?"} · running totals ${totalInserted} upserted, ${totalAutoSku} new SKUs`,
@@ -319,17 +336,17 @@ export default function WholesalePlanningWorkbench() {
         } else {
           consecutiveEmpty = 0;
         }
-        // Hard ceiling — 1000 pages × 100 invoices = 100k cap.
-        if (pagesWalked >= 1000) {
+        // Hard ceiling — 2000 pages × 100 invoices = 200k cap.
+        if (pagesWalked >= 2000) {
           setSalesPageStart(page);
           break;
         }
-        page += 5;
+        page += 2;
       }
       setSalesPageStart(autoWalkAbort.current ? page : 1);
       // Clear resume marker only on a clean finish (not on user cancel
       // or hard-ceiling stop) so re-clicking continues from where we left off.
-      const cleanFinish = !autoWalkAbort.current && pagesWalked < 1000;
+      const cleanFinish = !autoWalkAbort.current && pagesWalked < 2000;
       if (cleanFinish) localStorage.removeItem(resumeKey);
       setToast({
         text: `✓ Auto-walk DONE — ${pagesWalked} pages · covered ${earliestDate ?? "?"}…${latestDate ?? "?"} · ${totalInserted.toLocaleString()} upserted · ${totalAutoSku} new SKUs · ${totalAutoCust} new customers${autoWalkAbort.current ? " · cancelled (will resume from page " + page + ")" : (!cleanFinish ? " · stopped at hard ceiling (resume from page " + page + ")" : "")}`,
