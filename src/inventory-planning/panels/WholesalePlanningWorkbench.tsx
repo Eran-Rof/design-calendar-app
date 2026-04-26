@@ -469,15 +469,22 @@ export default function WholesalePlanningWorkbench() {
 
   // Optimistic local update so Buy $ reflects the typed value immediately,
   // then refresh from DB so derived columns (Short, Excess, rolling supply)
-  // recompute. A failure toasts and reverts via the same refresh path.
+  // recompute. The refresh runs in the background (no await) so the user
+  // doesn't sit through a 2-3s grid rebuild after every keystroke.
   async function saveBuyQty(forecastId: string, qty: number | null) {
     setRows((prev) => prev.map((r) => r.forecast_id === forecastId ? { ...r, planned_buy_qty: qty } : r));
     try {
       await wholesaleRepo.patchForecastBuyQty(forecastId, qty);
       setToast({ text: qty != null ? `Buy qty set to ${qty.toLocaleString()}` : "Buy qty cleared", kind: "success" });
-      const refreshed = await buildGridRows(selectedRun!);
-      setRows(refreshed);
-      setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
+      // Fire-and-forget — Short/Excess update a moment later when the
+      // rebuild finishes. The cell is already showing the new value.
+      void (async () => {
+        try {
+          const refreshed = await buildGridRows(selectedRun!);
+          setRows(refreshed);
+          setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
+        } catch { /* swallow — next user action will refresh */ }
+      })();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setToast({ text: `Buy qty save failed — ${msg}`, kind: "error" });
@@ -497,9 +504,13 @@ export default function WholesalePlanningWorkbench() {
     try {
       await wholesaleRepo.patchForecastBuyerRequest(forecastId, qty, final);
       setToast({ text: `Buyer request set to ${qty.toLocaleString()}`, kind: "success" });
-      const refreshed = await buildGridRows(selectedRun!);
-      setRows(refreshed);
-      setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
+      void (async () => {
+        try {
+          const refreshed = await buildGridRows(selectedRun!);
+          setRows(refreshed);
+          setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
+        } catch { /* swallow */ }
+      })();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setToast({ text: `Buyer request save failed — ${msg}`, kind: "error" });
@@ -518,9 +529,13 @@ export default function WholesalePlanningWorkbench() {
     try {
       await wholesaleRepo.patchForecastOverride(forecastId, qty, final);
       setToast({ text: `Override set to ${qty > 0 ? "+" : ""}${qty.toLocaleString()}`, kind: "success" });
-      const refreshed = await buildGridRows(selectedRun!);
-      setRows(refreshed);
-      setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
+      void (async () => {
+        try {
+          const refreshed = await buildGridRows(selectedRun!);
+          setRows(refreshed);
+          setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
+        } catch { /* swallow */ }
+      })();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setToast({ text: `Override save failed — ${msg}`, kind: "error" });
