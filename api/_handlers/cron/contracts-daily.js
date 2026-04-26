@@ -142,10 +142,14 @@ export default async function handler(req, res) {
 
     if ((pastDue || []).length > 0) {
       const ids = pastDue.map((c) => c.id);
+      // Re-filter on status='signed' so a contract that was manually
+      // re-signed between the fetch above and this update doesn't get
+      // clobbered back to 'expired'.
       const { error: updErr } = await admin
         .from("contracts")
         .update({ status: "expired", updated_at: new Date().toISOString() })
-        .in("id", ids);
+        .in("id", ids)
+        .eq("status", "signed");
       if (updErr) throw updErr;
       result.expired.flipped = ids.length;
     }
