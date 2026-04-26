@@ -25,22 +25,23 @@ const COLORS: Record<ToastKind, { bg: string; icon: string }> = {
 };
 
 export default function Toast({ toast, onDismiss, autoDismissMs = 2000 }: ToastProps) {
-  // Final-state messages (success/error/contains "DONE") stick around
-  // 6 seconds so the planner can actually read the totals; transient
-  // info toasts dismiss in 2s as before.
+  // Final-state messages (success/error/contains "DONE") stay until
+  // the planner clicks to dismiss — these carry totals worth reading.
+  // Transient info toasts dismiss in 2s as before.
   const isFinalState = toast?.kind === "success" || toast?.kind === "error" || (toast?.text ?? "").includes("DONE");
-  const ttl = isFinalState ? 6000 : autoDismissMs;
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(onDismiss, ttl);
+    if (isFinalState) return; // sticky until click
+    const t = setTimeout(onDismiss, autoDismissMs);
     return () => clearTimeout(t);
-  }, [toast, ttl, onDismiss]);
+  }, [toast, isFinalState, autoDismissMs, onDismiss]);
 
   if (!toast) return null;
   const palette = COLORS[toast.kind];
   return (
     <div
       onClick={onDismiss}
+      title={isFinalState ? "Click to dismiss" : ""}
       style={{
         position: "fixed",
         bottom: 32,
@@ -48,7 +49,7 @@ export default function Toast({ toast, onDismiss, autoDismissMs = 2000 }: ToastP
         transform: "translateX(-50%)",
         background: palette.bg,
         color: "#fff",
-        padding: "12px 28px",
+        padding: "12px 20px 12px 28px",
         borderRadius: 10,
         fontSize: 15,
         fontWeight: 700,
@@ -56,9 +57,31 @@ export default function Toast({ toast, onDismiss, autoDismissMs = 2000 }: ToastP
         zIndex: 400,
         cursor: "pointer",
         maxWidth: "80vw",
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
       }}
     >
-      {palette.icon} {toast.text}
+      <span style={{ flex: 1 }}>{palette.icon} {toast.text}</span>
+      {isFinalState && (
+        <span
+          aria-label="Dismiss"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 22,
+            height: 22,
+            borderRadius: 4,
+            background: "rgba(255,255,255,0.15)",
+            fontSize: 14,
+            lineHeight: 1,
+            flexShrink: 0,
+          }}
+        >
+          ✕
+        </span>
+      )}
     </div>
   );
 }
