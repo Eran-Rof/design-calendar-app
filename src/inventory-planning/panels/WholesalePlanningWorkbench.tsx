@@ -261,16 +261,23 @@ export default function WholesalePlanningWorkbench() {
   async function autoWalkSales() {
     setAutoWalking(true); setRunningKind("autowalk");
     autoWalkAbort.current = false;
-    let page = salesPageStart;
+    // Resume from where the last walk stopped — backfill can take hours,
+    // and refreshing the tab shouldn't restart from page 1.
+    const resumeKey = "ip_xoro_sales_resume_page";
+    const saved = Number(localStorage.getItem(resumeKey) ?? salesPageStart);
+    let page = Number.isFinite(saved) && saved >= 1 ? saved : 1;
     let totalInserted = 0;
     let totalAutoSku = 0;
     let totalAutoCust = 0;
     let pagesWalked = 0;
+    let earliestDate: string | null = null;
+    let latestDate: string | null = null;
     try {
       // Auto-walk fetches the entire Xoro invoice catalog — date params
       // on the endpoint don't actually filter results, so we ingest
       // everything and let the forecast layer (which always trims to
       // snapshot - 12 months) decide what's in scope for planning.
+      let consecutiveEmpty = 0;
       while (!autoWalkAbort.current) {
         // 5 Xoro pages per call (~500 invoices). Each call must finish
         // within the function timeout — 5 pages × ~5s + normalize +
@@ -289,15 +296,28 @@ export default function WholesalePlanningWorkbench() {
         totalInserted += r.inserted;
         totalAutoSku += r.auto_created_skus ?? 0;
         totalAutoCust += r.auto_created_customers ?? 0;
+        // Track overall date span covered.
+        if (r.oldest_invoice_in_batch && (!earliestDate || r.oldest_invoice_in_batch < earliestDate)) earliestDate = r.oldest_invoice_in_batch;
+        if (r.newest_invoice_in_batch && (!latestDate || r.newest_invoice_in_batch > latestDate)) latestDate = r.newest_invoice_in_batch;
+        // Persist progress so a refresh / browser close doesn't lose it.
+        localStorage.setItem(resumeKey, String(page + 5));
         // Live progress so the planner sees something is happening.
         setToast({
           text: `Auto-walk: page ${page} · ${r.oldest_invoice_in_batch ?? "?"}…${r.newest_invoice_in_batch ?? "?"} · running totals ${totalInserted} upserted, ${totalAutoSku} new SKUs`,
           kind: "info",
         });
-        // End of catalog: empty batch.
+        // Tolerate up to 3 consecutive empty batches before declaring
+        // end-of-catalog — Xoro occasionally returns an empty page
+        // mid-catalog (transient pagination hiccup) and the next batch
+        // recovers. Reset the counter on any non-empty batch.
         if (r.xoro_lines_fetched === 0) {
-          setSalesPageStart(1);
-          break;
+          consecutiveEmpty++;
+          if (consecutiveEmpty >= 3) {
+            setSalesPageStart(1);
+            break;
+          }
+        } else {
+          consecutiveEmpty = 0;
         }
         // Hard ceiling — 1000 pages × 100 invoices = 100k cap.
         if (pagesWalked >= 1000) {
@@ -307,8 +327,12 @@ export default function WholesalePlanningWorkbench() {
         page += 5;
       }
       setSalesPageStart(autoWalkAbort.current ? page : 1);
+      // Clear resume marker only on a clean finish (not on user cancel
+      // or hard-ceiling stop) so re-clicking continues from where we left off.
+      const cleanFinish = !autoWalkAbort.current && pagesWalked < 1000;
+      if (cleanFinish) localStorage.removeItem(resumeKey);
       setToast({
-        text: `✓ Auto-walk DONE — ${pagesWalked} pages walked · ${totalInserted.toLocaleString()} upserted · ${totalAutoSku} new SKUs · ${totalAutoCust} new customers${autoWalkAbort.current ? " · cancelled" : ""}`,
+        text: `✓ Auto-walk DONE — ${pagesWalked} pages · covered ${earliestDate ?? "?"}…${latestDate ?? "?"} · ${totalInserted.toLocaleString()} upserted · ${totalAutoSku} new SKUs · ${totalAutoCust} new customers${autoWalkAbort.current ? " · cancelled (will resume from page " + page + ")" : (!cleanFinish ? " · stopped at hard ceiling (resume from page " + page + ")" : "")}`,
         kind: totalInserted > 0 ? "success" : "info",
       });
       if (totalInserted > 0) await loadRunData();
