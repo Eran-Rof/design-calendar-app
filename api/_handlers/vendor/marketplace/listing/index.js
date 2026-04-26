@@ -51,7 +51,7 @@ export default async function handler(req, res) {
     const { data: existing } = await admin.from("marketplace_listings").select("id, status").eq("vendor_id", vendorId).maybeSingle();
     if (existing?.id) {
       // Don't auto-demote published → draft on an edit; vendor toggles via /publish
-      const { error } = await admin.from("marketplace_listings").update(payload).eq("id", existing.id);
+      const { error } = await admin.from("marketplace_listings").update(payload).eq("id", existing.id).eq("vendor_id", vendorId);
       if (error) return res.status(500).json({ error: error.message });
       return res.status(200).json({ id: existing.id, upserted: "updated", status: existing.status });
     }

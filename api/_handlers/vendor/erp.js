@@ -104,7 +104,7 @@ export default async function handler(req, res) {
 
     let result;
     if (existing) {
-      result = await admin.from("erp_integrations").update(payload).eq("id", existing.id).select("*").single();
+      result = await admin.from("erp_integrations").update(payload).eq("id", existing.id).eq("vendor_id", caller.vendor_id).select("*").single();
     } else {
       result = await admin.from("erp_integrations").insert(payload).select("*").single();
     }
@@ -123,7 +123,7 @@ export default async function handler(req, res) {
       status: "paused",
       config: { partner_id: null },
       updated_at: new Date().toISOString(),
-    }).eq("id", id);
+    }).eq("id", id).eq("vendor_id", caller.vendor_id);
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({ ok: true });
   }

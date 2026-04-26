@@ -46,7 +46,7 @@ export default async function handler(req, res) {
 
     const { data: existing } = await admin.from("vendor_payment_preferences").select("id").eq("vendor_id", vendorId).maybeSingle();
     if (existing?.id) {
-      const { error } = await admin.from("vendor_payment_preferences").update(payload).eq("id", existing.id);
+      const { error } = await admin.from("vendor_payment_preferences").update(payload).eq("id", existing.id).eq("vendor_id", vendorId);
       if (error) return res.status(500).json({ error: error.message });
       return res.status(200).json({ id: existing.id, upserted: "updated" });
     }

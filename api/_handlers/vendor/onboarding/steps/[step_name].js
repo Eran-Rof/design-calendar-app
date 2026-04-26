@@ -163,7 +163,9 @@ export default async function handler(req, res) {
     updates.status = "pending_review";
   }
 
-  await admin.from("onboarding_workflows").update(updates).eq("id", workflow.id);
+  // Filter on vendor_id too — defense in depth in case the row's owner
+  // changed between the read above and the update below.
+  await admin.from("onboarding_workflows").update(updates).eq("id", workflow.id).eq("vendor_id", caller.vendor_id);
 
   return res.status(200).json({ ok: true, step: stepName, workflow_status: updates.status || workflow.status, completed_steps: completedSteps });
 }

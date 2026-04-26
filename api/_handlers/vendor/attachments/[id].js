@@ -39,8 +39,10 @@ export default async function handler(req, res) {
   if (!row || row.vendor_id !== auth.vendor_id) return send(404, { error: "Not found" });
 
   if (req.method === "DELETE") {
+    // Filter on vendor_id too — defense in depth in case the row's owner
+    // changed between the read above and the update below.
     const { error } = await admin
-      .from("attachments").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+      .from("attachments").update({ deleted_at: new Date().toISOString() }).eq("id", id).eq("vendor_id", auth.vendor_id);
     if (error) return send(500, { error: error.message });
     return send(200, { ok: true });
   }
@@ -52,7 +54,7 @@ export default async function handler(req, res) {
     if (body?.file_description !== undefined) patch.file_description = body.file_description ? String(body.file_description).trim() : null;
     if (Object.keys(patch).length === 0) return send(400, { error: "Nothing to update" });
     const { data, error } = await admin
-      .from("attachments").update(patch).eq("id", id).select("*").single();
+      .from("attachments").update(patch).eq("id", id).eq("vendor_id", auth.vendor_id).select("*").single();
     if (error) return send(500, { error: error.message });
     return send(200, data);
   }
