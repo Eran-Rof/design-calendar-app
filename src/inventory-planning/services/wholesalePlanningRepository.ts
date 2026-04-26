@@ -216,11 +216,15 @@ export const wholesaleRepo = {
   // Without this, multi-month horizons silently truncated to the earliest
   // periods only — the user saw "only Apr/May" when the run spanned Apr–Aug.
   async listForecast(planningRunId: string): Promise<IpWholesaleForecast[]> {
+    // No ORDER BY — the multi-column sort hammered the 8s statement
+    // timeout once the forecast grew past ~10k rows. Caller loads
+    // everything into memory and joins; row order doesn't matter.
+    // Order by id (PK) gives us a stable cursor for offset paging.
     const out: IpWholesaleForecast[] = [];
     const PAGE = 1000;
     for (let offset = 0; ; offset += PAGE) {
       const chunk = await sbGet<IpWholesaleForecast>(
-        `ip_wholesale_forecast?select=*&planning_run_id=eq.${planningRunId}&order=period_start.asc,customer_id.asc,sku_id.asc&limit=${PAGE}&offset=${offset}`,
+        `ip_wholesale_forecast?select=*&planning_run_id=eq.${planningRunId}&order=id.asc&limit=${PAGE}&offset=${offset}`,
       );
       out.push(...chunk);
       if (chunk.length < PAGE) break;
@@ -320,9 +324,10 @@ export const wholesaleRepo = {
   // ── Recommendations ──────────────────────────────────────────────────────
   async listRecommendations(planningRunId: string): Promise<IpWholesaleRecommendation[]> {
     // Paginate — limit=200000 hits Supabase's 8s statement timeout
-    // once recommendations grow past a few thousand rows.
+    // once recommendations grow past a few thousand rows. Order by id
+    // (PK) avoids expensive multi-column sorts that also blew timeout.
     return sbGetAll<IpWholesaleRecommendation>(
-      `ip_wholesale_recommendations?select=*&planning_run_id=eq.${planningRunId}&order=customer_id.asc,sku_id.asc`,
+      `ip_wholesale_recommendations?select=*&planning_run_id=eq.${planningRunId}&order=id.asc`,
     );
   },
   async replaceRecommendations(
