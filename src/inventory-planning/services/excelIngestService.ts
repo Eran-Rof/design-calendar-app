@@ -231,20 +231,31 @@ export async function ingestSalesExcel(
       if (desc) item.description = desc;
       return item;
     });
-    for (let i = 0; i < newItems.length; i += 500) {
-      const chunk = newItems.slice(i, i + 500);
-      try {
-        await sbPost(
-          "ip_item_master?on_conflict=sku_code",
-          chunk,
-          "resolution=merge-duplicates,return=representation",
-        );
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        result.errors.push(`item bulk upsert chunk ${i}: ${msg}`);
-        log(`✗ item chunk ${i} failed: ${msg}`);
+    // Bucket by key signature — see master-upload note. Sales-derived
+    // items vary in whether `description` is set, which trips PGRST102
+    // ("All object keys must match") on bulk upsert.
+    const salesShapeBuckets = new Map<string, typeof newItems>();
+    for (const it of newItems) {
+      const sig = Object.keys(it).sort().join(",");
+      let bucket = salesShapeBuckets.get(sig);
+      if (!bucket) { bucket = []; salesShapeBuckets.set(sig, bucket); }
+      bucket.push(it);
+    }
+    for (const [, bucket] of salesShapeBuckets) {
+      for (let i = 0; i < bucket.length; i += 500) {
+        const chunk = bucket.slice(i, i + 500);
+        try {
+          await sbPost(
+            "ip_item_master?on_conflict=sku_code",
+            chunk,
+            "resolution=merge-duplicates,return=representation",
+          );
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          result.errors.push(`item bulk upsert chunk ${i}: ${msg}`);
+          log(`✗ item chunk ${i} failed: ${msg}`);
+        }
       }
-      if (i % 2000 === 0 && i > 0) log(`  …items ${i.toLocaleString()}/${newItems.length.toLocaleString()}`);
     }
     log(`Re-fetching items to refresh id map…`);
     const refreshed = await wholesaleRepo.listItems();
@@ -478,6 +489,15 @@ export async function ingestItemMasterExcel(
     const groupName = String(pick(r, GROUP_NAME_ALIASES) ?? "").trim() || null;
     const subCategoryName = String(pick(r, CATEGORY_NAME_ALIASES) ?? "").trim() || null;
 
+    // PostgREST 12+ rejects bulk upserts where rows have different key sets
+    // ("All object keys must match"). So every row carries the SAME shape;
+    // null values mean "leave the existing value alone" only because we use
+    // resolution=merge-duplicates with on_conflict — but be aware: with
+    // merge-duplicates, sending {description: null} would actively set the
+    // existing column to null. We don't want that for blanks. So instead of
+    // omitting fields, we send them only when populated AND batch by shape:
+    // build a stable shape per row, then group rows that have the same key
+    // signature and upsert each group separately.
     const item: Record<string, unknown> = {
       sku_code: sku,
       style_code: style || null,
@@ -486,20 +506,12 @@ export async function ingestItemMasterExcel(
       active: true,
     };
     if (description) item.description = description;
-    // GroupName + CategoryName from Xoro/Excel land in attributes JSONB so
-    // the grid renders Category / Sub Cat without a schema migration. The
-    // upsert replaces the column wholesale, so always send a complete object
-    // (or omit it entirely when both are blank, to avoid clobbering an
-    // existing row's values).
     if (groupName || subCategoryName) {
       item.attributes = {
         ...(groupName ? { group_name: groupName } : {}),
         ...(subCategoryName ? { category_name: subCategoryName } : {}),
       };
     }
-    // Avg Cost in the spreadsheet drives both unit_cost on the master row
-    // AND ip_item_avg_cost — the grid displays a single resolved cost so
-    // Avg Cost and Unit Cost columns match by default.
     if (cost != null && cost >= 0) {
       item.unit_cost = cost;
       costPayload.push({
@@ -512,19 +524,37 @@ export async function ingestItemMasterExcel(
     itemPayload.push(item);
   }
 
-  log(`Upserting ${itemPayload.length.toLocaleString()} item-master rows…`);
-  for (let i = 0; i < itemPayload.length; i += 500) {
-    try {
-      await sbPost(
-        "ip_item_master?on_conflict=sku_code",
-        itemPayload.slice(i, i + 500),
-        "resolution=merge-duplicates,return=minimal",
-      );
-      result.inserted += Math.min(500, itemPayload.length - i);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      result.errors.push(`item chunk ${i}: ${msg}`);
-      log(`✗ item chunk ${i} failed: ${msg}`);
+  // PostgREST 12+ rejects bulk upserts whose rows have different key
+  // sets ("All object keys must match"). Rows here vary in shape because
+  // description / unit_cost / attributes are only included when the Excel
+  // cell is non-blank — sending them as null would clobber existing master
+  // values with merge-duplicates. Group rows by their key signature so
+  // each chunk is uniform.
+  const shapeBuckets = new Map<string, Array<Record<string, unknown>>>();
+  for (const item of itemPayload) {
+    const sig = Object.keys(item).sort().join(",");
+    let bucket = shapeBuckets.get(sig);
+    if (!bucket) { bucket = []; shapeBuckets.set(sig, bucket); }
+    bucket.push(item);
+  }
+  log(`Upserting ${itemPayload.length.toLocaleString()} item-master rows in ${shapeBuckets.size} shape bucket(s)…`);
+  let bucketIdx = 0;
+  for (const [sig, bucket] of shapeBuckets) {
+    bucketIdx++;
+    log(`  bucket ${bucketIdx}/${shapeBuckets.size} (${bucket.length.toLocaleString()} rows · keys=${sig})`);
+    for (let i = 0; i < bucket.length; i += 500) {
+      try {
+        await sbPost(
+          "ip_item_master?on_conflict=sku_code",
+          bucket.slice(i, i + 500),
+          "resolution=merge-duplicates,return=minimal",
+        );
+        result.inserted += Math.min(500, bucket.length - i);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        result.errors.push(`item bucket ${bucketIdx} chunk ${i}: ${msg}`);
+        log(`✗ item bucket ${bucketIdx} chunk ${i} failed: ${msg}`);
+      }
     }
   }
 
