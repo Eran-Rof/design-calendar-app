@@ -43,7 +43,7 @@ function canon(s: string | null | undefined): string {
 // Part Number + Option 1 Value).
 function stripSizeSuffix(s: string): string {
   return s.replace(
-    /-(XS|S|M|L|XL|XXL|XXXL|SM|MD|LG|SML|MED|LRG|OS|OSFA|O\/S|[0-9]+|[A-Z]+\([0-9X\-]+\))$/,
+    /-(XS|XSM|S|SM|M|MD|L|LG|XL|XLG|XXL|XXLG|XXXL|XXXLG|SML|MED|LRG|OS|OSFA|O\/S|[0-9]+|[A-Z]+\([0-9X\-]+\))$/,
     "",
   );
 }
