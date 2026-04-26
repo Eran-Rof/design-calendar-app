@@ -143,16 +143,21 @@ export default async function handler(req, res) {
       const dash = c.sku.indexOf("-");
       const style = dash > 0 ? c.sku.substring(0, dash) : c.sku;
       const color = dash > 0 ? c.sku.substring(dash + 1) : null;
-      return {
+      const item = {
         sku_code: c.sku,
         style_code: style,
         color,
-        description: c.src.description ?? null,
         unit_cost: toNum(c.src.avgCost) || null,
         uom: "each",
         active: true,
         external_refs: { ats_category: c.src.category ?? null },
       };
+      // Only include description when ATS actually has one — otherwise
+      // the upsert would clobber a description set by another source
+      // (PO sync, manual edit) with NULL.
+      const desc = c.src.description != null ? String(c.src.description).trim() : "";
+      if (desc) item.description = desc;
+      return item;
     });
     for (let i = 0; i < newItems.length; i += 500) {
       const chunk = newItems.slice(i, i + 500);

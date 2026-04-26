@@ -359,7 +359,7 @@ function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number
         outline: "none",
         opacity: saving ? 0.5 : 1,
       }}
-      onFocus={(e) => { focused.current = true; e.target.style.borderColor = err ? PAL.red : PAL.green; e.target.style.background = PAL.panel; }}
+      onFocus={(e) => { focused.current = true; e.target.select(); e.target.style.borderColor = err ? PAL.red : PAL.green; e.target.style.background = PAL.panel; }}
       onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
     />
   );
@@ -418,7 +418,7 @@ function IntCell({ value, accent, allowNegative, onSave }: {
         outline: "none",
         opacity: saving ? 0.5 : 1,
       }}
-      onFocus={(e) => { focused.current = true; e.target.style.borderColor = err ? PAL.red : accent; e.target.style.background = PAL.panel; }}
+      onFocus={(e) => { focused.current = true; e.target.select(); e.target.style.borderColor = err ? PAL.red : accent; e.target.style.background = PAL.panel; }}
       onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
     />
   );
@@ -478,7 +478,7 @@ function UnitCostCell({ value, overridden, onSave }: {
         opacity: saving ? 0.5 : 1,
         fontStyle: overridden ? "normal" : "italic",
       }}
-      onFocus={(e) => { focused.current = true; e.target.style.borderColor = err ? PAL.red : PAL.accent2; e.target.style.background = PAL.panel; }}
+      onFocus={(e) => { focused.current = true; e.target.select(); e.target.style.borderColor = err ? PAL.red : PAL.accent2; e.target.style.background = PAL.panel; }}
       onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
     />
   );

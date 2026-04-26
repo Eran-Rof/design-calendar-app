@@ -159,14 +159,18 @@ export default async function handler(req, res) {
       const dash = sku.indexOf("-");
       const style = dash > 0 ? sku.substring(0, dash) : sku;
       const color = dash > 0 ? sku.substring(dash + 1) : null;
-      return {
+      const item = {
         sku_code: sku,
         style_code: style,
         color,
-        description: ln.Description ?? null,
         uom: "each",
         active: true,
       };
+      // Only include description if Xoro actually had one — avoids
+      // clobbering an existing description (e.g. from ATS) with null.
+      const desc = ln.Description != null ? String(ln.Description).trim() : "";
+      if (desc) item.description = desc;
+      return item;
     });
     for (let i = 0; i < newItems.length; i += 500) {
       const chunk = newItems.slice(i, i + 500);
