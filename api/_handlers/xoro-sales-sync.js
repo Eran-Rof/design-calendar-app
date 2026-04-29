@@ -78,23 +78,60 @@ export default async function handler(req, res) {
   let pageStart = Math.max(parseInt(url.searchParams.get("page_start") || "1", 10), 1);
   // "Newest" mode — pull the last N pages instead of starting from
   // page 1. Used by the "Sync newest" button for daily/weekly updates
-  // after an Excel bootstrap. Discovers totalPages with one cheap call,
-  // then sets pageStart = max(1, totalPages - from_end + 1).
+  // after an Excel bootstrap.
+  //
+  // Strategy: Xoro paginates oldest-first and (in our experience) does
+  // NOT return TotalPages, so we discover the last populated page via
+  // exponential-probe + binary-search. ~10–20 cheap requests
+  // (per_page=1) total. If a future Xoro deploy starts returning
+  // TotalPages we honor that and skip the probe.
   const fromEnd = parseInt(url.searchParams.get("from_end") || "0", 10);
   if (fromEnd > 0) {
-    const probe = await fetchXoroAll({ path, params: { per_page: "200" }, maxPages: 1, module: url.searchParams.get("module") || "items", pageStart: 1 });
-    // Surface a real error when Xoro doesn't tell us how many pages
-    // there are — silently falling through to page 1 makes the
-    // "Sync newest" button refetch the OLDEST invoices instead of the
-    // newest, which is the opposite of what the user clicked.
-    const totalPages = probe.totalPages ?? probe.body?.TotalPages ?? probe.body?.totalPages ?? null;
-    if (totalPages == null || totalPages < 1) {
-      return res.status(200).json({
-        error: "XORO_TOTAL_PAGES_MISSING",
-        hint: "Xoro response didn't include TotalPages — cannot compute newest-pages window. Try a manual page_start or remove from_end.",
-        path,
-        probe: probe.body,
-      });
+    const probeModule = url.searchParams.get("module") || "items";
+    const initial = await fetchXoroAll({ path, params: { per_page: "1" }, maxPages: 1, module: probeModule, pageStart: 1 });
+    const declaredTotal = initial.totalPages ?? initial.body?.TotalPages ?? initial.body?.totalPages ?? null;
+    let totalPages = null;
+    if (declaredTotal != null && declaredTotal >= 1) {
+      totalPages = declaredTotal;
+    } else {
+      // Probe for the last page. fetchOne returns true when the page
+      // has at least one record. We use per_page=1 so each probe is
+      // tiny. Cap exponential growth at 5,000 (~200 invoices/page ×
+      // 5000 = 1M invoices — way beyond any realistic catalog).
+      const fetchOne = async (page) => {
+        const r = await fetchXoroAll({ path, params: { per_page: "1" }, maxPages: 1, module: probeModule, pageStart: page });
+        const data = Array.isArray(r.body?.Data) ? r.body.Data : [];
+        return data.length > 0;
+      };
+      const initialHasData = Array.isArray(initial.body?.Data) ? initial.body.Data.length > 0 : false;
+      if (!initialHasData) {
+        return res.status(200).json({
+          error: "XORO_NO_INVOICES",
+          hint: "Xoro returned 0 invoices on page 1 — nothing to sync.",
+          path,
+        });
+      }
+      // Exponential probe: find an upper bound where the page is empty.
+      let lo = 1; // known has data
+      let hi = 2;
+      while (hi <= 5000) {
+        if (!(await fetchOne(hi))) break;
+        lo = hi;
+        hi *= 2;
+      }
+      if (hi > 5000) {
+        return res.status(200).json({
+          error: "XORO_PAGE_PROBE_EXCEEDED",
+          hint: "Couldn't find the last invoice page within 5000 — catalog too large or pagination broken.",
+          path,
+        });
+      }
+      // Binary search between lo (has data) and hi (empty).
+      while (hi - lo > 1) {
+        const mid = Math.floor((lo + hi) / 2);
+        if (await fetchOne(mid)) lo = mid; else hi = mid;
+      }
+      totalPages = lo;
     }
     pageStart = Math.max(1, totalPages - fromEnd + 1);
   }
