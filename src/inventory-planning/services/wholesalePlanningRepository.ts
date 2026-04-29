@@ -228,10 +228,12 @@ export const wholesaleRepo = {
     rows: Array<Omit<IpWholesaleRecommendation, "id" | "created_at">>,
   ): Promise<void> {
     // Recommendations are fully regenerated each run; clear then insert.
+    // Chunk size kept at 200 — larger batches hit Supabase's 8s statement
+    // timeout (57014) because each row validates 3 FKs.
     await sbDelete(`ip_wholesale_recommendations?planning_run_id=eq.${planningRunId}`);
     if (rows.length === 0) return;
-    for (let i = 0; i < rows.length; i += 500) {
-      const chunk = rows.slice(i, i + 500);
+    for (let i = 0; i < rows.length; i += 200) {
+      const chunk = rows.slice(i, i + 200);
       await sbPost<IpWholesaleRecommendation>(
         "ip_wholesale_recommendations",
         chunk,
