@@ -50,6 +50,19 @@ export default async function handler(req, res) {
     return send(403, { error: `Onboarding must be approved before submitting invoices (current status: ${wf.status}). Complete onboarding at /vendor/onboarding.` });
   }
 
+  // Vendor-active gate (CLAUDE.md domain rules). A deactivated vendor
+  // whose JWT is still valid (or whose API key wasn't yet revoked)
+  // cannot submit new invoices. The onboarding gate above doesn't
+  // catch this — it only checks the workflow row.
+  const { data: vendorRow } = await admin
+    .from("vendors")
+    .select("status")
+    .eq("id", caller.vendor_id)
+    .maybeSingle();
+  if (!vendorRow || (vendorRow.status && vendorRow.status !== "active")) {
+    return send(403, { error: `Vendor account is "${vendorRow?.status ?? "missing"}" — cannot submit invoices` });
+  }
+
   let body = req.body;
   if (typeof body === "string") { try { body = JSON.parse(body); } catch { return send(400, { error: "Invalid JSON" }); } }
 
@@ -78,11 +91,27 @@ export default async function handler(req, res) {
     }
   }
 
-  // Verify the PO belongs to the caller's vendor
+  // Verify the PO belongs to the caller's vendor AND is in a status
+  // that permits invoicing. CLAUDE.md domain rule: "A vendor cannot
+  // submit an invoice against a PO that is not in 'acknowledged'
+  // status." Status lives inside `data` (Xoro JSON) on tanda_pos plus
+  // a denormalized `status` column.
   const { data: po } = await admin
-    .from("tanda_pos").select("uuid_id, po_number, vendor_id")
+    .from("tanda_pos").select("uuid_id, po_number, vendor_id, status, data")
     .eq("uuid_id", po_id).eq("vendor_id", caller.vendor_id).maybeSingle();
   if (!po) return send(403, { error: "PO not found or not yours" });
+  // Accept either the denormalized status column or the StatusName
+  // inside the JSON payload — TandA writes both. Normalize to lower-case
+  // and treat any "acknowledged" / "partially received" / "received"
+  // (the lifecycle that's permitted to be invoiced) as valid.
+  const rawStatus = (po.status ?? po.data?.StatusName ?? "").toString().trim().toLowerCase();
+  const INVOICEABLE = new Set(["acknowledged", "partially received", "partial received", "received"]);
+  if (!INVOICEABLE.has(rawStatus)) {
+    return send(409, {
+      error: "PO_NOT_INVOICEABLE",
+      message: `PO status is "${rawStatus || "unknown"}" — must be acknowledged before invoice submission`,
+    });
+  }
 
   // Path-injection guard — file_url must live under the caller's folder
   // when supplied. Without this, a vendor could submit an invoice whose

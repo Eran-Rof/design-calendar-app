@@ -98,12 +98,25 @@ export default async function handler(req, res) {
   if (payment_terms !== undefined) patch.payment_terms = payment_terms ? String(payment_terms).trim() : null;
 
   if (Object.keys(patch).length > 1) {
-    // Filter on vendor_id too — defense in depth in case the row's owner
-    // changed between the read above and the update below.
-    const { error: upErr } = await admin.from("invoices").update(patch).eq("id", invoiceId).eq("vendor_id", vendorId);
+    // Compound-WHERE so the UPDATE itself enforces the status='submitted'
+    // gate, closing the race where two concurrent PATCHes both pass the
+    // initial check while the row's status is flipping to under_review.
+    // Returning="*" lets us detect zero-row updates (status changed
+    // between read and write) and surface a 409 instead of silently
+    // letting one race winner update an invoice mid-review.
+    const { data: updated, error: upErr } = await admin
+      .from("invoices")
+      .update(patch)
+      .eq("id", invoiceId)
+      .eq("vendor_id", vendorId)
+      .eq("status", "submitted")
+      .select("id");
     if (upErr) {
       if (upErr.code === "23505") return send(409, { error: "Invoice number already in use for this vendor" });
       return send(500, { error: upErr.message });
+    }
+    if (!updated || updated.length === 0) {
+      return send(409, { error: "Invoice is no longer in 'submitted' status — refresh and re-check." });
     }
   }
 

@@ -21,6 +21,26 @@ function loadTeamsConfig() {
   catch { return { clientId: "", tenantId: "", channelMap: {} }; }
 }
 
+// Bounded concurrency runner for fire-and-forget Supabase writes. Used
+// by setTasks / setCollections diffs so a 50-row drag-reorder doesn't
+// fan out 50 simultaneous POSTs (each independently failing). Default
+// pool size is 4 — enough to amortize round-trip latency without
+// flooding the connection limit.
+async function runWithConcurrency(
+  tasks: Array<() => Promise<unknown>>,
+  poolSize = 4,
+): Promise<void> {
+  if (tasks.length === 0) return;
+  let i = 0;
+  const workers = Array.from({ length: Math.min(poolSize, tasks.length) }, async () => {
+    while (i < tasks.length) {
+      const idx = i++;
+      try { await tasks[idx](); } catch { /* per-task .catch already logs */ }
+    }
+  });
+  await Promise.all(workers);
+}
+
 export interface UIState {
   // View
   view: string;
@@ -243,20 +263,27 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     const prev = get().tasks;
     const next = typeof updater === "function" ? updater(prev) : updater;
     set({ tasks: next });
-    // Diff and persist
+    // Diff and persist with bounded concurrency. Drag-reorder of 50
+    // tasks used to fan out 50 simultaneous POSTs; a single network
+    // failure left server state inconsistent because each promise was
+    // independently caught. Now we serialize through a small pool —
+    // fewer parallel writes, deterministic order, consistent rollback
+    // story (still per-task; the diff itself isn't transactional).
     if (!get()._hydrating && Array.isArray(next) && Array.isArray(prev)) {
       const userName = get().currentUser?.name || "";
+      const writes: Array<() => Promise<unknown>> = [];
       next.forEach(t => {
         const old = prev.find((p: any) => p.id === t.id);
         if (!old || JSON.stringify(old) !== JSON.stringify(t)) {
-          sbSaveTask(t, userName).catch(e => console.error("[Store] save task:", e));
+          writes.push(() => sbSaveTask(t, userName).catch(e => console.error("[Store] save task:", e)));
         }
       });
       prev.forEach(t => {
         if (!next.find((n: any) => n.id === t.id)) {
-          sbDeleteTask(t.id).catch(e => console.error("[Store] delete task:", e));
+          writes.push(() => sbDeleteTask(t.id).catch(e => console.error("[Store] delete task:", e)));
         }
       });
+      void runWithConcurrency(writes, 4);
     }
   },
 

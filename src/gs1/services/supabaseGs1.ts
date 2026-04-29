@@ -531,15 +531,26 @@ export async function loadUpcsByUpcs(upcs: string[]): Promise<UpcItem[]> {
   );
 }
 
+// Atomic conditional update — flips status only when it's currently
+// "generated". Two scanners hitting the same SSCC concurrently both pass
+// the read-side `isAlreadyReceived` check, but only one of them wins
+// this WHERE-status='generated' update. The loser sees a zero-row
+// response and we throw "ALREADY_RECEIVED", which the UI handles like
+// a normal duplicate-receive case.
 export async function markCartonReceived(cartonId: string): Promise<void> {
-  await sbFetch<void>(
-    `${rpc("cartons")}?id=eq.${cartonId}`,
+  const updated = await sbFetch<Array<{ id: string; status: string }>>(
+    `${rpc("cartons")}?id=eq.${cartonId}&status=eq.generated&select=id,status`,
     {
       method: "PATCH",
       body: JSON.stringify({ status: "received" }),
-      headers: { Prefer: "return=minimal" },
+      headers: { Prefer: "return=representation" },
     }
   );
+  if (!Array.isArray(updated) || updated.length === 0) {
+    const err = new Error("ALREADY_RECEIVED");
+    (err as Error & { code?: string }).code = "ALREADY_RECEIVED";
+    throw err;
+  }
 }
 
 export async function createReceivingSession(

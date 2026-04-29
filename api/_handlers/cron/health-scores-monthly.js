@@ -39,13 +39,27 @@ export default async function handler(req, res) {
   const now = new Date();
   const { period_start, period_end } = priorMonthBounds(now);
 
+  // Page through unbounded selects so the cron doesn't OOM at scale.
+  async function fetchAll(builderFn) {
+    const out = [];
+    const PAGE = 1000;
+    for (let offset = 0; ; offset += PAGE) {
+      const { data, error } = await builderFn().range(offset, offset + PAGE - 1);
+      if (error) return { data: out, error };
+      if (!data || data.length === 0) break;
+      out.push(...data);
+      if (data.length < PAGE) break;
+      if (offset > 500_000) break;
+    }
+    return { data: out, error: null };
+  }
   const [vRes, kpiRes, docTypesRes, docsRes, invRes, openFlagsRes] = await Promise.all([
-    admin.from("vendors").select("id, name, status, deleted_at"),
-    admin.from("vendor_kpi_live").select("vendor_id, on_time_delivery_pct, invoice_count, discrepancy_count, avg_acknowledgment_hours"),
-    admin.from("compliance_document_types").select("id").eq("active", true).eq("required", true),
-    admin.from("compliance_documents").select("vendor_id, document_type_id, status, expiry_date, uploaded_at"),
-    admin.from("invoices").select("vendor_id, status, due_date"),
-    admin.from("vendor_flags").select("vendor_id, status, source").eq("status", "open").eq("source", "cron.health_score"),
+    fetchAll(() => admin.from("vendors").select("id, name, status, deleted_at")),
+    fetchAll(() => admin.from("vendor_kpi_live").select("vendor_id, on_time_delivery_pct, invoice_count, discrepancy_count, avg_acknowledgment_hours")),
+    fetchAll(() => admin.from("compliance_document_types").select("id").eq("active", true).eq("required", true)),
+    fetchAll(() => admin.from("compliance_documents").select("vendor_id, document_type_id, status, expiry_date, uploaded_at")),
+    fetchAll(() => admin.from("invoices").select("vendor_id, status, due_date")),
+    fetchAll(() => admin.from("vendor_flags").select("vendor_id, status, source").eq("status", "open").eq("source", "cron.health_score")),
   ]);
   const errs = [vRes, kpiRes, docTypesRes, docsRes, invRes, openFlagsRes].filter((r) => r.error);
   if (errs.length) return res.status(500).json({ error: errs[0].error.message });

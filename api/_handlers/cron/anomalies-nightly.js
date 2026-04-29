@@ -259,17 +259,37 @@ export default async function handler(req, res) {
   const admin = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
   const origin = `https://${req.headers.host}`;
 
+  // Paginated fetch for the unbounded selects below — without this, the
+  // cron OOMs / times out once a tenant has ~50k invoices or POs. The
+  // PostgREST default is 1000 rows per request, so we walk the table
+  // 1000 rows at a time. We still load everything in memory because the
+  // anomaly compute does cross-cuts; switching to per-vendor streaming
+  // is a bigger refactor and tracked separately.
+  async function fetchAll(builderFn) {
+    const out = [];
+    const PAGE = 1000;
+    for (let offset = 0; ; offset += PAGE) {
+      const { data, error } = await builderFn().range(offset, offset + PAGE - 1);
+      if (error) return { data: out, error };
+      if (!data || data.length === 0) break;
+      out.push(...data);
+      if (data.length < PAGE) break;
+      if (offset > 500_000) break; // safety cap @ 500k rows
+    }
+    return { data: out, error: null };
+  }
+
   // ── Batch-fetch shared data ────────────────────────────────────────
   const [vRes, invRes, posRes, phRes, kpiRes, scorecardsRes, docTypesRes, docsRes, existingFlagsRes] = await Promise.all([
-    admin.from("vendors").select("id, name, status, deleted_at"),
-    admin.from("invoices").select("id, vendor_id, po_id, invoice_number, total, invoice_date, submitted_at, status"),
-    admin.from("tanda_pos").select("uuid_id, vendor_id, po_number, data"),
-    admin.from("catalog_price_history").select("catalog_item_id, old_price, new_price, created_at, catalog_items!inner(vendor_id)").order("created_at", { ascending: false }),
-    admin.from("vendor_kpi_live").select("vendor_id, on_time_delivery_pct"),
-    admin.from("vendor_scorecards").select("vendor_id, period_start, on_time_delivery_pct").order("period_start", { ascending: false }),
-    admin.from("compliance_document_types").select("id, name, required, expiry_required").eq("active", true).eq("required", true),
-    admin.from("compliance_documents").select("vendor_id, document_type_id, status, expiry_date, uploaded_at"),
-    admin.from("anomaly_flags").select("*").eq("status", "open"),
+    fetchAll(() => admin.from("vendors").select("id, name, status, deleted_at")),
+    fetchAll(() => admin.from("invoices").select("id, vendor_id, po_id, invoice_number, total, invoice_date, submitted_at, status")),
+    fetchAll(() => admin.from("tanda_pos").select("uuid_id, vendor_id, po_number, data")),
+    fetchAll(() => admin.from("catalog_price_history").select("catalog_item_id, old_price, new_price, created_at, catalog_items!inner(vendor_id)").order("created_at", { ascending: false })),
+    fetchAll(() => admin.from("vendor_kpi_live").select("vendor_id, on_time_delivery_pct")),
+    fetchAll(() => admin.from("vendor_scorecards").select("vendor_id, period_start, on_time_delivery_pct").order("period_start", { ascending: false })),
+    fetchAll(() => admin.from("compliance_document_types").select("id, name, required, expiry_required").eq("active", true).eq("required", true)),
+    fetchAll(() => admin.from("compliance_documents").select("vendor_id, document_type_id, status, expiry_date, uploaded_at")),
+    fetchAll(() => admin.from("anomaly_flags").select("*").eq("status", "open")),
   ]);
 
   const errs = [vRes, invRes, posRes, kpiRes, scorecardsRes, docTypesRes, docsRes, existingFlagsRes].filter((r) => r.error);
