@@ -639,17 +639,20 @@ function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): IpPlann
     }
     return found ? total : null;
   };
-  // Weighted-avg unit cost over planned_buy_qty (defaults to plain mean
-  // when no buy qty present).
-  const buyQtyTotal = bucket.reduce((a, r) => a + (r.planned_buy_qty ?? 0), 0);
+  // Unit cost for the rollup row:
+  //   1. Weight by planned_buy_qty when buy>0 rows have a cost (best signal
+  //      of the dollars actually committed in this rollup).
+  //   2. Fall back to plain mean of present unit_costs across the bucket
+  //      when no buy>0 row has a cost — otherwise the rollup shows "—"
+  //      even though every variant has a perfectly good unit_cost.
   let weightedCost: number | null = null;
-  if (buyQtyTotal > 0) {
-    let num = 0, den = 0;
-    for (const r of bucket) {
-      const q = r.planned_buy_qty ?? 0;
-      if (q > 0 && r.unit_cost != null) { num += r.unit_cost * q; den += q; }
-    }
-    weightedCost = den > 0 ? num / den : null;
+  let num = 0, den = 0;
+  for (const r of bucket) {
+    const q = r.planned_buy_qty ?? 0;
+    if (q > 0 && r.unit_cost != null) { num += r.unit_cost * q; den += q; }
+  }
+  if (den > 0) {
+    weightedCost = num / den;
   } else {
     const costs = bucket.map((r) => r.unit_cost).filter((c): c is number => c != null);
     weightedCost = costs.length > 0 ? costs.reduce((a, c) => a + c, 0) / costs.length : null;

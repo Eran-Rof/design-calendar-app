@@ -119,9 +119,15 @@ export default async function handler(req, res) {
     const categoryName = pick(x, ["CategoryName", "Category"]);
     const cost = toNum(pick(x, ["StandardUnitCost", "UnitCost", "Cost", "AvgCost", "AverageCost"]));
 
+    // Prefer parsedStyle over explicitStyle. The rest of the planner
+    // groups variants by string-prefix of sku_code, so style_code MUST
+    // match sku_code's prefix (parseStyleColor returns the substring
+    // before the first dash). Xoro's BasePartNumber sometimes carries a
+    // suffix that the canonical SKU doesn't (e.g. "RYO0659FP" vs
+    // canonical "RYO0659-…"), which would split aggregate views.
     const row = {
       sku_code: sku,
-      style_code: explicitStyle ? String(explicitStyle).trim() : (parsedStyle ?? sku),
+      style_code: parsedStyle ?? (explicitStyle ? String(explicitStyle).trim() : sku),
       color: explicitColor ? String(explicitColor).trim() : null,
       uom: "each",
       active: true,

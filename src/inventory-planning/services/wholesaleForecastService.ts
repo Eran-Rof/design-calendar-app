@@ -289,10 +289,16 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
   // description) but that row may have no cost — without this second
   // index, RYO0659FP-BLACK/BLACK (desc set, cost null) would shadow
   // RYO0659FP-SLATE/OFFWHITE (desc set, cost 11.90).
+  //
+  // When multiple variants in the same style have a unit_cost, take
+  // the max — sku_code-ASC iteration would otherwise let a deprecated
+  // cheap variant win over a current one. Max isn't a perfect signal
+  // but it's strictly more useful than first-seen for fallback display.
   const unitCostByStyle = new Map<string, number>();
   for (const i of items) {
     if (!i.style_code || i.unit_cost == null || i.unit_cost <= 0) continue;
-    if (!unitCostByStyle.has(i.style_code)) unitCostByStyle.set(i.style_code, i.unit_cost);
+    const cur = unitCostByStyle.get(i.style_code);
+    if (cur == null || i.unit_cost > cur) unitCostByStyle.set(i.style_code, i.unit_cost);
   }
   const recByGrain = new Map(recs.map((r) => [
     `${r.customer_id}:${r.sku_id}:${r.period_start}`,

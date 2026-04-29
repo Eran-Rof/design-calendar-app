@@ -115,6 +115,12 @@ export default function WholesalePlanningWorkbench() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRun]);
 
+  // Monotonic counter for inline-edit rebuilds. Each save bumps this and
+  // captures its value; the resulting setRows only fires when the captured
+  // value still matches — older fetches landing after newer ones get
+  // discarded so they can't overwrite the newer optimistic state.
+  const rebuildSeq = useRef(0);
+
   const overridesForRow = useMemo(() => {
     if (!selectedRow) return [];
     return overrides.filter(
@@ -492,10 +498,13 @@ export default function WholesalePlanningWorkbench() {
       await wholesaleRepo.patchForecastBuyQty(forecastId, qty);
       setToast({ text: qty != null ? `Buy qty set to ${qty.toLocaleString()}` : "Buy qty cleared", kind: "success" });
       // Fire-and-forget — Short/Excess update a moment later when the
-      // rebuild finishes. The cell is already showing the new value.
+      // rebuild finishes. Guarded by rebuildSeq so a slow rebuild can't
+      // overwrite a faster one started later.
+      const seq = ++rebuildSeq.current;
       void (async () => {
         try {
           const refreshed = await buildGridRows(selectedRun!);
+          if (seq !== rebuildSeq.current) return;
           setRows(refreshed);
           setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
         } catch { /* swallow — next user action will refresh */ }
@@ -503,7 +512,9 @@ export default function WholesalePlanningWorkbench() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setToast({ text: `Buy qty save failed — ${msg}`, kind: "error" });
+      const seq = ++rebuildSeq.current;
       const refreshed = await buildGridRows(selectedRun!);
+      if (seq !== rebuildSeq.current) return;
       setRows(refreshed);
       setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
     }
@@ -519,9 +530,11 @@ export default function WholesalePlanningWorkbench() {
     try {
       await wholesaleRepo.patchForecastBuyerRequest(forecastId, qty, final);
       setToast({ text: `Buyer request set to ${qty.toLocaleString()}`, kind: "success" });
+      const seq = ++rebuildSeq.current;
       void (async () => {
         try {
           const refreshed = await buildGridRows(selectedRun!);
+          if (seq !== rebuildSeq.current) return;
           setRows(refreshed);
           setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
         } catch { /* swallow */ }
@@ -529,7 +542,9 @@ export default function WholesalePlanningWorkbench() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setToast({ text: `Buyer request save failed — ${msg}`, kind: "error" });
+      const seq = ++rebuildSeq.current;
       const refreshed = await buildGridRows(selectedRun!);
+      if (seq !== rebuildSeq.current) return;
       setRows(refreshed);
     }
   }
@@ -544,9 +559,11 @@ export default function WholesalePlanningWorkbench() {
     try {
       await wholesaleRepo.patchForecastOverride(forecastId, qty, final);
       setToast({ text: `Override set to ${qty > 0 ? "+" : ""}${qty.toLocaleString()}`, kind: "success" });
+      const seq = ++rebuildSeq.current;
       void (async () => {
         try {
           const refreshed = await buildGridRows(selectedRun!);
+          if (seq !== rebuildSeq.current) return;
           setRows(refreshed);
           setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
         } catch { /* swallow */ }
@@ -554,7 +571,9 @@ export default function WholesalePlanningWorkbench() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setToast({ text: `Override save failed — ${msg}`, kind: "error" });
+      const seq = ++rebuildSeq.current;
       const refreshed = await buildGridRows(selectedRun!);
+      if (seq !== rebuildSeq.current) return;
       setRows(refreshed);
     }
   }
@@ -574,7 +593,9 @@ export default function WholesalePlanningWorkbench() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setToast({ text: `Unit cost save failed — ${msg}`, kind: "error" });
+      const seq = ++rebuildSeq.current;
       const refreshed = await buildGridRows(selectedRun!);
+      if (seq !== rebuildSeq.current) return;
       setRows(refreshed);
       setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
     }

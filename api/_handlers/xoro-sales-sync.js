@@ -83,7 +83,19 @@ export default async function handler(req, res) {
   const fromEnd = parseInt(url.searchParams.get("from_end") || "0", 10);
   if (fromEnd > 0) {
     const probe = await fetchXoroAll({ path, params: { per_page: "200" }, maxPages: 1, module: url.searchParams.get("module") || "items", pageStart: 1 });
-    const totalPages = probe.totalPages ?? probe.body?.TotalPages ?? 1;
+    // Surface a real error when Xoro doesn't tell us how many pages
+    // there are — silently falling through to page 1 makes the
+    // "Sync newest" button refetch the OLDEST invoices instead of the
+    // newest, which is the opposite of what the user clicked.
+    const totalPages = probe.totalPages ?? probe.body?.TotalPages ?? probe.body?.totalPages ?? null;
+    if (totalPages == null || totalPages < 1) {
+      return res.status(200).json({
+        error: "XORO_TOTAL_PAGES_MISSING",
+        hint: "Xoro response didn't include TotalPages — cannot compute newest-pages window. Try a manual page_start or remove from_end.",
+        path,
+        probe: probe.body,
+      });
+    }
     pageStart = Math.max(1, totalPages - fromEnd + 1);
   }
 
