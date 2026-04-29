@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   latestOnHandBySku,
   openPoQtyBySku,
+  openPoQtyBySkuPeriod,
   receiptsDueInPeriod,
   supplyForPeriod,
 } from "../compute/supply";
@@ -52,6 +53,70 @@ describe("supply compute", () => {
     ]);
     expect(out.get("a")).toBe(30);
     expect(out.get("b")).toBe(5);
+  });
+
+  describe("openPoQtyBySkuPeriod", () => {
+    it("sums qty_open only when expected_date lands in [start, end]", () => {
+      const out = openPoQtyBySkuPeriod(
+        [
+          po({ sku_id: "a", expected_date: "2026-06-01", qty_open: 100 }),
+          po({ sku_id: "a", expected_date: "2026-06-30", qty_open: 50 }),
+          po({ sku_id: "a", expected_date: "2026-07-01", qty_open: 999 }), // outside
+          po({ sku_id: "a", expected_date: "2026-05-31", qty_open: 999 }), // outside
+        ],
+        "2026-06-01",
+        "2026-06-30",
+      );
+      expect(out.get("a")).toBe(150);
+    });
+
+    it("excludes POs with no expected_date", () => {
+      const out = openPoQtyBySkuPeriod(
+        [
+          po({ sku_id: "a", expected_date: null, qty_open: 100 }),
+          po({ sku_id: "a", expected_date: "2026-06-15", qty_open: 50 }),
+        ],
+        "2026-06-01",
+        "2026-06-30",
+      );
+      expect(out.get("a")).toBe(50);
+    });
+
+    it("returns empty map when no PO falls in the window", () => {
+      const out = openPoQtyBySkuPeriod(
+        [po({ sku_id: "a", expected_date: "2026-08-01", qty_open: 100 })],
+        "2026-06-01",
+        "2026-06-30",
+      );
+      expect(out.size).toBe(0);
+    });
+
+    it("aggregates across multiple SKUs independently", () => {
+      const out = openPoQtyBySkuPeriod(
+        [
+          po({ sku_id: "a", expected_date: "2026-06-15", qty_open: 10 }),
+          po({ sku_id: "b", expected_date: "2026-06-15", qty_open: 5 }),
+          po({ sku_id: "a", expected_date: "2026-06-20", qty_open: 7 }),
+        ],
+        "2026-06-01",
+        "2026-06-30",
+      );
+      expect(out.get("a")).toBe(17);
+      expect(out.get("b")).toBe(5);
+    });
+
+    it("treats inclusive boundaries on both ends", () => {
+      // start and end dates both included
+      const out = openPoQtyBySkuPeriod(
+        [
+          po({ sku_id: "a", expected_date: "2026-06-01", qty_open: 1 }),
+          po({ sku_id: "a", expected_date: "2026-06-30", qty_open: 2 }),
+        ],
+        "2026-06-01",
+        "2026-06-30",
+      );
+      expect(out.get("a")).toBe(3);
+    });
   });
 
   it("receiptsDueInPeriod combines historical receipts and future POs", () => {
