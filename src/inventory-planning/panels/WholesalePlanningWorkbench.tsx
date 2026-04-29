@@ -61,6 +61,16 @@ export default function WholesalePlanningWorkbench() {
   const [ingestTo, setIngestTo] = useState(new Date().toISOString().slice(0, 10));
   const [selectedRow, setSelectedRow] = useState<IpPlanningGridRow | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  // Mirror of the grid's active filter set, lifted to workbench scope
+  // so PlanningRunControls' Build button can scope itself to the
+  // currently visible subset. The grid's onFiltersChange callback
+  // populates this; PlanningRunControls reads it as buildFilter.
+  const [buildFilter, setBuildFilter] = useState<{
+    customer_id: string | null;
+    group_name: string | null;
+    sub_category_name: string | null;
+    gender: string | null;
+  } | null>(null);
 
   const selectedRun = useMemo(() => runs.find((r) => r.id === selectedRunId) ?? null, [runs, selectedRunId]);
 
@@ -744,45 +754,51 @@ export default function WholesalePlanningWorkbench() {
         {tab === "grid" && (
           <>
             <MonthlyTotalsCards rows={rows} />
-            {/* PlanningRunControls + method selector live RIGHT ABOVE the
-                grid's filter line so the planner has the run + Build
-                button adjacent to the filters. The grid's own filter
-                state will scope future "Build filtered" actions. */}
-            <PlanningRunControls
-              runs={runs}
-              selectedRunId={selectedRunId}
-              onSelect={(id) => setSelectedRunId(id)}
-              onChange={refreshAll}
-              onToast={(t) => setToast(t)}
-              scope="wholesale"
-            />
-            {selectedRun && (
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                <span style={{ fontSize: 12, color: PAL.textDim, fontWeight: 600 }}>Forecast method</span>
-                {(Object.keys(FORECAST_METHOD_LABELS) as IpForecastMethodPreference[]).map((pref) => {
-                  const active = selectedRun.forecast_method_preference === pref;
-                  return (
-                    <button
-                      key={pref}
-                      onClick={() => void handleMethodChange(pref)}
-                      style={{
-                        background: active ? PAL.accent : "transparent",
-                        color: active ? "#fff" : PAL.textDim,
-                        border: `1px solid ${active ? PAL.accent : PAL.border}`,
-                        borderRadius: 6,
-                        padding: "4px 10px",
-                        fontSize: 12,
-                        fontWeight: 600,
-                        cursor: "pointer",
-                      }}
-                    >
-                      {FORECAST_METHOD_LABELS[pref]}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
             <WholesalePlanningGrid
+              headerSlot={
+                <>
+                  {/* Build card sits directly above the search/filter
+                      toolbar so the planner sees Build adjacent to
+                      whatever filters they've set. The grid's onFiltersChange
+                      callback feeds buildFilter so the Build button
+                      relabels itself "Build (filtered)" when scoped. */}
+                  <PlanningRunControls
+                    runs={runs}
+                    selectedRunId={selectedRunId}
+                    onSelect={(id) => setSelectedRunId(id)}
+                    onChange={refreshAll}
+                    onToast={(t) => setToast(t)}
+                    scope="wholesale"
+                    buildFilter={buildFilter}
+                  />
+                  {selectedRun && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                      <span style={{ fontSize: 12, color: PAL.textDim, fontWeight: 600 }}>Forecast method</span>
+                      {(Object.keys(FORECAST_METHOD_LABELS) as IpForecastMethodPreference[]).map((pref) => {
+                        const active = selectedRun.forecast_method_preference === pref;
+                        return (
+                          <button
+                            key={pref}
+                            onClick={() => void handleMethodChange(pref)}
+                            style={{
+                              background: active ? PAL.accent : "transparent",
+                              color: active ? "#fff" : PAL.textDim,
+                              border: `1px solid ${active ? PAL.accent : PAL.border}`,
+                              borderRadius: 6,
+                              padding: "4px 10px",
+                              fontSize: 12,
+                              fontWeight: 600,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {FORECAST_METHOD_LABELS[pref]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              }
               rows={rows}
               loading={loading}
               onSelectRow={setSelectedRow}
@@ -791,6 +807,7 @@ export default function WholesalePlanningWorkbench() {
               onUpdateBuyerRequest={saveBuyerRequest}
               onUpdateOverride={saveOverrideQty}
               onUpdateSystemOverride={saveSystemOverride}
+              onFiltersChange={setBuildFilter}
             />
           </>
         )}

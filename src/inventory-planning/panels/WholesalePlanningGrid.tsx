@@ -18,7 +18,21 @@ export interface WholesalePlanningGridProps {
   // computed suggestion. Stamps user + timestamp server-side for the
   // cell tooltip.
   onUpdateSystemOverride: (forecastId: string, qty: number | null) => Promise<void>;
+  // Reports the current filter set up to the workbench so a "Build
+  // (filtered)" Build can scope itself to the visible subset. Called
+  // every time the planner changes a filter dropdown.
+  onFiltersChange?: (filters: {
+    customer_id: string | null;
+    group_name: string | null;
+    sub_category_name: string | null;
+    gender: string | null;
+  }) => void;
   loading?: boolean;
+  // Optional render slot inserted directly above the filter/search
+  // toolbar. Used to host PlanningRunControls so the Build button
+  // sits adjacent to the search bar without restructuring the
+  // workbench layout.
+  headerSlot?: React.ReactNode;
 }
 
 // Every column is sortable via header click. Click toggles asc/desc on
@@ -34,7 +48,7 @@ type SortKey =
 // references (CollapseModes) compile without churn.
 type CollapseModes = ExtractedCollapseModes;
 
-export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, loading }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onFiltersChange, headerSlot, loading }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
   const [filterCustomer, setFilterCustomer] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
@@ -73,6 +87,21 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   // Reset to first page whenever filters/sort change so the user doesn't
   // wonder why an empty page is showing.
   useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterAction, filterConfidence, filterMethod, sortKey, sortDir, pageSize, collapse, systemSuggestionsOn]);
+
+  // Report active build-relevant filters up to the workbench so the
+  // PlanningRunControls' Build button can scope itself to this subset.
+  // Only the filters that map to the build pipeline are emitted —
+  // customer, category (group_name), sub-cat, gender. The rest
+  // (action / confidence / method / search) are display-only.
+  useEffect(() => {
+    if (!onFiltersChange) return;
+    onFiltersChange({
+      customer_id: filterCustomer === "all" ? null : filterCustomer,
+      group_name: filterCategory === "all" ? null : filterCategory,
+      sub_category_name: filterSubCat === "all" ? null : filterSubCat,
+      gender: filterGender === "all" ? null : filterGender,
+    });
+  }, [filterCustomer, filterCategory, filterSubCat, filterGender, onFiltersChange]);
 
   const customers = useMemo(() => {
     const s = new Map<string, string>();
@@ -178,6 +207,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   value={(totals.methods.ly_sales ?? 0).toLocaleString()}
                   accent={PAL.accent2} />
       </div>
+
+      {headerSlot}
 
       <div style={S.toolbar}>
         <input style={{ ...S.input, width: 240 }} placeholder="Search customer / SKU / category"
@@ -364,7 +395,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 <td style={{ ...S.tdNum, color: PAL.text }}>{formatQty(r.available_supply_qty)}</td>
                 <td style={{ ...S.tdNum, padding: "0 4px" }} onClick={(e) => e.stopPropagation()}>
                   {r.is_aggregate ? (
-                    <span style={{ fontFamily: "monospace", color: (r.planned_buy_qty ?? 0) > 0 ? PAL.green : PAL.textMuted }}>
+                    <span style={{ fontFamily: "monospace", color: (r.planned_buy_qty ?? 0) > 0 ? PAL.green : PAL.textMuted }} title="Bucket-level buy entry coming next — read-only for now">
                       {r.planned_buy_qty != null ? formatQty(r.planned_buy_qty) : "—"}
                     </span>
                   ) : (

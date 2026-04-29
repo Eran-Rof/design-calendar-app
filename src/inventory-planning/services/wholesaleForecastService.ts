@@ -82,10 +82,31 @@ export interface RunForecastPassResult {
   // signal (no T3 history, no LY reference) AND no inventory presence
   // (no on-hand, on-PO, on-SO). These would forecast to zero anyway.
   pairs_pruned_dead: number;
+  // Count of pairs skipped because the planner's grid filter excluded
+  // them (e.g. "build only for Joggers / Customer X"). Zero when the
+  // build was unfiltered.
+  pairs_pruned_filter: number;
   methods: Record<IpForecastMethod, number>;
 }
 
-export async function runForecastPass(run: IpPlanningRun): Promise<RunForecastPassResult> {
+// Optional grid-derived filter applied at build time so the planner
+// can scope a build to the rows currently visible in the grid (e.g.
+// just one customer, just one category). Empty/missing fields mean
+// "no filter on this dimension". customer_id matches forecast rows;
+// the three string filters match against item-master attributes
+// (group_name / category_name / gender).
+export interface BuildFilter {
+  customer_id?: string | null;
+  group_name?: string | null;
+  sub_category_name?: string | null;
+  gender?: string | null;
+}
+
+export interface RunForecastPassOptions {
+  filter?: BuildFilter;
+}
+
+export async function runForecastPass(run: IpPlanningRun, options: RunForecastPassOptions = {}): Promise<RunForecastPassResult> {
   if (!run.horizon_start || !run.horizon_end) {
     throw new Error("Planning run has no horizon; set horizon_start + horizon_end before running the forecast.");
   }
@@ -211,6 +232,41 @@ export async function runForecastPass(run: IpPlanningRun): Promise<RunForecastPa
   });
   const prunedDeadCount = beforePrune - pairs.length;
 
+  // Optional grid-derived filter — when the planner builds with the
+  // grid filtered to e.g. "customer X / Joggers", scope the build
+  // so we only process those pairs.
+  let prunedFilterCount = 0;
+  const filter = options.filter;
+  const filterActive = !!filter && (
+    filter.customer_id || filter.group_name || filter.sub_category_name || filter.gender
+  );
+  if (filterActive) {
+    const itemBySku = new Map(items.map((i) => [i.id, i]));
+    const beforeFilter = pairs.length;
+    pairs = pairs.filter((p) => {
+      // Always keep the (Supply Only) synthetic — filtering it out by
+      // customer_id would lose visibility on incoming inventory.
+      if (p.customer_id === supplyPlaceholder) return true;
+      if (filter!.customer_id && p.customer_id !== filter!.customer_id) return false;
+      const item = itemBySku.get(p.sku_id);
+      const attrs = (item?.attributes ?? null) as Record<string, unknown> | null;
+      if (filter!.group_name) {
+        const v = attrs?.group_name;
+        if (typeof v !== "string" || v.trim() !== filter!.group_name) return false;
+      }
+      if (filter!.sub_category_name) {
+        const v = attrs?.category_name;
+        if (typeof v !== "string" || v.trim() !== filter!.sub_category_name) return false;
+      }
+      if (filter!.gender) {
+        const v = attrs?.gender;
+        if (typeof v !== "string" || v.trim() !== filter!.gender) return false;
+      }
+      return true;
+    });
+    prunedFilterCount = beforeFilter - pairs.length;
+  }
+
   const computeInput: IpForecastComputeInput = {
     planning_run_id: run.id,
     source_snapshot_date: snapshotDate,
@@ -262,6 +318,7 @@ export async function runForecastPass(run: IpPlanningRun): Promise<RunForecastPa
     recommendations_written: recs.length,
     pairs_considered: pairs.length,
     pairs_pruned_dead: prunedDeadCount,
+    pairs_pruned_filter: prunedFilterCount,
     methods,
   };
 }

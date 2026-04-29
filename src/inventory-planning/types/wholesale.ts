@@ -175,6 +175,10 @@ export interface IpPlanningGridRow {
   // inline-edit cells and renders read-only tallies.
   is_aggregate?: boolean;
   aggregate_count?: number;
+  // The underlying forecast_id list for an aggregate row. The Buy cell
+  // uses these to distribute a typed total across the constituent
+  // forecast rows proportional to final_forecast_qty.
+  aggregate_underlying_ids?: string[];
   period_code: string;
   period_start: IpIsoDate;
   period_end: IpIsoDate;

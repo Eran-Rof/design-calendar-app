@@ -123,6 +123,7 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): 
     forecast_id: `agg:${head.forecast_id}:${bucket.length}`,
     is_aggregate: true,
     aggregate_count: bucket.length,
+    aggregate_underlying_ids: bucket.map((r) => r.forecast_id),
     customer_id: modes.customers ? "*" : head.customer_id,
     customer_name: label,
     sku_style: style,
