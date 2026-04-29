@@ -83,12 +83,17 @@ describe("generateApiKey", () => {
     expect(keyPrefix.length).toBeGreaterThan(4);
   });
 
-  it("produces a keyHash in salt:hash format", () => {
+  it("produces a keyHash in v2 scrypt format (scrypt2:N:salt:hash)", () => {
+    // CLAUDE.md mandates bcrypt(12)-equivalent strength. We use scrypt
+    // N=131072 (cost-equivalent) and prefix with the format tag so
+    // verifyApiKey can decode N at verify time.
     const { keyHash } = generateApiKey();
     const parts = keyHash.split(":");
-    expect(parts).toHaveLength(2);
-    expect(parts[0].length).toBeGreaterThan(0);
-    expect(parts[1].length).toBeGreaterThan(0);
+    expect(parts).toHaveLength(4);
+    expect(parts[0]).toBe("scrypt2");
+    expect(Number(parts[1])).toBeGreaterThanOrEqual(131072);
+    expect(parts[2].length).toBeGreaterThan(0);
+    expect(parts[3].length).toBeGreaterThan(0);
   });
 
   it("generates unique keys on every call", () => {

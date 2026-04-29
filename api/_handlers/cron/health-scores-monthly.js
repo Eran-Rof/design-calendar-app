@@ -161,7 +161,7 @@ export default async function handler(req, res) {
             dedupe_key: `health_flag_${vendor.id}_${period_start}_${email}`,
             email: true,
           }),
-        }).catch(() => {})
+        }).catch((e) => console.error("[cron] notify fanout failed", e?.message ?? e))
       ));
 
       // health_score_low → internal team (same pool) + vendor admins
@@ -181,7 +181,7 @@ export default async function handler(req, res) {
             dedupe_key: `health_score_low_${vendor.id}_${period_start}_${email}`,
             email: true,
           }),
-        }).catch(() => {})
+        }).catch((e) => console.error("[cron] notify fanout failed", e?.message ?? e))
       ));
       // Vendor admins — routed by vendor_id, recipient resolution on the
       // send-notification side picks up the primary vendor_user.
@@ -198,7 +198,7 @@ export default async function handler(req, res) {
           dedupe_key: `health_score_low_${vendor.id}_${period_start}_vendor`,
           email: true,
         }),
-      }).catch(() => {});
+      }).catch((e) => console.error("[cron] notify fanout failed", e?.message ?? e));
     } catch { /* non-blocking */ }
   }
 

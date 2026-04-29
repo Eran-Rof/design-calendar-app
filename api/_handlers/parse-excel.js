@@ -6,7 +6,12 @@ import formidable from "formidable";
 import * as XLSX from "xlsx";
 import fs from "fs";
 
-export const config = { api: { bodyParser: false } };
+// 300s ceiling — Excel parse + 3-file ingest can exceed Vercel's 10s
+// default on large workbooks. The router (api/dispatch.js) is the
+// outer function and its maxDuration takes precedence at runtime; this
+// declaration documents the inner intent and applies when the handler
+// is mounted standalone.
+export const config = { api: { bodyParser: false }, maxDuration: 300 };
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");

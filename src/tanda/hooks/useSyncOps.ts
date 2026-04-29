@@ -327,6 +327,17 @@ export function useSyncOps(deps: SyncOpsDeps) {
           const { data: msRows } = await sb.from("tanda_milestones").select("id,data");
           if (Array.isArray(msRows)) {
             const allMs = msRows.map((r: any) => r.data as any).filter(Boolean);
+            // Local-date formatter — shifted.toISOString().slice(0,10)
+            // shifts the day by -1 in any non-UTC timezone because the
+            // Date is constructed in local time. Format from the local
+            // y/m/d components instead so DDP cascades land on the
+            // intended calendar day regardless of the user's TZ.
+            const fmtLocalDate = (d: Date) => {
+              const y = d.getFullYear();
+              const m = String(d.getMonth() + 1).padStart(2, "0");
+              const day = String(d.getDate()).padStart(2, "0");
+              return `${y}-${m}-${day}`;
+            };
             const msToUpdate: any[] = [];
             for (const po of toUpsert) {
               const poNum = po.PoNumber ?? "";
@@ -338,7 +349,7 @@ export function useSyncOps(deps: SyncOpsDeps) {
               for (const m of poMs) {
                 const shifted = new Date(ddpDate);
                 shifted.setDate(shifted.getDate() - (m.days_before_ddp ?? 0));
-                const newExpected = shifted.toISOString().slice(0, 10);
+                const newExpected = fmtLocalDate(shifted);
                 if (newExpected !== (m.expected_date ?? "").slice(0, 10)) {
                   const updated = { ...m, expected_date: newExpected, updated_at: now, updated_by: "sync" };
                   msToUpdate.push({ id: m.id, data: updated });

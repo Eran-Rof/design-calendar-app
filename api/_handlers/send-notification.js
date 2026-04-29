@@ -42,10 +42,21 @@ function deepLinkFor(eventType, metadata = {}) {
 async function queuePushesForVendor(admin, { vendor_id, event_type, title, body, metadata }) {
   if (!vendor_id) return 0;
   if (!PUSH_EVENT_TYPES.has(event_type)) return 0;
+  // CRITICAL: must short-circuit when the vendor has no users.
+  // PostgREST's .in("col", []) renders as `col=in.()` which it
+  // treats as "no filter" — meaning we'd queue pushes to EVERY
+  // device of EVERY vendor in the system. Don't ever build the
+  // .in() with an empty array.
+  const { data: vendorUserRows } = await admin
+    .from("vendor_users")
+    .select("id")
+    .eq("vendor_id", vendor_id);
+  const userIds = (vendorUserRows ?? []).map((r) => r.id);
+  if (userIds.length === 0) return 0;
   const { data: sessions } = await admin
     .from("mobile_sessions")
     .select("id, vendor_user_id")
-    .in("vendor_user_id", (await admin.from("vendor_users").select("id").eq("vendor_id", vendor_id)).data?.map((r) => r.id) || []);
+    .in("vendor_user_id", userIds);
   if (!sessions || sessions.length === 0) return 0;
   const entityId = metadata?.po_id || metadata?.invoice_id || metadata?.rfq_id || metadata?.dispute_id || metadata?.contract_id || null;
   const rows = sessions.map((s) => ({
@@ -56,7 +67,14 @@ async function queuePushesForVendor(admin, { vendor_id, event_type, title, body,
     data: { type: event_type, entity_id: entityId, deep_link: deepLinkFor(event_type, metadata) },
     status: "queued",
   }));
-  try { await admin.from("push_notifications").insert(rows); } catch { /* ignore */ }
+  try {
+    await admin.from("push_notifications").insert(rows);
+  } catch (err) {
+    console.error("[send-notification] push_notifications insert failed", {
+      vendor_id, event_type, count: rows.length,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
   return rows.length;
 }
 
@@ -196,7 +214,13 @@ export default async function handler(req, res) {
       if (vendorIdForPush) {
         pushQueued = await queuePushesForVendor(admin, { vendor_id: vendorIdForPush, event_type, title, body: bodyText, metadata });
       }
-    } catch { /* swallow */ }
+    } catch (err) {
+      console.error("[send-notification] push fan-out failed", {
+        recipient_auth_id: recipientAuthId,
+        event_type,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   return res.status(200).json({ ok: true, id: inserted.id, email: emailResult, email_status, push_queued: pushQueued });

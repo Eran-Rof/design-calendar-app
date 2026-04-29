@@ -218,7 +218,15 @@ function ReviewModal({ doc, docType, vendorName, onClose, onAction, openFile }: 
   onClose: () => void; onAction: () => void;
   openFile: (path: string, filename: string | null) => void;
 }) {
-  const [reviewerName, setReviewerName] = useState(() => localStorage.getItem("plm_user") ?? "Internal");
+  const [reviewerName, setReviewerName] = useState(() => {
+    // plm_user lives in sessionStorage as JSON. The old read returned
+    // null and silently attributed every compliance review to "Internal".
+    try {
+      const raw = sessionStorage.getItem("plm_user");
+      if (raw) return JSON.parse(raw)?.name ?? "Internal";
+    } catch { /* fall through */ }
+    return "Internal";
+  });
   const [rejectReason, setRejectReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);

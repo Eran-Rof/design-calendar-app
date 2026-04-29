@@ -125,14 +125,50 @@ export default async function handler(req, res) {
   if (!SB_URL || !SERVICE_KEY) return res.status(500).json({ error: "Server not configured" });
   const admin = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
-  // Pull a batch of queued rows, oldest first. Join to mobile_sessions
-  // so we have the device token + platform without a second query.
+  // Atomically claim a batch of queued rows. Two cron ticks can overlap
+  // (the cron schedule plus any manual invocation), and without a claim
+  // step both would pick the same status='queued' rows and double-send
+  // every push. We flip status to 'sending' in a single UPDATE that
+  // returns only the rows we actually claimed; another worker can't
+  // re-grab them.
+  const claimRunId = `cron-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const { data: claimedIds, error: claimErr } = await admin.rpc("claim_pending_pushes", {
+    p_run_id: claimRunId,
+    p_limit: BATCH_SIZE,
+  });
+  // RPC fallback — if the function doesn't exist yet, do a best-effort
+  // claim via UPDATE...IN(SELECT...). Race-window narrowed but not zero.
+  let claimedRowIds = Array.isArray(claimedIds) ? claimedIds : null;
+  if (claimErr || !claimedRowIds) {
+    const { data: pending } = await admin
+      .from("push_notifications")
+      .select("id")
+      .eq("status", "queued")
+      .order("created_at", { ascending: true })
+      .limit(BATCH_SIZE);
+    const ids = (pending ?? []).map((r) => r.id);
+    if (ids.length === 0) {
+      return res.status(200).json({ ok: true, sent: 0, failed: 0, retried: 0, tokens_removed: 0, claimed: 0 });
+    }
+    // Don't touch error_message here — the retry-attempt regex
+    // ATTEMPT_RE depends on it. Just flip status; the WHERE clause
+    // (status='queued') makes the UPDATE atomic per row.
+    const { data: claimed } = await admin
+      .from("push_notifications")
+      .update({ status: "sending" })
+      .in("id", ids)
+      .eq("status", "queued")
+      .select("id");
+    claimedRowIds = (claimed ?? []).map((r) => r.id);
+  }
+  if (claimedRowIds.length === 0) {
+    return res.status(200).json({ ok: true, sent: 0, failed: 0, retried: 0, tokens_removed: 0, claimed: 0 });
+  }
+  // Re-fetch with the join now that we own the rows.
   const { data: queue, error } = await admin
     .from("push_notifications")
     .select("id, title, body, data, mobile_session_id, vendor_user_id, status, error_message, session:mobile_sessions(id, device_token, platform)")
-    .eq("status", "queued")
-    .order("created_at", { ascending: true })
-    .limit(BATCH_SIZE);
+    .in("id", claimedRowIds);
   if (error) return res.status(500).json({ error: error.message });
 
   let sent = 0, failed = 0, retried = 0, tokensRemoved = 0;

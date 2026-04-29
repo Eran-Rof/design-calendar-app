@@ -37,9 +37,20 @@ function str(v: unknown): string {
   return String(v ?? "").trim();
 }
 
+// Quantity-only — rounds to integer because qty fields are always whole
+// units in this dataset. Do NOT use for money: it would lose cents.
 function toNum(v: unknown): number {
   const n = parseFloat(String(v).replace(/[^0-9.-]/g, ""));
   return isNaN(n) ? 0 : Math.round(n);
+}
+
+// Money — preserves decimals. Used for "Total Sum of Amount" / "Unit
+// Price" / "Unit Cost" cells. The previous code routed these through
+// toNum() which rounded to whole dollars and silently dropped up to
+// $0.99 per row from inventory totals.
+function toMoney(v: unknown): number {
+  const n = parseFloat(String(v).replace(/[^0-9.-]/g, ""));
+  return isNaN(n) ? 0 : n;
 }
 
 function toIsoDate(v: unknown): string {
@@ -154,7 +165,7 @@ export async function parseExcelFiles(
       };
     }
     skuMap[key].onHand += toNum(r["Total Sum of Qty"]);
-    skuMap[key].totalAmount = (skuMap[key].totalAmount || 0) + toNum(r["Total Sum of Amount Home Currency"]);
+    skuMap[key].totalAmount = (skuMap[key].totalAmount || 0) + toMoney(r["Total Sum of Amount Home Currency"]);
   }
 
   // ── 2. Purchased Items Report → PO events ────────────────────────────────

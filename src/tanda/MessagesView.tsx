@@ -21,11 +21,22 @@ export default function MessagesView() {
   const [search, setSearch] = useState("");
   const [onlyUnread, setOnlyUnread] = useState(false);
 
-  const [sender] = useState<Sender>(() => ({
-    type: "internal",
-    internal_id: localStorage.getItem("plm_user_id") || localStorage.getItem("plm_user") || "internal",
-    name: localStorage.getItem("plm_user") || "Ring of Fire",
-  }));
+  const [sender] = useState<Sender>(() => {
+    // plm_user is a JSON blob in sessionStorage ({id, name, role}). The
+    // previous read pulled it from localStorage as a raw string and
+    // always landed on null → "Ring of Fire", so every internal message
+    // was attributed to the same generic name regardless of who sent it.
+    let user: { id?: string; name?: string } | null = null;
+    try {
+      const raw = sessionStorage.getItem("plm_user");
+      if (raw) user = JSON.parse(raw);
+    } catch { /* malformed — treat as no user */ }
+    return {
+      type: "internal",
+      internal_id: user?.id ?? "internal",
+      name: user?.name ?? "Ring of Fire",
+    };
+  });
 
   useEffect(() => {
     (async () => {

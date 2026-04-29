@@ -175,9 +175,20 @@ function ATSReport() {
       .then(rows => {
         if (!rows?.length) return;
         const users: Array<{ name: string; role?: string }> = JSON.parse(rows[0].value);
-        const stored = localStorage.getItem("ats_user");
-        const match = stored ? users.find(u => u.name === stored) : null;
-        setIsAdmin((match ?? users[0])?.role === "admin");
+        // The user identity lives in sessionStorage as a JSON blob under
+        // "plm_user" (every other module reads it that way). Reading
+        // localStorage("ats_user") returned null, then fell through to
+        // users[0] — making whoever was first in the list (often an
+        // admin) the effective role for ALL ATS users. Now: parse JSON
+        // and look up by name; if no current user, default to non-admin
+        // rather than admin.
+        let currentName: string | null = null;
+        try {
+          const raw = sessionStorage.getItem("plm_user");
+          if (raw) currentName = JSON.parse(raw)?.name ?? null;
+        } catch { /* malformed blob — treat as no user */ }
+        const match = currentName ? users.find(u => u.name === currentName) : null;
+        setIsAdmin(match?.role === "admin");
       })
       .catch(e => console.warn("Failed to load admin users:", e));
   }, []);
@@ -398,21 +409,15 @@ function ATSReport() {
     loadFromSupabase();
   }, []);
 
-  // Clear merge history in Supabase when the user leaves the ATS page (tab
-  // close, browser close, or any navigation away). keepalive keeps the request
-  // alive past the page unload. Module-level SB_URL/SB_HEADERS are stable refs.
-  useEffect(() => {
-    const clearOnExit = () => {
-      fetch(`${SB_URL}/rest/v1/app_data`, {
-        method: "POST",
-        headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify({ key: "ats_merge_history", value: JSON.stringify([]) }),
-        keepalive: true,
-      }).catch(() => {});
-    };
-    window.addEventListener("pagehide", clearOnExit);
-    return () => window.removeEventListener("pagehide", clearOnExit);
-  }, []);
+  // (Removed) The previous implementation wiped ats_merge_history to []
+  // on every pagehide event. Two problems:
+  //   1. ats_merge_history is a GLOBAL row in app_data, not per-user, so
+  //      any user navigating away wiped every other user's replays too.
+  //   2. The merge history is supposed to persist — useExcelUpload's
+  //      runSaveUploadData replays it on every save. Wiping it on
+  //      navigation away meant the next ATS upload silently lost merges.
+  // The history now persists naturally; if explicit reset is wanted,
+  // add a button rather than tying it to navigation.
 
   useEffect(() => {
     if (excelData) {

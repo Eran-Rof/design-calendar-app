@@ -48,7 +48,12 @@ export default async function handler(req, res) {
         from_currency: r.from, to_currency: r.to, rate: r.rate,
         source: r.source, snapshotted_at: nowIso,
       }));
-      const { error } = await admin.from("currency_rates").insert(rows);
+      // Upsert (not insert) so concurrent invocations or a retry within
+      // the same millisecond don't collide on the unique index covering
+      // (from_currency, to_currency, snapshotted_at, source).
+      const { error } = await admin
+        .from("currency_rates")
+        .upsert(rows, { onConflict: "from_currency,to_currency,snapshotted_at,source", ignoreDuplicates: true });
       if (error) result.errors.push({ error: error.message });
       else result.inserted = rows.length;
     }

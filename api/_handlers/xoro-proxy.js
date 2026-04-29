@@ -29,6 +29,33 @@ export default async function handler(req, res) {
   const path = url.searchParams.get("path");
   if (!path) return res.status(400).json({ error: "Missing 'path' query parameter" });
 
+  // Allowlist — the caller-supplied `path` is interpolated directly
+  // into the Xoro URL. Without an allowlist, anyone hitting this proxy
+  // can hit any Xoro module the privileged ERP key can reach. Only
+  // permit the modules the app actually uses, and only the safe
+  // shape "module/action" — no slashes/dots/queries beyond the one
+  // separator we expect.
+  const ALLOWED_XORO_PATHS = new Set([
+    "salesinvoice/getsalesinvoice",
+    "invoice/getinvoice",
+    "invoices/getinvoices",
+    "purchaseorder/getpurchaseorder",
+    "salesorder/getsalesorder",
+    "inventory/getinventory",
+    "itemreceipt/getitemreceipt",
+    "item/getitem",
+    "vendorbill/getvendorbill",
+    "vendor/getvendor",
+    "customer/getcustomer",
+  ]);
+  if (!/^[a-z]+\/[a-z]+$/i.test(path) || !ALLOWED_XORO_PATHS.has(path)) {
+    return res.status(400).json({
+      error: "DISALLOWED_XORO_PATH",
+      path,
+      allowed: Array.from(ALLOWED_XORO_PATHS),
+    });
+  }
+
   const fetchAll = url.searchParams.get("fetch_all") === "true";
 
   // Base Xoro params (strip our own custom params)

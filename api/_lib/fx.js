@@ -158,3 +158,20 @@ export async function latestRate(admin, from, to) {
   }
   return null;
 }
+
+// Hard limit on FX rate age before we refuse to use it. CLAUDE.md
+// §Security: "block payment processing if rates are older than 8 hours
+//  — do not use stale rates".
+export const FX_MAX_AGE_MS = 8 * 60 * 60 * 1000;
+
+// Returns the latestRate ONLY if it's fresh per the 8h rule. Returns
+// null if no rate found OR if found rate is stale. Identity (same
+// currency) is always fresh.
+export async function freshRate(admin, from, to) {
+  const r = await latestRate(admin, from, to);
+  if (!r) return null;
+  if (r.source === "identity") return r;
+  const ageMs = Date.now() - Date.parse(r.snapshotted_at);
+  if (!isFinite(ageMs) || ageMs > FX_MAX_AGE_MS) return null;
+  return r;
+}

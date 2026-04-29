@@ -61,7 +61,7 @@ export default async function handler(req, res) {
             dedupe_key: `ai_insight_digest_${e.id}_${email}_${today}`,
             email: true,
           }),
-        }).catch(() => {});
+        }).catch((e) => console.error("[cron] notify fanout failed", e?.message ?? e));
       }
       result.entities_digested += 1;
       result.total_insights += digestable.length;

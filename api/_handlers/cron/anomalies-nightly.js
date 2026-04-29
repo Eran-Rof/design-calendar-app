@@ -70,9 +70,9 @@ async function fireHighSeverityAlert(admin, origin, vendor, flag) {
           dedupe_key: `anomaly_detected_${flag.id}_${email}`,
           email: true,
         }),
-      }).catch(() => {})
+      }).catch((e) => console.error("[cron] notify fanout failed", e?.message ?? e))
     ));
-  } catch { /* non-blocking */ }
+  } catch (e) { console.error("[cron] high-severity anomaly notify failed", e?.message ?? e); }
 }
 
 async function runForVendor(admin, vendor, globals) {
@@ -344,7 +344,7 @@ export default async function handler(req, res) {
             description: flag.description,
           },
         });
-      } catch { /* non-blocking */ }
+      } catch (e) { console.error("[cron] high-severity anomaly notify failed", e?.message ?? e); }
     }
   }
 

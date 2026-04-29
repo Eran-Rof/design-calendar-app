@@ -14,7 +14,13 @@
 
 import { ROUTES, compileRoutes } from "./_handlers/routes.js";
 
-export const config = { maxDuration: 60 };
+// Bumped from 60s → 300s. Several inner handlers (parse-excel,
+// xoro-proxy, ats-supply-sync, tanda-pos-sync, xoro-sales-sync,
+// xoro-items-missing-sync) declared their own 300s maxDuration but
+// were silently capped at 60s because Vercel reads the outer
+// dispatcher's config — not the inner handler's — at execution time.
+// 300s matches the Pro plan ceiling and the longest-running handlers.
+export const config = { maxDuration: 300 };
 
 // Compile once per cold start
 const COMPILED = compileRoutes(ROUTES);

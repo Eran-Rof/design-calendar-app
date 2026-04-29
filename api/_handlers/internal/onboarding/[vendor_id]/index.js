@@ -121,11 +121,16 @@ export default async function handler(req, res) {
 
     const completedSteps = (workflow.completed_steps || []).filter((s) => !failed.includes(s));
     const nowIso = new Date().toISOString();
+    // Guard: Math.min(...[]) is Infinity, which Postgres rejects.
+    // When neither failed nor completedSteps has anything to point at,
+    // park current_step at 0 so the workflow resets to the first step.
+    const candidatePositions = failed.map((s) => VALID.indexOf(s)).concat(completedSteps.length);
+    const currentStep = candidatePositions.length > 0 ? Math.min(...candidatePositions) : 0;
     const { error: wErr } = await admin.from("onboarding_workflows").update({
       status: "rejected",
       rejection_reason: String(rejection_reason).trim(),
       completed_steps: completedSteps,
-      current_step: Math.min(...failed.map((s) => VALID.indexOf(s)).concat(completedSteps.length)),
+      current_step: currentStep,
       updated_at: nowIso,
     }).eq("id", workflow.id);
     if (wErr) return res.status(500).json({ error: wErr.message });

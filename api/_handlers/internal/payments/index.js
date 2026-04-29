@@ -7,7 +7,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { validatePaymentInput } from "../../../_lib/payments.js";
-import { computePaymentFx, latestRate, DEFAULT_FEE_PCT } from "../../../_lib/fx.js";
+import { computePaymentFx, freshRate, latestRate, FX_MAX_AGE_MS, DEFAULT_FEE_PCT } from "../../../_lib/fx.js";
 
 export const config = { maxDuration: 15 };
 
@@ -61,16 +61,25 @@ export default async function handler(req, res) {
 
     let fxPlan = null;
     if (vendorCurrency !== entityCurrency) {
-      const rateRow = await latestRate(admin, entityCurrency, vendorCurrency);
-      if (rateRow?.rate) {
-        fxPlan = computePaymentFx({
-          invoiceAmount: Number(body.amount),
-          entityCurrency, vendorCurrency,
-          rate: Number(rateRow.rate),
-          feePct: Number(process.env.FX_FEE_PCT) || DEFAULT_FEE_PCT,
-          fxHandling,
+      // Reject payment if no fresh rate is available (CLAUDE.md: block
+      // when rate older than 8h). Surface 422 so the caller can re-run
+      // fx-rate-sync rather than silently using stale rates.
+      const rateRow = await freshRate(admin, entityCurrency, vendorCurrency);
+      if (!rateRow?.rate) {
+        const stale = await latestRate(admin, entityCurrency, vendorCurrency);
+        return res.status(422).json({
+          error: "FX_RATE_STALE",
+          message: `No FX rate fresher than ${FX_MAX_AGE_MS / 3600000}h for ${entityCurrency}->${vendorCurrency}. Refresh fx-rate-sync before processing.`,
+          last_known_snapshot: stale?.snapshotted_at ?? null,
         });
       }
+      fxPlan = computePaymentFx({
+        invoiceAmount: Number(body.amount),
+        entityCurrency, vendorCurrency,
+        rate: Number(rateRow.rate),
+        feePct: Number(process.env.FX_FEE_PCT) || DEFAULT_FEE_PCT,
+        fxHandling,
+      });
     }
 
     const paymentAmount = fxPlan?.to_amount ?? Number(body.amount);
