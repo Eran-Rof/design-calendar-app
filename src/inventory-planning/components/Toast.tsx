@@ -9,6 +9,12 @@ export type ToastKind = "success" | "error" | "info";
 export interface ToastMessage {
   text: string;
   kind: ToastKind;
+  // Optional explicit sticky flag — overrides the kind-based default.
+  // Set true on info-kind messages that carry final totals worth
+  // reading (e.g. an info-result with row counts) so the toast doesn't
+  // auto-dismiss in 2s. Set false on success/error messages that are
+  // just confirmations and should auto-dismiss like info toasts.
+  sticky?: boolean;
 }
 
 export interface ToastProps {
@@ -25,10 +31,14 @@ const COLORS: Record<ToastKind, { bg: string; icon: string }> = {
 };
 
 export default function Toast({ toast, onDismiss, autoDismissMs = 2000 }: ToastProps) {
-  // Final-state messages (success/error/contains "DONE") stay until
-  // the planner clicks to dismiss — these carry totals worth reading.
-  // Transient info toasts dismiss in 2s as before.
-  const isFinalState = toast?.kind === "success" || toast?.kind === "error" || (toast?.text ?? "").includes("DONE");
+  // Sticky toasts stay open until clicked. Default policy:
+  //   - explicit sticky=true / false from the caller wins
+  //   - otherwise success/error → sticky, info → auto-dismiss
+  // The previous "(text contains DONE)" heuristic was retired — too
+  // easy for an unrelated message containing the substring "DONE" to
+  // become unintentionally sticky. Callers that want a sticky info
+  // toast should set { kind: "info", sticky: true } explicitly.
+  const isFinalState = toast?.sticky ?? (toast?.kind === "success" || toast?.kind === "error");
   useEffect(() => {
     if (!toast) return;
     if (isFinalState) return; // sticky until click

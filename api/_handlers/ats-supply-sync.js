@@ -203,12 +203,17 @@ export default async function handler(req, res) {
         .from("ip_customer_master")
         .select("id, customer_code, name");
       if (error) {
+        // Without a customer master we can't safely route SO lines to
+        // a real customer (every line would route to (Supply Only),
+        // burying real customer SOs under one bucket). Bail on the SO
+        // ingest entirely and let the rest of the snapshot upsert
+        // succeed — better than corrupting the open-SO table.
         result.errors.push(`so customer fetch failed: ${error.message}`);
-      } else {
-        for (const c of data ?? []) {
-          const name = (c.name ?? "").trim().toUpperCase();
-          if (name) customerByName.set(name, c.id);
-        }
+        return res.status(200).json(result);
+      }
+      for (const c of data ?? []) {
+        const name = (c.name ?? "").trim().toUpperCase();
+        if (name) customerByName.set(name, c.id);
       }
     }
     // (Supply Only) placeholder — for SO lines without a customer name.
