@@ -78,6 +78,10 @@ export interface RunForecastPassResult {
   forecast_rows_written: number;
   recommendations_written: number;
   pairs_considered: number;
+  // Count of (customer, sku) pairs skipped because they had no demand
+  // signal (no T3 history, no LY reference) AND no inventory presence
+  // (no on-hand, on-PO, on-SO). These would forecast to zero anyway.
+  pairs_pruned_dead: number;
   methods: Record<IpForecastMethod, number>;
 }
 
@@ -156,6 +160,57 @@ export async function runForecastPass(run: IpPlanningRun): Promise<RunForecastPa
     });
   }
 
+  // Dead-SKU prune. A pair has no demand signal AND no inventory presence
+  // when ALL of these are zero:
+  //   - trailing-3 history (last 3 months of sales for this customer/sku)
+  //   - LY reference (sales 12 months back ±1mo for the snapshot)
+  //   - on-hand qty (latest inventory snapshot)
+  //   - on-PO qty (open POs for this sku)
+  //   - on-SO qty (committed_so on the latest snapshot)
+  // These rows would all forecast to zero anyway and just bloat the
+  // grid + slow down the build. Skip them at pair time.
+  const trailingT3Cutoff = historySince(snapshotDate, 3);
+  const trailingT3BySkuCust = new Map<string, number>();
+  for (const h of historyInput) {
+    if (h.txn_date < trailingT3Cutoff) continue;
+    const k = `${h.customer_id}:${h.sku_id}`;
+    trailingT3BySkuCust.set(k, (trailingT3BySkuCust.get(k) ?? 0) + h.qty);
+  }
+  const lyCutoffStart = historySince(snapshotDate, 13);
+  const lyCutoffEnd = historySince(snapshotDate, 11);
+  const lyBySkuCust = new Map<string, number>();
+  for (const h of historyInput) {
+    if (h.txn_date < lyCutoffStart || h.txn_date > lyCutoffEnd) continue;
+    const k = `${h.customer_id}:${h.sku_id}`;
+    lyBySkuCust.set(k, (lyBySkuCust.get(k) ?? 0) + h.qty);
+  }
+  const onHandBySku = new Map<string, number>();
+  const onSoBySku = new Map<string, number>();
+  for (const s of inv) {
+    onHandBySku.set(s.sku_id, (onHandBySku.get(s.sku_id) ?? 0) + (s.qty_on_hand ?? 0));
+    onSoBySku.set(s.sku_id, (onSoBySku.get(s.sku_id) ?? 0) + (s.qty_committed ?? 0));
+  }
+  const onPoBySku = new Map<string, number>();
+  for (const p of pos) {
+    onPoBySku.set(p.sku_id, (onPoBySku.get(p.sku_id) ?? 0) + (p.qty_open ?? 0));
+  }
+  const beforePrune = pairs.length;
+  pairs = pairs.filter((p) => {
+    // Don't prune supply-only synthetic pairs — they exist precisely
+    // because there's incoming inventory, so by definition they have
+    // at least one of on-PO or on-hand or on-SO non-zero. Belt-and-
+    // suspenders: keep them regardless.
+    if (p.customer_id === supplyPlaceholder) return true;
+    const k = `${p.customer_id}:${p.sku_id}`;
+    const t3 = trailingT3BySkuCust.get(k) ?? 0;
+    const ly = lyBySkuCust.get(k) ?? 0;
+    const onH = onHandBySku.get(p.sku_id) ?? 0;
+    const onPo = onPoBySku.get(p.sku_id) ?? 0;
+    const onSo = onSoBySku.get(p.sku_id) ?? 0;
+    return t3 > 0 || ly > 0 || onH > 0 || onPo > 0 || onSo > 0;
+  });
+  const prunedDeadCount = beforePrune - pairs.length;
+
   const computeInput: IpForecastComputeInput = {
     planning_run_id: run.id,
     source_snapshot_date: snapshotDate,
@@ -206,6 +261,7 @@ export async function runForecastPass(run: IpPlanningRun): Promise<RunForecastPa
     forecast_rows_written: forecastRows.length,
     recommendations_written: recs.length,
     pairs_considered: pairs.length,
+    pairs_pruned_dead: prunedDeadCount,
     methods,
   };
 }

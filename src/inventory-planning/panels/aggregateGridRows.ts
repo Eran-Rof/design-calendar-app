@@ -13,6 +13,11 @@ export interface CollapseModes {
   colors: boolean;
   category: boolean;
   subCat: boolean;
+  // Roll up every style/color owned by one customer into a single
+  // line per period — i.e. drop SKU/style/color from the key but
+  // keep customer + period. Useful for buyer reviews where
+  // per-customer totals matter more than per-style detail.
+  customerAllStyles: boolean;
 }
 
 // Aggregate rows by the active collapse modes. Each toggle changes the
@@ -32,6 +37,10 @@ export function aggregateRows(rows: IpPlanningGridRow[], modes: CollapseModes): 
       key = `sub:${r.sub_category_name ?? "—"}:${r.period_code}`;
     } else if (modes.category) {
       key = `cat:${r.group_name ?? "—"}:${r.period_code}`;
+    } else if (modes.customerAllStyles) {
+      // Customer × period only — sums every style this customer
+      // bought into one row. Other style/color/SKU fields collapse.
+      key = `cust-all:${r.customer_id}:${r.period_code}`;
     } else {
       const skuPart = modes.colors ? `style:${r.sku_style ?? r.sku_code}` : `sku:${r.sku_id}`;
       const custPart = modes.customers ? "all" : r.customer_id;
@@ -98,6 +107,12 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): 
     style = head.group_name ?? "(no category)";
     color = null;
     description = `Category rollup — ${bucket.length} forecast rows`;
+  } else if (modes.customerAllStyles) {
+    // Single customer + period; sum across every style/color.
+    style = `(${styleSet.size} styles)`;
+    color = null;
+    description = `Customer rollup — ${bucket.length} forecast rows`;
+    // customer_name stays as head.customer_name
   } else {
     if (modes.customers && customerSet.size > 1) label = `(${customerSet.size} customers)`;
     if (modes.colors && colorSet.size > 1) color = `(${colorSet.size} colors)`;

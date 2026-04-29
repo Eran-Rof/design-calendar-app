@@ -734,42 +734,6 @@ export default function WholesalePlanningWorkbench() {
           </span>
         </div>
 
-        <PlanningRunControls
-          runs={runs}
-          selectedRunId={selectedRunId}
-          onSelect={(id) => setSelectedRunId(id)}
-          onChange={refreshAll}
-          onToast={(t) => setToast(t)}
-          scope="wholesale"
-        />
-
-        {selectedRun && (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-            <span style={{ fontSize: 12, color: PAL.textDim, fontWeight: 600 }}>Forecast method</span>
-            {(Object.keys(FORECAST_METHOD_LABELS) as IpForecastMethodPreference[]).map((pref) => {
-              const active = selectedRun.forecast_method_preference === pref;
-              return (
-                <button
-                  key={pref}
-                  onClick={() => void handleMethodChange(pref)}
-                  style={{
-                    background: active ? PAL.accent : "transparent",
-                    color: active ? "#fff" : PAL.textDim,
-                    border: `1px solid ${active ? PAL.accent : PAL.border}`,
-                    borderRadius: 6,
-                    padding: "4px 10px",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  {FORECAST_METHOD_LABELS[pref]}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
         <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
           <TabButton active={tab === "grid"} onClick={() => setTab("grid")}>Planning grid</TabButton>
           <TabButton active={tab === "requests"} onClick={() => setTab("requests")}>
@@ -780,6 +744,44 @@ export default function WholesalePlanningWorkbench() {
         {tab === "grid" && (
           <>
             <MonthlyTotalsCards rows={rows} />
+            {/* PlanningRunControls + method selector live RIGHT ABOVE the
+                grid's filter line so the planner has the run + Build
+                button adjacent to the filters. The grid's own filter
+                state will scope future "Build filtered" actions. */}
+            <PlanningRunControls
+              runs={runs}
+              selectedRunId={selectedRunId}
+              onSelect={(id) => setSelectedRunId(id)}
+              onChange={refreshAll}
+              onToast={(t) => setToast(t)}
+              scope="wholesale"
+            />
+            {selectedRun && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <span style={{ fontSize: 12, color: PAL.textDim, fontWeight: 600 }}>Forecast method</span>
+                {(Object.keys(FORECAST_METHOD_LABELS) as IpForecastMethodPreference[]).map((pref) => {
+                  const active = selectedRun.forecast_method_preference === pref;
+                  return (
+                    <button
+                      key={pref}
+                      onClick={() => void handleMethodChange(pref)}
+                      style={{
+                        background: active ? PAL.accent : "transparent",
+                        color: active ? "#fff" : PAL.textDim,
+                        border: `1px solid ${active ? PAL.accent : PAL.border}`,
+                        borderRadius: 6,
+                        padding: "4px 10px",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {FORECAST_METHOD_LABELS[pref]}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <WholesalePlanningGrid
               rows={rows}
               loading={loading}
