@@ -58,13 +58,31 @@ export default async function handler(req, res) {
       steps = s || [];
     }
 
+    // Sign each compliance file URL on read instead of returning the
+    // raw Storage path. CLAUDE.md: "use signed URLs with short expiry,
+    // never serve uploaded files directly". 5-minute expiry — enough
+    // for the reviewer panel to render, short enough that a leaked
+    // token is useless quickly.
+    const bucket = process.env.COMPLIANCE_STORAGE_BUCKET || "compliance";
+    const docs = docsRes.data || [];
+    const signedDocs = await Promise.all(docs.map(async (d) => {
+      if (!d.file_url) return d;
+      try {
+        const { data: sig } = await admin.storage.from(bucket).createSignedUrl(d.file_url, 300);
+        return { ...d, file_url: sig?.signedUrl ?? d.file_url };
+      } catch (err) {
+        console.warn("[onboarding] sign URL failed", { vendor_id: vendorId, path: d.file_url, err: String(err) });
+        return d; // fall back rather than fail the whole response
+      }
+    }));
+
     return res.status(200).json({
       vendor: vRes.data,
       workflow: wfRes.data || null,
       steps,
       banking: bankRes.data || [],
       compliance_document_types: docTypesRes.data || [],
-      compliance_documents: docsRes.data || [],
+      compliance_documents: signedDocs,
     });
   }
 

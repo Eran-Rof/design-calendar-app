@@ -49,6 +49,31 @@ export default async function handler(req, res) {
   const { data: po } = await poQuery.maybeSingle();
   if (!po) return res.status(404).json({ error: "PO not found" });
 
+  // Idempotency: a 850 already minted for this PO and still pending
+  // delivery is a duplicate request — return that row. We use
+  // interchange_id (already on edi_messages) as a deterministic dedupe
+  // key derived from po.uuid_id, so retries don't fan out duplicate
+  // envelopes to the partner.
+  const dedupeKey = `850:po:${po.uuid_id}`;
+  const { data: existing850 } = await admin.from("edi_messages")
+    .select("id, created_at")
+    .eq("vendor_id", po.vendor_id)
+    .eq("direction", "outbound")
+    .eq("transaction_set", "850")
+    .eq("interchange_id", dedupeKey)
+    .eq("status", "received")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existing850?.id) {
+    return res.status(200).json({
+      edi_message_id: existing850.id,
+      transaction_set: "850",
+      duplicate: true,
+      message: "Existing outbound 850 already pending delivery for this PO — re-use that row.",
+    });
+  }
+
   const { data: integration } = await admin
     .from("erp_integrations")
     .select("id, config, status")
@@ -87,7 +112,7 @@ export default async function handler(req, res) {
     vendor_id: po.vendor_id,
     direction: "outbound",
     transaction_set: "850",
-    interchange_id: null,
+    interchange_id: dedupeKey,
     status: "received",
     raw_content: envelope,
   }).select("id").single();

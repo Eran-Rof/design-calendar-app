@@ -35,7 +35,23 @@ export default async function handler(req, res) {
       .select("*, vendor:vendors(id, name), invoice:invoices(id, invoice_number, total, currency)")
       .eq("id", id).maybeSingle();
     if (!data) return res.status(404).json({ error: "Payment not found" });
-    return res.status(200).json(data);
+    // Redact internal-only metadata keys before returning. The full
+    // FX plan / SCF refs are useful for debugging but shouldn't ride
+    // out to every callsite; surface only the human-meaningful fields.
+    const md = (data.metadata && typeof data.metadata === "object") ? data.metadata : {};
+    const safeMetadata = {
+      // Allowlist of keys a viewer is allowed to see.
+      vendor_currency: md.vendor_currency ?? null,
+      entity_currency: md.entity_currency ?? null,
+      vendor_amount:   md.vendor_amount   ?? md.to_amount ?? null,
+      fx_rate:         md.fx_rate         ?? null,
+      fx_handling:     md.fx_handling     ?? null,
+      fx_snapshot_at:  md.fx_snapshot_at  ?? null,
+      reference:       md.reference       ?? null,
+      // fee_amount / program_id / fx provider raw response intentionally
+      // omitted — see the redaction rationale comment.
+    };
+    return res.status(200).json({ ...data, metadata: safeMetadata });
   }
 
   if (req.method === "PUT") {

@@ -53,6 +53,33 @@ export default async function handler(req, res) {
   const partnerId = integration?.config?.partner_id || integration?.config?.edi_id || null;
   if (!partnerId) return res.status(400).json({ error: "No active ERP integration with partner_id for this vendor" });
 
+  // Idempotency: a 820 envelope already covering THIS exact set of
+  // invoice ids is a duplicate request. We use interchange_id (already
+  // a column on edi_messages) as a deterministic dedupe key — sha-256
+  // of sorted invoice numbers — so a second POST with the same set
+  // returns the existing row instead of minting a duplicate.
+  const sortedNums = [...invoices.map((i) => i.invoice_number)].sort();
+  const { createHash } = await import("node:crypto");
+  const dedupeKey = "820:" + createHash("sha256").update(sortedNums.join(",")).digest("hex").slice(0, 32);
+  const { data: existing820 } = await admin.from("edi_messages")
+    .select("id, created_at")
+    .eq("vendor_id", vendor_id)
+    .eq("direction", "outbound")
+    .eq("transaction_set", "820")
+    .eq("status", "received")
+    .eq("interchange_id", dedupeKey)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existing820?.id) {
+    return res.status(200).json({
+      edi_message_id: existing820.id,
+      transaction_set: "820",
+      duplicate: true,
+      message: "Existing outbound 820 already pending delivery for this invoice set.",
+    });
+  }
+
   // Sum in 4-decimal-precision integer cents-equivalent (multiply by
   // 10000) so a 50-invoice batch doesn't drift through repeated float
   // adds. Round once at the end and re-emit as a decimal number for
@@ -85,7 +112,7 @@ export default async function handler(req, res) {
     vendor_id,
     direction: "outbound",
     transaction_set: "820",
-    interchange_id: null,
+    interchange_id: dedupeKey,
     status: "received",
     raw_content: envelope,
   }).select("id").single();

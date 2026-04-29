@@ -33,8 +33,22 @@ export default async function handler(req, res) {
     const limit  = Math.min(Number(url.searchParams.get("limit")) || 100, 500);
     const offset = Math.max(Number(url.searchParams.get("offset")) || 0, 0);
 
+    // Don't return the raw `metadata` JSONB on the list response — it
+    // contains internal references (FX provider rates, fee bps, SCF
+    // program IDs, discount-offer IDs). Select an explicit column list
+    // that excludes it. Callers that need the metadata can fetch the
+    // single payment by id where we redact more carefully.
     let q = admin.from("payments")
-      .select("*, vendor:vendors(id, name), invoice:invoices(id, invoice_number, total)", { count: "exact" })
+      .select(
+        [
+          "id","entity_id","invoice_id","vendor_id","amount","currency",
+          "method","status","initiated_at","sent_at","completed_at",
+          "discount_offer_id","scf_request_id","virtual_card_id",
+          "vendor:vendors(id, name)",
+          "invoice:invoices(id, invoice_number, total)",
+        ].join(","),
+        { count: "exact" },
+      )
       .eq("entity_id", entityId)
       .order("initiated_at", { ascending: false });
     if (status)    q = q.eq("status", status);
