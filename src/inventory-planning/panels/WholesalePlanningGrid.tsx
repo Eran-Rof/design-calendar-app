@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { IpPlanningGridRow } from "../types/wholesale";
 import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, formatQty, formatPeriodCode } from "../components/styles";
+import { aggregateRows, type CollapseModes as ExtractedCollapseModes } from "./aggregateGridRows";
 
 export interface WholesalePlanningGridProps {
   rows: IpPlanningGridRow[];
@@ -24,12 +25,10 @@ type SortKey =
   | "confidence" | "method" | "onHand" | "onSo" | "onPo" | "receipts" | "ats"
   | "buy" | "avgCost" | "unitCost" | "buyDollars" | "shortage" | "excess" | "action";
 
-interface CollapseModes {
-  customers: boolean;
-  colors: boolean;
-  category: boolean;
-  subCat: boolean;
-}
+// Re-export of the type now defined alongside the aggregate logic
+// in ./aggregateGridRows.ts. Kept as a local alias so existing
+// references (CollapseModes) compile without churn.
+type CollapseModes = ExtractedCollapseModes;
 
 export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, loading }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
@@ -636,121 +635,5 @@ function cmp(a: IpPlanningGridRow, b: IpPlanningGridRow, k: SortKey, d: "asc" | 
   }
 }
 
-// Aggregate rows by the active collapse modes. Each toggle changes the
-// grouping key independently:
-//   customers  → drop customer_id from key (sum across customers)
-//   colors     → use sku_style instead of sku_id (sum across colors)
-//   category   → use group_name; ignore SKU/color/customer
-//   subCat     → use sub_category_name; ignore SKU/color/customer
-// Category and subCat are mutually exclusive — turning one on clears the
-// other (handled at toggle time). When customers/colors are also on, the
-// numeric totals are still by period within the chosen rollup.
-function aggregateRows(rows: IpPlanningGridRow[], modes: CollapseModes): IpPlanningGridRow[] {
-  const groups = new Map<string, IpPlanningGridRow[]>();
-  for (const r of rows) {
-    let key: string;
-    if (modes.subCat) {
-      key = `sub:${r.sub_category_name ?? "—"}:${r.period_code}`;
-    } else if (modes.category) {
-      key = `cat:${r.group_name ?? "—"}:${r.period_code}`;
-    } else {
-      const skuPart = modes.colors ? `style:${r.sku_style ?? r.sku_code}` : `sku:${r.sku_id}`;
-      const custPart = modes.customers ? "all" : r.customer_id;
-      key = `${skuPart}:${custPart}:${r.period_code}`;
-    }
-    let bucket = groups.get(key);
-    if (!bucket) { bucket = []; groups.set(key, bucket); }
-    bucket.push(r);
-  }
-  const out: IpPlanningGridRow[] = [];
-  for (const [, bucket] of groups) {
-    out.push(bucket.length === 1 ? bucket[0] : mergeBucket(bucket, modes));
-  }
-  return out;
-}
-
-function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): IpPlanningGridRow {
-  const head = bucket[0];
-  const sum = (k: keyof IpPlanningGridRow) =>
-    bucket.reduce((a, r) => a + ((r[k] as number) ?? 0), 0);
-  const sumNullable = (k: keyof IpPlanningGridRow): number | null => {
-    let total = 0;
-    let found = false;
-    for (const r of bucket) {
-      const v = r[k] as number | null | undefined;
-      if (v != null) { total += v; found = true; }
-    }
-    return found ? total : null;
-  };
-  // Unit cost for the rollup row:
-  //   1. Weight by planned_buy_qty when buy>0 rows have a cost (best signal
-  //      of the dollars actually committed in this rollup).
-  //   2. Fall back to plain mean of present unit_costs across the bucket
-  //      when no buy>0 row has a cost — otherwise the rollup shows "—"
-  //      even though every variant has a perfectly good unit_cost.
-  let weightedCost: number | null = null;
-  let num = 0, den = 0;
-  for (const r of bucket) {
-    const q = r.planned_buy_qty ?? 0;
-    if (q > 0 && r.unit_cost != null) { num += r.unit_cost * q; den += q; }
-  }
-  if (den > 0) {
-    weightedCost = num / den;
-  } else {
-    const costs = bucket.map((r) => r.unit_cost).filter((c): c is number => c != null);
-    weightedCost = costs.length > 0 ? costs.reduce((a, c) => a + c, 0) / costs.length : null;
-  }
-  const customerSet = new Set(bucket.map((r) => r.customer_name));
-  const styleSet = new Set(bucket.map((r) => r.sku_style ?? r.sku_code));
-  const colorSet = new Set(bucket.map((r) => r.sku_color ?? "—"));
-
-  let label = head.customer_name;
-  let style: string | null = head.sku_style;
-  let color: string | null = head.sku_color;
-  let description = head.sku_description;
-
-  if (modes.subCat) {
-    label = `(${customerSet.size} cust · ${styleSet.size} styles)`;
-    style = head.sub_category_name ?? "(no sub cat)";
-    color = null;
-    description = `Sub Cat rollup — ${bucket.length} forecast rows`;
-  } else if (modes.category) {
-    label = `(${customerSet.size} cust · ${styleSet.size} styles)`;
-    style = head.group_name ?? "(no category)";
-    color = null;
-    description = `Category rollup — ${bucket.length} forecast rows`;
-  } else {
-    if (modes.customers && customerSet.size > 1) label = `(${customerSet.size} customers)`;
-    if (modes.colors && colorSet.size > 1) color = `(${colorSet.size} colors)`;
-  }
-
-  return {
-    ...head,
-    forecast_id: `agg:${head.forecast_id}:${bucket.length}`,
-    is_aggregate: true,
-    aggregate_count: bucket.length,
-    customer_id: modes.customers ? "*" : head.customer_id,
-    customer_name: label,
-    sku_style: style,
-    sku_color: color,
-    sku_description: description,
-    historical_trailing_qty: sum("historical_trailing_qty"),
-    system_forecast_qty: sum("system_forecast_qty"),
-    buyer_request_qty: sum("buyer_request_qty"),
-    override_qty: sum("override_qty"),
-    final_forecast_qty: sum("final_forecast_qty"),
-    ly_reference_qty: sumNullable("ly_reference_qty"),
-    on_hand_qty: sumNullable("on_hand_qty"),
-    on_so_qty: sum("on_so_qty"),
-    on_po_qty: sumNullable("on_po_qty"),
-    receipts_due_qty: sumNullable("receipts_due_qty"),
-    available_supply_qty: sum("available_supply_qty"),
-    projected_shortage_qty: sum("projected_shortage_qty"),
-    projected_excess_qty: sum("projected_excess_qty"),
-    planned_buy_qty: sumNullable("planned_buy_qty"),
-    unit_cost: weightedCost,
-    avg_cost: weightedCost ?? head.avg_cost,
-    item_cost: weightedCost ?? head.item_cost,
-    unit_cost_override: null,
-  };
-}
+// aggregateRows + mergeBucket moved to ./aggregateGridRows for unit
+// testability. Imported at the top of this file.
