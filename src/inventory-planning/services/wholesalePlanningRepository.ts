@@ -287,6 +287,51 @@ export const wholesaleRepo = {
     );
     if (!rows[0]) throw new Error(`patchForecastUnitCostOverride: no row returned for ${forecastId}`);
   },
+  // ── Bucket-level buys (for collapsed grid rows) ─────────────────────
+  // Each row represents one (planning_run, bucket_key) pair where
+  // bucket_key encodes the collapse mode + filter scope + the row's
+  // dimensions. The grid renders the qty into the aggregate row's
+  // Buy cell when the same view is reproduced.
+  async listBucketBuys(planningRunId: string): Promise<Array<{
+    bucket_key: string;
+    qty: number;
+    collapse_mode: string;
+    customer_id: string | null;
+    group_name: string | null;
+    sub_category_name: string | null;
+    gender: string | null;
+    period_code: string;
+    created_by: string | null;
+    updated_at: string;
+  }>> {
+    return sbGet(
+      `ip_planner_bucket_buys?planning_run_id=eq.${planningRunId}&select=bucket_key,qty,collapse_mode,customer_id,group_name,sub_category_name,gender,period_code,created_by,updated_at&limit=10000`,
+    );
+  },
+  async upsertBucketBuy(
+    planningRunId: string,
+    args: {
+      bucket_key: string;
+      qty: number;
+      collapse_mode: string;
+      customer_id: string | null;
+      group_name: string | null;
+      sub_category_name: string | null;
+      gender: string | null;
+      period_code: string;
+      created_by: string | null;
+    },
+  ): Promise<void> {
+    await sbPost(
+      "ip_planner_bucket_buys?on_conflict=planning_run_id,bucket_key",
+      [{ planning_run_id: planningRunId, ...args }],
+      "resolution=merge-duplicates,return=minimal",
+    );
+  },
+  async deleteBucketBuy(planningRunId: string, bucketKey: string): Promise<void> {
+    await sbDelete(`ip_planner_bucket_buys?planning_run_id=eq.${planningRunId}&bucket_key=eq.${encodeURIComponent(bucketKey)}`);
+  },
+
   // System-qty override: planner directly edits the System forecast.
   // Stored alongside the original system_forecast_qty so the grid can
   // show "changed from X to Y on DATE". Pass null to clear.

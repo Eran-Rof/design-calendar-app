@@ -61,6 +61,10 @@ export default function WholesalePlanningWorkbench() {
   const [ingestTo, setIngestTo] = useState(new Date().toISOString().slice(0, 10));
   const [selectedRow, setSelectedRow] = useState<IpPlanningGridRow | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  // Bucket-level buy qty map for the active run. key = bucket_key,
+  // value = stored qty. Refreshed when the run changes or the planner
+  // saves a new bucket buy.
+  const [bucketBuys, setBucketBuys] = useState<Map<string, number>>(new Map());
   // Mirror of the grid's active filter set, lifted to workbench scope
   // so PlanningRunControls' Build button can scope itself to the
   // currently visible subset. The grid's onFiltersChange callback
@@ -94,13 +98,15 @@ export default function WholesalePlanningWorkbench() {
   }, [selectedRunId]);
 
   const loadRunData = useCallback(async () => {
-    if (!selectedRun) { setRows([]); setOverrides([]); return; }
-    const [grid, ovs] = await Promise.all([
+    if (!selectedRun) { setRows([]); setOverrides([]); setBucketBuys(new Map()); return; }
+    const [grid, ovs, bbs] = await Promise.all([
       buildGridRows(selectedRun),
       wholesaleRepo.listOverrides(selectedRun.id),
+      wholesaleRepo.listBucketBuys(selectedRun.id),
     ]);
     setRows(grid);
     setOverrides(ovs);
+    setBucketBuys(new Map(bbs.map((b) => [b.bucket_key, Number(b.qty)])));
   }, [selectedRun]);
 
   const refreshAll = useCallback(async () => {
@@ -588,6 +594,59 @@ export default function WholesalePlanningWorkbench() {
     }
   }
 
+  // Save a bucket-level buy for an aggregate row. The grid computes
+  // the bucket_key + dimensions; we just upsert (or delete when qty
+  // is null/0) and refresh the local map.
+  async function saveBucketBuy(args: {
+    bucket_key: string;
+    qty: number | null;
+    collapse_mode: string;
+    customer_id: string | null;
+    group_name: string | null;
+    sub_category_name: string | null;
+    gender: string | null;
+    period_code: string;
+  }) {
+    if (!selectedRun) return;
+    let userName: string | null = null;
+    try {
+      const raw = sessionStorage.getItem("plm_user");
+      if (raw) userName = JSON.parse(raw)?.name ?? null;
+    } catch { /* ignore */ }
+    try {
+      if (args.qty == null || args.qty === 0) {
+        await wholesaleRepo.deleteBucketBuy(selectedRun.id, args.bucket_key);
+        setBucketBuys((prev) => {
+          const next = new Map(prev);
+          next.delete(args.bucket_key);
+          return next;
+        });
+        setToast({ text: "Bucket buy cleared", kind: "success" });
+      } else {
+        await wholesaleRepo.upsertBucketBuy(selectedRun.id, {
+          bucket_key: args.bucket_key,
+          qty: args.qty,
+          collapse_mode: args.collapse_mode,
+          customer_id: args.customer_id,
+          group_name: args.group_name,
+          sub_category_name: args.sub_category_name,
+          gender: args.gender,
+          period_code: args.period_code,
+          created_by: userName,
+        });
+        setBucketBuys((prev) => {
+          const next = new Map(prev);
+          next.set(args.bucket_key, args.qty as number);
+          return next;
+        });
+        setToast({ text: `Bucket buy set to ${args.qty.toLocaleString()}`, kind: "success" });
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `Bucket buy save failed — ${msg}`, kind: "error" });
+    }
+  }
+
   // Direct override of the System forecast qty. Pass null to clear
   // (revert to the computed value). Stamps overridden_at + overridden_by
   // so the cell tooltip can show "from X to Y on DATE".
@@ -803,11 +862,13 @@ export default function WholesalePlanningWorkbench() {
               loading={loading}
               onSelectRow={setSelectedRow}
               onUpdateBuyQty={saveBuyQty}
+              onUpdateBucketBuy={saveBucketBuy}
               onUpdateUnitCost={saveUnitCost}
               onUpdateBuyerRequest={saveBuyerRequest}
               onUpdateOverride={saveOverrideQty}
               onUpdateSystemOverride={saveSystemOverride}
               onFiltersChange={setBuildFilter}
+              bucketBuys={bucketBuys}
             />
           </>
         )}

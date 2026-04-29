@@ -6,11 +6,30 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { IpPlanningGridRow } from "../types/wholesale";
 import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, formatQty, formatPeriodCode } from "../components/styles";
 import { aggregateRows, type CollapseModes as ExtractedCollapseModes } from "./aggregateGridRows";
+import { bucketKeyFor, type BucketKeyFilters } from "./bucketBuyKey";
 
 export interface WholesalePlanningGridProps {
   rows: IpPlanningGridRow[];
   onSelectRow: (row: IpPlanningGridRow) => void;
   onUpdateBuyQty: (forecastId: string, qty: number | null) => Promise<void>;
+  // Save bucket-level buy for an aggregate row. The grid computes
+  // the bucket_key from the active collapse mode + filters + the
+  // row's dimensions and passes the full descriptor — the workbench
+  // just upserts.
+  onUpdateBucketBuy: (descriptor: {
+    bucket_key: string;
+    qty: number | null;
+    collapse_mode: string;
+    customer_id: string | null;
+    group_name: string | null;
+    sub_category_name: string | null;
+    gender: string | null;
+    period_code: string;
+  }) => Promise<void>;
+  // Map of bucket_key → qty, populated by the workbench from the
+  // listBucketBuys repo call. The grid overlays these onto aggregate
+  // rows' planned_buy_qty for display.
+  bucketBuys?: Map<string, number>;
   onUpdateUnitCost: (forecastId: string, cost: number | null) => Promise<void>;
   onUpdateBuyerRequest: (forecastId: string, qty: number) => Promise<void>;
   onUpdateOverride: (forecastId: string, qty: number) => Promise<void>;
@@ -48,7 +67,7 @@ type SortKey =
 // references (CollapseModes) compile without churn.
 type CollapseModes = ExtractedCollapseModes;
 
-export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onFiltersChange, headerSlot, loading }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onFiltersChange, headerSlot, bucketBuys, loading }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
   const [filterCustomer, setFilterCustomer] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
@@ -394,11 +413,30 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 <td style={S.tdNum}>{formatQty(r.receipts_due_qty)}</td>
                 <td style={{ ...S.tdNum, color: PAL.text }}>{formatQty(r.available_supply_qty)}</td>
                 <td style={{ ...S.tdNum, padding: "0 4px" }} onClick={(e) => e.stopPropagation()}>
-                  {r.is_aggregate ? (
-                    <span style={{ fontFamily: "monospace", color: (r.planned_buy_qty ?? 0) > 0 ? PAL.green : PAL.textMuted }} title="Bucket-level buy entry coming next — read-only for now">
-                      {r.planned_buy_qty != null ? formatQty(r.planned_buy_qty) : "—"}
-                    </span>
-                  ) : (
+                  {r.is_aggregate ? (() => {
+                    // Aggregate Buy is bucket-level: a single qty
+                    // recorded against (collapse_mode + filters + row
+                    // dims). Compute the bucket_key here, look up the
+                    // existing qty, render an editable cell. On save
+                    // the workbench upserts via repo.
+                    const filters: BucketKeyFilters = {
+                      customer_id: filterCustomer === "all" ? null : filterCustomer,
+                      group_name: filterCategory === "all" ? null : filterCategory,
+                      sub_category_name: filterSubCat === "all" ? null : filterSubCat,
+                      gender: filterGender === "all" ? null : filterGender,
+                    };
+                    const desc = bucketKeyFor(r, collapse, filters);
+                    if (!desc) {
+                      return <span style={{ color: PAL.textMuted }}>—</span>;
+                    }
+                    const stored = bucketBuys?.get(desc.bucket_key) ?? null;
+                    return (
+                      <BuyCell
+                        value={stored}
+                        onSave={(qty) => onUpdateBucketBuy({ ...desc, qty })}
+                      />
+                    );
+                  })() : (
                     <BuyCell
                       value={r.planned_buy_qty}
                       onSave={(qty) => onUpdateBuyQty(r.forecast_id, qty)}
