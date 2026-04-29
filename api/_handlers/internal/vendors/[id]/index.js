@@ -7,6 +7,7 @@
 //   and all vendor_users auth accounts are banned (blocks portal login).
 
 import { createClient } from "@supabase/supabase-js";
+import { authenticateInternalCaller } from "../../../../_lib/auth.js";
 
 export const config = { maxDuration: 30 };
 
@@ -26,8 +27,13 @@ function composite(ot, acc, ackHours) {
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, PUT, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Internal-Token");
   if (req.method === "OPTIONS") return res.status(200).end();
+
+  // Internal-API gate. PUT can deactivate vendors / revoke keys / ban
+  // user accounts — must not be open. Even GET leaks vendor PII.
+  const auth = authenticateInternalCaller(req);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
   const SB_URL = process.env.VITE_SUPABASE_URL;
   const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;

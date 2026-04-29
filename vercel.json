@@ -23,6 +23,7 @@
     { "path": "/api/cron/workspace-tasks-due-soon", "schedule": "0 12 * * *" },
     { "path": "/api/cron/discount-offers-daily", "schedule": "0 11 * * *" },
     { "path": "/api/cron/fx-rate-sync", "schedule": "0 */4 * * *" },
-    { "path": "/api/cron/ip-normalize", "schedule": "*/30 * * * *" }
+    { "path": "/api/cron/ip-normalize", "schedule": "*/30 * * * *" },
+    { "path": "/api/cron/notification-digest-flush", "schedule": "*/15 * * * *" }
   ]
 }

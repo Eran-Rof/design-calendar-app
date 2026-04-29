@@ -79,18 +79,10 @@ export default async function handler(req, res) {
       const origin = `https://${req.headers.host}`;
 
       // Digest: if 3+ new_dispute_message emails already sent to this
-      // address in the last hour, drop email on this one.
-      const oneHourAgo = new Date(Date.now() - 3_600_000).toISOString();
+      // send-notification's digest dispatcher handles the >3/hr
+      // threshold and queues into notification_digest_pending — we
+      // always pass email:true and let it decide.
       await Promise.all(emails.map(async (email) => {
-        const { count } = await admin
-          .from("notifications")
-          .select("*", { count: "exact", head: true })
-          .eq("event_type", "new_dispute_message")
-          .eq("recipient_email", email)
-          .eq("email_status", "sent")
-          .gte("created_at", oneHourAgo);
-        const wantEmail = (count ?? 0) < 3;
-
         await fetch(`${origin}/api/send-notification`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -102,7 +94,7 @@ export default async function handler(req, res) {
             metadata: { dispute_id: disputeId, vendor_id: caller.vendor_id },
             recipient: { internal_id: "disputes_team", email },
             dedupe_key: `dispute_msg_${msg.id}_${email}`,
-            email: wantEmail,
+            email: true,
           }),
         }).catch(() => {});
       }));

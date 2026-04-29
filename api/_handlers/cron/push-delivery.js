@@ -80,33 +80,135 @@ async function sendApns(row) {
   }
 }
 
-// ─── FCM via legacy HTTP (simpler than OAuth HTTP v1) ──────────────────
-async function sendFcm(row) {
-  const serverKey = process.env.FCM_SERVER_KEY;
-  if (!serverKey) return { ok: false, permanent: false, error: "FCM_SERVER_KEY not configured" };
+// ─── FCM v1 (OAuth2 + service-account JWT) ────────────────────────────
+//
+// Google retired the legacy `https://fcm.googleapis.com/fcm/send` API
+// on 2024-06-20. The v1 API is at
+// `https://fcm.googleapis.com/v1/projects/{project_id}/messages:send`
+// and requires an OAuth2 access token signed with a service-account
+// private key (no static "server key" anymore).
+//
+// To avoid pulling google-auth-library as a runtime dep, we mint the
+// JWT ourselves with node:crypto (RS256 over base64url segments) and
+// exchange it at the token endpoint. The token is cached in module
+// scope for 50 minutes (Google issues 60-min tokens).
+//
+// Env: FCM_SERVICE_ACCOUNT_JSON — the full service-account JSON as a
+// single-line string (Console → Project Settings → Service Accounts
+// → Generate Key). Project id is read from the JSON's project_id.
+
+import { createSign } from "node:crypto";
+
+const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
+const FCM_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
+
+let _cachedToken = null;
+let _cachedExpiry = 0;
+let _cachedProjectId = null;
+
+function b64url(buf) {
+  return Buffer.from(buf).toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+function loadServiceAccount() {
+  const raw = process.env.FCM_SERVICE_ACCOUNT_JSON;
+  if (!raw) return null;
   try {
-    const r = await fetch("https://fcm.googleapis.com/fcm/send", {
+    const sa = JSON.parse(raw);
+    if (!sa.private_key || !sa.client_email || !sa.project_id) return null;
+    return sa;
+  } catch {
+    return null;
+  }
+}
+
+async function getFcmAccessToken() {
+  if (_cachedToken && Date.now() < _cachedExpiry) {
+    return { token: _cachedToken, projectId: _cachedProjectId };
+  }
+  const sa = loadServiceAccount();
+  if (!sa) return null;
+
+  const now = Math.floor(Date.now() / 1000);
+  const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const claims = b64url(JSON.stringify({
+    iss: sa.client_email,
+    scope: FCM_SCOPE,
+    aud: FCM_TOKEN_ENDPOINT,
+    iat: now,
+    exp: now + 3600,
+  }));
+  const signingInput = `${header}.${claims}`;
+  const signer = createSign("RSA-SHA256");
+  signer.update(signingInput);
+  const signature = b64url(signer.sign(sa.private_key));
+  const jwt = `${signingInput}.${signature}`;
+
+  const r = await fetch(FCM_TOKEN_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: jwt,
+    }).toString(),
+  });
+  if (!r.ok) {
+    const text = await r.text().catch(() => "");
+    console.error("[fcm] token exchange failed", r.status, text.slice(0, 200));
+    return null;
+  }
+  const body = await r.json();
+  if (!body.access_token) return null;
+
+  _cachedToken = body.access_token;
+  _cachedProjectId = sa.project_id;
+  // Cache for 50 minutes — token TTL is 60min, leave headroom.
+  _cachedExpiry = Date.now() + 50 * 60 * 1000;
+  return { token: _cachedToken, projectId: _cachedProjectId };
+}
+
+async function sendFcm(row) {
+  const auth = await getFcmAccessToken();
+  if (!auth) {
+    return { ok: false, permanent: false, error: "FCM_SERVICE_ACCOUNT_JSON not configured" };
+  }
+  try {
+    const r = await fetch(`https://fcm.googleapis.com/v1/projects/${auth.projectId}/messages:send`, {
       method: "POST",
       headers: {
-        Authorization: `key=${serverKey}`,
+        Authorization: `Bearer ${auth.token}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        to: row.device_token,
-        notification: { title: row.title, body: row.body },
-        data: row.data || {},
+        message: {
+          token: row.device_token,
+          notification: { title: row.title, body: row.body },
+          // FCM v1 requires data values to be strings. Coerce numeric /
+          // boolean values to strings so a payload like {entity_id: 7,
+          // is_urgent: true} doesn't get rejected with INVALID_ARGUMENT.
+          data: Object.fromEntries(
+            Object.entries(row.data || {}).map(([k, v]) => [k, typeof v === "string" ? v : JSON.stringify(v)]),
+          ),
+        },
       }),
     });
     const txt = await r.text();
-    if (!r.ok) return { ok: false, permanent: false, error: `FCM ${r.status} ${txt.slice(0, 200)}` };
+    if (r.ok) return { ok: true };
+
     let parsed;
     try { parsed = JSON.parse(txt); } catch { parsed = {}; }
-    const err = parsed?.results?.[0]?.error || "";
-    if (err) {
-      const permanent = ["NotRegistered", "InvalidRegistration", "MismatchSenderId"].includes(err);
-      return { ok: false, permanent, error: `FCM ${err}` };
-    }
-    return { ok: true };
+    const code = parsed?.error?.status || parsed?.error?.code || "";
+    const message = parsed?.error?.message || txt.slice(0, 200);
+
+    // Permanent failures — token is dead, don't retry.
+    //   UNREGISTERED:  device uninstalled the app or token was rotated
+    //   INVALID_ARGUMENT (about the token): malformed token
+    //   NOT_FOUND: token registered to a different sender
+    const permanent =
+      code === "UNREGISTERED" ||
+      code === "NOT_FOUND" ||
+      /registration token .* (not registered|invalid|not found)/i.test(message);
+    return { ok: false, permanent, error: `FCM ${code || r.status}: ${message}` };
   } catch (e) {
     return { ok: false, permanent: false, error: e instanceof Error ? e.message : String(e) };
   }

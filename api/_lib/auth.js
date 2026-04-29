@@ -66,3 +66,51 @@ export function isSafeDropboxPath(p) {
   if (/[\x00-\x1f]/.test(p)) return false; // control chars
   return true;
 }
+
+// Internal-API gate. Stop-gap until per-user Supabase Auth is rolled
+// out for internal staff (today they live as a JSON blob in
+// app_data["users"]). When INTERNAL_API_TOKEN is set, every request
+// hitting an /api/internal/** handler MUST present the matching
+// `Authorization: Bearer <token>` (or `X-Internal-Token: <token>`
+// for legacy callers). When the env var is unset, requests pass
+// through with a console.warn — same rollout pattern as the EDI
+// shared secret. Once the token is set in Vercel, any caller that
+// doesn't include it gets a 401.
+//
+// Returns the same { ok, status, error } shape as authenticateCaller.
+export function authenticateInternalCaller(req) {
+  const expected = process.env.INTERNAL_API_TOKEN;
+  if (!expected) {
+    // Soft-warn on first hit so we know which routes need the token
+    // wired into clients. Don't spam — once-per-process is enough.
+    if (!authenticateInternalCaller._warned) {
+      console.warn("[internal-auth] INTERNAL_API_TOKEN not set — internal handlers are open. Set the env var and re-deploy to enable token-gated access.");
+      authenticateInternalCaller._warned = true;
+    }
+    return { ok: true, status: 200, error: null, mode: "open" };
+  }
+  const header = req.headers?.authorization || "";
+  const xToken = req.headers?.["x-internal-token"];
+  let presented = null;
+  if (typeof header === "string" && header.startsWith("Bearer ")) {
+    presented = header.slice(7).trim();
+  } else if (typeof xToken === "string" && xToken.length > 0) {
+    presented = xToken.trim();
+  }
+  if (!presented) {
+    return { ok: false, status: 401, error: "Missing internal token", mode: "denied" };
+  }
+  // Constant-time-ish compare. Node has crypto.timingSafeEqual but
+  // length-mismatched buffers throw; pad short presented to match.
+  if (presented.length !== expected.length) {
+    return { ok: false, status: 401, error: "Invalid internal token", mode: "denied" };
+  }
+  let ok = 0;
+  for (let i = 0; i < expected.length; i++) {
+    ok |= expected.charCodeAt(i) ^ presented.charCodeAt(i);
+  }
+  if (ok !== 0) {
+    return { ok: false, status: 401, error: "Invalid internal token", mode: "denied" };
+  }
+  return { ok: true, status: 200, error: null, mode: "token" };
+}

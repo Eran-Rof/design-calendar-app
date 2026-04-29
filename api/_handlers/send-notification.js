@@ -136,8 +136,34 @@ export default async function handler(req, res) {
     if (existing) return res.status(200).json({ ok: true, deduped: true, id: existing.id });
   }
 
+  // Digest threshold check — CLAUDE.md requires "if more than 3
+  // notifications of the same type arrive within 1 hour for the same
+  // recipient, batch them into a single digest email." If we'd be the
+  // 4th-or-later in this hour, queue into notification_digest_pending
+  // instead of emailing now. The cron/notification-digest-flush job
+  // emails one digest per (recipient, type, hour_bucket) when the
+  // hour closes. The in-app notification is still written so the
+  // bell icon updates in real-time.
+  let willDigest = false;
+  if (wantEmail && recipientEmail && RESEND_KEY) {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count: recent } = await admin
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("event_type", event_type)
+      .eq("recipient_email", recipientEmail)
+      .gte("created_at", oneHourAgo);
+    if ((recent ?? 0) >= 3) {
+      willDigest = true;
+    }
+  }
+
   // Persist the in-app notification
-  const email_status = wantEmail && recipientEmail && RESEND_KEY ? "pending" : "skipped";
+  const email_status = !wantEmail || !recipientEmail || !RESEND_KEY
+    ? "skipped"
+    : willDigest
+      ? "queued_for_digest"
+      : "pending";
   const { data: inserted, error: insErr } = await admin
     .from("notifications")
     .insert({
@@ -154,6 +180,33 @@ export default async function handler(req, res) {
     .select("id")
     .single();
   if (insErr) return res.status(500).json({ error: "Notification insert failed: " + insErr.message });
+
+  // If we're queueing for digest, write to the pending table and skip
+  // the immediate email. The flush cron picks it up on the next tick
+  // after the hour-bucket closes.
+  if (willDigest) {
+    const hourBucket = new Date();
+    hourBucket.setMinutes(0, 0, 0);
+    try {
+      await admin.from("notification_digest_pending").insert({
+        recipient_email: recipientEmail,
+        event_type,
+        hour_bucket: hourBucket.toISOString(),
+        payload: { title, body: bodyText ?? null, link: link ?? null, metadata: metadata ?? null },
+        vendor_id: recipient.vendor_id ?? null,
+        entity_id: metadata?.entity_id ?? null,
+      });
+    } catch (err) {
+      // If the queue insert fails (e.g. table missing because the
+      // migration hasn't been applied yet), fall back to the original
+      // behavior — just leave email_status as queued_for_digest in the
+      // notification row and log. The in-app row is already saved.
+      console.error("[send-notification] digest enqueue failed", {
+        recipient_email: recipientEmail, event_type,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   // Fire email (best-effort; never block the caller on email failure)
   let emailResult = null;

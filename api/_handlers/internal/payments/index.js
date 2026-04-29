@@ -8,14 +8,20 @@
 import { createClient } from "@supabase/supabase-js";
 import { validatePaymentInput } from "../../../_lib/payments.js";
 import { computePaymentFx, freshRate, latestRate, FX_MAX_AGE_MS, DEFAULT_FEE_PCT } from "../../../_lib/fx.js";
+import { authenticateInternalCaller } from "../../../_lib/auth.js";
 
 export const config = { maxDuration: 15 };
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Entity-ID");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Entity-ID, X-Internal-Token");
   if (req.method === "OPTIONS") return res.status(200).end();
+
+  // Internal-API gate. See api/_lib/auth.js. Open until INTERNAL_API_TOKEN
+  // is set (logs a warn on first call); 401 once configured.
+  const __internalAuth = authenticateInternalCaller(req);
+  if (!__internalAuth.ok) return res.status(__internalAuth.status).json({ error: __internalAuth.error });
 
   const SB_URL = process.env.VITE_SUPABASE_URL;
   const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
