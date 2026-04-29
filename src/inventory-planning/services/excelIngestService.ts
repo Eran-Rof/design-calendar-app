@@ -524,6 +524,43 @@ export async function ingestItemMasterExcel(
     itemPayload.push(item);
   }
 
+  // Merge new attributes with existing JSONB. PostgREST upsert REPLACES
+  // the attributes column on conflict (it doesn't deep-merge JSONB), so
+  // a partial upload that only carries GroupName would wipe an existing
+  // category_name on the row. Read what's there, merge, send the union.
+  const skusWithAttrs = itemPayload
+    .filter((it) => it.attributes && typeof it.attributes === "object")
+    .map((it) => String(it.sku_code));
+  if (skusWithAttrs.length > 0) {
+    log(`Pre-fetching attributes for ${skusWithAttrs.length.toLocaleString()} SKUs to preserve existing JSONB keys…`);
+    const existingAttrs = new Map<string, Record<string, unknown>>();
+    for (let i = 0; i < skusWithAttrs.length; i += 500) {
+      const chunk = skusWithAttrs.slice(i, i + 500);
+      const url = `${SB_URL}/rest/v1/ip_item_master?select=sku_code,attributes&sku_code=in.(${chunk.map(encodeURIComponent).join(",")})`;
+      try {
+        const r = await fetch(url, { headers: SB_HEADERS });
+        if (r.ok) {
+          const rows = (await r.json()) as Array<{ sku_code: string; attributes: Record<string, unknown> | null }>;
+          for (const row of rows) {
+            if (row.attributes && typeof row.attributes === "object") {
+              existingAttrs.set(row.sku_code, row.attributes);
+            }
+          }
+        }
+      } catch {
+        // If pre-fetch fails, fall through — the upsert will still run
+        // (degraded: partial uploads may clobber the unset key).
+      }
+    }
+    for (const it of itemPayload) {
+      if (!it.attributes) continue;
+      const existing = existingAttrs.get(String(it.sku_code));
+      if (existing) {
+        it.attributes = { ...existing, ...(it.attributes as Record<string, unknown>) };
+      }
+    }
+  }
+
   // PostgREST 12+ rejects bulk upserts whose rows have different key
   // sets ("All object keys must match"). Rows here vary in shape because
   // description / unit_cost / attributes are only included when the Excel
