@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabaseVendor } from "./supabaseVendor";
+import { showAlert } from "./ui/AppDialog";
 
 interface Eligible {
   invoice: { id: string; invoice_number: string; total: number; due_date: string; currency: string };
@@ -56,7 +57,7 @@ export default function VendorScf() {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ invoice_id: row.invoice.id, program_id: row.program_id }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { await showAlert({ title: "Error", message: await r.text(), tone: "danger" }); return; }
     await load();
   }
 

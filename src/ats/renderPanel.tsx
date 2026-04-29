@@ -102,6 +102,10 @@ interface ATSDerivedCtx {
   saveMergeHistory: (history: Array<{ fromSku: string; toSku: string }>) => Promise<void>;
   onNegInven: () => void;
   onAgedInven: (days: number, category: string) => "ok" | "empty";
+  unreadNotifs: number;
+  showingNotifications: boolean;
+  onToggleNotifications: () => void;
+  notificationsView?: React.ReactNode;
 }
 
 export type ATSRenderCtx = ATSState & ATSStateSetters & ATSDerivedCtx;
@@ -109,7 +113,8 @@ export type ATSRenderCtx = ATSState & ATSStateSetters & ATSDerivedCtx;
 export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
   const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterGender, setFilterGender, filterStatus, setFilterStatus, minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, syncing, syncStatus, lastSync, syncError, setSyncError, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, sortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
   mergeHistory, undoLastMerge, clearMergeAndNavigate,
-  atShip, setAtShip, onNegInven, onAgedInven } = ctx;
+  atShip, setAtShip, onNegInven, onAgedInven,
+  unreadNotifs, showingNotifications, onToggleNotifications, notificationsView } = ctx;
 
   return (
     <div style={S.app}>
@@ -144,9 +149,17 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         onAgedInven={onAgedInven}
         categories={categories}
         filterCategory={filterCategory}
+        unreadNotifs={unreadNotifs}
+        showingNotifications={showingNotifications}
+        onToggleNotifications={onToggleNotifications}
       />
       <SyncProgressBanner syncProgress={syncProgress} />
 
+      {showingNotifications ? (
+        <div style={{ ...S.content, padding: "24px 24px 60px" }}>
+          {notificationsView}
+        </div>
+      ) : (
       <div style={S.content}>
         {/* STAT CARDS */}
         <StatsRow
@@ -211,6 +224,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
 
         <Pagination page={page} totalPages={totalPages} setPage={setPage} filteredCount={filtered.length} />
       </div>
+      )}
 
       <SummaryContextMenu summaryCtx={summaryCtx} summaryCtxRef={summaryCtxRef} setSummaryCtx={setSummaryCtx} />
       <CellContextMenu ctxMenu={ctxMenu} ctxRef={ctxRef} setCtxMenu={setCtxMenu} />

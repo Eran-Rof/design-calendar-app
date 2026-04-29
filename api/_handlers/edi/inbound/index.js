@@ -21,10 +21,17 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
+  // Fail closed — EDI inbound MUST require a shared secret. Previously
+  // an unset env var skipped auth entirely (`if (SECRET)` branch),
+  // which meant any HTTP caller could ingest 850/810/856 envelopes for
+  // an arbitrary vendor in production until the secret was configured.
   const SECRET = process.env.EDI_INBOUND_SHARED_SECRET;
-  if (SECRET) {
-    const token = req.headers["x-edi-token"];
-    if (!token || token !== SECRET) return res.status(401).json({ error: "Invalid EDI token" });
+  if (!SECRET) {
+    return res.status(500).json({ error: "EDI_INBOUND_NOT_CONFIGURED" });
+  }
+  const token = req.headers["x-edi-token"];
+  if (!token || token !== SECRET) {
+    return res.status(401).json({ error: "Invalid EDI token" });
   }
 
   const SB_URL = process.env.VITE_SUPABASE_URL;
@@ -33,12 +40,15 @@ export default async function handler(req, res) {
   const admin = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
   const raw = await readRawBody(req);
-  let pinnedVendorId = null;
+  // Never trust vendor_id from the JSON body — that lets a partner
+  // forge an envelope as a different tenant. The pipeline's GS02 →
+  // erp_integrations.config.partner_id lookup is authoritative; the
+  // ?vendor_id= path-style variant lives at /api/edi/inbound/:vendor_id.
   let interchangeIdOverride = null;
   if (req.body && typeof req.body === "object") {
-    if (req.body.vendor_id) pinnedVendorId = req.body.vendor_id;
     if (req.body.interchange_id) interchangeIdOverride = req.body.interchange_id;
   }
+  const pinnedVendorId = null;
 
   const origin = `https://${req.headers.host}`;
   const result = await processInboundEdi({ admin, raw, pinnedVendorId, interchangeIdOverride, strictSenderCheck: false, origin });

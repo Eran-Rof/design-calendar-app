@@ -9,7 +9,7 @@
 // Keeps state flat (plain React). Grid dataset is small enough in Phase 1
 // that a rebuild on each change is acceptable.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { IpCategory, IpCustomer, IpItem } from "../types/entities";
 import type {
   IpForecastMethodPreference,
@@ -23,8 +23,9 @@ import type {
 import { FORECAST_METHOD_LABELS } from "../types/wholesale";
 import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { applyOverride, buildGridRows } from "../services/wholesaleForecastService";
-import { ingestXoroSales } from "../services/xoroSalesIngestService";
-import { S, PAL } from "../components/styles";
+import { ingestXoroSales, syncAtsSupply, syncMissingItems, syncTandaPos } from "../services/xoroSalesIngestService";
+import { ingestSalesExcel, ingestItemMasterExcel, type ExcelIngestResult } from "../services/excelIngestService";
+import { S, PAL, formatPeriodCode } from "../components/styles";
 import { SB_HEADERS, SB_URL } from "../../utils/supabase";
 import PlanningRunControls from "./PlanningRunControls";
 import WholesalePlanningGrid from "./WholesalePlanningGrid";
@@ -60,6 +61,20 @@ export default function WholesalePlanningWorkbench() {
   const [ingestTo, setIngestTo] = useState(new Date().toISOString().slice(0, 10));
   const [selectedRow, setSelectedRow] = useState<IpPlanningGridRow | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  // Bucket-level buy qty map for the active run. key = bucket_key,
+  // value = stored qty. Refreshed when the run changes or the planner
+  // saves a new bucket buy.
+  const [bucketBuys, setBucketBuys] = useState<Map<string, number>>(new Map());
+  // Mirror of the grid's active filter set, lifted to workbench scope
+  // so PlanningRunControls' Build button can scope itself to the
+  // currently visible subset. The grid's onFiltersChange callback
+  // populates this; PlanningRunControls reads it as buildFilter.
+  const [buildFilter, setBuildFilter] = useState<{
+    customer_id: string | null;
+    group_name: string | null;
+    sub_category_name: string | null;
+    gender: string | null;
+  } | null>(null);
 
   const selectedRun = useMemo(() => runs.find((r) => r.id === selectedRunId) ?? null, [runs, selectedRunId]);
 
@@ -83,13 +98,15 @@ export default function WholesalePlanningWorkbench() {
   }, [selectedRunId]);
 
   const loadRunData = useCallback(async () => {
-    if (!selectedRun) { setRows([]); setOverrides([]); return; }
-    const [grid, ovs] = await Promise.all([
+    if (!selectedRun) { setRows([]); setOverrides([]); setBucketBuys(new Map()); return; }
+    const [grid, ovs, bbs] = await Promise.all([
       buildGridRows(selectedRun),
       wholesaleRepo.listOverrides(selectedRun.id),
+      wholesaleRepo.listBucketBuys(selectedRun.id),
     ]);
     setRows(grid);
     setOverrides(ovs);
+    setBucketBuys(new Map(bbs.map((b) => [b.bucket_key, Number(b.qty)])));
   }, [selectedRun]);
 
   const refreshAll = useCallback(async () => {
@@ -114,6 +131,12 @@ export default function WholesalePlanningWorkbench() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRun]);
 
+  // Monotonic counter for inline-edit rebuilds. Each save bumps this and
+  // captures its value; the resulting setRows only fires when the captured
+  // value still matches — older fetches landing after newer ones get
+  // discarded so they can't overwrite the newer optimistic state.
+  const rebuildSeq = useRef(0);
+
   const overridesForRow = useMemo(() => {
     if (!selectedRow) return [];
     return overrides.filter(
@@ -123,23 +146,326 @@ export default function WholesalePlanningWorkbench() {
     );
   }, [overrides, selectedRow]);
 
-  async function ingestSales() {
-    setIngesting(true);
+  // "Add new items" — Xoro item catalog → ip_item_master (insert-only).
+  // Existing master rows protected by on_conflict do_nothing on server side.
+  async function runMissingItemsSync() {
+    setIngesting(true); setRunningKind("missing-items");
     try {
-      const r = await ingestXoroSales({ dateFrom: ingestFrom, dateTo: ingestTo });
+      const r = await syncMissingItems({ pageLimit: 100 });
       if (r.error) {
-        setToast({ text: `Ingest error: ${r.error}`, kind: "error" });
+        setToast({ text: `Add new items failed — ${r.error}${r.hint ? ` (${r.hint})` : ""}`, kind: "error" });
+        console.error("[xoro-items-missing-sync] failed", r);
       } else {
+        const errSummary = r.errors.length > 0 ? ` · ⚠ ${r.errors.length} errors (see console)` : "";
+        if (r.errors.length > 0) console.error("[xoro-items-missing-sync] errors:", r.errors);
         setToast({
-          text: `Xoro sales: ${r.xoro_lines_fetched} lines fetched · ${r.inserted} rows upserted${r.skipped_no_sku > 0 ? ` · ${r.skipped_no_sku} skipped (no SKU match)` : ""}`,
+          text: `✓ Add new items DONE — fetched ${r.xoro_items_fetched.toLocaleString()} · ${r.already_in_master.toLocaleString()} already in master · inserted ${r.inserted.toLocaleString()} new SKUs${errSummary}`,
           kind: r.inserted > 0 ? "success" : "info",
         });
+        if (r.inserted > 0) await loadMasters();
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `Add new items failed — ${msg}`, kind: "error" });
+    } finally {
+      setIngesting(false); setRunningKind(null);
+    }
+  }
+
+  async function runSupplySync(kind: "ats" | "tanda") {
+    setIngesting(true); setRunningKind(kind === "ats" ? "ats" : "tanda");
+    try {
+      if (kind === "tanda") {
+        const r = await syncTandaPos();
+        const err = (r as { error?: string }).error;
+        if (err) setToast({ text: `TandA POs sync error: ${err}`, kind: "error" });
+        else {
+          const inserted = (r as { inserted?: number }).inserted ?? 0;
+          const newSkus = (r as { auto_created_skus?: number }).auto_created_skus ?? 0;
+          setToast({ text: `TandA POs: ${inserted} upserted${newSkus ? ` · ${newSkus} new SKUs` : ""}`, kind: inserted > 0 ? "success" : "info" });
+          if (inserted > 0) await loadRunData();
+        }
+        return;
+      }
+      // ATS — chunked: keep clicking through nextStart until done.
+      let start = 0;
+      let totalInserted = 0;
+      let totalNew = 0;
+      let totalSkipped = 0;
+      let totalAts = 0;
+      let chunks = 0;
+      while (true) {
+        const r = (await syncAtsSupply({ start, limit: 2000 })) as {
+          error?: string;
+          inserted?: number;
+          auto_created_skus?: number;
+          ats_skus_total?: number;
+          ats_skus_in_batch?: number;
+          skipped_zero_state?: number;
+          skipped_no_sku?: number;
+          next_start?: number | null;
+          done?: boolean;
+        };
+        console.log("[ats-supply-sync] chunk response", { start, response: r });
+        if (r.error) {
+          setToast({ text: `ATS sync error: ${r.error}`, kind: "error" });
+          break;
+        }
+        chunks++;
+        totalInserted += r.inserted ?? 0;
+        totalNew += r.auto_created_skus ?? 0;
+        totalSkipped += (r.skipped_zero_state ?? 0) + (r.skipped_no_sku ?? 0);
+        totalAts = r.ats_skus_total ?? totalAts;
+        const processed = Math.min(start + (r.ats_skus_in_batch ?? 0), totalAts);
+        setToast({
+          text: `ATS supply: chunk ${chunks} · ${processed.toLocaleString()}/${totalAts.toLocaleString()} SKUs · ${totalInserted} upserted · ${totalNew} new SKUs`,
+          kind: "info",
+        });
+        if (r.done || r.next_start == null) {
+          setToast({
+            text: `✓ ATS supply DONE — ${totalInserted.toLocaleString()} upserted · ${totalNew} new SKUs · ${totalSkipped.toLocaleString()} skipped (zero state) · ${totalAts.toLocaleString()} total scanned in ${chunks} chunk(s)`,
+            kind: "success",
+          });
+          if (totalInserted > 0) await loadRunData();
+          break;
+        }
+        start = r.next_start;
+      }
+    } catch (e) {
+      setToast({ text: `${kind} sync failed — ${e instanceof Error ? e.message : String(e)}`, kind: "error" });
+    } finally {
+      setIngesting(false); setRunningKind(null);
+    }
+  }
+
+  async function ingestExcel(kind: "sales" | "master", file: File) {
+    setIngesting(true); setRunningKind(`excel-${kind}`);
+    const label = kind === "sales" ? "Sales" : "Item master";
+    try {
+      const onProgress = (msg: string) => setToast({ text: `${label} upload: ${msg}`, kind: "info" });
+      const r: ExcelIngestResult =
+        kind === "sales" ? await ingestSalesExcel(file, onProgress)
+                         : await ingestItemMasterExcel(file, onProgress);
+      const skipParts = [];
+      if (r.skipped_no_sku) skipParts.push(`${r.skipped_no_sku} no-SKU`);
+      if (r.skipped_no_date) skipParts.push(`${r.skipped_no_date} no-date`);
+      if (r.skipped_zero_qty) skipParts.push(`${r.skipped_zero_qty} zero-qty`);
+      if (r.skipped_bad_cost) skipParts.push(`${r.skipped_bad_cost} bad-cost`);
+      const skipSummary = skipParts.length > 0 ? ` · skipped ${skipParts.join(", ")}` : "";
+      const errSummary = r.errors.length > 0 ? ` · ⚠ ${r.errors.length} errors (see console)` : "";
+      if (r.errors.length > 0) console.error(`[excel-${kind}] errors:`, r.errors);
+      setToast({
+        text: `✓ ${label} upload DONE — parsed ${r.parsed.toLocaleString()} rows · upserted ${r.inserted.toLocaleString()}${skipSummary}${errSummary}`,
+        kind: r.errors.length > 0 ? "error" : r.inserted > 0 ? "success" : "info",
+      });
+      if (r.inserted > 0 && kind === "sales") await loadRunData();
+      if (r.inserted > 0 && kind === "master" && selectedRun) {
+        const refreshed = await buildGridRows(selectedRun);
+        setRows(refreshed);
+      }
+    } catch (e) {
+      console.error(`[excel-${kind}] failed`, e);
+      setToast({ text: `✗ ${label} upload FAILED — ${e instanceof Error ? e.message : String(e)} (see DevTools console)`, kind: "error" });
+    } finally {
+      setIngesting(false); setRunningKind(null);
+    }
+  }
+
+  // Page tracker for sales ingest — successive clicks advance through
+  // pages 1, 2, 3 … within the same date window. Resets when the user
+  // changes either date picker.
+  const [salesPageStart, setSalesPageStart] = useState(1);
+  const [autoWalking, setAutoWalking] = useState(false);
+  const autoWalkAbort = useRef(false);
+  // Per-button running state — only the actively-running button shows
+  // "Working…" so the planner can see which sync is in flight.
+  // ingesting (boolean) still gates concurrent kicks of the same group.
+  const [runningKind, setRunningKind] = useState<string | null>(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setSalesPageStart(1); }, [ingestFrom, ingestTo]);
+
+  // Auto-walk: loops the ingest call until past_window fires, so the
+  // planner doesn't need to click 100+ times to backfill a window
+  // (Xoro returns oldest-first; reaching last year's August requires
+  // walking through every page since the first invoice ever).
+  // Daily/weekly delta sync — fetches only the last 10 Xoro pages
+  // (~1000 newest invoices). Idempotent on source_line_key so anything
+  // already in the DB is a no-op. Use this after the Excel bootstrap
+  // instead of "Fetch all" for routine updates.
+  async function syncNewestSales() {
+    setIngesting(true); setRunningKind("newest");
+    try {
+      const r = await ingestXoroSales({
+        dateFrom: "1900-01-01",
+        dateTo: "2100-12-31",
+        fromEnd: 3,
+        pageLimit: 3,
+      });
+      if (r.error) {
+        setToast({ text: `Sync newest error: ${r.error}`, kind: "error" });
+        return;
+      }
+      const span = r.oldest_invoice_in_batch && r.newest_invoice_in_batch
+        ? ` · covered ${r.oldest_invoice_in_batch}…${r.newest_invoice_in_batch}`
+        : "";
+      setToast({
+        text: `✓ Sync newest DONE — ${r.xoro_lines_fetched} fetched · ${r.inserted} upserted${r.auto_created_skus ? ` · ${r.auto_created_skus} new SKUs` : ""}${r.auto_created_customers ? ` · ${r.auto_created_customers} new customers` : ""}${span}`,
+        kind: r.inserted > 0 ? "success" : "info",
+      });
+      if (r.inserted > 0) await loadRunData();
+    } catch (e) {
+      setToast({ text: `Sync newest failed — ${e instanceof Error ? e.message : String(e)}`, kind: "error" });
+    } finally {
+      setIngesting(false); setRunningKind(null);
+    }
+  }
+
+  async function autoWalkSales() {
+    setAutoWalking(true); setRunningKind("autowalk");
+    autoWalkAbort.current = false;
+    // Always start from page 1 so "Fetch all" actually fetches all.
+    // (We previously persisted a resume page in localStorage but that
+    // turned the button into a footgun — a partial walk + re-click
+    // would silently skip the older pages and the planner had no way
+    // to know data was missing for the un-walked range.)
+    const resumeKey = "ip_xoro_sales_resume_page";
+    localStorage.removeItem(resumeKey);
+    let page = 1;
+    let totalInserted = 0;
+    let totalAutoSku = 0;
+    let totalAutoCust = 0;
+    let pagesWalked = 0;
+    let earliestDate: string | null = null;
+    let latestDate: string | null = null;
+    try {
+      // Auto-walk fetches the entire Xoro invoice catalog — date params
+      // on the endpoint don't actually filter results, so we ingest
+      // everything and let the forecast layer (which always trims to
+      // snapshot - 12 months) decide what's in scope for planning.
+      let consecutiveEmpty = 0;
+      let consecutiveErrors = 0;
+      while (!autoWalkAbort.current) {
+        // 2 Xoro pages per call (~200 invoices). Bigger batches blew
+        // the 60s gateway when Xoro responded slowly + heavy upserts
+        // ran. With auto-resume + retry on 504, walking more calls is
+        // safer than packing more into each.
+        let r;
+        try {
+          r = await ingestXoroSales({
+            dateFrom: "1900-01-01",
+            dateTo: "2100-12-31",
+            pageStart: page,
+            pageLimit: 2,
+          });
+          consecutiveErrors = 0;
+        } catch (err) {
+          consecutiveErrors++;
+          const msg = err instanceof Error ? err.message : String(err);
+          setToast({ text: `Auto-walk transient error (page ${page}): ${msg} · retrying ${consecutiveErrors}/3`, kind: "info" });
+          if (consecutiveErrors >= 3) {
+            setToast({ text: `Auto-walk stopped on page ${page} after 3 retries: ${msg}`, kind: "error" });
+            break;
+          }
+          // Brief backoff before retrying the same page.
+          await new Promise((res) => setTimeout(res, 5000));
+          continue;
+        }
+        pagesWalked += 2;
+        if (r.error) {
+          setToast({ text: `Auto-walk stopped on page ${page}: ${r.error}`, kind: "error" });
+          break;
+        }
+        totalInserted += r.inserted;
+        totalAutoSku += r.auto_created_skus ?? 0;
+        totalAutoCust += r.auto_created_customers ?? 0;
+        // Track overall date span covered.
+        if (r.oldest_invoice_in_batch && (!earliestDate || r.oldest_invoice_in_batch < earliestDate)) earliestDate = r.oldest_invoice_in_batch;
+        if (r.newest_invoice_in_batch && (!latestDate || r.newest_invoice_in_batch > latestDate)) latestDate = r.newest_invoice_in_batch;
+        // (Resume marker removed — always start from page 1; no partial state.)
+        // Live progress so the planner sees something is happening.
+        const emptyHint = consecutiveEmpty > 0 ? ` · ${consecutiveEmpty} empty in a row` : "";
+        setToast({
+          text: `Auto-walk: page ${page} · ${r.oldest_invoice_in_batch ?? "?"}…${r.newest_invoice_in_batch ?? "?"} · running totals ${totalInserted} upserted, ${totalAutoSku} new SKUs${emptyHint}`,
+          kind: "info",
+        });
+        // Tolerate empty batches mid-catalog — Xoro returns plenty of
+        // sparse pages (permission filtering, internal partitioning)
+        // and the previous "3 empty in a row = stop" bail was killing
+        // walks before they reached older invoices the planner needed.
+        // Only stop after 25 consecutive empty calls (50 Xoro pages
+        // with no data) — at that point we genuinely are at end of
+        // catalog or hit a permission ceiling.
+        if (r.xoro_lines_fetched === 0) {
+          consecutiveEmpty++;
+          if (consecutiveEmpty >= 25) {
+            setSalesPageStart(1);
+            break;
+          }
+        } else {
+          consecutiveEmpty = 0;
+        }
+        // Hard ceiling — 2000 pages × 100 invoices = 200k cap.
+        if (pagesWalked >= 2000) {
+          setSalesPageStart(page);
+          break;
+        }
+        page += 2;
+      }
+      setSalesPageStart(1);
+      const aborted = autoWalkAbort.current;
+      const ceilingHit = pagesWalked >= 2000;
+      setToast({
+        text: `✓ Auto-walk DONE — ${pagesWalked} pages · covered ${earliestDate ?? "?"}…${latestDate ?? "?"} · ${totalInserted.toLocaleString()} upserted · ${totalAutoSku} new SKUs · ${totalAutoCust} new customers${aborted ? " · cancelled" : ceilingHit ? " · stopped at hard ceiling — re-click to continue" : ""}`,
+        kind: totalInserted > 0 ? "success" : "info",
+      });
+      if (totalInserted > 0) await loadRunData();
+    } finally {
+      setAutoWalking(false); setRunningKind(null);
+      autoWalkAbort.current = false;
+    }
+  }
+
+  async function ingestSales() {
+    setIngesting(true); setRunningKind("sales");
+    try {
+      const r = await ingestXoroSales({ dateFrom: ingestFrom, dateTo: ingestTo, pageStart: salesPageStart });
+      if (r.error) {
+        // Surface the actual Xoro response so the user can see whether it's
+        // a path mismatch, auth failure, or empty data window.
+        console.error("[xoro-sales-sync] ingest failed", { error: r.error, path: r.path, debug: r.debug });
+        const xoroMsg = (r.debug as { Message?: string; error?: string } | null | undefined)?.Message
+          ?? (r.debug as { error?: string } | null | undefined)?.error
+          ?? "see DevTools console for full Xoro response";
+        setToast({ text: `Ingest error (path=${r.path}): ${xoroMsg}`, kind: "error" });
+      } else {
+        const skipParts = [];
+        if (r.skipped_outside_window) skipParts.push(`${r.skipped_outside_window} outside window`);
+        if (r.skipped_ecom_store) skipParts.push(`${r.skipped_ecom_store} ecom`);
+        if (r.skipped_no_sku) skipParts.push(`${r.skipped_no_sku} no SKU`);
+        // Xoro paginates oldest-first. Three states:
+        //   before_window: still walking the early years → keep clicking
+        //   in_window:     some hits expected → keep clicking
+        //   past_window:   walked past the date_to → stop
+        const span = r.oldest_invoice_in_batch && r.newest_invoice_in_batch
+          ? ` · batch ${r.oldest_invoice_in_batch}…${r.newest_invoice_in_batch}`
+          : "";
+        const stateNote =
+          r.past_window   ? " · ✓ past window — stopping" :
+          r.before_window ? " · ↻ before window — keep clicking" :
+          "";
+        setToast({
+          text: `Xoro sales (page ${salesPageStart}): ${r.xoro_lines_fetched} fetched · ${r.inserted} upserted${r.auto_created_skus ? ` · ${r.auto_created_skus} new SKUs` : ""}${skipParts.length ? ` · ${skipParts.join(", ")}` : ""}${span}${stateNote}`,
+          kind: r.inserted > 0 ? "success" : "info",
+        });
+        if (r.past_window) setSalesPageStart(1);
+        else if (r.xoro_lines_fetched >= 100) setSalesPageStart((p) => p + 1);
+        else setSalesPageStart(1);
         if (r.inserted > 0) await loadRunData();
       }
     } catch (e) {
       setToast({ text: "Ingest failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
     } finally {
-      setIngesting(false);
+      setIngesting(false); setRunningKind(null);
     }
   }
 
@@ -162,23 +488,233 @@ export default function WholesalePlanningWorkbench() {
     }
   }
 
+  // Optimistic local update so Buy $, Short, and Excess on the typed
+  // row all snap immediately. Downstream periods of the same SKU still
+  // wait for the background grid rebuild to pick up rolling supply,
+  // but the cell the planner is looking at updates without lag.
   async function saveBuyQty(forecastId: string, qty: number | null) {
-    await wholesaleRepo.patchForecastBuyQty(forecastId, qty);
-    const refreshed = await buildGridRows(selectedRun!);
-    setRows(refreshed);
-    setSelectedRow((prev) => prev ? (refreshed.find((r) => r.forecast_id === prev.forecast_id) ?? prev) : null);
-    setToast({ text: qty != null ? `Buy qty set to ${qty.toLocaleString()}` : "Buy qty cleared", kind: "success" });
+    setRows((prev) => prev.map((r) => {
+      if (r.forecast_id !== forecastId) return r;
+      const newBuy = qty ?? 0;
+      const oldBuy = r.planned_buy_qty ?? 0;
+      const delta = newBuy - oldBuy;
+      // available_supply already includes the prior buy, so just shift it.
+      const newAvail = (r.available_supply_qty ?? 0) + delta;
+      const newShortage = Math.max(0, r.final_forecast_qty - newAvail);
+      const newExcess = Math.max(0, newAvail - r.final_forecast_qty);
+      return {
+        ...r,
+        planned_buy_qty: qty,
+        available_supply_qty: newAvail,
+        projected_shortage_qty: newShortage,
+        projected_excess_qty: newExcess,
+      };
+    }));
+    try {
+      await wholesaleRepo.patchForecastBuyQty(forecastId, qty);
+      setToast({ text: qty != null ? `Buy qty set to ${qty.toLocaleString()}` : "Buy qty cleared", kind: "success" });
+      // Fire-and-forget — Short/Excess update a moment later when the
+      // rebuild finishes. Guarded by rebuildSeq so a slow rebuild can't
+      // overwrite a faster one started later.
+      const seq = ++rebuildSeq.current;
+      void (async () => {
+        try {
+          const refreshed = await buildGridRows(selectedRun!);
+          if (seq !== rebuildSeq.current) return;
+          setRows(refreshed);
+          setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
+        } catch { /* swallow — next user action will refresh */ }
+      })();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `Buy qty save failed — ${msg}`, kind: "error" });
+      const seq = ++rebuildSeq.current;
+      const refreshed = await buildGridRows(selectedRun!);
+      if (seq !== rebuildSeq.current) return;
+      setRows(refreshed);
+      setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
+    }
+  }
+
+  // Inline-edit Buyer request qty. Recomputes final_forecast_qty from
+  // (system + buyer + override) clamped at 0, mirrors the compute layer.
+  async function saveBuyerRequest(forecastId: string, qty: number) {
+    const row = rows.find((r) => r.forecast_id === forecastId);
+    if (!row) return;
+    const final = Math.max(0, row.system_forecast_qty + qty + row.override_qty);
+    setRows((prev) => prev.map((r) => r.forecast_id === forecastId ? { ...r, buyer_request_qty: qty, final_forecast_qty: final } : r));
+    try {
+      await wholesaleRepo.patchForecastBuyerRequest(forecastId, qty, final);
+      setToast({ text: `Buyer request set to ${qty.toLocaleString()}`, kind: "success" });
+      const seq = ++rebuildSeq.current;
+      void (async () => {
+        try {
+          const refreshed = await buildGridRows(selectedRun!);
+          if (seq !== rebuildSeq.current) return;
+          setRows(refreshed);
+          setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
+        } catch { /* swallow */ }
+      })();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `Buyer request save failed — ${msg}`, kind: "error" });
+      const seq = ++rebuildSeq.current;
+      const refreshed = await buildGridRows(selectedRun!);
+      if (seq !== rebuildSeq.current) return;
+      setRows(refreshed);
+    }
+  }
+
+  // Inline-edit Override qty. Bypasses the audit-logged applyOverride
+  // path (use the drawer when you need a reason code + note).
+  async function saveOverrideQty(forecastId: string, qty: number) {
+    const row = rows.find((r) => r.forecast_id === forecastId);
+    if (!row) return;
+    const final = Math.max(0, row.system_forecast_qty + row.buyer_request_qty + qty);
+    setRows((prev) => prev.map((r) => r.forecast_id === forecastId ? { ...r, override_qty: qty, final_forecast_qty: final } : r));
+    try {
+      await wholesaleRepo.patchForecastOverride(forecastId, qty, final);
+      setToast({ text: `Override set to ${qty > 0 ? "+" : ""}${qty.toLocaleString()}`, kind: "success" });
+      const seq = ++rebuildSeq.current;
+      void (async () => {
+        try {
+          const refreshed = await buildGridRows(selectedRun!);
+          if (seq !== rebuildSeq.current) return;
+          setRows(refreshed);
+          setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
+        } catch { /* swallow */ }
+      })();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `Override save failed — ${msg}`, kind: "error" });
+      const seq = ++rebuildSeq.current;
+      const refreshed = await buildGridRows(selectedRun!);
+      if (seq !== rebuildSeq.current) return;
+      setRows(refreshed);
+    }
+  }
+
+  // Save a bucket-level buy for an aggregate row. The grid computes
+  // the bucket_key + dimensions; we just upsert (or delete when qty
+  // is null/0) and refresh the local map.
+  async function saveBucketBuy(args: {
+    bucket_key: string;
+    qty: number | null;
+    collapse_mode: string;
+    customer_id: string | null;
+    group_name: string | null;
+    sub_category_name: string | null;
+    gender: string | null;
+    period_code: string;
+  }) {
+    if (!selectedRun) return;
+    let userName: string | null = null;
+    try {
+      const raw = sessionStorage.getItem("plm_user");
+      if (raw) userName = JSON.parse(raw)?.name ?? null;
+    } catch { /* ignore */ }
+    try {
+      if (args.qty == null || args.qty === 0) {
+        await wholesaleRepo.deleteBucketBuy(selectedRun.id, args.bucket_key);
+        setBucketBuys((prev) => {
+          const next = new Map(prev);
+          next.delete(args.bucket_key);
+          return next;
+        });
+        setToast({ text: "Bucket buy cleared", kind: "success" });
+      } else {
+        await wholesaleRepo.upsertBucketBuy(selectedRun.id, {
+          bucket_key: args.bucket_key,
+          qty: args.qty,
+          collapse_mode: args.collapse_mode,
+          customer_id: args.customer_id,
+          group_name: args.group_name,
+          sub_category_name: args.sub_category_name,
+          gender: args.gender,
+          period_code: args.period_code,
+          created_by: userName,
+        });
+        setBucketBuys((prev) => {
+          const next = new Map(prev);
+          next.set(args.bucket_key, args.qty as number);
+          return next;
+        });
+        setToast({ text: `Bucket buy set to ${args.qty.toLocaleString()}`, kind: "success" });
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `Bucket buy save failed — ${msg}`, kind: "error" });
+    }
+  }
+
+  // Direct override of the System forecast qty. Pass null to clear
+  // (revert to the computed value). Stamps overridden_at + overridden_by
+  // so the cell tooltip can show "from X to Y on DATE".
+  async function saveSystemOverride(forecastId: string, qty: number | null) {
+    const row = rows.find((r) => r.forecast_id === forecastId);
+    if (!row) return;
+    const effectiveSystem = qty ?? row.system_forecast_qty_original;
+    const final = Math.max(0, effectiveSystem + row.buyer_request_qty + row.override_qty);
+    const nowIso = new Date().toISOString();
+    let userName: string | null = null;
+    try {
+      const raw = sessionStorage.getItem("plm_user");
+      if (raw) userName = JSON.parse(raw)?.name ?? null;
+    } catch { /* fall through */ }
+    setRows((prev) => prev.map((r) =>
+      r.forecast_id !== forecastId ? r : {
+        ...r,
+        system_forecast_qty: effectiveSystem,
+        system_forecast_qty_overridden_at: qty != null ? nowIso : null,
+        system_forecast_qty_overridden_by: qty != null ? userName : null,
+        final_forecast_qty: final,
+      }
+    ));
+    try {
+      await wholesaleRepo.patchForecastSystemOverride(forecastId, qty, final, userName);
+      setToast({
+        text: qty != null
+          ? `System forecast set to ${qty.toLocaleString()} (was ${row.system_forecast_qty_original.toLocaleString()})`
+          : "System forecast reset to suggested value",
+        kind: "success",
+      });
+      const seq = ++rebuildSeq.current;
+      void (async () => {
+        try {
+          const refreshed = await buildGridRows(selectedRun!);
+          if (seq !== rebuildSeq.current) return;
+          setRows(refreshed);
+        } catch { /* swallow */ }
+      })();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `System forecast save failed — ${msg}`, kind: "error" });
+      const refreshed = await buildGridRows(selectedRun!);
+      setRows(refreshed);
+    }
   }
 
   async function saveUnitCost(forecastId: string, cost: number | null) {
-    await wholesaleRepo.patchForecastUnitCostOverride(forecastId, cost);
-    const refreshed = await buildGridRows(selectedRun!);
-    setRows(refreshed);
-    setSelectedRow((prev) => prev ? (refreshed.find((r) => r.forecast_id === prev.forecast_id) ?? prev) : null);
-    setToast({
-      text: cost != null ? `Unit cost set to $${cost.toFixed(2)}` : "Unit cost reset to ATS avg",
-      kind: "success",
-    });
+    setRows((prev) => prev.map((r) => {
+      if (r.forecast_id !== forecastId) return r;
+      const effective = cost ?? r.avg_cost ?? r.ats_avg_cost ?? r.item_cost ?? null;
+      return { ...r, unit_cost_override: cost, unit_cost: effective };
+    }));
+    try {
+      await wholesaleRepo.patchForecastUnitCostOverride(forecastId, cost);
+      setToast({
+        text: cost != null ? `Unit cost set to $${cost.toFixed(2)}` : "Unit cost reset to auto-fill",
+        kind: "success",
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `Unit cost save failed — ${msg}`, kind: "error" });
+      const seq = ++rebuildSeq.current;
+      const refreshed = await buildGridRows(selectedRun!);
+      if (seq !== rebuildSeq.current) return;
+      setRows(refreshed);
+      setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
+    }
   }
 
   async function saveOverride(args: { override_qty: number; reason_code: IpOverrideReasonCode; note: string | null }) {
@@ -231,49 +767,41 @@ export default function WholesalePlanningWorkbench() {
           <span style={{ color: PAL.textDim, fontSize: 12 }}>to</span>
           <input type="date" value={ingestTo} onChange={(e) => setIngestTo(e.target.value)}
                  style={{ ...S.input, width: 140 }} />
-          <button style={S.btnPrimary} onClick={ingestSales} disabled={ingesting}>
-            {ingesting ? "Ingesting…" : "Ingest Xoro sales"}
+          {!autoWalking ? (
+            <button style={S.btnPrimary} onClick={autoWalkSales} disabled={ingesting} title="Pulls every invoice in your Xoro catalog. Forecast layer will trim to last 12 months from snapshot when building.">
+              {runningKind === "autowalk" ? "Working…" : "▶ Fetch all Xoro sales"}
+            </button>
+          ) : (
+            <button style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }} onClick={() => { autoWalkAbort.current = true; }}>
+              ■ Stop fetch
+            </button>
+          )}
+          <button style={S.btnSecondary} onClick={syncNewestSales} disabled={ingesting || autoWalking} title="Pulls only the LAST 10 Xoro pages (~1000 newest invoices). Use after the Excel bootstrap for daily/weekly updates.">
+            {runningKind === "newest" ? "Working…" : "↻ Sync newest sales"}
           </button>
-          <span style={{ color: PAL.textMuted, fontSize: 12 }}>
-            Pulls invoices from Xoro → ip_sales_history_wholesale. Rebuild forecast after ingesting.
+          <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }} title="Authoritative source of truth for SKU, Style, Color, Description, Avg Cost. New items are auto-stubbed by sales/PO/ATS sync; re-upload the master to refresh them.">
+            {runningKind === "excel-master" ? "Working…" : "Upload item master (Excel)"}
+            <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
+                   onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("master", f); e.target.value = ""; } }} />
+          </label>
+          <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }}>
+            {runningKind === "excel-sales" ? "Working…" : "Upload sales (Excel)"}
+            <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
+                   onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("sales", f); e.target.value = ""; } }} />
+          </label>
+          <button style={S.btnSecondary} onClick={() => void runMissingItemsSync()} disabled={ingesting || autoWalking} title="Pulls the Xoro item catalog and inserts only SKUs not already in the item master. Existing rows are never modified.">
+            {runningKind === "missing-items" ? "Working…" : "+ Add new items (Xoro)"}
+          </button>
+          <button style={S.btnSecondary} onClick={() => void runSupplySync("ats")} disabled={ingesting || autoWalking} title="Pulls on-hand / on-SO from the ATS app's persisted Excel snapshot into ip_inventory_snapshot">
+            {runningKind === "ats" ? "Working…" : "Sync on-hand (ATS)"}
+          </button>
+          <button style={S.btnSecondary} onClick={() => void runSupplySync("tanda")} disabled={ingesting || autoWalking} title="Pulls open POs from the PO WIP app's tanda_pos table into ip_open_purchase_orders">
+            {runningKind === "tanda" ? "Working…" : "Sync open POs (TandA)"}
+          </button>
+          <span style={{ color: PAL.textMuted, fontSize: 12, flexBasis: "100%" }}>
+            Item master columns: SKU (or Style+Color), Description, Style, Color, AvgCost. Sales columns: SKU, Customer, Date, Qty (UnitPrice/InvoiceNumber optional). Rebuild forecast after upload.
           </span>
         </div>
-
-        <PlanningRunControls
-          runs={runs}
-          selectedRunId={selectedRunId}
-          onSelect={(id) => setSelectedRunId(id)}
-          onChange={refreshAll}
-          onToast={(t) => setToast(t)}
-          scope="wholesale"
-        />
-
-        {selectedRun && (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-            <span style={{ fontSize: 12, color: PAL.textDim, fontWeight: 600 }}>Forecast method</span>
-            {(Object.keys(FORECAST_METHOD_LABELS) as IpForecastMethodPreference[]).map((pref) => {
-              const active = selectedRun.forecast_method_preference === pref;
-              return (
-                <button
-                  key={pref}
-                  onClick={() => void handleMethodChange(pref)}
-                  style={{
-                    background: active ? PAL.accent : "transparent",
-                    color: active ? "#fff" : PAL.textDim,
-                    border: `1px solid ${active ? PAL.accent : PAL.border}`,
-                    borderRadius: 6,
-                    padding: "4px 10px",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  {FORECAST_METHOD_LABELS[pref]}
-                </button>
-              );
-            })}
-          </div>
-        )}
 
         <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
           <TabButton active={tab === "grid"} onClick={() => setTab("grid")}>Planning grid</TabButton>
@@ -283,13 +811,66 @@ export default function WholesalePlanningWorkbench() {
         </div>
 
         {tab === "grid" && (
-          <WholesalePlanningGrid
-            rows={rows}
-            loading={loading}
-            onSelectRow={setSelectedRow}
-            onUpdateBuyQty={saveBuyQty}
-            onUpdateUnitCost={saveUnitCost}
-          />
+          <>
+            <MonthlyTotalsCards rows={rows} />
+            <WholesalePlanningGrid
+              headerSlot={
+                <>
+                  {/* Build card sits directly above the search/filter
+                      toolbar so the planner sees Build adjacent to
+                      whatever filters they've set. The grid's onFiltersChange
+                      callback feeds buildFilter so the Build button
+                      relabels itself "Build (filtered)" when scoped. */}
+                  <PlanningRunControls
+                    runs={runs}
+                    selectedRunId={selectedRunId}
+                    onSelect={(id) => setSelectedRunId(id)}
+                    onChange={refreshAll}
+                    onToast={(t) => setToast(t)}
+                    scope="wholesale"
+                    buildFilter={buildFilter}
+                  />
+                  {selectedRun && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                      <span style={{ fontSize: 12, color: PAL.textDim, fontWeight: 600 }}>Forecast method</span>
+                      {(Object.keys(FORECAST_METHOD_LABELS) as IpForecastMethodPreference[]).map((pref) => {
+                        const active = selectedRun.forecast_method_preference === pref;
+                        return (
+                          <button
+                            key={pref}
+                            onClick={() => void handleMethodChange(pref)}
+                            style={{
+                              background: active ? PAL.accent : "transparent",
+                              color: active ? "#fff" : PAL.textDim,
+                              border: `1px solid ${active ? PAL.accent : PAL.border}`,
+                              borderRadius: 6,
+                              padding: "4px 10px",
+                              fontSize: 12,
+                              fontWeight: 600,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {FORECAST_METHOD_LABELS[pref]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              }
+              rows={rows}
+              loading={loading}
+              onSelectRow={setSelectedRow}
+              onUpdateBuyQty={saveBuyQty}
+              onUpdateBucketBuy={saveBucketBuy}
+              onUpdateUnitCost={saveUnitCost}
+              onUpdateBuyerRequest={saveBuyerRequest}
+              onUpdateOverride={saveOverrideQty}
+              onUpdateSystemOverride={saveSystemOverride}
+              onFiltersChange={setBuildFilter}
+              bucketBuys={bucketBuys}
+            />
+          </>
         )}
 
         {tab === "requests" && (
@@ -315,6 +896,118 @@ export default function WholesalePlanningWorkbench() {
       )}
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
+    </div>
+  );
+}
+
+// Month-by-month rollup of Total Buy and Final Forecast — units + $.
+// Sourced from the same `rows` the grid renders (post-build), so what
+// you see here matches the grid totals.
+function MonthlyTotalsCards({ rows }: { rows: IpPlanningGridRow[] }) {
+  const totals = useMemo(() => {
+    type Bucket = {
+      buyQty: number; buyDollars: number;
+      forecastQty: number; forecastDollars: number;
+    };
+    const months = new Map<string, Bucket>();
+    let totalBuyQty = 0, totalBuyD = 0, totalFcQty = 0, totalFcD = 0;
+    for (const r of rows) {
+      const m = r.period_code;
+      let b = months.get(m);
+      if (!b) { b = { buyQty: 0, buyDollars: 0, forecastQty: 0, forecastDollars: 0 }; months.set(m, b); }
+      const buy = r.planned_buy_qty ?? 0;
+      const cost = r.unit_cost ?? r.avg_cost ?? 0;
+      b.buyQty += buy;
+      b.buyDollars += buy * cost;
+      b.forecastQty += r.final_forecast_qty;
+      b.forecastDollars += r.final_forecast_qty * cost;
+      totalBuyQty += buy;
+      totalBuyD += buy * cost;
+      totalFcQty += r.final_forecast_qty;
+      totalFcD += r.final_forecast_qty * cost;
+    }
+    const sorted = Array.from(months.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    return { sorted, totalBuyQty, totalBuyD, totalFcQty, totalFcD };
+  }, [rows]);
+
+  const fmtUnits = (n: number) => Math.round(n).toLocaleString();
+  const fmtUsd = (n: number) =>
+    n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(2)}M`
+      : n >= 10_000 ? `$${(n / 1000).toFixed(1)}k`
+      : `$${Math.round(n).toLocaleString()}`;
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+      <SummaryCard
+        title="Total Buy"
+        accent={PAL.green}
+        totalUnits={totals.totalBuyQty}
+        totalDollars={totals.totalBuyD}
+        rows={totals.sorted.map(([m, b]) => ({ month: m, units: b.buyQty, dollars: b.buyDollars }))}
+        fmtUnits={fmtUnits}
+        fmtUsd={fmtUsd}
+      />
+      <SummaryCard
+        title="Final Forecast"
+        accent={PAL.accent2}
+        totalUnits={totals.totalFcQty}
+        totalDollars={totals.totalFcD}
+        rows={totals.sorted.map(([m, b]) => ({ month: m, units: b.forecastQty, dollars: b.forecastDollars }))}
+        fmtUnits={fmtUnits}
+        fmtUsd={fmtUsd}
+      />
+    </div>
+  );
+}
+
+function SummaryCard({
+  title, accent, totalUnits, totalDollars, rows, fmtUnits, fmtUsd,
+}: {
+  title: string;
+  accent: string;
+  totalUnits: number;
+  totalDollars: number;
+  rows: Array<{ month: string; units: number; dollars: number }>;
+  fmtUnits: (n: number) => string;
+  fmtUsd: (n: number) => string;
+}) {
+  return (
+    <div style={{ ...S.card, padding: 14 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
+        <div style={{ fontSize: 12, color: PAL.textMuted, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>{title}</div>
+        <div style={{ display: "flex", gap: 16 }}>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 10, color: PAL.textMuted }}>Total units</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: accent, fontFamily: "monospace" }}>{fmtUnits(totalUnits)}</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 10, color: PAL.textMuted }}>Total $</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: accent, fontFamily: "monospace" }}>{fmtUsd(totalDollars)}</div>
+          </div>
+        </div>
+      </div>
+      {rows.length === 0 ? (
+        <div style={{ color: PAL.textMuted, fontSize: 12, fontStyle: "italic", padding: 8 }}>
+          No data yet — build a forecast and add Buy quantities.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "1.2fr repeat(2, 1fr)", gap: 4, fontSize: 12 }}>
+          <div style={{ color: PAL.textMuted, fontWeight: 600 }}>Month</div>
+          <div style={{ color: PAL.textMuted, fontWeight: 600, textAlign: "right" }}>Units</div>
+          <div style={{ color: PAL.textMuted, fontWeight: 600, textAlign: "right" }}>$</div>
+          {rows.map((r) => (
+            <Fragment key={r.month}>
+              <div style={{ color: PAL.textDim }}>{formatPeriodCode(r.month)}</div>
+              <div style={{ textAlign: "right", fontFamily: "monospace", color: r.units > 0 ? PAL.text : PAL.textMuted }}>
+                {r.units > 0 ? fmtUnits(r.units) : "—"}
+              </div>
+              <div style={{ textAlign: "right", fontFamily: "monospace", color: r.dollars > 0 ? PAL.text : PAL.textMuted }}>
+                {r.dollars > 0 ? fmtUsd(r.dollars) : "—"}
+              </div>
+            </Fragment>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

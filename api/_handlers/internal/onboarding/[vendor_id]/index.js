@@ -16,6 +16,7 @@
 //            Fires onboarding_rejected notification with the reason.
 
 import { createClient } from "@supabase/supabase-js";
+import { authenticateInternalCaller } from "../../../../_lib/auth.js";
 
 export const config = { maxDuration: 30 };
 
@@ -29,8 +30,13 @@ function getVendorId(req) {
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, PUT, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Internal-Token");
   if (req.method === "OPTIONS") return res.status(200).end();
+
+  // Internal-API gate. See api/_lib/auth.js. Open until INTERNAL_API_TOKEN
+  // is set (logs a warn on first call); 401 once configured.
+  const __internalAuth = authenticateInternalCaller(req);
+  if (!__internalAuth.ok) return res.status(__internalAuth.status).json({ error: __internalAuth.error });
 
   const SB_URL = process.env.VITE_SUPABASE_URL;
   const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -58,13 +64,31 @@ export default async function handler(req, res) {
       steps = s || [];
     }
 
+    // Sign each compliance file URL on read instead of returning the
+    // raw Storage path. CLAUDE.md: "use signed URLs with short expiry,
+    // never serve uploaded files directly". 5-minute expiry — enough
+    // for the reviewer panel to render, short enough that a leaked
+    // token is useless quickly.
+    const bucket = process.env.COMPLIANCE_STORAGE_BUCKET || "compliance";
+    const docs = docsRes.data || [];
+    const signedDocs = await Promise.all(docs.map(async (d) => {
+      if (!d.file_url) return d;
+      try {
+        const { data: sig } = await admin.storage.from(bucket).createSignedUrl(d.file_url, 300);
+        return { ...d, file_url: sig?.signedUrl ?? d.file_url };
+      } catch (err) {
+        console.warn("[onboarding] sign URL failed", { vendor_id: vendorId, path: d.file_url, err: String(err) });
+        return d; // fall back rather than fail the whole response
+      }
+    }));
+
     return res.status(200).json({
       vendor: vRes.data,
       workflow: wfRes.data || null,
       steps,
       banking: bankRes.data || [],
       compliance_document_types: docTypesRes.data || [],
-      compliance_documents: docsRes.data || [],
+      compliance_documents: signedDocs,
     });
   }
 
@@ -121,11 +145,16 @@ export default async function handler(req, res) {
 
     const completedSteps = (workflow.completed_steps || []).filter((s) => !failed.includes(s));
     const nowIso = new Date().toISOString();
+    // Guard: Math.min(...[]) is Infinity, which Postgres rejects.
+    // When neither failed nor completedSteps has anything to point at,
+    // park current_step at 0 so the workflow resets to the first step.
+    const candidatePositions = failed.map((s) => VALID.indexOf(s)).concat(completedSteps.length);
+    const currentStep = candidatePositions.length > 0 ? Math.min(...candidatePositions) : 0;
     const { error: wErr } = await admin.from("onboarding_workflows").update({
       status: "rejected",
       rejection_reason: String(rejection_reason).trim(),
       completed_steps: completedSteps,
-      current_step: Math.min(...failed.map((s) => VALID.indexOf(s)).concat(completedSteps.length)),
+      current_step: currentStep,
       updated_at: nowIso,
     }).eq("id", workflow.id);
     if (wErr) return res.status(500).json({ error: wErr.message });

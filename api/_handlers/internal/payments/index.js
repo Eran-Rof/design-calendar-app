@@ -7,15 +7,21 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { validatePaymentInput } from "../../../_lib/payments.js";
-import { computePaymentFx, latestRate, DEFAULT_FEE_PCT } from "../../../_lib/fx.js";
+import { computePaymentFx, freshRate, latestRate, FX_MAX_AGE_MS, DEFAULT_FEE_PCT } from "../../../_lib/fx.js";
+import { authenticateInternalCaller } from "../../../_lib/auth.js";
 
 export const config = { maxDuration: 15 };
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Entity-ID");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Entity-ID, X-Internal-Token");
   if (req.method === "OPTIONS") return res.status(200).end();
+
+  // Internal-API gate. See api/_lib/auth.js. Open until INTERNAL_API_TOKEN
+  // is set (logs a warn on first call); 401 once configured.
+  const __internalAuth = authenticateInternalCaller(req);
+  if (!__internalAuth.ok) return res.status(__internalAuth.status).json({ error: __internalAuth.error });
 
   const SB_URL = process.env.VITE_SUPABASE_URL;
   const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -33,8 +39,22 @@ export default async function handler(req, res) {
     const limit  = Math.min(Number(url.searchParams.get("limit")) || 100, 500);
     const offset = Math.max(Number(url.searchParams.get("offset")) || 0, 0);
 
+    // Don't return the raw `metadata` JSONB on the list response — it
+    // contains internal references (FX provider rates, fee bps, SCF
+    // program IDs, discount-offer IDs). Select an explicit column list
+    // that excludes it. Callers that need the metadata can fetch the
+    // single payment by id where we redact more carefully.
     let q = admin.from("payments")
-      .select("*, vendor:vendors(id, name), invoice:invoices(id, invoice_number, total)", { count: "exact" })
+      .select(
+        [
+          "id","entity_id","invoice_id","vendor_id","amount","currency",
+          "method","status","initiated_at","sent_at","completed_at",
+          "discount_offer_id","scf_request_id","virtual_card_id",
+          "vendor:vendors(id, name)",
+          "invoice:invoices(id, invoice_number, total)",
+        ].join(","),
+        { count: "exact" },
+      )
       .eq("entity_id", entityId)
       .order("initiated_at", { ascending: false });
     if (status)    q = q.eq("status", status);
@@ -61,16 +81,25 @@ export default async function handler(req, res) {
 
     let fxPlan = null;
     if (vendorCurrency !== entityCurrency) {
-      const rateRow = await latestRate(admin, entityCurrency, vendorCurrency);
-      if (rateRow?.rate) {
-        fxPlan = computePaymentFx({
-          invoiceAmount: Number(body.amount),
-          entityCurrency, vendorCurrency,
-          rate: Number(rateRow.rate),
-          feePct: Number(process.env.FX_FEE_PCT) || DEFAULT_FEE_PCT,
-          fxHandling,
+      // Reject payment if no fresh rate is available (CLAUDE.md: block
+      // when rate older than 8h). Surface 422 so the caller can re-run
+      // fx-rate-sync rather than silently using stale rates.
+      const rateRow = await freshRate(admin, entityCurrency, vendorCurrency);
+      if (!rateRow?.rate) {
+        const stale = await latestRate(admin, entityCurrency, vendorCurrency);
+        return res.status(422).json({
+          error: "FX_RATE_STALE",
+          message: `No FX rate fresher than ${FX_MAX_AGE_MS / 3600000}h for ${entityCurrency}->${vendorCurrency}. Refresh fx-rate-sync before processing.`,
+          last_known_snapshot: stale?.snapshotted_at ?? null,
         });
       }
+      fxPlan = computePaymentFx({
+        invoiceAmount: Number(body.amount),
+        entityCurrency, vendorCurrency,
+        rate: Number(rateRow.rate),
+        feePct: Number(process.env.FX_FEE_PCT) || DEFAULT_FEE_PCT,
+        fxHandling,
+      });
     }
 
     const paymentAmount = fxPlan?.to_amount ?? Number(body.amount);

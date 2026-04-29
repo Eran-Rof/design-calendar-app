@@ -64,22 +64,26 @@ export default async function handler(req, res) {
     // Non-fatal: offer is accepted; payment creation can be retried manually
   }
 
-  // Notify internal AP team
+  // Notify internal AP team — env vars are comma-separated, fan out per email.
   try {
+    const emails = (process.env.INTERNAL_FINANCE_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "")
+      .split(",").map((e) => e.trim()).filter(Boolean);
     const origin = `https://${req.headers.host}`;
-    await fetch(`${origin}/api/send-notification`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        event_type: "discount_offer_accepted",
-        title: `Discount offer accepted — early pay ${offer.invoice?.invoice_number || offer.invoice_id}`,
-        body: `Vendor accepted the offer. Pay $${Number(offer.net_payment_amount).toFixed(2)} on ${offer.early_payment_date} (saves $${Number(offer.discount_amount).toFixed(2)}).`,
-        link: "/",
-        metadata: { offer_id: id, invoice_id: offer.invoice_id, payment_id },
-        recipient: { internal_id: "ap-team", email: process.env.INTERNAL_FINANCE_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "" },
-        dedupe_key: `discount_offer_accepted_${id}`,
-        email: true,
-      }),
-    }).catch(() => {});
+    for (const email of emails) {
+      await fetch(`${origin}/api/send-notification`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_type: "discount_offer_accepted",
+          title: `Discount offer accepted — early pay ${offer.invoice?.invoice_number || offer.invoice_id}`,
+          body: `Vendor accepted the offer. Pay $${Number(offer.net_payment_amount).toFixed(2)} on ${offer.early_payment_date} (saves $${Number(offer.discount_amount).toFixed(2)}).`,
+          link: "/",
+          metadata: { offer_id: id, invoice_id: offer.invoice_id, payment_id },
+          recipient: { internal_id: "ap-team", email },
+          dedupe_key: `discount_offer_accepted_${id}_${email}`,
+          email: true,
+        }),
+      }).catch(() => {});
+    }
   } catch { /* non-blocking */ }
 
   return res.status(200).json({ ok: true, id, status: "accepted", payment_id });

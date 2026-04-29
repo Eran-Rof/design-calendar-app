@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { TH } from "../utils/theme";
 import { SB_URL, SB_HEADERS, supabaseClient } from "../utils/supabase";
 import { S } from "../utils/styles";
+import { showFileViewer } from "../utils/fileViewer";
 
 // Internal-only compliance document review tab. Reads all documents via
 // the anon key (RLS anon-permissive), approves/rejects with notes.
@@ -116,8 +117,7 @@ export default function ComplianceReview() {
     if (!supabaseClient) { alert("Supabase client unavailable"); return; }
     const { data, error } = await supabaseClient.storage.from("vendor-docs").createSignedUrl(path, 300);
     if (error) { alert("Open failed: " + error.message); return; }
-    window.open(data.signedUrl, "_blank", "noopener");
-    void filename;
+    void showFileViewer({ signedUrl: data.signedUrl, filename: filename || path.split("/").pop() || "document" });
   }
 
   return (
@@ -218,7 +218,15 @@ function ReviewModal({ doc, docType, vendorName, onClose, onAction, openFile }: 
   onClose: () => void; onAction: () => void;
   openFile: (path: string, filename: string | null) => void;
 }) {
-  const [reviewerName, setReviewerName] = useState(() => localStorage.getItem("plm_user") ?? "Internal");
+  const [reviewerName, setReviewerName] = useState(() => {
+    // plm_user lives in sessionStorage as JSON. The old read returned
+    // null and silently attributed every compliance review to "Internal".
+    try {
+      const raw = sessionStorage.getItem("plm_user");
+      if (raw) return JSON.parse(raw)?.name ?? "Internal";
+    } catch { /* fall through */ }
+    return "Internal";
+  });
   const [rejectReason, setRejectReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);

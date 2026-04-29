@@ -106,7 +106,7 @@ export interface DmConversation {
   messages: any[];
 }
 
-export type View = "dashboard" | "list" | "detail" | "grid" | "templates" | "email" | "teams" | "activity" | "vendors" | "timeline" | "archive" | "shipments" | "match" | "compliance" | "messages" | "scorecards" | "spend" | "onboarding" | "anomalies" | "analytics" | "health_scores" | "preferred_vendors" | "rfqs" | "workflow_rules" | "workflow_executions" | "entities" | "insights" | "workspaces" | "sustainability" | "esg_scores" | "diversity" | "compliance_automation" | "compliance_audit" | "marketplace" | "marketplace_inquiries" | "benchmark" | "discount_offers" | "payments" | "scf" | "fx" | "virtual_cards" | "tax";
+export type View = "dashboard" | "list" | "detail" | "grid" | "templates" | "email" | "teams" | "activity" | "vendors" | "timeline" | "archive" | "shipments" | "match" | "compliance" | "messages" | "scorecards" | "spend" | "onboarding" | "anomalies" | "analytics" | "health_scores" | "preferred_vendors" | "rfqs" | "workflow_rules" | "workflow_executions" | "entities" | "insights" | "workspaces" | "sustainability" | "esg_scores" | "diversity" | "compliance_automation" | "compliance_audit" | "marketplace" | "marketplace_inquiries" | "benchmark" | "discount_offers" | "payments" | "scf" | "fx" | "virtual_cards" | "tax" | "phase_reviews" | "notifications";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -272,6 +272,16 @@ export function mapXoroRaw(raw: any[]): XoroPO[] {
       })),
     } as XoroPO;
   });
+}
+
+// Local "today" as YYYY-MM-DD. new Date().toISOString().slice(0, 10) returns
+// the UTC date — for users in UTC- zones it rolls to tomorrow once UTC
+// midnight passes (after ~5 pm Pacific), so a status flipped to "Done" at
+// 6 pm gets recorded with tomorrow's date.
+export function todayLocalIso(now: Date = new Date()): string {
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${mm}-${dd}`;
 }
 
 export function fmtDate(d?: string): string {

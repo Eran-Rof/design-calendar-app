@@ -10,7 +10,9 @@ import type {
   IpCustomer,
   IpInventorySnapshot,
   IpItem,
+  IpItemAvgCost,
   IpOpenPoRow,
+  IpOpenSoRow,
   IpReceiptRow,
   IpSalesWholesaleRow,
 } from "../types/entities";
@@ -31,6 +33,26 @@ async function sbGet<T>(path: string): Promise<T[]> {
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: SB_HEADERS });
   if (!r.ok) throw new Error(`Supabase GET ${path} failed: ${r.status} ${await r.text()}`);
   return r.json();
+}
+
+// Paginated GET — PostgREST caps single-fetch responses at db_role.max_rows
+// (default 1000) regardless of the &limit= value. Walks through the table
+// in 1000-row pages using Range headers.
+async function sbGetAll<T>(pathWithoutLimit: string): Promise<T[]> {
+  assertSupabase();
+  const out: T[] = [];
+  const PAGE = 1000;
+  for (let offset = 0; ; offset += PAGE) {
+    const sep = pathWithoutLimit.includes("?") ? "&" : "?";
+    const url = `${SB_URL}/rest/v1/${pathWithoutLimit}${sep}limit=${PAGE}&offset=${offset}`;
+    const r = await fetch(url, { headers: SB_HEADERS });
+    if (!r.ok) throw new Error(`Supabase GET ${url} failed: ${r.status} ${await r.text()}`);
+    const chunk = (await r.json()) as T[];
+    out.push(...chunk);
+    if (chunk.length < PAGE) break;
+    if (offset > 1_000_000) break;
+  }
+  return out;
 }
 
 async function sbPost<T>(path: string, body: unknown, prefer = "return=representation"): Promise<T[]> {
@@ -69,16 +91,64 @@ export const wholesaleRepo = {
   async listCustomers(): Promise<IpCustomer[]> {
     return sbGet<IpCustomer>("ip_customer_master?select=*&order=name.asc&limit=5000");
   },
+  // Placeholder customer for "supply only" forecast rows — items with
+  // open POs or on-SO but no sales-history pair show up under this
+  // customer in the grid so the planner can see incoming inventory.
+  // Idempotent: returns the existing id on subsequent calls.
+  async ensureSupplyPlaceholderCustomer(): Promise<string> {
+    const code = "INTERNAL:SUPPLY_ONLY";
+    const existing = await sbGet<{ id: string }>(`ip_customer_master?select=id&customer_code=eq.${encodeURIComponent(code)}&limit=1`);
+    if (existing[0]?.id) return existing[0].id;
+    const created = await sbPost<{ id: string }>(
+      "ip_customer_master?on_conflict=customer_code",
+      [{ customer_code: code, name: "(Supply Only)" }],
+      "resolution=merge-duplicates,return=representation",
+    );
+    if (created[0]?.id) return created[0].id;
+    // Fallback fetch in case Supabase didn't return the id on a merge.
+    const refetch = await sbGet<{ id: string }>(`ip_customer_master?select=id&customer_code=eq.${encodeURIComponent(code)}&limit=1`);
+    if (!refetch[0]?.id) throw new Error("ensureSupplyPlaceholderCustomer: could not resolve id");
+    return refetch[0].id;
+  },
   async listCategories(): Promise<IpCategory[]> {
     return sbGet<IpCategory>("ip_category_master?select=*&order=name.asc&limit=5000");
   },
   async listItems(): Promise<IpItem[]> {
-    return sbGet<IpItem>("ip_item_master?select=*&limit=20000");
+    // Paginate so a 20k+ catalog (Xoro items-sync + auto-create from
+    // invoice ingest can easily exceed the previous 20000 cap) doesn't
+    // truncate. PostgREST limit caps at 1000/req on most configurations.
+    const out: IpItem[] = [];
+    const PAGE = 1000;
+    for (let offset = 0; ; offset += PAGE) {
+      const chunk = await sbGet<IpItem>(`ip_item_master?select=*&order=sku_code.asc&limit=${PAGE}&offset=${offset}`);
+      out.push(...chunk);
+      if (chunk.length < PAGE) break;
+      if (offset > 200_000) break; // safety cap
+    }
+    return out;
+  },
+  // Canonical avg cost per SKU — fed by Xoro/Excel ingest. Covers SKUs
+  // not currently in ATS inventory. Returns an empty map (not an error)
+  // when the table is empty or the migration hasn't been applied yet.
+  async listItemAvgCostBySku(): Promise<Map<string, number>> {
+    try {
+      const rows = await sbGet<IpItemAvgCost>("ip_item_avg_cost?select=sku_code,avg_cost&limit=50000");
+      const out = new Map<string, number>();
+      for (const r of rows) {
+        if (r.sku_code && typeof r.avg_cost === "number" && r.avg_cost > 0) {
+          out.set(r.sku_code, r.avg_cost);
+        }
+      }
+      return out;
+    } catch {
+      return new Map();
+    }
   },
   // Read avg unit cost per SKU from the ATS app's persisted Excel snapshot.
   // Stored as a JSON-stringified blob in app_data under key=ats_excel_data;
-  // the relevant slice is `skus[i] = { sku, avgCost }`. Returns an empty map
-  // (not an error) if ATS data hasn't been uploaded yet.
+  // the relevant slice is `skus[i] = { sku, avgCost }`. ATS only carries
+  // costs for in-stock SKUs — used as a fallback when ip_item_avg_cost
+  // has no row.
   async listAtsAvgCostBySku(): Promise<Map<string, number>> {
     const rows = await sbGet<{ value: string }>("app_data?key=eq.ats_excel_data&select=value");
     const raw = rows[0]?.value;
@@ -98,19 +168,22 @@ export const wholesaleRepo = {
     return out;
   },
   async listWholesaleSales(sinceIso: string): Promise<IpSalesWholesaleRow[]> {
-    return sbGet<IpSalesWholesaleRow>(
-      `ip_sales_history_wholesale?select=*&txn_date=gte.${sinceIso}&limit=200000`,
+    return sbGetAll<IpSalesWholesaleRow>(
+      `ip_sales_history_wholesale?select=*&txn_date=gte.${sinceIso}&order=txn_date.asc`,
     );
   },
   async listInventorySnapshots(): Promise<IpInventorySnapshot[]> {
-    return sbGet<IpInventorySnapshot>("ip_inventory_snapshot?select=*&order=snapshot_date.desc&limit=100000");
+    return sbGetAll<IpInventorySnapshot>("ip_inventory_snapshot?select=*&order=snapshot_date.desc");
   },
   async listOpenPos(): Promise<IpOpenPoRow[]> {
-    return sbGet<IpOpenPoRow>("ip_open_purchase_orders?select=*&limit=100000");
+    return sbGetAll<IpOpenPoRow>("ip_open_purchase_orders?select=*&order=expected_date.asc");
+  },
+  async listOpenSos(): Promise<IpOpenSoRow[]> {
+    return sbGetAll<IpOpenSoRow>("ip_open_sales_orders?select=*&order=ship_date.asc");
   },
   async listReceipts(sinceIso: string): Promise<IpReceiptRow[]> {
-    return sbGet<IpReceiptRow>(
-      `ip_receipts_history?select=*&received_date=gte.${sinceIso}&limit=100000`,
+    return sbGetAll<IpReceiptRow>(
+      `ip_receipts_history?select=*&received_date=gte.${sinceIso}&order=received_date.asc`,
     );
   },
 
@@ -134,10 +207,26 @@ export const wholesaleRepo = {
   },
 
   // ── Forecast rows ────────────────────────────────────────────────────────
+  // PostgREST caps single-fetch responses (typically 1000 rows on default
+  // configurations) regardless of the limit= value, so paginate explicitly.
+  // Without this, multi-month horizons silently truncated to the earliest
+  // periods only — the user saw "only Apr/May" when the run spanned Apr–Aug.
   async listForecast(planningRunId: string): Promise<IpWholesaleForecast[]> {
-    return sbGet<IpWholesaleForecast>(
-      `ip_wholesale_forecast?select=*&planning_run_id=eq.${planningRunId}&order=period_start.asc,customer_id.asc,sku_id.asc&limit=200000`,
-    );
+    // No ORDER BY — the multi-column sort hammered the 8s statement
+    // timeout once the forecast grew past ~10k rows. Caller loads
+    // everything into memory and joins; row order doesn't matter.
+    // Order by id (PK) gives us a stable cursor for offset paging.
+    const out: IpWholesaleForecast[] = [];
+    const PAGE = 1000;
+    for (let offset = 0; ; offset += PAGE) {
+      const chunk = await sbGet<IpWholesaleForecast>(
+        `ip_wholesale_forecast?select=*&planning_run_id=eq.${planningRunId}&order=id.asc&limit=${PAGE}&offset=${offset}`,
+      );
+      out.push(...chunk);
+      if (chunk.length < PAGE) break;
+      if (offset > 1_000_000) break;
+    }
+    return out;
   },
   async upsertForecast(rows: Array<Omit<IpWholesaleForecast, "id" | "created_at" | "updated_at">>): Promise<void> {
     if (rows.length === 0) return;
@@ -173,6 +262,17 @@ export const wholesaleRepo = {
     if (!rows[0]) throw new Error(`patchForecastOverride: no row returned for ${forecastId}`);
     return rows[0];
   },
+  async patchForecastBuyerRequest(
+    forecastId: string,
+    buyer_request_qty: number,
+    final_forecast_qty: number,
+  ): Promise<void> {
+    const rows = await sbPatch<IpWholesaleForecast>(
+      `ip_wholesale_forecast?id=eq.${forecastId}`,
+      { buyer_request_qty, final_forecast_qty },
+    );
+    if (!rows[0]) throw new Error(`patchForecastBuyerRequest: no row returned for ${forecastId}`);
+  },
   async patchForecastBuyQty(forecastId: string, planned_buy_qty: number | null): Promise<void> {
     const rows = await sbPatch<IpWholesaleForecast>(
       `ip_wholesale_forecast?id=eq.${forecastId}`,
@@ -186,6 +286,72 @@ export const wholesaleRepo = {
       { unit_cost_override },
     );
     if (!rows[0]) throw new Error(`patchForecastUnitCostOverride: no row returned for ${forecastId}`);
+  },
+  // ── Bucket-level buys (for collapsed grid rows) ─────────────────────
+  // Each row represents one (planning_run, bucket_key) pair where
+  // bucket_key encodes the collapse mode + filter scope + the row's
+  // dimensions. The grid renders the qty into the aggregate row's
+  // Buy cell when the same view is reproduced.
+  async listBucketBuys(planningRunId: string): Promise<Array<{
+    bucket_key: string;
+    qty: number;
+    collapse_mode: string;
+    customer_id: string | null;
+    group_name: string | null;
+    sub_category_name: string | null;
+    gender: string | null;
+    period_code: string;
+    created_by: string | null;
+    updated_at: string;
+  }>> {
+    return sbGet(
+      `ip_planner_bucket_buys?planning_run_id=eq.${planningRunId}&select=bucket_key,qty,collapse_mode,customer_id,group_name,sub_category_name,gender,period_code,created_by,updated_at&limit=10000`,
+    );
+  },
+  async upsertBucketBuy(
+    planningRunId: string,
+    args: {
+      bucket_key: string;
+      qty: number;
+      collapse_mode: string;
+      customer_id: string | null;
+      group_name: string | null;
+      sub_category_name: string | null;
+      gender: string | null;
+      period_code: string;
+      created_by: string | null;
+    },
+  ): Promise<void> {
+    await sbPost(
+      "ip_planner_bucket_buys?on_conflict=planning_run_id,bucket_key",
+      [{ planning_run_id: planningRunId, ...args }],
+      "resolution=merge-duplicates,return=minimal",
+    );
+  },
+  async deleteBucketBuy(planningRunId: string, bucketKey: string): Promise<void> {
+    await sbDelete(`ip_planner_bucket_buys?planning_run_id=eq.${planningRunId}&bucket_key=eq.${encodeURIComponent(bucketKey)}`);
+  },
+
+  // System-qty override: planner directly edits the System forecast.
+  // Stored alongside the original system_forecast_qty so the grid can
+  // show "changed from X to Y on DATE". Pass null to clear.
+  async patchForecastSystemOverride(
+    forecastId: string,
+    system_forecast_qty_override: number | null,
+    final_forecast_qty: number,
+    overridden_by: string | null,
+  ): Promise<void> {
+    const overridden_at = system_forecast_qty_override != null ? new Date().toISOString() : null;
+    const rows = await sbPatch<IpWholesaleForecast>(
+      `ip_wholesale_forecast?id=eq.${forecastId}`,
+      {
+        system_forecast_qty_override,
+        system_forecast_qty_overridden_at: overridden_at,
+        system_forecast_qty_overridden_by: system_forecast_qty_override != null ? overridden_by : null,
+        final_forecast_qty,
+      },
+    );
+    if (!rows[0]) throw new Error(`patchForecastSystemOverride: no row returned for ${forecastId}`);
   },
 
   // ── Future demand requests ───────────────────────────────────────────────
@@ -219,8 +385,11 @@ export const wholesaleRepo = {
 
   // ── Recommendations ──────────────────────────────────────────────────────
   async listRecommendations(planningRunId: string): Promise<IpWholesaleRecommendation[]> {
-    return sbGet<IpWholesaleRecommendation>(
-      `ip_wholesale_recommendations?select=*&planning_run_id=eq.${planningRunId}&limit=200000`,
+    // Paginate — limit=200000 hits Supabase's 8s statement timeout
+    // once recommendations grow past a few thousand rows. Order by id
+    // (PK) avoids expensive multi-column sorts that also blew timeout.
+    return sbGetAll<IpWholesaleRecommendation>(
+      `ip_wholesale_recommendations?select=*&planning_run_id=eq.${planningRunId}&order=id.asc`,
     );
   },
   async replaceRecommendations(
@@ -228,12 +397,10 @@ export const wholesaleRepo = {
     rows: Array<Omit<IpWholesaleRecommendation, "id" | "created_at">>,
   ): Promise<void> {
     // Recommendations are fully regenerated each run; clear then insert.
-    // Chunk size kept at 200 — larger batches hit Supabase's 8s statement
-    // timeout (57014) because each row validates 3 FKs.
     await sbDelete(`ip_wholesale_recommendations?planning_run_id=eq.${planningRunId}`);
     if (rows.length === 0) return;
-    for (let i = 0; i < rows.length; i += 200) {
-      const chunk = rows.slice(i, i + 200);
+    for (let i = 0; i < rows.length; i += 500) {
+      const chunk = rows.slice(i, i + 500);
       await sbPost<IpWholesaleRecommendation>(
         "ip_wholesale_recommendations",
         chunk,

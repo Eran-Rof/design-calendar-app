@@ -52,23 +52,27 @@ export default async function handler(req, res) {
     .eq("id", id);
   if (error) return res.status(500).json({ error: error.message });
 
-  // Notify the inquiring user
+  // Notify the inquiring user — env var is comma-separated, fan out per email.
   try {
+    const emails = (process.env.INTERNAL_COMPLIANCE_EMAILS || "")
+      .split(",").map((e) => e.trim()).filter(Boolean);
     const origin = `https://${req.headers.host}`;
-    await fetch(`${origin}/api/send-notification`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        event_type: "marketplace_inquiry_responded",
-        title: `${inquiry.listing?.vendor?.name || "Vendor"} responded to your marketplace inquiry`,
-        body: String(response).slice(0, 500),
-        link: "/",
-        metadata: { inquiry_id: id, listing_id: inquiry.listing_id, entity_id: inquiry.entity_id },
-        recipient: { internal_id: inquiry.inquired_by, email: process.env.INTERNAL_COMPLIANCE_EMAILS || "" },
-        dedupe_key: `marketplace_inquiry_responded_${id}`,
-        email: true,
-      }),
-    }).catch(() => {});
+    for (const email of emails) {
+      await fetch(`${origin}/api/send-notification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_type: "marketplace_inquiry_responded",
+          title: `${inquiry.listing?.vendor?.name || "Vendor"} responded to your marketplace inquiry`,
+          body: String(response).slice(0, 500),
+          link: "/",
+          metadata: { inquiry_id: id, listing_id: inquiry.listing_id, entity_id: inquiry.entity_id },
+          recipient: { internal_id: inquiry.inquired_by, email },
+          dedupe_key: `marketplace_inquiry_responded_${id}_${email}`,
+          email: true,
+        }),
+      }).catch(() => {});
+    }
   } catch { /* non-blocking */ }
 
   return res.status(200).json({ ok: true, id, status: "responded" });

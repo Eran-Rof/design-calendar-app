@@ -18,9 +18,19 @@ export const config = { maxDuration: 30 };
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-EDI-Token");
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  // Fail closed on missing secret — see edi/inbound/index.js for rationale.
+  const SECRET = process.env.EDI_INBOUND_SHARED_SECRET;
+  if (!SECRET) {
+    return res.status(500).json({ error: "EDI_INBOUND_NOT_CONFIGURED" });
+  }
+  const token = req.headers["x-edi-token"];
+  if (!token || token !== SECRET) {
+    return res.status(401).json({ error: "Invalid EDI token" });
+  }
 
   const SB_URL = process.env.VITE_SUPABASE_URL;
   const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -38,6 +48,31 @@ export default async function handler(req, res) {
 
   const { data: po } = await poQuery.maybeSingle();
   if (!po) return res.status(404).json({ error: "PO not found" });
+
+  // Idempotency: a 850 already minted for this PO and still pending
+  // delivery is a duplicate request — return that row. We use
+  // interchange_id (already on edi_messages) as a deterministic dedupe
+  // key derived from po.uuid_id, so retries don't fan out duplicate
+  // envelopes to the partner.
+  const dedupeKey = `850:po:${po.uuid_id}`;
+  const { data: existing850 } = await admin.from("edi_messages")
+    .select("id, created_at")
+    .eq("vendor_id", po.vendor_id)
+    .eq("direction", "outbound")
+    .eq("transaction_set", "850")
+    .eq("interchange_id", dedupeKey)
+    .eq("status", "received")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existing850?.id) {
+    return res.status(200).json({
+      edi_message_id: existing850.id,
+      transaction_set: "850",
+      duplicate: true,
+      message: "Existing outbound 850 already pending delivery for this PO — re-use that row.",
+    });
+  }
 
   const { data: integration } = await admin
     .from("erp_integrations")
@@ -77,7 +112,7 @@ export default async function handler(req, res) {
     vendor_id: po.vendor_id,
     direction: "outbound",
     transaction_set: "850",
-    interchange_id: null,
+    interchange_id: dedupeKey,
     status: "received",
     raw_content: envelope,
   }).select("id").single();

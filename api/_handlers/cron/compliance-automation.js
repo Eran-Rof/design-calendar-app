@@ -142,16 +142,25 @@ export default async function handler(req, res) {
           const vendorName = vendor?.name || `Vendor ${r.vendor_id.slice(0, 8)}`;
           const typeName = docRow?.document_type?.name || "compliance document";
 
-          await sendNotification(origin, {
-            event_type: "compliance_escalated",
-            title: `Escalation: ${vendorName} has not renewed ${typeName}`,
-            body: `A renewal request was sent ${rule.escalation_after_days}+ days ago but no document has been uploaded since.`,
-            link: "/",
-            metadata: { document_id: r.document_id, original_request_id: r.id, rule_id: rule.id },
-            recipient: { internal_id: "compliance-escalations", email: process.env.INTERNAL_COMPLIANCE_EMAILS || "" },
-            dedupe_key: `compliance_escalated_${r.id}`,
-            email: true,
-          });
+          // INTERNAL_COMPLIANCE_EMAILS is a comma-separated env var — fan
+          // out one notification per email so each recipient receives a
+          // valid send-notification payload (passing the whole list as a
+          // single `email` field would either fail validation or send to a
+          // malformed address).
+          const escEmails = (process.env.INTERNAL_COMPLIANCE_EMAILS || "")
+            .split(",").map((e) => e.trim()).filter(Boolean);
+          for (const email of escEmails) {
+            await sendNotification(origin, {
+              event_type: "compliance_escalated",
+              title: `Escalation: ${vendorName} has not renewed ${typeName}`,
+              body: `A renewal request was sent ${rule.escalation_after_days}+ days ago but no document has been uploaded since.`,
+              link: "/",
+              metadata: { document_id: r.document_id, original_request_id: r.id, rule_id: rule.id },
+              recipient: { internal_id: "compliance-escalations", email },
+              dedupe_key: `compliance_escalated_${r.id}_${email}`,
+              email: true,
+            });
+          }
           await writeAudit(admin, {
             vendor_id: r.vendor_id, document_id: r.document_id, action: "requested",
             performed_by_type: "system", notes: `escalated_from=${r.id}`,

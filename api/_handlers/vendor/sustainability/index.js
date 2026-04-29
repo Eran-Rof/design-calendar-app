@@ -46,6 +46,12 @@ export default async function handler(req, res) {
     const errs = validateReport(body);
     if (errs.length) return res.status(400).json({ error: errs.join("; ") });
 
+    // Path-injection guard — file_url must live under the caller's folder.
+    const fileUrl = body?.report_file_url;
+    if (fileUrl && (typeof fileUrl !== "string" || !fileUrl.startsWith(`${vendorId}/`))) {
+      return res.status(403).json({ error: "report_file_url must be under the caller's vendor folder" });
+    }
+
     const { data: report, error } = await admin.from("sustainability_reports").insert({
       vendor_id: vendorId,
       reporting_period_start: body.reporting_period_start,
@@ -65,21 +71,27 @@ export default async function handler(req, res) {
     const { data: vendorRow } = await admin.from("vendors").select("name").eq("id", vendorId).maybeSingle();
     const vendorName = vendorRow?.name || `Vendor ${vendorId.slice(0, 8)}`;
     try {
+      // INTERNAL_COMPLIANCE_EMAILS is comma-separated — fan out one
+      // notification per email so each recipient gets a valid payload.
+      const emails = (process.env.INTERNAL_COMPLIANCE_EMAILS || "")
+        .split(",").map((e) => e.trim()).filter(Boolean);
       const origin = `https://${req.headers.host}`;
-      await fetch(`${origin}/api/send-notification`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event_type: "sustainability_report_submitted",
-          title: `${vendorName} submitted sustainability report for ${body.reporting_period_start} → ${body.reporting_period_end}`,
-          body: `${vendorName} submitted a sustainability report for ${body.reporting_period_start} → ${body.reporting_period_end}.`,
-          link: "/",
-          metadata: { report_id: report.id, vendor_id: vendorId },
-          recipient: { internal_id: "sustainability-reviewers", email: process.env.INTERNAL_COMPLIANCE_EMAILS || "" },
-          dedupe_key: `sustainability_submitted_${report.id}`,
-          email: true,
-        }),
-      }).catch(() => {});
+      for (const email of emails) {
+        await fetch(`${origin}/api/send-notification`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            event_type: "sustainability_report_submitted",
+            title: `${vendorName} submitted sustainability report for ${body.reporting_period_start} → ${body.reporting_period_end}`,
+            body: `${vendorName} submitted a sustainability report for ${body.reporting_period_start} → ${body.reporting_period_end}.`,
+            link: "/",
+            metadata: { report_id: report.id, vendor_id: vendorId },
+            recipient: { internal_id: "sustainability-reviewers", email },
+            dedupe_key: `sustainability_submitted_${report.id}_${email}`,
+            email: true,
+          }),
+        }).catch(() => {});
+      }
     } catch { /* non-blocking */ }
 
     return res.status(201).json(report);

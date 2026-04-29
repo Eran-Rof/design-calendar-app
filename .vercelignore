@@ -1,3 +1,20 @@
 # trigger deploy
 # redeploy2
 # redeploy3
+
+# Exclude legacy duplicate handlers — everything routes through api/dispatch.js
+# via the rewrite in vercel.json. Keep only dispatch.js + cron/ as deployed
+# functions (under the 128-function Vercel limit).
+api/vendor-invite.js
+api/vendor/**
+api/xoro-ap-sync.js
+api/xoro-proxy.js
+api/xoro-receipts-sync.js
+api/xoro/**
+api/shopify/**
+api/internal/**
+api/edi/**
+api/parse-excel.js
+api/searates-proxy.js
+api/send-notification.js
+api/dropbox-proxy.js

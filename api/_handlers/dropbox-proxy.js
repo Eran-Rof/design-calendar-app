@@ -1,5 +1,14 @@
 // api/dropbox-proxy.js — Vercel Serverless Function for Dropbox file operations
-// Handles token refresh automatically using the refresh token
+// Handles token refresh automatically using the refresh token.
+//
+// Auth: previously open. Now requires a Supabase JWT in the
+// Authorization header — without one, anyone on the internet could
+// list/delete/upload to arbitrary Dropbox paths in the tenant. The
+// dbxPath is also sanity-checked to reject `..`, control chars, and
+// strings without a leading slash.
+
+import { createClient } from "@supabase/supabase-js";
+import { authenticateCaller, isSafeDropboxPath } from "../_lib/auth.js";
 
 export const config = { maxDuration: 60 };
 
@@ -41,14 +50,31 @@ async function getAccessToken() {
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Dropbox-Path, X-Dropbox-Action");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Dropbox-Path, X-Dropbox-Action");
 
   if (req.method === "OPTIONS") return res.status(200).end();
+
+  // Require Supabase auth — every callsite is browser-side from an
+  // authenticated user, so we just need to confirm the JWT is valid.
+  const SB_URL = process.env.VITE_SUPABASE_URL;
+  const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!SB_URL || !SERVICE_KEY) {
+    return res.status(500).json({ error: "Server not configured" });
+  }
+  const admin = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
+  const auth = await authenticateCaller(req, admin);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
   try {
     const token = await getAccessToken();
     const action = req.headers["x-dropbox-action"] || req.query.action;
     const dbxPath = req.headers["x-dropbox-path"] || req.query.path;
+
+    // Reject path-traversal / control chars / oversized paths so the
+    // caller can't smuggle directives into the Dropbox URL.
+    if (dbxPath && !isSafeDropboxPath(dbxPath)) {
+      return res.status(400).json({ error: "INVALID_DROPBOX_PATH" });
+    }
 
     if (action === "upload") {
       // Upload file

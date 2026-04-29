@@ -23,6 +23,27 @@ export function parseLocalDate(input?: string | null): Date | null {
   return Number.isNaN(dt.getTime()) ? null : dt;
 }
 
+/**
+ * Local "today" formatted as YYYY-MM-DD. Use this for any default-value
+ * date input — `new Date().toISOString().slice(0, 10)` returns UTC, which
+ * jumps a day for users in negative-offset zones once UTC midnight passes
+ * (vendors in Asia/Australia hit the same issue at the other end).
+ */
+export function todayLocalIso(now: Date = new Date()): string {
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${mm}-${dd}`;
+}
+
+/**
+ * Format a Date object's local components as YYYY-MM-DD. Intended for
+ * date pickers where the user picks a calendar day in their local zone
+ * and we want to round-trip that same calendar day back into the input.
+ */
+export function dateToLocalIso(d: Date): string {
+  return todayLocalIso(d);
+}
+
 export function fmtDate(d?: string | null): string {
   if (!d) return "—";
   const dt = parseLocalDate(d);

@@ -1,6 +1,9 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
 import XLSXStyle from "xlsx-js-style";
-import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
+import { SB_URL, SB_KEY, SB_HEADERS, supabaseClient } from "./utils/supabase";
+import NotificationsShell from "./components/notifications/NotificationsShell";
+import NotificationsPage from "./components/notifications/NotificationsPage";
+import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import type { ATSRow, ATSSnapshot, ATSSkuData, ATSPoEvent, ATSSoEvent, UploadWarning, ExcelData, CtxMenu, SummaryCtxMenu } from "./ats/types";
 import { addDays, fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, skuSimilarity } from "./ats/helpers";
 import { computeRowsFromExcelData } from "./ats/compute";
@@ -20,8 +23,33 @@ import type { ATSState, ATSAction } from "./ats/state/atsTypes";
 import { atsRenderPanel } from "./ats/renderPanel";
 
 // ── Main Component ────────────────────────────────────────────────────────────
+function readPlmUserId(): string | null {
+  try {
+    const raw = sessionStorage.getItem("plm_user");
+    if (!raw) return null;
+    return (JSON.parse(raw) as { id?: string }).id || null;
+  } catch { return null; }
+}
+
 export default function ATSReportWrapper() {
-  return <ATSProvider><ATSReport /></ATSProvider>;
+  const userId = readPlmUserId();
+  return (
+    <ATSProvider>
+      <ATSReport />
+      {supabaseClient && userId && (
+        <NotificationsShell
+          kind="internal"
+          supabase={supabaseClient}
+          userId={userId}
+          notificationsUrl="/notifications?from=ats"
+          currentPath={typeof window !== "undefined" ? window.location.pathname : undefined}
+          sessionKey="rof_notif_dismissed_internal"
+          appFilter="ats"
+          autoOpen={false}
+        />
+      )}
+    </ATSProvider>
+  );
 }
 
 function ATSReport() {
@@ -147,9 +175,20 @@ function ATSReport() {
       .then(rows => {
         if (!rows?.length) return;
         const users: Array<{ name: string; role?: string }> = JSON.parse(rows[0].value);
-        const stored = localStorage.getItem("ats_user");
-        const match = stored ? users.find(u => u.name === stored) : null;
-        setIsAdmin((match ?? users[0])?.role === "admin");
+        // The user identity lives in sessionStorage as a JSON blob under
+        // "plm_user" (every other module reads it that way). Reading
+        // localStorage("ats_user") returned null, then fell through to
+        // users[0] — making whoever was first in the list (often an
+        // admin) the effective role for ALL ATS users. Now: parse JSON
+        // and look up by name; if no current user, default to non-admin
+        // rather than admin.
+        let currentName: string | null = null;
+        try {
+          const raw = sessionStorage.getItem("plm_user");
+          if (raw) currentName = JSON.parse(raw)?.name ?? null;
+        } catch { /* malformed blob — treat as no user */ }
+        const match = currentName ? users.find(u => u.name === currentName) : null;
+        setIsAdmin(match?.role === "admin");
       })
       .catch(e => console.warn("Failed to load admin users:", e));
   }, []);
@@ -370,21 +409,15 @@ function ATSReport() {
     loadFromSupabase();
   }, []);
 
-  // Clear merge history in Supabase when the user leaves the ATS page (tab
-  // close, browser close, or any navigation away). keepalive keeps the request
-  // alive past the page unload. Module-level SB_URL/SB_HEADERS are stable refs.
-  useEffect(() => {
-    const clearOnExit = () => {
-      fetch(`${SB_URL}/rest/v1/app_data`, {
-        method: "POST",
-        headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify({ key: "ats_merge_history", value: JSON.stringify([]) }),
-        keepalive: true,
-      }).catch(() => {});
-    };
-    window.addEventListener("pagehide", clearOnExit);
-    return () => window.removeEventListener("pagehide", clearOnExit);
-  }, []);
+  // (Removed) The previous implementation wiped ats_merge_history to []
+  // on every pagehide event. Two problems:
+  //   1. ats_merge_history is a GLOBAL row in app_data, not per-user, so
+  //      any user navigating away wiped every other user's replays too.
+  //   2. The merge history is supposed to persist — useExcelUpload's
+  //      runSaveUploadData replays it on every save. Wiping it on
+  //      navigation away meant the next ATS upload silently lost merges.
+  // The history now persists naturally; if explicit reset is wanted,
+  // add a button rather than tying it to navigation.
 
   useEffect(() => {
     if (excelData) {
@@ -769,6 +802,27 @@ function ATSReport() {
   useEffect(() => { setPage(0); }, [search, filterCategory, filterGender, filterStatus, minATS, poStores, soStores, rows, activeSort, sortCol, sortDir, customerFilter]);
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Notifications: in-app view + bell badge (ATS-relevant events only)
+  const atsUserId = readPlmUserId();
+  const [showingNotifications, setShowingNotifications] = useState(false);
+  const unreadNotifs = useAppUnreadCount({
+    supabase: supabaseClient,
+    userId: atsUserId,
+    recipientColumn: "recipient_internal_id",
+    app: "ats",
+  });
+  const notificationsView = supabaseClient && atsUserId ? (
+    <NotificationsPage
+      embed
+      kind="internal"
+      supabase={supabaseClient}
+      userId={atsUserId}
+      title="Notifications"
+      appFilter="ats"
+    />
+  ) : null;
+
+  // ─────────────────────────────────────────────────────────────────────────
   // RENDER — see ats/renderPanel.tsx
   return atsRenderPanel({
     startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue,
@@ -794,5 +848,9 @@ function ATSReport() {
     pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
     mergeHistory, setMergeHistory, saveMergeHistory, undoLastMerge, clearMergeAndNavigate,
     atShip, setAtShip, onNegInven, onAgedInven,
+    unreadNotifs,
+    showingNotifications,
+    onToggleNotifications: () => setShowingNotifications((v) => !v),
+    notificationsView,
   });
 }

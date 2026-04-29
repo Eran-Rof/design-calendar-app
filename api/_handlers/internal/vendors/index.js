@@ -23,6 +23,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { resolveEntityContext } from "../../../_lib/entity.js";
+import { authenticateInternalCaller } from "../../../_lib/auth.js";
 
 export const config = { maxDuration: 60 };
 
@@ -50,8 +51,13 @@ function contractBucket(contracts, now) {
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Internal-Token");
   if (req.method === "OPTIONS") return res.status(200).end();
+
+  // Internal-API gate. See api/_lib/auth.js. Open until INTERNAL_API_TOKEN
+  // is set (logs a warn on first call); 401 once configured.
+  const __internalAuth = authenticateInternalCaller(req);
+  if (!__internalAuth.ok) return res.status(__internalAuth.status).json({ error: __internalAuth.error });
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
 
   const SB_URL = process.env.VITE_SUPABASE_URL;

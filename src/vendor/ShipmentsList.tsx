@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { TH } from "../utils/theme";
+import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate } from "./utils";
 import ShipmentAddForm from "./ShipmentAddForm";
@@ -11,6 +11,8 @@ export interface ShipmentRow {
   number_type: string;
   sealine_scac: string | null;
   sealine_name: string | null;
+  carrier: string | null;
+  invoice_created_at: string | null;
   pol_locode: string | null;
   pod_locode: string | null;
   eta: string | null;
@@ -35,7 +37,7 @@ export default function ShipmentsList() {
     try {
       const { data, error } = await supabaseVendor
         .from("shipments")
-        .select("id, number, number_type, sealine_scac, sealine_name, pol_locode, pod_locode, eta, ata, current_status, last_tracked_at, po_number, updated_at")
+        .select("id, number, number_type, sealine_scac, sealine_name, carrier, invoice_created_at, pol_locode, pod_locode, eta, ata, current_status, last_tracked_at, po_number, updated_at")
         .order("updated_at", { ascending: false });
       if (error) throw error;
       setRows((data ?? []) as ShipmentRow[]);
@@ -57,6 +59,7 @@ export default function ShipmentsList() {
       (r) =>
         r.number.toLowerCase().includes(s) ||
         (r.po_number ?? "").toLowerCase().includes(s) ||
+        (r.carrier ?? "").toLowerCase().includes(s) ||
         (r.sealine_scac ?? "").toLowerCase().includes(s) ||
         (r.pol_locode ?? "").toLowerCase().includes(s) ||
         (r.pod_locode ?? "").toLowerCase().includes(s)
@@ -95,7 +98,7 @@ export default function ShipmentsList() {
       )}
 
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden", boxShadow: `0 1px 2px ${TH.shadow}` }}>
-        <div style={{ display: "grid", gridTemplateColumns: "60px 160px 90px 180px 140px 140px 1fr", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "60px 160px 180px 180px 140px 140px 1fr", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
           <div>Type</div>
           <div>Number</div>
           <div>Carrier</div>
@@ -114,11 +117,11 @@ export default function ShipmentsList() {
             <Link
               key={r.id}
               to={`/vendor/shipments/${r.id}`}
-              style={{ display: "grid", gridTemplateColumns: "60px 160px 90px 180px 140px 140px 1fr", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", color: "inherit", textDecoration: "none", background: TH.surface }}
+              style={{ display: "grid", gridTemplateColumns: "60px 160px 180px 180px 140px 140px 1fr", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", color: "inherit", textDecoration: "none", background: TH.surface }}
             >
               <div style={{ fontSize: 11, fontWeight: 700, color: TH.primary }}>{r.number_type}</div>
               <div style={{ fontWeight: 600, color: TH.text, fontFamily: "Menlo, monospace" }}>{r.number}</div>
-              <div style={{ color: TH.textSub2 }}>{r.sealine_scac || "—"}</div>
+              <div style={{ color: TH.textSub2 }}>{r.carrier || r.sealine_name || r.sealine_scac || "—"}</div>
               <div style={{ color: TH.textSub2, fontFamily: "Menlo, monospace", fontSize: 12 }}>
                 {r.pol_locode || "—"} → {r.pod_locode || "—"}
               </div>
@@ -129,12 +132,20 @@ export default function ShipmentsList() {
                   <><span style={{ color: TH.textMuted, fontSize: 11 }}>ETA</span> {fmtDate(r.eta)}</>
                 ) : "—"}
               </div>
-              <div>
-                {r.current_status ? (
-                  <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: TH.surfaceHi, border: `1px solid ${TH.border}`, color: TH.textSub }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                {r.current_status && (
+                  <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: TH.surfaceHi, border: `1px solid ${TH.border}`, color: TH.textSub, alignSelf: "flex-start" }}>
                     {r.current_status}
                   </span>
-                ) : "—"}
+                )}
+                {r.invoice_created_at && (
+                  <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 8, background: "#D1FAE5", border: "1px solid #A7F3D0", color: "#065F46", alignSelf: "flex-start", fontWeight: 600 }}>
+                    🧾 Invoiced {fmtDate(r.invoice_created_at)}
+                  </span>
+                )}
+                {!r.current_status && !r.invoice_created_at && (
+                  <span style={{ color: TH.textMuted }}>—</span>
+                )}
               </div>
               <div style={{ textAlign: "right", color: TH.textMuted, fontSize: 12 }}>
                 {r.last_tracked_at ? new Date(r.last_tracked_at).toLocaleString() : "—"}

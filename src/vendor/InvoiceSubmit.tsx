@@ -1,8 +1,40 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
-import { TH } from "../utils/theme";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
-import { fmtMoney } from "./utils";
+import { fmtMoney, todayLocalIso } from "./utils";
+import { showConfirm } from "./ui/AppDialog";
+
+const PAYMENT_TERMS = [
+  "FOB", "DDP 30", "DDP 60", "DDP 90", "DDP 120", "DDP 150", "DDP 180", "DP", "TT",
+];
+
+interface ExtractedLine {
+  description?: string | null;
+  quantity_invoiced?: number | null;
+  unit_price?: number | null;
+  item_number?: string | null;
+}
+
+interface ExtractedPayload {
+  invoice_number?: string | null;
+  invoice_date?: string | null;
+  due_date?: string | null;
+  currency?: string | null;
+  notes?: string | null;
+  line_items?: ExtractedLine[];
+}
+
+function decodeExtracted(raw: string | null): ExtractedPayload | null {
+  if (!raw) return null;
+  try {
+    const bin = atob(raw);
+    const utf8 = decodeURIComponent(escape(bin));
+    return JSON.parse(utf8) as ExtractedPayload;
+  } catch {
+    return null;
+  }
+}
 
 interface POOption {
   uuid_id: string;
@@ -30,19 +62,33 @@ interface LineInput {
 
 export default function InvoiceSubmit() {
   const nav = useNavigate();
+  const [params] = useSearchParams();
+  // URL params from the ASN + Invoice AI-extraction flow.
+  const prefill = useMemo(() => decodeExtracted(params.get("extracted")), [params]);
+  const prefillPoId = params.get("po") || "";
+  const prefillFileUrl = params.get("file") || "";
+  const fromAsnId = params.get("asn") || "";
+
   const [pos, setPOs] = useState<POOption[]>([]);
-  const [selectedPoId, setSelectedPoId] = useState<string>("");
+  const [selectedPoId, setSelectedPoId] = useState<string>(prefillPoId);
   const [poLines, setPoLines] = useState<LineItem[]>([]);
   const [lineInputs, setLineInputs] = useState<LineInput[]>([]);
+  const [linesPrefilledFromExtract, setLinesPrefilledFromExtract] = useState(false);
 
-  const [invoiceNumber, setInvoiceNumber] = useState("");
-  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
-  const [dueDate, setDueDate] = useState("");
-  const [currency, setCurrency] = useState("USD");
+  const [invoiceNumber, setInvoiceNumber] = useState(prefill?.invoice_number || "");
+  const [invoiceDate, setInvoiceDate] = useState(prefill?.invoice_date || todayLocalIso());
+  const [dueDate, setDueDate] = useState(prefill?.due_date || "");
+  const [currency, setCurrency] = useState(prefill?.currency || "USD");
   const [tax, setTax] = useState("0");
-  const [notes, setNotes] = useState("");
+  const [notes, setNotes] = useState(prefill?.notes || "");
+  const [file, setFile] = useState<File | null>(null);
+  const [fileDescription, setFileDescription] = useState<string>("Invoice PDF");
+  const [paymentTerms, setPaymentTerms] = useState<string>("");
 
   const [vendorUserId, setVendorUserId] = useState<string | null>(null);
+  const [vendorId, setVendorId] = useState<string | null>(null);
+  const [isTaxVendor, setIsTaxVendor] = useState(false);
+  const [asnShipDate, setAsnShipDate] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -54,8 +100,16 @@ export default function InvoiceSubmit() {
         const uid = userRes.user?.id;
         if (!uid) throw new Error("Not signed in.");
         const { data: vu } = await supabaseVendor
-          .from("vendor_users").select("id").eq("auth_id", uid).maybeSingle();
-        if (vu) setVendorUserId(vu.id as string);
+          .from("vendor_users").select("id, vendor_id").eq("auth_id", uid).maybeSingle();
+        if (vu) {
+          setVendorUserId(vu.id as string);
+          setVendorId((vu as { vendor_id: string }).vendor_id);
+          const { data: vRow } = await supabaseVendor
+            .from("vendors").select("is_tax_vendor, default_payment_terms").eq("id", (vu as { vendor_id: string }).vendor_id).maybeSingle();
+          const v = vRow as { is_tax_vendor?: boolean; default_payment_terms?: string | null } | null;
+          setIsTaxVendor(Boolean(v?.is_tax_vendor));
+          if (v?.default_payment_terms) setPaymentTerms(v.default_payment_terms);
+        }
 
         const { data, error } = await supabaseVendor
           .from("tanda_pos")
@@ -64,6 +118,14 @@ export default function InvoiceSubmit() {
         if (error) throw error;
         const active = (data ?? []).filter((r: { data: { _archived?: boolean } | null }) => !r.data?._archived);
         setPOs(active as POOption[]);
+
+        // Pull the linked shipment's ship_date so we can flag invoice-before-ship.
+        if (fromAsnId) {
+          const { data: ship } = await supabaseVendor
+            .from("shipments").select("ship_date").eq("id", fromAsnId).maybeSingle();
+          const s = (ship as { ship_date?: string | null } | null)?.ship_date;
+          if (s) setAsnShipDate(s.slice(0, 10));
+        }
       } catch (e: unknown) {
         setErr(e instanceof Error ? e.message : String(e));
       }
@@ -82,18 +144,39 @@ export default function InvoiceSubmit() {
       if (error) { setErr(error.message); return; }
       const lines = (data ?? []) as LineItem[];
       setPoLines(lines);
+
+      // Match AI-extracted lines against PO lines. Prefer exact item_number
+      // match; fall back to order. Extracted values only override when
+      // present — otherwise defer to the PO line's ordered qty / unit price.
+      const extracted = prefill?.line_items || [];
+      const matched = (idx: number, l: LineItem): ExtractedLine | undefined => {
+        if (l.item_number) {
+          const byNumber = extracted.find((e) => e.item_number && e.item_number.trim() === l.item_number?.trim());
+          if (byNumber) return byNumber;
+        }
+        return extracted[idx];
+      };
+
       setLineInputs(
-        lines.map((l) => ({
-          line_id: l.id,
-          line_index: l.line_index,
-          description: l.description ?? "",
-          qty: l.qty_ordered != null ? String(l.qty_ordered) : "",
-          unit_price: l.unit_price != null ? String(l.unit_price) : "",
-          include: true,
-        }))
+        lines.map((l, i) => {
+          const e = matched(i, l);
+          const qty = e?.quantity_invoiced != null ? String(e.quantity_invoiced)
+            : (l.qty_ordered != null ? String(l.qty_ordered) : "");
+          const up = e?.unit_price != null ? String(e.unit_price)
+            : (l.unit_price != null ? String(l.unit_price) : "");
+          return {
+            line_id: l.id,
+            line_index: l.line_index,
+            description: e?.description ?? l.description ?? "",
+            qty,
+            unit_price: up,
+            include: true,
+          };
+        })
       );
+      if (extracted.length > 0) setLinesPrefilledFromExtract(true);
     })();
-  }, [selectedPoId]);
+  }, [selectedPoId, prefill]);
 
   const subtotal = useMemo(() => {
     return lineInputs.reduce((acc, l) => {
@@ -104,7 +187,51 @@ export default function InvoiceSubmit() {
     }, 0);
   }, [lineInputs]);
 
-  const total = useMemo(() => subtotal + (Number(tax) || 0), [subtotal, tax]);
+  const effectiveTax = isTaxVendor ? (Number(tax) || 0) : 0;
+  const total = useMemo(() => subtotal + effectiveTax, [subtotal, effectiveTax]);
+
+  // Per-line discrepancies vs PO + extracted packing list data.
+  // Rule: only fire when we actually have a reference value to compare
+  // against, to avoid noise on blank fields.
+  const lineWarnings = useMemo(() => {
+    return lineInputs.map((l, idx) => {
+      const po = poLines[idx];
+      const extracted = prefill?.line_items?.[idx];
+      const warnings: string[] = [];
+      if (!l.include) return warnings;
+      const qty = Number(l.qty) || 0;
+      const price = Number(l.unit_price) || 0;
+
+      // Qty vs packing list
+      if (extracted?.quantity_invoiced != null && qty !== Number(extracted.quantity_invoiced)) {
+        warnings.push(`Qty ${qty} differs from packing list (${extracted.quantity_invoiced}).`);
+      }
+      // Qty vs PO ordered
+      if (po?.qty_ordered != null && qty > Number(po.qty_ordered)) {
+        warnings.push(`Qty ${qty} exceeds PO ordered (${po.qty_ordered}).`);
+      }
+      // Unit price vs packing list
+      if (extracted?.unit_price != null && Math.abs(price - Number(extracted.unit_price)) > 0.009) {
+        warnings.push(`Unit price ${fmtMoney(price)} differs from packing list (${fmtMoney(Number(extracted.unit_price))}).`);
+      }
+      // Unit price vs PO
+      if (po?.unit_price != null && Math.abs(price - Number(po.unit_price)) > 0.009) {
+        warnings.push(`Unit price ${fmtMoney(price)} differs from PO (${fmtMoney(Number(po.unit_price))}).`);
+      }
+      return warnings;
+    });
+  }, [lineInputs, poLines, prefill]);
+
+  // Header-level: invoice dated before the ASN ship date.
+  const headerWarnings = useMemo(() => {
+    const w: string[] = [];
+    if (asnShipDate && invoiceDate && invoiceDate < asnShipDate) {
+      w.push(`Invoice date (${invoiceDate}) is before the shipment's ship date (${asnShipDate}).`);
+    }
+    return w;
+  }, [asnShipDate, invoiceDate]);
+
+  const totalWarnings = headerWarnings.length + lineWarnings.reduce((a, ws) => a + ws.length, 0);
 
   function updateLine(idx: number, patch: Partial<LineInput>) {
     setLineInputs((xs) => xs.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
@@ -119,11 +246,60 @@ export default function InvoiceSubmit() {
     const includedLines = lineInputs.filter((l) => l.include && (Number(l.qty) || 0) > 0);
     if (includedLines.length === 0) { setErr("Add at least one line with quantity > 0."); return; }
 
+    // Build a flat discrepancy list from current warnings.
+    const discrepancies: string[] = [];
+    for (const hw of headerWarnings) discrepancies.push(hw);
+    lineInputs.forEach((l, idx) => {
+      for (const w of lineWarnings[idx] || []) {
+        const label = poLines[idx]?.item_number || l.description || `Line ${idx + 1}`;
+        discrepancies.push(`${label}: ${w}`);
+      }
+    });
+    if (discrepancies.length > 0) {
+      const ok = await showConfirm({
+        title: `${discrepancies.length} discrepanc${discrepancies.length === 1 ? "y" : "ies"} detected`,
+        tone: "warn",
+        message: (
+          <>
+            <div style={{ marginBottom: 8, color: TH.textSub2 }}>
+              This invoice doesn't match the PO, packing list, or shipment in the following ways:
+            </div>
+            <ul style={{ margin: "0 0 10px 18px", padding: 0 }}>
+              {discrepancies.map((d, i) => <li key={i} style={{ marginBottom: 4 }}>{d}</li>)}
+            </ul>
+            <div style={{ color: TH.textMuted, fontSize: 12 }}>
+              Submit anyway? The Ring of Fire reviewer will be notified.
+            </div>
+          </>
+        ),
+        confirmLabel: "Submit with discrepancies",
+        cancelLabel: "Go back",
+      });
+      if (!ok) return;
+    }
+
     setBusy(true);
     try {
       const { data: session } = await supabaseVendor.auth.getSession();
       const accessToken = session?.session?.access_token;
       if (!accessToken) { setErr("Not signed in."); setBusy(false); return; }
+
+      // Optional PDF/Excel attachment upload. If we came from the
+      // ASN + Invoice AI flow, the packing list path is already in the URL
+      // and acts as the attachment unless the user picked a different one.
+      let fileUrl: string | null = prefillFileUrl || null;
+      if (file) {
+        if (!vendorId) { throw new Error("Vendor not resolved yet."); }
+        const MAX = 10 * 1024 * 1024;
+        if (file.size > MAX) throw new Error("File exceeds 10 MB limit.");
+        const allowedExts = ["pdf", "xls", "xlsx"];
+        const ext = file.name.split(".").pop()?.toLowerCase();
+        if (!ext || !allowedExts.includes(ext)) throw new Error("Only PDF or Excel files are accepted.");
+        const path = `${vendorId}/invoices/${Date.now()}_${file.name.replace(/\s+/g, "_")}`;
+        const { error: upErr } = await supabaseVendor.storage.from("vendor-docs").upload(path, file, { upsert: false });
+        if (upErr) throw upErr;
+        fileUrl = path;
+      }
 
       const lineItems = includedLines.map((l, idx) => {
         const q = Number(l.qty) || 0;
@@ -148,9 +324,14 @@ export default function InvoiceSubmit() {
           due_date: dueDate || null,
           currency,
           subtotal,
-          tax: Number(tax) || 0,
+          tax: effectiveTax,
           total,
           notes: notes.trim() || null,
+          file_url: fileUrl,
+          file_description: fileUrl ? (fileDescription.trim() || null) : null,
+          payment_terms: paymentTerms || null,
+          from_asn_id: fromAsnId || undefined,
+          discrepancies: discrepancies.length > 0 ? discrepancies : undefined,
           line_items: lineItems,
         }),
       });
@@ -205,7 +386,7 @@ export default function InvoiceSubmit() {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 14, marginBottom: 20 }}>
           <div>
             <label style={labelStyle}>Invoice date</label>
             <input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} style={inputStyle} />
@@ -225,7 +406,32 @@ export default function InvoiceSubmit() {
               <option value="INR">INR</option>
             </select>
           </div>
+          <div>
+            <label style={labelStyle}>Payment terms</label>
+            <select value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} style={inputStyle}>
+              <option value="">— Select —</option>
+              {PAYMENT_TERMS.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
         </div>
+
+        {linesPrefilledFromExtract && (
+          <div style={{ padding: "10px 12px", background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 6, marginBottom: 14, fontSize: 13, color: "#065F46" }}>
+            ✨ Draft pre-filled from the packing list by AI. <strong>Review every line before submitting.</strong>
+          </div>
+        )}
+
+        {totalWarnings > 0 && (
+          <div style={{ padding: "10px 12px", background: "#FFFBEB", border: "1px solid #FCD34D", borderRadius: 6, marginBottom: 14, fontSize: 13, color: "#92400E" }}>
+            <strong>⚠ {totalWarnings} discrepanc{totalWarnings === 1 ? "y" : "ies"}</strong>
+            {" "}vs the PO / packing list / shipment. You can still submit — a message will be sent to the reviewer listing them.
+            {headerWarnings.length > 0 && (
+              <ul style={{ margin: "6px 0 0 18px", padding: 0 }}>
+                {headerWarnings.map((w, i) => <li key={i}>{w}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
 
         {selectedPoId && (
           <>
@@ -249,14 +455,22 @@ export default function InvoiceSubmit() {
                 {lineInputs.map((l, idx) => {
                   const po = poLines[idx];
                   const lineTotal = (Number(l.qty) || 0) * (Number(l.unit_price) || 0);
+                  const warnings = lineWarnings[idx] || [];
                   return (
-                    <div key={l.line_id} style={{ display: "grid", gridTemplateColumns: "32px 100px 1fr 100px 120px 120px", padding: "8px 12px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", gap: 6, opacity: l.include ? 1 : 0.5 }}>
-                      <input type="checkbox" checked={l.include} onChange={(e) => updateLine(idx, { include: e.target.checked })} />
-                      <div style={{ fontFamily: "Menlo, monospace", fontSize: 12, color: TH.textSub2 }}>{po?.item_number ?? "—"}</div>
-                      <input value={l.description} onChange={(e) => updateLine(idx, { description: e.target.value })} style={{ ...inputStyle, marginBottom: 0, fontSize: 12, padding: "5px 8px" }} />
-                      <input type="number" step="any" value={l.qty} onChange={(e) => updateLine(idx, { qty: e.target.value })} style={{ ...inputStyle, marginBottom: 0, fontSize: 12, padding: "5px 8px" }} />
-                      <input type="number" step="any" value={l.unit_price} onChange={(e) => updateLine(idx, { unit_price: e.target.value })} style={{ ...inputStyle, marginBottom: 0, fontSize: 12, padding: "5px 8px" }} />
-                      <div style={{ textAlign: "right", fontWeight: 600, color: TH.text }}>{fmtMoney(lineTotal)}</div>
+                    <div key={l.line_id} style={{ borderBottom: `1px solid ${TH.border}` }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "32px 100px 1fr 100px 120px 120px", padding: "8px 12px", fontSize: 13, alignItems: "center", gap: 6, opacity: l.include ? 1 : 0.5 }}>
+                        <input type="checkbox" checked={l.include} onChange={(e) => updateLine(idx, { include: e.target.checked })} />
+                        <div style={{ fontFamily: "Menlo, monospace", fontSize: 12, color: TH.textSub2 }}>{po?.item_number ?? "—"}</div>
+                        <input value={l.description} onChange={(e) => updateLine(idx, { description: e.target.value })} style={{ ...inputStyle, marginBottom: 0, fontSize: 12, padding: "5px 8px" }} />
+                        <input type="number" step="any" value={l.qty} onChange={(e) => updateLine(idx, { qty: e.target.value })} style={{ ...inputStyle, marginBottom: 0, fontSize: 12, padding: "5px 8px", borderColor: warnings.length ? "#FCD34D" : TH.border }} />
+                        <input type="number" step="any" value={l.unit_price} onChange={(e) => updateLine(idx, { unit_price: e.target.value })} style={{ ...inputStyle, marginBottom: 0, fontSize: 12, padding: "5px 8px", borderColor: warnings.length ? "#FCD34D" : TH.border }} />
+                        <div style={{ textAlign: "right", fontWeight: 600, color: TH.text }}>{fmtMoney(lineTotal)}</div>
+                      </div>
+                      {l.include && warnings.length > 0 && (
+                        <div style={{ padding: "4px 12px 8px 44px", fontSize: 11, color: "#92400E" }}>
+                          {warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -267,16 +481,51 @@ export default function InvoiceSubmit() {
               <div>
                 <label style={labelStyle}>Notes (optional)</label>
                 <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} style={{ ...inputStyle, fontFamily: "inherit", resize: "vertical" }} />
+                <label style={{ ...labelStyle, marginTop: 10 }}>Upload document (PDF or Excel, optional)</label>
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xls,.xlsx"
+                  onChange={(e) => setFile(e.target.files?.[0] || null)}
+                />
+                {file && (
+                  <>
+                    <div style={{ fontSize: 12, color: TH.textMuted, marginTop: 4 }}>
+                      {file.name} · {(file.size / 1024).toFixed(0)} KB
+                    </div>
+                    <label style={{ ...labelStyle, marginTop: 10 }}>Document description</label>
+                    <input
+                      type="text"
+                      list="invoice-file-description-options"
+                      value={fileDescription}
+                      onChange={(e) => setFileDescription(e.target.value)}
+                      placeholder="e.g. Invoice PDF, Packing list, Certificate…"
+                      style={inputStyle}
+                    />
+                    <datalist id="invoice-file-description-options">
+                      <option value="Invoice PDF" />
+                      <option value="Packing list" />
+                      <option value="Bill of lading" />
+                      <option value="Commercial invoice" />
+                      <option value="Certificate of origin" />
+                      <option value="Inspection certificate" />
+                      <option value="Credit memo" />
+                      <option value="Supporting Excel" />
+                      <option value="Other" />
+                    </datalist>
+                  </>
+                )}
               </div>
               <div style={{ background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 6, padding: "14px 18px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: TH.textSub2, marginBottom: 8 }}>
                   <span>Subtotal</span>
                   <strong style={{ color: TH.text }}>{fmtMoney(subtotal)}</strong>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: TH.textSub2, marginBottom: 8 }}>
-                  <span>Tax</span>
-                  <input type="number" step="any" value={tax} onChange={(e) => setTax(e.target.value)} style={{ width: 120, padding: "4px 8px", borderRadius: 4, border: `1px solid ${TH.border}`, fontFamily: "inherit", fontSize: 13, textAlign: "right" }} />
-                </div>
+                {isTaxVendor && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: TH.textSub2, marginBottom: 8 }}>
+                    <span>Tax</span>
+                    <input type="number" step="any" value={tax} onChange={(e) => setTax(e.target.value)} style={{ width: 120, padding: "4px 8px", borderRadius: 4, border: `1px solid ${TH.border}`, fontFamily: "inherit", fontSize: 13, textAlign: "right", background: TH.bg, color: TH.text }} />
+                  </div>
+                )}
                 <div style={{ borderTop: `1px solid ${TH.border}`, paddingTop: 8, display: "flex", justifyContent: "space-between", fontSize: 15 }}>
                   <strong>Total</strong>
                   <strong style={{ color: TH.primary }}>{fmtMoney(total)}</strong>
@@ -306,4 +555,4 @@ export default function InvoiceSubmit() {
 }
 
 const labelStyle = { display: "block", fontSize: 12, fontWeight: 600, color: TH.textSub, marginBottom: 6 };
-const inputStyle = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 14, boxSizing: "border-box" as const, fontFamily: "inherit", marginBottom: 0 };
+const inputStyle = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 14, boxSizing: "border-box" as const, fontFamily: "inherit", marginBottom: 0, background: TH.bg, color: TH.text };

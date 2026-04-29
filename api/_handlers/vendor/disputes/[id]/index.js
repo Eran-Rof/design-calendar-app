@@ -52,8 +52,8 @@ export default async function handler(req, res) {
     .from("dispute_messages").select("*").eq("dispute_id", id).order("created_at", { ascending: true });
   if (mErr) return res.status(500).json({ error: mErr.message });
 
-  // Mark as viewed by vendor
-  await admin.from("disputes").update({ last_viewed_by_vendor_at: new Date().toISOString() }).eq("id", id);
+  // Mark as viewed by vendor (scope on vendor_id too — defense in depth).
+  await admin.from("disputes").update({ last_viewed_by_vendor_at: new Date().toISOString() }).eq("id", id).eq("vendor_id", caller.vendor_id);
 
   return res.status(200).json({ dispute, messages: messages || [] });
 }

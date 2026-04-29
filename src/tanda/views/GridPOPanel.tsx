@@ -3,7 +3,7 @@ import {
   type XoroPO, type Milestone,
   MILESTONE_STATUS_COLORS, MILESTONE_STATUSES,
   fmtDate, fmtCurrency, poTotal,
-  itemQty, isLineClosed, lineDeliveryDate, normalizeSize, sizeSort,
+  itemQty, isLineClosed, lineDeliveryDate, normalizeSize, sizeSort, todayLocalIso,
 } from "../../utils/tandaTypes";
 import S from "../styles";
 
@@ -103,7 +103,7 @@ export function GridPOPanel({
 
   const updateMsStatus = (m: Milestone, newStatus: string) => {
     const dates = { ...(m.status_dates || {}) };
-    const iso = new Date().toISOString().split("T")[0];
+    const iso = todayLocalIso();
     if (newStatus !== "Not Started" && !dates[newStatus]) dates[newStatus] = iso;
     saveMilestone({
       ...m,

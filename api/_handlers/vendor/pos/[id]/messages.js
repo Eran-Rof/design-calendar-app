@@ -95,6 +95,10 @@ export default async function handler(req, res) {
     if (attachments.length > 5) return res.status(400).json({ error: "Max 5 attachments per message" });
     for (const a of attachments) {
       if (!a.file_url || !a.file_name) return res.status(400).json({ error: "Each attachment needs file_url and file_name" });
+      // Path-injection guard — attachments must live under this PO's folder.
+      if (typeof a.file_url !== "string" || !a.file_url.startsWith(`${poId}/`)) {
+        return res.status(403).json({ error: "Attachment file_url must live under this PO's folder" });
+      }
       if (a.file_size_bytes && Number(a.file_size_bytes) > 10 * 1024 * 1024) return res.status(400).json({ error: `Attachment ${a.file_name} exceeds 10MB` });
       if (a.file_mime_type && !/^(application\/pdf|image\/)/i.test(a.file_mime_type)) return res.status(400).json({ error: "Attachments must be PDF or image" });
     }
@@ -123,23 +127,18 @@ export default async function handler(req, res) {
       if (attErr) return res.status(200).json({ ...msg, attachment_error: attErr.message });
     }
 
-    // Notify each internal messaging team member. Digest behaviour:
-    // if 3+ new_message emails have already fired to this address in
-    // the past hour, drop email on this one (in-app still posts).
+    // Notify each internal messaging team member. The send-notification
+    // handler now applies the digest-threshold check itself: messages 4..N
+    // within the same hour for the same (event_type, recipient) get queued
+    // into notification_digest_pending and emitted as a single rollup
+    // email by cron/notification-digest-flush. Per-message email is no
+    // longer dropped silently — every message contributes either to a
+    // direct send or to a digest, never to /dev/null.
     try {
       const emails = (process.env.INTERNAL_MESSAGE_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "")
         .split(",").map((e) => e.trim()).filter(Boolean);
       const origin = `https://${req.headers.host}`;
-      const oneHourAgo = new Date(Date.now() - 3_600_000).toISOString();
       await Promise.all(emails.map(async (email) => {
-        const { count } = await admin
-          .from("notifications")
-          .select("*", { count: "exact", head: true })
-          .eq("event_type", "new_message")
-          .eq("recipient_email", email)
-          .eq("email_status", "sent")
-          .gte("created_at", oneHourAgo);
-        const wantEmail = (count ?? 0) < 3;
         await fetch(`${origin}/api/send-notification`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -151,7 +150,7 @@ export default async function handler(req, res) {
             metadata: { po_id: poId, po_number: po.po_number },
             recipient: { internal_id: "po_messages_inbox", email },
             dedupe_key: `new_message_${msg.id}_${email}`,
-            email: wantEmail,
+            email: true,
           }),
         }).catch(() => {});
       }));

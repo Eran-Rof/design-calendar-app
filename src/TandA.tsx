@@ -51,7 +51,10 @@ import InternalTax from "./tanda/InternalTax";
 import { SyncModals } from "./tanda/views/SyncModal";
 import { SettingsModal } from "./tanda/views/SettingsModal";
 
-import { SB_URL, SB_KEY, SB_HEADERS } from "./utils/supabase";
+import { SB_URL, SB_KEY, SB_HEADERS, supabaseClient } from "./utils/supabase";
+import NotificationsShell from "./components/notifications/NotificationsShell";
+import NotificationsPage from "./components/notifications/NotificationsPage";
+import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import { type XoroPO, type Milestone, type WipTemplate, type LocalNote, type User, type DCVendor, type DmConversation, type SyncFilters, type View, ALL_PO_STATUSES, ACTIVE_PO_STATUSES, STATUS_COLORS, STATUS_OPTIONS, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, DEFAULT_WIP_TEMPLATES, milestoneUid, itemQty, poTotal, normalizeSize, sizeSort, mapXoroRaw, fmtDate, fmtCurrency } from "./utils/tandaTypes";
 import S from "./tanda/styles";
 // generateMilestones and mergeMilestones moved to useMilestoneOps
@@ -131,6 +134,7 @@ const VENDOR_MENU_GROUPS: { group: string; items: MenuItem[] }[] = [
     { view: "shipments",          label: "Shipments",       emoji: "🚢" },
     { view: "match",              label: "3-Way Match",     emoji: "🔍" },
     { view: "messages",           label: "Messages",        emoji: "💬" },
+    { view: "phase_reviews",      label: "Phase reviews",   emoji: "🧭" },
     { view: "anomalies",          label: "Anomalies",       emoji: "🚨" },
     { view: "workspaces",         label: "Workspaces",      emoji: "🗂️" },
   ]},
@@ -744,6 +748,31 @@ function TandAApp() {
     setSessionChecked(true);
   }, []);
 
+  // ── Unread notifications count (drives the nav bell badge) ──────────────
+  // Filtered to PO WIP-relevant events only.
+  const unreadNotifs = useAppUnreadCount({
+    supabase: supabaseClient,
+    userId: user?.id,
+    recipientColumn: "recipient_internal_id",
+    app: "tanda",
+  });
+  // First-load-of-session auto-open. Switches the in-app view instead
+  // of redirecting to a separate page. sessionStorage flag prevents
+  // bouncing the user back after they click into a target item.
+  const autoOpenChecked = useRef(false);
+  useEffect(() => {
+    if (!user?.id || autoOpenChecked.current) return;
+    if (unreadNotifs <= 0) return;
+    autoOpenChecked.current = true;
+    let dismissed = false;
+    try { dismissed = sessionStorage.getItem("rof_notif_dismissed_internal") === "1"; } catch { /* noop */ }
+    if (!dismissed && useTandaStore.getState().view !== "notifications") {
+      try { sessionStorage.setItem("rof_notif_dismissed_internal", "1"); } catch { /* noop */ }
+      coreSet("selected", null);
+      coreSet("view", "notifications");
+    }
+  }, [user?.id, unreadNotifs]);
+
   // Load XLSX library dynamically
   useEffect(() => {
     if ((window as any).XLSX) return;
@@ -789,8 +818,8 @@ function TandAApp() {
 
   // ── Load notes from Supabase ──────────────────────────────────────────────
   const loadNotes = useCallback(async () => {
-    const { data } = await sb.from("tanda_notes").select("*", "order=created_at.desc");
-    setNotes((data as LocalNote[]) ?? []);
+    const { data } = await sb.from("tanda_notes").select("*").order("created_at", { ascending: false });
+    setNotes(Array.isArray(data) ? (data as LocalNote[]) : []);
   }, []);
 
   // ── Template operations (extracted to useTemplateOps) ──────────────────────
@@ -936,12 +965,22 @@ function TandAApp() {
       if ((ae as HTMLElement).isContentEditable) return true;
       return false;
     };
+    // Pending-save guard: useMilestoneOps.saveMilestone bumps
+    // window.__tandaPendingSaves around each save, so we know when to
+    // wait. Without this guard, the 15s realtime poll would clobber
+    // an in-flight optimistic edit by reloading server state on top
+    // of it.
+    const hasPendingSave = () => {
+      const w = window as typeof window & { __tandaPendingSaves?: number };
+      return (w.__tandaPendingSaves ?? 0) > 0;
+    };
     const doReload = async () => {
       reloadDebounceId = null;
-      // If the user is mid-edit (focused input/textarea/select), defer the
-      // reload — re-rendering the milestones list while a date picker is
-      // open will close it. Retry on the next poll tick.
-      if (isUserEditing()) return;
+      // Defer when the user is mid-edit (focused input/textarea/select)
+      // OR when a save is in flight. Either case would lose unfinished
+      // local state on re-render. The poll keeps trying; once both
+      // clear, the next tick picks up the change.
+      if (isUserEditing() || hasPendingSave()) return;
       try {
         await loadCachedPOs();
         await loadAllMilestones();
@@ -1234,7 +1273,7 @@ function TandAApp() {
   // ── Notes / Attachments / DeletePO → extracted to useNotesOps ────────────
   // ── Archive / Bulk-update → extracted to useArchiveOps ─────────────────
 
-  const allPONotes = notes.filter(n => n.po_number === selected?.PoNumber);
+  const allPONotes = (Array.isArray(notes) ? notes : []).filter(n => n.po_number === selected?.PoNumber);
   const selectedNotes = allPONotes.filter(n => n.status_override !== "__history__" && n.status_override !== "__attachment__");
   const selectedHistory = allPONotes.filter(n => n.status_override === "__history__");
 
@@ -1389,6 +1428,26 @@ function TandAApp() {
           <span style={S.navSub}>via XoroERP</span>
         </div>
         <div style={S.navRight}>
+          <button
+            style={{
+              ...(view === "notifications" ? S.navBtnActive : S.navBtn),
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              position: "relative",
+            }}
+            onClick={() => guardedNav(() => { setSelected(null); setView("notifications"); })}
+            title="Notifications"
+          >
+            🔔 Notifications
+            {unreadNotifs > 0 && (
+              <span style={{
+                minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
+                background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 700,
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+              }}>{unreadNotifs > 9 ? "9+" : unreadNotifs}</span>
+            )}
+          </button>
           <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("dashboard"); })}>🏠 Dashboard</button>
           <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("list"); })}>All POs</button>
           <button style={view === "grid"      ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("grid"); })}>🗂 Grid</button>
@@ -1410,6 +1469,13 @@ function TandAApp() {
           })}>📧 Email</button>
           <button style={view === "activity" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("activity"); })}>📋 Activity</button>
           <VendorsMenu view={view} onSelect={(v) => guardedNav(() => {
+            // "phase_reviews" is the ROF approval page — it lives at
+            // a top-level route outside TandA, so we navigate hard
+            // instead of changing the in-app view.
+            if (v === "phase_reviews") {
+              window.location.href = "/rof/phase-reviews";
+              return;
+            }
             setSelected(null);
             setView(v);
             if (v === "vendors") loadArchivedPOs();
@@ -1538,6 +1604,18 @@ function TandAApp() {
 
         {/* ── COMPLIANCE REVIEW ── */}
         {view === "compliance" && <ComplianceReview />}
+
+        {/* ── NOTIFICATIONS (in-app) ── */}
+        {view === "notifications" && supabaseClient && user && (
+          <NotificationsPage
+            embed
+            kind="internal"
+            supabase={supabaseClient}
+            userId={user.id}
+            title="Notifications"
+            appFilter="tanda"
+          />
+        )}
 
         {/* ── MESSAGES ── */}
         {view === "messages" && <MessagesView />}
@@ -1901,6 +1979,21 @@ function TandAApp() {
           {askMeOpen ? "✕" : "💬"}
         </button>
       </div>
+
+      {supabaseClient && user && (
+        <NotificationsShell
+          kind="internal"
+          supabase={supabaseClient}
+          userId={user.id}
+          notificationsUrl="/notifications?from=tanda"
+          currentPath={typeof window !== "undefined" ? window.location.pathname : undefined}
+          isViewingNotifications={view === "notifications"}
+          sessionKey="rof_notif_dismissed_internal"
+          onOpen={() => { setSelected(null); setView("notifications"); }}
+          autoOpen={false}
+          appFilter="tanda"
+        />
+      )}
     </div>
   );
 

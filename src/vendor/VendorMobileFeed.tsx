@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { TH } from "../utils/theme";
+import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
 
 interface FeedItem {

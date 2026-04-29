@@ -198,7 +198,11 @@ function normalizeXoroItem(row) {
       xoro_item_id: toOptionalString(row.Id) ?? undefined,
       xoro_item_number: toOptionalString(row.ItemNumber) ?? undefined,
     },
-    attributes: {},
+    // attributes intentionally omitted — Item Master Excel + the
+    // xoro-items-missing-sync handler are the only writers of
+    // attributes.{group_name,category_name}. Sending `{}` here would
+    // replace the JSONB column on upsert (PostgREST merge-duplicates
+    // patches columns wholesale), wiping the planner's category data.
     _src: {
       category_name: canonicalizeCategory(row.CategoryName),
       vendor_name: canonicalizeVendorName(row.VendorName),
@@ -398,7 +402,7 @@ function normalizeShopifyVariant(variant, product, storefrontCode, rawPayloadId)
       shopify_product_id: toOptionalString(product.id),
       shopify_storefront: storefrontCode,
     },
-    attributes: {},
+    // attributes intentionally omitted — see normalizeXoroItem note.
     _src: {
       category_name: canonicalizeCategory(product.product_type),
       vendor_name: canonicalizeVendorName(product.vendor),

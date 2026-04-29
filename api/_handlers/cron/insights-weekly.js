@@ -16,6 +16,13 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  // Match the auth pattern of every other cron — without this anyone
+  // could trigger AI-insight generation across all entities on demand.
+  const expectedSecret = process.env.CRON_SECRET;
+  if (expectedSecret && req.headers.authorization !== `Bearer ${expectedSecret}`) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
   const SB_URL = process.env.VITE_SUPABASE_URL;
   const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!SB_URL || !SERVICE_KEY) return res.status(500).json({ error: "Server not configured" });

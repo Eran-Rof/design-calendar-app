@@ -1,4 +1,4 @@
-import { TH } from "../utils/theme";
+import { TH } from "./theme";
 
 type Tone = "info" | "warn" | "ok" | "muted" | "danger";
 

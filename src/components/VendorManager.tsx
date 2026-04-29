@@ -767,6 +767,11 @@ function InviteVendorModal({ vendor, onClose }: { vendor: any; onClose: () => vo
           email: email.trim().toLowerCase(),
           display_name: displayName.trim(),
           legacy_blob_id: vendor.id,
+          // Send vendor_name as a safety net: if the vendors table
+          // doesn't have a matching legacy_blob_id (common for older
+          // DC rows that predate the mirror trigger), the server
+          // falls back to resolving/creating by name.
+          vendor_name: vendor.name || "",
           site_url: window.location.origin,
         }),
       });

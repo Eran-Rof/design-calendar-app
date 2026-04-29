@@ -106,27 +106,40 @@ export function useArchiveOps(opts: UseArchiveOpsOpts) {
   }
 
   async function permanentDeleteArchived(poNumbers: string[]) {
+    // Surface failures rather than swallowing them. Previous version
+    // ignored every Supabase error so the user saw "deleted" while rows
+    // were still in the DB, leading to ghost entries on next refresh.
+    const failures: Array<{ po: string; step: string; error: string }> = [];
     for (const poNumber of poNumbers) {
-      // Delete PO record
-      await sb.from("tanda_pos").delete(`po_number=eq.${encodeURIComponent(poNumber)}`);
-      // Delete milestones
-      const { data: msRows } = await sb.from("tanda_milestones").select("id,data");
-      if (msRows) {
+      const { error: poErr } = await sb.from("tanda_pos").delete(`po_number=eq.${encodeURIComponent(poNumber)}`);
+      if (poErr) failures.push({ po: poNumber, step: "tanda_pos", error: String((poErr as { message?: string }).message ?? poErr) });
+
+      const { data: msRows, error: msFetchErr } = await sb.from("tanda_milestones").select("id,data");
+      if (msFetchErr) {
+        failures.push({ po: poNumber, step: "milestones-fetch", error: String((msFetchErr as { message?: string }).message ?? msFetchErr) });
+      } else if (msRows) {
         for (const r of msRows) {
-          if ((r.data as any)?.po_number === poNumber) {
-            await sb.from("tanda_milestones").delete(`id=eq.${encodeURIComponent(r.id)}`);
-          }
+          if ((r.data as { po_number?: string } | null)?.po_number !== poNumber) continue;
+          const { error: msErr } = await sb.from("tanda_milestones").delete(`id=eq.${encodeURIComponent(r.id)}`);
+          if (msErr) failures.push({ po: poNumber, step: "milestone-delete", error: String((msErr as { message?: string }).message ?? msErr) });
         }
       }
-      // Delete notes/history/attachments
-      const { data: noteRows } = await sb.from("tanda_notes").select("id", `po_number=eq.${encodeURIComponent(poNumber)}`);
-      if (noteRows) {
+
+      const { data: noteRows, error: noteFetchErr } = await sb.from("tanda_notes").select("id", `po_number=eq.${encodeURIComponent(poNumber)}`);
+      if (noteFetchErr) {
+        failures.push({ po: poNumber, step: "notes-fetch", error: String((noteFetchErr as { message?: string }).message ?? noteFetchErr) });
+      } else if (noteRows) {
         for (const n of noteRows) {
-          await sb.from("tanda_notes").delete(`id=eq.${encodeURIComponent(n.id)}`);
+          const { error: nErr } = await sb.from("tanda_notes").delete(`id=eq.${encodeURIComponent(n.id)}`);
+          if (nErr) failures.push({ po: poNumber, step: "note-delete", error: String((nErr as { message?: string }).message ?? nErr) });
         }
       }
     }
     await loadArchivedPOs();
+    if (failures.length > 0) {
+      console.error("[permanentDeleteArchived] partial failures", failures);
+      throw new Error(`Permanent-delete failed for ${failures.length} record(s) — see console for detail`);
+    }
   }
 
   async function bulkUpdateMilestones() {

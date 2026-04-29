@@ -6,6 +6,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { nextStatus } from "../../../../../_lib/scf.js";
+import { authenticateInternalCaller } from "../../../../../_lib/auth.js";
 
 export const config = { maxDuration: 15 };
 
@@ -19,8 +20,13 @@ function getId(req) {
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "PUT, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Internal-Token");
   if (req.method === "OPTIONS") return res.status(200).end();
+
+  // Internal-API gate. See api/_lib/auth.js. Open until INTERNAL_API_TOKEN
+  // is set (logs a warn on first call); 401 once configured.
+  const __internalAuth = authenticateInternalCaller(req);
+  if (!__internalAuth.ok) return res.status(__internalAuth.status).json({ error: __internalAuth.error });
   if (req.method !== "PUT") return res.status(405).json({ error: "Method not allowed" });
 
   const SB_URL = process.env.VITE_SUPABASE_URL;
@@ -41,17 +47,49 @@ export default async function handler(req, res) {
 
   const nowIso = new Date().toISOString();
 
-  // Flip to funded
-  const { error: updErr } = await admin.from("finance_requests")
+  // Idempotent flip to funded: the WHERE includes status='approved' so
+  // a duplicate fund request returns zero rows updated and we exit
+  // with a 409. Without this guard, two concurrent fund() calls on
+  // the same finance_request both pass the nextStatus check above and
+  // both bump utilization + insert a payments row.
+  const { data: flipped, error: updErr } = await admin.from("finance_requests")
     .update({ status: "funded", funded_at: nowIso, updated_at: nowIso })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("status", "approved")
+    .select("id");
   if (updErr) return res.status(500).json({ error: updErr.message });
+  if (!flipped || flipped.length === 0) {
+    return res.status(409).json({ error: "Finance request status changed since fetch — already funded?" });
+  }
 
-  // Bump program utilization atomically via read-then-write (service-role; low contention)
-  const newUtil = Number(request.program.current_utilization || 0) + Number(request.approved_amount || 0);
-  await admin.from("supply_chain_finance_programs")
-    .update({ current_utilization: newUtil, updated_at: nowIso })
-    .eq("id", request.program_id);
+  // Bump program utilization. Read-modify-write still has a residual
+  // race when TWO different finance_requests under the same program
+  // are funded concurrently — both reads observe the same starting
+  // value and the second write wins, losing the first's increment.
+  // Without a Postgres function for atomic increment, the next-best
+  // mitigation is a retry loop on PATCH-WHERE-old-value.
+  const approved = Number(request.approved_amount || 0);
+  let newUtil = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const { data: prog } = await admin.from("supply_chain_finance_programs")
+      .select("current_utilization, updated_at")
+      .eq("id", request.program_id)
+      .maybeSingle();
+    if (!prog) break;
+    const observed = Number(prog.current_utilization || 0);
+    const candidate = Math.round((observed + approved) * 10000) / 10000;
+    const { data: ok } = await admin.from("supply_chain_finance_programs")
+      .update({ current_utilization: candidate, updated_at: nowIso })
+      .eq("id", request.program_id)
+      .eq("updated_at", prog.updated_at)
+      .select("id");
+    if (ok && ok.length > 0) { newUtil = candidate; break; }
+    // Lost the race — re-read and retry. Exponential backoff capped at 200ms.
+    await new Promise((r) => setTimeout(r, Math.min(200, 25 * (attempt + 1))));
+  }
+  if (newUtil == null) {
+    console.warn("[scf-fund] could not atomically bump utilization", { request_id: id, program_id: request.program_id });
+  }
 
   // Create a payments row for the net disbursement (best-effort)
   let payment_id = null;

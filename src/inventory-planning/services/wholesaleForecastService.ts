@@ -20,15 +20,29 @@ import type {
 import {
   buildFinalWholesaleForecast,
   buildRollingWholesaleSupply,
-  committedSoBySku,
   generateWholesaleRecommendations,
   latestOnHandBySku,
   monthOf,
   monthsBetween,
-  openPoQtyBySku,
   recommendForRow,
 } from "../compute";
 import { wholesaleRepo } from "./wholesalePlanningRepository";
+
+// Item-master attributes JSONB pulls — keep null-safe so the grid never
+// breaks when an item was created by a sync stub before the Excel master
+// upload populated these.
+function readGroupName(item: { attributes?: Record<string, unknown> | null } | null | undefined): string | null {
+  const v = item?.attributes && (item.attributes as Record<string, unknown>).group_name;
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+function readSubCategoryName(item: { attributes?: Record<string, unknown> | null } | null | undefined): string | null {
+  const v = item?.attributes && (item.attributes as Record<string, unknown>).category_name;
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+function readGender(item: { attributes?: Record<string, unknown> | null } | null | undefined): string | null {
+  const v = item?.attributes && (item.attributes as Record<string, unknown>).gender;
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
 
 // Trim history to the forecast lookback window (default: 12 months before
 // the snapshot date). Keeps the compute payload small.
@@ -64,17 +78,42 @@ export interface RunForecastPassResult {
   forecast_rows_written: number;
   recommendations_written: number;
   pairs_considered: number;
+  // Count of (customer, sku) pairs skipped because they had no demand
+  // signal (no T3 history, no LY reference) AND no inventory presence
+  // (no on-hand, on-PO, on-SO). These would forecast to zero anyway.
+  pairs_pruned_dead: number;
+  // Count of pairs skipped because the planner's grid filter excluded
+  // them (e.g. "build only for Joggers / Customer X"). Zero when the
+  // build was unfiltered.
+  pairs_pruned_filter: number;
   methods: Record<IpForecastMethod, number>;
 }
 
-export async function runForecastPass(run: IpPlanningRun): Promise<RunForecastPassResult> {
+// Optional grid-derived filter applied at build time so the planner
+// can scope a build to the rows currently visible in the grid (e.g.
+// just one customer, just one category). Empty/missing fields mean
+// "no filter on this dimension". customer_id matches forecast rows;
+// the three string filters match against item-master attributes
+// (group_name / category_name / gender).
+export interface BuildFilter {
+  customer_id?: string | null;
+  group_name?: string | null;
+  sub_category_name?: string | null;
+  gender?: string | null;
+}
+
+export interface RunForecastPassOptions {
+  filter?: BuildFilter;
+}
+
+export async function runForecastPass(run: IpPlanningRun, options: RunForecastPassOptions = {}): Promise<RunForecastPassResult> {
   if (!run.horizon_start || !run.horizon_end) {
     throw new Error("Planning run has no horizon; set horizon_start + horizon_end before running the forecast.");
   }
   const snapshotDate = run.source_snapshot_date;
   const lookbackFrom = historySince(snapshotDate, 12);
 
-  const [items, sales, requests, overrides, inv, pos, receipts] = await Promise.all([
+  const [items, sales, requests, overrides, inv, pos, receipts, supplyPlaceholder] = await Promise.all([
     wholesaleRepo.listItems(),
     wholesaleRepo.listWholesaleSales(lookbackFrom),
     wholesaleRepo.listOpenRequests(),
@@ -82,6 +121,7 @@ export async function runForecastPass(run: IpPlanningRun): Promise<RunForecastPa
     wholesaleRepo.listInventorySnapshots(),
     wholesaleRepo.listOpenPos(),
     wholesaleRepo.listReceipts(lookbackFrom),
+    wholesaleRepo.ensureSupplyPlaceholderCustomer(),
   ]);
 
   // De-dup overrides to the latest per grain (createdAt desc from repo).
@@ -118,7 +158,114 @@ export async function runForecastPass(run: IpPlanningRun): Promise<RunForecastPa
     };
   });
 
-  const pairs = resolvePairs(historyInput, requestInput, itemCategoryBySku);
+  let pairs = resolvePairs(historyInput, requestInput, itemCategoryBySku);
+
+  // Supply-only pairs: any SKU with open PO qty or on-SO qty but no
+  // sales-history pair gets a synthetic forecast row under a "(Supply Only)"
+  // placeholder customer so the planner can see incoming inventory.
+  const skusWithSalesPair = new Set(pairs.map((p) => p.sku_id));
+  const supplyOnlySkus = new Set<string>();
+  for (const p of pos) {
+    if (p.qty_open > 0 && !skusWithSalesPair.has(p.sku_id)) supplyOnlySkus.add(p.sku_id);
+  }
+  for (const s of inv) {
+    if (((s.qty_committed ?? 0) > 0 || (s.qty_on_hand ?? 0) > 0) && !skusWithSalesPair.has(s.sku_id)) {
+      supplyOnlySkus.add(s.sku_id);
+    }
+  }
+  for (const skuId of supplyOnlySkus) {
+    pairs.push({
+      customer_id: supplyPlaceholder,
+      sku_id: skuId,
+      category_id: itemCategoryBySku.get(skuId) ?? null,
+    });
+  }
+
+  // Dead-SKU prune. A pair has no demand signal AND no inventory presence
+  // when ALL of these are zero:
+  //   - trailing-3 history (last 3 months of sales for this customer/sku)
+  //   - LY reference (sales 12 months back ±1mo for the snapshot)
+  //   - on-hand qty (latest inventory snapshot)
+  //   - on-PO qty (open POs for this sku)
+  //   - on-SO qty (committed_so on the latest snapshot)
+  // These rows would all forecast to zero anyway and just bloat the
+  // grid + slow down the build. Skip them at pair time.
+  const trailingT3Cutoff = historySince(snapshotDate, 3);
+  const trailingT3BySkuCust = new Map<string, number>();
+  for (const h of historyInput) {
+    if (h.txn_date < trailingT3Cutoff) continue;
+    const k = `${h.customer_id}:${h.sku_id}`;
+    trailingT3BySkuCust.set(k, (trailingT3BySkuCust.get(k) ?? 0) + h.qty);
+  }
+  const lyCutoffStart = historySince(snapshotDate, 13);
+  const lyCutoffEnd = historySince(snapshotDate, 11);
+  const lyBySkuCust = new Map<string, number>();
+  for (const h of historyInput) {
+    if (h.txn_date < lyCutoffStart || h.txn_date > lyCutoffEnd) continue;
+    const k = `${h.customer_id}:${h.sku_id}`;
+    lyBySkuCust.set(k, (lyBySkuCust.get(k) ?? 0) + h.qty);
+  }
+  const onHandBySku = new Map<string, number>();
+  const onSoBySku = new Map<string, number>();
+  for (const s of inv) {
+    onHandBySku.set(s.sku_id, (onHandBySku.get(s.sku_id) ?? 0) + (s.qty_on_hand ?? 0));
+    onSoBySku.set(s.sku_id, (onSoBySku.get(s.sku_id) ?? 0) + (s.qty_committed ?? 0));
+  }
+  const onPoBySku = new Map<string, number>();
+  for (const p of pos) {
+    onPoBySku.set(p.sku_id, (onPoBySku.get(p.sku_id) ?? 0) + (p.qty_open ?? 0));
+  }
+  const beforePrune = pairs.length;
+  pairs = pairs.filter((p) => {
+    // Don't prune supply-only synthetic pairs — they exist precisely
+    // because there's incoming inventory, so by definition they have
+    // at least one of on-PO or on-hand or on-SO non-zero. Belt-and-
+    // suspenders: keep them regardless.
+    if (p.customer_id === supplyPlaceholder) return true;
+    const k = `${p.customer_id}:${p.sku_id}`;
+    const t3 = trailingT3BySkuCust.get(k) ?? 0;
+    const ly = lyBySkuCust.get(k) ?? 0;
+    const onH = onHandBySku.get(p.sku_id) ?? 0;
+    const onPo = onPoBySku.get(p.sku_id) ?? 0;
+    const onSo = onSoBySku.get(p.sku_id) ?? 0;
+    return t3 > 0 || ly > 0 || onH > 0 || onPo > 0 || onSo > 0;
+  });
+  const prunedDeadCount = beforePrune - pairs.length;
+
+  // Optional grid-derived filter — when the planner builds with the
+  // grid filtered to e.g. "customer X / Joggers", scope the build
+  // so we only process those pairs.
+  let prunedFilterCount = 0;
+  const filter = options.filter;
+  const filterActive = !!filter && (
+    filter.customer_id || filter.group_name || filter.sub_category_name || filter.gender
+  );
+  if (filterActive) {
+    const itemBySku = new Map(items.map((i) => [i.id, i]));
+    const beforeFilter = pairs.length;
+    pairs = pairs.filter((p) => {
+      // Always keep the (Supply Only) synthetic — filtering it out by
+      // customer_id would lose visibility on incoming inventory.
+      if (p.customer_id === supplyPlaceholder) return true;
+      if (filter!.customer_id && p.customer_id !== filter!.customer_id) return false;
+      const item = itemBySku.get(p.sku_id);
+      const attrs = (item?.attributes ?? null) as Record<string, unknown> | null;
+      if (filter!.group_name) {
+        const v = attrs?.group_name;
+        if (typeof v !== "string" || v.trim() !== filter!.group_name) return false;
+      }
+      if (filter!.sub_category_name) {
+        const v = attrs?.category_name;
+        if (typeof v !== "string" || v.trim() !== filter!.sub_category_name) return false;
+      }
+      if (filter!.gender) {
+        const v = attrs?.gender;
+        if (typeof v !== "string" || v.trim() !== filter!.gender) return false;
+      }
+      return true;
+    });
+    prunedFilterCount = beforeFilter - pairs.length;
+  }
 
   const computeInput: IpForecastComputeInput = {
     planning_run_id: run.id,
@@ -170,6 +317,8 @@ export async function runForecastPass(run: IpPlanningRun): Promise<RunForecastPa
     forecast_rows_written: forecastRows.length,
     recommendations_written: recs.length,
     pairs_considered: pairs.length,
+    pairs_pruned_dead: prunedDeadCount,
+    pairs_pruned_filter: prunedFilterCount,
     methods,
   };
 }
@@ -206,30 +355,126 @@ export async function applyOverride(args: {
 // trailing, supply context, and recommendations in memory (dataset is
 // small enough in Phase 1; server-side view is Phase 2+).
 export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridRow[]> {
-  const [items, customers, categories, forecast, recs, sales, inv, pos, receipts, atsCostBySku] = await Promise.all([
+  // listRecommendations was removed — the grid recomputes recommended
+  // actions live via recommendForRow() against the rolling-supply pool,
+  // and the persisted ip_wholesale_recommendations rows are never read
+  // back here (they exist for audit/archival from the forecast pass).
+  // Removing the read eliminates a 1k-row paginated query that timed
+  // out (PostgREST 57014) once a run accumulated thousands of recs.
+  const [items, customers, categories, forecast, sales, inv, pos, openSos, receipts, atsCostBySku, avgCostBySku] = await Promise.all([
     wholesaleRepo.listItems(),
     wholesaleRepo.listCustomers(),
     wholesaleRepo.listCategories(),
     wholesaleRepo.listForecast(run.id),
-    wholesaleRepo.listRecommendations(run.id),
     wholesaleRepo.listWholesaleSales(historySince(run.source_snapshot_date, 3)),
     wholesaleRepo.listInventorySnapshots(),
     wholesaleRepo.listOpenPos(),
+    wholesaleRepo.listOpenSos(),
     wholesaleRepo.listReceipts(historySince(run.source_snapshot_date, 3)),
     wholesaleRepo.listAtsAvgCostBySku(),
+    wholesaleRepo.listItemAvgCostBySku(),
   ]);
 
   const itemById = new Map(items.map((i) => [i.id, i]));
   const customerById = new Map(customers.map((c) => [c.id, c]));
   const categoryById = new Map(categories.map((c) => [c.id, c]));
-  const recByGrain = new Map(recs.map((r) => [
-    `${r.customer_id}:${r.sku_id}:${r.period_start}`,
-    r,
-  ]));
+
+  // Style-level fallback. Planner's Item Master Excel often has one row
+  // per STYLE (e.g., "RYO0659" with description "MONEYMAKER Vrsty Jkt"),
+  // while ATS / TandA / Xoro see VARIANTS ("RYO0659-BLACK", "RYO0659-RED").
+  // Sync auto-stubs variants with no description, so joining grid →
+  // forecast.sku_id → variant master row produces blanks. Index master
+  // rows that have a description / unit_cost by style_code so the grid
+  // can promote those values up to all variants.
+  const masterByStyle = new Map<string, typeof items[number]>();
+  for (const i of items) {
+    if (!i.style_code) continue;
+    if (!i.description && i.unit_cost == null) continue;
+    const cur = masterByStyle.get(i.style_code);
+    // Prefer shorter sku_code (style-only beats variant) so "RYO0659"
+    // wins over "RYO0659-BLACK" when both have descriptions.
+    const ourLen = i.sku_code?.length ?? Number.MAX_SAFE_INTEGER;
+    const curLen = cur?.sku_code?.length ?? Number.MAX_SAFE_INTEGER;
+    if (!cur || ourLen < curLen) masterByStyle.set(i.style_code, i);
+  }
+  const avgCostByStyle = new Map<string, number>();
+  for (const i of items) {
+    if (!i.style_code || !i.sku_code) continue;
+    const cost = avgCostBySku.get(i.sku_code);
+    if (cost != null && cost > 0 && !avgCostByStyle.has(i.style_code)) {
+      avgCostByStyle.set(i.style_code, cost);
+    }
+  }
+  // Separate cost index: any master row in the same style with a real
+  // unit_cost wins. masterByStyle prefers shortest sku_code (best for
+  // description) but that row may have no cost — without this second
+  // index, RYO0659FP-BLACK/BLACK (desc set, cost null) would shadow
+  // RYO0659FP-SLATE/OFFWHITE (desc set, cost 11.90).
+  //
+  // When multiple variants in the same style have a unit_cost, take
+  // the max — sku_code-ASC iteration would otherwise let a deprecated
+  // cheap variant win over a current one. Max isn't a perfect signal
+  // but it's strictly more useful than first-seen for fallback display.
+  const unitCostByStyle = new Map<string, number>();
+  for (const i of items) {
+    if (!i.style_code || i.unit_cost == null || i.unit_cost <= 0) continue;
+    const cur = unitCostByStyle.get(i.style_code);
+    if (cur == null || i.unit_cost > cur) unitCostByStyle.set(i.style_code, i.unit_cost);
+  }
+  // recByGrain removed — grid no longer joins persisted recommendations.
+  // recommendForRow() runs live against rolling supply per row.
 
   const onHand = latestOnHandBySku(inv);
-  const onSo = committedSoBySku(inv);
-  const onPo = openPoQtyBySku(pos);
+  // Per-(customer, sku, period_start) open-PO + open-SO qty, filtered
+  // by expected_date / ship_date AND customer_id. Drives the grid's
+  // "On PO" and "On SO" columns so a PO/SO landing in May only shows
+  // on May rows, AND only on the customer row it was allocated to.
+  // Stock POs and customer-less SOs route to the (Supply Only)
+  // placeholder customer at sync time. POs/SOs without a date are
+  // dropped — we can't bucket them into a period.
+  const onPoByCustSkuPeriod = new Map<string, number>();
+  const onSoByCustSkuPeriod = new Map<string, number>();
+  {
+    const periodWindows = Array.from(
+      new Map(forecast.map((f) => [f.period_start, { start: f.period_start, end: f.period_end }])).values(),
+    );
+    for (const w of periodWindows) {
+      for (const p of pos) {
+        if (!p.expected_date) continue;
+        if (p.expected_date < w.start || p.expected_date > w.end) continue;
+        const custKey = p.customer_id ?? "supply_only";
+        const k = `${custKey}:${p.sku_id}:${w.start}`;
+        onPoByCustSkuPeriod.set(k, (onPoByCustSkuPeriod.get(k) ?? 0) + (p.qty_open ?? 0));
+      }
+      for (const so of openSos) {
+        if (!so.ship_date) continue;
+        if (so.ship_date < w.start || so.ship_date > w.end) continue;
+        const custKey = so.customer_id ?? "supply_only";
+        const k = `${custKey}:${so.sku_id}:${w.start}`;
+        onSoByCustSkuPeriod.set(k, (onSoByCustSkuPeriod.get(k) ?? 0) + (so.qty_open ?? 0));
+      }
+    }
+  }
+
+  // Weighted-avg unit cost across open POs per SKU. Used as a fallback
+  // when item master has no unit_cost / avg_cost (typical for SKUs the
+  // master Excel hasn't covered yet but TandA already has POs for).
+  const poCostBySku = new Map<string, number>();
+  {
+    const sumCostQty = new Map<string, { num: number; den: number }>();
+    for (const p of pos) {
+      const c = typeof p.unit_cost === "number" ? p.unit_cost : null;
+      const q = typeof p.qty_open === "number" ? p.qty_open : 0;
+      if (c == null || c <= 0 || q <= 0) continue;
+      const acc = sumCostQty.get(p.sku_id) ?? { num: 0, den: 0 };
+      acc.num += c * q;
+      acc.den += q;
+      sumCostQty.set(p.sku_id, acc);
+    }
+    for (const [skuId, { num, den }] of sumCostQty) {
+      if (den > 0) poCostBySku.set(skuId, num / den);
+    }
+  }
 
   // Trailing-3 per (customer, sku).
   const trailing = new Map<string, number>();
@@ -252,8 +497,20 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     const item = itemById.get(f.sku_id);
     const customer = customerById.get(f.customer_id);
     const category = f.category_id ? categoryById.get(f.category_id) : null;
-    const rec = recByGrain.get(`${f.customer_id}:${f.sku_id}:${f.period_start}`);
     const supply = rollingSupply.get(`${f.sku_id}:${f.period_start}`);
+    const styleFallback = item?.style_code ? masterByStyle.get(item.style_code) : null;
+    const description = item?.description ?? styleFallback?.description ?? null;
+    const colorDisplay = item?.color ?? styleFallback?.color ?? null;
+    // Resolved master cost: variant.unit_cost > variant avg_cost > any
+    // sibling-variant unit_cost in the same style > any sibling avg_cost.
+    // Then PO weighted avg, then ATS snapshot avg.
+    const masterCost =
+      item?.unit_cost
+      ?? (item?.sku_code ? avgCostBySku.get(item.sku_code) ?? null : null)
+      ?? (item?.style_code ? unitCostByStyle.get(item.style_code) ?? null : null)
+      ?? (item?.style_code ? avgCostByStyle.get(item.style_code) ?? null : null);
+    const fallbackCost = poCostBySku.get(f.sku_id) ?? (item?.sku_code ? atsCostBySku.get(item.sku_code) ?? null : null);
+    const resolvedCost = masterCost ?? fallbackCost ?? null;
     // Always derive avail/shortage/excess from the rolling supply so that
     // planned_buy_qty and the month-to-month roll are always current.
     // rec is kept only for action/reason labels (rebuilt on next forecast run).
@@ -270,26 +527,40 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       category_name: category?.name ?? null,
       sku_id: f.sku_id,
       sku_code: item?.sku_code ?? "(unknown sku)",
-      sku_description: item?.description ?? null,
+      sku_description: description,
+      sku_style: item?.style_code ?? null,
+      sku_color: colorDisplay,
+      // Item-master classification — falls back to a sibling variant in
+      // the same style if the variant master row hasn't been populated yet.
+      group_name: readGroupName(item) ?? readGroupName(styleFallback) ?? null,
+      sub_category_name: readSubCategoryName(item) ?? readSubCategoryName(styleFallback) ?? null,
+      gender: readGender(item) ?? readGender(styleFallback) ?? null,
       period_code: f.period_code,
       period_start: f.period_start,
       period_end: f.period_end,
       historical_trailing_qty: trailing.get(`${f.customer_id}:${f.sku_id}`) ?? 0,
-      system_forecast_qty: f.system_forecast_qty,
+      // Effective system: override wins when set, otherwise the
+      // computed value. The original is preserved separately so the
+      // grid tooltip can display "from X to Y on DATE".
+      system_forecast_qty: f.system_forecast_qty_override ?? f.system_forecast_qty,
+      system_forecast_qty_original: f.system_forecast_qty,
+      system_forecast_qty_overridden_at: f.system_forecast_qty_overridden_at ?? null,
+      system_forecast_qty_overridden_by: f.system_forecast_qty_overridden_by ?? null,
       buyer_request_qty: f.buyer_request_qty,
       override_qty: f.override_qty,
       final_forecast_qty: f.final_forecast_qty,
       confidence_level: f.confidence_level,
       forecast_method: f.forecast_method,
       ly_reference_qty: f.ly_reference_qty ?? null,
-      item_cost: item?.unit_cost ?? null,
+      item_cost: item?.unit_cost ?? (item?.style_code ? unitCostByStyle.get(item.style_code) ?? null : null) ?? null,
       ats_avg_cost: item?.sku_code ? (atsCostBySku.get(item.sku_code) ?? null) : null,
+      avg_cost: resolvedCost,
       unit_cost_override: f.unit_cost_override ?? null,
-      unit_cost: f.unit_cost_override ?? (item?.sku_code ? atsCostBySku.get(item.sku_code) ?? null : null) ?? item?.unit_cost ?? null,
+      unit_cost: f.unit_cost_override ?? resolvedCost,
       planned_buy_qty: f.planned_buy_qty ?? null,
       on_hand_qty: supply?.beginning_balance_qty ?? onHand.get(f.sku_id) ?? 0,
-      on_so_qty: onSo.get(f.sku_id) ?? 0,
-      on_po_qty: onPo.get(f.sku_id) ?? 0,
+      on_so_qty: onSoByCustSkuPeriod.get(`${f.customer_id}:${f.sku_id}:${f.period_start}`) ?? 0,
+      on_po_qty: onPoByCustSkuPeriod.get(`${f.customer_id}:${f.sku_id}:${f.period_start}`) ?? 0,
       receipts_due_qty: supply?.receipts_due_qty ?? 0,
       available_supply_qty: avail,
       projected_shortage_qty: shortage,

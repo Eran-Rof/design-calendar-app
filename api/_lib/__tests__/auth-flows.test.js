@@ -83,12 +83,17 @@ describe("generateApiKey", () => {
     expect(keyPrefix.length).toBeGreaterThan(4);
   });
 
-  it("produces a keyHash in salt:hash format", () => {
+  it("produces a keyHash in v2 scrypt format (scrypt2:N:salt:hash)", () => {
+    // CLAUDE.md mandates bcrypt(12)-equivalent strength. We use scrypt
+    // N=131072 (cost-equivalent) and prefix with the format tag so
+    // verifyApiKey can decode N at verify time.
     const { keyHash } = generateApiKey();
     const parts = keyHash.split(":");
-    expect(parts).toHaveLength(2);
-    expect(parts[0].length).toBeGreaterThan(0);
-    expect(parts[1].length).toBeGreaterThan(0);
+    expect(parts).toHaveLength(4);
+    expect(parts[0]).toBe("scrypt2");
+    expect(Number(parts[1])).toBeGreaterThanOrEqual(131072);
+    expect(parts[2].length).toBeGreaterThan(0);
+    expect(parts[3].length).toBeGreaterThan(0);
   });
 
   it("generates unique keys on every call", () => {
@@ -126,6 +131,34 @@ describe("verifyApiKey", () => {
     expect(verifyApiKey("", "salt:hash")).toBe(false);
     expect(verifyApiKey("vnd_key", "")).toBe(false);
     expect(verifyApiKey(null, null)).toBe(false);
+  });
+
+  // Backwards compatibility — the legacy 2-part hash format (salt:hash,
+  // implicit N=1024) was the format we wrote before bumping to scrypt2
+  // with N=131072. Existing API keys in production are stored in the
+  // legacy shape; verifyApiKey must still accept them so they don't
+  // brick on the cost-factor upgrade.
+  describe("legacy hash format", () => {
+    // Round-trip a legacy hash through scryptSync directly so we have
+    // a known good value not produced by generateApiKey (which now
+    // emits v2). This tests the verify path's legacy decoder.
+    it("verifies a legacy 2-part hash with implicit N=1024", async () => {
+      const crypto = await import("node:crypto");
+      const raw = "vnd_legacytestkey";
+      const salt = crypto.randomBytes(16);
+      const hash = crypto.scryptSync(raw, salt, 32, { N: 1024, r: 8, p: 1 });
+      const legacyStored = `${salt.toString("hex")}:${hash.toString("hex")}`;
+      expect(verifyApiKey(raw, legacyStored)).toBe(true);
+      expect(verifyApiKey("vnd_wrong", legacyStored)).toBe(false);
+    });
+
+    it("rejects a v2 hash with malformed N", () => {
+      // Manually construct a v2 hash with a bogus N — guarded against
+      // because someone could edit the row by hand. The implementation
+      // bounds N to [1024, 1<<20].
+      const stored = "scrypt2:abc:1234:abcd"; // N is non-numeric
+      expect(verifyApiKey("vnd_x", stored)).toBe(false);
+    });
   });
 });
 

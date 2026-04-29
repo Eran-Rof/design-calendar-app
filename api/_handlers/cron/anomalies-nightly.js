@@ -70,9 +70,9 @@ async function fireHighSeverityAlert(admin, origin, vendor, flag) {
           dedupe_key: `anomaly_detected_${flag.id}_${email}`,
           email: true,
         }),
-      }).catch(() => {})
+      }).catch((e) => console.error("[cron] notify fanout failed", e?.message ?? e))
     ));
-  } catch { /* non-blocking */ }
+  } catch (e) { console.error("[cron] high-severity anomaly notify failed", e?.message ?? e); }
 }
 
 async function runForVendor(admin, vendor, globals) {
@@ -87,7 +87,11 @@ async function runForVendor(admin, vendor, globals) {
   const byPoAmount = new Map();
   for (const inv of vinvoices) {
     if (!inv.po_id) continue;
-    const key = `${inv.po_id}|${Number(inv.total).toFixed(2)}`;
+    // Skip invoices with no/invalid total — they would all collide on a
+    // "po_id|NaN" key and surface as fake duplicates.
+    const totalNum = Number(inv.total);
+    if (!Number.isFinite(totalNum)) continue;
+    const key = `${inv.po_id}|${totalNum.toFixed(2)}`;
     const prev = byPoAmount.get(key) || [];
     prev.push(inv);
     byPoAmount.set(key, prev);
@@ -242,23 +246,50 @@ async function runForVendor(admin, vendor, globals) {
 }
 
 export default async function handler(req, res) {
+  // Match the auth pattern of every other cron — without this anyone
+  // could trigger anomaly flag inserts + email blasts on demand.
+  const expectedSecret = process.env.CRON_SECRET;
+  if (expectedSecret && req.headers.authorization !== `Bearer ${expectedSecret}`) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
   const SB_URL = process.env.VITE_SUPABASE_URL;
   const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!SB_URL || !SERVICE_KEY) return res.status(500).json({ error: "Server not configured" });
   const admin = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
   const origin = `https://${req.headers.host}`;
 
+  // Paginated fetch for the unbounded selects below — without this, the
+  // cron OOMs / times out once a tenant has ~50k invoices or POs. The
+  // PostgREST default is 1000 rows per request, so we walk the table
+  // 1000 rows at a time. We still load everything in memory because the
+  // anomaly compute does cross-cuts; switching to per-vendor streaming
+  // is a bigger refactor and tracked separately.
+  async function fetchAll(builderFn) {
+    const out = [];
+    const PAGE = 1000;
+    for (let offset = 0; ; offset += PAGE) {
+      const { data, error } = await builderFn().range(offset, offset + PAGE - 1);
+      if (error) return { data: out, error };
+      if (!data || data.length === 0) break;
+      out.push(...data);
+      if (data.length < PAGE) break;
+      if (offset > 500_000) break; // safety cap @ 500k rows
+    }
+    return { data: out, error: null };
+  }
+
   // ── Batch-fetch shared data ────────────────────────────────────────
   const [vRes, invRes, posRes, phRes, kpiRes, scorecardsRes, docTypesRes, docsRes, existingFlagsRes] = await Promise.all([
-    admin.from("vendors").select("id, name, status, deleted_at"),
-    admin.from("invoices").select("id, vendor_id, po_id, invoice_number, total, invoice_date, submitted_at, status"),
-    admin.from("tanda_pos").select("uuid_id, vendor_id, po_number, data"),
-    admin.from("catalog_price_history").select("catalog_item_id, old_price, new_price, created_at, catalog_items!inner(vendor_id)").order("created_at", { ascending: false }),
-    admin.from("vendor_kpi_live").select("vendor_id, on_time_delivery_pct"),
-    admin.from("vendor_scorecards").select("vendor_id, period_start, on_time_delivery_pct").order("period_start", { ascending: false }),
-    admin.from("compliance_document_types").select("id, name, required, expiry_required").eq("active", true).eq("required", true),
-    admin.from("compliance_documents").select("vendor_id, document_type_id, status, expiry_date, uploaded_at"),
-    admin.from("anomaly_flags").select("*").eq("status", "open"),
+    fetchAll(() => admin.from("vendors").select("id, name, status, deleted_at")),
+    fetchAll(() => admin.from("invoices").select("id, vendor_id, po_id, invoice_number, total, invoice_date, submitted_at, status")),
+    fetchAll(() => admin.from("tanda_pos").select("uuid_id, vendor_id, po_number, data")),
+    fetchAll(() => admin.from("catalog_price_history").select("catalog_item_id, old_price, new_price, created_at, catalog_items!inner(vendor_id)").order("created_at", { ascending: false })),
+    fetchAll(() => admin.from("vendor_kpi_live").select("vendor_id, on_time_delivery_pct")),
+    fetchAll(() => admin.from("vendor_scorecards").select("vendor_id, period_start, on_time_delivery_pct").order("period_start", { ascending: false })),
+    fetchAll(() => admin.from("compliance_document_types").select("id, name, required, expiry_required").eq("active", true).eq("required", true)),
+    fetchAll(() => admin.from("compliance_documents").select("vendor_id, document_type_id, status, expiry_date, uploaded_at")),
+    fetchAll(() => admin.from("anomaly_flags").select("*").eq("status", "open")),
   ]);
 
   const errs = [vRes, invRes, posRes, kpiRes, scorecardsRes, docTypesRes, docsRes, existingFlagsRes].filter((r) => r.error);
@@ -333,7 +364,7 @@ export default async function handler(req, res) {
             description: flag.description,
           },
         });
-      } catch { /* non-blocking */ }
+      } catch (e) { console.error("[cron] high-severity anomaly notify failed", e?.message ?? e); }
     }
   }
 

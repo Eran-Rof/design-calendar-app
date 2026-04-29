@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 
 interface Workflow {
   id: string;
@@ -33,6 +33,7 @@ export default function InternalOnboarding() {
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState("pending_review");
   const [selected, setSelected] = useState<string | null>(null);
+  const [showInvite, setShowInvite] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -54,15 +55,18 @@ export default function InternalOnboarding() {
 
   return (
     <div style={{ color: C.text }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16, gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 22 }}>Onboarding review</h2>
-        <select value={filter} onChange={(e) => setFilter(e.target.value)} style={{ padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6 }}>
-          <option value="pending_review">Pending review</option>
-          <option value="in_progress">In progress</option>
-          <option value="approved">Approved</option>
-          <option value="rejected">Rejected</option>
-          <option value="all">All</option>
-        </select>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button onClick={() => setShowInvite(true)} style={btnPrimary}>+ Invite vendor to portal</button>
+          <select value={filter} onChange={(e) => setFilter(e.target.value)} style={{ padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6 }}>
+            <option value="pending_review">Pending review</option>
+            <option value="in_progress">In progress</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+            <option value="all">All</option>
+          </select>
+        </div>
       </div>
 
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
@@ -89,9 +93,71 @@ export default function InternalOnboarding() {
       </div>
 
       {selected && <ReviewModal vendorId={selected} onClose={() => setSelected(null)} onAction={() => { setSelected(null); void load(); }} />}
+      {showInvite && <InviteVendorModal onClose={() => setShowInvite(false)} onSent={() => { setShowInvite(false); void load(); }} />}
     </div>
   );
 }
+
+function InviteVendorModal({ onClose, onSent }: { onClose: () => void; onSent: () => void }) {
+  const [vendorName, setVendorName] = useState("");
+  const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  async function send() {
+    if (!email.trim()) { setErr("Email is required."); return; }
+    setBusy(true); setErr(null); setNote(null);
+    try {
+      const r = await fetch("/api/vendor-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vendor_name: vendorName.trim() || null,
+          email: email.trim(),
+          display_name: displayName.trim() || null,
+        }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error || `Invite failed (${r.status})`);
+      setNote(`Invite sent to ${email}. The vendor will receive a magic-link email.`);
+      setTimeout(onSent, 1500);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div onClick={(e) => { if (e.currentTarget === e.target) onClose(); }} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.7)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ width: "min(520px, calc(100vw - 32px))", background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, color: C.text, fontFamily: "system-ui, -apple-system, sans-serif" }}>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Invite vendor to portal</div>
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
+          Sends a magic-link email so the vendor can set up their portal login and begin onboarding.
+        </div>
+        <label style={labelStyle}>Vendor company name (optional — matches/creates vendor record)</label>
+        <input value={vendorName} onChange={(e) => setVendorName(e.target.value)} placeholder="e.g. Sunrise Apparel Co." style={inputStyle} />
+        <label style={labelStyle}>Contact name (optional)</label>
+        <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="e.g. Jane Smith" style={inputStyle} />
+        <label style={labelStyle}>Email (required)</label>
+        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jane@supplier.com" style={inputStyle} autoFocus />
+        {err && <div style={{ color: C.danger, fontSize: 12, marginTop: 10 }}>{err}</div>}
+        {note && <div style={{ color: C.success, fontSize: 12, marginTop: 10 }}>{note}</div>}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+          <button onClick={onClose} disabled={busy} style={{ padding: "7px 14px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: "transparent", color: C.textSub, cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit", fontSize: 13 }}>Cancel</button>
+          <button onClick={() => void send()} disabled={busy || !email.trim()} style={{ padding: "7px 16px", borderRadius: 6, border: "none", background: busy || !email.trim() ? C.textMuted : C.primary, color: "#fff", cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 600 }}>
+            {busy ? "Sending…" : "Send invite"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const labelStyle: React.CSSProperties = { display: "block", fontSize: 11, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4, marginTop: 12, marginBottom: 4 };
+const inputStyle: React.CSSProperties = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, fontFamily: "inherit", boxSizing: "border-box" };
 
 function statusColor(s: string) {
   if (s === "approved") return C.success;

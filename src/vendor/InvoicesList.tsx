@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { TH } from "../utils/theme";
+import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate, fmtMoney } from "./utils";
 
@@ -110,8 +110,8 @@ export default function InvoicesList() {
           <div>Invoice #</div>
           <div>Submitted</div>
           <div>Due</div>
-          <div>Amount</div>
-          <div>Status</div>
+          <div style={{ textAlign: "right", paddingRight: 16 }}>Amount</div>
+          <div style={{ textAlign: "center" }}>Status</div>
           <div style={{ textAlign: "right" }}>Paid</div>
         </div>
         {visible.length === 0 ? (
@@ -129,8 +129,8 @@ export default function InvoicesList() {
               <div style={{ fontWeight: 600, color: TH.text, fontFamily: "Menlo, monospace" }}>{r.invoice_number}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.submitted_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.due_date)}</div>
-              <div style={{ color: TH.text, fontWeight: 600 }}>{fmtMoney(r.total ?? undefined)}</div>
-              <div>
+              <div style={{ color: TH.text, fontWeight: 600, textAlign: "right", paddingRight: 16 }}>{fmtMoney(r.total ?? undefined)}</div>
+              <div style={{ textAlign: "center" }}>
                 <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 10, background: c.bg, color: c.fg, fontWeight: 600, textTransform: "capitalize" }}>
                   {r.status.replace("_", " ")}
                 </span>

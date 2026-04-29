@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { TH } from "../utils/theme";
+import { Link } from "react-router-dom";
+import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
-import { fmtDate, fmtMoney } from "./utils";
+import { fmtDate, fmtMoney, todayLocalIso, dateToLocalIso } from "./utils";
+import { PHASES, computeExpectedDate } from "./VendorPhasesView";
 
 interface Summary {
   period: { from: string; to: string };
@@ -53,6 +55,7 @@ const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
   acknowledged:       { bg: "#DBEAFE", fg: "#1E40AF" },
   partially_received: { bg: "#FEF3C7", fg: "#92400E" },
   fulfilled:          { bg: "#D1FAE5", fg: "#065F46" },
+  shipped_invoiced:   { bg: "#D1FAE5", fg: "#065F46" },
   closed:             { bg: "#A7F3D0", fg: "#064E3B" },
   matched:      { bg: "#D1FAE5", fg: "#065F46" },
   discrepancy:  { bg: "#FECACA", fg: "#991B1B" },
@@ -65,6 +68,76 @@ async function authedFetch(path: string) {
   return fetch(path, { headers: { Authorization: `Bearer ${token}` } });
 }
 
+// ── Date-range presets ──────────────────────────────────────────────
+const PRESETS = [
+  "Today", "Yesterday", "This week", "Last week",
+  "Last 7 days", "Last 30 days", "Last 90 days",
+  "This month", "Last month", "Month to date",
+  "This quarter", "Last quarter", "Quarter to date",
+  "This year", "Last year", "Year to date",
+  "Last 12 months", "All time",
+] as const;
+type Preset = typeof PRESETS[number];
+
+function iso(d: Date): string {
+  return dateToLocalIso(d);
+}
+
+function resolvePreset(preset: Preset): { from: string; to: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const dow = now.getDay(); // 0 = Sunday
+  const mondayOffset = (dow + 6) % 7; // days since Monday
+  const quarter = Math.floor(m / 3);
+
+  switch (preset) {
+    case "Today":          return { from: iso(now), to: iso(now) };
+    case "Yesterday": {
+      const y1 = new Date(now); y1.setDate(y1.getDate() - 1);
+      return { from: iso(y1), to: iso(y1) };
+    }
+    case "This week": {
+      const start = new Date(now); start.setDate(now.getDate() - mondayOffset);
+      return { from: iso(start), to: iso(now) };
+    }
+    case "Last week": {
+      const end = new Date(now); end.setDate(now.getDate() - mondayOffset - 1);
+      const start = new Date(end); start.setDate(end.getDate() - 6);
+      return { from: iso(start), to: iso(end) };
+    }
+    case "Last 7 days": {
+      const s = new Date(now); s.setDate(now.getDate() - 6);
+      return { from: iso(s), to: iso(now) };
+    }
+    case "Last 30 days": {
+      const s = new Date(now); s.setDate(now.getDate() - 29);
+      return { from: iso(s), to: iso(now) };
+    }
+    case "Last 90 days": {
+      const s = new Date(now); s.setDate(now.getDate() - 89);
+      return { from: iso(s), to: iso(now) };
+    }
+    case "This month":     return { from: iso(new Date(y, m, 1)), to: iso(new Date(y, m + 1, 0)) };
+    case "Month to date":  return { from: iso(new Date(y, m, 1)), to: iso(now) };
+    case "Last month":     return { from: iso(new Date(y, m - 1, 1)), to: iso(new Date(y, m, 0)) };
+    case "This quarter":   return { from: iso(new Date(y, quarter * 3, 1)), to: iso(new Date(y, quarter * 3 + 3, 0)) };
+    case "Quarter to date": return { from: iso(new Date(y, quarter * 3, 1)), to: iso(now) };
+    case "Last quarter": {
+      const q = quarter === 0 ? { ys: y - 1, qm: 9 } : { ys: y, qm: (quarter - 1) * 3 };
+      return { from: iso(new Date(q.ys, q.qm, 1)), to: iso(new Date(q.ys, q.qm + 3, 0)) };
+    }
+    case "This year":      return { from: iso(new Date(y, 0, 1)), to: iso(new Date(y, 11, 31)) };
+    case "Year to date":   return { from: iso(new Date(y, 0, 1)), to: iso(now) };
+    case "Last year":      return { from: iso(new Date(y - 1, 0, 1)), to: iso(new Date(y - 1, 11, 31)) };
+    case "Last 12 months": {
+      const s = new Date(y, m - 12, now.getDate());
+      return { from: iso(s), to: iso(now) };
+    }
+    case "All time":       return { from: "2020-01-01", to: iso(now) };
+  }
+}
+
 export default function VendorReports() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [pos, setPOs] = useState<POHistoryRow[]>([]);
@@ -74,11 +147,98 @@ export default function VendorReports() {
   // Default to rolling last 12 months
   const [fromDate, setFromDate] = useState(() => {
     const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth() - 12, d.getDate()).toISOString().slice(0, 10);
+    return dateToLocalIso(new Date(d.getFullYear(), d.getMonth() - 12, d.getDate()));
   });
-  const [toDate, setToDate] = useState(new Date().toISOString().slice(0, 10));
+  const [toDate, setToDate] = useState(todayLocalIso());
   const [poStatus, setPoStatus] = useState("");
   const [invStatus, setInvStatus] = useState("");
+  // Lookups so we can link row-level po_number / invoice_number to
+  // their detail routes without API changes.
+  const [poIdByNumber, setPoIdByNumber] = useState<Record<string, string>>({});
+  const [invoiceIdByNumber, setInvoiceIdByNumber] = useState<Record<string, string>>({});
+  // Phase bucket counters — computed client-side from each PO's DDP.
+  const [phaseBuckets, setPhaseBuckets] = useState({ overdue: 0, this_week: 0, next_30: 0 });
+  // Per-PO tally of phase review activity (approved/rejected + pending).
+  // Populated at the same time as phaseBuckets so one API call feeds both.
+  const [phaseActivity, setPhaseActivity] = useState<Array<{
+    po_id: string;
+    po_number: string;
+    pending: number;
+    approved: number;
+    rejected: number;
+    latest_at: string | null;
+  }>>([]);
+
+  useEffect(() => {
+    (async () => {
+      const [{ data: poRows }, { data: invRows }, { data: reqRows }] = await Promise.all([
+        supabaseVendor.from("tanda_pos").select("uuid_id, po_number, date_expected_delivery, data"),
+        supabaseVendor.from("invoices").select("id, invoice_number"),
+        supabaseVendor.from("tanda_milestone_change_requests").select("po_id, po_number, phase_name, field_name, new_value, status, reviewed_at, po_line_key"),
+      ]);
+      const pm: Record<string, string> = {};
+      for (const r of (poRows ?? []) as { uuid_id: string; po_number: string }[]) pm[r.po_number] = r.uuid_id;
+      setPoIdByNumber(pm);
+      const im: Record<string, string> = {};
+      for (const r of (invRows ?? []) as { id: string; invoice_number: string }[]) im[r.invoice_number] = r.id;
+      setInvoiceIdByNumber(im);
+
+      // Phase bucket counts. For each PO × phase, compute expected date
+      // (using any approved/pending change-request override), then bucket
+      // by today's date. Skip Complete / N/A statuses.
+      const reqs = (reqRows ?? []) as { po_id: string; phase_name: string; field_name: string; new_value: string | null; status: string }[];
+      const latest = new Map<string, { new_value: string | null; status: string }>();
+      // reqRows is ordered arbitrarily; iterate and keep the first seen
+      // (caller didn't order, but any active row wins over defaults).
+      for (const r of reqs) {
+        const key = `${r.po_id}::${r.phase_name}::${r.field_name}`;
+        if (!latest.has(key)) latest.set(key, r);
+      }
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const in7 = new Date(today); in7.setDate(today.getDate() + 7);
+      const in30 = new Date(today); in30.setDate(today.getDate() + 30);
+      const counts = { overdue: 0, this_week: 0, next_30: 0 };
+      for (const po of (poRows ?? []) as { uuid_id: string; date_expected_delivery: string | null; data: { DateExpectedDelivery?: string } | null }[]) {
+        const ddp = po.date_expected_delivery || po.data?.DateExpectedDelivery || null;
+        for (const phase of PHASES) {
+          const statusReq = latest.get(`${po.uuid_id}::${phase.name}::status`);
+          const effStatus = statusReq?.new_value || "Not Started";
+          if (effStatus === "Complete" || effStatus === "N/A") continue;
+          const dateReq = latest.get(`${po.uuid_id}::${phase.name}::expected_date`);
+          const eff = dateReq?.new_value || computeExpectedDate(ddp, phase.daysBeforeDDP);
+          if (!eff) continue;
+          const d = new Date(eff);
+          if (d < today) counts.overdue++;
+          else if (d <= in7) counts.this_week++;
+          else if (d <= in30) counts.next_30++;
+        }
+      }
+      setPhaseBuckets(counts);
+
+      // Aggregate per-PO phase activity: count approved/rejected/pending
+      // change requests and the most recent reviewed_at so the dashboard
+      // can surface a clickable list of POs with review activity.
+      const allReqs = (reqRows ?? []) as Array<{ po_id: string; po_number: string; status: string; reviewed_at: string | null }>;
+      const map = new Map<string, { po_id: string; po_number: string; pending: number; approved: number; rejected: number; latest_at: string | null }>();
+      for (const r of allReqs) {
+        const cur = map.get(r.po_id) || { po_id: r.po_id, po_number: r.po_number, pending: 0, approved: 0, rejected: 0, latest_at: null };
+        if (r.status === "pending") cur.pending += 1;
+        else if (r.status === "approved") cur.approved += 1;
+        else if (r.status === "rejected") cur.rejected += 1;
+        if (r.reviewed_at && (!cur.latest_at || new Date(r.reviewed_at).getTime() > new Date(cur.latest_at).getTime())) {
+          cur.latest_at = r.reviewed_at;
+        }
+        map.set(r.po_id, cur);
+      }
+      const sorted = Array.from(map.values()).sort((a, b) => {
+        const at = a.latest_at ? new Date(a.latest_at).getTime() : 0;
+        const bt = b.latest_at ? new Date(b.latest_at).getTime() : 0;
+        if (bt !== at) return bt - at;
+        return (b.pending + b.approved + b.rejected) - (a.pending + a.approved + a.rejected);
+      });
+      setPhaseActivity(sorted);
+    })();
+  }, []);
 
   async function load() {
     setLoading(true);
@@ -105,7 +265,13 @@ export default function VendorReports() {
     }
   }
 
-  useEffect(() => { void load(); /* eslint-disable-next-line */ }, []);
+  // Re-fetch whenever any filter changes. Debounced by 200ms so rapid date
+  // input typing doesn't hammer the API.
+  useEffect(() => {
+    const t = setTimeout(() => { void load(); }, 200);
+    return () => clearTimeout(t);
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [fromDate, toDate, poStatus, invStatus]);
 
   const scoreColor = (pct: number | null | undefined) => {
     if (pct == null) return TH.textMuted;
@@ -119,27 +285,104 @@ export default function VendorReports() {
 
   return (
     <div>
+      <h2 style={{ margin: "0 0 16px", color: "#FFFFFF", fontSize: 22 }}>Dashboard</h2>
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "12px 16px", marginBottom: 16, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
         <div style={{ fontSize: 13, color: TH.textSub, fontWeight: 600 }}>Period</div>
+        <select
+          onChange={(e) => {
+            const v = e.target.value;
+            if (!v) return;
+            const r = resolvePreset(v as Preset);
+            setFromDate(r.from);
+            setToDate(r.to);
+            e.target.value = ""; // reset so the same preset can be re-picked
+          }}
+          defaultValue=""
+          style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }}
+        >
+          <option value="" disabled>Quick range…</option>
+          <optgroup label="Short">
+            <option value="Today">Today</option>
+            <option value="Yesterday">Yesterday</option>
+            <option value="This week">This week</option>
+            <option value="Last week">Last week</option>
+          </optgroup>
+          <optgroup label="Rolling">
+            <option value="Last 7 days">Last 7 days</option>
+            <option value="Last 30 days">Last 30 days</option>
+            <option value="Last 90 days">Last 90 days</option>
+            <option value="Last 12 months">Last 12 months</option>
+          </optgroup>
+          <optgroup label="Month">
+            <option value="This month">This month</option>
+            <option value="Month to date">Month to date</option>
+            <option value="Last month">Last month</option>
+          </optgroup>
+          <optgroup label="Quarter">
+            <option value="This quarter">This quarter</option>
+            <option value="Quarter to date">Quarter to date</option>
+            <option value="Last quarter">Last quarter</option>
+          </optgroup>
+          <optgroup label="Year">
+            <option value="This year">This year</option>
+            <option value="Year to date">Year to date</option>
+            <option value="Last year">Last year</option>
+          </optgroup>
+          <option value="All time">All time</option>
+        </select>
         <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }} />
         <span style={{ color: TH.textMuted }}>→</span>
         <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }} />
-        <button onClick={() => void load()} style={{ padding: "7px 14px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" }}>Refresh</button>
+        <button
+          onClick={() => void load()}
+          disabled={loading}
+          style={{
+            padding: "7px 14px", borderRadius: 6, border: "none",
+            background: loading ? TH.textMuted : TH.primary, color: "#FFFFFF",
+            cursor: loading ? "not-allowed" : "pointer",
+            fontSize: 13, fontWeight: 600, fontFamily: "inherit",
+          }}
+        >
+          {loading ? "Refreshing…" : "Refresh"}
+        </button>
       </div>
 
       {summary && (
         <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 12 }}>
+            <PhaseBucketCard
+              label="Overdue phases"
+              count={phaseBuckets.overdue}
+              to="/vendor/phases?filter=overdue"
+              tone="danger"
+            />
+            <PhaseBucketCard
+              label="Due this week"
+              count={phaseBuckets.this_week}
+              to="/vendor/phases?filter=this_week"
+              tone="warn"
+            />
+            <PhaseBucketCard
+              label="Next 30 days"
+              count={phaseBuckets.next_30}
+              to="/vendor/phases?filter=next_30"
+            />
+          </div>
+
+          <POPhaseActivity rows={phaseActivity} />
+
+
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 14 }}>
-            <StatCard label="POs in period" value={String(summary.pos_this_year)} />
-            <StatCard label="Invoices in period" value={String(summary.invoices_this_year)} />
-            <StatCard label="Total invoiced" value={fmtMoney(summary.total_invoiced_ytd)} />
-            <StatCard label="Total paid" value={fmtMoney(summary.total_paid_ytd)} tone="ok" />
+            <StatCard label="POs in period" value={String(summary.pos_this_year)} to="/vendor" />
+            <StatCard label="Invoices in period" value={String(summary.invoices_this_year)} to="/vendor/invoices" />
+            <StatCard label="Total invoiced" value={fmtMoney(summary.total_invoiced_ytd)} to="/vendor/invoices" />
+            <StatCard label="Total paid" value={fmtMoney(summary.total_paid_ytd)} tone="ok" to="/vendor/payments" />
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
-            <KPICard label="On-time delivery" value={summary.on_time_delivery_pct != null ? `${summary.on_time_delivery_pct}%` : "—"} color={scoreColor(summary.on_time_delivery_pct)} />
-            <KPICard label="Invoice accuracy" value={summary.invoice_accuracy_pct != null ? `${summary.invoice_accuracy_pct}%` : "—"} color={scoreColor(summary.invoice_accuracy_pct)} />
-            <KPICard label="Avg days to payment" value={summary.avg_payment_days != null ? `${summary.avg_payment_days}d` : "—"} color={summary.avg_payment_days == null || summary.avg_payment_days > 45 ? TH.primary : "#047857"} />
+            <KPICard label="On-time delivery" value={summary.on_time_delivery_pct != null ? `${summary.on_time_delivery_pct}%` : "—"} color={scoreColor(summary.on_time_delivery_pct)} to="/vendor/scorecard" />
+            <KPICard label="Invoice accuracy" value={summary.invoice_accuracy_pct != null ? `${summary.invoice_accuracy_pct}%` : "—"} color={scoreColor(summary.invoice_accuracy_pct)} to="/vendor/scorecard" />
+            <KPICard label="Avg days to payment" value={summary.avg_payment_days != null ? `${summary.avg_payment_days}d` : "—"} color={summary.avg_payment_days == null || summary.avg_payment_days > 45 ? TH.primary : "#047857"} to="/vendor/payments" />
           </div>
 
           <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "14px 20px", marginBottom: 20, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
@@ -162,12 +405,13 @@ export default function VendorReports() {
 
       <div style={{ color: "#FFFFFF", fontSize: 14, fontWeight: 700, margin: "8px 0 10px", letterSpacing: 0.3 }}>PO history</div>
       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-        <select value={poStatus} onChange={(e) => { setPoStatus(e.target.value); setTimeout(load, 0); }} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }}>
+        <select value={poStatus} onChange={(e) => setPoStatus(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }}>
           <option value="">All statuses</option>
           <option value="issued">Issued</option>
           <option value="acknowledged">Acknowledged</option>
           <option value="partially_received">Partially received</option>
           <option value="fulfilled">Fulfilled</option>
+          <option value="shipped_invoiced">Shipped/Invoiced</option>
           <option value="closed">Closed</option>
         </select>
       </div>
@@ -181,29 +425,40 @@ export default function VendorReports() {
           const c = STATUS_COLORS[r.status] ?? STATUS_COLORS.pending;
           const pct = r.pct_received;
           const pctColor = pct == null ? TH.textMuted : pct >= 100 ? "#047857" : pct >= 50 ? "#B45309" : TH.primary;
+          const poUuid = poIdByNumber[r.po_number];
+          const rowStyle: React.CSSProperties = {
+            display: "grid",
+            gridTemplateColumns: "140px 110px 110px 110px 110px 110px 140px 90px 80px",
+            padding: "10px 14px",
+            borderBottom: `1px solid ${TH.border}`,
+            fontSize: 13,
+            alignItems: "center",
+            textDecoration: "none",
+            color: "inherit",
+          };
+          const RowTag: React.ElementType = poUuid ? Link : "div";
+          const rowProps: Record<string, unknown> = poUuid ? { to: `/vendor/pos/${poUuid}`, style: { ...rowStyle, cursor: "pointer" } } : { style: rowStyle };
           return (
-            <div key={r.po_number} style={{ display: "grid", gridTemplateColumns: "140px 110px 110px 110px 110px 110px 140px 90px 80px", padding: "10px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
-              <div style={{ fontWeight: 600, color: TH.text, fontFamily: "Menlo, monospace" }}>{r.po_number}</div>
+            <RowTag key={r.po_number} {...rowProps}>
+              <div style={{ fontWeight: 600, color: poUuid ? TH.primary : TH.text, fontFamily: "Menlo, monospace" }}>{r.po_number}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.issued_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.acknowledged_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.fulfilled_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.required_by)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtMoney(r.total_amount)}</div>
               <div><span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: c.bg, color: c.fg, fontWeight: 600, textTransform: "capitalize", whiteSpace: "nowrap" }}>{r.status.replace(/_/g, " ")}</span></div>
-              <div style={{ color: pctColor, fontWeight: 600 }}>
-                {pct != null ? `${pct}%` : "—"}
-              </div>
+              <div style={{ color: pctColor, fontWeight: 600 }}>{pct != null ? `${pct}%` : "—"}</div>
               <div style={{ textAlign: "right", color: r.on_time === false ? TH.primary : r.on_time === true ? "#047857" : TH.textMuted }}>
                 {r.on_time == null ? "—" : r.on_time ? "Yes" : "No"}
               </div>
-            </div>
+            </RowTag>
           );
         })}
       </div>
 
       <div style={{ color: "#FFFFFF", fontSize: 14, fontWeight: 700, margin: "8px 0 10px", letterSpacing: 0.3 }}>Invoice history</div>
       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-        <select value={invStatus} onChange={(e) => { setInvStatus(e.target.value); setTimeout(load, 0); }} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }}>
+        <select value={invStatus} onChange={(e) => setInvStatus(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }}>
           <option value="">All statuses</option>
           <option value="submitted">Submitted</option>
           <option value="under_review">Under review</option>
@@ -220,19 +475,52 @@ export default function VendorReports() {
           <div style={{ padding: 20, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>No invoices in this period.</div>
         ) : invoices.map((r) => {
           const c = STATUS_COLORS[r.status] ?? STATUS_COLORS.pending;
+          const invId = invoiceIdByNumber[r.invoice_number];
+          const poUuid = r.po_number ? poIdByNumber[r.po_number] : undefined;
+          const rowStyle: React.CSSProperties = {
+            display: "grid",
+            gridTemplateColumns: "170px 130px 110px 110px 110px 120px 130px 100px",
+            padding: "10px 14px",
+            borderBottom: `1px solid ${TH.border}`,
+            fontSize: 13,
+            alignItems: "center",
+            textDecoration: "none",
+            color: "inherit",
+          };
+          const RowTag: React.ElementType = invId ? Link : "div";
+          const rowProps: Record<string, unknown> = invId ? { to: `/vendor/invoices/${invId}`, style: { ...rowStyle, cursor: "pointer" } } : { style: rowStyle };
           return (
-            <div key={r.invoice_number} style={{ display: "grid", gridTemplateColumns: "170px 130px 110px 110px 110px 120px 130px 100px", padding: "10px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
-              <div style={{ fontWeight: 600, color: TH.text, fontFamily: "Menlo, monospace" }}>{r.invoice_number}</div>
-              <div style={{ color: TH.textSub2, fontFamily: "Menlo, monospace", fontSize: 12 }}>{r.po_number ?? "—"}</div>
+            <RowTag key={r.invoice_number} {...rowProps}>
+              <div style={{ fontWeight: 600, color: invId ? TH.primary : TH.text, fontFamily: "Menlo, monospace" }}>{r.invoice_number}</div>
+              <div style={{ color: TH.textSub2, fontFamily: "Menlo, monospace", fontSize: 12 }}>
+                {r.po_number
+                  ? (poUuid
+                      // Nested Link inside a Link is illegal — render PO# as plain text
+                      // here; users can get to the PO from the invoice detail page.
+                      ? <span>{r.po_number}</span>
+                      : r.po_number)
+                  : "—"}
+              </div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.submitted_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.approved_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.paid_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtMoney(r.amount)}</div>
               <div><span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: c.bg, color: c.fg, fontWeight: 600, textTransform: "capitalize" }}>{r.status.replace("_", " ")}</span></div>
-              <div style={{ textAlign: "right", color: r.days_to_payment == null ? TH.textMuted : r.days_to_payment > 45 ? TH.primary : "#047857", fontWeight: 600 }}>
-                {r.days_to_payment == null ? "—" : `${r.days_to_payment}d`}
+              <div style={{ textAlign: "right", fontWeight: 600 }}>
+                {r.days_to_payment != null ? (
+                  <span style={{ color: r.days_to_payment > 45 ? TH.primary : "#047857" }}>{r.days_to_payment}d</span>
+                ) : r.status === "rejected" || r.status === "disputed" ? (
+                  <span style={{ color: TH.textMuted }}>—</span>
+                ) : (() => {
+                  // Not paid yet — show how long the invoice has been outstanding.
+                  const anchor = r.approved_at || r.submitted_at;
+                  if (!anchor) return <span style={{ color: TH.textMuted }}>—</span>;
+                  const days = Math.floor((Date.now() - new Date(anchor).getTime()) / 86_400_000);
+                  const color = days > 45 ? TH.primary : days > 30 ? "#B45309" : TH.textSub2;
+                  return <span style={{ color }}>{days}d pending</span>;
+                })()}
               </div>
-            </div>
+            </RowTag>
           );
         })}
       </div>
@@ -240,22 +528,118 @@ export default function VendorReports() {
   );
 }
 
-function StatCard({ label, value, tone }: { label: string; value: string; tone?: "ok" | "warn" | "err" }) {
-  const color = tone === "ok" ? "#047857" : tone === "warn" ? "#B45309" : tone === "err" ? TH.primary : TH.text;
+function POPhaseActivity({ rows }: { rows: Array<{ po_id: string; po_number: string; pending: number; approved: number; rejected: number; latest_at: string | null }> }) {
+  if (rows.length === 0) return null;
   return (
-    <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "14px 16px", boxShadow: `0 1px 2px ${TH.shadow}` }}>
-      <div style={{ fontSize: 11, color: TH.textMuted, textTransform: "uppercase", fontWeight: 600, marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
+    <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "14px 16px", marginBottom: 20, boxShadow: `0 1px 2px ${TH.shadow}` }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: TH.text, textTransform: "uppercase", letterSpacing: 0.4 }}>
+          Phase review activity by PO
+        </div>
+        <div style={{ fontSize: 11, color: TH.textMuted }}>
+          {rows.length} PO{rows.length === 1 ? "" : "s"} · click a row to open its phases tab
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 100px 100px 140px 36px", padding: "6px 10px", background: TH.surfaceHi, borderRadius: 6, fontSize: 10, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>
+        <div>PO</div>
+        <div style={{ textAlign: "right" }}>Pending</div>
+        <div style={{ textAlign: "right" }}>Approved</div>
+        <div style={{ textAlign: "right" }}>Rejected</div>
+        <div style={{ textAlign: "right" }}>Latest review</div>
+        <div></div>
+      </div>
+      {rows.map((r) => {
+        const total = r.pending + r.approved + r.rejected;
+        return (
+          <Link
+            key={r.po_id}
+            to={`/vendor/pos/${r.po_id}?tab=phases`}
+            style={{
+              display: "grid", gridTemplateColumns: "1fr 90px 100px 100px 140px 36px",
+              padding: "10px", borderBottom: `1px solid ${TH.border}`, alignItems: "center",
+              textDecoration: "none", color: "inherit", fontSize: 13,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <span style={{ fontFamily: "Menlo, monospace", fontWeight: 700, color: TH.primary }}>{r.po_number}</span>
+              <span style={{ fontSize: 11, color: TH.textMuted }}>
+                {total} change{total === 1 ? "" : "s"}
+              </span>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              {r.pending > 0 ? <span style={{ background: "#FEF3C7", color: "#92400E", padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 700 }}>{r.pending}</span> : <span style={{ color: TH.textMuted, fontSize: 11 }}>—</span>}
+            </div>
+            <div style={{ textAlign: "right" }}>
+              {r.approved > 0 ? <span style={{ background: "#D1FAE5", color: "#065F46", padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 700 }}>{r.approved}</span> : <span style={{ color: TH.textMuted, fontSize: 11 }}>—</span>}
+            </div>
+            <div style={{ textAlign: "right" }}>
+              {r.rejected > 0 ? <span style={{ background: "#FECACA", color: "#991B1B", padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 700 }}>{r.rejected}</span> : <span style={{ color: TH.textMuted, fontSize: 11 }}>—</span>}
+            </div>
+            <div style={{ textAlign: "right", fontSize: 11, color: TH.textMuted }}>
+              {r.latest_at ? new Date(r.latest_at).toLocaleDateString() : "—"}
+            </div>
+            <div style={{ textAlign: "right", color: TH.primary, fontSize: 14, fontWeight: 700 }}>→</div>
+          </Link>
+        );
+      })}
     </div>
   );
 }
 
-function KPICard({ label, value, color }: { label: string; value: string; color: string }) {
+function PhaseBucketCard({ label, count, to, tone }: { label: string; count: number; to: string; tone?: "danger" | "warn" }) {
+  const accent = tone === "danger" ? "#B91C1C" : tone === "warn" ? "#B45309" : TH.primary;
+  const bg = tone === "danger" ? "#FEE2E2" : tone === "warn" ? "#FEF3C7" : "#DBEAFE";
   return (
-    <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "20px 20px", boxShadow: `0 1px 2px ${TH.shadow}` }}>
-      <div style={{ fontSize: 12, color: TH.textMuted, textTransform: "uppercase", fontWeight: 600, marginBottom: 8 }}>{label}</div>
+    <Link
+      to={to}
+      style={{
+        display: "block", textDecoration: "none", color: "inherit",
+        background: TH.surface, border: `1px solid ${TH.border}`, borderLeft: `4px solid ${accent}`,
+        borderRadius: 8, padding: "14px 16px", boxShadow: `0 1px 2px ${TH.shadow}`,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+        <div style={{ fontSize: 11, color: TH.textMuted, textTransform: "uppercase", fontWeight: 700 }}>{label}</div>
+        <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: bg, color: accent, fontWeight: 700 }}>View →</span>
+      </div>
+      <div style={{ fontSize: 30, fontWeight: 700, color: count > 0 ? accent : TH.textMuted }}>{count}</div>
+      <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 2 }}>phase{count === 1 ? "" : "s"} across your POs</div>
+    </Link>
+  );
+}
+
+function StatCard({ label, value, tone, to }: { label: string; value: string; tone?: "ok" | "warn" | "err"; to?: string }) {
+  const color = tone === "ok" ? "#047857" : tone === "warn" ? "#B45309" : tone === "err" ? TH.primary : TH.text;
+  const content = (
+    <>
+      <div style={{ fontSize: 11, color: TH.textMuted, textTransform: "uppercase", fontWeight: 600, marginBottom: 6 }}>
+        {label}{to && <span style={{ color: TH.primary, marginLeft: 6 }}>→</span>}
+      </div>
+      <div style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
+    </>
+  );
+  const baseStyle = { background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "14px 16px", boxShadow: `0 1px 2px ${TH.shadow}`, display: "block", textDecoration: "none", color: "inherit" };
+  return to ? (
+    <Link to={to} style={{ ...baseStyle, cursor: "pointer" }}>{content}</Link>
+  ) : (
+    <div style={baseStyle}>{content}</div>
+  );
+}
+
+function KPICard({ label, value, color, to }: { label: string; value: string; color: string; to?: string }) {
+  const content = (
+    <>
+      <div style={{ fontSize: 12, color: TH.textMuted, textTransform: "uppercase", fontWeight: 600, marginBottom: 8 }}>
+        {label}{to && <span style={{ color: TH.primary, marginLeft: 6 }}>→</span>}
+      </div>
       <div style={{ fontSize: 36, fontWeight: 700, color }}>{value}</div>
-    </div>
+    </>
+  );
+  const baseStyle = { background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "20px 20px", boxShadow: `0 1px 2px ${TH.shadow}`, display: "block", textDecoration: "none", color: "inherit" };
+  return to ? (
+    <Link to={to} style={{ ...baseStyle, cursor: "pointer" }}>{content}</Link>
+  ) : (
+    <div style={baseStyle}>{content}</div>
   );
 }
 

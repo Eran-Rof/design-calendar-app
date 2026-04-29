@@ -104,9 +104,22 @@ export default async function handler(req, res) {
       const vendorId = vendorByName.get(vendorName);
       const billNumber = bill.BillNumber || bill.ThirdPartyRefNo || bill.Number;
       const billPONumber = bill.PoNumber || bill.PurchaseOrderNumber;
-      const total = Number(bill.Amount ?? bill.TotalAmount ?? 0);
-      const paid = Number(bill.PaidAmount ?? bill.AmountPaid ?? 0);
-      const isPaid = total > 0 && paid >= total - 0.01;
+      // Strip thousand-separators / currency glyphs before Number(),
+      // otherwise "1,234.56" becomes NaN and we silently treat the bill
+      // as $0. Use 4-decimal cents math for the paid-vs-total
+      // comparison so float drift doesn't accidentally mark a bill paid.
+      const cleanMoney = (v) => {
+        if (v == null) return 0;
+        const s = String(v).replace(/[$,\s]/g, "");
+        const n = parseFloat(s);
+        return Number.isFinite(n) ? n : 0;
+      };
+      const total = cleanMoney(bill.Amount ?? bill.TotalAmount);
+      const paid  = cleanMoney(bill.PaidAmount ?? bill.AmountPaid);
+      const totalCents = Math.round(total * 10000);
+      const paidCents  = Math.round(paid * 10000);
+      // 1c tolerance preserved (100 in 4-decimal-precision integers).
+      const isPaid = totalCents > 0 && paidCents >= totalCents - 100;
       const paidAt = isPaid ? (bill.PaidDate || bill.LastPaymentDate || new Date().toISOString()) : null;
       const xoroApId = String(bill.Id ?? bill.BillId ?? bill.TxnId ?? "");
 

@@ -327,6 +327,17 @@ export function useSyncOps(deps: SyncOpsDeps) {
           const { data: msRows } = await sb.from("tanda_milestones").select("id,data");
           if (Array.isArray(msRows)) {
             const allMs = msRows.map((r: any) => r.data as any).filter(Boolean);
+            // Local-date formatter — shifted.toISOString().slice(0,10)
+            // shifts the day by -1 in any non-UTC timezone because the
+            // Date is constructed in local time. Format from the local
+            // y/m/d components instead so DDP cascades land on the
+            // intended calendar day regardless of the user's TZ.
+            const fmtLocalDate = (d: Date) => {
+              const y = d.getFullYear();
+              const m = String(d.getMonth() + 1).padStart(2, "0");
+              const day = String(d.getDate()).padStart(2, "0");
+              return `${y}-${m}-${day}`;
+            };
             const msToUpdate: any[] = [];
             for (const po of toUpsert) {
               const poNum = po.PoNumber ?? "";
@@ -338,7 +349,7 @@ export function useSyncOps(deps: SyncOpsDeps) {
               for (const m of poMs) {
                 const shifted = new Date(ddpDate);
                 shifted.setDate(shifted.getDate() - (m.days_before_ddp ?? 0));
-                const newExpected = shifted.toISOString().slice(0, 10);
+                const newExpected = fmtLocalDate(shifted);
                 if (newExpected !== (m.expected_date ?? "").slice(0, 10)) {
                   const updated = { ...m, expected_date: newExpected, updated_at: now, updated_by: "sync" };
                   msToUpdate.push({ id: m.id, data: updated });
@@ -417,10 +428,18 @@ export function useSyncOps(deps: SyncOpsDeps) {
       setSyncField("syncProgress", 100);
 
       const user = useTandaStore.getState().user;
+      // addHistory returns a Promise but we don't await — a failed insert
+      // would otherwise become an unhandled rejection. Attach a .catch
+      // so transient tanda_notes errors get logged instead of crashing
+      // the sync flow.
       for (const po of synced.slice(0, 5)) {
-        deps.addHistory(po.PoNumber ?? "", `PO synced from Xoro (${synced.length} POs in batch${deletedCount > 0 ? `, ${deletedCount} removed` : ""})`);
+        deps.addHistory(po.PoNumber ?? "", `PO synced from Xoro (${synced.length} POs in batch${deletedCount > 0 ? `, ${deletedCount} removed` : ""})`)
+          .catch((e) => console.error("[tanda-sync] addHistory failed", e));
       }
-      if (synced.length > 5) deps.addHistory(synced[0]?.PoNumber ?? "", `... and ${synced.length - 5} more POs synced`);
+      if (synced.length > 5) {
+        deps.addHistory(synced[0]?.PoNumber ?? "", `... and ${synced.length - 5} more POs synced`)
+          .catch((e) => console.error("[tanda-sync] addHistory summary failed", e));
+      }
 
       setSyncField("syncDone", { added: addedCount, changed: changedCount, deleted: deletedCount });
       await appendSyncLog({ ts: new Date().toISOString(), user: user?.name || "Unknown", success: true, added: addedCount, changed: changedCount, deleted: deletedCount, filters: appliedFilters });

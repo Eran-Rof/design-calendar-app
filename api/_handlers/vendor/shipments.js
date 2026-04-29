@@ -45,8 +45,10 @@ export default async function handler(req, res) {
   if (typeof body === "string") { try { body = JSON.parse(body); } catch { return send(400, { error: "Invalid JSON" }); } }
 
   const {
-    po_id, asn_number, carrier, ship_date, estimated_delivery,
+    po_id, asn_number, carrier, ship_via, ship_date, estimated_delivery,
+    estimated_port_date,
     number, number_type, notes, line_items,
+    packing_list_url, bl_document_url,
   } = body || {};
 
   if (!po_id) return send(400, { error: "po_id is required" });
@@ -54,10 +56,25 @@ export default async function handler(req, res) {
   if (!Array.isArray(line_items) || line_items.length === 0) return send(400, { error: "At least one line_item is required" });
   if (number_type && !["CT", "BL", "BK"].includes(number_type)) return send(400, { error: "number_type must be CT, BL, or BK" });
 
+  // Require at least one line with quantity_shipped > 0. Otherwise the
+  // shipment header gets inserted with zero lines (orphan).
+  const hasShippable = line_items.some((l) => (Number(l.quantity_shipped) || 0) > 0);
+  if (!hasShippable) return send(400, { error: "At least one line_item must have quantity_shipped > 0" });
+
   const { data: po } = await admin
     .from("tanda_pos").select("uuid_id, po_number, vendor_id")
     .eq("uuid_id", po_id).eq("vendor_id", caller.vendor_id).maybeSingle();
   if (!po) return send(403, { error: "PO not found or not yours" });
+
+  // Path-injection guard — both URLs must live under the caller's folder
+  // when supplied. Without this, a vendor could attach another vendor's
+  // packing list / BL doc to their own shipment.
+  if (packing_list_url && (typeof packing_list_url !== "string" || !packing_list_url.startsWith(`${caller.vendor_id}/`))) {
+    return send(403, { error: "packing_list_url must be under the caller's vendor folder" });
+  }
+  if (bl_document_url && (typeof bl_document_url !== "string" || !bl_document_url.startsWith(`${caller.vendor_id}/`))) {
+    return send(403, { error: "bl_document_url must be under the caller's vendor folder" });
+  }
 
   const { data: ship, error: shipErr } = await admin.from("shipments").insert({
     vendor_id: caller.vendor_id,
@@ -68,10 +85,14 @@ export default async function handler(req, res) {
     number: number ? String(number).trim().toUpperCase() : null,
     number_type: number_type || null,
     carrier: carrier || null,
+    ship_via: ship_via || null,
     ship_date: ship_date || null,
     estimated_delivery: estimated_delivery || null,
+    eta: estimated_port_date || null,
     workflow_status: "submitted",
     notes: notes ? String(notes).trim() : null,
+    packing_list_url: packing_list_url || null,
+    bl_document_url: bl_document_url || null,
   }).select("*").single();
   if (shipErr) {
     if (shipErr.code === "23505") return send(409, { error: "An ASN with this reference already exists for your vendor" });

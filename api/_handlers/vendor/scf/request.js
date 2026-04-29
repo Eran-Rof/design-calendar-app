@@ -60,22 +60,26 @@ export default async function handler(req, res) {
   }).select("*").single();
   if (error) return res.status(500).json({ error: error.message });
 
-  // Notify internal team
+  // Notify internal team — env vars are comma-separated, fan out per email.
   try {
+    const emails = (process.env.INTERNAL_FINANCE_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "")
+      .split(",").map((e) => e.trim()).filter(Boolean);
     const origin = `https://${req.headers.host}`;
-    await fetch(`${origin}/api/send-notification`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        event_type: "scf_request_received",
-        title: `Finance request: $${Number(invoice.total).toLocaleString()} against invoice`,
-        body: `A vendor submitted a finance request for $${Number(invoice.total).toLocaleString()} on program '${program.name}'.`,
-        link: "/",
-        metadata: { finance_request_id: created.id, program_id, invoice_id },
-        recipient: { internal_id: "scf-team", email: process.env.INTERNAL_FINANCE_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "" },
-        dedupe_key: `scf_request_received_${created.id}`,
-        email: true,
-      }),
-    }).catch(() => {});
+    for (const email of emails) {
+      await fetch(`${origin}/api/send-notification`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_type: "scf_request_received",
+          title: `Finance request: $${Number(invoice.total).toLocaleString()} against invoice`,
+          body: `A vendor submitted a finance request for $${Number(invoice.total).toLocaleString()} on program '${program.name}'.`,
+          link: "/",
+          metadata: { finance_request_id: created.id, program_id, invoice_id },
+          recipient: { internal_id: "scf-team", email },
+          dedupe_key: `scf_request_received_${created.id}_${email}`,
+          email: true,
+        }),
+      }).catch(() => {});
+    }
   } catch { /* non-blocking */ }
 
   return res.status(201).json(created);

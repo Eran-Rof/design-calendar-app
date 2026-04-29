@@ -66,7 +66,7 @@ import type {
   ExceptionGroup,
 } from "../types";
 
-export type GS1Tab = "company" | "upc" | "scale" | "gtins" | "upload" | "labels" | "cartons" | "receiving" | "templates" | "exceptions";
+export type GS1Tab = "company" | "upc" | "scale" | "gtins" | "upload" | "labels" | "cartons" | "receiving" | "templates" | "exceptions" | "notifications";
 
 interface GS1State {
   activeTab: GS1Tab;
@@ -1155,6 +1155,26 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
 
     set({ receivingLoading: true, receivingError: null });
     try {
+      // Atomic claim FIRST — markCartonReceived now returns successfully
+      // only when it observed status='generated' and flipped to 'received'
+      // in a single round-trip. Two scanners on the same SSCC race here;
+      // the loser throws ALREADY_RECEIVED and we surface a friendly
+      // message instead of inserting a duplicate session.
+      try {
+        await db.markCartonReceived(receivingCarton.id);
+      } catch (e) {
+        const code = (e as Error & { code?: string })?.code;
+        if (code === "ALREADY_RECEIVED") {
+          set({
+            receivingError: "This carton was just received by another scanner — refresh to see the existing session.",
+            receivingAlreadyReceived: true,
+            receivingLoading: false,
+          });
+          return;
+        }
+        throw e;
+      }
+
       const session = await db.createReceivingSession({
         sscc:      receivingCarton.sscc,
         carton_id: receivingCarton.id,
@@ -1171,8 +1191,6 @@ export const useGS1Store = create<GS1Store>((set, get) => ({
           status:       l.line_status === "expected" ? "matched" : l.line_status,
         })),
       });
-
-      await db.markCartonReceived(receivingCarton.id);
       await get().writeAuditLog({ entity_type: "receiving_session", entity_id: session.id, action: sessionStatus, new_values: { sscc: receivingCarton.sscc, status: sessionStatus, notes: notes ?? null } });
 
       const [updatedCarton, sessions] = await Promise.all([

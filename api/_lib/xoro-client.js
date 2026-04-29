@@ -13,11 +13,19 @@
 //   • fetchXoroAll paginates sequentially with retries — the same
 //     throttling behaviour documented in xoro-proxy.js.
 
-export function xoroCredsFromEnv() {
-  const key = process.env.VITE_XORO_API_KEY;
-  const secret = process.env.VITE_XORO_API_SECRET;
+// Xoro provisions per-module API credentials (each Private App has its
+// own permission scope). Pass `module: "sales"` or `module: "items"` to
+// use VITE_XORO_<MODULE>_API_KEY/SECRET; falls back to the default
+// key/secret so dev envs without the extra vars still work.
+export function xoroCredsFromEnv(module) {
+  const prefix =
+    module === "sales" ? "VITE_XORO_SALES_" :
+    module === "items" ? "VITE_XORO_ITEMS_" :
+    "VITE_XORO_";
+  const key = process.env[`${prefix}API_KEY`] || process.env.VITE_XORO_API_KEY;
+  const secret = process.env[`${prefix}API_SECRET`] || process.env.VITE_XORO_API_SECRET;
   if (!key || !secret) {
-    return { ok: false, error: "XORO_CREDENTIALS_MISSING", keyPresent: !!key, secretPresent: !!secret };
+    return { ok: false, error: "XORO_CREDENTIALS_MISSING", keyPresent: !!key, secretPresent: !!secret, module: module ?? "default" };
   }
   const basic = Buffer.from(`${key}:${secret}`).toString("base64");
   return { ok: true, authHeader: `Basic ${basic}` };
@@ -45,14 +53,14 @@ async function xoroFetchPage({ path, params, page, authHeader }) {
   }
 }
 
-export async function fetchXoro({ path, params = {} }) {
-  const creds = xoroCredsFromEnv();
+export async function fetchXoro({ path, params = {}, module }) {
+  const creds = xoroCredsFromEnv(module);
   if (!creds.ok) return { ok: false, status: 500, body: { error: creds.error, keyPresent: creds.keyPresent, secretPresent: creds.secretPresent } };
   return xoroFetchPage({ path, params, page: 1, authHeader: creds.authHeader });
 }
 
-export async function fetchXoroAll({ path, params = {}, maxPages = 50 }) {
-  const creds = xoroCredsFromEnv();
+export async function fetchXoroAll({ path, params = {}, maxPages = 50, module, pageStart = 1 }) {
+  const creds = xoroCredsFromEnv(module);
   if (!creds.ok) return { ok: false, status: 500, body: { error: creds.error } };
 
   const delays = [0, 800, 2000, 4000];
@@ -60,7 +68,11 @@ export async function fetchXoroAll({ path, params = {}, maxPages = 50 }) {
   let totalPages = 1;
   const pageNotes = [];
 
-  for (let page = 1; page <= maxPages; page++) {
+  // Iterate from pageStart for `maxPages` consecutive pages so callers can
+  // chunk huge catalogs across multiple invocations (e.g. 20k items at
+  // 500/page = 40 pages → 8 calls of pageStart=1,6,11,…).
+  for (let i = 0; i < maxPages; i++) {
+    const page = pageStart + i;
     let attempt;
     for (const d of delays) {
       if (d) await new Promise((r) => setTimeout(r, d));
@@ -71,7 +83,7 @@ export async function fetchXoroAll({ path, params = {}, maxPages = 50 }) {
     }
     const dataLen = Array.isArray(attempt.body?.Data) ? attempt.body.Data.length : -1;
     pageNotes.push({ page, result: attempt.body?.Result, dataLen, totalPages: attempt.body?.TotalPages });
-    if (page === 1) {
+    if (i === 0) {
       totalPages = attempt.body?.TotalPages ?? 1;
       if (!Array.isArray(attempt.body?.Data)) {
         return { ok: false, status: attempt.status || 502, body: attempt.body, pages: pageNotes };

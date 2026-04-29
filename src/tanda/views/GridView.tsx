@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect, useRef, useCallback } from "react"
 import XLSXStyle from "xlsx-js-style";
 import {
   type XoroPO, type Milestone, type WipTemplate, type View,
-  MILESTONE_STATUS_COLORS, MILESTONE_STATUSES, fmtDate, fmtCurrency, milestoneUid, isLineClosed,
+  MILESTONE_STATUS_COLORS, MILESTONE_STATUSES, fmtDate, fmtCurrency, milestoneUid, isLineClosed, todayLocalIso,
 } from "../../utils/tandaTypes";
 import S from "../styles";
 import { MilestoneDateInput } from "../detail/MilestoneDateInput";
@@ -535,7 +535,7 @@ export function GridView({
   const updateStatus = (po: XoroPO, m: Milestone, newStatus: string) => {
     pushUndo(m);
     const dates = { ...(m.status_dates || {}) };
-    const iso   = new Date().toISOString().split("T")[0];
+    const iso   = todayLocalIso();
     if (newStatus !== "Not Started" && !dates[newStatus]) dates[newStatus] = iso;
     saveMilestone({
       ...m,
@@ -566,7 +566,7 @@ export function GridView({
   // reflects the change immediately without waiting for the DB round-trip.
   const addNote = useCallback((milestone: Milestone, text: string) => {
     const now      = new Date();
-    const dateStr  = now.toISOString().slice(0, 10);
+    const dateStr  = todayLocalIso(now);
     const newEntry = { text, user: user?.name || "Unknown", date: dateStr };
     const updated  = {
       ...milestone,
@@ -609,7 +609,7 @@ export function GridView({
   // own note thread, independent of the PO-level note_entries.
   const addVariantNote = useCallback((milestone: Milestone, varKey: string, text: string) => {
     const now = new Date();
-    const entry = { text, user: user?.name || "Unknown", date: now.toISOString().slice(0, 10) };
+    const entry = { text, user: user?.name || "Unknown", date: todayLocalIso(now) };
     const vn = { ...(milestone.variant_notes || {}) };
     vn[varKey] = [...(vn[varKey] || []), entry];
     const updated = { ...milestone, variant_notes: vn, updated_at: now.toISOString(), updated_by: user?.name || "" };
@@ -1529,7 +1529,7 @@ export function GridView({
                                             value={itemStatus}
                                             onChange={e => {
                                               if (closed) return;
-                                              const iso = new Date().toISOString().split("T")[0];
+                                              const iso = todayLocalIso();
                                               const vsNew = { ...(m.variant_statuses || {}) };
                                               const prev  = vsNew[varKey];
                                               vsNew[varKey] = { status: e.target.value, status_date: e.target.value !== "Not Started" ? (prev?.status_date || iso) : null };

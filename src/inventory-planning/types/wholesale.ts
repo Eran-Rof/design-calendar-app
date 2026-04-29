@@ -78,6 +78,12 @@ export interface IpWholesaleForecast {
   period_end: IpIsoDate;
   period_code: string;
   system_forecast_qty: number;
+  // Optional planner override of the system value. When non-null the
+  // grid displays this in place of system_forecast_qty and shows a
+  // "changed from X to Y on DATE" tooltip on the cell.
+  system_forecast_qty_override: number | null;
+  system_forecast_qty_overridden_at: IpIsoDateTime | null;
+  system_forecast_qty_overridden_by: string | null;
   buyer_request_qty: number;
   override_qty: number;
   final_forecast_qty: number;
@@ -153,14 +159,37 @@ export interface IpPlanningGridRow {
   customer_name: string;
   category_id: string | null;
   category_name: string | null;
+  // Item-master derived classification (Xoro: GroupName / CategoryName).
+  // Rendered in the grid as the "Category" and "Sub Cat" columns. Optional
+  // because legacy rows may not have these populated yet.
+  group_name: string | null;
+  sub_category_name: string | null;
+  // Item-master GenderCode. Filter-only — no grid column rendered.
+  gender: string | null;
   sku_id: string;
   sku_code: string;
   sku_description: string | null;
+  sku_style: string | null;
+  sku_color: string | null;
+  // Set on rows produced by the grid's collapse/aggregate modes — disables
+  // inline-edit cells and renders read-only tallies.
+  is_aggregate?: boolean;
+  aggregate_count?: number;
+  // The underlying forecast_id list for an aggregate row. The Buy cell
+  // uses these to distribute a typed total across the constituent
+  // forecast rows proportional to final_forecast_qty.
+  aggregate_underlying_ids?: string[];
   period_code: string;
   period_start: IpIsoDate;
   period_end: IpIsoDate;
   historical_trailing_qty: number;
   system_forecast_qty: number;
+  // Original computed system value before any override. Equal to
+  // system_forecast_qty when no override is set; otherwise carries
+  // the original so the cell tooltip can render "from X to Y".
+  system_forecast_qty_original: number;
+  system_forecast_qty_overridden_at: IpIsoDateTime | null;
+  system_forecast_qty_overridden_by: string | null;
   buyer_request_qty: number;
   override_qty: number;
   final_forecast_qty: number;
@@ -169,7 +198,11 @@ export interface IpPlanningGridRow {
   ly_reference_qty: number | null;
   item_cost: number | null;
   ats_avg_cost: number | null;
+  // Canonical avg cost from ip_item_avg_cost (Xoro/Excel ingest). Static
+  // in the grid; auto-fills the editable Unit Cost cell.
+  avg_cost: number | null;
   unit_cost_override: number | null;
+  // Effective unit cost used for Buy $: override → avg_cost → ats_avg_cost → item_cost.
   unit_cost: number | null;
   planned_buy_qty: number | null;
   on_hand_qty: number | null;

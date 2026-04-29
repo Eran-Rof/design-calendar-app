@@ -1,5 +1,5 @@
 import React from "react";
-import { type Milestone, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, milestoneUid, itemQty, isLineClosed, lineDeliveryDate, normalizeSize, fmtDate, fmtCurrency } from "../../utils/tandaTypes";
+import { type Milestone, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, milestoneUid, itemQty, isLineClosed, lineDeliveryDate, normalizeSize, fmtDate, fmtCurrency, todayLocalIso } from "../../utils/tandaTypes";
 import S from "../styles";
 import { MilestoneDateInput } from "./MilestoneDateInput";
 import type { DetailPanelCtx } from "../detailPanel";
@@ -201,7 +201,7 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
                           const oldStatus = m.status;
                           const dates = { ...(m.status_dates || {}) };
                           const doSave = (d: Record<string, string>) => {
-                            const today2 = new Date().toISOString().split("T")[0];
+                            const today2 = todayLocalIso();
                             if (newStatus !== "Not Started" && !d[newStatus]) d[newStatus] = today2;
                             const statusDate = d[newStatus] || null;
                             const existingVariants = { ...(m.variant_statuses || {}) };
@@ -303,7 +303,7 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
                                           value={vEntry.status}
                                           style={{ background: "#1E293B", border: `1px solid ${vMismatch ? "#F59E0B44" : "#334155"}`, borderRadius: 6, color: MILESTONE_STATUS_COLORS[vEntry.status] || "#6B7280", fontSize: 11, padding: "3px 5px", width: "100%", boxSizing: "border-box" as const }}
                                           onChange={e => {
-                                            const today2 = new Date().toISOString().split("T")[0];
+                                            const today2 = todayLocalIso();
                                             const newV = { ...variantStatuses, [key]: { status: e.target.value, status_date: vEntry.status_date || today2 } };
                                             saveMilestone({ ...m, variant_statuses: newV, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
                                           }}

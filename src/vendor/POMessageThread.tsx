@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { TH } from "../utils/theme";
+import { TH } from "./theme";
 
 // Reusable message thread component. Works with either the vendor's
 // authenticated Supabase client or the internal anon client — pass the

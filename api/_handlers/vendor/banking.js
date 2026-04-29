@@ -93,7 +93,9 @@ export default async function handler(req, res) {
     const { data: row } = await admin.from("banking_details").select("id, vendor_id, verified").eq("id", id).maybeSingle();
     if (!row || row.vendor_id !== caller.vendor_id) return res.status(404).json({ error: "Not found" });
     if (row.verified) return res.status(409).json({ error: "Cannot delete a verified record — contact internal support" });
-    const { error } = await admin.from("banking_details").delete().eq("id", id);
+    // Filter on vendor_id too — defense in depth in case the row's owner
+    // changed between the read above and the delete below.
+    const { error } = await admin.from("banking_details").delete().eq("id", id).eq("vendor_id", caller.vendor_id);
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({ ok: true });
   }

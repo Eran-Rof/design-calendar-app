@@ -80,55 +80,206 @@ async function sendApns(row) {
   }
 }
 
-// ─── FCM via legacy HTTP (simpler than OAuth HTTP v1) ──────────────────
-async function sendFcm(row) {
-  const serverKey = process.env.FCM_SERVER_KEY;
-  if (!serverKey) return { ok: false, permanent: false, error: "FCM_SERVER_KEY not configured" };
+// ─── FCM v1 (OAuth2 + service-account JWT) ────────────────────────────
+//
+// Google retired the legacy `https://fcm.googleapis.com/fcm/send` API
+// on 2024-06-20. The v1 API is at
+// `https://fcm.googleapis.com/v1/projects/{project_id}/messages:send`
+// and requires an OAuth2 access token signed with a service-account
+// private key (no static "server key" anymore).
+//
+// To avoid pulling google-auth-library as a runtime dep, we mint the
+// JWT ourselves with node:crypto (RS256 over base64url segments) and
+// exchange it at the token endpoint. The token is cached in module
+// scope for 50 minutes (Google issues 60-min tokens).
+//
+// Env: FCM_SERVICE_ACCOUNT_JSON — the full service-account JSON as a
+// single-line string (Console → Project Settings → Service Accounts
+// → Generate Key). Project id is read from the JSON's project_id.
+
+import { createSign } from "node:crypto";
+
+const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
+const FCM_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
+
+let _cachedToken = null;
+let _cachedExpiry = 0;
+let _cachedProjectId = null;
+
+function b64url(buf) {
+  return Buffer.from(buf).toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+function loadServiceAccount() {
+  const raw = process.env.FCM_SERVICE_ACCOUNT_JSON;
+  if (!raw) return null;
   try {
-    const r = await fetch("https://fcm.googleapis.com/fcm/send", {
+    const sa = JSON.parse(raw);
+    if (!sa.private_key || !sa.client_email || !sa.project_id) return null;
+    return sa;
+  } catch {
+    return null;
+  }
+}
+
+async function getFcmAccessToken() {
+  if (_cachedToken && Date.now() < _cachedExpiry) {
+    return { token: _cachedToken, projectId: _cachedProjectId };
+  }
+  const sa = loadServiceAccount();
+  if (!sa) return null;
+
+  const now = Math.floor(Date.now() / 1000);
+  const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const claims = b64url(JSON.stringify({
+    iss: sa.client_email,
+    scope: FCM_SCOPE,
+    aud: FCM_TOKEN_ENDPOINT,
+    iat: now,
+    exp: now + 3600,
+  }));
+  const signingInput = `${header}.${claims}`;
+  const signer = createSign("RSA-SHA256");
+  signer.update(signingInput);
+  const signature = b64url(signer.sign(sa.private_key));
+  const jwt = `${signingInput}.${signature}`;
+
+  const r = await fetch(FCM_TOKEN_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: jwt,
+    }).toString(),
+  });
+  if (!r.ok) {
+    const text = await r.text().catch(() => "");
+    console.error("[fcm] token exchange failed", r.status, text.slice(0, 200));
+    return null;
+  }
+  const body = await r.json();
+  if (!body.access_token) return null;
+
+  _cachedToken = body.access_token;
+  _cachedProjectId = sa.project_id;
+  // Cache for 50 minutes — token TTL is 60min, leave headroom.
+  _cachedExpiry = Date.now() + 50 * 60 * 1000;
+  return { token: _cachedToken, projectId: _cachedProjectId };
+}
+
+async function sendFcm(row) {
+  const auth = await getFcmAccessToken();
+  if (!auth) {
+    return { ok: false, permanent: false, error: "FCM_SERVICE_ACCOUNT_JSON not configured" };
+  }
+  try {
+    const r = await fetch(`https://fcm.googleapis.com/v1/projects/${auth.projectId}/messages:send`, {
       method: "POST",
       headers: {
-        Authorization: `key=${serverKey}`,
+        Authorization: `Bearer ${auth.token}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        to: row.device_token,
-        notification: { title: row.title, body: row.body },
-        data: row.data || {},
+        message: {
+          token: row.device_token,
+          notification: { title: row.title, body: row.body },
+          // FCM v1 requires data values to be strings. Coerce numeric /
+          // boolean values to strings so a payload like {entity_id: 7,
+          // is_urgent: true} doesn't get rejected with INVALID_ARGUMENT.
+          data: Object.fromEntries(
+            Object.entries(row.data || {}).map(([k, v]) => [k, typeof v === "string" ? v : JSON.stringify(v)]),
+          ),
+        },
       }),
     });
     const txt = await r.text();
-    if (!r.ok) return { ok: false, permanent: false, error: `FCM ${r.status} ${txt.slice(0, 200)}` };
+    if (r.ok) return { ok: true };
+
     let parsed;
     try { parsed = JSON.parse(txt); } catch { parsed = {}; }
-    const err = parsed?.results?.[0]?.error || "";
-    if (err) {
-      const permanent = ["NotRegistered", "InvalidRegistration", "MismatchSenderId"].includes(err);
-      return { ok: false, permanent, error: `FCM ${err}` };
-    }
-    return { ok: true };
+    const code = parsed?.error?.status || parsed?.error?.code || "";
+    const message = parsed?.error?.message || txt.slice(0, 200);
+
+    // Permanent failures — token is dead, don't retry.
+    //   UNREGISTERED:  device uninstalled the app or token was rotated
+    //   INVALID_ARGUMENT (about the token): malformed token
+    //   NOT_FOUND: token registered to a different sender
+    const permanent =
+      code === "UNREGISTERED" ||
+      code === "NOT_FOUND" ||
+      /registration token .* (not registered|invalid|not found)/i.test(message);
+    return { ok: false, permanent, error: `FCM ${code || r.status}: ${message}` };
   } catch (e) {
     return { ok: false, permanent: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
 
 export default async function handler(req, res) {
+  // Match the auth pattern of every other cron — without this anyone
+  // could drain the push queue on demand and burn APNs/FCM credits.
+  const expectedSecret = process.env.CRON_SECRET;
+  if (expectedSecret && req.headers.authorization !== `Bearer ${expectedSecret}`) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
   const SB_URL = process.env.VITE_SUPABASE_URL;
   const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!SB_URL || !SERVICE_KEY) return res.status(500).json({ error: "Server not configured" });
   const admin = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
-  // Pull a batch of queued rows, oldest first. Join to mobile_sessions
-  // so we have the device token + platform without a second query.
+  // Atomically claim a batch of queued rows. Two cron ticks can overlap
+  // (the cron schedule plus any manual invocation), and without a claim
+  // step both would pick the same status='queued' rows and double-send
+  // every push. We flip status to 'sending' in a single UPDATE that
+  // returns only the rows we actually claimed; another worker can't
+  // re-grab them.
+  const claimRunId = `cron-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const { data: claimedIds, error: claimErr } = await admin.rpc("claim_pending_pushes", {
+    p_run_id: claimRunId,
+    p_limit: BATCH_SIZE,
+  });
+  // RPC fallback — if the function doesn't exist yet, do a best-effort
+  // claim via UPDATE...IN(SELECT...). Race-window narrowed but not zero.
+  let claimedRowIds = Array.isArray(claimedIds) ? claimedIds : null;
+  if (claimErr || !claimedRowIds) {
+    const { data: pending } = await admin
+      .from("push_notifications")
+      .select("id")
+      .eq("status", "queued")
+      .order("created_at", { ascending: true })
+      .limit(BATCH_SIZE);
+    const ids = (pending ?? []).map((r) => r.id);
+    if (ids.length === 0) {
+      return res.status(200).json({ ok: true, sent: 0, failed: 0, retried: 0, tokens_removed: 0, claimed: 0 });
+    }
+    // Don't touch error_message here — the retry-attempt regex
+    // ATTEMPT_RE depends on it. Just flip status; the WHERE clause
+    // (status='queued') makes the UPDATE atomic per row.
+    const { data: claimed } = await admin
+      .from("push_notifications")
+      .update({ status: "sending" })
+      .in("id", ids)
+      .eq("status", "queued")
+      .select("id");
+    claimedRowIds = (claimed ?? []).map((r) => r.id);
+  }
+  if (claimedRowIds.length === 0) {
+    return res.status(200).json({ ok: true, sent: 0, failed: 0, retried: 0, tokens_removed: 0, claimed: 0 });
+  }
+  // Re-fetch with the join now that we own the rows.
   const { data: queue, error } = await admin
     .from("push_notifications")
-    .select("id, title, body, data, mobile_session_id, vendor_user_id, status, session:mobile_sessions(id, device_token, platform)")
-    .eq("status", "queued")
-    .order("created_at", { ascending: true })
-    .limit(BATCH_SIZE);
+    .select("id, title, body, data, mobile_session_id, vendor_user_id, status, error_message, session:mobile_sessions(id, device_token, platform)")
+    .in("id", claimedRowIds);
   if (error) return res.status(500).json({ error: error.message });
 
   let sent = 0, failed = 0, retried = 0, tokensRemoved = 0;
+
+  // Encode the attempt count in the error_message prefix as "[N/MAX] reason"
+  // so we have a retry budget without a schema change. Without this the
+  // status='queued' filter above always returned a row that "looks fresh"
+  // and recoverable failures retried forever.
+  const ATTEMPT_RE = /^\[(\d+)\/\d+\]\s/;
 
   for (const row of queue || []) {
     const sess = row.session;
@@ -141,9 +292,8 @@ export default async function handler(req, res) {
       continue;
     }
 
-    // Count prior attempts via error_message presence heuristic — use
-    // metadata.attempts if schema supports it; fall back to status flips.
-    const attemptsSoFar = row.status === "queued" ? 0 : 1;
+    const m = row.error_message ? ATTEMPT_RE.exec(row.error_message) : null;
+    const attemptsSoFar = m ? Number(m[1]) : 0;
 
     const target = { ...row, device_token: sess.device_token, platform: sess.platform };
     const result = sess.platform === "ios" ? await sendApns(target) : await sendFcm(target);
@@ -178,9 +328,11 @@ export default async function handler(req, res) {
       continue;
     }
 
-    // Leave queued for retry on next cron tick; record last error
+    // Leave queued for retry on next cron tick; record last error with
+    // attempt counter prefix so the next pick-up can detect the budget.
+    const nextAttempt = attemptsSoFar + 1;
     await admin.from("push_notifications").update({
-      error_message: result.error,
+      error_message: `[${nextAttempt}/${MAX_ATTEMPTS}] ${result.error}`,
     }).eq("id", row.id);
     retried++;
   }

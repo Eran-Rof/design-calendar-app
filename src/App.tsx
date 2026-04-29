@@ -1,4 +1,8 @@
 import { useState, useRef, useEffect, Fragment, lazy, Suspense } from "react";
+import NotificationsShell from "./components/notifications/NotificationsShell";
+import NotificationsPage from "./components/notifications/NotificationsPage";
+import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
+import { supabaseClient } from "./utils/supabase";
 import { useIdleLogout } from "./hooks/useIdleLogout";
 import { useAppStore } from "./store";
 import { sbLoad as sbLoadSvc, sbSaveTask as sbSaveTaskSvc, sbLoadTasks as sbLoadTasksSvc, sbLoadCollections as sbLoadCollectionsSvc } from "./store/supabaseService";
@@ -289,6 +293,14 @@ function App() {
 
   // TaskCard extracted to src/components/TaskCard.tsx — reads from Zustand store directly
 
+  // Design Calendar-relevant notifications only.
+  const unreadDesignNotifs = useAppUnreadCount({
+    supabase: supabaseClient,
+    userId: currentUser?.id,
+    recipientColumn: "recipient_internal_id",
+    app: "design",
+  });
+
   if (!dbxLoaded)
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", background: "#0F172A", gap: 16 }}>
@@ -550,6 +562,32 @@ function App() {
             navBtn(v, label)
           )}
           {currentUser && (
+            <button
+              onClick={() => { setView("notifications"); setStatFilter(null); setFocusCollKey(null); }}
+              title="Notifications"
+              style={{
+                padding: "7px 12px", borderRadius: 8,
+                border: `1px solid ${view === "notifications" ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.15)"}`,
+                background: view === "notifications" ? `linear-gradient(135deg,${TH.primary},${TH.primaryLt})` : "none",
+                color: view === "notifications" ? "#fff" : "rgba(255,255,255,0.7)",
+                fontWeight: view === "notifications" ? 700 : 600,
+                fontFamily: "inherit", fontSize: 12, whiteSpace: "nowrap",
+                transition: "all 0.2s",
+                cursor: "pointer",
+                display: "inline-flex", alignItems: "center", gap: 6,
+              }}
+            >
+              🔔 Notifications
+              {unreadDesignNotifs > 0 && (
+                <span style={{
+                  minWidth: 16, height: 16, padding: "0 4px", borderRadius: 999,
+                  background: "#EF4444", color: "#fff", fontSize: 9, fontWeight: 700,
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                }}>{unreadDesignNotifs > 9 ? "9+" : unreadDesignNotifs}</span>
+              )}
+            </button>
+          )}
+          {currentUser && (
             <a
               href="/tanda"
               style={{
@@ -704,6 +742,16 @@ function App() {
         {view === "dashboard" && <DashboardPanel ctx={dashboardCtx} />}
         {view === "timeline" && <TimelinePanel />}
         {view === "calendar" && <CalendarPanel />}
+        {view === "notifications" && supabaseClient && (
+          <NotificationsPage
+            embed
+            kind="internal"
+            supabase={supabaseClient}
+            userId={currentUser.id}
+            title="Notifications"
+            appFilter="design"
+          />
+        )}
         {view === "teams" && (
           <Suspense fallback={<div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.5)" }}>Loading Teams…</div>}>
           <TeamsView
@@ -1231,6 +1279,19 @@ function App() {
           </button>
         </div>
       </div>
+      {supabaseClient && currentUser && (
+        <NotificationsShell
+          kind="internal"
+          supabase={supabaseClient}
+          userId={currentUser.id}
+          notificationsUrl="/notifications?from=design"
+          currentPath={typeof window !== "undefined" ? window.location.pathname : undefined}
+          isViewingNotifications={view === "notifications"}
+          sessionKey="rof_notif_dismissed_internal"
+          autoOpen={false}
+          appFilter="design"
+        />
+      )}
     </div>
   );
 }

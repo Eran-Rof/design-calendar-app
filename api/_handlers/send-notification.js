@@ -42,10 +42,21 @@ function deepLinkFor(eventType, metadata = {}) {
 async function queuePushesForVendor(admin, { vendor_id, event_type, title, body, metadata }) {
   if (!vendor_id) return 0;
   if (!PUSH_EVENT_TYPES.has(event_type)) return 0;
+  // CRITICAL: must short-circuit when the vendor has no users.
+  // PostgREST's .in("col", []) renders as `col=in.()` which it
+  // treats as "no filter" — meaning we'd queue pushes to EVERY
+  // device of EVERY vendor in the system. Don't ever build the
+  // .in() with an empty array.
+  const { data: vendorUserRows } = await admin
+    .from("vendor_users")
+    .select("id")
+    .eq("vendor_id", vendor_id);
+  const userIds = (vendorUserRows ?? []).map((r) => r.id);
+  if (userIds.length === 0) return 0;
   const { data: sessions } = await admin
     .from("mobile_sessions")
     .select("id, vendor_user_id")
-    .in("vendor_user_id", (await admin.from("vendor_users").select("id").eq("vendor_id", vendor_id)).data?.map((r) => r.id) || []);
+    .in("vendor_user_id", userIds);
   if (!sessions || sessions.length === 0) return 0;
   const entityId = metadata?.po_id || metadata?.invoice_id || metadata?.rfq_id || metadata?.dispute_id || metadata?.contract_id || null;
   const rows = sessions.map((s) => ({
@@ -56,7 +67,14 @@ async function queuePushesForVendor(admin, { vendor_id, event_type, title, body,
     data: { type: event_type, entity_id: entityId, deep_link: deepLinkFor(event_type, metadata) },
     status: "queued",
   }));
-  try { await admin.from("push_notifications").insert(rows); } catch { /* ignore */ }
+  try {
+    await admin.from("push_notifications").insert(rows);
+  } catch (err) {
+    console.error("[send-notification] push_notifications insert failed", {
+      vendor_id, event_type, count: rows.length,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
   return rows.length;
 }
 
@@ -118,8 +136,34 @@ export default async function handler(req, res) {
     if (existing) return res.status(200).json({ ok: true, deduped: true, id: existing.id });
   }
 
+  // Digest threshold check — CLAUDE.md requires "if more than 3
+  // notifications of the same type arrive within 1 hour for the same
+  // recipient, batch them into a single digest email." If we'd be the
+  // 4th-or-later in this hour, queue into notification_digest_pending
+  // instead of emailing now. The cron/notification-digest-flush job
+  // emails one digest per (recipient, type, hour_bucket) when the
+  // hour closes. The in-app notification is still written so the
+  // bell icon updates in real-time.
+  let willDigest = false;
+  if (wantEmail && recipientEmail && RESEND_KEY) {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count: recent } = await admin
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("event_type", event_type)
+      .eq("recipient_email", recipientEmail)
+      .gte("created_at", oneHourAgo);
+    if ((recent ?? 0) >= 3) {
+      willDigest = true;
+    }
+  }
+
   // Persist the in-app notification
-  const email_status = wantEmail && recipientEmail && RESEND_KEY ? "pending" : "skipped";
+  const email_status = !wantEmail || !recipientEmail || !RESEND_KEY
+    ? "skipped"
+    : willDigest
+      ? "queued_for_digest"
+      : "pending";
   const { data: inserted, error: insErr } = await admin
     .from("notifications")
     .insert({
@@ -136,6 +180,33 @@ export default async function handler(req, res) {
     .select("id")
     .single();
   if (insErr) return res.status(500).json({ error: "Notification insert failed: " + insErr.message });
+
+  // If we're queueing for digest, write to the pending table and skip
+  // the immediate email. The flush cron picks it up on the next tick
+  // after the hour-bucket closes.
+  if (willDigest) {
+    const hourBucket = new Date();
+    hourBucket.setMinutes(0, 0, 0);
+    try {
+      await admin.from("notification_digest_pending").insert({
+        recipient_email: recipientEmail,
+        event_type,
+        hour_bucket: hourBucket.toISOString(),
+        payload: { title, body: bodyText ?? null, link: link ?? null, metadata: metadata ?? null },
+        vendor_id: recipient.vendor_id ?? null,
+        entity_id: metadata?.entity_id ?? null,
+      });
+    } catch (err) {
+      // If the queue insert fails (e.g. table missing because the
+      // migration hasn't been applied yet), fall back to the original
+      // behavior — just leave email_status as queued_for_digest in the
+      // notification row and log. The in-app row is already saved.
+      console.error("[send-notification] digest enqueue failed", {
+        recipient_email: recipientEmail, event_type,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   // Fire email (best-effort; never block the caller on email failure)
   let emailResult = null;
@@ -196,15 +267,27 @@ export default async function handler(req, res) {
       if (vendorIdForPush) {
         pushQueued = await queuePushesForVendor(admin, { vendor_id: vendorIdForPush, event_type, title, body: bodyText, metadata });
       }
-    } catch { /* swallow */ }
+    } catch (err) {
+      console.error("[send-notification] push fan-out failed", {
+        recipient_auth_id: recipientAuthId,
+        event_type,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   return res.status(200).json({ ok: true, id: inserted.id, email: emailResult, email_status, push_queued: pushQueued });
 }
 
 function renderEmailHtml({ title, body, link }) {
-  const linkBlock = link
-    ? `<p style="margin:16px 0;"><a href="${link}" style="background:#C8210A;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block;">View details</a></p>`
+  // Escape link too — it's interpolated into an href attribute, so an
+  // unescaped quote would break out of the attribute and let a caller
+  // inject arbitrary HTML/JS into the email body. Also reject anything
+  // that doesn't look like an http(s) URL or absolute path so attackers
+  // can't smuggle a `javascript:` URL through.
+  const safeLink = isSafeLink(link) ? link : null;
+  const linkBlock = safeLink
+    ? `<p style="margin:16px 0;"><a href="${escapeHtml(safeLink)}" style="background:#C8210A;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block;">View details</a></p>`
     : "";
   return `
 <!DOCTYPE html>
@@ -222,4 +305,12 @@ function renderEmailHtml({ title, body, link }) {
 function escapeHtml(s) {
   if (s == null) return "";
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function isSafeLink(s) {
+  if (typeof s !== "string" || !s) return false;
+  // Allow http(s) URLs and root-anchored relative paths only — blocks
+  // javascript:, data:, mailto:, etc. as well as anything that doesn't
+  // look like a navigation target.
+  return /^https?:\/\//i.test(s) || /^\/[^\/]/.test(s) || s === "/";
 }

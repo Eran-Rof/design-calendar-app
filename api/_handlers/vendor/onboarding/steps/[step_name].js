@@ -50,8 +50,16 @@ async function validateStep(admin, vendorId, stepName, data) {
     const { data: bd } = await admin.from("banking_details").select("id").eq("id", data.banking_detail_id).eq("vendor_id", vendorId).maybeSingle();
     if (!bd) return "Banking detail not found for this vendor";
   } else if (stepName === "tax") {
-    if (!data?.classification) return "classification is required (W-9 or W-8BEN)";
-    if (!data?.document_url) return "document_url is required (upload to compliance-docs bucket first)";
+    // `collect_tax` gates whether the vendor is required to collect and
+    // remit sales/VAT tax on their invoices. Only tax-collecting vendors
+    // need to upload a W-9 / W-8BEN.
+    if (data?.collect_tax === undefined || data?.collect_tax === null) {
+      return "collect_tax is required (true or false)";
+    }
+    if (data.collect_tax === true) {
+      if (!data?.classification) return "classification is required (W-9 or W-8BEN)";
+      if (!data?.document_url) return "document_url is required (upload to compliance-docs bucket first)";
+    }
   } else if (stepName === "compliance_docs") {
     const { data: types } = await admin.from("compliance_document_types").select("id").eq("required", true).eq("active", true);
     const { data: docs } = await admin
@@ -123,6 +131,21 @@ export default async function handler(req, res) {
     completed_at: nowIso,
   }, { onConflict: "workflow_id,step_name" });
 
+  // Mirror collect_tax into vendors.is_tax_vendor so the invoice form can
+  // gate the Tax line without joining onboarding state. Bail out loudly
+  // on failure: the step is already upserted, but leaving the flag stale
+  // would silently break the invoice Tax gate.
+  if (stepName === "tax" && !skip && stepData && typeof stepData.collect_tax === "boolean") {
+    const { error: mirrorErr } = await admin.from("vendors")
+      .update({ is_tax_vendor: stepData.collect_tax })
+      .eq("id", caller.vendor_id);
+    if (mirrorErr) {
+      return res.status(500).json({
+        error: `Tax step saved, but could not sync is_tax_vendor on your vendor record: ${mirrorErr.message}. Please re-submit the Tax step.`,
+      });
+    }
+  }
+
   const completedSet = new Set(workflow.completed_steps || []);
   completedSet.add(stepName);
   const completedSteps = ALL_STEPS.filter((s) => completedSet.has(s));
@@ -140,7 +163,9 @@ export default async function handler(req, res) {
     updates.status = "pending_review";
   }
 
-  await admin.from("onboarding_workflows").update(updates).eq("id", workflow.id);
+  // Filter on vendor_id too — defense in depth in case the row's owner
+  // changed between the read above and the update below.
+  await admin.from("onboarding_workflows").update(updates).eq("id", workflow.id).eq("vendor_id", caller.vendor_id);
 
   return res.status(200).json({ ok: true, step: stepName, workflow_status: updates.status || workflow.status, completed_steps: completedSteps });
 }

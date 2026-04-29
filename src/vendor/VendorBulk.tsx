@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { TH } from "../utils/theme";
+import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
 import StatusBadge, { bulkTone } from "./StatusBadge";
+import { showAlert, showFileViewer } from "./ui/AppDialog";
 
 interface BulkOp {
   id: string;
@@ -63,10 +64,16 @@ export default function VendorBulk() {
       const r = await fetch(`/api/vendor/bulk/${opId}`, { headers: { Authorization: `Bearer ${t}` } });
       if (!r.ok) throw new Error(await r.text());
       const data = await r.json();
-      if (data.result_download_url) window.open(data.result_download_url, "_blank");
-      else alert("Result not ready yet.");
+      if (data.result_download_url) {
+        const url: string = data.result_download_url;
+        const filename = (() => {
+          try { return decodeURIComponent(new URL(url).pathname.split("/").pop() || "result.csv"); }
+          catch { return "result.csv"; }
+        })();
+        void showFileViewer({ signedUrl: url, filename });
+      } else await showAlert({ title: "Not ready", message: "Result not ready yet.", tone: "info" });
     } catch (e: unknown) {
-      alert(`Download failed: ${e instanceof Error ? e.message : String(e)}`);
+      await showAlert({ title: "Download failed", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     }
   }
 
@@ -101,7 +108,7 @@ export default function VendorBulk() {
             <div style={{ textAlign: "right", color: o.failure_count > 0 ? TH.primary : TH.textSub2 }}>{o.failure_count}</div>
             <div style={{ textAlign: "right" }}>
               {o.result_file_url ? (
-                <button onClick={() => void downloadResult(o.id)} style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>Download</button>
+                <button onClick={() => void downloadResult(o.id)} style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>Preview</button>
               ) : <span style={{ color: TH.textMuted, fontSize: 12 }}>—</span>}
             </div>
           </div>

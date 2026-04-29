@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { TH } from "../utils/theme";
+import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
 import StatusBadge, { disputeTone } from "./StatusBadge";
 import { fmtDate } from "./utils";
+import { showAlert } from "./ui/AppDialog";
+
+interface POOption { uuid_id: string; po_number: string }
+interface InvoiceOption { id: string; invoice_number: string; po_id: string | null }
 
 interface Dispute {
   id: string;
@@ -114,10 +118,42 @@ function DisputeCreateModal({ onClose, onCreated }: { onClose: () => void; onCre
   const [body, setBody] = useState("");
   const [poId, setPoId] = useState("");
   const [invoiceId, setInvoiceId] = useState("");
+  const [pos, setPos] = useState<POOption[]>([]);
+  const [invoices, setInvoices] = useState<InvoiceOption[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
+  useEffect(() => {
+    (async () => {
+      const [{ data: poRows }, { data: invRows }] = await Promise.all([
+        supabaseVendor.from("tanda_pos").select("uuid_id, po_number, data").order("date_order", { ascending: false }),
+        supabaseVendor.from("invoices").select("id, invoice_number, po_id, submitted_at").order("submitted_at", { ascending: false }),
+      ]);
+      const activePos = ((poRows ?? []) as (POOption & { data: { _archived?: boolean } | null })[])
+        .filter((r) => !r.data?._archived)
+        .map((r) => ({ uuid_id: r.uuid_id, po_number: r.po_number }));
+      setPos(activePos);
+      setInvoices((invRows ?? []) as InvoiceOption[]);
+    })();
+  }, []);
+
+  // When a PO is picked, narrow the invoice list so the user only sees invoices on that PO.
+  const invoiceOptions = poId ? invoices.filter((i) => i.po_id === poId) : invoices;
+
+  // Cross-validate the current selection. If the user manages to pair a
+  // PO with an invoice from a different PO, surface it clearly.
+  const selectedInvoice = invoiceId ? invoices.find((i) => i.id === invoiceId) : null;
+  const mismatch = Boolean(poId && selectedInvoice && selectedInvoice.po_id && selectedInvoice.po_id !== poId);
+
   async function submit() {
-    if (!subject.trim() || !body.trim()) { alert("Subject and body are required."); return; }
+    if (!subject.trim() || !body.trim()) { await showAlert({ title: "Missing fields", message: "Subject and details are required.", tone: "warn" }); return; }
+    if (mismatch) {
+      await showAlert({
+        title: "PO / Invoice don't match",
+        message: "The selected invoice belongs to a different PO than the one you picked. Clear one of them or pick a matching pair before opening the dispute.",
+        tone: "warn",
+      });
+      return;
+    }
     setSubmitting(true);
     try {
       const t = await token();
@@ -126,13 +162,13 @@ function DisputeCreateModal({ onClose, onCreated }: { onClose: () => void; onCre
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${t}` },
         body: JSON.stringify({
           type, priority, subject: subject.trim(), body: body.trim(),
-          po_id: poId.trim() || undefined, invoice_id: invoiceId.trim() || undefined,
+          po_id: poId || undefined, invoice_id: invoiceId || undefined,
         }),
       });
       if (!r.ok) throw new Error(await r.text());
       onCreated();
     } catch (e: unknown) {
-      alert(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+      await showAlert({ title: "Failed", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     } finally {
       setSubmitting(false);
     }
@@ -158,12 +194,60 @@ function DisputeCreateModal({ onClose, onCreated }: { onClose: () => void; onCre
         <Row label="Details">
           <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={5} style={{ ...inp, resize: "vertical" }} />
         </Row>
-        <Row label="Related PO id (optional)">
-          <input value={poId} onChange={(e) => setPoId(e.target.value)} placeholder="tanda_pos.uuid_id" style={inp} />
+        <Row label="Related PO (optional)">
+          <select
+            value={poId}
+            onChange={(e) => {
+              const newPo = e.target.value;
+              setPoId(newPo);
+              if (!newPo) return; // cleared — leave invoice alone
+              const currentInv = invoiceId ? invoices.find((i) => i.id === invoiceId) : null;
+              // If no invoice yet, auto-pick the newest one on this PO.
+              if (!currentInv) {
+                const firstOnPo = invoices.find((i) => i.po_id === newPo);
+                if (firstOnPo) setInvoiceId(firstOnPo.id);
+                return;
+              }
+              // If selected invoice belongs to a different PO, swap it for
+              // the first invoice on the new PO (or clear if none exist).
+              if (currentInv.po_id && currentInv.po_id !== newPo) {
+                const firstOnPo = invoices.find((i) => i.po_id === newPo);
+                setInvoiceId(firstOnPo ? firstOnPo.id : "");
+              }
+            }}
+            style={inp}
+          >
+            <option value="">— None —</option>
+            {pos.map((p) => <option key={p.uuid_id} value={p.uuid_id}>{p.po_number}</option>)}
+          </select>
         </Row>
-        <Row label="Related invoice id (optional)">
-          <input value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)} style={inp} />
+        <Row label="Related invoice (optional)">
+          <select
+            value={invoiceId}
+            onChange={(e) => {
+              const newInv = e.target.value;
+              setInvoiceId(newInv);
+              if (!newInv) return;
+              // Auto-fill the PO to match the invoice's po_id.
+              const inv = invoices.find((i) => i.id === newInv);
+              if (inv?.po_id && inv.po_id !== poId) setPoId(inv.po_id);
+            }}
+            style={inp}
+          >
+            <option value="">— None —</option>
+            {invoiceOptions.map((i) => (
+              <option key={i.id} value={i.id}>{i.invoice_number}</option>
+            ))}
+          </select>
+          {poId && invoiceOptions.length === 0 && (
+            <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>No invoices on that PO yet.</div>
+          )}
         </Row>
+        {mismatch && (
+          <div style={{ marginTop: 4, marginBottom: 10, padding: "8px 12px", background: "#FFFBEB", border: "1px solid #FCD34D", borderRadius: 6, fontSize: 12, color: "#92400E" }}>
+            ⚠ The selected invoice belongs to a different PO. Clear one before opening the dispute.
+          </div>
+        )}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
           <button onClick={onClose} style={btnSecondary}>Cancel</button>
           <button onClick={() => void submit()} disabled={submitting} style={{ ...btnPrimary, opacity: submitting ? 0.6 : 1 }}>{submitting ? "Opening…" : "Open dispute"}</button>

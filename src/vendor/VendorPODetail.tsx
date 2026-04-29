@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { TH } from "../utils/theme";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
 import { fmtDate, fmtMoney } from "./utils";
 import POMessageThread, { type Sender } from "./POMessageThread";
+import VendorPhasesView from "./VendorPhasesView";
 
 interface PORow {
   uuid_id: string;
@@ -46,7 +47,7 @@ interface InvoiceRow {
   paid_at: string | null;
 }
 
-type Tab = "overview" | "messages" | "shipments" | "invoices";
+type Tab = "overview" | "messages" | "shipments" | "invoices" | "phases";
 
 const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
   submitted:    { bg: "#FEF3C7", fg: "#92400E" },
@@ -62,11 +63,22 @@ export default function VendorPODetail() {
   const [lines, setLines] = useState<POLineItem[]>([]);
   const [shipments, setShipments] = useState<ShipmentRow[]>([]);
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
+  const [shippedByLine, setShippedByLine] = useState<Record<string, number>>({});
   const [acked, setAcked] = useState(false);
   const [vendorUserId, setVendorUserId] = useState<string | null>(null);
   const [sender, setSender] = useState<Sender | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [tab, setTab] = useState<Tab>("overview");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const ALL_TABS: readonly Tab[] = ["overview", "messages", "shipments", "invoices", "phases"] as const;
+  const raw = searchParams.get("tab");
+  const initialTab: Tab = ALL_TABS.includes(raw as Tab) ? (raw as Tab) : "overview";
+  const [tab, setTabState] = useState<Tab>(initialTab);
+  const setTab = (t: Tab) => {
+    setTabState(t);
+    const next = new URLSearchParams(searchParams);
+    if (t === "overview") next.delete("tab"); else next.set("tab", t);
+    setSearchParams(next, { replace: true });
+  };
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -125,7 +137,26 @@ export default function VendorPODetail() {
           .select("id, invoice_number, total, status, submitted_at, paid_at")
           .eq("po_id", id)
           .order("submitted_at", { ascending: false });
-        setInvoices((invs ?? []) as InvoiceRow[]);
+        const invoiceRows = (invs ?? []) as InvoiceRow[];
+        setInvoices(invoiceRows);
+
+        // Qty shipped per line = sum of invoice_line_items.quantity_invoiced
+        // across non-rejected invoices for this PO.
+        const activeInvoiceIds = invoiceRows.filter((i) => i.status !== "rejected").map((i) => i.id);
+        if (activeInvoiceIds.length > 0) {
+          const { data: invLines } = await supabaseVendor
+            .from("invoice_line_items")
+            .select("po_line_item_id, quantity_invoiced")
+            .in("invoice_id", activeInvoiceIds);
+          const map: Record<string, number> = {};
+          for (const r of (invLines ?? []) as { po_line_item_id: string | null; quantity_invoiced: number | null }[]) {
+            if (!r.po_line_item_id) continue;
+            map[r.po_line_item_id] = (map[r.po_line_item_id] ?? 0) + (Number(r.quantity_invoiced) || 0);
+          }
+          setShippedByLine(map);
+        } else {
+          setShippedByLine({});
+        }
 
         const unread = ((msgRes.data ?? []) as { sender_type: string; read_by_vendor: boolean }[])
           .filter((m) => m.sender_type === "internal" && !m.read_by_vendor).length;
@@ -173,13 +204,24 @@ export default function VendorPODetail() {
               {payload.StatusName && <> · {payload.StatusName}</>}
             </div>
           </div>
-          {acked ? (
-            <span style={{ fontSize: 12, padding: "6px 14px", borderRadius: 999, background: "#D1FAE5", color: "#065F46", fontWeight: 700 }}>✓ Acknowledged</span>
-          ) : (
-            <button onClick={acknowledge} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontWeight: 600, fontSize: 13, fontFamily: "inherit" }}>
-              Acknowledge PO
-            </button>
-          )}
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <Link
+              to={`/vendor/pos/${id}/view`}
+              style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${TH.border}`, background: "none", color: TH.text, fontSize: 12, fontWeight: 600, fontFamily: "inherit", textDecoration: "none" }}
+            >
+              📄 View PO
+            </Link>
+            {invoices.some((i) => i.status !== "rejected") && (
+              <span style={{ fontSize: 12, padding: "6px 14px", borderRadius: 999, background: "#D1FAE5", color: "#065F46", fontWeight: 700 }}>Shipped/Invoiced</span>
+            )}
+            {acked ? (
+              <span style={{ fontSize: 12, padding: "6px 14px", borderRadius: 999, background: "#D1FAE5", color: "#065F46", fontWeight: 700 }}>✓ Acknowledged</span>
+            ) : (
+              <button onClick={acknowledge} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontWeight: 600, fontSize: 13, fontFamily: "inherit" }}>
+                Acknowledge PO
+              </button>
+            )}
+          </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 14, marginTop: 16 }}>
           <InfoCell label="Issued" value={fmtDate(payload.DateOrder)} />
@@ -195,6 +237,7 @@ export default function VendorPODetail() {
         <TabBtn active={tab === "messages"} onClick={() => setTab("messages")} badge={unreadCount}>Messages</TabBtn>
         <TabBtn active={tab === "shipments"} onClick={() => setTab("shipments")} badge={shipments.length || undefined}>Shipments</TabBtn>
         <TabBtn active={tab === "invoices"} onClick={() => setTab("invoices")} badge={invoices.length || undefined}>Invoices</TabBtn>
+        <TabBtn active={tab === "phases"} onClick={() => setTab("phases")}>Phases</TabBtn>
       </div>
 
       {tab === "overview" && (
@@ -204,15 +247,16 @@ export default function VendorPODetail() {
             <div style={{ padding: 20, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>No line items materialized yet.</div>
           ) : (
             <>
-              <div style={{ display: "grid", gridTemplateColumns: "60px 160px 1fr 100px 100px 120px 120px", padding: "10px 20px", background: TH.surfaceHi, borderTop: `1px solid ${TH.border}`, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
-                <div>#</div><div>Item</div><div>Description</div><div>Qty ord.</div><div>Qty rcv.</div><div>Unit price</div><div style={{ textAlign: "right" }}>Line total</div>
+              <div style={{ display: "grid", gridTemplateColumns: "60px 160px 1fr 100px 100px 100px 120px 120px", padding: "10px 20px", background: TH.surfaceHi, borderTop: `1px solid ${TH.border}`, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
+                <div>#</div><div>Item</div><div>Description</div><div>Qty ord.</div><div>Qty shipped</div><div>Qty rcv.</div><div>Unit price</div><div style={{ textAlign: "right" }}>Line total</div>
               </div>
               {lines.map((l) => (
-                <div key={l.id} style={{ display: "grid", gridTemplateColumns: "60px 160px 1fr 100px 100px 120px 120px", padding: "10px 20px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
+                <div key={l.id} style={{ display: "grid", gridTemplateColumns: "60px 160px 1fr 100px 100px 100px 120px 120px", padding: "10px 20px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
                   <div style={{ color: TH.textMuted }}>{l.line_index}</div>
                   <div style={{ fontFamily: "Menlo, monospace", fontSize: 12, color: TH.textSub2 }}>{l.item_number ?? "—"}</div>
                   <div style={{ color: TH.text }}>{l.description ?? "—"}</div>
                   <div style={{ color: TH.textSub2 }}>{l.qty_ordered ?? "—"}</div>
+                  <div style={{ color: TH.textSub2 }}>{shippedByLine[l.id] ?? 0}</div>
                   <div style={{ color: TH.textSub2 }}>{l.qty_received ?? "—"}</div>
                   <div style={{ color: TH.textSub2 }}>{fmtMoney(l.unit_price ?? undefined)}</div>
                   <div style={{ textAlign: "right", fontWeight: 600, color: TH.text }}>{fmtMoney(l.line_total ?? (Number(l.qty_ordered) || 0) * (Number(l.unit_price) || 0))}</div>
@@ -286,6 +330,10 @@ export default function VendorPODetail() {
             </>
           )}
         </div>
+      )}
+
+      {tab === "phases" && id && (
+        <VendorPhasesView poId={id} />
       )}
     </div>
   );

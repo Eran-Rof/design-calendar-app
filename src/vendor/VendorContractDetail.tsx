@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { TH } from "../utils/theme";
+import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
 import StatusBadge, { contractTone } from "./StatusBadge";
 import { fmtDate, fmtMoney } from "./utils";
+import { showFileViewer } from "../utils/fileViewer";
+import AttachmentsManager from "./ui/AttachmentsManager";
 
 interface Contract {
   id: string;
@@ -68,8 +70,8 @@ export default function VendorContractDetail() {
 
   async function download(path: string) {
     const url = await signedUrl(path);
-    if (url) window.open(url, "_blank");
-    else alert("Could not generate download link.");
+    if (!url) { alert("Could not generate download link."); return; }
+    void showFileViewer({ signedUrl: url, filename: path.split("/").pop() || "contract" });
   }
 
   async function submitSign() {
@@ -143,11 +145,23 @@ export default function VendorContractDetail() {
             <div style={{ color: TH.textSub2 }}>{v.uploaded_by_type === "vendor" ? "Vendor" : "Internal"}</div>
             <div style={{ color: TH.textSub2 }}>{v.notes || ""}</div>
             <div style={{ textAlign: "right" }}>
-              <button onClick={() => void download(v.file_url)} style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12 }}>Download</button>
+              <button onClick={() => void download(v.file_url)} style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12 }}>Preview</button>
             </div>
           </div>
         ))}
       </div>
+
+      {contract.vendor_id && (
+        <div style={{ marginTop: 14 }}>
+          <AttachmentsManager
+            entityType="contract"
+            entityId={contract.id}
+            storageFolder={`${contract.vendor_id}/contracts`}
+            readOnly={false}
+            label="Supporting documents"
+          />
+        </div>
+      )}
 
       {signOpen && (
         <Modal title={`Sign contract: ${contract.title}`} onClose={() => { setSignOpen(false); setFile(null); }}>

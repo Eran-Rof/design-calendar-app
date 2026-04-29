@@ -178,6 +178,10 @@ export async function ingestShopifyProducts(opts: { limit?: number } = {}): Prom
       for (const ni of normalizedItems) {
         // Upsert item master — Shopify is the source of truth for SKUs
         // the Xoro catalog hasn't mirrored yet.
+        // NOTE: never write `attributes` from this path — it would
+        // clobber the GroupName/CategoryName set by the Item Master
+        // Excel uploader (PostgREST upsert replaces JSONB columns
+        // wholesale, not deep-merge).
         itemRows.push({
           sku_code: ni.sku_code,
           style_code: ni.style_code,
@@ -189,7 +193,6 @@ export async function ingestShopifyProducts(opts: { limit?: number } = {}): Prom
           lifecycle_status: ni.lifecycle_status,
           active: ni.active,
           external_refs: ni.external_refs,
-          attributes: ni.attributes,
         });
       }
       for (const v of product.variants ?? []) {

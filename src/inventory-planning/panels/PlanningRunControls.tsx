@@ -6,7 +6,7 @@
 import { useState } from "react";
 import type { IpPlanningRun, IpPlanningRunStatus } from "../types/wholesale";
 import { wholesaleRepo } from "../services/wholesalePlanningRepository";
-import { runForecastPass } from "../services/wholesaleForecastService";
+import { runForecastPass, type BuildFilter } from "../services/wholesaleForecastService";
 import { S, PAL, formatDate } from "../components/styles";
 import type { ToastMessage } from "../components/Toast";
 
@@ -23,26 +23,34 @@ export interface PlanningRunControlsProps {
   // wholesale, the ecom workbench renders its own build button and
   // passes `showBuild={false}` to avoid a duplicate.
   showBuild?: boolean;
+  // Grid-derived filter. When any field is set, the Build button
+  // scopes the build to the matching subset and re-labels itself
+  // "Build (filtered)" so the planner knows it's not a full-run build.
+  buildFilter?: BuildFilter | null;
 }
 
 export default function PlanningRunControls({
   runs, selectedRunId, onSelect, onChange, onToast,
-  scope = "wholesale", showBuild = true,
+  scope = "wholesale", showBuild = true, buildFilter = null,
 }: PlanningRunControlsProps) {
   const [showNew, setShowNew] = useState(false);
   const [building, setBuilding] = useState(false);
 
   const selected = runs.find((r) => r.id === selectedRunId) ?? null;
 
+  const filterActive = !!buildFilter && Object.values(buildFilter).some((v) => v != null && v !== "");
+
   async function buildForecast() {
     if (!selected) { onToast({ text: "Pick a run first", kind: "error" }); return; }
     setBuilding(true);
     try {
-      const result = await runForecastPass(selected);
+      const result = await runForecastPass(selected, filterActive ? { filter: buildFilter ?? undefined } : {});
       const lyCount = result.methods.ly_sales ?? 0;
       const lyNote = lyCount > 0 ? ` · ${lyCount} Same Period LY` : "";
+      const filterNote = filterActive ? ` · filter excluded ${result.pairs_pruned_filter}` : "";
+      const deadNote = result.pairs_pruned_dead > 0 ? ` · pruned ${result.pairs_pruned_dead} dead SKUs` : "";
       onToast({
-        text: `Forecast built — ${result.forecast_rows_written} rows, ${result.recommendations_written} recs${lyNote}`,
+        text: `Forecast built — ${result.forecast_rows_written} rows, ${result.recommendations_written} recs${lyNote}${deadNote}${filterNote}`,
         kind: "success",
       });
       await onChange();
@@ -80,8 +88,23 @@ export default function PlanningRunControls({
         {selected && (
           <>
             {showBuild && (
-              <button style={S.btnPrimary} onClick={buildForecast} disabled={building}>
-                {building ? "Building…" : "Build forecast"}
+              <button
+                style={{
+                  ...S.btnPrimary,
+                  ...(filterActive ? { background: PAL.yellow, color: "#111" } : {}),
+                }}
+                onClick={buildForecast}
+                disabled={building}
+                title={filterActive
+                  ? `Build only the rows matching the current grid filters: ${[
+                      buildFilter?.customer_id ? "customer" : null,
+                      buildFilter?.group_name ? `category=${buildFilter.group_name}` : null,
+                      buildFilter?.sub_category_name ? `sub-cat=${buildFilter.sub_category_name}` : null,
+                      buildFilter?.gender ? `gender=${buildFilter.gender}` : null,
+                    ].filter(Boolean).join(", ")}`
+                  : "Build forecast for every (customer, sku) pair in the run"}
+              >
+                {building ? "Building…" : (filterActive ? "Build (filtered)" : "Build forecast")}
               </button>
             )}
             {selected.status !== "active" && (

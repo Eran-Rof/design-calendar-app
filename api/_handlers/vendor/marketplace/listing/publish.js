@@ -33,7 +33,7 @@ export default async function handler(req, res) {
 
   const next = publish ? "published" : "draft";
   const { error } = await admin.from("marketplace_listings")
-    .update({ status: next, updated_at: new Date().toISOString() }).eq("id", existing.id);
+    .update({ status: next, updated_at: new Date().toISOString() }).eq("id", existing.id).eq("vendor_id", vendorId);
   if (error) return res.status(500).json({ error: error.message });
   return res.status(200).json({ id: existing.id, status: next });
 }

@@ -103,11 +103,11 @@ export function generateGtinZpl(line: LabelBatchLine, template: LabelTemplate): 
 
   let y = 230;
   const dy = 38;
-  if (f.show_style)   { cmds.push(`^FO30,${y}^A0N,26,26^FDStyle: ${line.style_no}^FS`);           y += dy; }
-  if (f.show_color)   { cmds.push(`^FO30,${y}^A0N,26,26^FDColor: ${line.color}^FS`);              y += dy; }
-  if (f.show_scale)   { cmds.push(`^FO30,${y}^A0N,26,26^FDScale: ${line.scale_code}^FS`);         y += dy; }
+  if (f.show_style)   { cmds.push(`^FO30,${y}^A0N,26,26^FDStyle: ${escapeZpl(line.style_no)}^FS`);           y += dy; }
+  if (f.show_color)   { cmds.push(`^FO30,${y}^A0N,26,26^FDColor: ${escapeZpl(line.color)}^FS`);              y += dy; }
+  if (f.show_scale)   { cmds.push(`^FO30,${y}^A0N,26,26^FDScale: ${escapeZpl(line.scale_code)}^FS`);         y += dy; }
   if (f.show_channel && line.source_channel) {
-    cmds.push(`^FO30,${y}^A0N,26,26^FDChannel: ${line.source_channel}^FS`); y += dy;
+    cmds.push(`^FO30,${y}^A0N,26,26^FDChannel: ${escapeZpl(line.source_channel)}^FS`); y += dy;
   }
   cmds.push(`^XZ`);
   return cmds.join("\n");
@@ -133,12 +133,12 @@ export function generateSsccZpl(carton: Carton, template: LabelTemplate): string
 
   let y = 230;
   const dy = 38;
-  if (f.show_style  && carton.style_no) { cmds.push(`^FO30,${y}^A0N,26,26^FDStyle: ${carton.style_no}^FS`);   y += dy; }
-  if (f.show_color  && carton.color)    { cmds.push(`^FO30,${y}^A0N,26,26^FDColor: ${carton.color}^FS`);      y += dy; }
-  if (f.show_po     && carton.po_number){ cmds.push(`^FO30,${y}^A0N,26,26^FDPO: ${carton.po_number}^FS`);     y += dy; }
-  if (f.show_carton) { cmds.push(`^FO30,${y}^A0N,26,26^FDCarton: ${carton.carton_seq}^FS`);                  y += dy; }
+  if (f.show_style  && carton.style_no) { cmds.push(`^FO30,${y}^A0N,26,26^FDStyle: ${escapeZpl(carton.style_no)}^FS`);   y += dy; }
+  if (f.show_color  && carton.color)    { cmds.push(`^FO30,${y}^A0N,26,26^FDColor: ${escapeZpl(carton.color)}^FS`);      y += dy; }
+  if (f.show_po     && carton.po_number){ cmds.push(`^FO30,${y}^A0N,26,26^FDPO: ${escapeZpl(carton.po_number)}^FS`);     y += dy; }
+  if (f.show_carton) { cmds.push(`^FO30,${y}^A0N,26,26^FDCarton: ${escapeZpl(String(carton.carton_seq ?? ""))}^FS`);     y += dy; }
   if (f.show_units  && carton.total_units != null) {
-    cmds.push(`^FO30,${y}^A0N,26,26^FDUnits: ${carton.total_units}^FS`); y += dy;
+    cmds.push(`^FO30,${y}^A0N,26,26^FDUnits: ${escapeZpl(String(carton.total_units))}^FS`); y += dy;
   }
   cmds.push(`^XZ`);
   return cmds.join("\n");
@@ -248,18 +248,23 @@ export function buildGtinPrintHtml(batchName: string, lines: LabelBatchLine[], t
   }
 
   const labelsHtml = expanded.map(({ line, copy, total }) => {
+    // Vendor-supplied style / color / channel can contain `<`, `&`, or
+    // quotes. Without escaping, a color name like 'Black & "Red"' breaks
+    // the print page and a payload like '<script>...' would execute in
+    // the print preview window. pack_gtin is digit-validated upstream
+    // so it doesn't need escaping but we apply it defensively.
     const extraRows = [
-      f.show_style   ? `<div class="label-row"><span class="lbl">Style</span><span class="val">${line.style_no}</span></div>` : "",
-      f.show_color   ? `<div class="label-row"><span class="lbl">Color</span><span class="val">${line.color}</span></div>` : "",
-      f.show_scale   ? `<div class="label-row"><span class="lbl">Scale</span><span class="val">${line.scale_code}</span></div>` : "",
+      f.show_style   ? `<div class="label-row"><span class="lbl">Style</span><span class="val">${escapeHtml(String(line.style_no ?? ""))}</span></div>` : "",
+      f.show_color   ? `<div class="label-row"><span class="lbl">Color</span><span class="val">${escapeHtml(String(line.color ?? ""))}</span></div>` : "",
+      f.show_scale   ? `<div class="label-row"><span class="lbl">Scale</span><span class="val">${escapeHtml(String(line.scale_code ?? ""))}</span></div>` : "",
       f.show_channel && line.source_channel
-        ? `<div class="label-row"><span class="lbl">Channel</span><span class="val">${line.source_channel}</span></div>` : "",
+        ? `<div class="label-row"><span class="lbl">Channel</span><span class="val">${escapeHtml(String(line.source_channel ?? ""))}</span></div>` : "",
     ].join("");
     return `
       <div class="label">
         <div class="label-header">GS1 Prepack Label</div>
-        <div class="barcode-box">${line.pack_gtin}</div>
-        <div class="barcode-human">${formatGtin14Display(line.pack_gtin)}</div>
+        <div class="barcode-box">${escapeHtml(String(line.pack_gtin ?? ""))}</div>
+        <div class="barcode-human">${escapeHtml(formatGtin14Display(line.pack_gtin))}</div>
         <div class="label-fields">${extraRows}</div>
         <div class="label-footer">${copy} of ${total}</div>
       </div>`;
@@ -280,21 +285,23 @@ export function buildSsccPrintHtml(batchName: string, cartons: Carton[], templat
   const { w, h } = labelDims(template);
 
   const labelsHtml = cartons.map(c => {
+    // Same escaping rationale as buildGtinPrintHtml — style/color/PO can
+    // carry user-supplied chars that break HTML or run as script.
     const extraRows = [
-      f.show_style  && c.style_no  ? `<div class="label-row"><span class="lbl">Style</span><span class="val">${c.style_no}</span></div>` : "",
-      f.show_color  && c.color     ? `<div class="label-row"><span class="lbl">Color</span><span class="val">${c.color}</span></div>` : "",
-      f.show_po     && c.po_number ? `<div class="label-row"><span class="lbl">PO</span><span class="val">${c.po_number}</span></div>` : "",
-      f.show_carton ? `<div class="label-row"><span class="lbl">Carton</span><span class="val">${c.carton_seq}</span></div>` : "",
-      f.show_units  && c.total_units != null ? `<div class="label-row"><span class="lbl">Units</span><span class="val">${c.total_units}</span></div>` : "",
+      f.show_style  && c.style_no  ? `<div class="label-row"><span class="lbl">Style</span><span class="val">${escapeHtml(String(c.style_no))}</span></div>` : "",
+      f.show_color  && c.color     ? `<div class="label-row"><span class="lbl">Color</span><span class="val">${escapeHtml(String(c.color))}</span></div>` : "",
+      f.show_po     && c.po_number ? `<div class="label-row"><span class="lbl">PO</span><span class="val">${escapeHtml(String(c.po_number))}</span></div>` : "",
+      f.show_carton ? `<div class="label-row"><span class="lbl">Carton</span><span class="val">${escapeHtml(String(c.carton_seq ?? ""))}</span></div>` : "",
+      f.show_units  && c.total_units != null ? `<div class="label-row"><span class="lbl">Units</span><span class="val">${escapeHtml(String(c.total_units))}</span></div>` : "",
     ].join("");
     return `
       <div class="label">
         <div class="label-header">GS1 Shipping Carton Label</div>
         <div class="ai-prefix">(00)</div>
-        <div class="barcode-box">${c.sscc}</div>
-        <div class="barcode-human">${formatSscc18Display(c.sscc)}</div>
+        <div class="barcode-box">${escapeHtml(String(c.sscc))}</div>
+        <div class="barcode-human">${escapeHtml(formatSscc18Display(c.sscc))}</div>
         <div class="label-fields">${extraRows}</div>
-        <div class="label-footer">Carton ${c.carton_seq}</div>
+        <div class="label-footer">Carton ${escapeHtml(String(c.carton_seq ?? ""))}</div>
       </div>`;
   }).join("");
 
@@ -310,6 +317,17 @@ ${labelsHtml}
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// Strip / replace ZPL control chars so vendor-supplied style or color
+// strings can't accidentally close a field, start a new command, or
+// mark a delimiter. ZPL has no escape sequence — these characters
+// simply aren't allowed inside ^FD…^FS field data.
+//   ^   command prefix    →  -
+//   ~   shorthand prefix  →  -
+//   \   escape            →  /
+function escapeZpl(s: unknown): string {
+  return String(s ?? "").replace(/[\^~\\]/g, "-");
 }
 
 // ── Default template constants ────────────────────────────────────────────────

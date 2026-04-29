@@ -1,8 +1,16 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import ErrorBoundary from "./components/ErrorBoundary";
+import WithNotifications from "./components/notifications/WithNotifications";
+import PlanningShell from "./inventory-planning/shared/components/PlanningShell";
 import { appConfig } from "./config/env";
 import { canAccessInventoryPlanning, getPlmSessionEmail } from "./config/planningAccess";
+import { installInternalApiAuth } from "./utils/internalApiAuth";
+
+// Inject Authorization: Bearer header on every /api/internal/* fetch
+// from the browser. Reads VITE_INTERNAL_API_TOKEN at build time.
+// Idempotent — safe to call once at boot.
+installInternalApiAuth();
 
 // Simple path-based routing — no router library needed
 const path = window.location.pathname;
@@ -60,7 +68,10 @@ async function mount() {
 
   const root = createRoot(document.getElementById("root")!);
 
-  if (path.startsWith("/vendor")) {
+  if (path.startsWith("/rof/phase-reviews")) {
+    const { default: PhaseReviews } = await import("./rof/PhaseReviews");
+    root.render(<StrictMode><ErrorBoundary appName="Phase Reviews"><WithNotifications><PhaseReviews /></WithNotifications></ErrorBoundary></StrictMode>);
+  } else if (path.startsWith("/vendor")) {
     // External vendor portal — Supabase Auth, isolated from internal apps.
     // Sub-routing (/vendor/login, /vendor/setup, /vendor) lives inside VendorApp via react-router-dom.
     const { default: VendorApp } = await import("./vendor/VendorApp");
@@ -95,38 +106,76 @@ async function mount() {
 
     } else if (path.startsWith("/planning/data-quality")) {
       const { default: DataQualityReport } = await import("./inventory-planning/admin/DataQualityReport");
-      root.render(<StrictMode><ErrorBoundary appName="Planning DQ"><DataQualityReport /></ErrorBoundary></StrictMode>);
+      root.render(<StrictMode><ErrorBoundary appName="Planning DQ"><PlanningShell title="Data Quality"><DataQualityReport /></PlanningShell></ErrorBoundary></StrictMode>);
 
     } else if (path.startsWith("/planning/ecom")) {
       const { default: EcomPlanningWorkbench } = await import("./inventory-planning/ecom/panels/EcomPlanningWorkbench");
-      root.render(<StrictMode><ErrorBoundary appName="Ecom Planning"><EcomPlanningWorkbench /></ErrorBoundary></StrictMode>);
+      root.render(<StrictMode><ErrorBoundary appName="Ecom Planning"><PlanningShell title="Ecom Planning"><EcomPlanningWorkbench /></PlanningShell></ErrorBoundary></StrictMode>);
 
     } else if (path.startsWith("/planning/supply")) {
       const { default: ReconciliationWorkbench } = await import("./inventory-planning/supply/panels/ReconciliationWorkbench");
-      root.render(<StrictMode><ErrorBoundary appName="Supply Reconciliation"><ReconciliationWorkbench /></ErrorBoundary></StrictMode>);
+      root.render(<StrictMode><ErrorBoundary appName="Supply Reconciliation"><PlanningShell title="Supply Reconciliation"><ReconciliationWorkbench /></PlanningShell></ErrorBoundary></StrictMode>);
 
     } else if (path.startsWith("/planning/accuracy")) {
       const { default: AccuracyWorkbench } = await import("./inventory-planning/accuracy/panels/AccuracyWorkbench");
-      root.render(<StrictMode><ErrorBoundary appName="Accuracy & AI"><AccuracyWorkbench /></ErrorBoundary></StrictMode>);
+      root.render(<StrictMode><ErrorBoundary appName="Accuracy & AI"><PlanningShell title="Accuracy & AI"><AccuracyWorkbench /></PlanningShell></ErrorBoundary></StrictMode>);
 
     } else if (path.startsWith("/planning/scenarios")) {
       const { default: ScenarioManager } = await import("./inventory-planning/scenarios/panels/ScenarioManager");
-      root.render(<StrictMode><ErrorBoundary appName="Scenarios & Exports"><ScenarioManager /></ErrorBoundary></StrictMode>);
+      root.render(<StrictMode><ErrorBoundary appName="Scenarios & Exports"><PlanningShell title="Scenarios & Exports"><ScenarioManager /></PlanningShell></ErrorBoundary></StrictMode>);
 
     } else if (path.startsWith("/planning/execution")) {
       const { default: ExecutionBatchManager } = await import("./inventory-planning/execution/panels/ExecutionBatchManager");
-      root.render(<StrictMode><ErrorBoundary appName="Execution"><ExecutionBatchManager /></ErrorBoundary></StrictMode>);
+      root.render(<StrictMode><ErrorBoundary appName="Execution"><PlanningShell title="Execution"><ExecutionBatchManager /></PlanningShell></ErrorBoundary></StrictMode>);
 
     } else if (path.startsWith("/planning/admin")) {
       const { default: AdminWorkbench } = await import("./inventory-planning/admin/panels/AdminWorkbench");
-      root.render(<StrictMode><ErrorBoundary appName="Admin"><AdminWorkbench /></ErrorBoundary></StrictMode>);
+      root.render(<StrictMode><ErrorBoundary appName="Admin"><PlanningShell title="Planning Admin"><AdminWorkbench /></PlanningShell></ErrorBoundary></StrictMode>);
 
     } else {
       // /planning or /planning/wholesale
       const { default: WholesalePlanningWorkbench } = await import("./inventory-planning/panels/WholesalePlanningWorkbench");
-      root.render(<StrictMode><ErrorBoundary appName="Wholesale Planning"><WholesalePlanningWorkbench /></ErrorBoundary></StrictMode>);
+      root.render(<StrictMode><ErrorBoundary appName="Wholesale Planning"><PlanningShell title="Wholesale Planning"><WholesalePlanningWorkbench /></PlanningShell></ErrorBoundary></StrictMode>);
     }
 
+  } else if (path.startsWith("/notifications")) {
+    const [{ default: NotificationsPage }, { supabaseClient }] = await Promise.all([
+      import("./components/notifications/NotificationsPage"),
+      import("./utils/supabase"),
+    ]);
+    const plm = (() => { try { return JSON.parse(sessionStorage.getItem("plm_user") || "null"); } catch { return null; } })();
+    const from = new URLSearchParams(window.location.search).get("from") || "";
+    const backByFrom: Record<string, { href: string; label: string }> = {
+      tanda: { href: "/tanda", label: "Back to PO WIP" },
+      design: { href: "/design", label: "Back to Design Calendar" },
+      techpack: { href: "/techpack", label: "Back to Tech Packs" },
+      ats: { href: "/ats", label: "Back to ATS" },
+      planning: { href: "/planning", label: "Back to Planning" },
+      rof: { href: "/rof/phase-reviews", label: "Back to Phase Reviews" },
+    };
+    const defaultBack = plm?.id
+      ? { href: "/tanda", label: "Back to PO WIP" }
+      : { href: "/", label: "Back to PLM" };
+    const backLink = backByFrom[from] || defaultBack;
+    root.render(
+      <StrictMode>
+        <ErrorBoundary appName="Notifications">
+          {supabaseClient && plm?.id ? (
+            <NotificationsPage
+              kind="internal"
+              supabase={supabaseClient}
+              userId={plm.id}
+              title="Notifications"
+              backLink={backLink}
+            />
+          ) : (
+            <div style={{ padding: 24, color: "#F1F5F9", background: "#0F172A", minHeight: "100vh" }}>
+              Sign in first — <a href="/" style={{ color: "#60A5FA" }}>go to PLM launcher</a>.
+            </div>
+          )}
+        </ErrorBoundary>
+      </StrictMode>,
+    );
   } else {
     // Root "/" — PLM Launcher
     const { default: PLMApp } = await import("./PLM");

@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { type XoroPO, type Milestone, type WipTemplate, WIP_CATEGORIES, DEFAULT_WIP_TEMPLATES } from "../../utils/tandaTypes";
+import { type XoroPO, type Milestone, type WipTemplate, WIP_CATEGORIES, DEFAULT_WIP_TEMPLATES, todayLocalIso } from "../../utils/tandaTypes";
 import { generateMilestones as _generateMilestones, mergeMilestones } from "../milestones";
 import { useTandaStore } from "../store/index";
 
@@ -70,7 +70,7 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
         coreSet("milestones", merged);
 
         // Auto-mark overdue milestones as Delayed
-        const today = new Date().toISOString().split("T")[0];
+        const today = todayLocalIso();
         const toAutoDelay: Milestone[] = [];
         Object.values(merged).forEach(msArr => {
           msArr.forEach(m => {
@@ -116,6 +116,21 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
   }
 
   async function saveMilestone(m: Milestone, skipHistory = false) {
+    // Bump the global pending-save counter so the 15s realtime poller
+    // skips its reload until this save finishes — without it, an
+    // in-flight optimistic edit could be silently overwritten by the
+    // poll's loadAllMilestones. Decrement happens in the finally below.
+    // Guarded for non-browser environments (vitest unit tests).
+    const w = (typeof window !== "undefined" ? window : null) as (typeof window & { __tandaPendingSaves?: number }) | null;
+    if (w) w.__tandaPendingSaves = (w.__tandaPendingSaves ?? 0) + 1;
+    try {
+      return await _saveMilestone(m, skipHistory);
+    } finally {
+      if (w) w.__tandaPendingSaves = Math.max(0, (w.__tandaPendingSaves ?? 1) - 1);
+    }
+  }
+
+  async function _saveMilestone(m: Milestone, skipHistory = false) {
     const state = getState();
     const milestones = state.milestones;
     const user = state.user;
@@ -126,7 +141,7 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
     const existing = (milestones[m.po_number] || []).find(x => x.id === m.id);
     // When status changes, store date per status in status_dates map
     if (existing && existing.status !== m.status) {
-      const today = new Date().toISOString().split("T")[0];
+      const today = todayLocalIso();
       const dates = { ...(m.status_dates || existing.status_dates || {}) };
       // Record today for the new status (if it doesn't already have a date)
       if (!dates[m.status]) dates[m.status] = today;
