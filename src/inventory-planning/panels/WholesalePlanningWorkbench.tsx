@@ -578,6 +578,53 @@ export default function WholesalePlanningWorkbench() {
     }
   }
 
+  // Direct override of the System forecast qty. Pass null to clear
+  // (revert to the computed value). Stamps overridden_at + overridden_by
+  // so the cell tooltip can show "from X to Y on DATE".
+  async function saveSystemOverride(forecastId: string, qty: number | null) {
+    const row = rows.find((r) => r.forecast_id === forecastId);
+    if (!row) return;
+    const effectiveSystem = qty ?? row.system_forecast_qty_original;
+    const final = Math.max(0, effectiveSystem + row.buyer_request_qty + row.override_qty);
+    const nowIso = new Date().toISOString();
+    let userName: string | null = null;
+    try {
+      const raw = sessionStorage.getItem("plm_user");
+      if (raw) userName = JSON.parse(raw)?.name ?? null;
+    } catch { /* fall through */ }
+    setRows((prev) => prev.map((r) =>
+      r.forecast_id !== forecastId ? r : {
+        ...r,
+        system_forecast_qty: effectiveSystem,
+        system_forecast_qty_overridden_at: qty != null ? nowIso : null,
+        system_forecast_qty_overridden_by: qty != null ? userName : null,
+        final_forecast_qty: final,
+      }
+    ));
+    try {
+      await wholesaleRepo.patchForecastSystemOverride(forecastId, qty, final, userName);
+      setToast({
+        text: qty != null
+          ? `System forecast set to ${qty.toLocaleString()} (was ${row.system_forecast_qty_original.toLocaleString()})`
+          : "System forecast reset to suggested value",
+        kind: "success",
+      });
+      const seq = ++rebuildSeq.current;
+      void (async () => {
+        try {
+          const refreshed = await buildGridRows(selectedRun!);
+          if (seq !== rebuildSeq.current) return;
+          setRows(refreshed);
+        } catch { /* swallow */ }
+      })();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `System forecast save failed — ${msg}`, kind: "error" });
+      const refreshed = await buildGridRows(selectedRun!);
+      setRows(refreshed);
+    }
+  }
+
   async function saveUnitCost(forecastId: string, cost: number | null) {
     setRows((prev) => prev.map((r) => {
       if (r.forecast_id !== forecastId) return r;
@@ -741,6 +788,7 @@ export default function WholesalePlanningWorkbench() {
               onUpdateUnitCost={saveUnitCost}
               onUpdateBuyerRequest={saveBuyerRequest}
               onUpdateOverride={saveOverrideQty}
+              onUpdateSystemOverride={saveSystemOverride}
             />
           </>
         )}

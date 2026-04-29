@@ -118,6 +118,12 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): 
     buyer_request_qty: sum("buyer_request_qty"),
     override_qty: sum("override_qty"),
     final_forecast_qty: sum("final_forecast_qty"),
+    // Aggregate system override metadata is not meaningful at rollup
+    // grain — clear the per-row tooltip fields so the merged row
+    // doesn't pretend a single user changed the bucket's total.
+    system_forecast_qty_original: sum("system_forecast_qty_original"),
+    system_forecast_qty_overridden_at: null,
+    system_forecast_qty_overridden_by: null,
     ly_reference_qty: sumNullable("ly_reference_qty"),
     on_hand_qty: sumNullable("on_hand_qty"),
     on_so_qty: sum("on_so_qty"),

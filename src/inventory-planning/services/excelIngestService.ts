@@ -453,6 +453,11 @@ export async function ingestItemMasterExcel(
     "category name", "categoryname", "category", "sub category",
     "subcategory", "sub_category", "sub cat", "subcat",
   ];
+  // Xoro export's `GenderCode` column. Stored in attributes for
+  // filter-only use (no grid column rendered).
+  const GENDER_ALIASES = [
+    "gender code", "gendercode", "gender",
+  ];
 
   for (const r of rows) {
     // SKU: direct column or compose from Style + Color.
@@ -488,6 +493,7 @@ export async function ingestItemMasterExcel(
 
     const groupName = String(pick(r, GROUP_NAME_ALIASES) ?? "").trim() || null;
     const subCategoryName = String(pick(r, CATEGORY_NAME_ALIASES) ?? "").trim() || null;
+    const gender = String(pick(r, GENDER_ALIASES) ?? "").trim() || null;
 
     // PostgREST 12+ rejects bulk upserts where rows have different key sets
     // ("All object keys must match"). So every row carries the SAME shape;
@@ -506,10 +512,11 @@ export async function ingestItemMasterExcel(
       active: true,
     };
     if (description) item.description = description;
-    if (groupName || subCategoryName) {
+    if (groupName || subCategoryName || gender) {
       item.attributes = {
         ...(groupName ? { group_name: groupName } : {}),
         ...(subCategoryName ? { category_name: subCategoryName } : {}),
+        ...(gender ? { gender } : {}),
       };
     }
     if (cost != null && cost >= 0) {

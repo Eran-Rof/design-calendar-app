@@ -39,6 +39,10 @@ function readSubCategoryName(item: { attributes?: Record<string, unknown> | null
   const v = item?.attributes && (item.attributes as Record<string, unknown>).category_name;
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
+function readGender(item: { attributes?: Record<string, unknown> | null } | null | undefined): string | null {
+  const v = item?.attributes && (item.attributes as Record<string, unknown>).gender;
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
 
 // Trim history to the forecast lookback window (default: 12 months before
 // the snapshot date). Keeps the compute payload small.
@@ -417,11 +421,18 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       // the same style if the variant master row hasn't been populated yet.
       group_name: readGroupName(item) ?? readGroupName(styleFallback) ?? null,
       sub_category_name: readSubCategoryName(item) ?? readSubCategoryName(styleFallback) ?? null,
+      gender: readGender(item) ?? readGender(styleFallback) ?? null,
       period_code: f.period_code,
       period_start: f.period_start,
       period_end: f.period_end,
       historical_trailing_qty: trailing.get(`${f.customer_id}:${f.sku_id}`) ?? 0,
-      system_forecast_qty: f.system_forecast_qty,
+      // Effective system: override wins when set, otherwise the
+      // computed value. The original is preserved separately so the
+      // grid tooltip can display "from X to Y on DATE".
+      system_forecast_qty: f.system_forecast_qty_override ?? f.system_forecast_qty,
+      system_forecast_qty_original: f.system_forecast_qty,
+      system_forecast_qty_overridden_at: f.system_forecast_qty_overridden_at ?? null,
+      system_forecast_qty_overridden_by: f.system_forecast_qty_overridden_by ?? null,
       buyer_request_qty: f.buyer_request_qty,
       override_qty: f.override_qty,
       final_forecast_qty: f.final_forecast_qty,

@@ -287,6 +287,27 @@ export const wholesaleRepo = {
     );
     if (!rows[0]) throw new Error(`patchForecastUnitCostOverride: no row returned for ${forecastId}`);
   },
+  // System-qty override: planner directly edits the System forecast.
+  // Stored alongside the original system_forecast_qty so the grid can
+  // show "changed from X to Y on DATE". Pass null to clear.
+  async patchForecastSystemOverride(
+    forecastId: string,
+    system_forecast_qty_override: number | null,
+    final_forecast_qty: number,
+    overridden_by: string | null,
+  ): Promise<void> {
+    const overridden_at = system_forecast_qty_override != null ? new Date().toISOString() : null;
+    const rows = await sbPatch<IpWholesaleForecast>(
+      `ip_wholesale_forecast?id=eq.${forecastId}`,
+      {
+        system_forecast_qty_override,
+        system_forecast_qty_overridden_at: overridden_at,
+        system_forecast_qty_overridden_by: system_forecast_qty_override != null ? overridden_by : null,
+        final_forecast_qty,
+      },
+    );
+    if (!rows[0]) throw new Error(`patchForecastSystemOverride: no row returned for ${forecastId}`);
+  },
 
   // ── Future demand requests ───────────────────────────────────────────────
   async listOpenRequests(): Promise<IpFutureDemandRequest[]> {

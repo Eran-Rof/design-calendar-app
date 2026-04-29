@@ -78,6 +78,12 @@ export interface IpWholesaleForecast {
   period_end: IpIsoDate;
   period_code: string;
   system_forecast_qty: number;
+  // Optional planner override of the system value. When non-null the
+  // grid displays this in place of system_forecast_qty and shows a
+  // "changed from X to Y on DATE" tooltip on the cell.
+  system_forecast_qty_override: number | null;
+  system_forecast_qty_overridden_at: IpIsoDateTime | null;
+  system_forecast_qty_overridden_by: string | null;
   buyer_request_qty: number;
   override_qty: number;
   final_forecast_qty: number;
@@ -158,6 +164,8 @@ export interface IpPlanningGridRow {
   // because legacy rows may not have these populated yet.
   group_name: string | null;
   sub_category_name: string | null;
+  // Item-master GenderCode. Filter-only — no grid column rendered.
+  gender: string | null;
   sku_id: string;
   sku_code: string;
   sku_description: string | null;
@@ -172,6 +180,12 @@ export interface IpPlanningGridRow {
   period_end: IpIsoDate;
   historical_trailing_qty: number;
   system_forecast_qty: number;
+  // Original computed system value before any override. Equal to
+  // system_forecast_qty when no override is set; otherwise carries
+  // the original so the cell tooltip can render "from X to Y".
+  system_forecast_qty_original: number;
+  system_forecast_qty_overridden_at: IpIsoDateTime | null;
+  system_forecast_qty_overridden_by: string | null;
   buyer_request_qty: number;
   override_qty: number;
   final_forecast_qty: number;

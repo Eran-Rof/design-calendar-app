@@ -14,6 +14,10 @@ export interface WholesalePlanningGridProps {
   onUpdateUnitCost: (forecastId: string, cost: number | null) => Promise<void>;
   onUpdateBuyerRequest: (forecastId: string, qty: number) => Promise<void>;
   onUpdateOverride: (forecastId: string, qty: number) => Promise<void>;
+  // Direct edit of System forecast qty. Pass null to revert to the
+  // computed suggestion. Stamps user + timestamp server-side for the
+  // cell tooltip.
+  onUpdateSystemOverride: (forecastId: string, qty: number | null) => Promise<void>;
   loading?: boolean;
 }
 
@@ -30,13 +34,29 @@ type SortKey =
 // references (CollapseModes) compile without churn.
 type CollapseModes = ExtractedCollapseModes;
 
-export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, loading }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, loading }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
   const [filterCustomer, setFilterCustomer] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [filterSubCat, setFilterSubCat] = useState<string>("all");
+  const [filterGender, setFilterGender] = useState<string>("all");
   const [filterAction, setFilterAction] = useState<string>("all");
   const [filterConfidence, setFilterConfidence] = useState<string>("all");
+  // Master toggle — when OFF, System forecast suggestions are blanked
+  // out across the whole grid so the planner can drive demand purely
+  // through Buyer / Override edits without the auto-suggestion biasing
+  // the displayed Final. Persisted in localStorage so refresh keeps it.
+  const [systemSuggestionsOn, setSystemSuggestionsOn] = useState<boolean>(() => {
+    try { return localStorage.getItem("ws_planning_system_suggestions_off") !== "1"; }
+    catch { return true; }
+  });
+  function setSystemSuggestionsOnPersistent(v: boolean) {
+    try {
+      if (v) localStorage.removeItem("ws_planning_system_suggestions_off");
+      else localStorage.setItem("ws_planning_system_suggestions_off", "1");
+    } catch { /* ignore quota */ }
+    setSystemSuggestionsOn(v);
+  }
   const [filterMethod, setFilterMethod] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("period");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -52,7 +72,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   const anyCollapsed = collapse.customers || collapse.colors || collapse.category || collapse.subCat;
   // Reset to first page whenever filters/sort change so the user doesn't
   // wonder why an empty page is showing.
-  useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterPeriod, filterAction, filterConfidence, filterMethod, sortKey, sortDir, pageSize, collapse]);
+  useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterAction, filterConfidence, filterMethod, sortKey, sortDir, pageSize, collapse, systemSuggestionsOn]);
 
   const customers = useMemo(() => {
     const s = new Map<string, string>();
@@ -74,6 +94,18 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     return Array.from(s).sort();
   }, [rows]);
 
+  // Gender values pulled from item-master attributes (Xoro export's
+  // GenderCode column). No grid column is rendered — gender is purely
+  // a filter dimension. Empty/null gender SKUs land under "—".
+  const genders = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of rows) {
+      const g = (r.gender ?? "").trim();
+      if (g) s.add(g);
+    }
+    return Array.from(s).sort();
+  }, [rows]);
+
   const periods = useMemo(() => {
     const s = new Set<string>();
     for (const r of rows) s.add(r.period_code);
@@ -86,6 +118,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       if (filterCustomer !== "all" && r.customer_id !== filterCustomer) return false;
       if (filterCategory !== "all" && (r.group_name ?? "—") !== filterCategory) return false;
       if (filterSubCat !== "all" && (r.sub_category_name ?? "—") !== filterSubCat) return false;
+      if (filterGender !== "all" && (r.gender ?? "—") !== filterGender) return false;
       if (filterPeriod !== "all" && r.period_code !== filterPeriod) return false;
       if (filterAction !== "all" && r.recommended_action !== filterAction) return false;
       if (filterConfidence !== "all" && r.confidence_level !== filterConfidence) return false;
@@ -100,9 +133,18 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       )) return false;
       return true;
     });
-    const collapsed = anyCollapsed ? aggregateRows(base, collapse) : base;
+    // Apply the master "system suggestions" toggle — when off, every
+    // displayed row's system value is muted to 0 and Final is recomputed
+    // accordingly. Override values stay; planner can still type direct
+    // overrides on top.
+    const muted = systemSuggestionsOn ? base : base.map((r) => ({
+      ...r,
+      system_forecast_qty: 0,
+      final_forecast_qty: Math.max(0, 0 + r.buyer_request_qty + r.override_qty),
+    }));
+    const collapsed = anyCollapsed ? aggregateRows(muted, collapse) : muted;
     return collapsed.sort((a, b) => cmp(a, b, sortKey, sortDir));
-  }, [rows, search, filterCustomer, filterCategory, filterSubCat, filterPeriod, filterAction, filterConfidence, filterMethod, sortKey, sortDir, collapse, anyCollapsed]);
+  }, [rows, search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterAction, filterConfidence, filterMethod, sortKey, sortDir, collapse, anyCollapsed, systemSuggestionsOn]);
 
   const totals = useMemo(() => {
     const t = { final: 0, shortage: 0, excess: 0, actions: {} as Record<string, number>, methods: {} as Record<string, number> };
@@ -152,6 +194,10 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           <option value="all">All sub cats</option>
           {subCategoryNames.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
+        <select style={S.select} value={filterGender} onChange={(e) => setFilterGender(e.target.value)} title="Gender filter — sourced from item-master GenderCode. No grid column rendered.">
+          <option value="all">All genders</option>
+          {genders.map((g) => <option key={g} value={g}>{g}</option>)}
+        </select>
         <select style={S.select} value={filterAction} onChange={(e) => setFilterAction(e.target.value)}>
           <option value="all">All actions</option>
           {["buy", "expedite", "reduce", "hold", "monitor"].map((a) => <option key={a} value={a}>{a}</option>)}
@@ -169,9 +215,14 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           {periods.map((p) => <option key={p} value={p}>{formatPeriodCode(p)}</option>)}
         </select>
         <button style={S.btnSecondary} onClick={() => {
-          setSearch(""); setFilterCustomer("all"); setFilterCategory("all"); setFilterSubCat("all"); setFilterPeriod("all");
+          setSearch(""); setFilterCustomer("all"); setFilterCategory("all"); setFilterSubCat("all"); setFilterGender("all"); setFilterPeriod("all");
           setFilterAction("all"); setFilterConfidence("all"); setFilterMethod("all");
         }}>Clear</button>
+        <CollapseToggle
+          label={systemSuggestionsOn ? "System suggestions: ON" : "System suggestions: OFF"}
+          active={!systemSuggestionsOn}
+          onToggle={() => setSystemSuggestionsOnPersistent(!systemSuggestionsOn)}
+        />
       </div>
 
       <div style={{ ...S.toolbar, marginTop: -4, paddingTop: 0, gap: 14, fontSize: 12, color: PAL.textDim }}>
@@ -247,7 +298,21 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 <td style={{ ...S.tdNum, color: r.forecast_method === "ly_sales" && r.ly_reference_qty != null ? PAL.accent2 : PAL.textMuted }}>
                   {r.ly_reference_qty != null ? formatQty(r.ly_reference_qty) : "—"}
                 </td>
-                <td style={S.tdNum}>{formatQty(r.system_forecast_qty)}</td>
+                <td style={{ ...S.tdNum, padding: "0 4px" }} onClick={(e) => e.stopPropagation()}>
+                  {r.is_aggregate ? (
+                    <span style={{ fontFamily: "monospace", color: PAL.text }}>
+                      {formatQty(r.system_forecast_qty)}
+                    </span>
+                  ) : (
+                    <SystemCell
+                      value={r.system_forecast_qty}
+                      original={r.system_forecast_qty_original}
+                      overriddenAt={r.system_forecast_qty_overridden_at}
+                      overriddenBy={r.system_forecast_qty_overridden_by}
+                      onSave={(qty) => onUpdateSystemOverride(r.forecast_id, qty)}
+                    />
+                  )}
+                </td>
                 <td style={{ ...S.tdNum, padding: "0 4px" }}>
                   {r.is_aggregate ? (
                     <span style={{ fontFamily: "monospace", color: r.buyer_request_qty !== 0 ? PAL.accent : PAL.textMuted }}>
@@ -575,6 +640,94 @@ function StatCell({ label, value, accent }: { label: string; value: string; acce
       <div style={{ fontSize: 11, color: PAL.textMuted }}>{label}</div>
       <div style={{ fontSize: 20, fontWeight: 700, color: accent ?? PAL.text, fontFamily: "monospace" }}>{value}</div>
     </div>
+  );
+}
+
+// Editable System forecast cell. Shows the override value when one is
+// set (highlighted yellow + italic), otherwise the computed system
+// suggestion in muted color. Tooltip carries the audit trail
+// "Changed from X to Y by USER on DATE" so planners know who/when.
+// Empty input clears the override (reverts to suggestion).
+function SystemCell({ value, original, overriddenAt, overriddenBy, onSave }: {
+  value: number;
+  original: number;
+  overriddenAt: string | null;
+  overriddenBy: string | null;
+  onSave: (qty: number | null) => Promise<void>;
+}) {
+  const overridden = overriddenAt != null && value !== original;
+  const [str, setStr] = useState(value === 0 ? "" : String(value));
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(false);
+  const focused = useRef(false);
+
+  useEffect(() => {
+    if (!focused.current) setStr(value === 0 ? "" : String(value));
+  }, [value]);
+
+  async function commit(raw: string) {
+    const trimmed = raw.trim();
+    // Empty / 0 = clear the override (revert to suggestion). Anything
+    // else becomes the override; we pass even "= original" as a no-op
+    // so the audit timestamp doesn't bump when the planner re-types
+    // the same value.
+    let nextOverride: number | null;
+    if (trimmed === "" || trimmed === "0") {
+      nextOverride = null;
+    } else {
+      const n = Number(trimmed);
+      if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) { setErr(true); focused.current = false; return; }
+      if (n === original && !overridden) { focused.current = false; return; }
+      nextOverride = n;
+    }
+    setErr(false);
+    setSaving(true);
+    try { await onSave(nextOverride); } catch { setErr(true); } finally { setSaving(false); focused.current = false; }
+  }
+
+  const titleParts: string[] = [];
+  if (overridden) {
+    titleParts.push(`Changed from ${original.toLocaleString()} to ${value.toLocaleString()}`);
+    if (overriddenBy) titleParts.push(`by ${overriddenBy}`);
+    if (overriddenAt) {
+      const when = new Date(overriddenAt);
+      if (!isNaN(when.getTime())) titleParts.push(`on ${when.toLocaleString()}`);
+    }
+    titleParts.push("(empty input reverts to suggestion)");
+  } else {
+    titleParts.push(`System suggestion: ${original.toLocaleString()}. Type a value to override.`);
+  }
+  const title = titleParts.join(" · ");
+  const baseColor = err ? PAL.red : overridden ? PAL.yellow : PAL.textMuted;
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      value={str}
+      onChange={(e) => { setStr(e.target.value); setErr(false); }}
+      onBlur={(e) => void commit(e.target.value)}
+      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+      placeholder="—"
+      title={title}
+      style={{
+        width: 64,
+        background: overridden ? `${PAL.yellow}11` : "transparent",
+        color: baseColor,
+        border: `1px solid ${err ? PAL.red : overridden ? `${PAL.yellow}66` : "transparent"}`,
+        borderRadius: 4,
+        padding: "2px 4px",
+        fontFamily: "monospace",
+        fontSize: 13,
+        textAlign: "right",
+        outline: "none",
+        opacity: saving ? 0.5 : 1,
+        fontStyle: overridden ? "italic" : "normal",
+        fontWeight: overridden ? 700 : 400,
+      }}
+      onFocus={(e) => { focused.current = true; e.target.select(); e.target.style.borderColor = err ? PAL.red : PAL.yellow; e.target.style.background = PAL.panel; }}
+      onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : overridden ? `${PAL.yellow}66` : "transparent"; e.target.style.background = overridden ? `${PAL.yellow}11` : "transparent"; }}
+    />
   );
 }
 
