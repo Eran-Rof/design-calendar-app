@@ -66,6 +66,60 @@ export default async function handler(req, res) {
     if (data.length < 1000) break;
   }
 
+  // 2b. Load customer master so we can resolve TandA's BuyerName →
+  // customer_id. Stock-PO labels ("ROF Stock", "PT Stock", blank) map to
+  // the (Supply Only) placeholder customer instead of a real one.
+  const customerByName = new Map();
+  {
+    const { data, error } = await admin
+      .from("ip_customer_master")
+      .select("id, customer_code, name");
+    if (error) return res.status(500).json({ error: "customer_master fetch failed", details: error.message });
+    for (const c of data ?? []) {
+      const name = (c.name ?? "").trim().toUpperCase();
+      const code = (c.customer_code ?? "").trim().toUpperCase();
+      if (name) customerByName.set(name, c.id);
+      if (code) customerByName.set(code, c.id);
+    }
+  }
+  // Resolve / create the supply-only placeholder once. Stock POs route
+  // here so the planner sees them under a single (Supply Only) customer
+  // row in the grid rather than scattered across whichever real customer
+  // name matched first.
+  let supplyOnlyId = null;
+  {
+    const SUPPLY_CODE = "INTERNAL:SUPPLY_ONLY";
+    const { data: existing } = await admin
+      .from("ip_customer_master")
+      .select("id")
+      .eq("customer_code", SUPPLY_CODE)
+      .maybeSingle();
+    if (existing?.id) {
+      supplyOnlyId = existing.id;
+    } else {
+      const { data: created, error: cErr } = await admin
+        .from("ip_customer_master")
+        .upsert([{ customer_code: SUPPLY_CODE, name: "(Supply Only)" }], {
+          onConflict: "customer_code", ignoreDuplicates: false,
+        })
+        .select("id")
+        .maybeSingle();
+      if (cErr) return res.status(500).json({ error: "supply_only customer create failed", details: cErr.message });
+      supplyOnlyId = created?.id ?? null;
+    }
+  }
+  // Stock-PO heuristic: BuyerName matches one of these (or is blank) →
+  // route to (Supply Only). Anything else is treated as a customer name
+  // lookup; if it doesn't resolve, also fall back to (Supply Only) so
+  // the PO is at least visible somewhere.
+  const STOCK_BUYER_RE = /(rof\s*stock|pt\s*stock|stock|none)/i;
+  function resolveCustomerId(buyerName) {
+    const raw = String(buyerName ?? "").trim();
+    if (!raw || STOCK_BUYER_RE.test(raw)) return supplyOnlyId;
+    const id = customerByName.get(raw.toUpperCase());
+    return id ?? supplyOnlyId;
+  }
+
   const result = {
     pos_scanned: allPos.length,
     inserted: 0,
@@ -106,6 +160,8 @@ export default async function handler(req, res) {
     const expectedDate = toIsoDate(po.DateExpectedDelivery ?? po.VendorReqDate);
     const currency = po.CurrencyCode ?? null;
     const status = po.StatusName ?? null;
+    const buyerName = po.BuyerName ?? null;
+    const customerId = resolveCustomerId(buyerName);
 
     for (const ln of lines) {
       // Roll up to style+color grain so PO data joins with Excel-sourced
@@ -127,6 +183,8 @@ export default async function handler(req, res) {
         qtyOrdered, qtyReceived, qtyOpen,
         unit_cost: toNum(ln.UnitPrice) || null,
         currency, status,
+        buyer_name: buyerName,
+        customer_id: customerId,
       });
     }
   }
@@ -176,6 +234,8 @@ export default async function handler(req, res) {
         unit_cost: c.unit_cost,
         currency: c.currency,
         status: c.status,
+        customer_id: c.customer_id,
+        buyer_name: c.buyer_name,
         source: "xoro",
         source_line_key: key,
       });

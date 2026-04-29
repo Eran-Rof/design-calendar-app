@@ -20,13 +20,10 @@ import type {
 import {
   buildFinalWholesaleForecast,
   buildRollingWholesaleSupply,
-  committedSoBySku,
   generateWholesaleRecommendations,
   latestOnHandBySku,
   monthOf,
   monthsBetween,
-  openPoQtyBySku,
-  openPoQtyBySkuPeriod,
   recommendForRow,
 } from "../compute";
 import { wholesaleRepo } from "./wholesalePlanningRepository";
@@ -241,7 +238,7 @@ export async function applyOverride(args: {
 // trailing, supply context, and recommendations in memory (dataset is
 // small enough in Phase 1; server-side view is Phase 2+).
 export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridRow[]> {
-  const [items, customers, categories, forecast, recs, sales, inv, pos, receipts, atsCostBySku, avgCostBySku] = await Promise.all([
+  const [items, customers, categories, forecast, recs, sales, inv, pos, openSos, receipts, atsCostBySku, avgCostBySku] = await Promise.all([
     wholesaleRepo.listItems(),
     wholesaleRepo.listCustomers(),
     wholesaleRepo.listCategories(),
@@ -250,6 +247,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     wholesaleRepo.listWholesaleSales(historySince(run.source_snapshot_date, 3)),
     wholesaleRepo.listInventorySnapshots(),
     wholesaleRepo.listOpenPos(),
+    wholesaleRepo.listOpenSos(),
     wholesaleRepo.listReceipts(historySince(run.source_snapshot_date, 3)),
     wholesaleRepo.listAtsAvgCostBySku(),
     wholesaleRepo.listItemAvgCostBySku(),
@@ -307,23 +305,33 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
   ]));
 
   const onHand = latestOnHandBySku(inv);
-  const onSo = committedSoBySku(inv);
-  // Total open-PO qty per SKU — kept for the rolling-supply compute layer
-  // which still operates SKU-wide.
-  const onPo = openPoQtyBySku(pos);
-  // Per-(sku, period_start) open-PO qty, filtered by expected_date.
-  // Drives the grid's "On PO" column so a PO landing in May only shows
-  // on May rows, not every period. POs without an expected_date are
-  // bucketed as "unscheduled" and surface only when filtered out below.
-  const onPoByPeriod = new Map<string, number>();
+  // Per-(customer, sku, period_start) open-PO + open-SO qty, filtered
+  // by expected_date / ship_date AND customer_id. Drives the grid's
+  // "On PO" and "On SO" columns so a PO/SO landing in May only shows
+  // on May rows, AND only on the customer row it was allocated to.
+  // Stock POs and customer-less SOs route to the (Supply Only)
+  // placeholder customer at sync time. POs/SOs without a date are
+  // dropped — we can't bucket them into a period.
+  const onPoByCustSkuPeriod = new Map<string, number>();
+  const onSoByCustSkuPeriod = new Map<string, number>();
   {
     const periodWindows = Array.from(
       new Map(forecast.map((f) => [f.period_start, { start: f.period_start, end: f.period_end }])).values(),
     );
     for (const w of periodWindows) {
-      const m = openPoQtyBySkuPeriod(pos, w.start, w.end);
-      for (const [skuId, qty] of m) {
-        onPoByPeriod.set(`${skuId}:${w.start}`, qty);
+      for (const p of pos) {
+        if (!p.expected_date) continue;
+        if (p.expected_date < w.start || p.expected_date > w.end) continue;
+        const custKey = p.customer_id ?? "supply_only";
+        const k = `${custKey}:${p.sku_id}:${w.start}`;
+        onPoByCustSkuPeriod.set(k, (onPoByCustSkuPeriod.get(k) ?? 0) + (p.qty_open ?? 0));
+      }
+      for (const so of openSos) {
+        if (!so.ship_date) continue;
+        if (so.ship_date < w.start || so.ship_date > w.end) continue;
+        const custKey = so.customer_id ?? "supply_only";
+        const k = `${custKey}:${so.sku_id}:${w.start}`;
+        onSoByCustSkuPeriod.set(k, (onSoByCustSkuPeriod.get(k) ?? 0) + (so.qty_open ?? 0));
       }
     }
   }
@@ -425,8 +433,8 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       unit_cost: f.unit_cost_override ?? resolvedCost,
       planned_buy_qty: f.planned_buy_qty ?? null,
       on_hand_qty: supply?.beginning_balance_qty ?? onHand.get(f.sku_id) ?? 0,
-      on_so_qty: onSo.get(f.sku_id) ?? 0,
-      on_po_qty: onPoByPeriod.get(`${f.sku_id}:${f.period_start}`) ?? 0,
+      on_so_qty: onSoByCustSkuPeriod.get(`${f.customer_id}:${f.sku_id}:${f.period_start}`) ?? 0,
+      on_po_qty: onPoByCustSkuPeriod.get(`${f.customer_id}:${f.sku_id}:${f.period_start}`) ?? 0,
       receipts_due_qty: supply?.receipts_due_qty ?? 0,
       available_supply_qty: avail,
       projected_shortage_qty: shortage,

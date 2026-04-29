@@ -183,5 +183,167 @@ export default async function handler(req, res) {
     else result.inserted += chunk.length;
   }
 
+  // 7. Open SO line ingest — runs only on the first chunk (start=0). The
+  //    parsed ATS Excel carries a `sos` array of one-row-per-SO-line
+  //    objects with ship_date, qty, customer name, etc. We mirror that
+  //    into ip_open_sales_orders so the planning grid's "On SO" column
+  //    can finally bucket by ship date / customer.
+  result.so_lines_total = 0;
+  result.so_lines_inserted = 0;
+  result.so_lines_pruned = 0;
+  result.so_customers_created = 0;
+  if (start === 0 && Array.isArray(parsed?.sos) && parsed.sos.length > 0) {
+    const allSos = parsed.sos;
+    result.so_lines_total = allSos.length;
+
+    // 7a. Customer master lookup + auto-create for any unseen names.
+    const customerByName = new Map();
+    {
+      const { data, error } = await admin
+        .from("ip_customer_master")
+        .select("id, customer_code, name");
+      if (error) {
+        result.errors.push(`so customer fetch failed: ${error.message}`);
+      } else {
+        for (const c of data ?? []) {
+          const name = (c.name ?? "").trim().toUpperCase();
+          if (name) customerByName.set(name, c.id);
+        }
+      }
+    }
+    // (Supply Only) placeholder — for SO lines without a customer name.
+    let supplyOnlyId = null;
+    {
+      const SUPPLY_CODE = "INTERNAL:SUPPLY_ONLY";
+      const { data: existing } = await admin
+        .from("ip_customer_master")
+        .select("id")
+        .eq("customer_code", SUPPLY_CODE)
+        .maybeSingle();
+      if (existing?.id) {
+        supplyOnlyId = existing.id;
+      } else {
+        const { data: created } = await admin
+          .from("ip_customer_master")
+          .upsert([{ customer_code: SUPPLY_CODE, name: "(Supply Only)" }], {
+            onConflict: "customer_code", ignoreDuplicates: false,
+          })
+          .select("id")
+          .maybeSingle();
+        supplyOnlyId = created?.id ?? null;
+      }
+    }
+    // Auto-create any SO customer name not in master so subsequent runs
+    // resolve cleanly. Same code-pattern as xoro-sales-sync uses.
+    const newCustomerNames = new Set();
+    for (const so of allSos) {
+      const raw = String(so.customerName ?? "").trim();
+      if (!raw) continue;
+      if (!customerByName.has(raw.toUpperCase())) newCustomerNames.add(raw);
+    }
+    if (newCustomerNames.size > 0) {
+      const newRows = Array.from(newCustomerNames).map((name) => ({
+        customer_code: `ATS:${name.toUpperCase().replace(/\s+/g, "")}`,
+        name,
+      }));
+      for (let i = 0; i < newRows.length; i += 500) {
+        const chunk = newRows.slice(i, i + 500);
+        const { data, error } = await admin
+          .from("ip_customer_master")
+          .upsert(chunk, { onConflict: "customer_code", ignoreDuplicates: false })
+          .select("id, name");
+        if (error) {
+          result.errors.push(`so customer create chunk ${i}: ${error.message}`);
+          continue;
+        }
+        for (const c of data ?? []) {
+          customerByName.set(String(c.name).toUpperCase(), c.id);
+        }
+        result.so_customers_created += chunk.length;
+      }
+    }
+
+    // 7b. Build SO-row payloads. Resolve sku_id, customer_id; aggregate
+    //     by (orderNumber, sku, ship_date) so multiple size lines for
+    //     the same style+color collapse into one record.
+    const soAgg = new Map();
+    for (const so of allSos) {
+      const sku = canonStyleColor(so.sku);
+      if (!sku) continue;
+      const skuId = itemMap.get(sku);
+      if (!skuId) continue; // rare — only happens if the SKU isn't in the snapshot batch
+      const shipDate = so.date ? String(so.date).slice(0, 10) : null;
+      if (!shipDate) continue; // can't bucket undated SOs by period
+      const custName = String(so.customerName ?? "").trim();
+      const customerId = custName
+        ? (customerByName.get(custName.toUpperCase()) ?? supplyOnlyId)
+        : supplyOnlyId;
+      const orderNumber = String(so.orderNumber ?? "").trim() || null;
+      const lineKey = orderNumber
+        ? `ats:${orderNumber}:${sku}:${shipDate}`
+        : `ats:${customerId}:${sku}:${shipDate}`;
+      const qty = Number(so.qty) || 0;
+      const unitPrice = Number(so.unitPrice) || null;
+      const prev = soAgg.get(lineKey);
+      if (!prev) {
+        soAgg.set(lineKey, {
+          sku_id: skuId,
+          customer_id: customerId,
+          customer_name: custName || null,
+          so_number: orderNumber,
+          ship_date: shipDate,
+          cancel_date: null,
+          qty_ordered: qty,
+          qty_shipped: 0,
+          qty_open: qty,
+          unit_price: unitPrice,
+          currency: "USD",
+          status: null,
+          store: so.store ?? null,
+          source: "ats",
+          source_line_key: lineKey,
+        });
+      } else {
+        // Weighted-avg unit price on qty_ordered.
+        const total = prev.qty_ordered + qty;
+        if (prev.unit_price != null && unitPrice != null && total > 0) {
+          prev.unit_price = (prev.unit_price * prev.qty_ordered + unitPrice * qty) / total;
+        } else if (unitPrice != null) {
+          prev.unit_price = unitPrice;
+        }
+        prev.qty_ordered += qty;
+        prev.qty_open += qty;
+      }
+    }
+
+    // 7c. Capture sync timestamp so we can prune rows that weren't seen
+    //     in this run. We explicitly set last_seen_at on every upsert
+    //     row — the ip_set_updated_at trigger only bumps updated_at,
+    //     and last_seen_at's DEFAULT only fires on INSERT, not UPDATE.
+    const syncStartedAt = new Date().toISOString();
+    const soRows = Array.from(soAgg.values()).map((r) => ({ ...r, last_seen_at: syncStartedAt }));
+    for (let i = 0; i < soRows.length; i += 500) {
+      const chunk = soRows.slice(i, i + 500);
+      const { error } = await admin
+        .from("ip_open_sales_orders")
+        .upsert(chunk, { onConflict: "source,source_line_key", ignoreDuplicates: false });
+      if (error) {
+        result.errors.push(`so chunk ${i}: ${error.message}`);
+        continue;
+      }
+      result.so_lines_inserted += chunk.length;
+    }
+    // 7d. Prune rows not seen in this run.
+    if (result.so_lines_inserted > 0 && result.errors.length === 0) {
+      const { count, error } = await admin
+        .from("ip_open_sales_orders")
+        .delete({ count: "exact" })
+        .eq("source", "ats")
+        .lt("last_seen_at", syncStartedAt);
+      if (error) result.errors.push(`so prune failed: ${error.message}`);
+      else result.so_lines_pruned = count ?? 0;
+    }
+  }
+
   return res.status(200).json(result);
 }

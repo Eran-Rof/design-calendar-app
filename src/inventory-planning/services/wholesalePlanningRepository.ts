@@ -12,6 +12,7 @@ import type {
   IpItem,
   IpItemAvgCost,
   IpOpenPoRow,
+  IpOpenSoRow,
   IpReceiptRow,
   IpSalesWholesaleRow,
 } from "../types/entities";
@@ -176,6 +177,9 @@ export const wholesaleRepo = {
   },
   async listOpenPos(): Promise<IpOpenPoRow[]> {
     return sbGetAll<IpOpenPoRow>("ip_open_purchase_orders?select=*&order=expected_date.asc");
+  },
+  async listOpenSos(): Promise<IpOpenSoRow[]> {
+    return sbGetAll<IpOpenSoRow>("ip_open_sales_orders?select=*&order=ship_date.asc");
   },
   async listReceipts(sinceIso: string): Promise<IpReceiptRow[]> {
     return sbGetAll<IpReceiptRow>(

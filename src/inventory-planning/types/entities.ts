@@ -215,6 +215,11 @@ export interface IpOpenPoRow {
   id?: string;
   sku_id: string;
   vendor_id: string | null;
+  // Customer the PO is allocated to. Stock POs (TandA BuyerName = "ROF
+  // Stock" / "PT Stock" / blank) are routed to the (Supply Only)
+  // placeholder customer so the grid can show them under one row.
+  customer_id?: string | null;
+  buyer_name?: string | null;
   po_number: string;
   po_line_number: string | null;
   order_date: IpIsoDate | null;
@@ -227,6 +232,29 @@ export interface IpOpenPoRow {
   status: string | null;
   source: IpSource;
   raw_payload_id?: string | null;
+  source_line_key: string;
+  last_seen_at: IpIsoDateTime;
+}
+
+// Open SO line as ingested from the ATS app's Excel snapshot. Each row
+// is one customer + style+color combo with a ship_date so the planning
+// grid can bucket "On SO" by period instead of showing a SKU-wide total.
+export interface IpOpenSoRow {
+  id?: string;
+  sku_id: string;
+  customer_id: string | null;
+  customer_name: string | null;
+  so_number: string | null;
+  ship_date: IpIsoDate | null;
+  cancel_date: IpIsoDate | null;
+  qty_ordered: number;
+  qty_shipped: number;
+  qty_open: number;
+  unit_price: number | null;
+  currency: IpCurrencyCode | null;
+  status: string | null;
+  store: string | null;
+  source: string;
   source_line_key: string;
   last_seen_at: IpIsoDateTime;
 }
