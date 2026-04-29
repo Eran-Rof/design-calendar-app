@@ -26,6 +26,7 @@ import {
   monthOf,
   monthsBetween,
   openPoQtyBySku,
+  openPoQtyBySkuPeriod,
   recommendForRow,
 } from "../compute";
 import { wholesaleRepo } from "./wholesalePlanningRepository";
@@ -307,7 +308,25 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
 
   const onHand = latestOnHandBySku(inv);
   const onSo = committedSoBySku(inv);
+  // Total open-PO qty per SKU — kept for the rolling-supply compute layer
+  // which still operates SKU-wide.
   const onPo = openPoQtyBySku(pos);
+  // Per-(sku, period_start) open-PO qty, filtered by expected_date.
+  // Drives the grid's "On PO" column so a PO landing in May only shows
+  // on May rows, not every period. POs without an expected_date are
+  // bucketed as "unscheduled" and surface only when filtered out below.
+  const onPoByPeriod = new Map<string, number>();
+  {
+    const periodWindows = Array.from(
+      new Map(forecast.map((f) => [f.period_start, { start: f.period_start, end: f.period_end }])).values(),
+    );
+    for (const w of periodWindows) {
+      const m = openPoQtyBySkuPeriod(pos, w.start, w.end);
+      for (const [skuId, qty] of m) {
+        onPoByPeriod.set(`${skuId}:${w.start}`, qty);
+      }
+    }
+  }
 
   // Weighted-avg unit cost across open POs per SKU. Used as a fallback
   // when item master has no unit_cost / avg_cost (typical for SKUs the
@@ -407,7 +426,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       planned_buy_qty: f.planned_buy_qty ?? null,
       on_hand_qty: supply?.beginning_balance_qty ?? onHand.get(f.sku_id) ?? 0,
       on_so_qty: onSo.get(f.sku_id) ?? 0,
-      on_po_qty: onPo.get(f.sku_id) ?? 0,
+      on_po_qty: onPoByPeriod.get(`${f.sku_id}:${f.period_start}`) ?? 0,
       receipts_due_qty: supply?.receipts_due_qty ?? 0,
       available_supply_qty: avail,
       projected_shortage_qty: shortage,

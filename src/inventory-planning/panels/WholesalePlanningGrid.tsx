@@ -16,8 +16,13 @@ export interface WholesalePlanningGridProps {
   loading?: boolean;
 }
 
+// Every column is sortable via header click. Click toggles asc/desc on
+// the same key; clicking a different column resets to asc.
 type SortKey =
-  | "customer" | "style" | "period" | "final" | "shortage" | "excess" | "action" | "method";
+  | "category" | "subCat" | "style" | "color" | "description" | "customer"
+  | "period" | "histT3" | "histLY" | "system" | "buyer" | "override" | "final"
+  | "confidence" | "method" | "onHand" | "onSo" | "onPo" | "receipts" | "ats"
+  | "buy" | "avgCost" | "unitCost" | "buyDollars" | "shortage" | "excess" | "action";
 
 interface CollapseModes {
   customers: boolean;
@@ -193,33 +198,33 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th}>Category</th>
-              <th style={S.th}>Sub Cat</th>
-              <Th label="Style" k="style" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <th style={S.th}>Color</th>
-              <th style={S.th}>Description</th>
-              <Th label="Customer" k="customer" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <Th label="Period" k="period" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <th style={{ ...S.th, textAlign: "right" }}>Hist T3</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Hist LY</th>
-              <th style={{ ...S.th, textAlign: "right" }}>System</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Buyer</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Override</th>
-              <Th label="Final" k="final" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <th style={S.th}>Conf.</th>
-              <Th label="Method" k="method" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <th style={{ ...S.th, textAlign: "right" }}>On hand</th>
-              <th style={{ ...S.th, textAlign: "right" }}>On SO</th>
-              <th style={{ ...S.th, textAlign: "right" }}>On PO</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Receipts</th>
-              <th style={{ ...S.th, textAlign: "right" }}>ATS</th>
-              <th style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy</th>
-              <th style={{ ...S.th, textAlign: "right", color: PAL.textMuted }} title="From ip_item_avg_cost (Xoro / Excel ingest)">Avg Cost</th>
-              <th style={{ ...S.th, textAlign: "right", color: PAL.accent2 }} title="Auto-filled from Avg Cost — editable">Unit Cost</th>
-              <th style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy $</th>
-              <Th label="Short" k="shortage" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Excess" k="excess" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Action" k="action" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Th label="Category"    k="category"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Th label="Sub Cat"     k="subCat"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Th label="Style"       k="style"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Th label="Color"       k="color"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Th label="Description" k="description" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Th label="Customer"    k="customer"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Th label="Period"      k="period"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Th label="Hist T3"     k="histT3"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Hist LY"     k="histLY"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="System"      k="system"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Buyer"       k="buyer"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Override"    k="override"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Final"       k="final"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Conf."       k="confidence"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Th label="Method"      k="method"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Th label="On hand"     k="onHand"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="On SO"       k="onSo"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="On PO"       k="onPo"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Receipts"    k="receipts"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="ATS"         k="ats"         sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Buy"         k="buy"         sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.green} />
+              <Th label="Avg Cost"    k="avgCost"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.textMuted} title="From ip_item_avg_cost (Xoro / Excel ingest)" />
+              <Th label="Unit Cost"   k="unitCost"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.accent2} title="Auto-filled from Avg Cost — editable" />
+              <Th label="Buy $"       k="buyDollars"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.green} />
+              <Th label="Short"       k="shortage"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Excess"      k="excess"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Action"      k="action"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             </tr>
           </thead>
           <tbody>
@@ -380,14 +385,18 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   );
 }
 
-function Th({ label, k, sortKey, sortDir, onSort, numeric }: {
+function Th({ label, k, sortKey, sortDir, onSort, numeric, tint, title }: {
   label: string; k: SortKey; sortKey: SortKey; sortDir: "asc" | "desc";
-  onSort: (k: SortKey) => void; numeric?: boolean;
+  onSort: (k: SortKey) => void; numeric?: boolean; tint?: string; title?: string;
 }) {
   const active = sortKey === k;
+  const baseColor = tint ?? (active ? PAL.text : PAL.textMuted);
   return (
-    <th style={{ ...S.th, cursor: "pointer", textAlign: numeric ? "right" : "left", color: active ? PAL.text : PAL.textMuted }}
-        onClick={() => onSort(k)}>
+    <th
+      style={{ ...S.th, cursor: "pointer", textAlign: numeric ? "right" : "left", color: active ? PAL.text : baseColor, userSelect: "none" }}
+      onClick={() => onSort(k)}
+      title={title}
+    >
       {label}{active ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
     </th>
   );
@@ -579,17 +588,51 @@ function CollapseToggle({ label, active, onToggle }: { label: string; active: bo
   );
 }
 
+// Generic null-safe comparators. Numbers sort numerically; strings sort
+// case-insensitively; nulls always at the end regardless of direction.
+function cmpStr(a: string | null | undefined, b: string | null | undefined, sign: number): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  return a.localeCompare(b, undefined, { sensitivity: "base" }) * sign;
+}
+function cmpNum(a: number | null | undefined, b: number | null | undefined, sign: number): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  return (a - b) * sign;
+}
+
 function cmp(a: IpPlanningGridRow, b: IpPlanningGridRow, k: SortKey, d: "asc" | "desc"): number {
   const sign = d === "asc" ? 1 : -1;
   switch (k) {
-    case "customer": return a.customer_name.localeCompare(b.customer_name) * sign;
-    case "style":    return ((a.sku_style ?? a.sku_code) + ":" + (a.sku_color ?? "")).localeCompare((b.sku_style ?? b.sku_code) + ":" + (b.sku_color ?? "")) * sign;
-    case "period":   return a.period_start.localeCompare(b.period_start) * sign;
-    case "final":    return (a.final_forecast_qty - b.final_forecast_qty) * sign;
-    case "shortage": return (a.projected_shortage_qty - b.projected_shortage_qty) * sign;
-    case "excess":   return (a.projected_excess_qty - b.projected_excess_qty) * sign;
-    case "action":   return a.recommended_action.localeCompare(b.recommended_action) * sign;
-    case "method":   return a.forecast_method.localeCompare(b.forecast_method) * sign;
+    case "category":    return cmpStr(a.group_name, b.group_name, sign);
+    case "subCat":      return cmpStr(a.sub_category_name, b.sub_category_name, sign);
+    case "style":       return cmpStr((a.sku_style ?? a.sku_code) + ":" + (a.sku_color ?? ""), (b.sku_style ?? b.sku_code) + ":" + (b.sku_color ?? ""), sign);
+    case "color":       return cmpStr(a.sku_color, b.sku_color, sign);
+    case "description": return cmpStr(a.sku_description, b.sku_description, sign);
+    case "customer":    return cmpStr(a.customer_name, b.customer_name, sign);
+    case "period":      return cmpStr(a.period_start, b.period_start, sign);
+    case "histT3":      return cmpNum(a.historical_trailing_qty, b.historical_trailing_qty, sign);
+    case "histLY":      return cmpNum(a.ly_reference_qty, b.ly_reference_qty, sign);
+    case "system":      return cmpNum(a.system_forecast_qty, b.system_forecast_qty, sign);
+    case "buyer":       return cmpNum(a.buyer_request_qty, b.buyer_request_qty, sign);
+    case "override":    return cmpNum(a.override_qty, b.override_qty, sign);
+    case "final":       return cmpNum(a.final_forecast_qty, b.final_forecast_qty, sign);
+    case "confidence":  return cmpStr(a.confidence_level, b.confidence_level, sign);
+    case "method":      return cmpStr(a.forecast_method, b.forecast_method, sign);
+    case "onHand":      return cmpNum(a.on_hand_qty, b.on_hand_qty, sign);
+    case "onSo":        return cmpNum(a.on_so_qty, b.on_so_qty, sign);
+    case "onPo":        return cmpNum(a.on_po_qty, b.on_po_qty, sign);
+    case "receipts":    return cmpNum(a.receipts_due_qty, b.receipts_due_qty, sign);
+    case "ats":         return cmpNum(a.available_supply_qty, b.available_supply_qty, sign);
+    case "buy":         return cmpNum(a.planned_buy_qty, b.planned_buy_qty, sign);
+    case "avgCost":     return cmpNum(a.avg_cost, b.avg_cost, sign);
+    case "unitCost":    return cmpNum(a.unit_cost, b.unit_cost, sign);
+    case "buyDollars":  return cmpNum((a.planned_buy_qty ?? 0) * (a.unit_cost ?? 0), (b.planned_buy_qty ?? 0) * (b.unit_cost ?? 0), sign);
+    case "shortage":    return cmpNum(a.projected_shortage_qty, b.projected_shortage_qty, sign);
+    case "excess":      return cmpNum(a.projected_excess_qty, b.projected_excess_qty, sign);
+    case "action":      return cmpStr(a.recommended_action, b.recommended_action, sign);
   }
 }
 

@@ -73,6 +73,24 @@ export function openPoQtyBySku(openPos: IpOpenPoRow[]): Map<string, number> {
   return out;
 }
 
+// Open-PO qty filtered to those whose expected_date lands inside the
+// period. Mirrors receiptsDueInPeriod's contract — used by buildGridRows
+// for the per-period "On PO" column so May POs don't show on July rows.
+// POs with no expected_date are excluded (we can't bucket them).
+export function openPoQtyBySkuPeriod(
+  openPos: IpOpenPoRow[],
+  periodStart: IpIsoDate,
+  periodEnd: IpIsoDate,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const p of openPos) {
+    if (!p.expected_date) continue;
+    if (p.expected_date < periodStart || p.expected_date > periodEnd) continue;
+    out.set(p.sku_id, (out.get(p.sku_id) ?? 0) + (p.qty_open ?? 0));
+  }
+  return out;
+}
+
 // Qty due in [periodStart, periodEnd]. For historical periods we use
 // actual ip_receipts_history rows; for future periods we use open POs
 // whose expected_date lands in the window. Both sources flow through
