@@ -4,6 +4,11 @@
 // of paid invoices.
 //   body: { vendor_id, invoice_ids: [uuid, ...], payment_ref? }
 // Called by internal workflow when payment status → 'sent'.
+//
+// Auth: requires the EDI shared secret (X-EDI-Token). Previously
+// unauthenticated, which let any HTTP caller mint outbound 820
+// envelopes against any vendor's invoices. Same secret is used by
+// the inbound endpoint.
 
 import { createClient } from "@supabase/supabase-js";
 import { build820 } from "../../../_lib/edi/builder.js";
@@ -13,9 +18,19 @@ export const config = { maxDuration: 30 };
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-EDI-Token");
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  // Fail closed on missing secret — see edi/inbound/index.js for rationale.
+  const SECRET = process.env.EDI_INBOUND_SHARED_SECRET;
+  if (!SECRET) {
+    return res.status(500).json({ error: "EDI_INBOUND_NOT_CONFIGURED" });
+  }
+  const token = req.headers["x-edi-token"];
+  if (!token || token !== SECRET) {
+    return res.status(401).json({ error: "Invalid EDI token" });
+  }
 
   const SB_URL = process.env.VITE_SUPABASE_URL;
   const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;

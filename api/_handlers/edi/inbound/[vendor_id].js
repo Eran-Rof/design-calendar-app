@@ -28,10 +28,14 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
+  // Fail closed — see /api/_handlers/edi/inbound/index.js for rationale.
   const SECRET = process.env.EDI_INBOUND_SHARED_SECRET;
-  if (SECRET) {
-    const token = req.headers["x-edi-token"];
-    if (!token || token !== SECRET) return res.status(401).json({ error: "Invalid EDI token" });
+  if (!SECRET) {
+    return res.status(500).json({ error: "EDI_INBOUND_NOT_CONFIGURED" });
+  }
+  const token = req.headers["x-edi-token"];
+  if (!token || token !== SECRET) {
+    return res.status(401).json({ error: "Invalid EDI token" });
   }
 
   const SB_URL = process.env.VITE_SUPABASE_URL;

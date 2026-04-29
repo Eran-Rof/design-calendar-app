@@ -428,10 +428,18 @@ export function useSyncOps(deps: SyncOpsDeps) {
       setSyncField("syncProgress", 100);
 
       const user = useTandaStore.getState().user;
+      // addHistory returns a Promise but we don't await — a failed insert
+      // would otherwise become an unhandled rejection. Attach a .catch
+      // so transient tanda_notes errors get logged instead of crashing
+      // the sync flow.
       for (const po of synced.slice(0, 5)) {
-        deps.addHistory(po.PoNumber ?? "", `PO synced from Xoro (${synced.length} POs in batch${deletedCount > 0 ? `, ${deletedCount} removed` : ""})`);
+        deps.addHistory(po.PoNumber ?? "", `PO synced from Xoro (${synced.length} POs in batch${deletedCount > 0 ? `, ${deletedCount} removed` : ""})`)
+          .catch((e) => console.error("[tanda-sync] addHistory failed", e));
       }
-      if (synced.length > 5) deps.addHistory(synced[0]?.PoNumber ?? "", `... and ${synced.length - 5} more POs synced`);
+      if (synced.length > 5) {
+        deps.addHistory(synced[0]?.PoNumber ?? "", `... and ${synced.length - 5} more POs synced`)
+          .catch((e) => console.error("[tanda-sync] addHistory summary failed", e));
+      }
 
       setSyncField("syncDone", { added: addedCount, changed: changedCount, deleted: deletedCount });
       await appendSyncLog({ ts: new Date().toISOString(), user: user?.name || "Unknown", success: true, added: addedCount, changed: changedCount, deleted: deletedCount, filters: appliedFilters });

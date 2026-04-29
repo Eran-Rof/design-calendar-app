@@ -23,6 +23,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { authenticateVendor } from "../../_lib/vendor-auth.js";
 import { fireWorkflowEvent } from "../../_lib/workflow.js";
+import { toMoneyString, MoneyError } from "../../_lib/money.js";
 
 export const config = { maxDuration: 30 };
 
@@ -120,6 +121,19 @@ export default async function handler(req, res) {
     return send(403, { error: "file_url must be under the caller's vendor folder" });
   }
 
+  // Convert money fields to canonical decimal strings (CLAUDE.md:
+  // "Money fields: numeric/decimal, never float"). PostgREST parses
+  // these directly into Postgres numeric. Garbage input → 400.
+  let subtotalStr, taxStr, totalStr;
+  try {
+    subtotalStr = toMoneyString(subtotal, "subtotal");
+    taxStr = toMoneyString(tax ?? 0, "tax") ?? "0";
+    totalStr = toMoneyString(total, "total");
+  } catch (e) {
+    if (e instanceof MoneyError) return send(400, { error: e.message });
+    throw e;
+  }
+
   // Insert invoice header
   const { data: inv, error: invErr } = await admin.from("invoices").insert({
     vendor_id: caller.vendor_id,
@@ -128,9 +142,9 @@ export default async function handler(req, res) {
     invoice_date: invoice_date || null,
     due_date: due_date || null,
     currency: (currency || "USD").toUpperCase(),
-    subtotal: subtotal != null ? Number(subtotal) : null,
-    tax: tax != null ? Number(tax) : 0,
-    total: total != null ? Number(total) : null,
+    subtotal: subtotalStr,
+    tax: taxStr,
+    total: totalStr,
     status: "submitted",
     file_url: file_url || null,
     file_description: file_description ? String(file_description).trim() : null,
@@ -143,18 +157,38 @@ export default async function handler(req, res) {
     return send(500, { error: invErr.message });
   }
 
-  // Insert line items
-  const lineRows = line_items.map((l, idx) => ({
-    invoice_id: inv.id,
-    po_line_item_id: l.po_line_item_id || null,
-    line_index: l.line_index ?? idx + 1,
-    description: l.description || null,
-    quantity_invoiced: l.quantity_invoiced != null ? Number(l.quantity_invoiced) : null,
-    unit_price: l.unit_price != null ? Number(l.unit_price) : null,
-    line_total: l.line_total != null
-      ? Number(l.line_total)
-      : ((Number(l.quantity_invoiced) || 0) * (Number(l.unit_price) || 0)),
-  }));
+  // Insert line items — money fields go through toMoneyString too.
+  // Quantity is allowed as a number (qty isn't currency).
+  let lineRows;
+  try {
+    lineRows = line_items.map((l, idx) => {
+      const unitPriceStr = toMoneyString(l.unit_price, `line_items[${idx}].unit_price`);
+      let lineTotalStr;
+      if (l.line_total != null) {
+        lineTotalStr = toMoneyString(l.line_total, `line_items[${idx}].line_total`);
+      } else if (l.quantity_invoiced != null && l.unit_price != null) {
+        // Compute implicit total in 4-decimal precision and re-emit as
+        // string. The arithmetic is float, but rounding back to numeric(12,4)
+        // bounds the drift to <0.0001 of a unit which is acceptable here.
+        const computed = Math.round(Number(l.quantity_invoiced) * Number(l.unit_price) * 10000) / 10000;
+        lineTotalStr = computed.toFixed(4);
+      } else {
+        lineTotalStr = null;
+      }
+      return {
+        invoice_id: inv.id,
+        po_line_item_id: l.po_line_item_id || null,
+        line_index: l.line_index ?? idx + 1,
+        description: l.description || null,
+        quantity_invoiced: l.quantity_invoiced != null ? Number(l.quantity_invoiced) : null,
+        unit_price: unitPriceStr,
+        line_total: lineTotalStr,
+      };
+    });
+  } catch (e) {
+    if (e instanceof MoneyError) return send(400, { error: e.message });
+    throw e;
+  }
   const { error: liErr } = await admin.from("invoice_line_items").insert(lineRows);
   if (liErr) {
     // Non-fatal: header exists. Return with warning so caller knows.
