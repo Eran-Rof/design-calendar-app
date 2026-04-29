@@ -50,8 +50,22 @@ export default async function handler(req, res) {
     approved_amount, fee_pct_override: body?.fee_pct ?? null,
   });
 
-  const { error } = await admin.from("finance_requests").update(patch).eq("id", id);
+  // Idempotent flip — same pattern as fund.js. The WHERE includes
+  // status='pending' so two concurrent approves both pass the
+  // nextStatus check above but only one actually flips the row, the
+  // other returns 0 rows updated and we 409 it. Without this guard
+  // both would succeed, double-fire the approval notification, and
+  // depending on the program cap eat capacity twice.
+  const expectedStatus = String(request.status || "pending");
+  const { data: flipped, error } = await admin.from("finance_requests")
+    .update(patch)
+    .eq("id", id)
+    .eq("status", expectedStatus)
+    .select("id");
   if (error) return res.status(500).json({ error: error.message });
+  if (!flipped || flipped.length === 0) {
+    return res.status(409).json({ error: "Finance request status changed since fetch — already approved?" });
+  }
 
   // Notify vendor
   try {

@@ -116,6 +116,21 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
   }
 
   async function saveMilestone(m: Milestone, skipHistory = false) {
+    // Bump the global pending-save counter so the 15s realtime poller
+    // skips its reload until this save finishes — without it, an
+    // in-flight optimistic edit could be silently overwritten by the
+    // poll's loadAllMilestones. Decrement happens in the finally below.
+    // Guarded for non-browser environments (vitest unit tests).
+    const w = (typeof window !== "undefined" ? window : null) as (typeof window & { __tandaPendingSaves?: number }) | null;
+    if (w) w.__tandaPendingSaves = (w.__tandaPendingSaves ?? 0) + 1;
+    try {
+      return await _saveMilestone(m, skipHistory);
+    } finally {
+      if (w) w.__tandaPendingSaves = Math.max(0, (w.__tandaPendingSaves ?? 1) - 1);
+    }
+  }
+
+  async function _saveMilestone(m: Milestone, skipHistory = false) {
     const state = getState();
     const milestones = state.milestones;
     const user = state.user;

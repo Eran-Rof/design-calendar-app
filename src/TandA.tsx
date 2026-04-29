@@ -965,12 +965,22 @@ function TandAApp() {
       if ((ae as HTMLElement).isContentEditable) return true;
       return false;
     };
+    // Pending-save guard: useMilestoneOps.saveMilestone bumps
+    // window.__tandaPendingSaves around each save, so we know when to
+    // wait. Without this guard, the 15s realtime poll would clobber
+    // an in-flight optimistic edit by reloading server state on top
+    // of it.
+    const hasPendingSave = () => {
+      const w = window as typeof window & { __tandaPendingSaves?: number };
+      return (w.__tandaPendingSaves ?? 0) > 0;
+    };
     const doReload = async () => {
       reloadDebounceId = null;
-      // If the user is mid-edit (focused input/textarea/select), defer the
-      // reload — re-rendering the milestones list while a date picker is
-      // open will close it. Retry on the next poll tick.
-      if (isUserEditing()) return;
+      // Defer when the user is mid-edit (focused input/textarea/select)
+      // OR when a save is in flight. Either case would lose unfinished
+      // local state on re-render. The poll keeps trying; once both
+      // clear, the next tick picks up the change.
+      if (isUserEditing() || hasPendingSave()) return;
       try {
         await loadCachedPOs();
         await loadAllMilestones();
