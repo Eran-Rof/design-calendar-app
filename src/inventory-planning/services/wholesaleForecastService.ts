@@ -238,12 +238,17 @@ export async function applyOverride(args: {
 // trailing, supply context, and recommendations in memory (dataset is
 // small enough in Phase 1; server-side view is Phase 2+).
 export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridRow[]> {
-  const [items, customers, categories, forecast, recs, sales, inv, pos, openSos, receipts, atsCostBySku, avgCostBySku] = await Promise.all([
+  // listRecommendations was removed — the grid recomputes recommended
+  // actions live via recommendForRow() against the rolling-supply pool,
+  // and the persisted ip_wholesale_recommendations rows are never read
+  // back here (they exist for audit/archival from the forecast pass).
+  // Removing the read eliminates a 1k-row paginated query that timed
+  // out (PostgREST 57014) once a run accumulated thousands of recs.
+  const [items, customers, categories, forecast, sales, inv, pos, openSos, receipts, atsCostBySku, avgCostBySku] = await Promise.all([
     wholesaleRepo.listItems(),
     wholesaleRepo.listCustomers(),
     wholesaleRepo.listCategories(),
     wholesaleRepo.listForecast(run.id),
-    wholesaleRepo.listRecommendations(run.id),
     wholesaleRepo.listWholesaleSales(historySince(run.source_snapshot_date, 3)),
     wholesaleRepo.listInventorySnapshots(),
     wholesaleRepo.listOpenPos(),
@@ -299,10 +304,8 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     const cur = unitCostByStyle.get(i.style_code);
     if (cur == null || i.unit_cost > cur) unitCostByStyle.set(i.style_code, i.unit_cost);
   }
-  const recByGrain = new Map(recs.map((r) => [
-    `${r.customer_id}:${r.sku_id}:${r.period_start}`,
-    r,
-  ]));
+  // recByGrain removed — grid no longer joins persisted recommendations.
+  // recommendForRow() runs live against rolling supply per row.
 
   const onHand = latestOnHandBySku(inv);
   // Per-(customer, sku, period_start) open-PO + open-SO qty, filtered
@@ -377,7 +380,6 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     const item = itemById.get(f.sku_id);
     const customer = customerById.get(f.customer_id);
     const category = f.category_id ? categoryById.get(f.category_id) : null;
-    const rec = recByGrain.get(`${f.customer_id}:${f.sku_id}:${f.period_start}`);
     const supply = rollingSupply.get(`${f.sku_id}:${f.period_start}`);
     const styleFallback = item?.style_code ? masterByStyle.get(item.style_code) : null;
     const description = item?.description ?? styleFallback?.description ?? null;
