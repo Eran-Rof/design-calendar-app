@@ -11,6 +11,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateVendor } from "../../../_lib/vendor-auth.js";
+import { toMoneyString, MoneyError } from "../../../_lib/money.js";
 
 export const config = { maxDuration: 30 };
 
@@ -84,9 +85,17 @@ export default async function handler(req, res) {
   if (invoice_date !== undefined) patch.invoice_date = invoice_date || null;
   if (due_date !== undefined) patch.due_date = due_date || null;
   if (currency !== undefined) patch.currency = String(currency || "USD").toUpperCase();
-  if (subtotal !== undefined) patch.subtotal = subtotal != null && Number.isFinite(Number(subtotal)) ? Number(subtotal) : null;
-  if (tax !== undefined) patch.tax = tax != null && Number.isFinite(Number(tax)) ? Number(tax) : 0;
-  if (total !== undefined) patch.total = total != null && Number.isFinite(Number(total)) ? Number(total) : null;
+  // Money fields: validate strict decimal then send as string so
+  // PostgREST hands them off to Postgres numeric without a float
+  // round-trip. Garbage input → 400.
+  try {
+    if (subtotal !== undefined) patch.subtotal = toMoneyString(subtotal, "subtotal");
+    if (tax !== undefined) patch.tax = toMoneyString(tax ?? 0, "tax") ?? "0";
+    if (total !== undefined) patch.total = toMoneyString(total, "total");
+  } catch (e) {
+    if (e instanceof MoneyError) return send(400, { error: e.message });
+    throw e;
+  }
   if (notes !== undefined) patch.notes = notes ? String(notes).trim() : null;
   if (file_url !== undefined) {
     if (file_url && (typeof file_url !== "string" || !file_url.startsWith(`${vendorId}/`))) {
@@ -131,17 +140,39 @@ export default async function handler(req, res) {
     const { error: delErr } = await admin.from("invoice_line_items").delete().eq("invoice_id", invoiceId);
     if (delErr) return send(500, { error: delErr.message });
 
-    const rows = line_items.map((l, idx) => ({
-      invoice_id: invoiceId,
-      po_line_item_id: l.po_line_item_id || null,
-      line_index: l.line_index ?? idx + 1,
-      description: l.description || null,
-      quantity_invoiced: l.quantity_invoiced != null ? Number(l.quantity_invoiced) : null,
-      unit_price: l.unit_price != null ? Number(l.unit_price) : null,
-      line_total: l.line_total != null
-        ? Number(l.line_total)
-        : ((Number(l.quantity_invoiced) || 0) * (Number(l.unit_price) || 0)),
-    }));
+    let rows;
+    try {
+      rows = line_items.map((l, idx) => {
+        const unitPriceStr = toMoneyString(l.unit_price, `line_items[${idx}].unit_price`);
+        let lineTotalStr;
+        if (l.line_total != null) {
+          lineTotalStr = toMoneyString(l.line_total, `line_items[${idx}].line_total`);
+        } else if (l.quantity_invoiced != null && l.unit_price != null) {
+          const computed = Math.round(Number(l.quantity_invoiced) * Number(l.unit_price) * 10000) / 10000;
+          lineTotalStr = computed.toFixed(4);
+        } else {
+          lineTotalStr = null;
+        }
+        return {
+          invoice_id: invoiceId,
+          po_line_item_id: l.po_line_item_id || null,
+          line_index: l.line_index ?? idx + 1,
+          description: l.description || null,
+          quantity_invoiced: l.quantity_invoiced != null ? Number(l.quantity_invoiced) : null,
+          unit_price: unitPriceStr,
+          line_total: lineTotalStr,
+        };
+      });
+    } catch (e) {
+      // Restore the old rows we just deleted before rejecting — same
+      // pattern as the insErr branch below, otherwise a malformed
+      // payload would silently zero out the line-items list.
+      if (oldRows && oldRows.length > 0) {
+        await admin.from("invoice_line_items").insert(oldRows);
+      }
+      if (e instanceof MoneyError) return send(400, { error: e.message });
+      throw e;
+    }
     const { error: insErr } = await admin.from("invoice_line_items").insert(rows);
     if (insErr) {
       // Restore the old lines so the invoice isn't left in a zero-lines state.

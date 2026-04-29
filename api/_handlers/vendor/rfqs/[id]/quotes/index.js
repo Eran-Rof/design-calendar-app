@@ -10,6 +10,7 @@
 // via a new draft (not currently supported).
 
 import { createClient } from "@supabase/supabase-js";
+import { toMoneyString, MoneyError } from "../../../../../_lib/money.js";
 
 export const config = { maxDuration: 15 };
 
@@ -65,11 +66,19 @@ export default async function handler(req, res) {
   const { data: existing } = await admin.from("rfq_quotes").select("*").eq("rfq_id", rfqId).eq("vendor_id", caller.vendor_id).maybeSingle();
   if (existing && existing.status !== "draft") return res.status(409).json({ error: `Quote is already ${existing.status}; cannot edit` });
 
+  // Money fields → decimal strings to avoid float round-trip.
+  let totalPriceStr;
+  try {
+    totalPriceStr = toMoneyString(total_price, "total_price");
+  } catch (e) {
+    if (e instanceof MoneyError) return res.status(400).json({ error: e.message });
+    throw e;
+  }
   const payload = {
     rfq_id: rfqId,
     vendor_id: caller.vendor_id,
     status: "draft",
-    total_price: total_price != null ? Number(total_price) : null,
+    total_price: totalPriceStr,
     lead_time_days: lead_time_days != null ? parseInt(lead_time_days, 10) : null,
     valid_until: valid_until || null,
     notes: notes || null,
@@ -90,13 +99,19 @@ export default async function handler(req, res) {
   // Replace lines idempotently
   await admin.from("rfq_quote_lines").delete().eq("quote_id", quote.id);
   if (Array.isArray(lines) && lines.length > 0) {
-    const lineRows = lines.map((l) => ({
-      quote_id: quote.id,
-      rfq_line_item_id: l.rfq_line_item_id,
-      unit_price: l.unit_price != null ? Number(l.unit_price) : null,
-      quantity: l.quantity != null ? parseInt(l.quantity, 10) : null,
-      notes: l.notes || null,
-    })).filter((l) => l.rfq_line_item_id);
+    let lineRows;
+    try {
+      lineRows = lines.map((l, idx) => ({
+        quote_id: quote.id,
+        rfq_line_item_id: l.rfq_line_item_id,
+        unit_price: toMoneyString(l.unit_price, `lines[${idx}].unit_price`),
+        quantity: l.quantity != null ? parseInt(l.quantity, 10) : null,
+        notes: l.notes || null,
+      })).filter((l) => l.rfq_line_item_id);
+    } catch (e) {
+      if (e instanceof MoneyError) return res.status(400).json({ error: e.message });
+      throw e;
+    }
     if (lineRows.length > 0) {
       const { error } = await admin.from("rfq_quote_lines").insert(lineRows);
       if (error) return res.status(200).json({ ...quote, lines_error: error.message });

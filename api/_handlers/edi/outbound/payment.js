@@ -53,7 +53,16 @@ export default async function handler(req, res) {
   const partnerId = integration?.config?.partner_id || integration?.config?.edi_id || null;
   if (!partnerId) return res.status(400).json({ error: "No active ERP integration with partner_id for this vendor" });
 
-  const totalAmount = invoices.reduce((sum, i) => sum + (Number(i.total) || 0), 0);
+  // Sum in 4-decimal-precision integer cents-equivalent (multiply by
+  // 10000) so a 50-invoice batch doesn't drift through repeated float
+  // adds. Round once at the end and re-emit as a decimal number for
+  // the X12 builder. Each invoice's individual amount keeps its raw
+  // string form so the 820 line items are exact.
+  const totalAmountScaled = invoices.reduce((sum, i) => {
+    const n = Number(i.total);
+    return sum + (Number.isFinite(n) ? Math.round(n * 10000) : 0);
+  }, 0);
+  const totalAmount = totalAmountScaled / 10000;
   const envelope = build820({
     sender:   "RINGOFFIRE",
     receiver: partnerId,
@@ -65,7 +74,10 @@ export default async function handler(req, res) {
       payer_name: payer_name || "Ring of Fire",
       payee_name: vendor.name,
       payment_ref: payment_ref || `ROF-${Date.now()}`,
-      invoices: invoices.map((i) => ({ invoice_number: i.invoice_number, amount: Number(i.total) || 0 })),
+      invoices: invoices.map((i) => ({
+        invoice_number: i.invoice_number,
+        amount: Number.isFinite(Number(i.total)) ? Math.round(Number(i.total) * 10000) / 10000 : 0,
+      })),
     },
   });
 

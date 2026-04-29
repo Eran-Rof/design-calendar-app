@@ -119,11 +119,52 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: "file_url must be under the caller's vendor folder" });
     }
 
-    if (file_mime_type && !/^(application\/pdf|image\/)/i.test(file_mime_type)) {
+    // Require client-supplied MIME / size and validate them — previously
+    // these checks ran ONLY when the client included them, so a vendor
+    // could omit both fields to bypass the 20MB / PDF-or-image gate.
+    // CLAUDE.md mandates server-side MIME validation, not extension-only.
+    // The Storage object is already uploaded under the vendor's folder
+    // (path-prefix guard above), so even with missing claims we know
+    // who owns the bytes — but enforcing the limits here keeps clients
+    // honest before we accept the metadata row.
+    if (!file_mime_type || typeof file_mime_type !== "string") {
+      return res.status(400).json({ error: "file_mime_type is required" });
+    }
+    if (!/^(application\/pdf|image\/)/i.test(file_mime_type)) {
       return res.status(400).json({ error: "Only PDF or image files are allowed" });
     }
-    if (file_size_bytes && Number(file_size_bytes) > 20 * 1024 * 1024) {
+    if (file_size_bytes == null || !Number.isFinite(Number(file_size_bytes))) {
+      return res.status(400).json({ error: "file_size_bytes is required" });
+    }
+    const sizeBytes = Number(file_size_bytes);
+    if (sizeBytes <= 0) {
+      return res.status(400).json({ error: "file_size_bytes must be > 0" });
+    }
+    if (sizeBytes > 20 * 1024 * 1024) {
       return res.status(400).json({ error: "File exceeds 20MB limit" });
+    }
+    // Server-side cross-check: confirm the claimed MIME / size matches
+    // what's actually in Storage. Mismatch → 422 so the client can
+    // re-upload with correct metadata or detect a tampered claim.
+    try {
+      const bucket = process.env.COMPLIANCE_STORAGE_BUCKET || "compliance";
+      const { data: stat } = await admin.storage.from(bucket).list(
+        file_url.split("/").slice(0, -1).join("/"),
+        { search: file_url.split("/").slice(-1)[0], limit: 1 },
+      );
+      const meta = stat?.[0]?.metadata;
+      if (meta) {
+        if (meta.size != null && Math.abs(Number(meta.size) - sizeBytes) > 1024) {
+          return res.status(422).json({ error: "Claimed file_size_bytes doesn't match Storage" });
+        }
+        if (meta.mimetype && meta.mimetype !== file_mime_type) {
+          return res.status(422).json({ error: `Claimed file_mime_type doesn't match Storage (${meta.mimetype})` });
+        }
+      }
+    } catch (err) {
+      // Storage HEAD failed — proceed with caller-supplied claims rather
+      // than block uploads outright. Logged so we can spot trends.
+      console.warn("[vendor/compliance] Storage HEAD failed", { vendor_id: caller.vendor_id, file_url, err: String(err) });
     }
 
     const { data: type } = await admin
