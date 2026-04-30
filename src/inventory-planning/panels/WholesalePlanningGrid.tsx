@@ -8,6 +8,7 @@ import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, for
 import { aggregateRows, type CollapseModes as ExtractedCollapseModes } from "./aggregateGridRows";
 import { bucketKeyFor, type BucketKeyFilters } from "./bucketBuyKey";
 import { applyRollingPool } from "../compute/supply";
+import { recommendForRow } from "../compute/recommendations";
 
 export interface WholesalePlanningGridProps {
   rows: IpPlanningGridRow[];
@@ -215,19 +216,28 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       })),
       totalPool,
     );
+    const asOf = new Date().toISOString().slice(0, 10);
     return sorted.map((r, i) => {
       const onHand = rolled[i].on_hand_qty;
       const ats = rolled[i].available_supply_qty;
-      // Recompute shortage / excess against the rolled ATS so the action
-      // column tracks the displayed numbers, not the per-row pre-roll math.
-      const shortage = Math.max(0, r.final_forecast_qty - ats);
-      const excess = Math.max(0, ats - r.final_forecast_qty);
+      // Recompute the recommendation against the rolled ATS so a row that
+      // inherits enough supply from the pool no longer shows a stale "buy".
+      // Aggregate rows reuse the head row's period; that's fine because
+      // recommendForRow only reads period_start / period_end / final.
+      const liveRec = recommendForRow(
+        { final_forecast_qty: r.final_forecast_qty, period_start: r.period_start, period_end: r.period_end },
+        { on_hand_qty: onHand, beginning_balance_qty: onHand, on_po_qty: r.on_po_qty ?? 0, receipts_due_qty: r.receipts_due_qty ?? 0, available_supply_qty: ats },
+        asOf,
+      );
       return {
         ...r,
         on_hand_qty: onHand,
         available_supply_qty: ats,
-        projected_shortage_qty: shortage,
-        projected_excess_qty: excess,
+        projected_shortage_qty: liveRec.projected_shortage_qty,
+        projected_excess_qty: liveRec.projected_excess_qty,
+        recommended_action: liveRec.recommended_action,
+        recommended_qty: liveRec.recommended_qty,
+        action_reason: liveRec.action_reason,
       };
     });
   }, [rows, search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterAction, filterConfidence, filterMethod, sortKey, sortDir, collapse, anyCollapsed, systemSuggestionsOn]);
