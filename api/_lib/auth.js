@@ -15,6 +15,8 @@
 //
 // Path prefixed with _ so Vercel does not treat it as a function.
 
+import { timingSafeEqual } from "node:crypto";
+
 export async function authenticateCaller(req, admin) {
   const header = req.headers?.authorization || "";
   const jwt = header.startsWith("Bearer ") ? header.slice(7).trim() : null;
@@ -113,4 +115,77 @@ export function authenticateInternalCaller(req) {
     return { ok: false, status: 401, error: "Invalid internal token", mode: "denied" };
   }
   return { ok: true, status: 200, error: null, mode: "token" };
+}
+
+// Constant-time bearer-token gate for the Design Calendar scriptable
+// API surface (the three endpoints driven by the daily-design-calendar-sync
+// skill). Distinct from authenticateInternalCaller because:
+//   • the skill always presents `Authorization: Bearer <token>` — no
+//     legacy X-Internal-Token alias
+//   • the token is mandatory (no soft-warn fallback) once the env var
+//     is set; if the env var is missing the endpoint returns 500 so
+//     callers don't accidentally hit an open production endpoint
+//   • compare uses crypto.timingSafeEqual on byte buffers, which is the
+//     standard primitive Node provides for token compares
+//
+// Returns the same { ok, status, error } shape as the other helpers.
+export function authenticateDesignCalendarCaller(req) {
+  const expected = (process.env.DESIGN_CALENDAR_API_TOKEN || "").trim();
+  if (!expected) {
+    return { ok: false, status: 500, error: "DESIGN_CALENDAR_API_TOKEN not configured" };
+  }
+  const header = req.headers?.authorization || "";
+  const presented = typeof header === "string" && header.startsWith("Bearer ")
+    ? header.slice(7).trim()
+    : "";
+  if (!presented) {
+    return { ok: false, status: 401, error: "Missing bearer token" };
+  }
+  // crypto.timingSafeEqual throws on length mismatch, so we have to
+  // length-check first. The length itself is not secret — leaking it
+  // via an early return doesn't help an attacker any more than the
+  // 32-byte-hex documented format already does.
+  const a = Buffer.from(presented, "utf8");
+  const b = Buffer.from(expected,  "utf8");
+  if (a.length !== b.length) {
+    return { ok: false, status: 401, error: "Invalid bearer token" };
+  }
+  if (!timingSafeEqual(a, b)) {
+    return { ok: false, status: 401, error: "Invalid bearer token" };
+  }
+  return { ok: true, status: 200, error: null };
+}
+
+// Tiny in-memory rate limiter, scoped to a single Vercel cold start.
+// Vercel can spin up multiple instances so the budget is per-instance,
+// not strictly global — fine for the daily-sync use case (60 req/hour
+// is the documented ceiling and one cron tick uses ~3 calls). Keyed on
+// caller identity (token tail or IP) so unauthenticated traffic can't
+// burn the same budget as a legitimate caller.
+//
+// Returns { ok: true } or { ok: false, status: 429, error, retry_after_s }.
+const _rateBuckets = new Map();
+export function rateLimit(key, { limit, windowMs }) {
+  const now = Date.now();
+  const bucket = _rateBuckets.get(key);
+  if (!bucket || now >= bucket.resetAt) {
+    _rateBuckets.set(key, { count: 1, resetAt: now + windowMs });
+    return { ok: true, remaining: limit - 1, reset_at: now + windowMs };
+  }
+  if (bucket.count >= limit) {
+    return {
+      ok: false,
+      status: 429,
+      error: `Rate limit exceeded (${limit} req per ${Math.round(windowMs / 1000)}s)`,
+      retry_after_s: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)),
+    };
+  }
+  bucket.count++;
+  return { ok: true, remaining: limit - bucket.count, reset_at: bucket.resetAt };
+}
+
+// Test-only: clear the rate-limit state so unit tests can run
+// independent buckets. Not exported via any handler path.
+export function _resetRateLimitForTests() {
+  _rateBuckets.clear();
 }
