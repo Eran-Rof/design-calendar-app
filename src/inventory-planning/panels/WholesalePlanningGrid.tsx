@@ -102,9 +102,12 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   // grouping key of the displayed rows. When any are on, grids show
   // aggregate rows and inline editing is disabled on those rows.
   const [collapse, setCollapse] = useState<CollapseModes>({
-    customers: false, colors: false, category: false, subCat: false, customerAllStyles: false,
+    customers: false, colors: false, category: false, subCat: false,
+    customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false,
   });
-  const anyCollapsed = collapse.customers || collapse.colors || collapse.category || collapse.subCat || collapse.customerAllStyles;
+  const anyCollapsed =
+    collapse.customers || collapse.colors || collapse.category || collapse.subCat ||
+    collapse.customerAllStyles || collapse.allCustomersPerCategory || collapse.allCustomersPerSubCat;
   // Reset to first page whenever filters/sort change so the user doesn't
   // wonder why an empty page is showing.
   useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterAction, filterConfidence, filterMethod, sortKey, sortDir, pageSize, collapse, systemSuggestionsOn]);
@@ -325,14 +328,16 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
 
       <div style={{ ...S.toolbar, marginTop: -4, paddingTop: 0, gap: 14, fontSize: 12, color: PAL.textDim }}>
         <span style={{ fontWeight: 600 }}>Collapse:</span>
-        <CollapseToggle label="All customers" active={collapse.customers} onToggle={() => setCollapse((c) => ({ ...c, customers: !c.customers, customerAllStyles: false }))} />
+        <CollapseToggle label="All customers" active={collapse.customers} onToggle={() => setCollapse((c) => ({ ...c, customers: !c.customers, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false }))} />
         <CollapseToggle label="All colors per style" active={collapse.colors} onToggle={() => setCollapse((c) => ({ ...c, colors: !c.colors }))} />
-        <CollapseToggle label="All styles per customer" active={collapse.customerAllStyles} onToggle={() => setCollapse((c) => ({ ...c, customerAllStyles: !c.customerAllStyles, customers: false, colors: false, category: false, subCat: false }))} />
-        <CollapseToggle label="By category" active={collapse.category} onToggle={() => setCollapse((c) => ({ ...c, category: !c.category, subCat: c.category ? c.subCat : false, customerAllStyles: false }))} />
-        <CollapseToggle label="By sub cat" active={collapse.subCat} onToggle={() => setCollapse((c) => ({ ...c, subCat: !c.subCat, category: c.subCat ? c.category : false, customerAllStyles: false }))} />
+        <CollapseToggle label="All styles per customer" active={collapse.customerAllStyles} onToggle={() => setCollapse((c) => ({ ...c, customerAllStyles: !c.customerAllStyles, customers: false, colors: false, category: false, subCat: false, allCustomersPerCategory: false, allCustomersPerSubCat: false }))} />
+        <CollapseToggle label="All customers per category" active={collapse.allCustomersPerCategory} onToggle={() => setCollapse((c) => ({ ...c, allCustomersPerCategory: !c.allCustomersPerCategory, allCustomersPerSubCat: false, category: false, subCat: false, customerAllStyles: false, customers: false }))} />
+        <CollapseToggle label="All customers per sub cat" active={collapse.allCustomersPerSubCat} onToggle={() => setCollapse((c) => ({ ...c, allCustomersPerSubCat: !c.allCustomersPerSubCat, allCustomersPerCategory: false, category: false, subCat: false, customerAllStyles: false, customers: false }))} />
+        <CollapseToggle label="By category" active={collapse.category} onToggle={() => setCollapse((c) => ({ ...c, category: !c.category, subCat: c.category ? c.subCat : false, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false }))} />
+        <CollapseToggle label="By sub cat" active={collapse.subCat} onToggle={() => setCollapse((c) => ({ ...c, subCat: !c.subCat, category: c.subCat ? c.category : false, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false }))} />
         {anyCollapsed && (
           <button style={{ ...S.btnSecondary, fontSize: 11, padding: "2px 8px" }}
-                  onClick={() => setCollapse({ customers: false, colors: false, category: false, subCat: false, customerAllStyles: false })}>
+                  onClick={() => setCollapse({ customers: false, colors: false, category: false, subCat: false, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false })}>
             Reset
           </button>
         )}

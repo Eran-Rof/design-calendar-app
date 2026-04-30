@@ -27,6 +27,8 @@ export interface BucketKeyFilters {
 // with all other modes already.
 export function activeCollapseMode(modes: CollapseModes): string | null {
   if (modes.customerAllStyles) return "customerAllStyles";
+  if (modes.allCustomersPerCategory) return "allCustomersPerCategory";
+  if (modes.allCustomersPerSubCat) return "allCustomersPerSubCat";
   if (modes.subCat) return "subCat";
   if (modes.category) return "category";
   if (modes.colors && modes.customers) return "colors+customers";
@@ -70,6 +72,11 @@ export function bucketKeyFor(
   if (mode === "customerAllStyles") custId = row.customer_id ?? null;
   if (mode === "category") groupName = row.group_name ?? null;
   if (mode === "subCat") subCategoryName = row.sub_category_name ?? null;
+  // The "all customers per …" modes constrain by the rolled-up category
+  // dim but leave customer null — the bucket's whole point is that all
+  // customers share the buy.
+  if (mode === "allCustomersPerCategory") groupName = row.group_name ?? null;
+  if (mode === "allCustomersPerSubCat") subCategoryName = row.sub_category_name ?? null;
   // (colors / customers don't add named dims beyond what the SKU /
   // style + period already imply — bucket buys aren't meaningful for
   // those modes alone, so we still build a key but it's narrowly

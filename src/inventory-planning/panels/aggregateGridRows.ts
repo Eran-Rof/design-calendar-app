@@ -18,6 +18,12 @@ export interface CollapseModes {
   // keep customer + period. Useful for buyer reviews where
   // per-customer totals matter more than per-style detail.
   customerAllStyles: boolean;
+  // Inverse of customerAllStyles: keep the SKU dimension, drop
+  // customer. One row per (category, sku, period) summing every
+  // customer's demand for that style within the category. Useful
+  // for category buyers who plan a style across the whole book.
+  allCustomersPerCategory: boolean;
+  allCustomersPerSubCat: boolean;
 }
 
 // Aggregate rows by the active collapse modes. Each toggle changes the
@@ -37,6 +43,15 @@ export function aggregateRows(rows: IpPlanningGridRow[], modes: CollapseModes): 
       key = `sub:${r.sub_category_name ?? "—"}:${r.period_code}`;
     } else if (modes.category) {
       key = `cat:${r.group_name ?? "—"}:${r.period_code}`;
+    } else if (modes.allCustomersPerCategory) {
+      // Within each category, one row per (style, period) summing every
+      // customer. `colors` collapses to style; otherwise color is preserved
+      // via sku_id so two color options of the same style don't merge.
+      const skuPart = modes.colors ? `style:${r.sku_style ?? r.sku_code}` : `sku:${r.sku_id}`;
+      key = `acpc:${r.group_name ?? "—"}:${skuPart}:${r.period_code}`;
+    } else if (modes.allCustomersPerSubCat) {
+      const skuPart = modes.colors ? `style:${r.sku_style ?? r.sku_code}` : `sku:${r.sku_id}`;
+      key = `acpsc:${r.sub_category_name ?? "—"}:${skuPart}:${r.period_code}`;
     } else if (modes.customerAllStyles) {
       // Customer × period only — sums every style this customer
       // bought into one row. Other style/color/SKU fields collapse.
@@ -107,6 +122,16 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): 
     style = head.group_name ?? "(no category)";
     color = null;
     description = `Category rollup — ${bucket.length} forecast rows`;
+  } else if (modes.allCustomersPerCategory) {
+    label = `(${customerSet.size} customers)`;
+    // Style stays as the head row's style; description tags the category
+    // so the row's grouping is obvious without resizing the cat column.
+    description = `${head.group_name ?? "(no category)"} · ${bucket.length} forecast rows`;
+    if (modes.colors && colorSet.size > 1) color = `(${colorSet.size} colors)`;
+  } else if (modes.allCustomersPerSubCat) {
+    label = `(${customerSet.size} customers)`;
+    description = `${head.sub_category_name ?? "(no sub cat)"} · ${bucket.length} forecast rows`;
+    if (modes.colors && colorSet.size > 1) color = `(${colorSet.size} colors)`;
   } else if (modes.customerAllStyles) {
     // Single customer + period; sum across every style/color.
     style = `(${styleSet.size} styles)`;

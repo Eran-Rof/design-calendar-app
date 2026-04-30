@@ -53,7 +53,10 @@ function row(p: Partial<IpPlanningGridRow>): IpPlanningGridRow {
   };
 }
 
-const NO_COLLAPSE: CollapseModes = { customers: false, colors: false, category: false, subCat: false };
+const NO_COLLAPSE: CollapseModes = {
+  customers: false, colors: false, category: false, subCat: false,
+  customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false,
+};
 
 describe("aggregateRows — grouping key", () => {
   it("with no collapse, returns each row unchanged (singleton buckets)", () => {
