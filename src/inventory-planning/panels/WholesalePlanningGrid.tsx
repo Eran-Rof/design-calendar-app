@@ -7,6 +7,7 @@ import type { IpPlanningGridRow } from "../types/wholesale";
 import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, formatQty, formatPeriodCode } from "../components/styles";
 import { aggregateRows, type CollapseModes as ExtractedCollapseModes } from "./aggregateGridRows";
 import { bucketKeyFor, type BucketKeyFilters } from "./bucketBuyKey";
+import { applyRollingPool } from "../compute/supply";
 
 export interface WholesalePlanningGridProps {
   rows: IpPlanningGridRow[];
@@ -190,8 +191,45 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       system_forecast_qty: 0,
       final_forecast_qty: Math.max(0, 0 + r.buyer_request_qty + r.override_qty),
     }));
+    // Total pool = sum of unique-sku raw on_hand across the visible (pre-aggregation)
+    // set. The service layer guarantees on_hand_qty on each row is the SKU's raw
+    // on_hand, so deduping by sku_id gives the inventory available for this view.
+    const seenSku = new Set<string>();
+    let totalPool = 0;
+    for (const r of muted) {
+      if (seenSku.has(r.sku_id)) continue;
+      seenSku.add(r.sku_id);
+      totalPool += r.on_hand_qty ?? 0;
+    }
     const collapsed = anyCollapsed ? aggregateRows(muted, collapse) : muted;
-    return collapsed.sort((a, b) => cmp(a, b, sortKey, sortDir));
+    const sorted = collapsed.sort((a, b) => cmp(a, b, sortKey, sortDir));
+    // Apply the rolling pool top-down. The currently displayed sort order is
+    // what the user reads, so this is where on_hand and ATS become "rolled"
+    // values — re-sorting reruns this pass and the new top row gets the full
+    // pool again, matching the spec.
+    const rolled = applyRollingPool(
+      sorted.map((r) => ({
+        on_so_qty: r.on_so_qty,
+        receipts_due_qty: r.receipts_due_qty ?? 0,
+        planned_buy_qty: r.planned_buy_qty ?? 0,
+      })),
+      totalPool,
+    );
+    return sorted.map((r, i) => {
+      const onHand = rolled[i].on_hand_qty;
+      const ats = rolled[i].available_supply_qty;
+      // Recompute shortage / excess against the rolled ATS so the action
+      // column tracks the displayed numbers, not the per-row pre-roll math.
+      const shortage = Math.max(0, r.final_forecast_qty - ats);
+      const excess = Math.max(0, ats - r.final_forecast_qty);
+      return {
+        ...r,
+        on_hand_qty: onHand,
+        available_supply_qty: ats,
+        projected_shortage_qty: shortage,
+        projected_excess_qty: excess,
+      };
+    });
   }, [rows, search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterAction, filterConfidence, filterMethod, sortKey, sortDir, collapse, anyCollapsed, systemSuggestionsOn]);
 
   const totals = useMemo(() => {

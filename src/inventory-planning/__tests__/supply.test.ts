@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  buildPerCustomerRollingSupply,
+  applyRollingPool,
   latestOnHandBySku,
   openPoQtyBySku,
   openPoQtyBySkuPeriod,
@@ -151,100 +151,47 @@ describe("supply compute", () => {
     expect(s.available_supply_qty).toBe(80);
   });
 
-  describe("buildPerCustomerRollingSupply", () => {
-    const periods = [
-      { period_start: "2026-06-01", period_end: "2026-06-30" },
-      { period_start: "2026-07-01", period_end: "2026-07-31" },
-    ];
-
-    it("computes ATS = OnHand − OnSO + Receipts and rolls ATS into next OnHand", () => {
-      const onSo = new Map<string, number>([
-        ["cust-1:a:2026-06-01", 4_703],
-        ["cust-1:a:2026-07-01", 10_505],
-      ]);
-      const out = buildPerCustomerRollingSupply(
+  describe("applyRollingPool", () => {
+    it("top row gets the full pool; each row's ATS becomes next row's OnHand", () => {
+      const out = applyRollingPool(
         [
-          { customer_id: "cust-1", sku_id: "a", period_start: "2026-06-01" },
-          { customer_id: "cust-1", sku_id: "a", period_start: "2026-07-01" },
+          { on_so_qty: 4_703, receipts_due_qty: 45_408, planned_buy_qty: 0 },
+          { on_so_qty: 4_704, receipts_due_qty: 40_464, planned_buy_qty: 0 },
+          { on_so_qty: 0,     receipts_due_qty: 3_648,  planned_buy_qty: 0 },
         ],
-        {
-          inventorySnapshots: [snap({ sku_id: "a", qty_on_hand: 14_352 })],
-          openPos: [
-            po({ sku_id: "a", expected_date: "2026-06-15", qty_open: 45_408 }),
-            po({ sku_id: "a", expected_date: "2026-07-15", qty_open: 72_598 }),
-          ],
-          receipts: [],
-        },
-        periods,
-        onSo,
+        14_352,
       );
-
-      const jun = out.get("cust-1:a:2026-06-01")!;
-      expect(jun.beginning_balance_qty).toBe(14_352);
-      expect(jun.receipts_due_qty).toBe(45_408);
-      expect(jun.available_supply_qty).toBe(14_352 - 4_703 + 45_408);
-
-      const jul = out.get("cust-1:a:2026-07-01")!;
-      expect(jul.beginning_balance_qty).toBe(jun.available_supply_qty);
-      expect(jul.available_supply_qty).toBe(jul.beginning_balance_qty - 10_505 + 72_598);
+      expect(out[0].on_hand_qty).toBe(14_352);
+      expect(out[0].available_supply_qty).toBe(14_352 - 4_703 + 45_408);
+      expect(out[1].on_hand_qty).toBe(out[0].available_supply_qty);
+      expect(out[1].available_supply_qty).toBe(out[1].on_hand_qty - 4_704 + 40_464);
+      expect(out[2].on_hand_qty).toBe(out[1].available_supply_qty);
+      expect(out[2].available_supply_qty).toBe(out[2].on_hand_qty + 3_648);
     });
 
-    it("includes planned_buy in the period's ATS", () => {
-      const out = buildPerCustomerRollingSupply(
-        [{ customer_id: "c1", sku_id: "a", period_start: "2026-06-01", planned_buy_qty: 1_000 }],
-        {
-          inventorySnapshots: [snap({ sku_id: "a", qty_on_hand: 100 })],
-          openPos: [],
-          receipts: [],
-        },
-        [periods[0]],
-        new Map(),
+    it("includes planned_buy in the row's ATS", () => {
+      const out = applyRollingPool(
+        [{ on_so_qty: 0, receipts_due_qty: 0, planned_buy_qty: 1_000 }],
+        100,
       );
-      expect(out.get("c1:a:2026-06-01")!.available_supply_qty).toBe(1_100);
+      expect(out[0].available_supply_qty).toBe(1_100);
     });
 
-    it("clamps ATS to zero when SO exceeds OnHand + Receipts (no negative carry)", () => {
-      const onSo = new Map<string, number>([["c1:a:2026-06-01", 999]]);
-      const out = buildPerCustomerRollingSupply(
+    it("clamps to zero when SO exceeds incoming pool + receipts (no negative carry)", () => {
+      const out = applyRollingPool(
         [
-          { customer_id: "c1", sku_id: "a", period_start: "2026-06-01" },
-          { customer_id: "c1", sku_id: "a", period_start: "2026-07-01" },
+          { on_so_qty: 999, receipts_due_qty: 0, planned_buy_qty: 0 },
+          { on_so_qty: 0,   receipts_due_qty: 50, planned_buy_qty: 0 },
         ],
-        {
-          inventorySnapshots: [snap({ sku_id: "a", qty_on_hand: 10 })],
-          openPos: [],
-          receipts: [],
-        },
-        periods,
-        onSo,
+        10,
       );
-      expect(out.get("c1:a:2026-06-01")!.available_supply_qty).toBe(0);
-      expect(out.get("c1:a:2026-07-01")!.beginning_balance_qty).toBe(0);
+      expect(out[0].available_supply_qty).toBe(0);
+      expect(out[1].on_hand_qty).toBe(0);
+      expect(out[1].available_supply_qty).toBe(50);
     });
 
-    it("isolates rolling between distinct customers of the same SKU", () => {
-      // Both customers see the full SKU on_hand at period 1 (caveat documented
-      // on the function); their rolling pools then diverge based on each
-      // customer's own SO commitments.
-      const onSo = new Map<string, number>([
-        ["A:a:2026-06-01", 30],
-        ["B:a:2026-06-01", 10],
-      ]);
-      const out = buildPerCustomerRollingSupply(
-        [
-          { customer_id: "A", sku_id: "a", period_start: "2026-06-01" },
-          { customer_id: "A", sku_id: "a", period_start: "2026-07-01" },
-          { customer_id: "B", sku_id: "a", period_start: "2026-06-01" },
-          { customer_id: "B", sku_id: "a", period_start: "2026-07-01" },
-        ],
-        { inventorySnapshots: [snap({ sku_id: "a", qty_on_hand: 100 })], openPos: [], receipts: [] },
-        periods,
-        onSo,
-      );
-      expect(out.get("A:a:2026-06-01")!.available_supply_qty).toBe(70);
-      expect(out.get("B:a:2026-06-01")!.available_supply_qty).toBe(90);
-      expect(out.get("A:a:2026-07-01")!.beginning_balance_qty).toBe(70);
-      expect(out.get("B:a:2026-07-01")!.beginning_balance_qty).toBe(90);
+    it("returns an empty array for empty input", () => {
+      expect(applyRollingPool([], 100)).toEqual([]);
     });
   });
 });

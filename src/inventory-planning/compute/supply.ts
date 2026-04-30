@@ -194,93 +194,43 @@ export function buildRollingWholesaleSupply(
   return out;
 }
 
-// Per-(customer, sku, period) rolling supply that powers the displayed grid.
-// Matches the math a planner reads off the screen:
+// Apply a top-down rolling pool over an ordered list of grid rows. The
+// presentation layer (WholesalePlanningGrid) calls this after sort+aggregate
+// so the displayed ATS column matches what the user reads off the screen:
 //
-//   ATS_p = max(0, OnHand_p − OnSO_p + Receipts_p + PlannedBuy_p)
-//   OnHand_{p+1} = ATS_p              (carry forward — no forecast subtraction)
-//   OnHand_period_1 = raw on_hand     (no company-wide SO pre-subtraction)
+//   row[0].displayed_on_hand = totalStartingPool      (ALL on_hand in scope)
+//   row[i].displayed_ats     = max(0, on_hand − on_so + receipts + buy)
+//   row[i+1].displayed_on_hand = row[i].displayed_ats (carry forward)
 //
-// Differs from buildRollingWholesaleSupply:
-//   • Rolling is parallel per (customer, sku) pair, not per sku alone, so the
-//     grid's ATS column can subtract the customer's own open SO and still have
-//     the next month start from "what was actually available last month".
-//   • Forecast demand is NOT drained from the pool — that was an artifact of
-//     the old recommendation engine. The displayed ATS answers "what could I
-//     ship right now"; the buy recommendation logic still uses the per-sku
-//     buildRollingWholesaleSupply for cross-customer allocation.
+// totalStartingPool is computed by the caller as the sum of unique-sku
+// on_hands across the visible (filtered) row set. Receipts, on_so, and
+// planned_buy come from the row's own pre-aggregated values — every row
+// contributes to the pool as we walk.
 //
-// Caveat: each (customer, sku) row is given the FULL sku on_hand at period 1.
-// When several customers share the same physical SKU pool, summing on_hand
-// across their aggregated rows overcounts. The shared-pool allocation problem
-// is a Phase 2 concern; this function is faithful to the displayed formula.
-export function buildPerCustomerRollingSupply(
-  forecasts: Array<{
-    customer_id: string;
-    sku_id: string;
-    period_start: IpIsoDate;
-    planned_buy_qty?: number | null;
-  }>,
-  inputs: SupplyInputs,
-  periods: Array<{ period_start: IpIsoDate; period_end: IpIsoDate }>,
-  onSoByCustSkuPeriod: Map<string, number>,
-): Map<string, PeriodSupply> {
-  const onHandMap = latestOnHandBySku(inputs.inventorySnapshots);
-  const onPoMap = openPoQtyBySku(inputs.openPos);
-
-  // Receipts are sku-period (shared across customers); compute once, look up
-  // many times. Same idea for planned_buy: it's a sku-period quantity and
-  // every customer of that sku sees it.
-  const receiptsByGrain = new Map<string, number>();
-  const buyByGrain = new Map<string, number>();
-  const skuIds = new Set(forecasts.map((f) => f.sku_id));
-  for (const skuId of skuIds) {
-    for (const p of periods) {
-      receiptsByGrain.set(
-        `${skuId}:${p.period_start}`,
-        receiptsDueInPeriod(inputs, skuId, p.period_start, p.period_end),
-      );
-    }
+// Caveat: when the SAME (sku, period) appears in multiple rows (e.g. two
+// customers of one SKU in a non-customer-collapsed view), each occurrence
+// re-adds that SKU's receipts/buy to the pool. Use the customer / category
+// collapse toggles when you want a single trip per (sku, period).
+export interface RollingPoolFacts {
+  on_so_qty: number;
+  receipts_due_qty: number;
+  planned_buy_qty: number;
+}
+export interface RollingPoolResult {
+  on_hand_qty: number;       // displayed OnHand at this row (incoming pool)
+  available_supply_qty: number; // displayed ATS at this row (outgoing pool)
+}
+export function applyRollingPool<T extends RollingPoolFacts>(
+  rows: T[],
+  totalStartingPool: number,
+): RollingPoolResult[] {
+  const out: RollingPoolResult[] = [];
+  let pool = totalStartingPool;
+  for (const r of rows) {
+    const on_hand_qty = pool;
+    const ats = Math.max(0, on_hand_qty - r.on_so_qty + r.receipts_due_qty + r.planned_buy_qty);
+    out.push({ on_hand_qty, available_supply_qty: ats });
+    pool = ats;
   }
-  for (const f of forecasts) {
-    if (f.planned_buy_qty == null) continue;
-    const k = `${f.sku_id}:${f.period_start}`;
-    buyByGrain.set(k, Math.max(buyByGrain.get(k) ?? 0, f.planned_buy_qty));
-  }
-
-  const custSkuPairs = new Set(forecasts.map((f) => `${f.customer_id}:::${f.sku_id}`));
-  const out = new Map<string, PeriodSupply>();
-
-  for (const pair of custSkuPairs) {
-    const sep = pair.indexOf(":::");
-    const customer_id = pair.slice(0, sep);
-    const sku_id = pair.slice(sep + 3);
-    const on_hand_qty = onHandMap.get(sku_id) ?? 0;
-    const on_po_qty = onPoMap.get(sku_id) ?? 0;
-    let rolling = on_hand_qty;
-
-    for (const p of periods) {
-      const receipts_due_qty = receiptsByGrain.get(`${sku_id}:${p.period_start}`) ?? 0;
-      const planned_buy = buyByGrain.get(`${sku_id}:${p.period_start}`) ?? 0;
-      const on_so_qty = onSoByCustSkuPeriod.get(`${customer_id}:${sku_id}:${p.period_start}`) ?? 0;
-
-      const beginning_balance_qty = rolling;
-      const available_supply_qty = Math.max(
-        0,
-        beginning_balance_qty - on_so_qty + receipts_due_qty + planned_buy,
-      );
-
-      out.set(`${customer_id}:${sku_id}:${p.period_start}`, {
-        on_hand_qty,
-        beginning_balance_qty,
-        on_po_qty,
-        receipts_due_qty,
-        available_supply_qty,
-      });
-
-      rolling = available_supply_qty;
-    }
-  }
-
   return out;
 }

@@ -19,12 +19,13 @@ import type {
 } from "../types/wholesale";
 import {
   buildFinalWholesaleForecast,
-  buildPerCustomerRollingSupply,
   buildRollingWholesaleSupply,
   generateWholesaleRecommendations,
   latestOnHandBySku,
   monthOf,
   monthsBetween,
+  openPoQtyBySku,
+  receiptsDueInPeriod,
   recommendForRow,
 } from "../compute";
 import { wholesaleRepo } from "./wholesalePlanningRepository";
@@ -486,27 +487,51 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
 
   const asOf = new Date().toISOString().slice(0, 10);
 
-  // Rolling supply for the displayed grid: per-(customer, sku, period). The
-  // grid's ATS column shows OnHand − OnSO + Receipts + Buy, and the next
-  // period's OnHand inherits the prior period's ATS — see
-  // buildPerCustomerRollingSupply for the contract. We feed the same
-  // onSoByCustSkuPeriod map the grid renders so the math the user reads is
-  // exactly the math we compute.
-  const sortedPeriods = Array.from(
-    new Map(forecast.map((f) => [f.period_start, { period_start: f.period_start, period_end: f.period_end }])).values(),
-  ).sort((a, b) => a.period_start.localeCompare(b.period_start));
-  const rollingSupply = buildPerCustomerRollingSupply(
-    forecast,
-    { inventorySnapshots: inv, openPos: pos, receipts },
-    sortedPeriods,
-    onSoByCustSkuPeriod,
-  );
-
+  // Phase 2 supply model: the grid presents inventory as ONE shared pool
+  // that rolls top-to-bottom across whatever rows the planner has on
+  // screen. Service layer therefore returns per-row FACTS only — raw sku
+  // on_hand, per-customer SO, sku receipts, planned buy — and the
+  // rolling balance ("displayed OnHand" + "displayed ATS") is computed
+  // by the grid component after sort+aggregate. See
+  // WholesalePlanningGrid.tsx → applyRollingPool.
+  //
+  // We still expose `available_supply_qty` per row (= row's own
+  // OH−SO+R+Buy) as a stable sortable fallback for code paths that don't
+  // run the presentation roll (recommendation engine, scenario summary,
+  // etc.). The grid overwrites it with the rolling value on render.
+  const onPoBySku = openPoQtyBySku(pos);
+  const receiptsBySkuPeriod = new Map<string, number>();
+  {
+    const periodWindows = Array.from(
+      new Map(forecast.map((f) => [f.period_start, { start: f.period_start, end: f.period_end }])).values(),
+    );
+    for (const skuId of new Set(forecast.map((f) => f.sku_id))) {
+      for (const w of periodWindows) {
+        receiptsBySkuPeriod.set(
+          `${skuId}:${w.start}`,
+          receiptsDueInPeriod({ openPos: pos, receipts }, skuId, w.start, w.end),
+        );
+      }
+    }
+  }
   const rows: IpPlanningGridRow[] = forecast.map((f) => {
     const item = itemById.get(f.sku_id);
     const customer = customerById.get(f.customer_id);
     const category = f.category_id ? categoryById.get(f.category_id) : null;
-    const supply = rollingSupply.get(`${f.customer_id}:${f.sku_id}:${f.period_start}`);
+    const rawOnHand = onHand.get(f.sku_id) ?? 0;
+    const rowOnSo = onSoByCustSkuPeriod.get(`${f.customer_id}:${f.sku_id}:${f.period_start}`) ?? 0;
+    const rowReceipts = receiptsBySkuPeriod.get(`${f.sku_id}:${f.period_start}`) ?? 0;
+    const rowBuy = f.planned_buy_qty ?? 0;
+    const rowAvailable = Math.max(0, rawOnHand - rowOnSo + rowReceipts + rowBuy);
+    // Synthesize a PeriodSupply-shaped object so liveRec keeps its existing
+    // contract; rolling-pool effects are layered in by the grid itself.
+    const supply = {
+      on_hand_qty: rawOnHand,
+      beginning_balance_qty: rawOnHand,
+      on_po_qty: onPoBySku.get(f.sku_id) ?? 0,
+      receipts_due_qty: rowReceipts,
+      available_supply_qty: rowAvailable,
+    };
     const styleFallback = item?.style_code ? masterByStyle.get(item.style_code) : null;
     const description = item?.description ?? styleFallback?.description ?? null;
     const colorDisplay = item?.color ?? styleFallback?.color ?? null;
