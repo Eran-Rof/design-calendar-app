@@ -19,6 +19,7 @@ import type {
 } from "../types/wholesale";
 import {
   buildFinalWholesaleForecast,
+  buildPerCustomerRollingSupply,
   buildRollingWholesaleSupply,
   generateWholesaleRecommendations,
   latestOnHandBySku,
@@ -485,19 +486,27 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
 
   const asOf = new Date().toISOString().slice(0, 10);
 
-  // Rolling supply: PO receipts in a period drain the pool for subsequent periods.
-  const rollingSupply = buildRollingWholesaleSupply(
+  // Rolling supply for the displayed grid: per-(customer, sku, period). The
+  // grid's ATS column shows OnHand − OnSO + Receipts + Buy, and the next
+  // period's OnHand inherits the prior period's ATS — see
+  // buildPerCustomerRollingSupply for the contract. We feed the same
+  // onSoByCustSkuPeriod map the grid renders so the math the user reads is
+  // exactly the math we compute.
+  const sortedPeriods = Array.from(
+    new Map(forecast.map((f) => [f.period_start, { period_start: f.period_start, period_end: f.period_end }])).values(),
+  ).sort((a, b) => a.period_start.localeCompare(b.period_start));
+  const rollingSupply = buildPerCustomerRollingSupply(
     forecast,
     { inventorySnapshots: inv, openPos: pos, receipts },
-    Array.from(new Map(forecast.map((f) => [f.period_start, { period_start: f.period_start, period_end: f.period_end }])).values())
-      .sort((a, b) => a.period_start.localeCompare(b.period_start)),
+    sortedPeriods,
+    onSoByCustSkuPeriod,
   );
 
   const rows: IpPlanningGridRow[] = forecast.map((f) => {
     const item = itemById.get(f.sku_id);
     const customer = customerById.get(f.customer_id);
     const category = f.category_id ? categoryById.get(f.category_id) : null;
-    const supply = rollingSupply.get(`${f.sku_id}:${f.period_start}`);
+    const supply = rollingSupply.get(`${f.customer_id}:${f.sku_id}:${f.period_start}`);
     const styleFallback = item?.style_code ? masterByStyle.get(item.style_code) : null;
     const description = item?.description ?? styleFallback?.description ?? null;
     const colorDisplay = item?.color ?? styleFallback?.color ?? null;
