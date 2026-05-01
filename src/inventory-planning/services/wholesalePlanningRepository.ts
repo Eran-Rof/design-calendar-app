@@ -510,18 +510,6 @@ export const wholesaleRepo = {
     }
   },
 
-  // Bulk delete forecast rows by id, chunked to keep PostgREST URLs
-  // under the request-size limit. Used by runForecastPass to prune
-  // rows from prior builds whose (customer, sku) is no longer live.
-  async deleteForecastRowsByIds(planningRunId: string, ids: string[]): Promise<void> {
-    if (ids.length === 0) return;
-    const CHUNK = 100;
-    for (let i = 0; i < ids.length; i += CHUNK) {
-      const chunk = ids.slice(i, i + CHUNK);
-      const inList = chunk.map((id) => `"${id}"`).join(",");
-      await sbDelete(`ip_wholesale_forecast?planning_run_id=eq.${planningRunId}&id=in.(${inList})`);
-    }
-  },
 };
 
 export type WholesaleRepo = typeof wholesaleRepo;

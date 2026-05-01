@@ -345,20 +345,6 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
     liveGrainKeys.has(`${p.customer_id}:${p.sku_id}:${p.period_start}`),
   );
 
-  // README gap #6: prune orphan forecast rows from prior builds so the
-  // grid + future read-backs don't carry them forward. Only safe on
-  // unfiltered builds — a filtered build only processed a subset of
-  // pairs, so out-of-scope rows are not actually orphans.
-  if (!filterActive) {
-    const staleIds = persisted
-      .filter((p) => !liveGrainKeys.has(`${p.customer_id}:${p.sku_id}:${p.period_start}`))
-      .map((p) => p.id);
-    if (staleIds.length > 0) {
-      onProgress?.({ phase: "reading_back", label: `Pruning ${staleIds.length.toLocaleString()} stale forecast rows` });
-      await wholesaleRepo.deleteForecastRowsByIds(run.id, staleIds);
-    }
-  }
-
   checkAbort(signal);
   onProgress?.({ phase: "computing_recs", label: "Generating recommendations", current: 0, total: relevantPersisted.length });
   const horizon = monthsBetween(run.horizon_start, run.horizon_end);
