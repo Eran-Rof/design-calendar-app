@@ -442,11 +442,19 @@ export async function ingestItemMasterExcel(
     "moving avg cost", "moving average cost",
     "weighted cost", "wac", "fifo cost", "last cost",
   ];
-  // Xoro item export: GroupName → category (top level), CategoryName → sub
-  // category. Stored in ip_item_master.attributes JSONB so no migration is
-  // required; the grid reads them via item.attributes.group_name /
-  // item.attributes.category_name.
+  // Three-level category hierarchy stored in ip_item_master.attributes:
+  //   ProductCategoryName  → product_category  (top level)
+  //   ProductName / Group  → group_name        (mid — "Category" in UI)
+  //   CategoryName         → category_name     (leaf — "Sub Cat" in UI)
+  // Backward compat: GroupName / Department / Group still map to the mid
+  // level; "category" without "name" still maps to sub cat. New uploads
+  // can use the three-column pattern; old uploads keep working.
+  const PRODUCT_CATEGORY_ALIASES = [
+    "product category name", "productcategoryname", "product category",
+    "productcategory",
+  ];
   const GROUP_NAME_ALIASES = [
+    "product name", "productname",
     "group name", "groupname", "group", "department", "dept",
   ];
   const CATEGORY_NAME_ALIASES = [
@@ -491,6 +499,7 @@ export async function ingestItemMasterExcel(
       : descRaw;
     const cost = toNum(pick(r, COST_ALIASES));
 
+    const productCategory = String(pick(r, PRODUCT_CATEGORY_ALIASES) ?? "").trim() || null;
     const groupName = String(pick(r, GROUP_NAME_ALIASES) ?? "").trim() || null;
     const subCategoryName = String(pick(r, CATEGORY_NAME_ALIASES) ?? "").trim() || null;
     const gender = String(pick(r, GENDER_ALIASES) ?? "").trim() || null;
@@ -512,8 +521,9 @@ export async function ingestItemMasterExcel(
       active: true,
     };
     if (description) item.description = description;
-    if (groupName || subCategoryName || gender) {
+    if (productCategory || groupName || subCategoryName || gender) {
       item.attributes = {
+        ...(productCategory ? { product_category: productCategory } : {}),
         ...(groupName ? { group_name: groupName } : {}),
         ...(subCategoryName ? { category_name: subCategoryName } : {}),
         ...(gender ? { gender } : {}),
