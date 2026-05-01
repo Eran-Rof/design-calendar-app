@@ -84,7 +84,12 @@ export async function runSaveUploadData(rawData: ExcelData, opts: UseExcelUpload
         headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
         body: JSON.stringify({ key: "ats_excel_data", value: JSON.stringify(data) }),
       });
-      if (!saveRes.ok) throw new Error("Failed to save data to database");
+      if (!saveRes.ok) {
+        const detail = await saveRes.text().catch(() => "");
+        const msg = `Save to database FAILED — HTTP ${saveRes.status} ${detail.slice(0, 400)}`;
+        console.error("[ATS upload]", msg);
+        throw new Error(msg);
+      }
       // Overwrite the pre-merge base snapshot with the fresh upload so
       // undo replays against current data, not last week's. Merge history
       // is preserved — already applied above via the replay loop.
