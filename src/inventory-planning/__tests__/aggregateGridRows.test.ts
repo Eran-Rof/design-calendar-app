@@ -198,15 +198,29 @@ describe("mergeBucket — totals", () => {
   it("sums non-nullable numeric fields across the bucket", () => {
     const out = mergeBucket(
       [
-        row({ historical_trailing_qty: 1, system_forecast_qty: 10, final_forecast_qty: 7, projected_shortage_qty: 1 }),
-        row({ historical_trailing_qty: 2, system_forecast_qty: 20, final_forecast_qty: 13, projected_shortage_qty: 4 }),
+        row({ historical_trailing_qty: 1, system_forecast_qty: 10, final_forecast_qty: 7 }),
+        row({ historical_trailing_qty: 2, system_forecast_qty: 20, final_forecast_qty: 13 }),
       ],
       { ...NO_COLLAPSE, customers: true },
     );
     expect(out.historical_trailing_qty).toBe(3);
     expect(out.system_forecast_qty).toBe(30);
     expect(out.final_forecast_qty).toBe(20);
+  });
+
+  it("dedupes SKU-scoped fields (excess/shortage/on_hand/receipts) by (sku, period) across the bucket", () => {
+    // Two rows sharing the same (sku, period) — projected_shortage_qty
+    // is SKU-level, so the bucket should count it once, not twice.
+    const out = mergeBucket(
+      [
+        row({ sku_id: "s1", period_start: "2026-06-01", projected_shortage_qty: 5, projected_excess_qty: 0, on_hand_qty: 100 }),
+        row({ sku_id: "s1", period_start: "2026-06-01", projected_shortage_qty: 5, projected_excess_qty: 0, on_hand_qty: 100 }),
+      ],
+      { ...NO_COLLAPSE, customers: true },
+    );
     expect(out.projected_shortage_qty).toBe(5);
+    expect(out.projected_excess_qty).toBe(0);
+    expect(out.on_hand_qty).toBe(100);
   });
 
   it("sumNullable returns null when no row has a non-null value", () => {
