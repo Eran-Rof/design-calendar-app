@@ -60,6 +60,11 @@ export interface WholesalePlanningGridProps {
   // only reads the value and reports user-flips via the setter.
   systemSuggestionsOn: boolean;
   onSystemSuggestionsChange: (v: boolean) => void;
+  // Emits the current filter+mute scoped row set up to the workbench
+  // so MonthlyTotalsCards uses the same subset the grid does. Without
+  // this, the top FINAL FORECAST card showed the whole run while the
+  // grid showed only the user's filtered slice.
+  onScopeChange?: (rows: IpPlanningGridRow[]) => void;
 }
 
 // Every column is sortable via header click. Click toggles asc/desc on
@@ -75,7 +80,7 @@ type SortKey =
 // references (CollapseModes) compile without churn.
 type CollapseModes = ExtractedCollapseModes;
 
-export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
   const [filterCustomer, setFilterCustomer] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
@@ -228,7 +233,10 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     return Array.from(s).sort();
   }, [rows]);
 
-  const filtered = useMemo(() => {
+  // Step 1: filter + mute (post-user-filters, post-system-suggestions toggle,
+  // pre-aggregate, pre-roll). This is the canonical "rows in scope" set
+  // used by per-row math, totals, and MonthlyTotalsCards.
+  const mutedRows = useMemo(() => {
     const q = search.trim().toUpperCase();
     const base = rows.filter((r) => {
       if (filterCustomer !== "all" && r.customer_id !== filterCustomer) return false;
@@ -249,15 +257,63 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       )) return false;
       return true;
     });
-    // Apply the master "system suggestions" toggle — when off, every
-    // displayed row's system value is muted to 0 and Final is recomputed
-    // accordingly. Override values stay; planner can still type direct
-    // overrides on top.
-    const muted = systemSuggestionsOn ? base : base.map((r) => ({
+    return systemSuggestionsOn ? base : base.map((r) => ({
       ...r,
       system_forecast_qty: 0,
       final_forecast_qty: Math.max(0, 0 + r.buyer_request_qty + r.override_qty),
     }));
+  }, [rows, search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterAction, filterConfidence, filterMethod, systemSuggestionsOn]);
+
+  // Notify the workbench when the visible (filter+mute) row set changes
+  // so MonthlyTotalsCards uses the same subset (drives the top FINAL
+  // FORECAST card to match the grid's Σ Final).
+  useEffect(() => {
+    if (onScopeChange) onScopeChange(mutedRows);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mutedRows]);
+
+  // Step 2: per-(sku, period) excess/shortage using a proper per-SKU
+  // multi-period rolling pool that subtracts demand each period (same
+  // model as buildRollingWholesaleSupply on the backend). The display-
+  // layer applyRollingPool only subtracts on_so, so its ATS grows
+  // unboundedly — that's why per-row excess looked like 1.2M everywhere.
+  // This map is the single source of truth for every row in the same
+  // (sku, period) and for the Σ Excess / Σ Shortage totals.
+  const skuPeriodMath = useMemo(() => {
+    type Agg = { receipts: number; onSo: number; buy: number; demand: number };
+    const skuOnHand = new Map<string, number>();
+    const bySkuPeriod = new Map<string, Map<string, Agg>>();
+    for (const r of mutedRows) {
+      if (!skuOnHand.has(r.sku_id)) skuOnHand.set(r.sku_id, r.on_hand_qty ?? 0);
+      let perPeriod = bySkuPeriod.get(r.sku_id);
+      if (!perPeriod) { perPeriod = new Map(); bySkuPeriod.set(r.sku_id, perPeriod); }
+      let agg = perPeriod.get(r.period_start);
+      if (!agg) {
+        agg = { receipts: r.receipts_due_qty ?? 0, onSo: 0, buy: 0, demand: 0 };
+        perPeriod.set(r.period_start, agg);
+      }
+      agg.onSo += r.on_so_qty;
+      agg.buy += r.planned_buy_qty ?? 0;
+      agg.demand += r.final_forecast_qty;
+    }
+    const out = new Map<string, { excess: number; shortage: number }>();
+    for (const [skuId, perPeriod] of bySkuPeriod) {
+      const periods = Array.from(perPeriod.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+      let pool = skuOnHand.get(skuId) ?? 0;
+      for (const [periodStart, agg] of periods) {
+        const supply = pool + agg.receipts + agg.buy;
+        const demand = agg.demand;
+        const excess = supply > demand ? supply - demand : 0;
+        const shortage = demand > supply ? demand - supply : 0;
+        out.set(`${skuId}:${periodStart}`, { excess, shortage });
+        pool = Math.max(0, supply - demand - agg.onSo);
+      }
+    }
+    return out;
+  }, [mutedRows]);
+
+  const filtered = useMemo(() => {
+    const muted = mutedRows;
     // Total pool = sum of unique-sku raw on_hand across the visible (pre-aggregation)
     // set. The service layer guarantees on_hand_qty on each row is the SKU's raw
     // on_hand, so deduping by sku_id gives the inventory available for this view.
@@ -290,10 +346,14 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     return sorted.map((r, i) => {
       const onHand = rolled[i].on_hand_qty;
       const ats = rolled[i].available_supply_qty;
-      // Recompute the recommendation against the rolled ATS so a row that
-      // inherits enough supply from the pool no longer shows a stale "buy".
-      // Aggregate rows reuse the head row's period; that's fine because
-      // recommendForRow only reads period_start / period_end / final.
+      // Per-row excess/shortage = SKU+period level (deduped across
+      // customers). Source of truth is `skuPeriodMath` — same map
+      // the totals use, so per-row and totals always agree.
+      const grainKey = `${r.sku_id}:${r.period_start}`;
+      const es = skuPeriodMath.get(grainKey) ?? { excess: 0, shortage: 0 };
+      // Recommendation still uses the rolled ATS so the action label
+      // ("buy" / "expedite" / "hold" / etc.) reflects what's actually
+      // available as the planner reads down the grid.
       const liveRec = recommendForRow(
         { final_forecast_qty: r.final_forecast_qty, period_start: r.period_start, period_end: r.period_end },
         { on_hand_qty: onHand, beginning_balance_qty: onHand, on_po_qty: r.on_po_qty ?? 0, receipts_due_qty: r.receipts_due_qty ?? 0, available_supply_qty: ats },
@@ -303,87 +363,31 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         ...r,
         on_hand_qty: onHand,
         available_supply_qty: ats,
-        projected_shortage_qty: liveRec.projected_shortage_qty,
-        projected_excess_qty: liveRec.projected_excess_qty,
+        projected_shortage_qty: es.shortage,
+        projected_excess_qty: es.excess,
         recommended_action: liveRec.recommended_action,
         recommended_qty: liveRec.recommended_qty,
         action_reason: liveRec.action_reason,
       };
     });
-  }, [rows, search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterAction, filterConfidence, filterMethod, sortKey, sortDir, collapse, anyCollapsed, systemSuggestionsOn]);
+  }, [mutedRows, skuPeriodMath, sortKey, sortDir, collapse, anyCollapsed]);
 
   const totals = useMemo(() => {
     const t = { final: 0, shortage: 0, excess: 0, actions: {} as Record<string, number>, methods: {} as Record<string, number> };
-    // Σ Excess / Σ Shortage are computed PRE-aggregation, PRE-roll
-    // using a proper per-SKU rolling pool that subtracts demand each
-    // period (same model as buildRollingWholesaleSupply on the
-    // backend). The display-layer applyRollingPool only subtracts
-    // on_so, so its ATS grows unboundedly — projected_excess_qty per
-    // row was producing billions for the totals. Computing here from
-    // raw fields avoids that.
-    const q = search.trim().toUpperCase();
-    const matchesFilter = (r: IpPlanningGridRow) => {
-      if (filterCustomer !== "all" && r.customer_id !== filterCustomer) return false;
-      if (filterCategory !== "all" && (r.group_name ?? "—") !== filterCategory) return false;
-      if (filterSubCat !== "all" && (r.sub_category_name ?? "—") !== filterSubCat) return false;
-      if (filterGender !== "all" && (r.gender ?? "—") !== filterGender) return false;
-      if (filterPeriod !== "all" && r.period_code !== filterPeriod) return false;
-      if (filterAction !== "all" && r.recommended_action !== filterAction) return false;
-      if (filterConfidence !== "all" && r.confidence_level !== filterConfidence) return false;
-      if (filterMethod !== "all" && r.forecast_method !== filterMethod) return false;
-      if (q && !(
-        r.sku_code.includes(q)
-        || (r.sku_style ?? "").toUpperCase().includes(q)
-        || (r.sku_color ?? "").toUpperCase().includes(q)
-        || r.customer_name.toUpperCase().includes(q)
-        || (r.group_name ?? "").toUpperCase().includes(q)
-        || (r.sub_category_name ?? "").toUpperCase().includes(q)
-      )) return false;
-      return true;
-    };
-
-    type Agg = { receipts: number; onSo: number; buy: number; demand: number };
-    const skuOnHand = new Map<string, number>();
-    const bySkuPeriod = new Map<string, Map<string, Agg>>();
-
-    for (const raw of rows) {
-      if (!matchesFilter(raw)) continue;
-      const finalEff = systemSuggestionsOn
-        ? raw.final_forecast_qty
-        : Math.max(0, raw.buyer_request_qty + raw.override_qty);
-      t.final += finalEff;
-      if (!skuOnHand.has(raw.sku_id)) skuOnHand.set(raw.sku_id, raw.on_hand_qty ?? 0);
-      let perPeriod = bySkuPeriod.get(raw.sku_id);
-      if (!perPeriod) { perPeriod = new Map(); bySkuPeriod.set(raw.sku_id, perPeriod); }
-      let agg = perPeriod.get(raw.period_start);
-      if (!agg) {
-        agg = { receipts: raw.receipts_due_qty ?? 0, onSo: 0, buy: 0, demand: 0 };
-        perPeriod.set(raw.period_start, agg);
-      }
-      agg.onSo += raw.on_so_qty;
-      agg.buy += raw.planned_buy_qty ?? 0;
-      agg.demand += finalEff;
-      t.actions[raw.recommended_action] = (t.actions[raw.recommended_action] ?? 0) + 1;
-      t.methods[raw.forecast_method] = (t.methods[raw.forecast_method] ?? 0) + 1;
+    for (const r of mutedRows) {
+      t.final += r.final_forecast_qty;
+      t.actions[r.recommended_action] = (t.actions[r.recommended_action] ?? 0) + 1;
+      t.methods[r.forecast_method] = (t.methods[r.forecast_method] ?? 0) + 1;
     }
-
-    // Per-SKU rolling pool over its periods chronologically. Each
-    // period: supply = pool + receipts + buy. Excess = supply − demand
-    // when supply > demand, else shortage. Pool rolls forward as the
-    // leftover after consuming demand AND committed on_so.
-    for (const [skuId, perPeriod] of bySkuPeriod) {
-      const periods = Array.from(perPeriod.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-      let pool = skuOnHand.get(skuId) ?? 0;
-      for (const [, agg] of periods) {
-        const supply = pool + agg.receipts + agg.buy;
-        const demand = agg.demand;
-        if (supply > demand) t.excess += supply - demand;
-        else t.shortage += demand - supply;
-        pool = Math.max(0, supply - demand - agg.onSo);
-      }
+    // Σ Excess / Σ Shortage = sum across unique (sku, period) grains
+    // from the pre-computed rolling-pool map. Single source of truth
+    // shared with per-row display.
+    for (const { excess, shortage } of skuPeriodMath.values()) {
+      t.excess += excess;
+      t.shortage += shortage;
     }
     return t;
-  }, [rows, search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterAction, filterConfidence, filterMethod, systemSuggestionsOn]);
+  }, [mutedRows, skuPeriodMath]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));

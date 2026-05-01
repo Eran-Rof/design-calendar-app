@@ -92,6 +92,11 @@ export default function WholesalePlanningWorkbench() {
     setSystemSuggestionsOn(v);
   }
 
+  // Filtered+muted row set, mirrored up from the grid via onScopeChange
+  // so MonthlyTotalsCards (top FINAL FORECAST card) uses the same
+  // subset the grid does.
+  const [scopedRows, setScopedRows] = useState<IpPlanningGridRow[]>([]);
+
   // Visible bootstrap status — drives the status bar at the top of the
   // workbench. Phases:
   //   "masters"   → fetching customers / categories / items / runs
@@ -868,7 +873,7 @@ export default function WholesalePlanningWorkbench() {
 
         {tab === "grid" && (
           <>
-            <MonthlyTotalsCards rows={rows} systemSuggestionsOn={systemSuggestionsOn} />
+            <MonthlyTotalsCards rows={scopedRows} systemSuggestionsOn={systemSuggestionsOn} />
             <WholesalePlanningGrid
               headerSlot={
                 <>
@@ -927,6 +932,7 @@ export default function WholesalePlanningWorkbench() {
               bucketBuys={bucketBuys}
               systemSuggestionsOn={systemSuggestionsOn}
               onSystemSuggestionsChange={setSystemSuggestionsOnPersistent}
+              onScopeChange={setScopedRows}
             />
           </>
         )}
