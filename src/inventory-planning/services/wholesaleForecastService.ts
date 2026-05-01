@@ -371,6 +371,7 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
   onProgress?.({ phase: "writing_recs", label: `Writing recommendations`, current: 0, total: recs.length });
   await wholesaleRepo.replaceRecommendations(run.id, recs, {
     signal,
+    onPhase: (label) => onProgress?.({ phase: "writing_recs", label }),
     onProgress: (rowsDone, totalRows) => {
       onProgress?.({ phase: "writing_recs", label: `Writing recommendations`, current: rowsDone, total: totalRows });
     },

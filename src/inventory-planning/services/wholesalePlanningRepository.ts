@@ -433,19 +433,38 @@ export const wholesaleRepo = {
   async replaceRecommendations(
     planningRunId: string,
     rows: Array<Omit<IpWholesaleRecommendation, "id" | "created_at">>,
-    options: { signal?: AbortSignal; onProgress?: (rowsDone: number, totalRows: number) => void } = {},
+    options: {
+      signal?: AbortSignal;
+      onProgress?: (rowsDone: number, totalRows: number) => void;
+      onPhase?: (label: string) => void;
+    } = {},
   ): Promise<void> {
-    const { signal, onProgress } = options;
+    const { signal, onProgress, onPhase } = options;
     if (signal?.aborted) throw new BuildCancelledError();
-    // Recommendations are fully regenerated each run; clear then insert.
-    await sbDelete(`ip_wholesale_recommendations?planning_run_id=eq.${planningRunId}`);
+
+    // Chunked DELETE — a single DELETE WHERE planning_run_id=X against
+    // 16k+ rows with 4 secondary indexes routinely tipped Supabase's 8s
+    // statement timeout. Read the IDs first (cheap, indexed by run_id),
+    // then DELETE by id-in-list in chunks. Belt-and-suspenders against
+    // both the timeout AND PostgREST URL length limits.
+    onPhase?.("Clearing previous recommendations");
+    const existing = await sbGetAll<{ id: string }>(
+      `ip_wholesale_recommendations?select=id&planning_run_id=eq.${planningRunId}&order=id.asc`,
+    );
+    const DELETE_CHUNK = 500;
+    for (let i = 0; i < existing.length; i += DELETE_CHUNK) {
+      if (signal?.aborted) throw new BuildCancelledError();
+      const ids = existing.slice(i, i + DELETE_CHUNK).map((r) => r.id);
+      const inList = ids.map((id) => `"${id}"`).join(",");
+      await sbDelete(`ip_wholesale_recommendations?planning_run_id=eq.${planningRunId}&id=in.(${inList})`);
+    }
+
     if (rows.length === 0) return;
 
-    // Same chunk-halving as upsertForecast — single-index INSERT here
-    // is lighter than the forecast table but big batches of recs still
-    // tipped Supabase's 8s timeout (57014) when prior runs leaked stale
-    // rows into the read-back. See generateWholesaleRecommendations.
-    const INITIAL_CHUNK = 200;
+    // Initial chunk 100 — the recommendations table has 4 secondary
+    // indexes and an FK to ip_item_master. Same chunk-halving pattern
+    // as upsertForecast for resilience under intermittent timeouts.
+    const INITIAL_CHUNK = 100;
     const MIN_CHUNK = 25;
     type Row = (typeof rows)[number];
     const postChunk = async (chunk: Row[]): Promise<void> => {
