@@ -85,6 +85,25 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): 
     }
     return found ? total : null;
   };
+  // Some quantities are SKU-scoped on the row (every row sharing the same
+  // (sku, period) carries the same value). Naive sum across a bucket
+  // containing N customer-rows for the same SKU multiplies the value by N.
+  // Receipts (open POs in period) and Hist Recv (past receipts in period)
+  // both have this property — see receiptsBySkuPeriod /
+  // historicalReceiptsBySkuPeriod in wholesaleForecastService.
+  const sumNullableUniqueSkuPeriod = (k: keyof IpPlanningGridRow): number | null => {
+    const seen = new Set<string>();
+    let total = 0;
+    let found = false;
+    for (const r of bucket) {
+      const key = `${r.sku_id}:${r.period_start}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const v = r[k] as number | null | undefined;
+      if (v != null) { total += v; found = true; }
+    }
+    return found ? total : null;
+  };
   // Unit cost for the rollup row:
   //   1. Weight by planned_buy_qty when buy>0 rows have a cost (best signal
   //      of the dollars actually committed in this rollup).
@@ -169,8 +188,8 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): 
     on_hand_qty: sumNullable("on_hand_qty"),
     on_so_qty: sum("on_so_qty"),
     on_po_qty: sumNullable("on_po_qty"),
-    receipts_due_qty: sumNullable("receipts_due_qty"),
-    historical_receipts_qty: sumNullable("historical_receipts_qty"),
+    receipts_due_qty: sumNullableUniqueSkuPeriod("receipts_due_qty"),
+    historical_receipts_qty: sumNullableUniqueSkuPeriod("historical_receipts_qty"),
     available_supply_qty: sum("available_supply_qty"),
     projected_shortage_qty: sum("projected_shortage_qty"),
     projected_excess_qty: sum("projected_excess_qty"),
