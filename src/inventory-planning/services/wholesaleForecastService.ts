@@ -21,6 +21,7 @@ import {
   buildFinalWholesaleForecast,
   buildRollingWholesaleSupply,
   generateWholesaleRecommendations,
+  historicalReceiptsInPeriod,
   latestOnHandBySku,
   monthOf,
   monthsBetween,
@@ -563,7 +564,11 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
   // run the presentation roll (recommendation engine, scenario summary,
   // etc.). The grid overwrites it with the rolling value on render.
   const onPoBySku = openPoQtyBySku(pos);
+  // Two separate maps now: receipts_due (future inbound POs) drives supply
+  // math; historical_receipts (past actuals) is display-only since those
+  // qtys are already in on_hand_qty.
   const receiptsBySkuPeriod = new Map<string, number>();
+  const historicalReceiptsBySkuPeriod = new Map<string, number>();
   {
     const periodWindows = Array.from(
       new Map(forecast.map((f) => [f.period_start, { start: f.period_start, end: f.period_end }])).values(),
@@ -572,7 +577,11 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       for (const w of periodWindows) {
         receiptsBySkuPeriod.set(
           `${skuId}:${w.start}`,
-          receiptsDueInPeriod({ openPos: pos, receipts }, skuId, w.start, w.end),
+          receiptsDueInPeriod({ openPos: pos }, skuId, w.start, w.end),
+        );
+        historicalReceiptsBySkuPeriod.set(
+          `${skuId}:${w.start}`,
+          historicalReceiptsInPeriod({ receipts }, skuId, w.start, w.end),
         );
       }
     }
@@ -659,6 +668,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       on_so_qty: onSoByCustSkuPeriod.get(`${f.customer_id}:${f.sku_id}:${f.period_start}`) ?? 0,
       on_po_qty: onPoByCustSkuPeriod.get(`${f.customer_id}:${f.sku_id}:${f.period_start}`) ?? 0,
       receipts_due_qty: supply?.receipts_due_qty ?? 0,
+      historical_receipts_qty: historicalReceiptsBySkuPeriod.get(`${f.sku_id}:${f.period_start}`) ?? 0,
       available_supply_qty: avail,
       projected_shortage_qty: shortage,
       projected_excess_qty: excess,

@@ -91,12 +91,30 @@ export function openPoQtyBySkuPeriod(
   return out;
 }
 
-// Qty due in [periodStart, periodEnd]. For historical periods we use
-// actual ip_receipts_history rows; for future periods we use open POs
-// whose expected_date lands in the window. Both sources flow through
-// here so the caller doesn't have to decide.
+// Future inbound: open POs whose expected_date lands in [periodStart,
+// periodEnd]. This drives supply math — past receipts are already
+// reflected in on_hand_qty (the snapshot value) so counting them here
+// would double-count supply for any period that overlaps the snapshot.
 export function receiptsDueInPeriod(
-  inputs: Pick<SupplyInputs, "openPos" | "receipts">,
+  inputs: Pick<SupplyInputs, "openPos">,
+  skuId: string,
+  periodStart: IpIsoDate,
+  periodEnd: IpIsoDate,
+): number {
+  let total = 0;
+  for (const p of inputs.openPos) {
+    if (p.sku_id !== skuId) continue;
+    if (!p.expected_date) continue;
+    if (p.expected_date < periodStart || p.expected_date > periodEnd) continue;
+    total += p.qty_open ?? 0;
+  }
+  return total;
+}
+
+// Past actual receipts that landed in [periodStart, periodEnd]. Display
+// only — does NOT feed supply math (those qtys are already in on_hand).
+export function historicalReceiptsInPeriod(
+  inputs: Pick<SupplyInputs, "receipts">,
   skuId: string,
   periodStart: IpIsoDate,
   periodEnd: IpIsoDate,
@@ -106,12 +124,6 @@ export function receiptsDueInPeriod(
     if (r.sku_id !== skuId) continue;
     if (r.received_date < periodStart || r.received_date > periodEnd) continue;
     total += r.qty ?? 0;
-  }
-  for (const p of inputs.openPos) {
-    if (p.sku_id !== skuId) continue;
-    if (!p.expected_date) continue;
-    if (p.expected_date < periodStart || p.expected_date > periodEnd) continue;
-    total += p.qty_open ?? 0;
   }
   return total;
 }

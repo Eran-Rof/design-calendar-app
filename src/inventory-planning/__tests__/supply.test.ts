@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   applyRollingPool,
+  historicalReceiptsInPeriod,
   latestOnHandBySku,
   openPoQtyBySku,
   openPoQtyBySkuPeriod,
@@ -120,21 +121,34 @@ describe("supply compute", () => {
     });
   });
 
-  it("receiptsDueInPeriod combines historical receipts and future POs", () => {
+  it("receiptsDueInPeriod returns ONLY future open POs in the period", () => {
+    // Past receipts are already in on_hand_qty; counting them here would
+    // double-count supply for any period overlapping the snapshot.
     const got = receiptsDueInPeriod(
       {
         openPos: [
           po({ sku_id: "a", expected_date: "2026-06-15", qty_open: 50 }),
           po({ sku_id: "a", expected_date: "2026-07-01", qty_open: 999 }),
         ],
+      },
+      "a", "2026-06-01", "2026-06-30",
+    );
+    expect(got).toBe(50);
+  });
+
+  it("historicalReceiptsInPeriod returns past actuals in the period", () => {
+    const got = historicalReceiptsInPeriod(
+      {
         receipts: [
           rc({ sku_id: "a", received_date: "2026-06-10", qty: 20 }),
+          rc({ sku_id: "a", received_date: "2026-06-30", qty: 5 }),
           rc({ sku_id: "a", received_date: "2026-05-10", qty: 777 }),
+          rc({ sku_id: "b", received_date: "2026-06-10", qty: 1 }),
         ],
       },
       "a", "2026-06-01", "2026-06-30",
     );
-    expect(got).toBe(70); // 50 from PO + 20 from receipt
+    expect(got).toBe(25);
   });
 
   it("supplyForPeriod assembles on_hand + receipts_due for the period", () => {

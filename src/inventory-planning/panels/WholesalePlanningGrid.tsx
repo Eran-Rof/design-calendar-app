@@ -62,7 +62,7 @@ export interface WholesalePlanningGridProps {
 type SortKey =
   | "category" | "subCat" | "style" | "color" | "description" | "customer"
   | "period" | "histT3" | "histLY" | "system" | "buyer" | "override" | "final"
-  | "confidence" | "method" | "onHand" | "onSo" | "onPo" | "receipts" | "ats"
+  | "confidence" | "method" | "onHand" | "onSo" | "onPo" | "receipts" | "histRecv" | "ats"
   | "buy" | "avgCost" | "unitCost" | "buyDollars" | "shortage" | "excess" | "action";
 
 // Re-export of the type now defined alongside the aggregate logic
@@ -392,7 +392,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               <Th label="On hand"     k="onHand"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
               <Th label="On SO"       k="onSo"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
               <Th label="On PO"       k="onPo"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Receipts"    k="receipts"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Receipts"    k="receipts"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric title="Open POs scheduled to land in this period (drives supply math)" />
+              <Th label="Hist Recv"   k="histRecv"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.textMuted} title="Past actual receipts in this period — display only, already in On hand" />
               <Th label="ATS"         k="ats"         sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
               <Th label="Buy"         k="buy"         sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.green} />
               <Th label="Avg Cost"    k="avgCost"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.textMuted} title="From ip_item_avg_cost (Xoro / Excel ingest)" />
@@ -486,6 +487,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 </td>
                 <td style={S.tdNum}>{formatQty(r.on_po_qty)}</td>
                 <td style={S.tdNum}>{formatQty(r.receipts_due_qty)}</td>
+                <td style={{ ...S.tdNum, color: PAL.textMuted }}>{r.historical_receipts_qty ? formatQty(r.historical_receipts_qty) : "—"}</td>
                 <td style={{ ...S.tdNum, color: PAL.text }}>{formatQty(r.available_supply_qty)}</td>
                 <td style={{ ...S.tdNum, padding: "0 4px" }} onClick={(e) => e.stopPropagation()}>
                   {r.is_aggregate ? (() => {
@@ -922,6 +924,7 @@ function cmp(a: IpPlanningGridRow, b: IpPlanningGridRow, k: SortKey, d: "asc" | 
     case "onSo":        return cmpNum(a.on_so_qty, b.on_so_qty, sign);
     case "onPo":        return cmpNum(a.on_po_qty, b.on_po_qty, sign);
     case "receipts":    return cmpNum(a.receipts_due_qty, b.receipts_due_qty, sign);
+    case "histRecv":    return cmpNum(a.historical_receipts_qty, b.historical_receipts_qty, sign);
     case "ats":         return cmpNum(a.available_supply_qty, b.available_supply_qty, sign);
     case "buy":         return cmpNum(a.planned_buy_qty, b.planned_buy_qty, sign);
     case "avgCost":     return cmpNum(a.avg_cost, b.avg_cost, sign);

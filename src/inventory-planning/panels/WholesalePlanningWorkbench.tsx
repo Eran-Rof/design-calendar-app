@@ -121,13 +121,25 @@ export default function WholesalePlanningWorkbench() {
     }
   }, [loadMasters, loadRunData]);
 
+  // Initial mount: load masters ONLY. Don't call refreshAll — its trailing
+  // loadRunData() races the [selectedRun] effect's loadRunData() once
+  // loadMasters' setSelectedRunId(activeRun.id) propagates. That double-
+  // fire of buildGridRows (11 parallel reads + paginated listForecast)
+  // was the 20s "load cycle" visible on first paint.
   useEffect(() => {
-    void refreshAll();
+    setLoading(true);
+    loadMasters()
+      .catch((e) => setToast({ text: "Load failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" }))
+      .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (selectedRun) void loadRunData();
+    if (!selectedRun) return;
+    setLoading(true);
+    loadRunData()
+      .catch((e) => setToast({ text: "Load failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" }))
+      .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRun]);
 
