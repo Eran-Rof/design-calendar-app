@@ -289,12 +289,17 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     // in PACKS for SKUs whose color is coded "PPKn" (e.g. PPK24 means
     // each pack ships 24 units). Multiply the supply-side qtys here
     // so on_hand / on_so / receipts / ATS all display in actual
-    // selling units. Demand fields (forecast / buyer / override) and
-    // planned_buy_qty are entered in selling units already and stay
-    // unchanged.
+    // selling units. Costs come in as pack cost from the master, so
+    // divide them by n to get per-unit cost. Demand fields (forecast
+    // / buyer / override) and planned_buy_qty are entered in selling
+    // units already and stay unchanged.
     const expanded = base.map((r) => {
       const mult = ppkMultiplier(r.sku_color);
       if (mult === 1) return r;
+      const divCost = (c: number | null | undefined): number | null => {
+        if (c == null) return c ?? null;
+        return c / mult;
+      };
       return {
         ...r,
         on_hand_qty: r.on_hand_qty == null ? r.on_hand_qty : r.on_hand_qty * mult,
@@ -303,6 +308,10 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         receipts_due_qty: r.receipts_due_qty == null ? r.receipts_due_qty : r.receipts_due_qty * mult,
         historical_receipts_qty: r.historical_receipts_qty == null ? r.historical_receipts_qty : r.historical_receipts_qty * mult,
         available_supply_qty: r.available_supply_qty * mult,
+        avg_cost: divCost(r.avg_cost),
+        ats_avg_cost: divCost(r.ats_avg_cost),
+        item_cost: divCost(r.item_cost),
+        unit_cost: divCost(r.unit_cost),
       };
     });
     return systemSuggestionsOn ? expanded : expanded.map((r) => ({
