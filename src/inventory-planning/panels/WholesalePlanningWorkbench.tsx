@@ -76,6 +76,22 @@ export default function WholesalePlanningWorkbench() {
     gender: string | null;
   } | null>(null);
 
+  // Lifted from the grid so MonthlyTotalsCards and the grid use the
+  // same toggle. Without this lift, the top FINAL FORECAST card showed
+  // raw final_forecast_qty while the grid's Σ Final reflected the
+  // muted value — creating a visible discrepancy.
+  const [systemSuggestionsOn, setSystemSuggestionsOn] = useState<boolean>(() => {
+    try { return localStorage.getItem("ws_planning_system_suggestions_off") !== "1"; }
+    catch { return true; }
+  });
+  function setSystemSuggestionsOnPersistent(v: boolean) {
+    try {
+      if (v) localStorage.removeItem("ws_planning_system_suggestions_off");
+      else localStorage.setItem("ws_planning_system_suggestions_off", "1");
+    } catch { /* ignore quota */ }
+    setSystemSuggestionsOn(v);
+  }
+
   // Visible bootstrap status — drives the status bar at the top of the
   // workbench. Phases:
   //   "masters"   → fetching customers / categories / items / runs
@@ -852,7 +868,7 @@ export default function WholesalePlanningWorkbench() {
 
         {tab === "grid" && (
           <>
-            <MonthlyTotalsCards rows={rows} />
+            <MonthlyTotalsCards rows={rows} systemSuggestionsOn={systemSuggestionsOn} />
             <WholesalePlanningGrid
               headerSlot={
                 <>
@@ -909,6 +925,8 @@ export default function WholesalePlanningWorkbench() {
               onUpdateSystemOverride={saveSystemOverride}
               onFiltersChange={setBuildFilter}
               bucketBuys={bucketBuys}
+              systemSuggestionsOn={systemSuggestionsOn}
+              onSystemSuggestionsChange={setSystemSuggestionsOnPersistent}
             />
           </>
         )}
@@ -945,7 +963,7 @@ export default function WholesalePlanningWorkbench() {
 // Month-by-month rollup of Total Buy and Final Forecast — units + $.
 // Sourced from the same `rows` the grid renders (post-build), so what
 // you see here matches the grid totals.
-function MonthlyTotalsCards({ rows }: { rows: IpPlanningGridRow[] }) {
+function MonthlyTotalsCards({ rows, systemSuggestionsOn }: { rows: IpPlanningGridRow[]; systemSuggestionsOn: boolean }) {
   const totals = useMemo(() => {
     type Bucket = {
       buyQty: number; buyDollars: number;
@@ -959,18 +977,24 @@ function MonthlyTotalsCards({ rows }: { rows: IpPlanningGridRow[] }) {
       if (!b) { b = { buyQty: 0, buyDollars: 0, forecastQty: 0, forecastDollars: 0 }; months.set(m, b); }
       const buy = r.planned_buy_qty ?? 0;
       const cost = r.unit_cost ?? r.avg_cost ?? 0;
+      // Match the grid's mute logic: when system suggestions are OFF,
+      // forecast = max(0, buyer + override). Otherwise use the
+      // service-computed final_forecast_qty as-is.
+      const finalEff = systemSuggestionsOn
+        ? r.final_forecast_qty
+        : Math.max(0, r.buyer_request_qty + r.override_qty);
       b.buyQty += buy;
       b.buyDollars += buy * cost;
-      b.forecastQty += r.final_forecast_qty;
-      b.forecastDollars += r.final_forecast_qty * cost;
+      b.forecastQty += finalEff;
+      b.forecastDollars += finalEff * cost;
       totalBuyQty += buy;
       totalBuyD += buy * cost;
-      totalFcQty += r.final_forecast_qty;
-      totalFcD += r.final_forecast_qty * cost;
+      totalFcQty += finalEff;
+      totalFcD += finalEff * cost;
     }
     const sorted = Array.from(months.entries()).sort((a, b) => a[0].localeCompare(b[0]));
     return { sorted, totalBuyQty, totalBuyD, totalFcQty, totalFcD };
-  }, [rows]);
+  }, [rows, systemSuggestionsOn]);
 
   const fmtUnits = (n: number) => Math.round(n).toLocaleString();
   const fmtUsd = (n: number) =>
