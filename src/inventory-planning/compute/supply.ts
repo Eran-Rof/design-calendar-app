@@ -238,13 +238,19 @@ export interface RollingPoolFacts {
   on_so_qty: number;
   receipts_due_qty: number;
   planned_buy_qty: number;
+  // Final forecast demand. Subtracted from the pool when rolling
+  // forward to the next row so the running balance reflects what's
+  // actually left after this row's customers are served. Without it,
+  // the pool only sheds on_so (small) and absorbs receipts (large)
+  // and grows unboundedly across many rows.
+  final_forecast_qty?: number;
   // Optional. When set, receipts/buy contribute to the pool only on the
-  // first row sharing this key. on_so always counts per row.
+  // first row sharing this key. on_so / demand always count per row.
   dedupeKey?: string;
 }
 export interface RollingPoolResult {
   on_hand_qty: number;       // displayed OnHand at this row (incoming pool)
-  available_supply_qty: number; // displayed ATS at this row (outgoing pool)
+  available_supply_qty: number; // displayed ATS at this row (outgoing pool, BEFORE demand)
 }
 export function applyRollingPool<T extends RollingPoolFacts>(
   rows: T[],
@@ -262,9 +268,13 @@ export function applyRollingPool<T extends RollingPoolFacts>(
       buy = r.planned_buy_qty;
       if (r.dedupeKey) seen.add(r.dedupeKey);
     }
+    // Displayed ATS — what the planner sees on this row. Doesn't
+    // subtract demand (demand is shown separately as Final).
     const ats = Math.max(0, on_hand_qty - r.on_so_qty + receipts + buy);
     out.push({ on_hand_qty, available_supply_qty: ats });
-    pool = ats;
+    // Roll-forward — subtract demand so next row's incoming on_hand
+    // reflects what's left after this row's customers are served.
+    pool = Math.max(0, ats - (r.final_forecast_qty ?? 0));
   }
   return out;
 }
