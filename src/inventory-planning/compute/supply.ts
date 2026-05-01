@@ -215,18 +215,21 @@ export function buildRollingWholesaleSupply(
 //   row[i+1].displayed_on_hand = row[i].displayed_ats (carry forward)
 //
 // totalStartingPool is computed by the caller as the sum of unique-sku
-// on_hands across the visible (filtered) row set. Receipts, on_so, and
-// planned_buy come from the row's own pre-aggregated values — every row
-// contributes to the pool as we walk.
+// on_hands across the visible (filtered) row set. on_so_qty is customer-
+// scoped so it depletes the pool every row. receipts/buy are SKU-scoped
+// — the caller passes a dedupeKey (typically `${sku_id}:${period_start}`)
+// and we only contribute receipts/buy on the FIRST occurrence of that key.
 //
-// Caveat: when the SAME (sku, period) appears in multiple rows (e.g. two
-// customers of one SKU in a non-customer-collapsed view), each occurrence
-// re-adds that SKU's receipts/buy to the pool. Use the customer / category
-// collapse toggles when you want a single trip per (sku, period).
+// Without dedupe, a SKU with 5 customers in scope would contribute its
+// receipts 5× to the pool, growing ATS unboundedly. At 30k rows that
+// produced excess totals in the billions — the math here is the fix.
 export interface RollingPoolFacts {
   on_so_qty: number;
   receipts_due_qty: number;
   planned_buy_qty: number;
+  // Optional. When set, receipts/buy contribute to the pool only on the
+  // first row sharing this key. on_so always counts per row.
+  dedupeKey?: string;
 }
 export interface RollingPoolResult {
   on_hand_qty: number;       // displayed OnHand at this row (incoming pool)
@@ -237,10 +240,18 @@ export function applyRollingPool<T extends RollingPoolFacts>(
   totalStartingPool: number,
 ): RollingPoolResult[] {
   const out: RollingPoolResult[] = [];
+  const seen = new Set<string>();
   let pool = totalStartingPool;
   for (const r of rows) {
     const on_hand_qty = pool;
-    const ats = Math.max(0, on_hand_qty - r.on_so_qty + r.receipts_due_qty + r.planned_buy_qty);
+    let receipts = 0;
+    let buy = 0;
+    if (!r.dedupeKey || !seen.has(r.dedupeKey)) {
+      receipts = r.receipts_due_qty;
+      buy = r.planned_buy_qty;
+      if (r.dedupeKey) seen.add(r.dedupeKey);
+    }
+    const ats = Math.max(0, on_hand_qty - r.on_so_qty + receipts + buy);
     out.push({ on_hand_qty, available_supply_qty: ats });
     pool = ats;
   }
