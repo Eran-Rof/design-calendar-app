@@ -28,7 +28,23 @@ import {
   receiptsDueInPeriod,
   recommendForRow,
 } from "../compute";
-import { wholesaleRepo } from "./wholesalePlanningRepository";
+import { wholesaleRepo, BuildCancelledError } from "./wholesalePlanningRepository";
+
+export { BuildCancelledError };
+
+// Progress events emitted by runForecastPass at each phase boundary so
+// the UI can render a status bar. `current` and `total` are only set on
+// phases where a meaningful row count exists (compute, write).
+export interface BuildProgress {
+  phase: "loading" | "computing" | "writing_forecast" | "reading_back" | "computing_recs" | "writing_recs" | "done";
+  label: string;
+  current?: number;
+  total?: number;
+}
+
+function checkAbort(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new BuildCancelledError();
+}
 
 // Item-master attributes JSONB pulls — keep null-safe so the grid never
 // breaks when an item was created by a sync stub before the Excel master
@@ -106,15 +122,25 @@ export interface BuildFilter {
 
 export interface RunForecastPassOptions {
   filter?: BuildFilter;
+  // Best-effort cancellation. Aborting the signal causes the build to
+  // throw `BuildCancelledError` at the next checkpoint (between phases
+  // or between upsert chunks). Already-flushed rows are NOT rolled back.
+  signal?: AbortSignal;
+  // Status-bar callback. Fires once per phase boundary plus periodically
+  // during the upsert phase (per chunk).
+  onProgress?: (p: BuildProgress) => void;
 }
 
 export async function runForecastPass(run: IpPlanningRun, options: RunForecastPassOptions = {}): Promise<RunForecastPassResult> {
   if (!run.horizon_start || !run.horizon_end) {
     throw new Error("Planning run has no horizon; set horizon_start + horizon_end before running the forecast.");
   }
+  const { signal, onProgress } = options;
   const snapshotDate = run.source_snapshot_date;
   const lookbackFrom = historySince(snapshotDate, 12);
 
+  onProgress?.({ phase: "loading", label: "Loading sales, inventory, POs…" });
+  checkAbort(signal);
   const [items, sales, requests, overrides, inv, pos, receipts, supplyPlaceholder] = await Promise.all([
     wholesaleRepo.listItems(),
     wholesaleRepo.listWholesaleSales(lookbackFrom),
@@ -286,22 +312,59 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
     })),
   };
 
+  checkAbort(signal);
+  onProgress?.({ phase: "computing", label: `Computing forecast for ${pairs.length.toLocaleString()} pairs`, current: 0, total: pairs.length });
   const forecastRows = buildFinalWholesaleForecast(computeInput);
-  await wholesaleRepo.upsertForecast(forecastRows);
 
+  checkAbort(signal);
+  onProgress?.({ phase: "writing_forecast", label: `Writing forecast`, current: 0, total: forecastRows.length });
+  await wholesaleRepo.upsertForecast(forecastRows, {
+    signal,
+    onProgress: (rowsDone, totalRows) => {
+      onProgress?.({ phase: "writing_forecast", label: `Writing forecast`, current: rowsDone, total: totalRows });
+    },
+  });
+
+  checkAbort(signal);
+  onProgress?.({ phase: "reading_back", label: "Reading back persisted forecast" });
   // Read persisted rows — they carry planned_buy_qty from prior planner saves
   // (upsert preserves the column). Rolling supply must use these so buy qty
   // is reflected in recommendations.
   const persisted = await wholesaleRepo.listForecast(run.id);
+
+  // Stale-row defence. `listForecast` returns every row for this run,
+  // including rows written by PRIOR builds for (customer, sku) pairs
+  // that the dead-SKU prune or grid filter just excluded. Without this
+  // filter, recs are generated 1:1 from `persisted` and explode to
+  // many times the size of forecastRows — that's the root of the
+  // "1,134 forecast → 20,000 recs" cardinality blowup.
+  const liveGrainKeys = new Set<string>(
+    forecastRows.map((f) => `${f.customer_id}:${f.sku_id}:${f.period_start}`),
+  );
+  const relevantPersisted = persisted.filter((p) =>
+    liveGrainKeys.has(`${p.customer_id}:${p.sku_id}:${p.period_start}`),
+  );
+
+  checkAbort(signal);
+  onProgress?.({ phase: "computing_recs", label: "Generating recommendations", current: 0, total: relevantPersisted.length });
   const horizon = monthsBetween(run.horizon_start, run.horizon_end);
   const supplyBySkuPeriod = buildRollingWholesaleSupply(
-    persisted,
+    relevantPersisted,
     { inventorySnapshots: inv, openPos: pos, receipts },
     horizon,
   );
   const asOf = new Date().toISOString().slice(0, 10);
-  const recs = generateWholesaleRecommendations(persisted, supplyBySkuPeriod, asOf);
-  await wholesaleRepo.replaceRecommendations(run.id, recs);
+  const recs = generateWholesaleRecommendations(relevantPersisted, supplyBySkuPeriod, asOf);
+  checkAbort(signal);
+  onProgress?.({ phase: "writing_recs", label: `Writing recommendations`, current: 0, total: recs.length });
+  await wholesaleRepo.replaceRecommendations(run.id, recs, {
+    signal,
+    onPhase: (label) => onProgress?.({ phase: "writing_recs", label }),
+    onProgress: (rowsDone, totalRows) => {
+      onProgress?.({ phase: "writing_recs", label: `Writing recommendations`, current: rowsDone, total: totalRows });
+    },
+  });
+  onProgress?.({ phase: "done", label: "Done" });
 
   const methods: Record<IpForecastMethod, number> = {
     ly_sales: 0,

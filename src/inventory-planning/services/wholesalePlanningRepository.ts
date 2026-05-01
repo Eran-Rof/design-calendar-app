@@ -28,6 +28,16 @@ function assertSupabase(): void {
   if (!SB_URL) throw new Error("Supabase URL not configured");
 }
 
+// Thrown when an in-flight forecast build is cancelled via AbortSignal.
+// Catch this in the UI to render an informational toast rather than an
+// error toast.
+export class BuildCancelledError extends Error {
+  constructor() {
+    super("Build cancelled");
+    this.name = "BuildCancelledError";
+  }
+}
+
 async function sbGet<T>(path: string): Promise<T[]> {
   assertSupabase();
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: SB_HEADERS });
@@ -207,47 +217,93 @@ export const wholesaleRepo = {
   },
 
   // ── Forecast rows ────────────────────────────────────────────────────────
-  // PostgREST caps single-fetch responses (typically 1000 rows on default
-  // configurations) regardless of the limit= value, so paginate explicitly.
-  // Without this, multi-month horizons silently truncated to the earliest
-  // periods only — the user saw "only Apr/May" when the run spanned Apr–Aug.
+  // Cursor-based seek pagination (id > last_seen_id) instead of OFFSET.
+  // Two reasons:
+  //   1) OFFSET 0 with ORDER BY id was timing out (57014) when the
+  //      composite index (planning_run_id, id) wasn't available — the
+  //      fallback plan sorts the entire matching set before slicing.
+  //      A range scan over the PK btree avoids the sort entirely.
+  //   2) Page-size halving on 57014: if a single 500-row page still
+  //      times out, retry from the same cursor with half the page.
+  //      Mirrors the upsert side's halving pattern.
   async listForecast(planningRunId: string): Promise<IpWholesaleForecast[]> {
-    // No ORDER BY — the multi-column sort hammered the 8s statement
-    // timeout once the forecast grew past ~10k rows. Caller loads
-    // everything into memory and joins; row order doesn't matter.
-    // Order by id (PK) gives us a stable cursor for offset paging.
     const out: IpWholesaleForecast[] = [];
-    const PAGE = 1000;
-    for (let offset = 0; ; offset += PAGE) {
-      const chunk = await sbGet<IpWholesaleForecast>(
-        `ip_wholesale_forecast?select=*&planning_run_id=eq.${planningRunId}&order=id.asc&limit=${PAGE}&offset=${offset}`,
-      );
+    const INITIAL_PAGE = 500;
+    const MIN_PAGE = 50;
+    let cursor: string | null = null;
+    let page = INITIAL_PAGE;
+
+    while (true) {
+      const cursorClause = cursor ? `&id=gt.${cursor}` : "";
+      const url = `ip_wholesale_forecast?select=*&planning_run_id=eq.${planningRunId}${cursorClause}&order=id.asc&limit=${page}`;
+      let chunk: IpWholesaleForecast[];
+      try {
+        chunk = await sbGet<IpWholesaleForecast>(url);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes("57014") && page > MIN_PAGE) {
+          page = Math.max(MIN_PAGE, Math.floor(page / 2));
+          continue;
+        }
+        throw e;
+      }
       out.push(...chunk);
-      if (chunk.length < PAGE) break;
-      if (offset > 1_000_000) break;
+      if (chunk.length < page) break;
+      cursor = chunk[chunk.length - 1].id;
+      // Once we recover from a timeout, keep walking at the smaller
+      // page size — bumping back up just risks tripping the same wall.
+      if (out.length > 5_000_000) break;
     }
     return out;
   },
-  async upsertForecast(rows: Array<Omit<IpWholesaleForecast, "id" | "created_at" | "updated_at">>): Promise<void> {
+  async upsertForecast(
+    rows: Array<Omit<IpWholesaleForecast, "id" | "created_at" | "updated_at">>,
+    options: { signal?: AbortSignal; onProgress?: (rowsDone: number, totalRows: number) => void } = {},
+  ): Promise<void> {
     if (rows.length === 0) return;
     const url = "ip_wholesale_forecast?on_conflict=planning_run_id,customer_id,sku_id,period_start";
     const prefer = "return=minimal,resolution=merge-duplicates";
-    for (let i = 0; i < rows.length; i += 500) {
-      const chunk = rows.slice(i, i + 500);
+    // 5 secondary indexes + 3 FK checks per row — chunks above ~250 can
+    // tip past Supabase's 8s statement timeout (57014).
+    const INITIAL_CHUNK = 200;
+    const MIN_CHUNK = 25;
+    const { signal, onProgress } = options;
+
+    type Row = (typeof rows)[number];
+    const postChunk = async (chunk: Row[]): Promise<void> => {
+      if (signal?.aborted) throw new BuildCancelledError();
       try {
         await sbPost<IpWholesaleForecast>(url, chunk, prefer);
       } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
         // PGRST204 = column not in schema cache (migration pending). Retry
         // without the optional planner-editable columns so builds survive
         // before the ALTER TABLEs run on the target environment.
-        if (e instanceof Error && e.message.includes("PGRST204") && (e.message.includes("ly_reference_qty") || e.message.includes("planned_buy_qty") || e.message.includes("unit_cost_override"))) {
+        if (msg.includes("PGRST204") && (msg.includes("ly_reference_qty") || msg.includes("planned_buy_qty") || msg.includes("unit_cost_override"))) {
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const stripped = chunk.map(({ ly_reference_qty: _a, planned_buy_qty: _b, unit_cost_override: _c, ...rest }) => rest);
           await sbPost<IpWholesaleForecast>(url, stripped, prefer);
-        } else {
-          throw e;
+          return;
         }
+        // 57014 = canceling statement due to statement timeout. Halve the
+        // chunk and retry; FK + index maintenance scales roughly linearly.
+        if (msg.includes("57014") && chunk.length > MIN_CHUNK) {
+          const half = Math.max(MIN_CHUNK, Math.floor(chunk.length / 2));
+          for (let j = 0; j < chunk.length; j += half) {
+            await postChunk(chunk.slice(j, j + half));
+          }
+          return;
+        }
+        throw e;
       }
+    };
+
+    let done = 0;
+    for (let i = 0; i < rows.length; i += INITIAL_CHUNK) {
+      const chunk = rows.slice(i, i + INITIAL_CHUNK);
+      await postChunk(chunk);
+      done += chunk.length;
+      onProgress?.(done, rows.length);
     }
   },
   async patchForecastOverride(
@@ -395,19 +451,65 @@ export const wholesaleRepo = {
   async replaceRecommendations(
     planningRunId: string,
     rows: Array<Omit<IpWholesaleRecommendation, "id" | "created_at">>,
+    options: {
+      signal?: AbortSignal;
+      onProgress?: (rowsDone: number, totalRows: number) => void;
+      onPhase?: (label: string) => void;
+    } = {},
   ): Promise<void> {
-    // Recommendations are fully regenerated each run; clear then insert.
-    await sbDelete(`ip_wholesale_recommendations?planning_run_id=eq.${planningRunId}`);
+    const { signal, onProgress, onPhase } = options;
+    if (signal?.aborted) throw new BuildCancelledError();
+
+    // Chunked DELETE — a single DELETE WHERE planning_run_id=X against
+    // 16k+ rows with 4 secondary indexes routinely tipped Supabase's 8s
+    // statement timeout. Read the IDs first (cheap, indexed by run_id),
+    // then DELETE by id-in-list in chunks. Belt-and-suspenders against
+    // both the timeout AND PostgREST URL length limits.
+    onPhase?.("Clearing previous recommendations");
+    const existing = await sbGetAll<{ id: string }>(
+      `ip_wholesale_recommendations?select=id&planning_run_id=eq.${planningRunId}&order=id.asc`,
+    );
+    const DELETE_CHUNK = 500;
+    for (let i = 0; i < existing.length; i += DELETE_CHUNK) {
+      if (signal?.aborted) throw new BuildCancelledError();
+      const ids = existing.slice(i, i + DELETE_CHUNK).map((r) => r.id);
+      const inList = ids.map((id) => `"${id}"`).join(",");
+      await sbDelete(`ip_wholesale_recommendations?planning_run_id=eq.${planningRunId}&id=in.(${inList})`);
+    }
+
     if (rows.length === 0) return;
-    for (let i = 0; i < rows.length; i += 500) {
-      const chunk = rows.slice(i, i + 500);
-      await sbPost<IpWholesaleRecommendation>(
-        "ip_wholesale_recommendations",
-        chunk,
-        "return=minimal",
-      );
+
+    // Initial chunk 100 — the recommendations table has 4 secondary
+    // indexes and an FK to ip_item_master. Same chunk-halving pattern
+    // as upsertForecast for resilience under intermittent timeouts.
+    const INITIAL_CHUNK = 100;
+    const MIN_CHUNK = 25;
+    type Row = (typeof rows)[number];
+    const postChunk = async (chunk: Row[]): Promise<void> => {
+      if (signal?.aborted) throw new BuildCancelledError();
+      try {
+        await sbPost<IpWholesaleRecommendation>("ip_wholesale_recommendations", chunk, "return=minimal");
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes("57014") && chunk.length > MIN_CHUNK) {
+          const half = Math.max(MIN_CHUNK, Math.floor(chunk.length / 2));
+          for (let j = 0; j < chunk.length; j += half) {
+            await postChunk(chunk.slice(j, j + half));
+          }
+          return;
+        }
+        throw e;
+      }
+    };
+    let done = 0;
+    for (let i = 0; i < rows.length; i += INITIAL_CHUNK) {
+      const chunk = rows.slice(i, i + INITIAL_CHUNK);
+      await postChunk(chunk);
+      done += chunk.length;
+      onProgress?.(done, rows.length);
     }
   },
+
 };
 
 export type WholesaleRepo = typeof wholesaleRepo;
