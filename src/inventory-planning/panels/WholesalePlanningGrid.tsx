@@ -402,6 +402,11 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         on_so_qty: r.on_so_qty,
         receipts_due_qty: r.receipts_due_qty ?? 0,
         planned_buy_qty: r.planned_buy_qty ?? 0,
+        // Demand is consumed when rolling forward — the displayed ATS
+        // doesn't subtract it, but the next row's on_hand reflects
+        // post-demand leftover. Without this, the pool snowballs as
+        // receipts pile up and Apr→May→Jun on_hand grows unboundedly.
+        final_forecast_qty: r.final_forecast_qty,
         dedupeKey: `${r.sku_id}:${r.period_start}`,
       })),
       totalPool,
