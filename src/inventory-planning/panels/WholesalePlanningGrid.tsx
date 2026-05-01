@@ -154,6 +154,18 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     return Array.from(s).sort();
   }, [rows]);
 
+  // Friendly labels for the dropdown — Xoro's GenderCode column stores
+  // single-letter codes (M, C, B, WMS, G). Filtering still uses the raw
+  // code as the option value so existing filter wiring is unchanged.
+  const GENDER_LABELS: Record<string, string> = {
+    M: "Mens",
+    C: "Child",
+    B: "Boys",
+    WMS: "Womens",
+    G: "Girls",
+  };
+  const genderLabel = (code: string): string => GENDER_LABELS[code] ?? code;
+
   const periods = useMemo(() => {
     const s = new Set<string>();
     for (const r of rows) s.add(r.period_code);
@@ -246,7 +258,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         </select>
         <select style={S.select} value={filterGender} onChange={(e) => setFilterGender(e.target.value)} title="Gender filter — sourced from item-master GenderCode. No grid column rendered.">
           <option value="all">All genders</option>
-          {genders.map((g) => <option key={g} value={g}>{g}</option>)}
+          {genders.map((g) => <option key={g} value={g}>{genderLabel(g)}</option>)}
         </select>
         <select style={S.select} value={filterAction} onChange={(e) => setFilterAction(e.target.value)}>
           <option value="all">All actions</option>
