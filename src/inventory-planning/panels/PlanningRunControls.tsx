@@ -3,10 +3,10 @@
 // A planner picks an active run, or creates a new one with a horizon.
 // Building the forecast kicks off runForecastPass on the service.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { IpPlanningRun, IpPlanningRunStatus } from "../types/wholesale";
 import { wholesaleRepo } from "../services/wholesalePlanningRepository";
-import { runForecastPass, type BuildFilter } from "../services/wholesaleForecastService";
+import { runForecastPass, BuildCancelledError, type BuildFilter, type BuildProgress } from "../services/wholesaleForecastService";
 import { S, PAL, formatDate } from "../components/styles";
 import type { ToastMessage } from "../components/Toast";
 
@@ -35,6 +35,8 @@ export default function PlanningRunControls({
 }: PlanningRunControlsProps) {
   const [showNew, setShowNew] = useState(false);
   const [building, setBuilding] = useState(false);
+  const [progress, setProgress] = useState<BuildProgress | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const selected = runs.find((r) => r.id === selectedRunId) ?? null;
 
@@ -42,9 +44,16 @@ export default function PlanningRunControls({
 
   async function buildForecast() {
     if (!selected) { onToast({ text: "Pick a run first", kind: "error" }); return; }
+    const controller = new AbortController();
+    abortRef.current = controller;
     setBuilding(true);
+    setProgress({ phase: "loading", label: "Starting build…" });
     try {
-      const result = await runForecastPass(selected, filterActive ? { filter: buildFilter ?? undefined } : {});
+      const result = await runForecastPass(selected, {
+        filter: filterActive ? buildFilter ?? undefined : undefined,
+        signal: controller.signal,
+        onProgress: (p) => setProgress(p),
+      });
       const lyCount = result.methods.ly_sales ?? 0;
       const lyNote = lyCount > 0 ? ` · ${lyCount} Same Period LY` : "";
       const filterNote = filterActive ? ` · filter excluded ${result.pairs_pruned_filter}` : "";
@@ -55,13 +64,24 @@ export default function PlanningRunControls({
       });
       await onChange();
     } catch (e) {
-      onToast({
-        text: "Forecast build failed — " + (e instanceof Error ? e.message : String(e)),
-        kind: "error",
-      });
+      if (e instanceof BuildCancelledError) {
+        onToast({ text: "Build cancelled — partial rows may remain in the run.", kind: "info" });
+        await onChange();
+      } else {
+        onToast({
+          text: "Forecast build failed — " + (e instanceof Error ? e.message : String(e)),
+          kind: "error",
+        });
+      }
     } finally {
+      abortRef.current = null;
       setBuilding(false);
+      setProgress(null);
     }
+  }
+
+  function cancelBuild() {
+    abortRef.current?.abort();
   }
 
   async function setStatus(status: IpPlanningRunStatus) {
@@ -116,6 +136,9 @@ export default function PlanningRunControls({
           </>
         )}
       </div>
+      {building && progress && (
+        <BuildStatusBar progress={progress} onCancel={cancelBuild} />
+      )}
       {selected && (
         <div style={{ color: PAL.textMuted, fontSize: 12 }}>
           Snapshot {formatDate(selected.source_snapshot_date)}
@@ -133,6 +156,37 @@ export default function PlanningRunControls({
                        await onChange();
                      }} />
       )}
+    </div>
+  );
+}
+
+function BuildStatusBar({ progress, onCancel }: { progress: BuildProgress; onCancel: () => void }) {
+  const hasCount = progress.total != null && progress.total > 0;
+  const pct = hasCount ? Math.min(100, Math.round((100 * (progress.current ?? 0)) / progress.total!)) : null;
+  const countLabel = hasCount
+    ? ` · ${(progress.current ?? 0).toLocaleString()} / ${progress.total!.toLocaleString()}${pct != null ? ` (${pct}%)` : ""}`
+    : "";
+  return (
+    <div style={{ marginTop: 10, padding: 10, background: PAL.bg, borderRadius: 8, border: `1px solid ${PAL.border}` }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
+        <div style={{ fontSize: 12, color: PAL.text }}>
+          {progress.label}{countLabel}
+        </div>
+        <button style={S.btnSecondary} onClick={onCancel}>Cancel</button>
+      </div>
+      <div style={{ height: 4, background: PAL.border, borderRadius: 2, overflow: "hidden" }}>
+        <div
+          style={{
+            height: "100%",
+            width: pct != null ? `${pct}%` : "30%",
+            background: PAL.accent,
+            transition: "width 200ms ease",
+            // When count is unknown, animate an indeterminate bar.
+            animation: pct == null ? "ipBuildPulse 1.4s ease-in-out infinite" : undefined,
+          }}
+        />
+      </div>
+      <style>{`@keyframes ipBuildPulse { 0% { margin-left: 0%; } 50% { margin-left: 70%; } 100% { margin-left: 0%; } }`}</style>
     </div>
   );
 }
