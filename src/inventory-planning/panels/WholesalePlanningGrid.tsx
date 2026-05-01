@@ -282,6 +282,10 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         on_so_qty: r.on_so_qty,
         receipts_due_qty: r.receipts_due_qty ?? 0,
         planned_buy_qty: r.planned_buy_qty ?? 0,
+        // Dedupe receipts/buy to the first occurrence of (sku, period).
+        // Without this, multi-customer rows for the same SKU compounded
+        // the rolling pool — visible as billion-unit Σ Excess at 30k rows.
+        dedupeKey: `${r.sku_id}:${r.period_start}`,
       })),
       totalPool,
     );
@@ -313,10 +317,19 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
 
   const totals = useMemo(() => {
     const t = { final: 0, shortage: 0, excess: 0, actions: {} as Record<string, number>, methods: {} as Record<string, number> };
+    // Excess and shortage are SKU-scoped — the same (sku, period) block
+    // appears once per customer in a non-collapsed view. Summing across
+    // rows over-counts (visible as nonsense totals like 70B units of
+    // excess at 30k rows). Dedupe to first row per (sku, period).
+    const seenSkuPeriod = new Set<string>();
     for (const r of filtered) {
       t.final += r.final_forecast_qty;
-      t.shortage += r.projected_shortage_qty;
-      t.excess += r.projected_excess_qty;
+      const key = `${r.sku_id}:${r.period_start}`;
+      if (!seenSkuPeriod.has(key)) {
+        seenSkuPeriod.add(key);
+        t.shortage += r.projected_shortage_qty;
+        t.excess += r.projected_excess_qty;
+      }
       t.actions[r.recommended_action] = (t.actions[r.recommended_action] ?? 0) + 1;
       t.methods[r.forecast_method] = (t.methods[r.forecast_method] ?? 0) + 1;
     }
@@ -412,8 +425,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         <CollapseToggle label="All customers" active={collapse.customers} onToggle={() => setCollapse((c) => ({ ...c, customers: !c.customers, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false }))} />
         <CollapseToggle label="All colors per style" active={collapse.colors} onToggle={() => setCollapse((c) => ({ ...c, colors: !c.colors }))} />
         <CollapseToggle label="All styles per customer" active={collapse.customerAllStyles} onToggle={() => setCollapse((c) => ({ ...c, customerAllStyles: !c.customerAllStyles, customers: false, colors: false, category: false, subCat: false, allCustomersPerCategory: false, allCustomersPerSubCat: false }))} />
-        <CollapseToggle label="All customers per category" active={collapse.allCustomersPerCategory} onToggle={() => setCollapse((c) => ({ ...c, allCustomersPerCategory: !c.allCustomersPerCategory, allCustomersPerSubCat: false, category: false, subCat: false, customerAllStyles: false, customers: false }))} />
-        <CollapseToggle label="All customers per sub cat" active={collapse.allCustomersPerSubCat} onToggle={() => setCollapse((c) => ({ ...c, allCustomersPerSubCat: !c.allCustomersPerSubCat, allCustomersPerCategory: false, category: false, subCat: false, customerAllStyles: false, customers: false }))} />
+        <CollapseToggle label="Custs/cat" active={collapse.allCustomersPerCategory} onToggle={() => setCollapse((c) => ({ ...c, allCustomersPerCategory: !c.allCustomersPerCategory, allCustomersPerSubCat: false, category: false, subCat: false, customerAllStyles: false, customers: false }))} />
+        <CollapseToggle label="Custs/sub cat" active={collapse.allCustomersPerSubCat} onToggle={() => setCollapse((c) => ({ ...c, allCustomersPerSubCat: !c.allCustomersPerSubCat, allCustomersPerCategory: false, category: false, subCat: false, customerAllStyles: false, customers: false }))} />
         <CollapseToggle label="By category" active={collapse.category} onToggle={() => setCollapse((c) => ({ ...c, category: !c.category, subCat: c.category ? c.subCat : false, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false }))} />
         <CollapseToggle label="By sub cat" active={collapse.subCat} onToggle={() => setCollapse((c) => ({ ...c, subCat: !c.subCat, category: c.subCat ? c.category : false, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false }))} />
         {anyCollapsed && (
@@ -701,7 +714,7 @@ function ColumnsButton({
           style={{
             position: "absolute",
             top: "calc(100% + 4px)",
-            right: 0,
+            left: 0,
             zIndex: 50,
             background: PAL.panel,
             border: `1px solid ${PAL.border}`,
