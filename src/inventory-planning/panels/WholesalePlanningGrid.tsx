@@ -258,21 +258,24 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     return Array.from(s).sort();
   }, [rows]);
 
-  // Pre-pack multiplier — checks the color field first, then falls
-  // back to size. A SKU with "PPK24" in either column ships as 24
-  // units per pre-pack, so raw inventory/PO/SO qtys (Xoro reports
-  // in PACKS) need to be multiplied to display in actual selling
-  // units. Most PPK markers in the planner's data live on size
-  // (Option 2 Value); some are on color.
+  // Pre-pack multiplier — checks color first, then size, then
+  // description. The number after "PPK" (optionally separated by
+  // whitespace, underscore, or dash) is the units-per-pack count.
+  // Matches: "PPK24", "PPK 24", "PPK-24", "PPK_24", "PPK24-Black",
+  // "Tech Jogger PPK24 Special", etc.
   function extractPpk(value: string | null | undefined): number | null {
     if (!value) return null;
-    const m = value.match(/PPK(\d+)/i);
+    const m = value.match(/PPK[\s_-]*(\d+)/i);
     if (!m) return null;
     const n = parseInt(m[1], 10);
     return Number.isFinite(n) && n > 0 ? n : null;
   }
-  function ppkMultiplier(color: string | null | undefined, size: string | null | undefined): number {
-    return extractPpk(color) ?? extractPpk(size) ?? 1;
+  function ppkMultiplier(
+    color: string | null | undefined,
+    size: string | null | undefined,
+    description?: string | null,
+  ): number {
+    return extractPpk(color) ?? extractPpk(size) ?? extractPpk(description) ?? 1;
   }
 
   // Step 1: filter + mute (post-user-filters, post-system-suggestions toggle,
@@ -319,7 +322,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     // / buyer / override) and planned_buy_qty are entered in selling
     // units already and stay unchanged.
     const expanded = base.map((r) => {
-      const mult = ppkMultiplier(r.sku_color, r.sku_size);
+      const mult = ppkMultiplier(r.sku_color, r.sku_size, r.sku_description);
       if (mult === 1) return r;
       const divCost = (c: number | null | undefined): number | null => {
         if (c == null) return c ?? null;
