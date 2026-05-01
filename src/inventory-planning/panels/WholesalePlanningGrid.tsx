@@ -248,6 +248,19 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     return Array.from(s).sort();
   }, [rows]);
 
+  // Pre-pack multiplier from the color field. A SKU coded with
+  // "PPK24" in the color column ships as 24 units per pre-pack, so
+  // raw inventory/PO/SO qtys (which Xoro reports in PACKS) need to
+  // be multiplied by the pack size to display in actual selling
+  // units. Color "BLUE" or anything without "PPK<n>" → multiplier 1.
+  function ppkMultiplier(color: string | null | undefined): number {
+    if (!color) return 1;
+    const m = color.match(/PPK(\d+)/i);
+    if (!m) return 1;
+    const n = parseInt(m[1], 10);
+    return Number.isFinite(n) && n > 0 ? n : 1;
+  }
+
   // Step 1: filter + mute (post-user-filters, post-system-suggestions toggle,
   // pre-aggregate, pre-roll). This is the canonical "rows in scope" set
   // used by per-row math, totals, and MonthlyTotalsCards.
@@ -272,7 +285,27 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       )) return false;
       return true;
     });
-    return systemSuggestionsOn ? base : base.map((r) => ({
+    // PPK pre-pack expansion. Xoro reports inventory / PO / SO qtys
+    // in PACKS for SKUs whose color is coded "PPKn" (e.g. PPK24 means
+    // each pack ships 24 units). Multiply the supply-side qtys here
+    // so on_hand / on_so / receipts / ATS all display in actual
+    // selling units. Demand fields (forecast / buyer / override) and
+    // planned_buy_qty are entered in selling units already and stay
+    // unchanged.
+    const expanded = base.map((r) => {
+      const mult = ppkMultiplier(r.sku_color);
+      if (mult === 1) return r;
+      return {
+        ...r,
+        on_hand_qty: r.on_hand_qty == null ? r.on_hand_qty : r.on_hand_qty * mult,
+        on_so_qty: r.on_so_qty * mult,
+        on_po_qty: r.on_po_qty == null ? r.on_po_qty : r.on_po_qty * mult,
+        receipts_due_qty: r.receipts_due_qty == null ? r.receipts_due_qty : r.receipts_due_qty * mult,
+        historical_receipts_qty: r.historical_receipts_qty == null ? r.historical_receipts_qty : r.historical_receipts_qty * mult,
+        available_supply_qty: r.available_supply_qty * mult,
+      };
+    });
+    return systemSuggestionsOn ? expanded : expanded.map((r) => ({
       ...r,
       system_forecast_qty: 0,
       final_forecast_qty: Math.max(0, 0 + r.buyer_request_qty + r.override_qty),
