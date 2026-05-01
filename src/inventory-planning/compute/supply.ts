@@ -35,31 +35,42 @@ export interface PeriodSupply {
 }
 
 // Collapse inventory snapshots to one number per sku — the latest date
-// wins. We sum across warehouses on the latest date so the grid reflects
-// "total company on-hand".
-export function latestOnHandBySku(snapshots: IpInventorySnapshot[]): Map<string, number> {
+// wins. Within the latest date, sum across warehouses but keep only ONE
+// row per (sku, warehouse) — prefer source "manual" (ATS Excel) over
+// "shopify" over "xoro" so a fresh ATS sync replaces an earlier same-
+// day Xoro sync instead of double-counting both.
+const SOURCE_PRIORITY: Record<string, number> = { manual: 3, shopify: 2, xoro: 1 };
+function pickPreferredSnapshotsOnLatestDate(snapshots: IpInventorySnapshot[]): IpInventorySnapshot[] {
   const latestDateBySku = new Map<string, string>();
   for (const s of snapshots) {
     const prev = latestDateBySku.get(s.sku_id);
     if (!prev || s.snapshot_date > prev) latestDateBySku.set(s.sku_id, s.snapshot_date);
   }
-  const out = new Map<string, number>();
+  // For each (sku, warehouse) on the latest date, keep the highest-priority source.
+  const winnerKey = (s: IpInventorySnapshot) => `${s.sku_id}:${s.warehouse_code}`;
+  const winners = new Map<string, IpInventorySnapshot>();
   for (const s of snapshots) {
     if (latestDateBySku.get(s.sku_id) !== s.snapshot_date) continue;
+    const k = winnerKey(s);
+    const cur = winners.get(k);
+    if (!cur || (SOURCE_PRIORITY[s.source] ?? 0) > (SOURCE_PRIORITY[cur.source] ?? 0)) {
+      winners.set(k, s);
+    }
+  }
+  return Array.from(winners.values());
+}
+
+export function latestOnHandBySku(snapshots: IpInventorySnapshot[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const s of pickPreferredSnapshotsOnLatestDate(snapshots)) {
     out.set(s.sku_id, (out.get(s.sku_id) ?? 0) + (s.qty_on_hand ?? 0));
   }
   return out;
 }
 
 export function committedSoBySku(snapshots: IpInventorySnapshot[]): Map<string, number> {
-  const latestDateBySku = new Map<string, string>();
-  for (const s of snapshots) {
-    const prev = latestDateBySku.get(s.sku_id);
-    if (!prev || s.snapshot_date > prev) latestDateBySku.set(s.sku_id, s.snapshot_date);
-  }
   const out = new Map<string, number>();
-  for (const s of snapshots) {
-    if (latestDateBySku.get(s.sku_id) !== s.snapshot_date) continue;
+  for (const s of pickPreferredSnapshotsOnLatestDate(snapshots)) {
     out.set(s.sku_id, (out.get(s.sku_id) ?? 0) + (s.qty_committed ?? 0));
   }
   return out;
