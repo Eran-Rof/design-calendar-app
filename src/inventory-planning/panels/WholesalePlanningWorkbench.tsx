@@ -792,9 +792,10 @@ export default function WholesalePlanningWorkbench() {
       </div>
 
       <div style={S.content}>
-        {bootstrapPhase !== "ready" && (
+        {bootstrapPhase !== "ready" ? (
           <BootstrapStatusBar phase={bootstrapPhase} />
-        )}
+        ) : (
+        <>
         <StaleDataBanner
           watch={["xoro_sales_history", "xoro_inventory", "wholesale_forecast"]}
           dismissKey="wholesale_workbench"
@@ -921,6 +922,8 @@ export default function WholesalePlanningWorkbench() {
             onChange={refreshAll}
             onToast={(t) => setToast(t)}
           />
+        )}
+        </>
         )}
       </div>
 
@@ -1057,36 +1060,28 @@ function BootstrapStatusBar({ phase }: { phase: "masters" | "run-data" | "ready"
     "run-data": "Loading planning data (forecast, recommendations, supply)…",
     "ready": "",
   };
-  // Approximate progress: masters = ~25%, run-data = ~75%. Indeterminate
-  // animation underneath for the current phase since exact byte counts
-  // aren't known until each fetch returns.
   const pct = phase === "masters" ? 25 : phase === "run-data" ? 75 : 100;
   return (
     <div style={{
       background: PAL.panel,
-      border: `1px solid ${PAL.accent}`,
-      borderRadius: 8,
-      padding: "10px 14px",
-      marginBottom: 12,
-      display: "flex",
-      alignItems: "center",
-      gap: 12,
-      fontSize: 13,
+      border: `1px solid ${PAL.border}`,
+      borderRadius: 0,
+      padding: 24,
+      width: "100%",
+      boxSizing: "border-box",
       color: PAL.text,
     }}>
-      <div style={{ flex: 1 }}>
-        <div style={{ marginBottom: 6, fontWeight: 600 }}>{PHASE_LABELS[phase]}</div>
-        <div style={{ height: 4, background: PAL.border, borderRadius: 2, overflow: "hidden" }}>
-          <div style={{
-            height: "100%",
-            width: `${pct}%`,
-            background: PAL.accent,
-            transition: "width 400ms ease",
-          }} />
-        </div>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
+        <div style={{ fontSize: 14, fontWeight: 600 }}>{PHASE_LABELS[phase]}</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: PAL.accent, fontFamily: "monospace" }}>{pct}%</div>
       </div>
-      <div style={{ color: PAL.textMuted, fontSize: 11, minWidth: 70, textAlign: "right" }}>
-        {phase === "masters" ? "Step 1 / 2" : "Step 2 / 2"}
+      <div style={{ height: 6, background: PAL.border, borderRadius: 0, overflow: "hidden" }}>
+        <div style={{
+          height: "100%",
+          width: `${pct}%`,
+          background: PAL.accent,
+          transition: "width 400ms ease",
+        }} />
       </div>
     </div>
   );
