@@ -636,6 +636,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       sku_description: description,
       sku_style: item?.style_code ?? null,
       sku_color: colorDisplay,
+      sku_size: item?.size ?? styleFallback?.size ?? null,
       // Item-master classification — falls back to a sibling variant in
       // the same style if the variant master row hasn't been populated yet.
       group_name: readGroupName(item) ?? readGroupName(styleFallback) ?? null,

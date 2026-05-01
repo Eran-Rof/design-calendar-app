@@ -21,6 +21,7 @@ function row(p: Partial<IpPlanningGridRow>): IpPlanningGridRow {
     sku_description: null,
     sku_style: "STYLE1",
     sku_color: "Red",
+    sku_size: null,
     period_code: "2026-06",
     period_start: "2026-06-01",
     period_end: "2026-06-30",
