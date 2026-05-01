@@ -316,24 +316,76 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
 
   const totals = useMemo(() => {
     const t = { final: 0, shortage: 0, excess: 0, actions: {} as Record<string, number>, methods: {} as Record<string, number> };
-    // Excess and shortage are SKU-scoped — the same (sku, period) block
-    // appears once per customer in a non-collapsed view. Summing across
-    // rows over-counts (visible as nonsense totals like 70B units of
-    // excess at 30k rows). Dedupe to first row per (sku, period).
-    const seenSkuPeriod = new Set<string>();
-    for (const r of filtered) {
-      t.final += r.final_forecast_qty;
-      const key = `${r.sku_id}:${r.period_start}`;
-      if (!seenSkuPeriod.has(key)) {
-        seenSkuPeriod.add(key);
-        t.shortage += r.projected_shortage_qty;
-        t.excess += r.projected_excess_qty;
+    // Σ Excess / Σ Shortage are computed PRE-aggregation, PRE-roll
+    // using a proper per-SKU rolling pool that subtracts demand each
+    // period (same model as buildRollingWholesaleSupply on the
+    // backend). The display-layer applyRollingPool only subtracts
+    // on_so, so its ATS grows unboundedly — projected_excess_qty per
+    // row was producing billions for the totals. Computing here from
+    // raw fields avoids that.
+    const q = search.trim().toUpperCase();
+    const matchesFilter = (r: IpPlanningGridRow) => {
+      if (filterCustomer !== "all" && r.customer_id !== filterCustomer) return false;
+      if (filterCategory !== "all" && (r.group_name ?? "—") !== filterCategory) return false;
+      if (filterSubCat !== "all" && (r.sub_category_name ?? "—") !== filterSubCat) return false;
+      if (filterGender !== "all" && (r.gender ?? "—") !== filterGender) return false;
+      if (filterPeriod !== "all" && r.period_code !== filterPeriod) return false;
+      if (filterAction !== "all" && r.recommended_action !== filterAction) return false;
+      if (filterConfidence !== "all" && r.confidence_level !== filterConfidence) return false;
+      if (filterMethod !== "all" && r.forecast_method !== filterMethod) return false;
+      if (q && !(
+        r.sku_code.includes(q)
+        || (r.sku_style ?? "").toUpperCase().includes(q)
+        || (r.sku_color ?? "").toUpperCase().includes(q)
+        || r.customer_name.toUpperCase().includes(q)
+        || (r.group_name ?? "").toUpperCase().includes(q)
+        || (r.sub_category_name ?? "").toUpperCase().includes(q)
+      )) return false;
+      return true;
+    };
+
+    type Agg = { receipts: number; onSo: number; buy: number; demand: number };
+    const skuOnHand = new Map<string, number>();
+    const bySkuPeriod = new Map<string, Map<string, Agg>>();
+
+    for (const raw of rows) {
+      if (!matchesFilter(raw)) continue;
+      const finalEff = systemSuggestionsOn
+        ? raw.final_forecast_qty
+        : Math.max(0, raw.buyer_request_qty + raw.override_qty);
+      t.final += finalEff;
+      if (!skuOnHand.has(raw.sku_id)) skuOnHand.set(raw.sku_id, raw.on_hand_qty ?? 0);
+      let perPeriod = bySkuPeriod.get(raw.sku_id);
+      if (!perPeriod) { perPeriod = new Map(); bySkuPeriod.set(raw.sku_id, perPeriod); }
+      let agg = perPeriod.get(raw.period_start);
+      if (!agg) {
+        agg = { receipts: raw.receipts_due_qty ?? 0, onSo: 0, buy: 0, demand: 0 };
+        perPeriod.set(raw.period_start, agg);
       }
-      t.actions[r.recommended_action] = (t.actions[r.recommended_action] ?? 0) + 1;
-      t.methods[r.forecast_method] = (t.methods[r.forecast_method] ?? 0) + 1;
+      agg.onSo += raw.on_so_qty;
+      agg.buy += raw.planned_buy_qty ?? 0;
+      agg.demand += finalEff;
+      t.actions[raw.recommended_action] = (t.actions[raw.recommended_action] ?? 0) + 1;
+      t.methods[raw.forecast_method] = (t.methods[raw.forecast_method] ?? 0) + 1;
+    }
+
+    // Per-SKU rolling pool over its periods chronologically. Each
+    // period: supply = pool + receipts + buy. Excess = supply − demand
+    // when supply > demand, else shortage. Pool rolls forward as the
+    // leftover after consuming demand AND committed on_so.
+    for (const [skuId, perPeriod] of bySkuPeriod) {
+      const periods = Array.from(perPeriod.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+      let pool = skuOnHand.get(skuId) ?? 0;
+      for (const [, agg] of periods) {
+        const supply = pool + agg.receipts + agg.buy;
+        const demand = agg.demand;
+        if (supply > demand) t.excess += supply - demand;
+        else t.shortage += demand - supply;
+        pool = Math.max(0, supply - demand - agg.onSo);
+      }
     }
     return t;
-  }, [filtered]);
+  }, [rows, search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterAction, filterConfidence, filterMethod, systemSuggestionsOn]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
