@@ -793,7 +793,7 @@ export default function WholesalePlanningWorkbench() {
 
       <div style={S.content}>
         {bootstrapPhase !== "ready" ? (
-          <BootstrapStatusBar phase={bootstrapPhase} />
+          <BootstrapStatusBar phase={bootstrapPhase} onCancel={() => setBootstrapPhase("ready")} />
         ) : (
         <>
         <StaleDataBanner
@@ -1054,34 +1054,49 @@ function SummaryCard({
   );
 }
 
-function BootstrapStatusBar({ phase }: { phase: "masters" | "run-data" | "ready" }) {
+function BootstrapStatusBar({ phase, onCancel }: { phase: "masters" | "run-data" | "ready"; onCancel: () => void }) {
   const PHASE_LABELS: Record<string, string> = {
-    "masters": "Loading masters (customers, items, runs)…",
-    "run-data": "Loading planning data (forecast, recommendations, supply)…",
+    "masters": "Loading masters…",
+    "run-data": "Loading planning data…",
     "ready": "",
   };
   const pct = phase === "masters" ? 25 : phase === "run-data" ? 75 : 100;
   return (
     <div style={{
-      background: PAL.panel,
-      border: `1px solid ${PAL.border}`,
-      borderRadius: 0,
-      padding: 24,
-      width: "100%",
-      boxSizing: "border-box",
-      color: PAL.text,
+      position: "fixed",
+      top: 0, left: 0, right: 0, bottom: 0,
+      background: "rgba(0,0,0,0.55)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: 1000,
     }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
-        <div style={{ fontSize: 14, fontWeight: 600 }}>{PHASE_LABELS[phase]}</div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: PAL.accent, fontFamily: "monospace" }}>{pct}%</div>
-      </div>
-      <div style={{ height: 6, background: PAL.border, borderRadius: 0, overflow: "hidden" }}>
-        <div style={{
-          height: "100%",
-          width: `${pct}%`,
-          background: PAL.accent,
-          transition: "width 400ms ease",
-        }} />
+      <div style={{
+        background: PAL.panel,
+        border: `1px solid ${PAL.border}`,
+        borderRadius: 0,
+        padding: 20,
+        width: 400,
+        maxWidth: "90vw",
+        boxSizing: "border-box",
+        color: PAL.text,
+        boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
+      }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>{PHASE_LABELS[phase]}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: PAL.accent, fontFamily: "monospace" }}>{pct}%</div>
+        </div>
+        <div style={{ height: 6, background: PAL.border, borderRadius: 0, overflow: "hidden", marginBottom: 14 }}>
+          <div style={{
+            height: "100%",
+            width: `${pct}%`,
+            background: PAL.accent,
+            transition: "width 400ms ease",
+          }} />
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <button onClick={onCancel} style={S.btnSecondary}>Cancel</button>
+        </div>
       </div>
     </div>
   );
