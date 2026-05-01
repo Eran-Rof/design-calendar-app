@@ -232,22 +232,41 @@ export const wholesaleRepo = {
     if (rows.length === 0) return;
     const url = "ip_wholesale_forecast?on_conflict=planning_run_id,customer_id,sku_id,period_start";
     const prefer = "return=minimal,resolution=merge-duplicates";
-    for (let i = 0; i < rows.length; i += 500) {
-      const chunk = rows.slice(i, i + 500);
+    // 5 secondary indexes + 3 FK checks per row — chunks above ~250 can
+    // tip past Supabase's 8s statement timeout (57014).
+    const INITIAL_CHUNK = 200;
+    const MIN_CHUNK = 25;
+
+    type Row = (typeof rows)[number];
+    const postChunk = async (chunk: Row[]): Promise<void> => {
       try {
         await sbPost<IpWholesaleForecast>(url, chunk, prefer);
       } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
         // PGRST204 = column not in schema cache (migration pending). Retry
         // without the optional planner-editable columns so builds survive
         // before the ALTER TABLEs run on the target environment.
-        if (e instanceof Error && e.message.includes("PGRST204") && (e.message.includes("ly_reference_qty") || e.message.includes("planned_buy_qty") || e.message.includes("unit_cost_override"))) {
+        if (msg.includes("PGRST204") && (msg.includes("ly_reference_qty") || msg.includes("planned_buy_qty") || msg.includes("unit_cost_override"))) {
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const stripped = chunk.map(({ ly_reference_qty: _a, planned_buy_qty: _b, unit_cost_override: _c, ...rest }) => rest);
           await sbPost<IpWholesaleForecast>(url, stripped, prefer);
-        } else {
-          throw e;
+          return;
         }
+        // 57014 = canceling statement due to statement timeout. Halve the
+        // chunk and retry; FK + index maintenance scales roughly linearly.
+        if (msg.includes("57014") && chunk.length > MIN_CHUNK) {
+          const half = Math.max(MIN_CHUNK, Math.floor(chunk.length / 2));
+          for (let j = 0; j < chunk.length; j += half) {
+            await postChunk(chunk.slice(j, j + half));
+          }
+          return;
+        }
+        throw e;
       }
+    };
+
+    for (let i = 0; i < rows.length; i += INITIAL_CHUNK) {
+      await postChunk(rows.slice(i, i + INITIAL_CHUNK));
     }
   },
   async patchForecastOverride(
