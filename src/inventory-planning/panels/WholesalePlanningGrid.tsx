@@ -274,8 +274,9 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     color: string | null | undefined,
     size: string | null | undefined,
     description?: string | null,
+    style?: string | null,
   ): number {
-    return extractPpk(color) ?? extractPpk(size) ?? extractPpk(description) ?? 1;
+    return extractPpk(color) ?? extractPpk(size) ?? extractPpk(description) ?? extractPpk(style) ?? 1;
   }
 
   // Step 1: filter + mute (post-user-filters, post-system-suggestions toggle,
@@ -322,7 +323,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     // / buyer / override) and planned_buy_qty are entered in selling
     // units already and stay unchanged.
     const expanded = base.map((r) => {
-      const mult = ppkMultiplier(r.sku_color, r.sku_size, r.sku_description);
+      const mult = ppkMultiplier(r.sku_color, r.sku_size, r.sku_description, r.sku_style);
       if (mult === 1) return r;
       const divCost = (c: number | null | undefined): number | null => {
         if (c == null) return c ?? null;
