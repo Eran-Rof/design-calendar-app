@@ -544,18 +544,30 @@ function ATSReport() {
         headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
         body: JSON.stringify({ key: "ats_excel_data", value: JSON.stringify(result) }),
       });
-      if (!res.ok) console.warn("Normalized data save failed:", res.status);
-    } catch (e) { console.error("Failed to save normalized data:", e); }
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        console.error("[ATS] saveNormResult failed:", res.status, detail);
+        setUploadError(`Save to database FAILED — ${res.status} ${detail.slice(0, 200)}. Planning sync will use stale data until this is fixed.`);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[ATS] saveNormResult threw:", e);
+      setUploadError(`Save to database FAILED — ${msg}. Planning sync will use stale data until this is fixed.`);
+    }
   }
 
   async function saveBaseData(data: ExcelData) {
     try {
-      await fetch(`${SB_URL}/rest/v1/app_data`, {
+      const res = await fetch(`${SB_URL}/rest/v1/app_data`, {
         method: "POST",
         headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
         body: JSON.stringify({ key: "ats_base_data", value: JSON.stringify(data) }),
       });
-    } catch (e) { console.error("Failed to save base data:", e); }
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        console.error("[ATS] saveBaseData failed:", res.status, detail);
+      }
+    } catch (e) { console.error("[ATS] saveBaseData threw:", e); }
   }
 
   async function loadNormDecisions(): Promise<NormDecisions> {
