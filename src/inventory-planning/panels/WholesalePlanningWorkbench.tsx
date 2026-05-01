@@ -76,6 +76,14 @@ export default function WholesalePlanningWorkbench() {
     gender: string | null;
   } | null>(null);
 
+  // Visible bootstrap status — drives the status bar at the top of the
+  // workbench. Phases:
+  //   "masters"   → fetching customers / categories / items / runs
+  //   "run-data"  → building the grid for the selected run (heavy step)
+  //   "ready"     → app is up; bar disappears
+  type BootstrapPhase = "masters" | "run-data" | "ready";
+  const [bootstrapPhase, setBootstrapPhase] = useState<BootstrapPhase>("masters");
+
   const selectedRun = useMemo(() => runs.find((r) => r.id === selectedRunId) ?? null, [runs, selectedRunId]);
 
   const loadMasters = useCallback(async () => {
@@ -128,18 +136,34 @@ export default function WholesalePlanningWorkbench() {
   // was the 20s "load cycle" visible on first paint.
   useEffect(() => {
     setLoading(true);
+    setBootstrapPhase("masters");
     loadMasters()
-      .catch((e) => setToast({ text: "Load failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" }))
+      .then(() => {
+        // Move to run-data so the status bar reflects what's happening
+        // next. The [selectedRun] effect picks up loadRunData below.
+        setBootstrapPhase((prev) => (prev === "masters" ? "run-data" : prev));
+      })
+      .catch((e) => {
+        setToast({ text: "Load failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+        setBootstrapPhase("ready");
+      })
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (!selectedRun) return;
+    if (!selectedRun) {
+      // No run to load — bootstrap is done as soon as masters were.
+      setBootstrapPhase((prev) => (prev === "run-data" ? "ready" : prev));
+      return;
+    }
     setLoading(true);
     loadRunData()
       .catch((e) => setToast({ text: "Load failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" }))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setBootstrapPhase("ready");
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRun]);
 
@@ -768,6 +792,9 @@ export default function WholesalePlanningWorkbench() {
       </div>
 
       <div style={S.content}>
+        {bootstrapPhase !== "ready" && (
+          <BootstrapStatusBar phase={bootstrapPhase} />
+        )}
         <StaleDataBanner
           watch={["xoro_sales_history", "xoro_inventory", "wholesale_forecast"]}
           dismissKey="wholesale_workbench"
@@ -1020,6 +1047,47 @@ function SummaryCard({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function BootstrapStatusBar({ phase }: { phase: "masters" | "run-data" | "ready" }) {
+  const PHASE_LABELS: Record<string, string> = {
+    "masters": "Loading masters (customers, items, runs)…",
+    "run-data": "Loading planning data (forecast, recommendations, supply)…",
+    "ready": "",
+  };
+  // Approximate progress: masters = ~25%, run-data = ~75%. Indeterminate
+  // animation underneath for the current phase since exact byte counts
+  // aren't known until each fetch returns.
+  const pct = phase === "masters" ? 25 : phase === "run-data" ? 75 : 100;
+  return (
+    <div style={{
+      background: PAL.panel,
+      border: `1px solid ${PAL.accent}`,
+      borderRadius: 8,
+      padding: "10px 14px",
+      marginBottom: 12,
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      fontSize: 13,
+      color: PAL.text,
+    }}>
+      <div style={{ flex: 1 }}>
+        <div style={{ marginBottom: 6, fontWeight: 600 }}>{PHASE_LABELS[phase]}</div>
+        <div style={{ height: 4, background: PAL.border, borderRadius: 2, overflow: "hidden" }}>
+          <div style={{
+            height: "100%",
+            width: `${pct}%`,
+            background: PAL.accent,
+            transition: "width 400ms ease",
+          }} />
+        </div>
+      </div>
+      <div style={{ color: PAL.textMuted, fontSize: 11, minWidth: 70, textAlign: "right" }}>
+        {phase === "masters" ? "Step 1 / 2" : "Step 2 / 2"}
+      </div>
     </div>
   );
 }
