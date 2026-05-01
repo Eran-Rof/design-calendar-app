@@ -106,8 +106,14 @@ export default function WholesalePlanningWorkbench() {
     canCancel?: boolean;
     onCancel?: () => void;
   } | null>(null);
-  const reportOp = (message: string) =>
+  // When the user clicks Hide / Cancel, mark dismissed so the operation's
+  // tail-end progress and completion messages don't briefly re-open the
+  // modal after the user thought it was gone.
+  const opDismissedRef = useRef(false);
+  const reportOp = (message: string) => {
+    if (opDismissedRef.current) return;
     setOpStatus((prev) => (prev ? { ...prev, message } : null));
+  };
 
   // Visible bootstrap status — drives the status bar at the top of the
   // workbench. Phases:
@@ -219,6 +225,7 @@ export default function WholesalePlanningWorkbench() {
   // Existing master rows protected by on_conflict do_nothing on server side.
   async function runMissingItemsSync() {
     setIngesting(true); setRunningKind("missing-items");
+    opDismissedRef.current = false;
     setOpStatus({ label: "Add new items (Xoro)", message: "Fetching item catalog…" });
     try {
       const r = await syncMissingItems({ pageLimit: 100 });
@@ -245,6 +252,7 @@ export default function WholesalePlanningWorkbench() {
 
   async function runSupplySync(kind: "ats" | "tanda") {
     setIngesting(true); setRunningKind(kind === "ats" ? "ats" : "tanda");
+    opDismissedRef.current = false;
     setOpStatus({
       label: kind === "ats" ? "Sync on-hand (ATS)" : "Sync open POs (TandA)",
       message: "Starting…",
@@ -317,6 +325,7 @@ export default function WholesalePlanningWorkbench() {
   async function ingestExcel(kind: "sales" | "master", file: File) {
     setIngesting(true); setRunningKind(`excel-${kind}`);
     const label = kind === "sales" ? "Upload sales (Excel)" : "Upload item master (Excel)";
+    opDismissedRef.current = false;
     setOpStatus({ label, message: "Reading file…" });
     try {
       const onProgress = (msg: string) => reportOp(msg);
@@ -371,6 +380,7 @@ export default function WholesalePlanningWorkbench() {
   // instead of "Fetch all" for routine updates.
   async function syncNewestSales() {
     setIngesting(true); setRunningKind("newest");
+    opDismissedRef.current = false;
     setOpStatus({ label: "Sync newest sales", message: "Fetching latest pages from Xoro…" });
     try {
       const r = await ingestXoroSales({
@@ -402,6 +412,7 @@ export default function WholesalePlanningWorkbench() {
   async function autoWalkSales() {
     setAutoWalking(true); setRunningKind("autowalk");
     autoWalkAbort.current = false;
+    opDismissedRef.current = false;
     setOpStatus({
       label: "Fetch all Xoro sales",
       message: "Walking Xoro pages…",
@@ -995,6 +1006,7 @@ export default function WholesalePlanningWorkbench() {
           canCancel={opStatus.canCancel}
           onCancel={() => {
             opStatus.onCancel?.();
+            opDismissedRef.current = true;
             setOpStatus(null);
           }}
         />

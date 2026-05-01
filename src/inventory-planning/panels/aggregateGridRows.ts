@@ -187,7 +187,7 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): 
     ly_reference_qty: sumNullable("ly_reference_qty"),
     on_hand_qty: sumNullableUniqueSkuPeriod("on_hand_qty"),
     on_so_qty: sum("on_so_qty"),
-    on_po_qty: sumNullable("on_po_qty"),
+    on_po_qty: sumNullableUniqueSkuPeriod("on_po_qty"),
     receipts_due_qty: sumNullableUniqueSkuPeriod("receipts_due_qty"),
     historical_receipts_qty: sumNullableUniqueSkuPeriod("historical_receipts_qty"),
     available_supply_qty: sumNullableUniqueSkuPeriod("available_supply_qty") ?? 0,
