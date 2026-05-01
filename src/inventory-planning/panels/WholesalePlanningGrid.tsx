@@ -8,7 +8,6 @@ import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, for
 import { SearchableSelect } from "../components/SearchableSelect";
 import { aggregateRows, type CollapseModes as ExtractedCollapseModes } from "./aggregateGridRows";
 import { bucketKeyFor, type BucketKeyFilters } from "./bucketBuyKey";
-import { applyRollingPool } from "../compute/supply";
 import { recommendForRow } from "../compute/recommendations";
 
 export interface WholesalePlanningGridProps {
@@ -272,13 +271,14 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mutedRows]);
 
-  // Step 2: per-(sku, period) excess/shortage using a proper per-SKU
+  // Step 2: per-(sku, period) display values using a proper per-SKU
   // multi-period rolling pool that subtracts demand each period (same
   // model as buildRollingWholesaleSupply on the backend). The display-
-  // layer applyRollingPool only subtracts on_so, so its ATS grows
-  // unboundedly — that's why per-row excess looked like 1.2M everywhere.
-  // This map is the single source of truth for every row in the same
-  // (sku, period) and for the Σ Excess / Σ Shortage totals.
+  // layer applyRollingPool only subtracts on_so, so its pool grows
+  // unboundedly — that's why on_hand / ATS / excess all looked like
+  // 1.2M everywhere. This map is the single source of truth for the
+  // grid's per-row displayed on_hand, ATS, excess, shortage, and for
+  // the Σ totals.
   const skuPeriodMath = useMemo(() => {
     type Agg = { receipts: number; onSo: number; buy: number; demand: number };
     const skuOnHand = new Map<string, number>();
@@ -296,17 +296,18 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       agg.buy += r.planned_buy_qty ?? 0;
       agg.demand += r.final_forecast_qty;
     }
-    const out = new Map<string, { excess: number; shortage: number }>();
+    const out = new Map<string, { onHand: number; ats: number; excess: number; shortage: number }>();
     for (const [skuId, perPeriod] of bySkuPeriod) {
       const periods = Array.from(perPeriod.entries()).sort((a, b) => a[0].localeCompare(b[0]));
       let pool = skuOnHand.get(skuId) ?? 0;
       for (const [periodStart, agg] of periods) {
-        const supply = pool + agg.receipts + agg.buy;
+        const onHand = pool;                                  // beginning balance
+        const ats = pool + agg.receipts + agg.buy;            // available to sell
         const demand = agg.demand;
-        const excess = supply > demand ? supply - demand : 0;
-        const shortage = demand > supply ? demand - supply : 0;
-        out.set(`${skuId}:${periodStart}`, { excess, shortage });
-        pool = Math.max(0, supply - demand - agg.onSo);
+        const excess = ats > demand ? ats - demand : 0;
+        const shortage = demand > ats ? demand - ats : 0;
+        out.set(`${skuId}:${periodStart}`, { onHand, ats, excess, shortage });
+        pool = Math.max(0, ats - demand - agg.onSo);
       }
     }
     return out;
@@ -315,56 +316,28 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   const filtered = useMemo(() => {
     const muted = mutedRows;
     // Total pool = sum of unique-sku raw on_hand across the visible (pre-aggregation)
-    // set. The service layer guarantees on_hand_qty on each row is the SKU's raw
-    // on_hand, so deduping by sku_id gives the inventory available for this view.
-    const seenSku = new Set<string>();
-    let totalPool = 0;
-    for (const r of muted) {
-      if (seenSku.has(r.sku_id)) continue;
-      seenSku.add(r.sku_id);
-      totalPool += r.on_hand_qty ?? 0;
-    }
     const collapsed = anyCollapsed ? aggregateRows(muted, collapse) : muted;
     const sorted = collapsed.sort((a, b) => cmp(a, b, sortKey, sortDir));
-    // Apply the rolling pool top-down. The currently displayed sort order is
-    // what the user reads, so this is where on_hand and ATS become "rolled"
-    // values — re-sorting reruns this pass and the new top row gets the full
-    // pool again, matching the spec.
-    const rolled = applyRollingPool(
-      sorted.map((r) => ({
-        on_so_qty: r.on_so_qty,
-        receipts_due_qty: r.receipts_due_qty ?? 0,
-        planned_buy_qty: r.planned_buy_qty ?? 0,
-        // Dedupe receipts/buy to the first occurrence of (sku, period).
-        // Without this, multi-customer rows for the same SKU compounded
-        // the rolling pool — visible as billion-unit Σ Excess at 30k rows.
-        dedupeKey: `${r.sku_id}:${r.period_start}`,
-      })),
-      totalPool,
-    );
     const asOf = new Date().toISOString().slice(0, 10);
-    return sorted.map((r, i) => {
-      const onHand = rolled[i].on_hand_qty;
-      const ats = rolled[i].available_supply_qty;
-      // Per-row excess/shortage = SKU+period level (deduped across
-      // customers). Source of truth is `skuPeriodMath` — same map
-      // the totals use, so per-row and totals always agree.
+    return sorted.map((r) => {
+      // Per-row on_hand / ATS / excess / shortage all source from the
+      // SKU+period rolling-pool map. Every customer row of the same
+      // (sku, period) shows the same SKU-level values — that's the
+      // correct semantic and avoids the unbounded display growth from
+      // the old applyRollingPool top-down accumulation.
       const grainKey = `${r.sku_id}:${r.period_start}`;
-      const es = skuPeriodMath.get(grainKey) ?? { excess: 0, shortage: 0 };
-      // Recommendation still uses the rolled ATS so the action label
-      // ("buy" / "expedite" / "hold" / etc.) reflects what's actually
-      // available as the planner reads down the grid.
+      const m = skuPeriodMath.get(grainKey) ?? { onHand: 0, ats: 0, excess: 0, shortage: 0 };
       const liveRec = recommendForRow(
         { final_forecast_qty: r.final_forecast_qty, period_start: r.period_start, period_end: r.period_end },
-        { on_hand_qty: onHand, beginning_balance_qty: onHand, on_po_qty: r.on_po_qty ?? 0, receipts_due_qty: r.receipts_due_qty ?? 0, available_supply_qty: ats },
+        { on_hand_qty: m.onHand, beginning_balance_qty: m.onHand, on_po_qty: r.on_po_qty ?? 0, receipts_due_qty: r.receipts_due_qty ?? 0, available_supply_qty: m.ats },
         asOf,
       );
       return {
         ...r,
-        on_hand_qty: onHand,
-        available_supply_qty: ats,
-        projected_shortage_qty: es.shortage,
-        projected_excess_qty: es.excess,
+        on_hand_qty: m.onHand,
+        available_supply_qty: m.ats,
+        projected_shortage_qty: m.shortage,
+        projected_excess_qty: m.excess,
         recommended_action: liveRec.recommended_action,
         recommended_qty: liveRec.recommended_qty,
         action_reason: liveRec.action_reason,
