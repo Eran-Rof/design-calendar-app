@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { IpPlanningGridRow } from "../types/wholesale";
 import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, formatQty, formatPeriodCode } from "../components/styles";
-import { SearchableSelect } from "../components/SearchableSelect";
+import { MultiSelectDropdown } from "../components/MultiSelectDropdown";
 import { applyRollingPool } from "../compute/supply";
 import { aggregateRows, type CollapseModes as ExtractedCollapseModes } from "./aggregateGridRows";
 import { bucketKeyFor, type BucketKeyFilters } from "./bucketBuyKey";
@@ -82,20 +82,22 @@ type CollapseModes = ExtractedCollapseModes;
 
 export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
-  const [filterCustomer, setFilterCustomer] = useState<string>("all");
-  const [filterCategory, setFilterCategory] = useState<string>("all");
-  const [filterSubCat, setFilterSubCat] = useState<string>("all");
-  const [filterGender, setFilterGender] = useState<string>("all");
-  const [filterAction, setFilterAction] = useState<string>("all");
-  const [filterConfidence, setFilterConfidence] = useState<string>("all");
+  // Multi-select filters — empty array = no filter (all rows pass).
+  // Each non-empty array narrows to rows whose value is in the set.
+  const [filterCustomer, setFilterCustomer] = useState<string[]>([]);
+  const [filterCategory, setFilterCategory] = useState<string[]>([]);
+  const [filterSubCat, setFilterSubCat] = useState<string[]>([]);
+  const [filterGender, setFilterGender] = useState<string[]>([]);
+  const [filterAction, setFilterAction] = useState<string[]>([]);
+  const [filterConfidence, setFilterConfidence] = useState<string[]>([]);
   // Master toggle — owned by the workbench. When OFF, system forecast
   // suggestions are blanked out so the planner drives demand purely
   // through Buyer / Override edits.
   const setSystemSuggestionsOnPersistent = onSystemSuggestionsChange;
-  const [filterMethod, setFilterMethod] = useState<string>("all");
+  const [filterMethod, setFilterMethod] = useState<string[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>("period");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const [filterPeriod, setFilterPeriod] = useState<string>("all");
+  const [filterPeriod, setFilterPeriod] = useState<string[]>([]);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(500);
   // Collapse / aggregation modes — independent toggles that change the
@@ -120,10 +122,12 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   useEffect(() => {
     if (!onFiltersChange) return;
     onFiltersChange({
-      customer_id: filterCustomer === "all" ? null : filterCustomer,
-      group_name: filterCategory === "all" ? null : filterCategory,
-      sub_category_name: filterSubCat === "all" ? null : filterSubCat,
-      gender: filterGender === "all" ? null : filterGender,
+      // Build flow only supports a single value per dim. When the
+      // planner has multi-selected, send the first (or null when none).
+      customer_id: filterCustomer[0] ?? null,
+      group_name: filterCategory[0] ?? null,
+      sub_category_name: filterSubCat[0] ?? null,
+      gender: filterGender[0] ?? null,
     });
   }, [filterCustomer, filterCategory, filterSubCat, filterGender, onFiltersChange]);
 
@@ -148,7 +152,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   const subCategoryNames = useMemo(() => {
     const s = new Set<string>();
     for (const r of rows) {
-      if (filterCategory !== "all" && (r.group_name ?? "—") !== filterCategory) continue;
+      if (filterCategory.length > 0 && !filterCategory.includes(r.group_name ?? "—")) continue;
       if (r.sub_category_name) s.add(r.sub_category_name);
     }
     return Array.from(s).sort();
@@ -158,8 +162,11 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   // longer valid in the new scope, clear it so the user doesn't see
   // an empty grid because of a stale filter.
   useEffect(() => {
-    if (filterSubCat !== "all" && !subCategoryNames.includes(filterSubCat)) {
-      setFilterSubCat("all");
+    // Drop any selected sub cats that no longer exist under the
+    // current category set.
+    if (filterSubCat.length > 0) {
+      const stillValid = filterSubCat.filter((s) => subCategoryNames.includes(s));
+      if (stillValid.length !== filterSubCat.length) setFilterSubCat(stillValid);
     }
   }, [filterCategory, subCategoryNames, filterSubCat]);
 
@@ -268,14 +275,14 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   const mutedRows = useMemo(() => {
     const q = search.trim().toUpperCase();
     const base = rows.filter((r) => {
-      if (filterCustomer !== "all" && r.customer_id !== filterCustomer) return false;
-      if (filterCategory !== "all" && (r.group_name ?? "—") !== filterCategory) return false;
-      if (filterSubCat !== "all" && (r.sub_category_name ?? "—") !== filterSubCat) return false;
-      if (filterGender !== "all" && (r.gender ?? "—") !== filterGender) return false;
-      if (filterPeriod !== "all" && r.period_code !== filterPeriod) return false;
-      if (filterAction !== "all" && r.recommended_action !== filterAction) return false;
-      if (filterConfidence !== "all" && r.confidence_level !== filterConfidence) return false;
-      if (filterMethod !== "all" && r.forecast_method !== filterMethod) return false;
+      if (filterCustomer.length > 0 && !filterCustomer.includes(r.customer_id)) return false;
+      if (filterCategory.length > 0 && !filterCategory.includes(r.group_name ?? "—")) return false;
+      if (filterSubCat.length > 0 && !filterSubCat.includes(r.sub_category_name ?? "—")) return false;
+      if (filterGender.length > 0 && !filterGender.includes(r.gender ?? "—")) return false;
+      if (filterPeriod.length > 0 && !filterPeriod.includes(r.period_code)) return false;
+      if (filterAction.length > 0 && !filterAction.includes(r.recommended_action)) return false;
+      if (filterConfidence.length > 0 && !filterConfidence.includes(r.confidence_level)) return false;
+      if (filterMethod.length > 0 && !filterMethod.includes(r.forecast_method)) return false;
       if (q && !(
         r.sku_code.includes(q)
         || (r.sku_style ?? "").toUpperCase().includes(q)
@@ -469,50 +476,67 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       <div style={S.toolbar}>
         <input style={{ ...S.input, width: 240 }} placeholder="Search customer / SKU / category"
                value={search} onChange={(e) => setSearch(e.target.value)} />
-        <SearchableSelect
-          value={filterCustomer}
+        <MultiSelectDropdown
+          selected={filterCustomer}
           onChange={setFilterCustomer}
           allLabel="All customers"
           placeholder="Search customers…"
           options={customers.map((c) => ({ value: c.id, label: c.name }))}
         />
-        <SearchableSelect
-          value={filterCategory}
+        <MultiSelectDropdown
+          selected={filterCategory}
           onChange={setFilterCategory}
           allLabel="All categories"
           placeholder="Search categories…"
           options={groupNames.map((g) => ({ value: g, label: g }))}
         />
-        <SearchableSelect
-          value={filterSubCat}
+        <MultiSelectDropdown
+          selected={filterSubCat}
           onChange={setFilterSubCat}
           allLabel="All sub cats"
           placeholder="Search sub cats…"
           options={subCategoryNames.map((s) => ({ value: s, label: s }))}
         />
-        <select style={S.select} value={filterGender} onChange={(e) => setFilterGender(e.target.value)} title="Gender filter — sourced from item-master GenderCode. No grid column rendered.">
-          <option value="all">All genders</option>
-          {genders.map((g) => <option key={g} value={g}>{genderLabel(g)}</option>)}
-        </select>
-        <select style={S.select} value={filterAction} onChange={(e) => setFilterAction(e.target.value)}>
-          <option value="all">All actions</option>
-          {["buy", "expedite", "reduce", "hold", "monitor"].map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
-        <select style={S.select} value={filterConfidence} onChange={(e) => setFilterConfidence(e.target.value)}>
-          <option value="all">All confidence</option>
-          {["committed", "probable", "possible", "estimate"].map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select style={S.select} value={filterMethod} onChange={(e) => setFilterMethod(e.target.value)}>
-          <option value="all">All methods</option>
-          {Object.keys(METHOD_LABEL).map((m) => <option key={m} value={m}>{METHOD_LABEL[m]}</option>)}
-        </select>
-        <select style={S.select} value={filterPeriod} onChange={(e) => setFilterPeriod(e.target.value)}>
-          <option value="all">All periods</option>
-          {periods.map((p) => <option key={p} value={p}>{formatPeriodCode(p)}</option>)}
-        </select>
+        <MultiSelectDropdown
+          selected={filterGender}
+          onChange={setFilterGender}
+          allLabel="All genders"
+          placeholder="Search genders…"
+          options={genders.map((g) => ({ value: g, label: genderLabel(g) }))}
+          title="Gender filter — sourced from item-master GenderCode. No grid column rendered."
+        />
+        <MultiSelectDropdown
+          selected={filterAction}
+          onChange={setFilterAction}
+          allLabel="All actions"
+          placeholder="Search actions…"
+          options={["buy", "expedite", "reduce", "hold", "monitor"].map((a) => ({ value: a, label: a }))}
+        />
+        <MultiSelectDropdown
+          selected={filterConfidence}
+          onChange={setFilterConfidence}
+          allLabel="All confidence"
+          placeholder="Search confidence…"
+          options={["committed", "probable", "possible", "estimate"].map((c) => ({ value: c, label: c }))}
+        />
+        <MultiSelectDropdown
+          selected={filterMethod}
+          onChange={setFilterMethod}
+          allLabel="All methods"
+          placeholder="Search methods…"
+          options={Object.keys(METHOD_LABEL).map((m) => ({ value: m, label: METHOD_LABEL[m] }))}
+        />
+        <MultiSelectDropdown
+          selected={filterPeriod}
+          onChange={setFilterPeriod}
+          allLabel="All periods"
+          placeholder="Search periods…"
+          options={periods.map((p) => ({ value: p, label: formatPeriodCode(p) }))}
+        />
         <button style={S.btnSecondary} onClick={() => {
-          setSearch(""); setFilterCustomer("all"); setFilterCategory("all"); setFilterSubCat("all"); setFilterGender("all"); setFilterPeriod("all");
-          setFilterAction("all"); setFilterConfidence("all"); setFilterMethod("all");
+          setSearch("");
+          setFilterCustomer([]); setFilterCategory([]); setFilterSubCat([]); setFilterGender([]); setFilterPeriod([]);
+          setFilterAction([]); setFilterConfidence([]); setFilterMethod([]);
         }}>Clear</button>
         <ColumnsButton
           columns={TOGGLEABLE_COLUMNS}
@@ -674,10 +698,14 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                     // existing qty, render an editable cell. On save
                     // the workbench upserts via repo.
                     const filters: BucketKeyFilters = {
-                      customer_id: filterCustomer === "all" ? null : filterCustomer,
-                      group_name: filterCategory === "all" ? null : filterCategory,
-                      sub_category_name: filterSubCat === "all" ? null : filterSubCat,
-                      gender: filterGender === "all" ? null : filterGender,
+                      // Bucket-buy filters scope to a single dim value;
+                      // when the planner has multi-selected, key the
+                      // bucket against the first selection (most common
+                      // scope is one).
+                      customer_id: filterCustomer[0] ?? null,
+                      group_name: filterCategory[0] ?? null,
+                      sub_category_name: filterSubCat[0] ?? null,
+                      gender: filterGender[0] ?? null,
                     };
                     const desc = bucketKeyFor(r, collapse, filters);
                     if (!desc) {
