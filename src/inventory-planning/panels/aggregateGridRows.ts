@@ -24,6 +24,10 @@ export interface CollapseModes {
   // for category buyers who plan a style across the whole book.
   allCustomersPerCategory: boolean;
   allCustomersPerSubCat: boolean;
+  // Per-style rollup — drops customer AND color. One row per (style,
+  // period). Useful when the planner wants total demand for a style
+  // across every color and every customer.
+  allCustomersPerStyle: boolean;
 }
 
 // Aggregate rows by the active collapse modes. Each toggle changes the
@@ -43,6 +47,10 @@ export function aggregateRows(rows: IpPlanningGridRow[], modes: CollapseModes): 
       key = `sub:${r.sub_category_name ?? "—"}:${r.period_code}`;
     } else if (modes.category) {
       key = `cat:${r.group_name ?? "—"}:${r.period_code}`;
+    } else if (modes.allCustomersPerStyle) {
+      // Style-level: drop customer AND color. Use sku_style if set,
+      // else fall back to sku_code as the grouping key.
+      key = `acps:${r.sku_style ?? r.sku_code}:${r.period_code}`;
     } else if (modes.allCustomersPerCategory) {
       // Within each category, one row per (style, period) summing every
       // customer. `colors` collapses to style; otherwise color is preserved
@@ -151,6 +159,12 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): 
     label = `(${customerSet.size} customers)`;
     description = `${head.sub_category_name ?? "(no sub cat)"} · ${bucket.length} forecast rows`;
     if (modes.colors && colorSet.size > 1) color = `(${colorSet.size} colors)`;
+  } else if (modes.allCustomersPerStyle) {
+    // Per-style rollup: customer and color both collapsed.
+    label = `(${customerSet.size} cust · ${colorSet.size} colors)`;
+    style = head.sku_style ?? head.sku_code;
+    color = null;
+    description = `Style rollup — ${bucket.length} forecast rows`;
   } else if (modes.customerAllStyles) {
     // Single customer + period; sum across every style/color.
     style = `(${styleSet.size} styles)`;

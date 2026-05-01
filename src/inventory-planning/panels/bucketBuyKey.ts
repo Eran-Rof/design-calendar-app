@@ -27,6 +27,7 @@ export interface BucketKeyFilters {
 // with all other modes already.
 export function activeCollapseMode(modes: CollapseModes): string | null {
   if (modes.customerAllStyles) return "customerAllStyles";
+  if (modes.allCustomersPerStyle) return "allCustomersPerStyle";
   if (modes.allCustomersPerCategory) return "allCustomersPerCategory";
   if (modes.allCustomersPerSubCat) return "allCustomersPerSubCat";
   if (modes.subCat) return "subCat";
