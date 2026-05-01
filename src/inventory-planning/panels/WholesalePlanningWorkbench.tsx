@@ -226,23 +226,23 @@ export default function WholesalePlanningWorkbench() {
   async function runMissingItemsSync() {
     setIngesting(true); setRunningKind("missing-items");
     opDismissedRef.current = false;
-    setOpStatus({ label: "Add new items (Xoro)", message: "Fetching item catalog…" });
+    setOpStatus({ label: "Add new items", message: "Looking up new items…" });
     try {
       const r = await syncMissingItems({ pageLimit: 100 });
       if (r.error) {
-        reportOp(`Failed: ${r.error}${r.hint ? ` (${r.hint})` : ""}`);
+        reportOp(`Couldn't finish — ${r.error}${r.hint ? ` (${r.hint})` : ""}`);
         console.error("[xoro-items-missing-sync] failed", r);
         await new Promise<void>((res) => setTimeout(res, 2200));
       } else {
-        const errSummary = r.errors.length > 0 ? ` · ⚠ ${r.errors.length} errors (see console)` : "";
+        const errSummary = r.errors.length > 0 ? ` · ⚠ ${r.errors.length} issues (see console)` : "";
         if (r.errors.length > 0) console.error("[xoro-items-missing-sync] errors:", r.errors);
-        reportOp(`✓ Done — fetched ${r.xoro_items_fetched.toLocaleString()} · ${r.already_in_master.toLocaleString()} already in master · inserted ${r.inserted.toLocaleString()} new SKUs${errSummary}`);
+        reportOp(`✓ Done — checked ${r.xoro_items_fetched.toLocaleString()} items · ${r.already_in_master.toLocaleString()} already known · added ${r.inserted.toLocaleString()} new${errSummary}`);
         await new Promise<void>((res) => setTimeout(res, 1500));
         if (r.inserted > 0) await loadMasters();
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      reportOp(`Failed: ${msg}`);
+      reportOp(`Couldn't finish — ${msg}`);
       await new Promise<void>((res) => setTimeout(res, 2200));
     } finally {
       setIngesting(false); setRunningKind(null);
@@ -254,7 +254,7 @@ export default function WholesalePlanningWorkbench() {
     setIngesting(true); setRunningKind(kind === "ats" ? "ats" : "tanda");
     opDismissedRef.current = false;
     setOpStatus({
-      label: kind === "ats" ? "Sync on-hand (ATS)" : "Sync open POs (TandA)",
+      label: kind === "ats" ? "Updating on-hand inventory" : "Updating open purchase orders",
       message: "Starting…",
     });
     try {
@@ -262,12 +262,12 @@ export default function WholesalePlanningWorkbench() {
         const r = await syncTandaPos();
         const err = (r as { error?: string }).error;
         if (err) {
-          reportOp(`Failed: ${err}`);
+          reportOp(`Couldn't finish — ${err}`);
           await new Promise<void>((res) => setTimeout(res, 2200));
         } else {
           const inserted = (r as { inserted?: number }).inserted ?? 0;
           const newSkus = (r as { auto_created_skus?: number }).auto_created_skus ?? 0;
-          reportOp(`✓ Done — ${inserted} upserted${newSkus ? ` · ${newSkus} new SKUs` : ""}`);
+          reportOp(`✓ Done — ${inserted} updated${newSkus ? ` · ${newSkus} new items` : ""}`);
           await new Promise<void>((res) => setTimeout(res, 1500));
           if (inserted > 0) await loadRunData();
         }
@@ -294,7 +294,7 @@ export default function WholesalePlanningWorkbench() {
         };
         console.log("[ats-supply-sync] chunk response", { start, response: r });
         if (r.error) {
-          reportOp(`Failed: ${r.error}`);
+          reportOp(`Couldn't finish — ${r.error}`);
           await new Promise<void>((res) => setTimeout(res, 2200));
           break;
         }
@@ -304,9 +304,9 @@ export default function WholesalePlanningWorkbench() {
         totalSkipped += (r.skipped_zero_state ?? 0) + (r.skipped_no_sku ?? 0);
         totalAts = r.ats_skus_total ?? totalAts;
         const processed = Math.min(start + (r.ats_skus_in_batch ?? 0), totalAts);
-        reportOp(`Chunk ${chunks} · ${processed.toLocaleString()}/${totalAts.toLocaleString()} SKUs · ${totalInserted} upserted · ${totalNew} new SKUs`);
+        reportOp(`Batch ${chunks} · ${processed.toLocaleString()} of ${totalAts.toLocaleString()} items · ${totalInserted} updated · ${totalNew} new items`);
         if (r.done || r.next_start == null) {
-          reportOp(`✓ Done — ${totalInserted.toLocaleString()} upserted · ${totalNew} new SKUs · ${totalSkipped.toLocaleString()} skipped (zero state) · ${totalAts.toLocaleString()} total in ${chunks} chunk(s)`);
+          reportOp(`✓ Done — ${totalInserted.toLocaleString()} updated · ${totalNew} new items · ${totalSkipped.toLocaleString()} skipped (no inventory) · ${totalAts.toLocaleString()} total in ${chunks} batch(es)`);
           await new Promise<void>((res) => setTimeout(res, 1500));
           if (totalInserted > 0) await loadRunData();
           break;
@@ -314,7 +314,7 @@ export default function WholesalePlanningWorkbench() {
         start = r.next_start;
       }
     } catch (e) {
-      reportOp(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+      reportOp(`Couldn't finish — ${e instanceof Error ? e.message : String(e)}`);
       await new Promise<void>((res) => setTimeout(res, 2200));
     } finally {
       setIngesting(false); setRunningKind(null);
@@ -324,7 +324,7 @@ export default function WholesalePlanningWorkbench() {
 
   async function ingestExcel(kind: "sales" | "master", file: File) {
     setIngesting(true); setRunningKind(`excel-${kind}`);
-    const label = kind === "sales" ? "Upload sales (Excel)" : "Upload item master (Excel)";
+    const label = kind === "sales" ? "Sales upload" : "Item list upload";
     opDismissedRef.current = false;
     setOpStatus({ label, message: "Reading file…" });
     try {
@@ -338,9 +338,9 @@ export default function WholesalePlanningWorkbench() {
       if (r.skipped_zero_qty) skipParts.push(`${r.skipped_zero_qty} zero-qty`);
       if (r.skipped_bad_cost) skipParts.push(`${r.skipped_bad_cost} bad-cost`);
       const skipSummary = skipParts.length > 0 ? ` · skipped ${skipParts.join(", ")}` : "";
-      const errSummary = r.errors.length > 0 ? ` · ⚠ ${r.errors.length} errors (see console)` : "";
+      const errSummary = r.errors.length > 0 ? ` · ⚠ ${r.errors.length} issues (see console)` : "";
       if (r.errors.length > 0) console.error(`[excel-${kind}] errors:`, r.errors);
-      reportOp(`✓ Done — parsed ${r.parsed.toLocaleString()} rows · upserted ${r.inserted.toLocaleString()}${skipSummary}${errSummary}`);
+      reportOp(`✓ Done — read ${r.parsed.toLocaleString()} rows · saved ${r.inserted.toLocaleString()}${skipSummary}${errSummary}`);
       await new Promise<void>((res) => setTimeout(res, 1800));
       if (r.inserted > 0 && kind === "sales") await loadRunData();
       if (r.inserted > 0 && kind === "master" && selectedRun) {
@@ -349,7 +349,7 @@ export default function WholesalePlanningWorkbench() {
       }
     } catch (e) {
       console.error(`[excel-${kind}] failed`, e);
-      reportOp(`✗ Failed — ${e instanceof Error ? e.message : String(e)} (see DevTools console)`);
+      reportOp(`✗ Couldn't finish — ${e instanceof Error ? e.message : String(e)} (see DevTools console)`);
       await new Promise<void>((res) => setTimeout(res, 2500));
     } finally {
       setIngesting(false); setRunningKind(null);
@@ -381,7 +381,7 @@ export default function WholesalePlanningWorkbench() {
   async function syncNewestSales() {
     setIngesting(true); setRunningKind("newest");
     opDismissedRef.current = false;
-    setOpStatus({ label: "Sync newest sales", message: "Fetching latest pages from Xoro…" });
+    setOpStatus({ label: "Update recent sales", message: "Reading latest sales…" });
     try {
       const r = await ingestXoroSales({
         dateFrom: "1900-01-01",
@@ -390,18 +390,18 @@ export default function WholesalePlanningWorkbench() {
         pageLimit: 3,
       });
       if (r.error) {
-        reportOp(`Failed: ${r.error}`);
+        reportOp(`Couldn't finish — ${r.error}`);
         await new Promise<void>((res) => setTimeout(res, 2200));
         return;
       }
       const span = r.oldest_invoice_in_batch && r.newest_invoice_in_batch
-        ? ` · covered ${r.oldest_invoice_in_batch}…${r.newest_invoice_in_batch}`
+        ? ` · ${r.oldest_invoice_in_batch} to ${r.newest_invoice_in_batch}`
         : "";
-      reportOp(`✓ Done — ${r.xoro_lines_fetched} fetched · ${r.inserted} upserted${r.auto_created_skus ? ` · ${r.auto_created_skus} new SKUs` : ""}${r.auto_created_customers ? ` · ${r.auto_created_customers} new customers` : ""}${span}`);
+      reportOp(`✓ Done — read ${r.xoro_lines_fetched} sales lines · saved ${r.inserted}${r.auto_created_skus ? ` · ${r.auto_created_skus} new items` : ""}${r.auto_created_customers ? ` · ${r.auto_created_customers} new customers` : ""}${span}`);
       await new Promise<void>((res) => setTimeout(res, 1800));
       if (r.inserted > 0) await loadRunData();
     } catch (e) {
-      reportOp(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+      reportOp(`Couldn't finish — ${e instanceof Error ? e.message : String(e)}`);
       await new Promise<void>((res) => setTimeout(res, 2200));
     } finally {
       setIngesting(false); setRunningKind(null);
@@ -1197,8 +1197,8 @@ function OperationStatusBar({ label, message, canCancel, onCancel }: {
 
 function BootstrapStatusBar({ phase, onCancel }: { phase: "masters" | "run-data" | "ready"; onCancel: () => void }) {
   const PHASE_LABELS: Record<string, string> = {
-    "masters": "Loading masters…",
-    "run-data": "Loading planning data…",
+    "masters": "Loading customers and items…",
+    "run-data": "Loading forecast and inventory…",
     "ready": "",
   };
   const pct = phase === "masters" ? 25 : phase === "run-data" ? 75 : 100;
