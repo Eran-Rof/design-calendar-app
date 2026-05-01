@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { IpPlanningGridRow } from "../types/wholesale";
 import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, formatQty, formatPeriodCode } from "../components/styles";
 import { SearchableSelect } from "../components/SearchableSelect";
+import { applyRollingPool } from "../compute/supply";
 import { aggregateRows, type CollapseModes as ExtractedCollapseModes } from "./aggregateGridRows";
 import { bucketKeyFor, type BucketKeyFilters } from "./bucketBuyKey";
 import { recommendForRow } from "../compute/recommendations";
@@ -373,27 +374,49 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
 
   const filtered = useMemo(() => {
     const muted = mutedRows;
-    // Total pool = sum of unique-sku raw on_hand across the visible (pre-aggregation)
+    // Total pool = sum of unique-sku raw on_hand across the visible
+    // (pre-aggregation) set.
+    const seenSku = new Set<string>();
+    let totalPool = 0;
+    for (const r of muted) {
+      if (seenSku.has(r.sku_id)) continue;
+      seenSku.add(r.sku_id);
+      totalPool += r.on_hand_qty ?? 0;
+    }
     const collapsed = anyCollapsed ? aggregateRows(muted, collapse) : muted;
     const sorted = collapsed.sort((a, b) => cmp(a, b, sortKey, sortDir));
+    // Top-down rolling pool: per-row ATS = on_hand − on_so + receipts +
+    // buy; the next row inherits this row's ATS as its on_hand. Receipts
+    // and buy contribute once per (sku, period) so multi-customer rows
+    // of the same SKU don't double-count. on_so depletes per row since
+    // it's customer-scoped.
+    const rolled = applyRollingPool(
+      sorted.map((r) => ({
+        on_so_qty: r.on_so_qty,
+        receipts_due_qty: r.receipts_due_qty ?? 0,
+        planned_buy_qty: r.planned_buy_qty ?? 0,
+        dedupeKey: `${r.sku_id}:${r.period_start}`,
+      })),
+      totalPool,
+    );
     const asOf = new Date().toISOString().slice(0, 10);
-    return sorted.map((r) => {
-      // Per-row on_hand / ATS / excess / shortage all source from the
-      // SKU+period rolling-pool map. Every customer row of the same
-      // (sku, period) shows the same SKU-level values — that's the
-      // correct semantic and avoids the unbounded display growth from
-      // the old applyRollingPool top-down accumulation.
+    return sorted.map((r, i) => {
+      const onHand = rolled[i].on_hand_qty;
+      const ats = rolled[i].available_supply_qty;
+      // Excess / Shortage stay sourced from the per-(sku, period)
+      // rolling-pool map (bounded by real demand mismatch, not by the
+      // visual top-down accumulation).
       const grainKey = `${r.sku_id}:${r.period_start}`;
       const m = skuPeriodMath.get(grainKey) ?? { onHand: 0, ats: 0, excess: 0, shortage: 0 };
       const liveRec = recommendForRow(
         { final_forecast_qty: r.final_forecast_qty, period_start: r.period_start, period_end: r.period_end },
-        { on_hand_qty: m.onHand, beginning_balance_qty: m.onHand, on_po_qty: r.on_po_qty ?? 0, receipts_due_qty: r.receipts_due_qty ?? 0, available_supply_qty: m.ats },
+        { on_hand_qty: onHand, beginning_balance_qty: onHand, on_po_qty: r.on_po_qty ?? 0, receipts_due_qty: r.receipts_due_qty ?? 0, available_supply_qty: ats },
         asOf,
       );
       return {
         ...r,
-        on_hand_qty: m.onHand,
-        available_supply_qty: m.ats,
+        on_hand_qty: onHand,
+        available_supply_qty: ats,
         projected_shortage_qty: m.shortage,
         projected_excess_qty: m.excess,
         recommended_action: liveRec.recommended_action,
