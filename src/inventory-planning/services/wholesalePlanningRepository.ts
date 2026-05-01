@@ -433,17 +433,56 @@ export const wholesaleRepo = {
   async replaceRecommendations(
     planningRunId: string,
     rows: Array<Omit<IpWholesaleRecommendation, "id" | "created_at">>,
+    options: { signal?: AbortSignal; onProgress?: (rowsDone: number, totalRows: number) => void } = {},
   ): Promise<void> {
+    const { signal, onProgress } = options;
+    if (signal?.aborted) throw new BuildCancelledError();
     // Recommendations are fully regenerated each run; clear then insert.
     await sbDelete(`ip_wholesale_recommendations?planning_run_id=eq.${planningRunId}`);
     if (rows.length === 0) return;
-    for (let i = 0; i < rows.length; i += 500) {
-      const chunk = rows.slice(i, i + 500);
-      await sbPost<IpWholesaleRecommendation>(
-        "ip_wholesale_recommendations",
-        chunk,
-        "return=minimal",
-      );
+
+    // Same chunk-halving as upsertForecast — single-index INSERT here
+    // is lighter than the forecast table but big batches of recs still
+    // tipped Supabase's 8s timeout (57014) when prior runs leaked stale
+    // rows into the read-back. See generateWholesaleRecommendations.
+    const INITIAL_CHUNK = 200;
+    const MIN_CHUNK = 25;
+    type Row = (typeof rows)[number];
+    const postChunk = async (chunk: Row[]): Promise<void> => {
+      if (signal?.aborted) throw new BuildCancelledError();
+      try {
+        await sbPost<IpWholesaleRecommendation>("ip_wholesale_recommendations", chunk, "return=minimal");
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes("57014") && chunk.length > MIN_CHUNK) {
+          const half = Math.max(MIN_CHUNK, Math.floor(chunk.length / 2));
+          for (let j = 0; j < chunk.length; j += half) {
+            await postChunk(chunk.slice(j, j + half));
+          }
+          return;
+        }
+        throw e;
+      }
+    };
+    let done = 0;
+    for (let i = 0; i < rows.length; i += INITIAL_CHUNK) {
+      const chunk = rows.slice(i, i + INITIAL_CHUNK);
+      await postChunk(chunk);
+      done += chunk.length;
+      onProgress?.(done, rows.length);
+    }
+  },
+
+  // Bulk delete forecast rows by id, chunked to keep PostgREST URLs
+  // under the request-size limit. Used by runForecastPass to prune
+  // rows from prior builds whose (customer, sku) is no longer live.
+  async deleteForecastRowsByIds(planningRunId: string, ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    const CHUNK = 100;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const chunk = ids.slice(i, i + CHUNK);
+      const inList = chunk.map((id) => `"${id}"`).join(",");
+      await sbDelete(`ip_wholesale_forecast?planning_run_id=eq.${planningRunId}&id=in.(${inList})`);
     }
   },
 };
