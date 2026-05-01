@@ -473,15 +473,22 @@ export async function ingestItemMasterExcel(
 
   for (const r of rows) {
     // SKU: direct column or compose from Style + Color.
-    let sku = canon(pick(r, SKU_ALIASES) as string);
-    if (!sku) {
-      const style = String(pick(r, STYLE_ALIASES) ?? "").trim();
-      const color = String(pick(r, COLOR_ALIASES) ?? "").trim();
-      if (!style) { result.skipped_no_sku++; continue; }
-      sku = canon([style, color].filter(Boolean).join("-"));
+    // SKU = BasePartNumber (style-only), no color or size suffix.
+    // Color and size live on dedicated columns. This matches how the
+    // supply sources (Xoro / ATS / TandA) report inventory at the
+    // base-style grain. If BasePartNumber is missing, fall back to
+    // the SKU column with its size/PPK suffix stripped — keeps the
+    // ingest robust against partial sheets.
+    const explicitStyle = String(pick(r, STYLE_ALIASES) ?? "").trim();
+    const explicitColor = String(pick(r, COLOR_ALIASES) ?? "").trim() || null;
+    const explicitSize = String(pick(r, SIZE_ALIASES) ?? "").trim() || null;
+    let sku: string;
+    if (explicitStyle) {
+      sku = canon(explicitStyle);
     } else {
-      // If user pasted an existing variant SKU with size, strip it.
-      sku = stripSizeSuffix(sku);
+      const fallback = canon(pick(r, SKU_ALIASES) as string);
+      if (!fallback) { result.skipped_no_sku++; continue; }
+      sku = stripSizeSuffix(fallback);
     }
     if (!sku || seenSkus.has(sku)) {
       if (!sku) result.skipped_no_sku++;
@@ -489,14 +496,8 @@ export async function ingestItemMasterExcel(
     }
     seenSkus.add(sku);
 
-    const explicitStyle = String(pick(r, STYLE_ALIASES) ?? "").trim();
-    const explicitColor = String(pick(r, COLOR_ALIASES) ?? "").trim();
-    const explicitSize = String(pick(r, SIZE_ALIASES) ?? "").trim() || null;
-    const dash = sku.indexOf("-");
-    const style = explicitStyle || (dash > 0 ? sku.substring(0, dash) : sku);
-    // Prefer the explicit color cell (preserves spacing) over the
-    // suffix parsed from sku_code.
-    const color = explicitColor || (dash > 0 ? sku.substring(dash + 1) : null);
+    const style = explicitStyle ? canon(explicitStyle) : sku;
+    const color = explicitColor;
     const descRaw = String(pick(r, DESC_ALIASES) ?? "").trim();
     // Strip HTML when description came from a BodyHtml column.
     const description = descRaw.includes("<")
