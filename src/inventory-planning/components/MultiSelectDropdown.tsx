@@ -135,26 +135,46 @@ export function MultiSelectDropdown({
             filtered.map((o) => {
               const isSelected = selectedSet.has(o.value);
               return (
-                <label
+                <div
                   key={o.value}
+                  role="option"
+                  aria-selected={isSelected}
+                  tabIndex={0}
+                  onClick={() => toggle(o.value)}
+                  onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggle(o.value); } }}
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 8,
-                    padding: "6px 12px",
+                    gap: 10,
+                    padding: "8px 12px",
                     cursor: "pointer",
                     fontSize: 13,
                     color: isSelected ? PAL.text : PAL.textDim,
                     background: isSelected ? PAL.bg : undefined,
+                    userSelect: "none",
                   }}
                 >
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => toggle(o.value)}
-                  />
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 16,
+                      height: 16,
+                      borderRadius: 3,
+                      border: `1px solid ${isSelected ? PAL.accent : PAL.border}`,
+                      background: isSelected ? PAL.accent : "transparent",
+                      color: "#fff",
+                      fontSize: 12,
+                      lineHeight: 1,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {isSelected ? "✓" : ""}
+                  </span>
                   {o.label}
-                </label>
+                </div>
               );
             })
           )}
