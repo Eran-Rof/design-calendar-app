@@ -55,6 +55,11 @@ export interface WholesalePlanningGridProps {
   // sits adjacent to the search bar without restructuring the
   // workbench layout.
   headerSlot?: React.ReactNode;
+  // Lifted from the grid so MonthlyTotalsCards can apply the same
+  // muting math. Owned by WholesalePlanningWorkbench; this component
+  // only reads the value and reports user-flips via the setter.
+  systemSuggestionsOn: boolean;
+  onSystemSuggestionsChange: (v: boolean) => void;
 }
 
 // Every column is sortable via header click. Click toggles asc/desc on
@@ -70,7 +75,7 @@ type SortKey =
 // references (CollapseModes) compile without churn.
 type CollapseModes = ExtractedCollapseModes;
 
-export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onFiltersChange, headerSlot, bucketBuys, loading }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
   const [filterCustomer, setFilterCustomer] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
@@ -78,21 +83,10 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   const [filterGender, setFilterGender] = useState<string>("all");
   const [filterAction, setFilterAction] = useState<string>("all");
   const [filterConfidence, setFilterConfidence] = useState<string>("all");
-  // Master toggle — when OFF, System forecast suggestions are blanked
-  // out across the whole grid so the planner can drive demand purely
-  // through Buyer / Override edits without the auto-suggestion biasing
-  // the displayed Final. Persisted in localStorage so refresh keeps it.
-  const [systemSuggestionsOn, setSystemSuggestionsOn] = useState<boolean>(() => {
-    try { return localStorage.getItem("ws_planning_system_suggestions_off") !== "1"; }
-    catch { return true; }
-  });
-  function setSystemSuggestionsOnPersistent(v: boolean) {
-    try {
-      if (v) localStorage.removeItem("ws_planning_system_suggestions_off");
-      else localStorage.setItem("ws_planning_system_suggestions_off", "1");
-    } catch { /* ignore quota */ }
-    setSystemSuggestionsOn(v);
-  }
+  // Master toggle — owned by the workbench. When OFF, system forecast
+  // suggestions are blanked out so the planner drives demand purely
+  // through Buyer / Override edits.
+  const setSystemSuggestionsOnPersistent = onSystemSuggestionsChange;
   const [filterMethod, setFilterMethod] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("period");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
