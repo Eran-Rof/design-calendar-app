@@ -331,19 +331,52 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
   // (upsert preserves the column). Rolling supply must use these so buy qty
   // is reflected in recommendations.
   const persisted = await wholesaleRepo.listForecast(run.id);
+
+  // Stale-row defence. `listForecast` returns every row for this run,
+  // including rows written by PRIOR builds for (customer, sku) pairs
+  // that the dead-SKU prune or grid filter just excluded. Without this
+  // filter, recs are generated 1:1 from `persisted` and explode to
+  // many times the size of forecastRows — that's the root of the
+  // "1,134 forecast → 20,000 recs" cardinality blowup.
+  const liveGrainKeys = new Set<string>(
+    forecastRows.map((f) => `${f.customer_id}:${f.sku_id}:${f.period_start}`),
+  );
+  const relevantPersisted = persisted.filter((p) =>
+    liveGrainKeys.has(`${p.customer_id}:${p.sku_id}:${p.period_start}`),
+  );
+
+  // README gap #6: prune orphan forecast rows from prior builds so the
+  // grid + future read-backs don't carry them forward. Only safe on
+  // unfiltered builds — a filtered build only processed a subset of
+  // pairs, so out-of-scope rows are not actually orphans.
+  if (!filterActive) {
+    const staleIds = persisted
+      .filter((p) => !liveGrainKeys.has(`${p.customer_id}:${p.sku_id}:${p.period_start}`))
+      .map((p) => p.id);
+    if (staleIds.length > 0) {
+      onProgress?.({ phase: "reading_back", label: `Pruning ${staleIds.length.toLocaleString()} stale forecast rows` });
+      await wholesaleRepo.deleteForecastRowsByIds(run.id, staleIds);
+    }
+  }
+
   checkAbort(signal);
-  onProgress?.({ phase: "computing_recs", label: "Generating recommendations", current: 0, total: persisted.length });
+  onProgress?.({ phase: "computing_recs", label: "Generating recommendations", current: 0, total: relevantPersisted.length });
   const horizon = monthsBetween(run.horizon_start, run.horizon_end);
   const supplyBySkuPeriod = buildRollingWholesaleSupply(
-    persisted,
+    relevantPersisted,
     { inventorySnapshots: inv, openPos: pos, receipts },
     horizon,
   );
   const asOf = new Date().toISOString().slice(0, 10);
-  const recs = generateWholesaleRecommendations(persisted, supplyBySkuPeriod, asOf);
+  const recs = generateWholesaleRecommendations(relevantPersisted, supplyBySkuPeriod, asOf);
   checkAbort(signal);
-  onProgress?.({ phase: "writing_recs", label: `Writing ${recs.length.toLocaleString()} recommendations` });
-  await wholesaleRepo.replaceRecommendations(run.id, recs);
+  onProgress?.({ phase: "writing_recs", label: `Writing recommendations`, current: 0, total: recs.length });
+  await wholesaleRepo.replaceRecommendations(run.id, recs, {
+    signal,
+    onProgress: (rowsDone, totalRows) => {
+      onProgress?.({ phase: "writing_recs", label: `Writing recommendations`, current: rowsDone, total: totalRows });
+    },
+  });
   onProgress?.({ phase: "done", label: "Done" });
 
   const methods: Record<IpForecastMethod, number> = {
