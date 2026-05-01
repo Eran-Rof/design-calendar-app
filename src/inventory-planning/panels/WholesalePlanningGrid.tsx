@@ -62,7 +62,7 @@ export interface WholesalePlanningGridProps {
 type SortKey =
   | "category" | "subCat" | "style" | "color" | "description" | "customer"
   | "period" | "histT3" | "histLY" | "system" | "buyer" | "override" | "final"
-  | "confidence" | "method" | "onHand" | "onSo" | "onPo" | "receipts" | "histRecv" | "ats"
+  | "confidence" | "method" | "onHand" | "onSo" | "receipts" | "histRecv" | "ats"
   | "buy" | "avgCost" | "unitCost" | "buyDollars" | "shortage" | "excess" | "action";
 
 // Re-export of the type now defined alongside the aggregate logic
@@ -191,7 +191,6 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     { key: "method", label: "Method" },
     { key: "onHand", label: "On hand" },
     { key: "onSo", label: "On SO" },
-    { key: "onPo", label: "On PO" },
     { key: "receipts", label: "Receipts" },
     { key: "histRecv", label: "Hist Recv" },
     { key: "ats", label: "ATS" },
@@ -463,7 +462,6 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               <Th label="Method"      k="method"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("method")} />
               <Th label="On hand"     k="onHand"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("onHand")} />
               <Th label="On SO"       k="onSo"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("onSo")} />
-              <Th label="On PO"       k="onPo"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("onPo")} />
               <Th label="Receipts"    k="receipts"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric title="Open POs scheduled to land in this period (drives supply math)" hidden={hiddenColumns.has("receipts")} />
               <Th label="Hist Recv"   k="histRecv"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.textMuted} title="Past actual receipts in this period — display only, already in On hand" hidden={hiddenColumns.has("histRecv")} />
               <Th label="ATS"         k="ats"         sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("ats")} />
@@ -557,7 +555,6 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 <td style={{ ...S.tdNum, color: r.on_so_qty > 0 ? PAL.yellow : PAL.textMuted, ...colHide("onSo") }}>
                   {r.on_so_qty > 0 ? formatQty(r.on_so_qty) : "—"}
                 </td>
-                <td style={{ ...S.tdNum, ...colHide("onPo") }}>{formatQty(r.on_po_qty)}</td>
                 <td style={{ ...S.tdNum, ...colHide("receipts") }}>{formatQty(r.receipts_due_qty)}</td>
                 <td style={{ ...S.tdNum, color: PAL.textMuted, ...colHide("histRecv") }}>{r.historical_receipts_qty ? formatQty(r.historical_receipts_qty) : "—"}</td>
                 <td style={{ ...S.tdNum, color: PAL.text, ...colHide("ats") }}>{formatQty(r.available_supply_qty)}</td>
@@ -1102,7 +1099,6 @@ function cmp(a: IpPlanningGridRow, b: IpPlanningGridRow, k: SortKey, d: "asc" | 
     case "method":      return cmpStr(a.forecast_method, b.forecast_method, sign);
     case "onHand":      return cmpNum(a.on_hand_qty, b.on_hand_qty, sign);
     case "onSo":        return cmpNum(a.on_so_qty, b.on_so_qty, sign);
-    case "onPo":        return cmpNum(a.on_po_qty, b.on_po_qty, sign);
     case "receipts":    return cmpNum(a.receipts_due_qty, b.receipts_due_qty, sign);
     case "histRecv":    return cmpNum(a.historical_receipts_qty, b.historical_receipts_qty, sign);
     case "ats":         return cmpNum(a.available_supply_qty, b.available_supply_qty, sign);
