@@ -28,7 +28,23 @@ import {
   receiptsDueInPeriod,
   recommendForRow,
 } from "../compute";
-import { wholesaleRepo } from "./wholesalePlanningRepository";
+import { wholesaleRepo, BuildCancelledError } from "./wholesalePlanningRepository";
+
+export { BuildCancelledError };
+
+// Progress events emitted by runForecastPass at each phase boundary so
+// the UI can render a status bar. `current` and `total` are only set on
+// phases where a meaningful row count exists (compute, write).
+export interface BuildProgress {
+  phase: "loading" | "computing" | "writing_forecast" | "reading_back" | "computing_recs" | "writing_recs" | "done";
+  label: string;
+  current?: number;
+  total?: number;
+}
+
+function checkAbort(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new BuildCancelledError();
+}
 
 // Item-master attributes JSONB pulls — keep null-safe so the grid never
 // breaks when an item was created by a sync stub before the Excel master
@@ -106,15 +122,25 @@ export interface BuildFilter {
 
 export interface RunForecastPassOptions {
   filter?: BuildFilter;
+  // Best-effort cancellation. Aborting the signal causes the build to
+  // throw `BuildCancelledError` at the next checkpoint (between phases
+  // or between upsert chunks). Already-flushed rows are NOT rolled back.
+  signal?: AbortSignal;
+  // Status-bar callback. Fires once per phase boundary plus periodically
+  // during the upsert phase (per chunk).
+  onProgress?: (p: BuildProgress) => void;
 }
 
 export async function runForecastPass(run: IpPlanningRun, options: RunForecastPassOptions = {}): Promise<RunForecastPassResult> {
   if (!run.horizon_start || !run.horizon_end) {
     throw new Error("Planning run has no horizon; set horizon_start + horizon_end before running the forecast.");
   }
+  const { signal, onProgress } = options;
   const snapshotDate = run.source_snapshot_date;
   const lookbackFrom = historySince(snapshotDate, 12);
 
+  onProgress?.({ phase: "loading", label: "Loading sales, inventory, POs…" });
+  checkAbort(signal);
   const [items, sales, requests, overrides, inv, pos, receipts, supplyPlaceholder] = await Promise.all([
     wholesaleRepo.listItems(),
     wholesaleRepo.listWholesaleSales(lookbackFrom),
@@ -286,13 +312,27 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
     })),
   };
 
+  checkAbort(signal);
+  onProgress?.({ phase: "computing", label: `Computing forecast for ${pairs.length.toLocaleString()} pairs`, current: 0, total: pairs.length });
   const forecastRows = buildFinalWholesaleForecast(computeInput);
-  await wholesaleRepo.upsertForecast(forecastRows);
 
+  checkAbort(signal);
+  onProgress?.({ phase: "writing_forecast", label: `Writing forecast`, current: 0, total: forecastRows.length });
+  await wholesaleRepo.upsertForecast(forecastRows, {
+    signal,
+    onProgress: (rowsDone, totalRows) => {
+      onProgress?.({ phase: "writing_forecast", label: `Writing forecast`, current: rowsDone, total: totalRows });
+    },
+  });
+
+  checkAbort(signal);
+  onProgress?.({ phase: "reading_back", label: "Reading back persisted forecast" });
   // Read persisted rows — they carry planned_buy_qty from prior planner saves
   // (upsert preserves the column). Rolling supply must use these so buy qty
   // is reflected in recommendations.
   const persisted = await wholesaleRepo.listForecast(run.id);
+  checkAbort(signal);
+  onProgress?.({ phase: "computing_recs", label: "Generating recommendations", current: 0, total: persisted.length });
   const horizon = monthsBetween(run.horizon_start, run.horizon_end);
   const supplyBySkuPeriod = buildRollingWholesaleSupply(
     persisted,
@@ -301,7 +341,10 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
   );
   const asOf = new Date().toISOString().slice(0, 10);
   const recs = generateWholesaleRecommendations(persisted, supplyBySkuPeriod, asOf);
+  checkAbort(signal);
+  onProgress?.({ phase: "writing_recs", label: `Writing ${recs.length.toLocaleString()} recommendations` });
   await wholesaleRepo.replaceRecommendations(run.id, recs);
+  onProgress?.({ phase: "done", label: "Done" });
 
   const methods: Record<IpForecastMethod, number> = {
     ly_sales: 0,

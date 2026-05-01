@@ -28,6 +28,16 @@ function assertSupabase(): void {
   if (!SB_URL) throw new Error("Supabase URL not configured");
 }
 
+// Thrown when an in-flight forecast build is cancelled via AbortSignal.
+// Catch this in the UI to render an informational toast rather than an
+// error toast.
+export class BuildCancelledError extends Error {
+  constructor() {
+    super("Build cancelled");
+    this.name = "BuildCancelledError";
+  }
+}
+
 async function sbGet<T>(path: string): Promise<T[]> {
   assertSupabase();
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: SB_HEADERS });
@@ -228,7 +238,10 @@ export const wholesaleRepo = {
     }
     return out;
   },
-  async upsertForecast(rows: Array<Omit<IpWholesaleForecast, "id" | "created_at" | "updated_at">>): Promise<void> {
+  async upsertForecast(
+    rows: Array<Omit<IpWholesaleForecast, "id" | "created_at" | "updated_at">>,
+    options: { signal?: AbortSignal; onProgress?: (rowsDone: number, totalRows: number) => void } = {},
+  ): Promise<void> {
     if (rows.length === 0) return;
     const url = "ip_wholesale_forecast?on_conflict=planning_run_id,customer_id,sku_id,period_start";
     const prefer = "return=minimal,resolution=merge-duplicates";
@@ -236,9 +249,11 @@ export const wholesaleRepo = {
     // tip past Supabase's 8s statement timeout (57014).
     const INITIAL_CHUNK = 200;
     const MIN_CHUNK = 25;
+    const { signal, onProgress } = options;
 
     type Row = (typeof rows)[number];
     const postChunk = async (chunk: Row[]): Promise<void> => {
+      if (signal?.aborted) throw new BuildCancelledError();
       try {
         await sbPost<IpWholesaleForecast>(url, chunk, prefer);
       } catch (e) {
@@ -265,8 +280,12 @@ export const wholesaleRepo = {
       }
     };
 
+    let done = 0;
     for (let i = 0; i < rows.length; i += INITIAL_CHUNK) {
-      await postChunk(rows.slice(i, i + INITIAL_CHUNK));
+      const chunk = rows.slice(i, i + INITIAL_CHUNK);
+      await postChunk(chunk);
+      done += chunk.length;
+      onProgress?.(done, rows.length);
     }
   },
   async patchForecastOverride(
