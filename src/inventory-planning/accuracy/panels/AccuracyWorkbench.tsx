@@ -97,8 +97,41 @@ export default function AccuracyWorkbench() {
     }
   }, [loadRuns, loadRunData]);
 
-  useEffect(() => { void refresh(); /* eslint-disable-line */ }, []);
-  useEffect(() => { if (selected) void loadRunData(); /* eslint-disable-line */ }, [selectedRunId]);
+  // Initial mount: masters + runs only. Don't call refresh — its
+  // trailing loadRunData() races the [selectedRunId] effect's
+  // loadRunData() once setSelectedRunId propagates. Same fix pattern
+  // as WholesalePlanningWorkbench.
+  useEffect(() => {
+    setLoading(true);
+    (async () => {
+      try {
+        const [its, cats, custs, chs] = await Promise.all([
+          wholesaleRepo.listItems(),
+          wholesaleRepo.listCategories(),
+          wholesaleRepo.listCustomers(),
+          ecomRepo.listChannels(),
+        ]);
+        setItems(its);
+        setCategories(cats);
+        setCustomers(custs);
+        setChannels(chs);
+        await loadRuns();
+      } catch (e) {
+        setToast({ text: "Load failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+      } finally {
+        setLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (!selected) return;
+    setLoading(true);
+    loadRunData()
+      .catch((e) => setToast({ text: "Load failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" }))
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRunId]);
 
   async function runPass() {
     if (!selected) { setToast({ text: "Pick a run first", kind: "error" }); return; }

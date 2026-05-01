@@ -76,18 +76,33 @@ export const ecomRepo = {
     if (rows.length === 0) return;
     const url = "ip_ecom_forecast?on_conflict=planning_run_id,channel_id,sku_id,week_start";
     const prefer = "return=minimal,resolution=merge-duplicates";
-    for (let i = 0; i < rows.length; i += 500) {
-      const chunk = rows.slice(i, i + 500);
+    // Same chunk-halving pattern as wholesalePlanningRepository.upsertForecast.
+    // Initial 200, halve on 57014, floor 25.
+    const INITIAL_CHUNK = 200;
+    const MIN_CHUNK = 25;
+    type Row = (typeof rows)[number];
+    const postChunk = async (chunk: Row[]): Promise<void> => {
       try {
         await sbPost<IpEcomForecast>(url, chunk, prefer);
       } catch (e) {
-        if (e instanceof Error && e.message.includes("PGRST204") && e.message.includes("planned_buy_qty")) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes("PGRST204") && msg.includes("planned_buy_qty")) {
           const stripped = chunk.map(({ planned_buy_qty: _a, ...rest }) => rest);
           await sbPost<IpEcomForecast>(url, stripped, prefer);
-        } else {
-          throw e;
+          return;
         }
+        if (msg.includes("57014") && chunk.length > MIN_CHUNK) {
+          const half = Math.max(MIN_CHUNK, Math.floor(chunk.length / 2));
+          for (let j = 0; j < chunk.length; j += half) {
+            await postChunk(chunk.slice(j, j + half));
+          }
+          return;
+        }
+        throw e;
       }
+    };
+    for (let i = 0; i < rows.length; i += INITIAL_CHUNK) {
+      await postChunk(rows.slice(i, i + INITIAL_CHUNK));
     }
   },
   async patchForecastBuyQty(forecastId: string, planned_buy_qty: number | null): Promise<IpEcomForecast> {

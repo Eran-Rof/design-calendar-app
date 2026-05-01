@@ -208,7 +208,12 @@ export interface IpPlanningGridRow {
   on_hand_qty: number | null;
   on_so_qty: number;
   on_po_qty: number | null;
+  // Future inbound: open POs scheduled to land in the period (expected_date
+  // in [period_start, period_end]). Drives supply math.
   receipts_due_qty: number | null;
+  // Past actual receipts that landed in the period — display only,
+  // already reflected in on_hand_qty so does not feed supply math.
+  historical_receipts_qty: number | null;
   available_supply_qty: number;
   projected_shortage_qty: number;
   projected_excess_qty: number;

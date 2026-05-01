@@ -62,7 +62,7 @@ export interface WholesalePlanningGridProps {
 type SortKey =
   | "category" | "subCat" | "style" | "color" | "description" | "customer"
   | "period" | "histT3" | "histLY" | "system" | "buyer" | "override" | "final"
-  | "confidence" | "method" | "onHand" | "onSo" | "onPo" | "receipts" | "ats"
+  | "confidence" | "method" | "onHand" | "onSo" | "onPo" | "receipts" | "histRecv" | "ats"
   | "buy" | "avgCost" | "unitCost" | "buyDollars" | "shortage" | "excess" | "action";
 
 // Re-export of the type now defined alongside the aggregate logic
@@ -171,6 +171,59 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     G: "Girls",
   };
   const genderLabel = (code: string): string => GENDER_LABELS[code] ?? code;
+
+  // Column visibility — every column except the small lock set
+  // (customer / period / final / buy / action) can be hidden via
+  // the "Columns" popover. Persisted to localStorage so refresh
+  // keeps the planner's preference.
+  const TOGGLEABLE_COLUMNS: Array<{ key: string; label: string }> = [
+    { key: "category", label: "Category" },
+    { key: "subCat", label: "Sub Cat" },
+    { key: "style", label: "Style" },
+    { key: "color", label: "Color" },
+    { key: "description", label: "Description" },
+    { key: "histT3", label: "Hist T3" },
+    { key: "histLY", label: "Hist LY" },
+    { key: "system", label: "System" },
+    { key: "buyer", label: "Buyer" },
+    { key: "override", label: "Override" },
+    { key: "confidence", label: "Conf." },
+    { key: "method", label: "Method" },
+    { key: "onHand", label: "On hand" },
+    { key: "onSo", label: "On SO" },
+    { key: "onPo", label: "On PO" },
+    { key: "receipts", label: "Receipts" },
+    { key: "histRecv", label: "Hist Recv" },
+    { key: "ats", label: "ATS" },
+    { key: "avgCost", label: "Avg Cost" },
+    { key: "unitCost", label: "Unit Cost" },
+    { key: "buyDollars", label: "Buy $" },
+    { key: "shortage", label: "Short" },
+    { key: "excess", label: "Excess" },
+  ];
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem("ws_planning_hidden_columns");
+      if (!raw) return new Set();
+      const arr = JSON.parse(raw);
+      return new Set(Array.isArray(arr) ? arr : []);
+    } catch { return new Set(); }
+  });
+  function toggleColumn(key: string) {
+    setHiddenColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      try { localStorage.setItem("ws_planning_hidden_columns", JSON.stringify(Array.from(next))); }
+      catch { /* ignore quota */ }
+      return next;
+    });
+  }
+  function resetColumns() {
+    setHiddenColumns(new Set());
+    try { localStorage.removeItem("ws_planning_hidden_columns"); } catch { /* ignore */ }
+  }
+  const colHide = (key: string): React.CSSProperties | undefined =>
+    hiddenColumns.has(key) ? { display: "none" } : undefined;
 
   const periods = useMemo(() => {
     const s = new Set<string>();
@@ -341,6 +394,12 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           setSearch(""); setFilterCustomer("all"); setFilterCategory("all"); setFilterSubCat("all"); setFilterGender("all"); setFilterPeriod("all");
           setFilterAction("all"); setFilterConfidence("all"); setFilterMethod("all");
         }}>Clear</button>
+        <ColumnsButton
+          columns={TOGGLEABLE_COLUMNS}
+          hidden={hiddenColumns}
+          onToggle={toggleColumn}
+          onReset={resetColumns}
+        />
         <CollapseToggle
           label={systemSuggestionsOn ? "System suggestions: ON" : "System suggestions: OFF"}
           active={!systemSuggestionsOn}
@@ -374,32 +433,33 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         <table style={S.table}>
           <thead>
             <tr>
-              <Th label="Category"    k="category"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <Th label="Sub Cat"     k="subCat"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <Th label="Style"       k="style"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <Th label="Color"       k="color"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <Th label="Description" k="description" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Th label="Category"    k="category"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("category")} />
+              <Th label="Sub Cat"     k="subCat"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("subCat")} />
+              <Th label="Style"       k="style"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("style")} />
+              <Th label="Color"       k="color"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("color")} />
+              <Th label="Description" k="description" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("description")} />
               <Th label="Customer"    k="customer"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <Th label="Period"      k="period"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <Th label="Hist T3"     k="histT3"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Hist LY"     k="histLY"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="System"      k="system"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Buyer"       k="buyer"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Override"    k="override"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Hist T3"     k="histT3"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("histT3")} />
+              <Th label="Hist LY"     k="histLY"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("histLY")} />
+              <Th label="System"      k="system"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("system")} />
+              <Th label="Buyer"       k="buyer"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("buyer")} />
+              <Th label="Override"    k="override"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("override")} />
               <Th label="Final"       k="final"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Conf."       k="confidence"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <Th label="Method"      k="method"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <Th label="On hand"     k="onHand"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="On SO"       k="onSo"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="On PO"       k="onPo"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Receipts"    k="receipts"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="ATS"         k="ats"         sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Conf."       k="confidence"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("confidence")} />
+              <Th label="Method"      k="method"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("method")} />
+              <Th label="On hand"     k="onHand"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("onHand")} />
+              <Th label="On SO"       k="onSo"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("onSo")} />
+              <Th label="On PO"       k="onPo"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("onPo")} />
+              <Th label="Receipts"    k="receipts"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric title="Open POs scheduled to land in this period (drives supply math)" hidden={hiddenColumns.has("receipts")} />
+              <Th label="Hist Recv"   k="histRecv"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.textMuted} title="Past actual receipts in this period — display only, already in On hand" hidden={hiddenColumns.has("histRecv")} />
+              <Th label="ATS"         k="ats"         sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("ats")} />
               <Th label="Buy"         k="buy"         sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.green} />
-              <Th label="Avg Cost"    k="avgCost"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.textMuted} title="From ip_item_avg_cost (Xoro / Excel ingest)" />
-              <Th label="Unit Cost"   k="unitCost"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.accent2} title="Auto-filled from Avg Cost — editable" />
-              <Th label="Buy $"       k="buyDollars"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.green} />
-              <Th label="Short"       k="shortage"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Excess"      k="excess"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Avg Cost"    k="avgCost"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.textMuted} title="From ip_item_avg_cost (Xoro / Excel ingest)" hidden={hiddenColumns.has("avgCost")} />
+              <Th label="Unit Cost"   k="unitCost"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.accent2} title="Auto-filled from Avg Cost — editable" hidden={hiddenColumns.has("unitCost")} />
+              <Th label="Buy $"       k="buyDollars"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.green} hidden={hiddenColumns.has("buyDollars")} />
+              <Th label="Short"       k="shortage"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("shortage")} />
+              <Th label="Excess"      k="excess"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("excess")} />
               <Th label="Action"      k="action"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             </tr>
           </thead>
@@ -411,20 +471,20 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 title={r.is_aggregate ? `Aggregate of ${r.aggregate_count ?? 1} rows — toggle off Collapse to drill in` : "Right-click for more info"}
                 style={r.is_aggregate ? { background: PAL.panelMuted ?? "rgba(255,255,255,0.03)" } : undefined}
               >
-                <td style={{ ...S.td, color: PAL.textDim }}>{r.group_name ?? "–"}</td>
-                <td style={{ ...S.td, color: PAL.textDim }}>{r.sub_category_name ?? "–"}</td>
-                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>{r.sku_style ?? r.sku_code}</td>
-                <td style={{ ...S.td, color: PAL.textDim }}>{r.sku_color ?? "—"}</td>
-                <td style={{ ...S.td, color: PAL.textDim, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.sku_description ?? ""}>
+                <td style={{ ...S.td, color: PAL.textDim, ...colHide("category") }}>{r.group_name ?? "–"}</td>
+                <td style={{ ...S.td, color: PAL.textDim, ...colHide("subCat") }}>{r.sub_category_name ?? "–"}</td>
+                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent, ...colHide("style") }}>{r.sku_style ?? r.sku_code}</td>
+                <td style={{ ...S.td, color: PAL.textDim, ...colHide("color") }}>{r.sku_color ?? "—"}</td>
+                <td style={{ ...S.td, color: PAL.textDim, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", ...colHide("description") }} title={r.sku_description ?? ""}>
                   {r.sku_description ?? "—"}
                 </td>
                 <td style={S.td}>{r.customer_name}</td>
                 <td style={S.td}>{formatPeriodCode(r.period_code)}</td>
-                <td style={S.tdNum}>{formatQty(r.historical_trailing_qty)}</td>
-                <td style={{ ...S.tdNum, color: r.forecast_method === "ly_sales" && r.ly_reference_qty != null ? PAL.accent2 : PAL.textMuted }}>
+                <td style={{ ...S.tdNum, ...colHide("histT3") }}>{formatQty(r.historical_trailing_qty)}</td>
+                <td style={{ ...S.tdNum, color: r.forecast_method === "ly_sales" && r.ly_reference_qty != null ? PAL.accent2 : PAL.textMuted, ...colHide("histLY") }}>
                   {r.ly_reference_qty != null ? formatQty(r.ly_reference_qty) : "—"}
                 </td>
-                <td style={{ ...S.tdNum, padding: "0 4px" }} onClick={(e) => e.stopPropagation()}>
+                <td style={{ ...S.tdNum, padding: "0 4px", ...colHide("system") }} onClick={(e) => e.stopPropagation()}>
                   {r.is_aggregate ? (
                     <span style={{ fontFamily: "monospace", color: PAL.text }}>
                       {formatQty(r.system_forecast_qty)}
@@ -439,7 +499,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                     />
                   )}
                 </td>
-                <td style={{ ...S.tdNum, padding: "0 4px" }}>
+                <td style={{ ...S.tdNum, padding: "0 4px", ...colHide("buyer") }}>
                   {r.is_aggregate ? (
                     <span style={{ fontFamily: "monospace", color: r.buyer_request_qty !== 0 ? PAL.accent : PAL.textMuted }}>
                       {formatQty(r.buyer_request_qty)}
@@ -453,7 +513,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                     />
                   )}
                 </td>
-                <td style={{ ...S.tdNum, padding: "0 4px" }}>
+                <td style={{ ...S.tdNum, padding: "0 4px", ...colHide("override") }}>
                   {r.is_aggregate ? (
                     <span style={{ fontFamily: "monospace", color: r.override_qty !== 0 ? PAL.yellow : PAL.textMuted }}>
                       {formatQty(r.override_qty)}
@@ -470,23 +530,24 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 <td style={{ ...S.tdNum, color: PAL.green, fontWeight: 700 }}>
                   {formatQty(r.final_forecast_qty)}
                 </td>
-                <td style={S.td}>
+                <td style={{ ...S.td, ...colHide("confidence") }}>
                   <span style={{ ...S.chip, background: CONFIDENCE_COLOR[r.confidence_level] + "33", color: CONFIDENCE_COLOR[r.confidence_level] }}>
                     {r.confidence_level}
                   </span>
                 </td>
-                <td style={S.td}>
+                <td style={{ ...S.td, ...colHide("method") }}>
                   <span style={{ ...S.chip, background: (METHOD_COLOR[r.forecast_method] ?? PAL.textMuted) + "22", color: METHOD_COLOR[r.forecast_method] ?? PAL.textMuted }}>
                     {METHOD_LABEL[r.forecast_method] ?? r.forecast_method}
                   </span>
                 </td>
-                <td style={S.tdNum}>{formatQty(r.on_hand_qty)}</td>
-                <td style={{ ...S.tdNum, color: r.on_so_qty > 0 ? PAL.yellow : PAL.textMuted }}>
+                <td style={{ ...S.tdNum, ...colHide("onHand") }}>{formatQty(r.on_hand_qty)}</td>
+                <td style={{ ...S.tdNum, color: r.on_so_qty > 0 ? PAL.yellow : PAL.textMuted, ...colHide("onSo") }}>
                   {r.on_so_qty > 0 ? formatQty(r.on_so_qty) : "—"}
                 </td>
-                <td style={S.tdNum}>{formatQty(r.on_po_qty)}</td>
-                <td style={S.tdNum}>{formatQty(r.receipts_due_qty)}</td>
-                <td style={{ ...S.tdNum, color: PAL.text }}>{formatQty(r.available_supply_qty)}</td>
+                <td style={{ ...S.tdNum, ...colHide("onPo") }}>{formatQty(r.on_po_qty)}</td>
+                <td style={{ ...S.tdNum, ...colHide("receipts") }}>{formatQty(r.receipts_due_qty)}</td>
+                <td style={{ ...S.tdNum, color: PAL.textMuted, ...colHide("histRecv") }}>{r.historical_receipts_qty ? formatQty(r.historical_receipts_qty) : "—"}</td>
+                <td style={{ ...S.tdNum, color: PAL.text, ...colHide("ats") }}>{formatQty(r.available_supply_qty)}</td>
                 <td style={{ ...S.tdNum, padding: "0 4px" }} onClick={(e) => e.stopPropagation()}>
                   {r.is_aggregate ? (() => {
                     // Aggregate Buy is bucket-level: a single qty
@@ -518,10 +579,10 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                     />
                   )}
                 </td>
-                <td style={{ ...S.tdNum, color: r.avg_cost ? PAL.text : PAL.textMuted, fontFamily: "monospace" }}>
+                <td style={{ ...S.tdNum, color: r.avg_cost ? PAL.text : PAL.textMuted, fontFamily: "monospace", ...colHide("avgCost") }}>
                   {r.avg_cost ? `$${r.avg_cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "–"}
                 </td>
-                <td style={{ ...S.tdNum, padding: "0 4px" }} onClick={(e) => e.stopPropagation()}>
+                <td style={{ ...S.tdNum, padding: "0 4px", ...colHide("unitCost") }} onClick={(e) => e.stopPropagation()}>
                   {r.is_aggregate ? (
                     <span style={{ fontFamily: "monospace", color: r.unit_cost != null ? PAL.accent2 : PAL.textMuted }}>
                       {r.unit_cost != null ? `$${r.unit_cost.toFixed(2)}` : "—"}
@@ -539,15 +600,15 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   const cost = r.unit_cost;
                   const hasCost = qty != null && qty > 0 && cost != null && cost > 0;
                   return (
-                    <td style={{ ...S.tdNum, color: hasCost ? PAL.green : PAL.textMuted, fontFamily: "monospace" }}>
+                    <td style={{ ...S.tdNum, color: hasCost ? PAL.green : PAL.textMuted, fontFamily: "monospace", ...colHide("buyDollars") }}>
                       {hasCost ? `$${(qty * cost).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "–"}
                     </td>
                   );
                 })()}
-                <td style={{ ...S.tdNum, color: r.projected_shortage_qty > 0 ? PAL.red : PAL.textMuted }}>
+                <td style={{ ...S.tdNum, color: r.projected_shortage_qty > 0 ? PAL.red : PAL.textMuted, ...colHide("shortage") }}>
                   {formatQty(r.projected_shortage_qty)}
                 </td>
-                <td style={{ ...S.tdNum, color: r.projected_excess_qty > 0 ? PAL.yellow : PAL.textMuted }}>
+                <td style={{ ...S.tdNum, color: r.projected_excess_qty > 0 ? PAL.yellow : PAL.textMuted, ...colHide("excess") }}>
                   {formatQty(r.projected_excess_qty)}
                 </td>
                 <td style={S.td}>
@@ -594,15 +655,123 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   );
 }
 
-function Th({ label, k, sortKey, sortDir, onSort, numeric, tint, title }: {
+function ColumnsButton({
+  columns,
+  hidden,
+  onToggle,
+  onReset,
+}: {
+  columns: Array<{ key: string; label: string }>;
+  hidden: Set<string>;
+  onToggle: (key: string) => void;
+  onReset: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const hiddenCount = hidden.size;
+  return (
+    <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
+      <button
+        type="button"
+        style={S.btnSecondary}
+        onClick={() => setOpen((v) => !v)}
+        title="Show or hide grid columns"
+      >
+        Columns{hiddenCount > 0 ? ` (${hiddenCount} hidden)` : ""}
+      </button>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 4px)",
+            right: 0,
+            zIndex: 50,
+            background: PAL.panel,
+            border: `1px solid ${PAL.border}`,
+            borderRadius: 8,
+            minWidth: 220,
+            maxHeight: 420,
+            overflowY: "auto",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+          }}
+        >
+          <div style={{
+            padding: "8px 12px",
+            borderBottom: `1px solid ${PAL.borderFaint}`,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            fontSize: 12,
+            color: PAL.textMuted,
+            textTransform: "uppercase",
+            letterSpacing: 1,
+          }}>
+            <span>Visible columns</span>
+            <button type="button" style={{ ...S.btnGhost, fontSize: 11 }} onClick={onReset}>Show all</button>
+          </div>
+          {columns.map((c) => {
+            const visible = !hidden.has(c.key);
+            return (
+              <label
+                key={c.key}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 12px",
+                  cursor: "pointer",
+                  fontSize: 13,
+                  color: visible ? PAL.text : PAL.textMuted,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={visible}
+                  onChange={() => onToggle(c.key)}
+                />
+                {c.label}
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Th({ label, k, sortKey, sortDir, onSort, numeric, tint, title, hidden }: {
   label: string; k: SortKey; sortKey: SortKey; sortDir: "asc" | "desc";
-  onSort: (k: SortKey) => void; numeric?: boolean; tint?: string; title?: string;
+  onSort: (k: SortKey) => void; numeric?: boolean; tint?: string; title?: string; hidden?: boolean;
 }) {
   const active = sortKey === k;
   const baseColor = tint ?? (active ? PAL.text : PAL.textMuted);
   return (
     <th
-      style={{ ...S.th, cursor: "pointer", textAlign: numeric ? "right" : "left", color: active ? PAL.text : baseColor, userSelect: "none" }}
+      style={{
+        ...S.th,
+        cursor: "pointer",
+        textAlign: numeric ? "right" : "left",
+        color: active ? PAL.text : baseColor,
+        userSelect: "none",
+        ...(hidden ? { display: "none" as const } : null),
+      }}
       onClick={() => onSort(k)}
       title={title}
     >
@@ -922,6 +1091,7 @@ function cmp(a: IpPlanningGridRow, b: IpPlanningGridRow, k: SortKey, d: "asc" | 
     case "onSo":        return cmpNum(a.on_so_qty, b.on_so_qty, sign);
     case "onPo":        return cmpNum(a.on_po_qty, b.on_po_qty, sign);
     case "receipts":    return cmpNum(a.receipts_due_qty, b.receipts_due_qty, sign);
+    case "histRecv":    return cmpNum(a.historical_receipts_qty, b.historical_receipts_qty, sign);
     case "ats":         return cmpNum(a.available_supply_qty, b.available_supply_qty, sign);
     case "buy":         return cmpNum(a.planned_buy_qty, b.planned_buy_qty, sign);
     case "avgCost":     return cmpNum(a.avg_cost, b.avg_cost, sign);

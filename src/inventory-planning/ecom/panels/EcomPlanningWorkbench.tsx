@@ -90,13 +90,24 @@ export default function EcomPlanningWorkbench() {
     }
   }, [loadRuns, loadRunData]);
 
+  // Initial mount: load runs ONLY. Don't call refreshAll — its trailing
+  // loadRunData() would race the [selectedRun] effect's loadRunData()
+  // once setSelectedRunId(active.id) inside loadRuns propagates. Same
+  // class of bug fixed in WholesalePlanningWorkbench.
   useEffect(() => {
-    void refreshAll();
+    setLoading(true);
+    loadRuns()
+      .catch((e) => setToast({ text: "Load failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" }))
+      .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (selectedRun) void loadRunData();
+    if (!selectedRun) return;
+    setLoading(true);
+    loadRunData()
+      .catch((e) => setToast({ text: "Load failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" }))
+      .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRun]);
 

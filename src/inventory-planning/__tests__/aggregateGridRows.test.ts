@@ -42,6 +42,7 @@ function row(p: Partial<IpPlanningGridRow>): IpPlanningGridRow {
     on_so_qty: 0,
     on_po_qty: 0,
     receipts_due_qty: 0,
+    historical_receipts_qty: 0,
     available_supply_qty: 0,
     projected_shortage_qty: 0,
     projected_excess_qty: 0,

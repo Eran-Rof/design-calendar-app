@@ -95,8 +95,34 @@ export default function ReconciliationWorkbench() {
     }
   }, [loadRuns, loadRunData]);
 
-  useEffect(() => { void refresh(); /* eslint-disable-line */ }, []);
-  useEffect(() => { if (selectedRun) void loadRunData(); /* eslint-disable-line */ }, [selectedRunId]);
+  // Initial mount: masters + runs only. Don't call refresh — its
+  // trailing loadRunData() races the [selectedRunId] effect's
+  // loadRunData() once setSelectedRunId propagates. Same fix pattern
+  // as WholesalePlanningWorkbench.
+  useEffect(() => {
+    setLoading(true);
+    (async () => {
+      try {
+        const [its, rs] = await Promise.all([wholesaleRepo.listItems(), supplyRepo.listAllRules()]);
+        setItems(its);
+        setRules(rs);
+        await loadRuns();
+      } catch (e) {
+        setToast({ text: "Load failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+      } finally {
+        setLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (!selectedRun) return;
+    setLoading(true);
+    loadRunData()
+      .catch((e) => setToast({ text: "Load failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" }))
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRunId]);
 
   async function runPass() {
     if (!selectedRun) { setToast({ text: "Pick a run first", kind: "error" }); return; }
