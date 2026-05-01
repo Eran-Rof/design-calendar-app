@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { IpPlanningGridRow } from "../types/wholesale";
 import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, formatQty, formatPeriodCode } from "../components/styles";
+import { SearchableSelect } from "../components/SearchableSelect";
 import { aggregateRows, type CollapseModes as ExtractedCollapseModes } from "./aggregateGridRows";
 import { bucketKeyFor, type BucketKeyFilters } from "./bucketBuyKey";
 
@@ -244,18 +245,27 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       <div style={S.toolbar}>
         <input style={{ ...S.input, width: 240 }} placeholder="Search customer / SKU / category"
                value={search} onChange={(e) => setSearch(e.target.value)} />
-        <select style={S.select} value={filterCustomer} onChange={(e) => setFilterCustomer(e.target.value)}>
-          <option value="all">All customers</option>
-          {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-        <select style={S.select} value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
-          <option value="all">All categories</option>
-          {groupNames.map((g) => <option key={g} value={g}>{g}</option>)}
-        </select>
-        <select style={S.select} value={filterSubCat} onChange={(e) => setFilterSubCat(e.target.value)}>
-          <option value="all">All sub cats</option>
-          {subCategoryNames.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <SearchableSelect
+          value={filterCustomer}
+          onChange={setFilterCustomer}
+          allLabel="All customers"
+          placeholder="Search customers…"
+          options={customers.map((c) => ({ value: c.id, label: c.name }))}
+        />
+        <SearchableSelect
+          value={filterCategory}
+          onChange={setFilterCategory}
+          allLabel="All categories"
+          placeholder="Search categories…"
+          options={groupNames.map((g) => ({ value: g, label: g }))}
+        />
+        <SearchableSelect
+          value={filterSubCat}
+          onChange={setFilterSubCat}
+          allLabel="All sub cats"
+          placeholder="Search sub cats…"
+          options={subCategoryNames.map((s) => ({ value: s, label: s }))}
+        />
         <select style={S.select} value={filterGender} onChange={(e) => setFilterGender(e.target.value)} title="Gender filter — sourced from item-master GenderCode. No grid column rendered.">
           <option value="all">All genders</option>
           {genders.map((g) => <option key={g} value={g}>{genderLabel(g)}</option>)}
