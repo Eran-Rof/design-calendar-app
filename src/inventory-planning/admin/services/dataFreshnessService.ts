@@ -56,24 +56,54 @@ export function toSignal(
 }
 
 // Build all signals the admin dashboard cares about.
+//
+// Each entity has a primary source (the fact/normalized table that
+// actually holds the data) and an optional fallback (the raw-payload
+// table written by the original Xoro/Shopify cron path). When the
+// fact table has rows, its latest created_at wins. The fallback only
+// fires when the fact table is genuinely empty AND the raw table
+// has data — that way Excel-driven ingest (which never populates
+// raw_xoro_payloads) doesn't trigger false-positive "never" warnings.
 export async function loadFreshnessSignals(): Promise<IpFreshnessSignal[]> {
   const map = await thresholdsByEntity();
-  const sources: Array<{ entity: string; path: string; column: string }> = [
-    { entity: "xoro_sales_history", path: "raw_xoro_payloads?endpoint=eq.sales-history",      column: "ingested_at" },
-    { entity: "xoro_inventory",     path: "raw_xoro_payloads?endpoint=eq.inventory-snapshot", column: "ingested_at" },
-    { entity: "xoro_open_pos",      path: "raw_xoro_payloads?endpoint=eq.open-pos",           column: "ingested_at" },
-    { entity: "shopify_orders",     path: "raw_shopify_payloads?endpoint=eq.orders",          column: "ingested_at" },
-    { entity: "shopify_products",   path: "raw_shopify_payloads?endpoint=eq.products",        column: "ingested_at" },
-    { entity: "planning_run",       path: "ip_planning_runs?select=updated_at",               column: "updated_at" },
-    { entity: "wholesale_forecast", path: "ip_wholesale_forecast?select=updated_at",          column: "updated_at" },
-    { entity: "ecom_forecast",      path: "ip_ecom_forecast?select=updated_at",               column: "updated_at" },
+  const sources: Array<{ entity: string; primary: { path: string; column: string }; fallback?: { path: string; column: string } }> = [
+    {
+      entity: "xoro_sales_history",
+      primary: { path: "ip_sales_history_wholesale?select=created_at", column: "created_at" },
+      fallback: { path: "raw_xoro_payloads?endpoint=eq.sales-history", column: "ingested_at" },
+    },
+    {
+      entity: "xoro_inventory",
+      primary: { path: "ip_inventory_snapshot?select=created_at", column: "created_at" },
+      fallback: { path: "raw_xoro_payloads?endpoint=eq.inventory-snapshot", column: "ingested_at" },
+    },
+    {
+      entity: "xoro_open_pos",
+      primary: { path: "ip_open_purchase_orders?select=created_at", column: "created_at" },
+      fallback: { path: "raw_xoro_payloads?endpoint=eq.open-pos", column: "ingested_at" },
+    },
+    {
+      entity: "shopify_orders",
+      primary: { path: "ip_sales_history_ecom?select=created_at", column: "created_at" },
+      fallback: { path: "raw_shopify_payloads?endpoint=eq.orders", column: "ingested_at" },
+    },
+    {
+      entity: "shopify_products",
+      primary: { path: "raw_shopify_payloads?endpoint=eq.products", column: "ingested_at" },
+    },
+    { entity: "planning_run",       primary: { path: "ip_planning_runs?select=updated_at", column: "updated_at" } },
+    { entity: "wholesale_forecast", primary: { path: "ip_wholesale_forecast?select=updated_at", column: "updated_at" } },
+    { entity: "ecom_forecast",      primary: { path: "ip_ecom_forecast?select=updated_at", column: "updated_at" } },
   ];
 
   const signals: IpFreshnessSignal[] = [];
   for (const s of sources) {
     const threshold = map.get(s.entity);
     if (!threshold) continue;
-    const ts = await sbMaxTimestamp(s.path, s.column);
+    let ts = await sbMaxTimestamp(s.primary.path, s.primary.column);
+    if (ts == null && s.fallback) {
+      ts = await sbMaxTimestamp(s.fallback.path, s.fallback.column);
+    }
     signals.push(toSignal(s.entity, threshold, ts));
   }
   return signals;
