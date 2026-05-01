@@ -217,24 +217,42 @@ export const wholesaleRepo = {
   },
 
   // ── Forecast rows ────────────────────────────────────────────────────────
-  // PostgREST caps single-fetch responses (typically 1000 rows on default
-  // configurations) regardless of the limit= value, so paginate explicitly.
-  // Without this, multi-month horizons silently truncated to the earliest
-  // periods only — the user saw "only Apr/May" when the run spanned Apr–Aug.
+  // Cursor-based seek pagination (id > last_seen_id) instead of OFFSET.
+  // Two reasons:
+  //   1) OFFSET 0 with ORDER BY id was timing out (57014) when the
+  //      composite index (planning_run_id, id) wasn't available — the
+  //      fallback plan sorts the entire matching set before slicing.
+  //      A range scan over the PK btree avoids the sort entirely.
+  //   2) Page-size halving on 57014: if a single 500-row page still
+  //      times out, retry from the same cursor with half the page.
+  //      Mirrors the upsert side's halving pattern.
   async listForecast(planningRunId: string): Promise<IpWholesaleForecast[]> {
-    // No ORDER BY — the multi-column sort hammered the 8s statement
-    // timeout once the forecast grew past ~10k rows. Caller loads
-    // everything into memory and joins; row order doesn't matter.
-    // Order by id (PK) gives us a stable cursor for offset paging.
     const out: IpWholesaleForecast[] = [];
-    const PAGE = 1000;
-    for (let offset = 0; ; offset += PAGE) {
-      const chunk = await sbGet<IpWholesaleForecast>(
-        `ip_wholesale_forecast?select=*&planning_run_id=eq.${planningRunId}&order=id.asc&limit=${PAGE}&offset=${offset}`,
-      );
+    const INITIAL_PAGE = 500;
+    const MIN_PAGE = 50;
+    let cursor: string | null = null;
+    let page = INITIAL_PAGE;
+
+    while (true) {
+      const cursorClause = cursor ? `&id=gt.${cursor}` : "";
+      const url = `ip_wholesale_forecast?select=*&planning_run_id=eq.${planningRunId}${cursorClause}&order=id.asc&limit=${page}`;
+      let chunk: IpWholesaleForecast[];
+      try {
+        chunk = await sbGet<IpWholesaleForecast>(url);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes("57014") && page > MIN_PAGE) {
+          page = Math.max(MIN_PAGE, Math.floor(page / 2));
+          continue;
+        }
+        throw e;
+      }
       out.push(...chunk);
-      if (chunk.length < PAGE) break;
-      if (offset > 1_000_000) break;
+      if (chunk.length < page) break;
+      cursor = chunk[chunk.length - 1].id;
+      // Once we recover from a timeout, keep walking at the smaller
+      // page size — bumping back up just risks tripping the same wall.
+      if (out.length > 5_000_000) break;
     }
     return out;
   },
