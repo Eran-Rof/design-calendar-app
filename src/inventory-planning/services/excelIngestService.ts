@@ -473,22 +473,36 @@ export async function ingestItemMasterExcel(
 
   for (const r of rows) {
     // SKU: direct column or compose from Style + Color.
-    // SKU = BasePartNumber (style-only), no color or size suffix.
-    // Color and size live on dedicated columns. This matches how the
-    // supply sources (Xoro / ATS / TandA) report inventory at the
-    // base-style grain. If BasePartNumber is missing, fall back to
-    // the SKU column with its size/PPK suffix stripped — keeps the
-    // ingest robust against partial sheets.
+    // SKU resolution:
+    //   • Default: SKU = BasePartNumber (style-only). Color and size
+    //     live on dedicated columns. Matches how supply sources
+    //     (Xoro / ATS / TandA) report inventory at the base-style grain.
+    //   • Pre-packs: when ANY of color / size / description / SKU
+    //     contains "PPK", use the full ItemNumber as both sku_code AND
+    //     style_code so the pre-pack stays SEPARATE from its base
+    //     style. Without this, base RBB0185 ($4 unit) and pre-pack
+    //     RBB0185-03SFPPK ($192 pack) collapse together when grouped
+    //     by style and the cost surfaces as the pack cost.
     const explicitStyle = String(pick(r, STYLE_ALIASES) ?? "").trim();
     const explicitColor = String(pick(r, COLOR_ALIASES) ?? "").trim() || null;
     const explicitSize = String(pick(r, SIZE_ALIASES) ?? "").trim() || null;
+    const explicitSkuRaw = canon(pick(r, SKU_ALIASES) as string);
+    const descRaw = String(pick(r, DESC_ALIASES) ?? "").trim();
+    const isPrepack =
+      /PPK/i.test(explicitColor ?? "") ||
+      /PPK/i.test(explicitSize ?? "") ||
+      /PPK/i.test(descRaw) ||
+      /PPK/i.test(explicitSkuRaw ?? "");
     let sku: string;
-    if (explicitStyle) {
+    if (isPrepack && explicitSkuRaw) {
+      // Use the full ItemNumber so pre-pack is its own product.
+      sku = explicitSkuRaw;
+    } else if (explicitStyle) {
       sku = canon(explicitStyle);
+    } else if (explicitSkuRaw) {
+      sku = stripSizeSuffix(explicitSkuRaw);
     } else {
-      const fallback = canon(pick(r, SKU_ALIASES) as string);
-      if (!fallback) { result.skipped_no_sku++; continue; }
-      sku = stripSizeSuffix(fallback);
+      result.skipped_no_sku++; continue;
     }
     if (!sku || seenSkus.has(sku)) {
       if (!sku) result.skipped_no_sku++;
@@ -496,9 +510,11 @@ export async function ingestItemMasterExcel(
     }
     seenSkus.add(sku);
 
-    const style = explicitStyle ? canon(explicitStyle) : sku;
+    // For pre-packs, style_code = sku_code so masterByStyle never
+    // collides them with the base. For everything else, style_code =
+    // BasePartNumber as before.
+    const style = isPrepack ? sku : (explicitStyle ? canon(explicitStyle) : sku);
     const color = explicitColor;
-    const descRaw = String(pick(r, DESC_ALIASES) ?? "").trim();
     // Strip HTML when description came from a BodyHtml column.
     const description = descRaw.includes("<")
       ? descRaw.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim()
