@@ -140,11 +140,27 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     return Array.from(s).sort();
   }, [rows]);
 
+  // Sub cat options are scoped to the selected Category — picking
+  // "Joggers" in the Category dropdown narrows the Sub Cat list to
+  // only the sub cats found under Joggers. When no category is chosen,
+  // every sub cat is offered.
   const subCategoryNames = useMemo(() => {
     const s = new Set<string>();
-    for (const r of rows) if (r.sub_category_name) s.add(r.sub_category_name);
+    for (const r of rows) {
+      if (filterCategory !== "all" && (r.group_name ?? "—") !== filterCategory) continue;
+      if (r.sub_category_name) s.add(r.sub_category_name);
+    }
     return Array.from(s).sort();
-  }, [rows]);
+  }, [rows, filterCategory]);
+
+  // When category changes and the current sub cat selection is no
+  // longer valid in the new scope, clear it so the user doesn't see
+  // an empty grid because of a stale filter.
+  useEffect(() => {
+    if (filterSubCat !== "all" && !subCategoryNames.includes(filterSubCat)) {
+      setFilterSubCat("all");
+    }
+  }, [filterCategory, subCategoryNames, filterSubCat]);
 
   // Gender values pulled from item-master attributes (Xoro export's
   // GenderCode column). No grid column is rendered — gender is purely
