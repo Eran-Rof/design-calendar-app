@@ -41,6 +41,33 @@ async function sbPatch<T>(path: string, body: unknown): Promise<T[]> {
   if (!r.ok) throw new Error(`Supabase PATCH ${path} failed: ${r.status} ${await r.text()}`);
   return r.json();
 }
+// Chunked insert with 57014-retry. Same pattern as
+// wholesalePlanningRepository.upsertForecast — initial chunk 200,
+// halve on Postgres statement-timeout, floor 25.
+async function chunkedInsertWithRetry<T>(path: string, rows: T[]): Promise<void> {
+  if (rows.length === 0) return;
+  const INITIAL_CHUNK = 200;
+  const MIN_CHUNK = 25;
+  const postChunk = async (chunk: T[]): Promise<void> => {
+    try {
+      await sbPost(path, chunk, "return=minimal");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("57014") && chunk.length > MIN_CHUNK) {
+        const half = Math.max(MIN_CHUNK, Math.floor(chunk.length / 2));
+        for (let j = 0; j < chunk.length; j += half) {
+          await postChunk(chunk.slice(j, j + half));
+        }
+        return;
+      }
+      throw e;
+    }
+  };
+  for (let i = 0; i < rows.length; i += INITIAL_CHUNK) {
+    await postChunk(rows.slice(i, i + INITIAL_CHUNK));
+  }
+}
+
 async function sbDelete(path: string): Promise<void> {
   assertSupabase();
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, { method: "DELETE", headers: SB_HEADERS });
@@ -81,10 +108,7 @@ export const supplyRepo = {
   ): Promise<void> {
     await sbDelete(`ip_projected_inventory?planning_run_id=eq.${runId}`);
     if (rows.length === 0) return;
-    for (let i = 0; i < rows.length; i += 500) {
-      const chunk = rows.slice(i, i + 500);
-      await sbPost("ip_projected_inventory", chunk, "return=minimal");
-    }
+    await chunkedInsertWithRetry("ip_projected_inventory", rows);
   },
 
   // ── Recommendations ──────────────────────────────────────────────────────
@@ -99,10 +123,7 @@ export const supplyRepo = {
   ): Promise<void> {
     await sbDelete(`ip_inventory_recommendations?planning_run_id=eq.${runId}`);
     if (rows.length === 0) return;
-    for (let i = 0; i < rows.length; i += 500) {
-      const chunk = rows.slice(i, i + 500);
-      await sbPost("ip_inventory_recommendations", chunk, "return=minimal");
-    }
+    await chunkedInsertWithRetry("ip_inventory_recommendations", rows);
   },
 
   // ── Exceptions ───────────────────────────────────────────────────────────
@@ -117,10 +138,7 @@ export const supplyRepo = {
   ): Promise<void> {
     await sbDelete(`ip_supply_exceptions?planning_run_id=eq.${runId}`);
     if (rows.length === 0) return;
-    for (let i = 0; i < rows.length; i += 500) {
-      const chunk = rows.slice(i, i + 500);
-      await sbPost("ip_supply_exceptions", chunk, "return=minimal");
-    }
+    await chunkedInsertWithRetry("ip_supply_exceptions", rows);
   },
 
   // ── Vendor timing signals ────────────────────────────────────────────────

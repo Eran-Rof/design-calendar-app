@@ -47,6 +47,37 @@ async function sbDelete(path: string): Promise<void> {
   if (!r.ok) throw new Error(`Supabase DELETE ${path} failed: ${r.status} ${await r.text()}`);
 }
 
+// Chunked insert/upsert with 57014-retry. Same pattern as
+// wholesalePlanningRepository.upsertForecast — initial chunk 200,
+// halve on Postgres statement-timeout, floor 25.
+async function chunkedInsertWithRetry<T>(
+  path: string,
+  rows: T[],
+  prefer = "return=minimal",
+): Promise<void> {
+  if (rows.length === 0) return;
+  const INITIAL_CHUNK = 200;
+  const MIN_CHUNK = 25;
+  const postChunk = async (chunk: T[]): Promise<void> => {
+    try {
+      await sbPost(path, chunk, prefer);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("57014") && chunk.length > MIN_CHUNK) {
+        const half = Math.max(MIN_CHUNK, Math.floor(chunk.length / 2));
+        for (let j = 0; j < chunk.length; j += half) {
+          await postChunk(chunk.slice(j, j + half));
+        }
+        return;
+      }
+      throw e;
+    }
+  };
+  for (let i = 0; i < rows.length; i += INITIAL_CHUNK) {
+    await postChunk(rows.slice(i, i + INITIAL_CHUNK));
+  }
+}
+
 export const accuracyRepo = {
   // actuals
   async listActuals(sinceIso?: string): Promise<IpForecastActual[]> {
@@ -54,14 +85,11 @@ export const accuracyRepo = {
     return sbGet<IpForecastActual>(`ip_forecast_actuals?select=*${filter}&limit=200000`);
   },
   async upsertActuals(rows: Array<Omit<IpForecastActual, "id" | "created_at">>): Promise<void> {
-    if (rows.length === 0) return;
-    for (let i = 0; i < rows.length; i += 500) {
-      await sbPost(
-        "ip_forecast_actuals?on_conflict=forecast_type,sku_id,period_start,customer_id,channel_id",
-        rows.slice(i, i + 500),
-        "return=minimal,resolution=merge-duplicates",
-      );
-    }
+    await chunkedInsertWithRetry(
+      "ip_forecast_actuals?on_conflict=forecast_type,sku_id,period_start,customer_id,channel_id",
+      rows,
+      "return=minimal,resolution=merge-duplicates",
+    );
   },
 
   // accuracy
@@ -74,14 +102,11 @@ export const accuracyRepo = {
     return sbGet<IpForecastAccuracy>(`ip_forecast_accuracy?${params.join("&")}`);
   },
   async replaceAccuracy(rows: Array<Omit<IpForecastAccuracy, "id" | "created_at">>): Promise<void> {
-    if (rows.length === 0) return;
-    for (let i = 0; i < rows.length; i += 500) {
-      await sbPost(
-        "ip_forecast_accuracy?on_conflict=forecast_type,sku_id,period_start,customer_id,channel_id,planning_run_id",
-        rows.slice(i, i + 500),
-        "return=minimal,resolution=merge-duplicates",
-      );
-    }
+    await chunkedInsertWithRetry(
+      "ip_forecast_accuracy?on_conflict=forecast_type,sku_id,period_start,customer_id,channel_id,planning_run_id",
+      rows,
+      "return=minimal,resolution=merge-duplicates",
+    );
   },
 
   // override effectiveness
@@ -98,10 +123,7 @@ export const accuracyRepo = {
     } else {
       await sbDelete(`ip_override_effectiveness?planning_run_id=is.null`);
     }
-    if (rows.length === 0) return;
-    for (let i = 0; i < rows.length; i += 500) {
-      await sbPost("ip_override_effectiveness", rows.slice(i, i + 500), "return=minimal");
-    }
+    await chunkedInsertWithRetry("ip_override_effectiveness", rows);
   },
 
   // anomalies
@@ -118,10 +140,7 @@ export const accuracyRepo = {
     } else {
       await sbDelete(`ip_planning_anomalies?planning_run_id=is.null`);
     }
-    if (rows.length === 0) return;
-    for (let i = 0; i < rows.length; i += 500) {
-      await sbPost("ip_planning_anomalies", rows.slice(i, i + 500), "return=minimal");
-    }
+    await chunkedInsertWithRetry("ip_planning_anomalies", rows);
   },
 
   // AI suggestions
@@ -142,10 +161,7 @@ export const accuracyRepo = {
     } else {
       await sbDelete(`ip_ai_suggestions?planning_run_id=is.null&accepted_flag=is.null`);
     }
-    if (rows.length === 0) return;
-    for (let i = 0; i < rows.length; i += 500) {
-      await sbPost("ip_ai_suggestions", rows.slice(i, i + 500), "return=minimal");
-    }
+    await chunkedInsertWithRetry("ip_ai_suggestions", rows);
   },
   async markSuggestion(id: string, accepted: boolean, by?: string | null): Promise<void> {
     await sbPatch(`ip_ai_suggestions?id=eq.${id}`, {
