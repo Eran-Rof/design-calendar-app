@@ -171,6 +171,9 @@ export interface IpPlanningGridRow {
   sku_description: string | null;
   sku_style: string | null;
   sku_color: string | null;
+  // Size from item.size (Option 2 Value column in Excel). Used as a
+  // fallback PPK-multiplier source when color doesn't carry "PPKn".
+  sku_size: string | null;
   // Set on rows produced by the grid's collapse/aggregate modes — disables
   // inline-edit cells and renders read-only tallies.
   is_aggregate?: boolean;

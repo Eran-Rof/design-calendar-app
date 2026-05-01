@@ -429,6 +429,10 @@ export async function ingestItemMasterExcel(
     "option 1 value", "option_1_value", "option1value", "primary color",
     "main color", "shade", "wash",
   ];
+  const SIZE_ALIASES = [
+    "size", "size name", "size_name", "size code", "size_code",
+    "option 2 value", "option_2_value", "option2value", "option2",
+  ];
   const DESC_ALIASES = [
     "description", "desc", "item description", "product description",
     "long description", "short description", "title", "name",
@@ -487,6 +491,7 @@ export async function ingestItemMasterExcel(
 
     const explicitStyle = String(pick(r, STYLE_ALIASES) ?? "").trim();
     const explicitColor = String(pick(r, COLOR_ALIASES) ?? "").trim();
+    const explicitSize = String(pick(r, SIZE_ALIASES) ?? "").trim() || null;
     const dash = sku.indexOf("-");
     const style = explicitStyle || (dash > 0 ? sku.substring(0, dash) : sku);
     // Prefer the explicit color cell (preserves spacing) over the
@@ -517,6 +522,7 @@ export async function ingestItemMasterExcel(
       sku_code: sku,
       style_code: style || null,
       color: color || null,
+      size: explicitSize,
       uom: "each",
       active: true,
     };
