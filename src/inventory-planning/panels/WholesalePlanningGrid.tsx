@@ -274,15 +274,26 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   // used by per-row math, totals, and MonthlyTotalsCards.
   const mutedRows = useMemo(() => {
     const q = search.trim().toUpperCase();
+    // Pre-compute Sets for O(1) membership checks. Without this, 30k
+    // rows × 8 filters × dozens of selected values per filter became
+    // a million+ array.includes scans per render.
+    const setCustomer = filterCustomer.length > 0 ? new Set(filterCustomer) : null;
+    const setCategory = filterCategory.length > 0 ? new Set(filterCategory) : null;
+    const setSubCat = filterSubCat.length > 0 ? new Set(filterSubCat) : null;
+    const setGender = filterGender.length > 0 ? new Set(filterGender) : null;
+    const setPeriod = filterPeriod.length > 0 ? new Set(filterPeriod) : null;
+    const setAction = filterAction.length > 0 ? new Set(filterAction) : null;
+    const setConfidence = filterConfidence.length > 0 ? new Set(filterConfidence) : null;
+    const setMethod = filterMethod.length > 0 ? new Set(filterMethod) : null;
     const base = rows.filter((r) => {
-      if (filterCustomer.length > 0 && !filterCustomer.includes(r.customer_id)) return false;
-      if (filterCategory.length > 0 && !filterCategory.includes(r.group_name ?? "—")) return false;
-      if (filterSubCat.length > 0 && !filterSubCat.includes(r.sub_category_name ?? "—")) return false;
-      if (filterGender.length > 0 && !filterGender.includes(r.gender ?? "—")) return false;
-      if (filterPeriod.length > 0 && !filterPeriod.includes(r.period_code)) return false;
-      if (filterAction.length > 0 && !filterAction.includes(r.recommended_action)) return false;
-      if (filterConfidence.length > 0 && !filterConfidence.includes(r.confidence_level)) return false;
-      if (filterMethod.length > 0 && !filterMethod.includes(r.forecast_method)) return false;
+      if (setCustomer && !setCustomer.has(r.customer_id)) return false;
+      if (setCategory && !setCategory.has(r.group_name ?? "—")) return false;
+      if (setSubCat && !setSubCat.has(r.sub_category_name ?? "—")) return false;
+      if (setGender && !setGender.has(r.gender ?? "—")) return false;
+      if (setPeriod && !setPeriod.has(r.period_code)) return false;
+      if (setAction && !setAction.has(r.recommended_action)) return false;
+      if (setConfidence && !setConfidence.has(r.confidence_level)) return false;
+      if (setMethod && !setMethod.has(r.forecast_method)) return false;
       if (q && !(
         r.sku_code.includes(q)
         || (r.sku_style ?? "").toUpperCase().includes(q)
@@ -308,6 +319,12 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         if (c == null) return c ?? null;
         return c / mult;
       };
+      // unit_cost may be a planner-entered override (already in unit
+      // terms) OR derived from the master's pack-cost. Only divide
+      // when there's no override — preserves overrides as-is.
+      const unit_cost = r.unit_cost_override != null
+        ? r.unit_cost
+        : divCost(r.unit_cost);
       return {
         ...r,
         on_hand_qty: r.on_hand_qty == null ? r.on_hand_qty : r.on_hand_qty * mult,
@@ -319,7 +336,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         avg_cost: divCost(r.avg_cost),
         ats_avg_cost: divCost(r.ats_avg_cost),
         item_cost: divCost(r.item_cost),
-        unit_cost: divCost(r.unit_cost),
+        unit_cost,
       };
     });
     return systemSuggestionsOn ? expanded : expanded.map((r) => ({
