@@ -140,10 +140,31 @@ export async function parseExcelFiles(
 
   const CATEGORY_COLS = ["Catergory", "Category", "Item Category", "Item Group", "Product Group", "Product Category", "Category Code", "Category Name", "Group", "Class", "Item Class"];
 
+  // Column-name flexibility — Xoro inventory exports use varying
+  // capitalization / spacing for the base-part column. Match on the
+  // first column whose value is non-empty.
+  const BASE_PART_COLS = ["Base Part No", "BasePartNumber", "Base Part Number", "Base Part", "BasePart", "Base_Part_No", "BasePartNo"];
+  const QTY_COLS = ["Total Sum of Qty", "Total Qty", "Qty On Hand", "OnHand", "On Hand"];
+  function pickCell(row: Record<string, unknown>, names: string[]): string {
+    for (const n of names) {
+      const v = str(row[n]);
+      if (v) return v;
+    }
+    return "";
+  }
+  function pickNum(row: Record<string, unknown>, names: string[]): number {
+    for (const n of names) {
+      if (row[n] !== undefined && row[n] !== null && row[n] !== "") return toNum(row[n]);
+    }
+    return 0;
+  }
+
+  let invParsed = 0;
   for (const r of invRows) {
-    const base = str(r["Base Part No"]);
-    const color = str(r["Option 1 Value"]);
+    const base = pickCell(r, BASE_PART_COLS);
+    const color = str(r["Option 1 Value"]) || str(r["Option1Value"]);
     if (!base) continue;
+    invParsed++;
     const sku = color ? `${base} - ${color}` : base;
     const brand = str(r["Brand"]);
     const category = str(r["Catergory"] || r["Category"] || r["Item Category"] || r["Item Group"] || r["Product Group"] || r["Product Category"] || r["Category Code"] || r["Category Name"] || r["Group"] || r["Class"] || r["Item Class"] || "") || undefined;
@@ -164,9 +185,10 @@ export async function parseExcelFiles(
         avgCost: parseFloat(String(r["Avrg Cost"] || 0).replace(/[^0-9.-]/g, "")) || 0,
       };
     }
-    skuMap[key].onHand += toNum(r["Total Sum of Qty"]);
+    skuMap[key].onHand += pickNum(r, QTY_COLS);
     skuMap[key].totalAmount = (skuMap[key].totalAmount || 0) + toMoney(r["Total Sum of Amount Home Currency"]);
   }
+  console.warn(`[ATS parse] inventory: ${invRows.length} rows in file, ${invParsed} parsed (${invRows.length - invParsed} skipped — likely missing base-part column). Inventory column names: ${columnNames.inventory.join(", ")}`);
 
   // ── 2. Purchased Items Report → PO events ────────────────────────────────
   const pos: ExcelData["pos"] = [];
