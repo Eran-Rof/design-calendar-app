@@ -112,6 +112,21 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     collapse.customers || collapse.colors || collapse.category || collapse.subCat ||
     collapse.customerAllStyles || collapse.allCustomersPerCategory || collapse.allCustomersPerSubCat ||
     collapse.allCustomersPerStyle;
+
+  // Forecast IDs of aggregate rows the planner has expanded — when set,
+  // the underlying child rows render below the parent indented + muted.
+  const [expandedAggs, setExpandedAggs] = useState<Set<string>>(new Set());
+  const toggleAggExpanded = (forecastId: string) => {
+    setExpandedAggs((prev) => {
+      const next = new Set(prev);
+      if (next.has(forecastId)) next.delete(forecastId);
+      else next.add(forecastId);
+      return next;
+    });
+  };
+  // Drop expansion state any time the collapse modes change — the
+  // aggregate forecast_ids regenerate, so old IDs would dangle.
+  useEffect(() => { setExpandedAggs(new Set()); }, [collapse]);
   // Reset to first page whenever filters/sort change so the user doesn't
   // wonder why an empty page is showing.
   useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterAction, filterConfidence, filterMethod, sortKey, sortDir, pageSize, collapse, systemSuggestionsOn]);
@@ -364,6 +379,14 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mutedRows]);
 
+  // forecast_id → row lookup over mutedRows for fast drill-down expansion
+  // and per-group rolling pool starting balance computation.
+  const mutedById = useMemo(() => {
+    const m = new Map<string, IpPlanningGridRow>();
+    for (const r of mutedRows) m.set(r.forecast_id, r);
+    return m;
+  }, [mutedRows]);
+
   // Step 2: per-(sku, period) display values using a proper per-SKU
   // multi-period rolling pool that subtracts demand each period (same
   // model as buildRollingWholesaleSupply on the backend). The display-
@@ -408,31 +431,82 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
 
   const filtered = useMemo(() => {
     const muted = mutedRows;
-    // Total pool = sum of unique-sku raw on_hand across the visible
-    // (pre-aggregation) set.
-    const seenSku = new Set<string>();
-    let totalPool = 0;
-    for (const r of muted) {
-      if (seenSku.has(r.sku_id)) continue;
-      seenSku.add(r.sku_id);
-      totalPool += r.on_hand_qty ?? 0;
-    }
     const collapsed = anyCollapsed ? aggregateRows(muted, collapse) : muted;
-    const sorted = collapsed.sort((a, b) => cmp(a, b, sortKey, sortDir));
+    // When collapsed by Sub Cat or Category, force the row order to
+    // group all periods sequentially per sub-cat (or per cat). Inside
+    // each group, sort by period_start ascending so the rolling pool
+    // walks the months in order. The user-selected sortKey still
+    // applies in non-grouped views.
+    const groupBy: "subCat" | "category" | null =
+      collapse.subCat ? "subCat" : collapse.category ? "category" : null;
+    const sorted = groupBy
+      ? [...collapsed].sort((a, b) => {
+          const aKey = (groupBy === "subCat" ? a.sub_category_name : a.group_name) ?? "";
+          const bKey = (groupBy === "subCat" ? b.sub_category_name : b.group_name) ?? "";
+          if (aKey !== bKey) return aKey.localeCompare(bKey);
+          return a.period_start.localeCompare(b.period_start);
+        })
+      : collapsed.sort((a, b) => cmp(a, b, sortKey, sortDir));
     // Top-down rolling pool: per-row ATS = on_hand − on_so + receipts +
     // buy; the next row inherits this row's ATS as its on_hand. Receipts
     // and buy contribute once per (sku, period) so multi-customer rows
-    // of the same SKU don't double-count. on_so depletes per row since
-    // it's customer-scoped.
-    const rolled = applyRollingPool(
-      sorted.map((r) => ({
-        on_so_qty: r.on_so_qty,
-        receipts_due_qty: r.receipts_due_qty ?? 0,
-        planned_buy_qty: r.planned_buy_qty ?? 0,
-        dedupeKey: `${r.sku_id}:${r.period_start}`,
-      })),
-      totalPool,
-    );
+    // of the same SKU don't double-count.
+    //
+    // When grouping by sub-cat / category, the pool resets at each group
+    // boundary and starts from that group's own unique-sku on_hand sum
+    // — otherwise sub-cat B would inherit sub-cat A's last ATS, which
+    // is meaningless across categories.
+    const startingPoolFor = (rows: typeof sorted): number => {
+      const seen = new Set<string>();
+      let pool = 0;
+      for (const r of rows) {
+        const ids = r.is_aggregate
+          ? (r.aggregate_underlying_ids ?? [])
+          : [r.forecast_id];
+        for (const fid of ids) {
+          const src = mutedById.get(fid);
+          if (!src || seen.has(src.sku_id)) continue;
+          seen.add(src.sku_id);
+          pool += src.on_hand_qty ?? 0;
+        }
+      }
+      return pool;
+    };
+    const groups: { rows: typeof sorted; startIndex: number }[] = [];
+    if (groupBy) {
+      let curKey: string | null = null;
+      let curRows: typeof sorted = [];
+      let curStart = 0;
+      for (let i = 0; i < sorted.length; i++) {
+        const r = sorted[i];
+        const k = (groupBy === "subCat" ? r.sub_category_name : r.group_name) ?? "";
+        if (k !== curKey) {
+          if (curRows.length > 0) groups.push({ rows: curRows, startIndex: curStart });
+          curRows = [];
+          curKey = k;
+          curStart = i;
+        }
+        curRows.push(r);
+      }
+      if (curRows.length > 0) groups.push({ rows: curRows, startIndex: curStart });
+    } else {
+      groups.push({ rows: sorted, startIndex: 0 });
+    }
+    const rolled = new Array(sorted.length);
+    for (const g of groups) {
+      const groupRolled = applyRollingPool(
+        g.rows.map((r) => ({
+          on_so_qty: r.on_so_qty,
+          receipts_due_qty: r.receipts_due_qty ?? 0,
+          planned_buy_qty: r.planned_buy_qty ?? 0,
+          dedupeKey: `${r.sku_id}:${r.period_start}`,
+        })),
+        startingPoolFor(g.rows),
+      );
+      for (let j = 0; j < groupRolled.length; j++) {
+        rolled[g.startIndex + j] = groupRolled[j];
+      }
+    }
     const asOf = new Date().toISOString().slice(0, 10);
     return sorted.map((r, i) => {
       const onHand = rolled[i].on_hand_qty;
@@ -458,7 +532,39 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         action_reason: liveRec.action_reason,
       };
     });
-  }, [mutedRows, skuPeriodMath, sortKey, sortDir, collapse, anyCollapsed]);
+  }, [mutedRows, mutedById, skuPeriodMath, sortKey, sortDir, collapse, anyCollapsed]);
+
+  // Interleave expanded aggregate children below their parent row. The
+  // parent retains its rolled values (computed in `filtered`); children
+  // render with their raw mutedRows values + per-(sku, period) math
+  // from skuPeriodMath. The rolling pool is NOT recomputed for
+  // children — drilling down is purely visual.
+  const { displayRows, childIds } = useMemo(() => {
+    const ids = new Set<string>();
+    if (expandedAggs.size === 0) return { displayRows: filtered, childIds: ids };
+    const out: typeof filtered = [];
+    for (const r of filtered) {
+      out.push(r);
+      if (!r.is_aggregate) continue;
+      if (!expandedAggs.has(r.forecast_id)) continue;
+      const underlying = r.aggregate_underlying_ids ?? [];
+      for (const fid of underlying) {
+        const child = mutedById.get(fid);
+        if (!child) continue;
+        const m = skuPeriodMath.get(`${child.sku_id}:${child.period_start}`);
+        const projected = m
+          ? { on_hand_qty: m.onHand, available_supply_qty: m.ats, projected_excess_qty: m.excess, projected_shortage_qty: m.shortage }
+          : {};
+        // Keep the real forecast_id so edit handlers continue to save
+        // against the underlying row. _displayKey gives React a unique
+        // key when the same child appears under multiple expanded
+        // parents (rare but possible across collapse modes).
+        out.push({ ...child, ...projected, _displayKey: `child:${r.forecast_id}:${fid}` } as IpPlanningGridRow & { _displayKey: string });
+        ids.add(fid);
+      }
+    }
+    return { displayRows: out, childIds: ids };
+  }, [filtered, expandedAggs, mutedById, skuPeriodMath]);
 
   const totals = useMemo(() => {
     const t = { final: 0, shortage: 0, excess: 0, actions: {} as Record<string, number>, methods: {} as Record<string, number> };
@@ -635,16 +741,36 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
             </tr>
           </thead>
           <tbody>
-            {filtered.slice(page * pageSize, (page + 1) * pageSize).map((r) => (
+            {displayRows.slice(page * pageSize, (page + 1) * pageSize).map((r) => {
+              const isChild = childIds.has(r.forecast_id);
+              const isExpanded = r.is_aggregate && expandedAggs.has(r.forecast_id);
+              const rowKey = (r as IpPlanningGridRow & { _displayKey?: string })._displayKey ?? r.forecast_id;
+              const aggBg = isExpanded
+                ? "rgba(96,165,250,0.10)"
+                : (PAL.panelMuted ?? "rgba(255,255,255,0.03)");
+              return (
               <tr
-                key={r.forecast_id}
+                key={rowKey}
                 onContextMenu={(e) => { e.preventDefault(); if (!r.is_aggregate) onSelectRow(r); }}
-                title={r.is_aggregate ? `Aggregate of ${r.aggregate_count ?? 1} rows — toggle off Collapse to drill in` : "Right-click for more info"}
-                style={r.is_aggregate ? { background: PAL.panelMuted ?? "rgba(255,255,255,0.03)" } : undefined}
+                title={r.is_aggregate ? "Click chevron to drill in" : "Right-click for more info"}
+                style={
+                  r.is_aggregate ? { background: aggBg }
+                  : isChild ? { background: "rgba(255,255,255,0.015)", color: PAL.textDim }
+                  : undefined
+                }
               >
                 <td style={{ ...S.td, color: PAL.textDim, ...colHide("category") }}>{r.group_name ?? "–"}</td>
                 <td style={{ ...S.td, color: PAL.textDim, ...colHide("subCat") }}>{r.sub_category_name ?? "–"}</td>
-                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent, ...colHide("style") }}>{r.sku_style ?? r.sku_code}</td>
+                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent, paddingLeft: isChild ? 28 : undefined, ...colHide("style") }}>
+                  {r.is_aggregate && (
+                    <span
+                      onClick={(e) => { e.stopPropagation(); toggleAggExpanded(r.forecast_id); }}
+                      style={{ cursor: "pointer", display: "inline-block", width: 14, color: PAL.textMuted, userSelect: "none", transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}
+                      title={isExpanded ? "Collapse" : "Drill into this row"}
+                    >▶</span>
+                  )}
+                  {r.sku_style ?? r.sku_code}
+                </td>
                 <td style={{ ...S.td, color: PAL.textDim, ...colHide("color") }}>{r.sku_color ?? "—"}</td>
                 <td style={{ ...S.td, color: PAL.textDim, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", ...colHide("description") }} title={r.sku_description ?? ""}>
                   {r.sku_description ?? "—"}
@@ -791,7 +917,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   </span>
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {!loading && filtered.length === 0 && (
               <tr><td colSpan={27} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
