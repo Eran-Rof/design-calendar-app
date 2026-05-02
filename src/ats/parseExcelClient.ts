@@ -195,10 +195,12 @@ export async function parseExcelFiles(
   let poTotal = 0, poNoDate = 0, poNoPoNum = 0, poNoVendor = 0;
   const poNoDateItems: { sku: string; qty: number; poNumber?: string; vendor?: string }[] = [];
 
+  let purParsed = 0;
   for (const r of purRows) {
-    const base = str(r["BasePart"]);
-    const color = str(r["Option 1 Value"]);
+    const base = pickCell(r, BASE_PART_COLS);
+    const color = str(r["Option 1 Value"]) || str(r["Option1Value"]);
     if (!base) continue;
+    purParsed++;
     const sku = color ? `${base} - ${color}` : base;
     const qty = toNum(r["Total Sum of Qty Ordered"]);
     const poBrand = str(r["Brand Name"] || r["Brand"] || "");
@@ -225,16 +227,19 @@ export async function parseExcelFiles(
       if (date) pos.push({ sku, date, qty, poNumber, vendor, store, unitCost });
     }
   }
+  console.warn(`[ATS parse] purchases: ${purRows.length} rows in file, ${purParsed} parsed (${purRows.length - purParsed} skipped — likely missing base-part column). Purchase column names: ${columnNames.purchases.join(", ")}`);
 
   // ── 3. All Orders Report → SO events ─────────────────────────────────────
   const sos: ExcelData["sos"] = [];
   let soTotal = 0, soNoDate = 0, soNoOrderNum = 0, soNoCustName = 0, soNoUnitPrice = 0;
   const soNoDateItems: { sku: string; qty: number; orderNumber?: string; customerName?: string }[] = [];
 
+  let ordParsed = 0;
   for (const r of ordRows) {
-    const base = str(r["Base Part"]);
-    const color = str(r["Option 1 Value"]);
+    const base = pickCell(r, BASE_PART_COLS);
+    const color = str(r["Option 1 Value"]) || str(r["Option1Value"]);
     if (!base) continue;
+    ordParsed++;
     const sku = color ? `${base} - ${color}` : base;
     const qty = toNum(r["Total Sum of Qty Ordered"]);
     const soBrand = str(r["Brand"] || r["Brand Name"] || "");
@@ -277,6 +282,7 @@ export async function parseExcelFiles(
       if (date) sos.push({ sku, date, qty, orderNumber, customerName, unitPrice, totalPrice, store: soStore });
     }
   }
+  console.warn(`[ATS parse] orders: ${ordRows.length} rows in file, ${ordParsed} parsed (${ordRows.length - ordParsed} skipped — likely missing base-part column). Order column names: ${columnNames.orders.join(", ")}`);
 
   // ── Build warnings ────────────────────────────────────────────────────────
   const warnings: UploadWarning[] = [];
