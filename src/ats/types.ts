@@ -12,6 +12,15 @@ export interface ATSRow {
   avgCost?: number;
   lastReceiptDate?: string;
   totalAmount?: number;
+  // Phase 1 dark-ship fields populated by enrichWithItemMaster — sourced from
+  // ip_item_master (the planning app's source of truth). Optional + nullable
+  // so legacy rows + cache-not-loaded paths stay valid. UI does not yet read
+  // these; Phase 2 will swap the grid columns to use them.
+  master_category?: string | null;
+  master_sub_category?: string | null;
+  master_style?: string | null;
+  master_color?: string | null;
+  master_match_source?: "sku" | "style" | null;
 }
 
 export interface ATSSnapshot {

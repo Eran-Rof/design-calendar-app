@@ -7,6 +7,8 @@ import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount"
 import type { ATSRow, ATSSnapshot, ATSSkuData, ATSPoEvent, ATSSoEvent, UploadWarning, ExcelData, CtxMenu, SummaryCtxMenu } from "./ats/types";
 import { addDays, fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, skuSimilarity } from "./ats/helpers";
 import { computeRowsFromExcelData } from "./ats/compute";
+import { enrichRowsWithItemMaster } from "./ats/enrichWithItemMaster";
+import { loadItemMasterCache } from "./ats/itemMasterLookup";
 import { mergeExcelDataSkus, mergeRows, dedupeExcelData } from "./ats/merge";
 import { useMergeHistory } from "./ats/hooks/useMergeHistory";
 import { usePOWIPSync } from "./ats/hooks/usePOWIPSync";
@@ -168,6 +170,19 @@ function ATSReport() {
     pendingMerge, setPendingMerge,
     saveMergeHistory, commitMerge, handleSkuDrop, undoLastMerge,
   } = mergeActions;
+
+  // Phase 1 dark ship: load ip_item_master once on mount. Until it's loaded
+  // every row resolves as unmatched (logged but harmless — UI doesn't read
+  // master_* fields yet). Once loaded, we flip masterReady so the row-compute
+  // useEffect re-runs and enriches rows for real.
+  const [masterReady, setMasterReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    loadItemMasterCache()
+      .catch(e => console.error("[ats master] cache load failed:", e))
+      .finally(() => { if (!cancelled) setMasterReady(true); });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     fetch(`${SB_URL}/rest/v1/app_data?key=eq.users&select=value`, { headers: SB_HEADERS })
@@ -423,9 +438,12 @@ function ATSReport() {
     if (excelData) {
       let computed = computeRowsFromExcelData(excelData, dates, poStores, soStores);
       for (const op of mergeHistory) computed = mergeRows(computed, op.fromSku, op.toSku);
-      setRows(computed);
+      // Phase 1 dark ship: enrich with master fields. Re-runs when masterReady
+      // flips so rows pick up master data once the cache loads.
+      const enriched = enrichRowsWithItemMaster(computed).rows;
+      setRows(enriched);
     }
-  }, [excelData, dates, poStores, soStores, mergeHistory]);
+  }, [excelData, dates, poStores, soStores, mergeHistory, masterReady]);
 
   // PO data comes from PO WIP (tanda_pos) — no separate Xoro sync needed
   const syncProgress = null;
@@ -509,7 +527,9 @@ function ATSReport() {
         });
         let computed = Object.values(map);
         for (const op of savedHistory) computed = mergeRows(computed, op.fromSku, op.toSku);
-        setRows(computed);
+        // Legacy snapshot path bypasses the excelData useEffect, so enrich
+        // here directly. (Most production paths go through excelData.)
+        setRows(enrichRowsWithItemMaster(computed).rows);
         setMockMode(false);
       }
     } catch (e) {
