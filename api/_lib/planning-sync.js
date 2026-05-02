@@ -27,6 +27,14 @@ function toIsoDate(raw) {
   return d.toISOString().slice(0, 10);
 }
 
+// Wholesale planning is wholesale-only. ECOM rows from the ATS Excel snapshot
+// (e.g. store="ROF ECOM") must NOT contribute to wholesale on-hand or wholesale
+// open SOs — they are a separate channel with their own stock pool.
+function isEcomStore(store) {
+  if (!store) return false;
+  return /ECOM/i.test(String(store));
+}
+
 // ── On-hand from ATS Excel snapshot ──────────────────────────────────────────
 //
 // One chunk of the supply sync. Returns next_start so callers can
@@ -51,10 +59,12 @@ export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit =
     auto_created_skus: 0,
     skipped_no_sku: 0,
     skipped_zero_state: 0,
+    skipped_ecom: 0,
     snapshot_date: new Date().toISOString().slice(0, 10),
     so_lines_total: 0,
     so_lines_inserted: 0,
     so_lines_pruned: 0,
+    so_lines_skipped_ecom: 0,
     so_customers_created: 0,
     errors: [],
   };
@@ -93,6 +103,7 @@ export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit =
   // Aggregate at style+color grain so multi-size lines collapse.
   const aggMap = new Map();
   for (const s of skus) {
+    if (isEcomStore(s.store)) { result.skipped_ecom++; continue; }
     const sku = canonStyleColor(s.sku);
     if (!sku) { result.skipped_no_sku++; continue; }
     const onHand = toNum(s.onHand);
@@ -185,7 +196,9 @@ export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit =
   // Open-SO ingest only on the first chunk so we don't reset progress
   // mid-walk.
   if (start === 0 && Array.isArray(parsed?.sos) && parsed.sos.length > 0) {
-    const allSos = parsed.sos;
+    const rawSos = parsed.sos;
+    const allSos = rawSos.filter(so => !isEcomStore(so.store));
+    result.so_lines_skipped_ecom = rawSos.length - allSos.length;
     result.so_lines_total = allSos.length;
 
     const customerByName = new Map();
