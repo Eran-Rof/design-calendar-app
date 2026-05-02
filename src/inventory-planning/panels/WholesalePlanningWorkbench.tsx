@@ -234,9 +234,9 @@ export default function WholesalePlanningWorkbench() {
         console.error("[xoro-items-missing-sync] failed", r);
         await new Promise<void>((res) => setTimeout(res, 2200));
       } else {
-        const errSummary = r.errors.length > 0 ? ` · ⚠ ${r.errors.length} issues (see console)` : "";
+        const errSummary = r.errors.length > 0 ? ` · ${r.errors.length} had problems` : "";
         if (r.errors.length > 0) console.error("[xoro-items-missing-sync] errors:", r.errors);
-        reportOp(`✓ Done — checked ${r.xoro_items_fetched.toLocaleString()} items · ${r.already_in_master.toLocaleString()} already known · added ${r.inserted.toLocaleString()} new${errSummary}`);
+        reportOp(`Done — checked ${r.xoro_items_fetched.toLocaleString()} items, ${r.already_in_master.toLocaleString()} already known, added ${r.inserted.toLocaleString()} new${errSummary}`);
         await new Promise<void>((res) => setTimeout(res, 1500));
         if (r.inserted > 0) await loadMasters();
       }
@@ -267,7 +267,7 @@ export default function WholesalePlanningWorkbench() {
         } else {
           const inserted = (r as { inserted?: number }).inserted ?? 0;
           const newSkus = (r as { auto_created_skus?: number }).auto_created_skus ?? 0;
-          reportOp(`✓ Done — ${inserted} updated${newSkus ? ` · ${newSkus} new items` : ""}`);
+          reportOp(`Done — ${inserted} updated${newSkus ? `, ${newSkus} new items` : ""}`);
           await new Promise<void>((res) => setTimeout(res, 1500));
           if (inserted > 0) await loadRunData();
         }
@@ -304,9 +304,9 @@ export default function WholesalePlanningWorkbench() {
         totalSkipped += (r.skipped_zero_state ?? 0) + (r.skipped_no_sku ?? 0);
         totalAts = r.ats_skus_total ?? totalAts;
         const processed = Math.min(start + (r.ats_skus_in_batch ?? 0), totalAts);
-        reportOp(`Batch ${chunks} · ${processed.toLocaleString()} of ${totalAts.toLocaleString()} items · ${totalInserted} updated · ${totalNew} new items`);
+        reportOp(`Step ${chunks} — ${processed.toLocaleString()} of ${totalAts.toLocaleString()} items checked, ${totalInserted} updated, ${totalNew} new`);
         if (r.done || r.next_start == null) {
-          reportOp(`✓ Done — ${totalInserted.toLocaleString()} updated · ${totalNew} new items · ${totalSkipped.toLocaleString()} skipped (no inventory) · ${totalAts.toLocaleString()} total in ${chunks} batch(es)`);
+          reportOp(`Done — ${totalInserted.toLocaleString()} updated, ${totalNew} new items, ${totalSkipped.toLocaleString()} skipped (no inventory) · ${totalAts.toLocaleString()} items in total`);
           await new Promise<void>((res) => setTimeout(res, 1500));
           if (totalInserted > 0) await loadRunData();
           break;
@@ -333,14 +333,14 @@ export default function WholesalePlanningWorkbench() {
         kind === "sales" ? await ingestSalesExcel(file, onProgress)
                          : await ingestItemMasterExcel(file, onProgress);
       const skipParts = [];
-      if (r.skipped_no_sku) skipParts.push(`${r.skipped_no_sku} no-SKU`);
-      if (r.skipped_no_date) skipParts.push(`${r.skipped_no_date} no-date`);
-      if (r.skipped_zero_qty) skipParts.push(`${r.skipped_zero_qty} zero-qty`);
-      if (r.skipped_bad_cost) skipParts.push(`${r.skipped_bad_cost} bad-cost`);
+      if (r.skipped_no_sku) skipParts.push(`${r.skipped_no_sku} missing SKU`);
+      if (r.skipped_no_date) skipParts.push(`${r.skipped_no_date} missing date`);
+      if (r.skipped_zero_qty) skipParts.push(`${r.skipped_zero_qty} zero quantity`);
+      if (r.skipped_bad_cost) skipParts.push(`${r.skipped_bad_cost} bad cost`);
       const skipSummary = skipParts.length > 0 ? ` · skipped ${skipParts.join(", ")}` : "";
-      const errSummary = r.errors.length > 0 ? ` · ⚠ ${r.errors.length} issues (see console)` : "";
+      const errSummary = r.errors.length > 0 ? ` · ${r.errors.length} had problems` : "";
       if (r.errors.length > 0) console.error(`[excel-${kind}] errors:`, r.errors);
-      reportOp(`✓ Done — read ${r.parsed.toLocaleString()} rows · saved ${r.inserted.toLocaleString()}${skipSummary}${errSummary}`);
+      reportOp(`Done — read ${r.parsed.toLocaleString()} rows, saved ${r.inserted.toLocaleString()}${skipSummary}${errSummary}`);
       await new Promise<void>((res) => setTimeout(res, 1800));
       if (r.inserted > 0 && kind === "sales") await loadRunData();
       if (r.inserted > 0 && kind === "master" && selectedRun) {
@@ -349,7 +349,7 @@ export default function WholesalePlanningWorkbench() {
       }
     } catch (e) {
       console.error(`[excel-${kind}] failed`, e);
-      reportOp(`✗ Couldn't finish — ${e instanceof Error ? e.message : String(e)} (see DevTools console)`);
+      reportOp(`Couldn't finish — ${e instanceof Error ? e.message : String(e)}`);
       await new Promise<void>((res) => setTimeout(res, 2500));
     } finally {
       setIngesting(false); setRunningKind(null);
@@ -397,7 +397,7 @@ export default function WholesalePlanningWorkbench() {
       const span = r.oldest_invoice_in_batch && r.newest_invoice_in_batch
         ? ` · ${r.oldest_invoice_in_batch} to ${r.newest_invoice_in_batch}`
         : "";
-      reportOp(`✓ Done — read ${r.xoro_lines_fetched} sales lines · saved ${r.inserted}${r.auto_created_skus ? ` · ${r.auto_created_skus} new items` : ""}${r.auto_created_customers ? ` · ${r.auto_created_customers} new customers` : ""}${span}`);
+      reportOp(`Done — read ${r.xoro_lines_fetched} sales lines, saved ${r.inserted}${r.auto_created_skus ? `, ${r.auto_created_skus} new items` : ""}${r.auto_created_customers ? `, ${r.auto_created_customers} new customers` : ""}${span}`);
       await new Promise<void>((res) => setTimeout(res, 1800));
       if (r.inserted > 0) await loadRunData();
     } catch (e) {
@@ -415,7 +415,7 @@ export default function WholesalePlanningWorkbench() {
     opDismissedRef.current = false;
     setOpStatus({
       label: "Fetch all Xoro sales",
-      message: "Walking Xoro pages…",
+      message: "Reading sales pages…",
       canCancel: true,
       onCancel: () => { autoWalkAbort.current = true; },
     });
@@ -457,9 +457,9 @@ export default function WholesalePlanningWorkbench() {
         } catch (err) {
           consecutiveErrors++;
           const msg = err instanceof Error ? err.message : String(err);
-          reportOp(`Transient error (page ${page}): ${msg} · retrying ${consecutiveErrors}/3`);
+          reportOp(`Network hiccup on step ${page} — retrying ${consecutiveErrors} of 3 (${msg})`);
           if (consecutiveErrors >= 3) {
-            reportOp(`Stopped on page ${page} after 3 retries: ${msg}`);
+            reportOp(`Stopped at step ${page} after 3 tries — ${msg}`);
             await new Promise<void>((res) => setTimeout(res, 2200));
             break;
           }
@@ -469,7 +469,7 @@ export default function WholesalePlanningWorkbench() {
         }
         pagesWalked += 2;
         if (r.error) {
-          reportOp(`Stopped on page ${page}: ${r.error}`);
+          reportOp(`Stopped at step ${page} — ${r.error}`);
           await new Promise<void>((res) => setTimeout(res, 2200));
           break;
         }
@@ -482,7 +482,7 @@ export default function WholesalePlanningWorkbench() {
         // (Resume marker removed — always start from page 1; no partial state.)
         // Live progress so the planner sees something is happening.
         const emptyHint = consecutiveEmpty > 0 ? ` · ${consecutiveEmpty} empty in a row` : "";
-        reportOp(`Page ${page} · ${r.oldest_invoice_in_batch ?? "?"}…${r.newest_invoice_in_batch ?? "?"} · ${totalInserted} upserted · ${totalAutoSku} new SKUs${emptyHint}`);
+        reportOp(`Step ${page} — ${r.oldest_invoice_in_batch ?? "?"} to ${r.newest_invoice_in_batch ?? "?"} · ${totalInserted} saved · ${totalAutoSku} new items${emptyHint}`);
         // Tolerate empty batches mid-catalog — Xoro returns plenty of
         // sparse pages (permission filtering, internal partitioning)
         // and the previous "3 empty in a row = stop" bail was killing
@@ -509,7 +509,7 @@ export default function WholesalePlanningWorkbench() {
       setSalesPageStart(1);
       const aborted = autoWalkAbort.current;
       const ceilingHit = pagesWalked >= 2000;
-      reportOp(`✓ Done — ${pagesWalked} pages · ${earliestDate ?? "?"}…${latestDate ?? "?"} · ${totalInserted.toLocaleString()} upserted · ${totalAutoSku} new SKUs · ${totalAutoCust} new customers${aborted ? " · cancelled" : ceilingHit ? " · ceiling hit, re-click to continue" : ""}`);
+      reportOp(`Done — ${pagesWalked} steps · ${earliestDate ?? "?"} to ${latestDate ?? "?"} · ${totalInserted.toLocaleString()} saved · ${totalAutoSku} new items · ${totalAutoCust} new customers${aborted ? " · stopped" : ceilingHit ? " · limit reached, click again to keep going" : ""}`);
       await new Promise<void>((res) => setTimeout(res, 1800));
       if (totalInserted > 0) await loadRunData();
     } finally {
@@ -1140,56 +1140,23 @@ function OperationStatusBar({ label, message, canCancel, onCancel }: {
   onCancel: () => void;
 }) {
   return (
-    <div style={{
-      position: "fixed",
-      top: 0, left: 0, right: 0, bottom: 0,
-      background: "rgba(0,0,0,0.55)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      zIndex: 1000,
-    }}>
-      <div style={{
-        background: PAL.panel,
-        border: `1px solid ${PAL.border}`,
-        borderRadius: 0,
-        padding: 20,
-        width: 480,
-        maxWidth: "92vw",
-        boxSizing: "border-box",
-        color: PAL.text,
-        boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
-      }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>{label}</div>
-        <div style={{
-          fontSize: 12,
-          color: PAL.textDim,
-          fontFamily: "monospace",
-          minHeight: 18,
-          marginBottom: 14,
-          wordBreak: "break-word" as const,
-        }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ background: "#1E293B", borderRadius: 14, padding: "28px 32px", width: 380, maxWidth: "92vw", border: "1px solid #334155", boxSizing: "border-box" }}>
+        <div style={{ fontWeight: 700, fontSize: 16, color: "#F1F5F9", marginBottom: 8 }}>{label}</div>
+        <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 20, minHeight: 18, wordBreak: "break-word" as const }}>
           {message ?? "Working…"}
         </div>
-        {/* Indeterminate animated bar — exact % isn't always known */}
-        <div style={{ height: 4, background: PAL.border, borderRadius: 0, overflow: "hidden", marginBottom: 14 }}>
-          <div style={{
-            height: "100%",
-            width: "30%",
-            background: PAL.accent,
-            animation: "ipOpPulse 1.4s ease-in-out infinite",
-          }} />
+        <div style={{ background: "#0F172A", borderRadius: 8, height: 10, overflow: "hidden", marginBottom: 20, position: "relative" }}>
+          <div style={{ position: "absolute", top: 0, bottom: 0, borderRadius: 8, background: "linear-gradient(90deg,#10B981,#3B82F6)", width: "35%", animation: "ipOpPulse 1.4s ease-in-out infinite" }} />
         </div>
-        <style>{`@keyframes ipOpPulse { 0% { margin-left: 0%; } 50% { margin-left: 70%; } 100% { margin-left: 0%; } }`}</style>
-        <div style={{ display: "flex", justifyContent: "flex-end" }}>
-          <button
-            onClick={onCancel}
-            style={S.btnSecondary}
-            title={canCancel ? "Stop the operation" : "Hide this dialog (operation continues in background)"}
-          >
-            {canCancel ? "Cancel" : "Hide"}
-          </button>
-        </div>
+        <style>{`@keyframes ipOpPulse { 0% { left: -35%; } 100% { left: 100%; } }`}</style>
+        <button
+          style={{ background: "none", border: `1px solid ${canCancel ? "#EF4444" : "#475569"}`, color: canCancel ? "#EF4444" : "#94A3B8", borderRadius: 6, padding: "7px 18px", fontSize: 13, cursor: "pointer", width: "100%" }}
+          onClick={onCancel}
+          title={canCancel ? "Stop this and put things back the way they were" : "Hide this — work keeps going"}
+        >
+          {canCancel ? "Stop" : "Hide"}
+        </button>
       </div>
     </div>
   );
@@ -1203,41 +1170,19 @@ function BootstrapStatusBar({ phase, onCancel }: { phase: "masters" | "run-data"
   };
   const pct = phase === "masters" ? 25 : phase === "run-data" ? 75 : 100;
   return (
-    <div style={{
-      position: "fixed",
-      top: 0, left: 0, right: 0, bottom: 0,
-      background: "rgba(0,0,0,0.55)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      zIndex: 1000,
-    }}>
-      <div style={{
-        background: PAL.panel,
-        border: `1px solid ${PAL.border}`,
-        borderRadius: 0,
-        padding: 20,
-        width: 400,
-        maxWidth: "90vw",
-        boxSizing: "border-box",
-        color: PAL.text,
-        boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
-      }}>
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>{PHASE_LABELS[phase]}</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: PAL.accent, fontFamily: "monospace" }}>{pct}%</div>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ background: "#1E293B", borderRadius: 14, padding: "28px 32px", width: 380, maxWidth: "92vw", border: "1px solid #334155", boxSizing: "border-box" }}>
+        <div style={{ fontWeight: 700, fontSize: 16, color: "#F1F5F9", marginBottom: 8 }}>Loading…</div>
+        <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 20 }}>{PHASE_LABELS[phase]}</div>
+        <div style={{ background: "#0F172A", borderRadius: 8, height: 10, overflow: "hidden", marginBottom: 20 }}>
+          <div style={{ height: "100%", borderRadius: 8, background: "linear-gradient(90deg,#10B981,#3B82F6)", width: `${pct}%`, transition: "width 0.4s ease" }} />
         </div>
-        <div style={{ height: 6, background: PAL.border, borderRadius: 0, overflow: "hidden", marginBottom: 14 }}>
-          <div style={{
-            height: "100%",
-            width: `${pct}%`,
-            background: PAL.accent,
-            transition: "width 400ms ease",
-          }} />
-        </div>
-        <div style={{ display: "flex", justifyContent: "flex-end" }}>
-          <button onClick={onCancel} style={S.btnSecondary}>Cancel</button>
-        </div>
+        <button
+          style={{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 6, padding: "7px 18px", fontSize: 13, cursor: "pointer", width: "100%" }}
+          onClick={onCancel}
+        >
+          Stop
+        </button>
       </div>
     </div>
   );
