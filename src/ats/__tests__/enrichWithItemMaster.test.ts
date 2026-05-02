@@ -221,7 +221,7 @@ describe("enrichRowsWithItemMaster", () => {
     expect(out[1]).not.toBe(inputRows[1]);
   });
 
-  it("uses warn level for partial coverage and skips the unmatched-sku list when > 10 misses", () => {
+  it("uses warn level for partial coverage and always logs the full unmatched list (phase 1 diagnostic)", () => {
     __setCacheForTest([
       makeMasterRec({ sku_code: "HIT - Black", style_code: "HIT", color: "Black" }),
     ]);
@@ -236,8 +236,9 @@ describe("enrichRowsWithItemMaster", () => {
     expect(warnSpy).toHaveBeenCalled();
     const coverageCall = warnSpy.mock.calls.find(c => typeof c[0] === "string" && c[0].includes("coverage"));
     expect(coverageCall).toBeDefined();
-    // 11 unmatched > 10 → no list call.
     const listCall = warnSpy.mock.calls.find(c => typeof c[0] === "string" && c[0].includes("unmatched skus"));
-    expect(listCall).toBeUndefined();
+    expect(listCall).toBeDefined();
+    expect(Array.isArray(listCall![1])).toBe(true);
+    expect((listCall![1] as string[]).length).toBe(11);
   });
 });
