@@ -146,10 +146,10 @@ describe("enrichRowsWithItemMaster", () => {
     expect(coverageCall?.[0]).toContain("1 by style");
     expect(coverageCall?.[0]).toContain("1 UNMATCHED");
 
-    // unmatched ≤ 10 → also log the list
     const listCall = warnSpy.mock.calls.find(c => typeof c[0] === "string" && c[0].includes("unmatched skus"));
     expect(listCall).toBeDefined();
-    expect(listCall?.[1]).toEqual(["NOPE000 - Whatever"]);
+    expect(listCall?.[0]).toContain("unmatched skus (1)");
+    expect(listCall?.[0]).toContain("NOPE000 - Whatever");
   });
 
   it("treats every row as unmatched when the cache is empty", () => {
@@ -238,7 +238,10 @@ describe("enrichRowsWithItemMaster", () => {
     expect(coverageCall).toBeDefined();
     const listCall = warnSpy.mock.calls.find(c => typeof c[0] === "string" && c[0].includes("unmatched skus"));
     expect(listCall).toBeDefined();
-    expect(Array.isArray(listCall![1])).toBe(true);
-    expect((listCall![1] as string[]).length).toBe(11);
+    const listText = listCall![0] as string;
+    expect(listText).toContain("unmatched skus (11)");
+    for (let i = 0; i < 11; i++) {
+      expect(listText).toContain(`MISS${i} - X`);
+    }
   });
 });

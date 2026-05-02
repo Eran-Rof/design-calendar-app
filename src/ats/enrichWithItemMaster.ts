@@ -62,9 +62,10 @@ export function enrichRowsWithItemMaster(rows: ATSRow[]): { rows: ATSRow[]; summ
   } else {
     const pct = ((matched / total) * 100).toFixed(1);
     console.warn(`[ats master] coverage ${pct}% (${matched}/${total} matched: ${bySku} by sku, ${byStyle} by style — ${unmatched} UNMATCHED)`);
-    // Phase 1 diagnostic: always log the full unmatched list so we can
-    // identify what's missing from master before flipping the UI in phase 2.
-    console.warn("[ats master] unmatched skus:", unmatchedSkus);
+    // Phase 1 diagnostic: always log the full unmatched list inline as a
+    // newline-separated string so it's directly copyable from the console
+    // without needing to expand an Array.
+    console.warn(`[ats master] unmatched skus (${unmatched}):\n${unmatchedSkus.join("\n")}`);
   }
 
   return { rows: enriched, summary };

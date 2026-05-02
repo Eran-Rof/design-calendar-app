@@ -111,11 +111,14 @@ export async function loadItemMasterCache(): Promise<void> {
     try {
       const rows = await fetchAllItemMaster();
       buildIndexes(rows);
-      // Phase 1 diagnostic: log a small sample of master sku_codes so we can
-      // compare format against ATS SKUs when sku-level matches come back zero.
+      // Phase 1 diagnostic: log a small sample of master sku_codes inline as
+      // text (not as a collapsed Array) so the format is visible without
+      // needing to expand it in DevTools.
       if (rows.length > 0) {
-        const sample = rows.slice(0, 5).map(r => ({ sku_code: r.sku_code, style_code: r.style_code, color: r.color }));
-        console.info(`[item-master] loaded ${rows.length} rows. sample:`, sample);
+        const sample = rows.slice(0, 8).map(r =>
+          `sku_code="${r.sku_code}" style_code="${r.style_code ?? ""}" color="${r.color ?? ""}"`,
+        ).join(" | ");
+        console.info(`[item-master] loaded ${rows.length} rows. sample: ${sample}`);
       } else {
         console.warn("[item-master] loaded 0 rows — table empty?");
       }
