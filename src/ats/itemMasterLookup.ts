@@ -57,9 +57,14 @@ function buildIndexes(records: ItemMasterRecord[]): void {
   for (const rec of records) {
     if (rec.sku_code) sku.set(rec.sku_code, rec);
     if (rec.style_code) {
-      const existing = style.get(rec.style_code);
+      // Case-insensitive style lookup: ATS SKUs sometimes carry the style
+      // code in lowercase or mixed case, while master is canonically
+      // uppercase. Index by uppercase key so the resolver can match
+      // regardless of casing.
+      const styleKey = rec.style_code.toUpperCase();
+      const existing = style.get(styleKey);
       if (!existing) {
-        style.set(rec.style_code, rec);
+        style.set(styleKey, rec);
         continue;
       }
       // Deterministic tie-break: prefer the record with no color (the
@@ -68,7 +73,7 @@ function buildIndexes(records: ItemMasterRecord[]): void {
       const existingHasColor = !!existing.color;
       const recHasColor = !!rec.color;
       if (existingHasColor && !recHasColor) {
-        style.set(rec.style_code, rec);
+        style.set(styleKey, rec);
         continue;
       }
       if (!existingHasColor && recHasColor) {
@@ -76,7 +81,7 @@ function buildIndexes(records: ItemMasterRecord[]): void {
       }
       // Same color-presence — pick the smallest sku_code.
       if (rec.sku_code < existing.sku_code) {
-        style.set(rec.style_code, rec);
+        style.set(styleKey, rec);
       }
     }
   }
@@ -153,7 +158,10 @@ export function resolveStyle(sku: string, stylePart?: string | null): ResolvedSt
   if (stylePart) {
     const trimmed = stylePart.trim();
     if (trimmed) {
-      const styleHit = byStyleCode.get(trimmed);
+      // Case-insensitive: ATS rows occasionally carry lowercase or mixed-
+      // case style codes (e.g. "ryb0335", "PTYG0003lstd") while master is
+      // canonically uppercase. Match the index's uppercased key.
+      const styleHit = byStyleCode.get(trimmed.toUpperCase());
       if (styleHit) {
         return {
           category: styleHit.attributes?.group_name ?? null,

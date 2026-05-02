@@ -161,4 +161,34 @@ describe("itemMasterLookup.resolveStyle", () => {
     expect(r2.match_source).toBe("style");
     expect(r2.color).toBe("Aqua");
   });
+
+  it("style fallback is case-insensitive — lowercase or mixed-case style parts hit uppercase master rows", () => {
+    __setCacheForTest([
+      makeRecord({
+        id: "ryb",
+        sku_code: "RYB0335 - Navy",
+        style_code: "RYB0335",
+        color: "Navy",
+        attributes: { group_name: "Bottoms", sub_category_name: "Jeans" },
+      }),
+      makeRecord({
+        id: "ptyg",
+        sku_code: "PTYG0003LSTD - Blue",
+        style_code: "PTYG0003LSTD",
+        color: "Blue",
+        attributes: { group_name: "Tops" },
+      }),
+    ]);
+
+    // Lowercase ATS style part should still match uppercase master.
+    const lower = resolveStyle("ryb0335 - dull gold", "ryb0335");
+    expect(lower.match_source).toBe("style");
+    expect(lower.style).toBe("RYB0335");
+    expect(lower.category).toBe("Bottoms");
+
+    // Mixed-case style part too.
+    const mixed = resolveStyle("PTYG0003lstd - whatever", "PTYG0003lstd");
+    expect(mixed.match_source).toBe("style");
+    expect(mixed.style).toBe("PTYG0003LSTD");
+  });
 });
