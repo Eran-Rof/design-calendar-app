@@ -139,6 +139,13 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): 
   let color: string | null = head.sku_color;
   let description = head.sku_description;
 
+  // sub_category_name and group_name in the merged row default to head's
+  // value via ...head spread; the rollup branches below override them
+  // explicitly so a Category rollup doesn't show a random sub-cat from
+  // whichever child happened to be first in the bucket.
+  let subCatOverride: string | null | undefined;
+  let groupOverride: string | null | undefined;
+
   if (modes.subCat) {
     label = `(${customerSet.size} cust · ${styleSet.size} styles)`;
     style = head.sub_category_name ?? "(no sub cat)";
@@ -149,6 +156,8 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): 
     style = head.group_name ?? "(no category)";
     color = null;
     description = `Category rollup — ${bucket.length} forecast rows`;
+    // Hide the random child sub-cat that survives via head spread.
+    subCatOverride = null;
   } else if (modes.allCustomersPerCategory) {
     label = `(${customerSet.size} customers)`;
     // Style stays as the head row's style; description tags the category
@@ -187,6 +196,8 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): 
     sku_style: style,
     sku_color: color,
     sku_description: description,
+    sub_category_name: subCatOverride !== undefined ? subCatOverride : head.sub_category_name,
+    group_name: groupOverride !== undefined ? groupOverride : head.group_name,
     historical_trailing_qty: sum("historical_trailing_qty"),
     system_forecast_qty: sum("system_forecast_qty"),
     buyer_request_qty: sum("buyer_request_qty"),
