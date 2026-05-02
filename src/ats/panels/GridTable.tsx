@@ -174,6 +174,11 @@ export const GridTable: React.FC<GridTableProps> = ({
                     <span style={{ fontFamily: "monospace", color: "#60A5FA", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                       {row.sku}
                     </span>
+                    {row.store && row.store !== "ROF" && (
+                      <span style={{ fontSize: 9, fontWeight: 700, color: "#FBBF24", background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.35)", borderRadius: 3, padding: "1px 5px", letterSpacing: 0.3 }}>
+                        {row.store}
+                      </span>
+                    )}
                   </div>
                   {row.category && <div style={{ fontSize: 10, color: "#475569", marginTop: 2, paddingLeft: 12 }}>{row.category}</div>}
                 </td>
