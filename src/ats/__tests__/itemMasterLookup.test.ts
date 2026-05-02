@@ -162,6 +162,36 @@ describe("itemMasterLookup.resolveStyle", () => {
     expect(r2.color).toBe("Aqua");
   });
 
+  it("style fallback strips whitespace — ATS 'R7113 ED2' matches master 'R7113ED2', and the reverse", () => {
+    __setCacheForTest([
+      makeRecord({
+        id: "no-space",
+        sku_code: "R7113ED2",
+        style_code: "R7113ED2",
+        color: "Black",
+        attributes: { group_name: "Tops", sub_category_name: "Tees" },
+      }),
+      makeRecord({
+        id: "with-space",
+        sku_code: "FOO BAR - Red",
+        style_code: "FOO BAR",
+        color: "Red",
+        attributes: { group_name: "Bottoms" },
+      }),
+    ]);
+
+    // ATS has the space; master has none.
+    const atsHasSpace = resolveStyle("R7113 ED2 - Lt Brown", "R7113 ED2");
+    expect(atsHasSpace.match_source).toBe("style");
+    expect(atsHasSpace.style).toBe("R7113ED2");
+    expect(atsHasSpace.category).toBe("Tops");
+
+    // Inverse: master has the space; ATS dropped it.
+    const atsDroppedSpace = resolveStyle("FOOBAR - Red", "FOOBAR");
+    expect(atsDroppedSpace.match_source).toBe("style");
+    expect(atsDroppedSpace.style).toBe("FOO BAR");
+  });
+
   it("style fallback is case-insensitive — lowercase or mixed-case style parts hit uppercase master rows", () => {
     __setCacheForTest([
       makeRecord({

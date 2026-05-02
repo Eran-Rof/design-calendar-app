@@ -65,23 +65,25 @@ function buildIndexes(records: ItemMasterRecord[]): void {
       const existing = style.get(styleKey);
       if (!existing) {
         style.set(styleKey, rec);
-        continue;
+      } else {
+        // Deterministic tie-break: prefer the record with no color (the
+        // "base" style row, if one exists), otherwise the lexicographically
+        // smallest sku_code wins so injection order doesn't change results.
+        const existingHasColor = !!existing.color;
+        const recHasColor = !!rec.color;
+        if (existingHasColor && !recHasColor) {
+          style.set(styleKey, rec);
+        } else if (existingHasColor === recHasColor && rec.sku_code < existing.sku_code) {
+          style.set(styleKey, rec);
+        }
       }
-      // Deterministic tie-break: prefer the record with no color (the
-      // "base" style row, if one exists), otherwise the lexicographically
-      // smallest sku_code wins so injection order doesn't change results.
-      const existingHasColor = !!existing.color;
-      const recHasColor = !!rec.color;
-      if (existingHasColor && !recHasColor) {
-        style.set(styleKey, rec);
-        continue;
-      }
-      if (!existingHasColor && recHasColor) {
-        continue;
-      }
-      // Same color-presence — pick the smallest sku_code.
-      if (rec.sku_code < existing.sku_code) {
-        style.set(styleKey, rec);
+      // Whitespace alias: store under the space-stripped uppercase key too
+      // so an ATS row with the opposite spacing still hits. Only insert if
+      // the stripped key isn't already taken by a primary record (don't
+      // shadow a real master row).
+      const styleKeyNoSpace = styleKey.replace(/\s+/g, "");
+      if (styleKeyNoSpace !== styleKey && !style.has(styleKeyNoSpace)) {
+        style.set(styleKeyNoSpace, style.get(styleKey)!);
       }
     }
   }
@@ -161,7 +163,15 @@ export function resolveStyle(sku: string, stylePart?: string | null): ResolvedSt
       // Case-insensitive: ATS rows occasionally carry lowercase or mixed-
       // case style codes (e.g. "ryb0335", "PTYG0003lstd") while master is
       // canonically uppercase. Match the index's uppercased key.
-      const styleHit = byStyleCode.get(trimmed.toUpperCase());
+      const trimmedUpper = trimmed.toUpperCase();
+      let styleHit = byStyleCode.get(trimmedUpper);
+      // Whitespace fallback: ATS rows may have an internal space ("R7113 ED2")
+      // where master has none ("R7113ED2") or vice versa. Try the stripped
+      // form against the index's whitespace alias.
+      if (!styleHit) {
+        const noSpace = trimmedUpper.replace(/\s+/g, "");
+        if (noSpace !== trimmedUpper) styleHit = byStyleCode.get(noSpace);
+      }
       if (styleHit) {
         return {
           category: styleHit.attributes?.group_name ?? null,
