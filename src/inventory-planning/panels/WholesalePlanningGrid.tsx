@@ -393,13 +393,13 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       const periods = Array.from(perPeriod.entries()).sort((a, b) => a[0].localeCompare(b[0]));
       let pool = skuOnHand.get(skuId) ?? 0;
       for (const [periodStart, agg] of periods) {
-        const onHand = pool;                                  // beginning balance
-        const ats = pool + agg.receipts + agg.buy;            // available to sell
+        const onHand = pool;                                              // beginning balance
+        const ats = Math.max(0, pool - agg.onSo + agg.receipts + agg.buy); // on_hand - SO + receipts
         const demand = agg.demand;
         const excess = ats > demand ? ats - demand : 0;
         const shortage = demand > ats ? demand - ats : 0;
         out.set(`${skuId}:${periodStart}`, { onHand, ats, excess, shortage });
-        pool = Math.max(0, ats - demand - agg.onSo);
+        pool = ats;                                                        // ATS rolls forward as next row's on_hand
       }
     }
     return out;
