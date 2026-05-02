@@ -34,6 +34,8 @@ export function activeCollapseMode(modes: CollapseModes): string | null {
   if (modes.category) return "category";
   if (modes.colors && modes.customers) return "colors+customers";
   if (modes.colors) return "colors";
+  if (modes.sizes && modes.customers) return "sizes+customers";
+  if (modes.sizes) return "sizes";
   if (modes.customers) return "customers";
   return null;
 }

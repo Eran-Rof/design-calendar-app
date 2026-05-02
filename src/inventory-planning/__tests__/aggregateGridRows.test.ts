@@ -58,6 +58,7 @@ function row(p: Partial<IpPlanningGridRow>): IpPlanningGridRow {
 const NO_COLLAPSE: CollapseModes = {
   customers: false, colors: false, category: false, subCat: false,
   customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false,
+  allCustomersPerStyle: false, sizes: false,
 };
 
 describe("aggregateRows — grouping key", () => {

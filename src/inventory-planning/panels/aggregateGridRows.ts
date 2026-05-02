@@ -28,6 +28,10 @@ export interface CollapseModes {
   // period). Useful when the planner wants total demand for a style
   // across every color and every customer.
   allCustomersPerStyle: boolean;
+  // Drop the size dimension while keeping style + color. Combinable
+  // with `customers`. Has no effect when `colors` is on (colors
+  // already collapses to sku_style, which inherently spans sizes).
+  sizes: boolean;
 }
 
 // Aggregate rows by the active collapse modes. Each toggle changes the
@@ -65,7 +69,14 @@ export function aggregateRows(rows: IpPlanningGridRow[], modes: CollapseModes): 
       // bought into one row. Other style/color/SKU fields collapse.
       key = `cust-all:${r.customer_id}:${r.period_code}`;
     } else {
-      const skuPart = modes.colors ? `style:${r.sku_style ?? r.sku_code}` : `sku:${r.sku_id}`;
+      let skuPart: string;
+      if (modes.colors) {
+        skuPart = `style:${r.sku_style ?? r.sku_code}`;
+      } else if (modes.sizes) {
+        skuPart = `style+color:${r.sku_style ?? r.sku_code}:${r.sku_color ?? "—"}`;
+      } else {
+        skuPart = `sku:${r.sku_id}`;
+      }
       const custPart = modes.customers ? "all" : r.customer_id;
       key = `${skuPart}:${custPart}:${r.period_code}`;
     }
@@ -133,6 +144,7 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): 
   const customerSet = new Set(bucket.map((r) => r.customer_name));
   const styleSet = new Set(bucket.map((r) => r.sku_style ?? r.sku_code));
   const colorSet = new Set(bucket.map((r) => r.sku_color ?? "—"));
+  const sizeSet = new Set(bucket.map((r) => r.sku_size ?? "—"));
 
   let label = head.customer_name;
   let style: string | null = head.sku_style;
@@ -183,6 +195,12 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): 
   } else {
     if (modes.customers && customerSet.size > 1) label = `(${customerSet.size} customers)`;
     if (modes.colors && colorSet.size > 1) color = `(${colorSet.size} colors)`;
+    // sizes-only rollup: tag the description with the size count so
+    // the planner sees that the row spans multiple sizes (no Size
+    // column is rendered in the grid).
+    if (modes.sizes && !modes.colors && sizeSet.size > 1) {
+      description = `${head.sku_description ?? ""}${head.sku_description ? " · " : ""}${sizeSet.size} sizes merged`;
+    }
   }
 
   return {
