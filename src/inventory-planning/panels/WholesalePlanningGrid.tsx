@@ -432,17 +432,45 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   const filtered = useMemo(() => {
     const muted = mutedRows;
     const collapsed = anyCollapsed ? aggregateRows(muted, collapse) : muted;
-    // When collapsed by Sub Cat or Category, force the row order to
-    // group all periods sequentially per sub-cat (or per cat). Inside
-    // each group, sort by period_start ascending so the rolling pool
-    // walks the months in order. The user-selected sortKey still
-    // applies in non-grouped views.
-    const groupBy: "subCat" | "category" | null =
-      collapse.subCat ? "subCat" : collapse.category ? "category" : null;
-    const sorted = groupBy
+    // groupKey identifies the "chain" the rolling pool walks across
+    // periods. Whenever consecutive rows share the same groupKey, the
+    // pool carries forward (this row's OnHand = previous row's ATS).
+    // When the groupKey changes, the pool resets to that group's own
+    // unique-sku on_hand sum.
+    //
+    // Defined per active collapse mode so the chain matches whatever
+    // the user is viewing — works for sub-cat, category, per-style
+    // rollup, per-cat-style rollup, per-customer rollup, and even
+    // non-collapsed (where the chain is just the SKU itself).
+    const groupKeyFor = (r: IpPlanningGridRow): string => {
+      if (collapse.subCat) return `sub:${r.sub_category_name ?? ""}`;
+      if (collapse.category) return `cat:${r.group_name ?? ""}`;
+      if (collapse.allCustomersPerStyle) return `acps:${r.sku_style ?? r.sku_code}`;
+      if (collapse.allCustomersPerCategory) {
+        const skuPart = collapse.colors ? (r.sku_style ?? r.sku_code) : r.sku_id;
+        return `acpc:${r.group_name ?? ""}:${skuPart}`;
+      }
+      if (collapse.allCustomersPerSubCat) {
+        const skuPart = collapse.colors ? (r.sku_style ?? r.sku_code) : r.sku_id;
+        return `acpsc:${r.sub_category_name ?? ""}:${skuPart}`;
+      }
+      if (collapse.customerAllStyles) return `cas:${r.customer_id}`;
+      // Default — non-collapsed or only customers/colors. Group by
+      // SKU (or style if colors collapsed). Customer dimension is
+      // ignored because customer-level rolling pool would chain
+      // multiple customers' demand through one stock pool, which is
+      // the per-customer issue the per-SKU rolling pool was built to
+      // avoid. Same SKU = one chain.
+      return `sku:${collapse.colors ? (r.sku_style ?? r.sku_code) : r.sku_id}`;
+    };
+    // When any collapse is active, force sort to (groupKey, period) so
+    // chained rows render contiguously. Without collapse, keep the
+    // user's sortKey — the pool still resets per-row anyway because
+    // most non-collapsed rows are different SKUs.
+    const sorted = anyCollapsed
       ? [...collapsed].sort((a, b) => {
-          const aKey = (groupBy === "subCat" ? a.sub_category_name : a.group_name) ?? "";
-          const bKey = (groupBy === "subCat" ? b.sub_category_name : b.group_name) ?? "";
+          const aKey = groupKeyFor(a);
+          const bKey = groupKeyFor(b);
           if (aKey !== bKey) return aKey.localeCompare(bKey);
           return a.period_start.localeCompare(b.period_start);
         })
@@ -472,26 +500,25 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       }
       return pool;
     };
+    // Walk sorted rows and split into groups whenever groupKey
+    // changes between consecutive rows. Same groupKey = same chain;
+    // different groupKey = pool resets.
     const groups: { rows: typeof sorted; startIndex: number }[] = [];
-    if (groupBy) {
-      let curKey: string | null = null;
-      let curRows: typeof sorted = [];
-      let curStart = 0;
-      for (let i = 0; i < sorted.length; i++) {
-        const r = sorted[i];
-        const k = (groupBy === "subCat" ? r.sub_category_name : r.group_name) ?? "";
-        if (k !== curKey) {
-          if (curRows.length > 0) groups.push({ rows: curRows, startIndex: curStart });
-          curRows = [];
-          curKey = k;
-          curStart = i;
-        }
-        curRows.push(r);
+    let curKey: string | null = null;
+    let curRows: typeof sorted = [];
+    let curStart = 0;
+    for (let i = 0; i < sorted.length; i++) {
+      const r = sorted[i];
+      const k = groupKeyFor(r);
+      if (k !== curKey) {
+        if (curRows.length > 0) groups.push({ rows: curRows, startIndex: curStart });
+        curRows = [];
+        curKey = k;
+        curStart = i;
       }
-      if (curRows.length > 0) groups.push({ rows: curRows, startIndex: curStart });
-    } else {
-      groups.push({ rows: sorted, startIndex: 0 });
+      curRows.push(r);
     }
+    if (curRows.length > 0) groups.push({ rows: curRows, startIndex: curStart });
     const rolled = new Array(sorted.length);
     for (const g of groups) {
       const groupRolled = applyRollingPool(
