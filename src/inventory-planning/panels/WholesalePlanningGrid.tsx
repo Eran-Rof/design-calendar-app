@@ -733,7 +733,10 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       tbdRow = userAddedInBucket[0];
     } else {
       const styleCode = styleSet.size === 1 ? Array.from(styleSet)[0] : "TBD";
-      const tbdCandidates = mutedRows.filter((x) =>
+      // Same as saveAggBuyerOrOverride — search the FULL row set so
+      // an active customer / period filter can't hide the catch-all
+      // (Supply Only) TBD row from the routing target.
+      const tbdCandidates = rows.filter((x) =>
         x.is_tbd
         && x.sku_style === styleCode
         && x.period_start === periodStart
@@ -831,7 +834,13 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       tbdRow = userAddedInBucket[0];
     } else {
       const styleCode = styleSet.size === 1 ? Array.from(styleSet)[0] : "TBD";
-      const tbdCandidates = mutedRows.filter((x) =>
+      // Search the FULL row set (not just mutedRows) — the catch-all
+      // (Supply Only) TBD row may be excluded by an active customer
+      // / period / style filter, but it's still the legitimate
+      // routing target. Without this fallback the planner sees a
+      // "no TBD routing target" error after typing on an aggregate
+      // while filters narrowed away (Supply Only).
+      const tbdCandidates = rows.filter((x) =>
         x.is_tbd
         && x.sku_style === styleCode
         && x.period_start === periodStart
