@@ -117,9 +117,26 @@ export interface RunForecastPassResult {
 // (group_name / category_name / gender).
 export interface BuildFilter {
   customer_id?: string | null;
+  // Style identity. When set, the build only processes pairs whose
+  // item.style_code (or, for items without a style, sku_code) matches.
+  style_code?: string | null;
   group_name?: string | null;
   sub_category_name?: string | null;
   gender?: string | null;
+  // Period scoping is post-compute: forecast rows for non-matching
+  // periods are dropped before upsert. The build still walks the
+  // full horizon for rolling supply continuity, then trims at the
+  // edge.
+  period_code?: string | null;
+  // Output-derived filters — included in the type so the planner's
+  // grid can pass every dropdown through without the build call site
+  // having to choose. Action / confidence / method are *outputs* of
+  // the build, so applying them as inputs would force the pipeline
+  // to throw away rows it just computed; we keep the build full and
+  // surface these only as a hint in the build chip line.
+  recommended_action?: string | null;
+  confidence_level?: string | null;
+  forecast_method?: string | null;
 }
 
 export interface RunForecastPassOptions {
@@ -268,7 +285,7 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
   let prunedFilterCount = 0;
   const filter = options.filter;
   const filterActive = !!filter && (
-    filter.customer_id || filter.group_name || filter.sub_category_name || filter.gender
+    filter.customer_id || filter.style_code || filter.group_name || filter.sub_category_name || filter.gender
   );
   if (filterActive) {
     const itemBySku = new Map(items.map((i) => [i.id, i]));
@@ -279,6 +296,10 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
       if (p.customer_id === supplyPlaceholder) return true;
       if (filter!.customer_id && p.customer_id !== filter!.customer_id) return false;
       const item = itemBySku.get(p.sku_id);
+      if (filter!.style_code) {
+        const styleOnSku = item?.style_code ?? item?.sku_code ?? null;
+        if (styleOnSku !== filter!.style_code) return false;
+      }
       const attrs = (item?.attributes ?? null) as Record<string, unknown> | null;
       if (filter!.group_name) {
         const v = attrs?.group_name;
@@ -316,7 +337,16 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
 
   checkAbort(signal);
   onProgress?.({ phase: "computing", label: `Computing forecast for ${pairs.length.toLocaleString()} pairs`, current: 0, total: pairs.length });
-  const forecastRows = buildFinalWholesaleForecast(computeInput);
+  let forecastRows = buildFinalWholesaleForecast(computeInput);
+
+  // Period-scoped build — drop rows whose period_code doesn't match.
+  // Done post-compute so rolling supply still walks the full horizon
+  // even if only one period's rows persist.
+  if (filter?.period_code) {
+    const before = forecastRows.length;
+    forecastRows = forecastRows.filter((f) => f.period_code === filter.period_code);
+    prunedFilterCount += before - forecastRows.length;
+  }
 
   checkAbort(signal);
   onProgress?.({ phase: "writing_forecast", label: `Writing forecast`, current: 0, total: forecastRows.length });

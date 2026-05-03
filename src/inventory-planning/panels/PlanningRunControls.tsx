@@ -118,9 +118,19 @@ export default function PlanningRunControls({
                 title={filterActive
                   ? `Build only the rows matching the current grid filters: ${[
                       buildFilter?.customer_id ? "customer" : null,
+                      buildFilter?.style_code ? `style=${buildFilter.style_code}` : null,
                       buildFilter?.group_name ? `category=${buildFilter.group_name}` : null,
                       buildFilter?.sub_category_name ? `sub-cat=${buildFilter.sub_category_name}` : null,
                       buildFilter?.gender ? `gender=${buildFilter.gender}` : null,
+                      buildFilter?.period_code ? `period=${buildFilter.period_code}` : null,
+                      // Action / confidence / method are output dims —
+                      // surfaced here so the planner sees they're scoped
+                      // away from the build at this moment, but not
+                      // applied as inputs (they'd cause us to discard
+                      // rows the build just computed).
+                      buildFilter?.recommended_action ? `action=${buildFilter.recommended_action} (display only)` : null,
+                      buildFilter?.confidence_level ? `confidence=${buildFilter.confidence_level} (display only)` : null,
+                      buildFilter?.forecast_method ? `method=${buildFilter.forecast_method} (display only)` : null,
                     ].filter(Boolean).join(", ")}`
                   : "Build forecast for every (customer, sku) pair in the run"}
               >

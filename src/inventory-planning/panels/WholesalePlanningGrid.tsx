@@ -66,12 +66,21 @@ export interface WholesalePlanningGridProps {
   onUpdateSystemOverride: (forecastId: string, qty: number | null) => Promise<void>;
   // Reports the current filter set up to the workbench so a "Build
   // (filtered)" Build can scope itself to the visible subset. Called
-  // every time the planner changes a filter dropdown.
+  // every time the planner changes a filter dropdown. The build
+  // pipeline applies customer / style / category / sub-cat / gender
+  // / period as input filters; recommended_action / confidence_level
+  // / forecast_method are passed through but only surface as a chip
+  // hint (they're outputs of the build, not inputs).
   onFiltersChange?: (filters: {
     customer_id: string | null;
+    style_code: string | null;
     group_name: string | null;
     sub_category_name: string | null;
     gender: string | null;
+    period_code: string | null;
+    recommended_action: string | null;
+    confidence_level: string | null;
+    forecast_method: string | null;
   }) => void;
   loading?: boolean;
   // Optional render slot inserted directly above the filter/search
@@ -279,14 +288,19 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   useEffect(() => {
     if (!onFiltersChange) return;
     onFiltersChange({
-      // Build flow only supports a single value per dim. When the
-      // planner has multi-selected, send the first (or null when none).
+      // Build flow supports a single value per dim. When the planner
+      // has multi-selected, send the first (or null when none).
       customer_id: filterCustomer[0] ?? null,
+      style_code: filterStyle[0] ?? null,
       group_name: filterCategory[0] ?? null,
       sub_category_name: filterSubCat[0] ?? null,
       gender: filterGender[0] ?? null,
+      period_code: filterPeriod[0] ?? null,
+      recommended_action: filterAction[0] ?? null,
+      confidence_level: filterConfidence[0] ?? null,
+      forecast_method: filterMethod[0] ?? null,
     });
-  }, [filterCustomer, filterCategory, filterSubCat, filterGender, onFiltersChange]);
+  }, [filterCustomer, filterStyle, filterCategory, filterSubCat, filterGender, filterPeriod, filterAction, filterConfidence, filterMethod, onFiltersChange]);
 
   const customers = useMemo(() => {
     const s = new Map<string, string>();

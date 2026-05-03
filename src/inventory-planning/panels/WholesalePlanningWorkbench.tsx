@@ -71,9 +71,14 @@ export default function WholesalePlanningWorkbench() {
   // populates this; PlanningRunControls reads it as buildFilter.
   const [buildFilter, setBuildFilter] = useState<{
     customer_id: string | null;
+    style_code: string | null;
     group_name: string | null;
     sub_category_name: string | null;
     gender: string | null;
+    period_code: string | null;
+    recommended_action: string | null;
+    confidence_level: string | null;
+    forecast_method: string | null;
   } | null>(null);
 
   // Lifted from the grid so MonthlyTotalsCards and the grid use the
