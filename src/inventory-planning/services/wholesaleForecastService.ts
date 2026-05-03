@@ -771,6 +771,25 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       stylePeriods.set(k, { style_code: t.style_code, period_code: t.period_code, period_start: t.period_start, period_end: t.period_end });
     }
   }
+  // Always synthesize a catch-all (style="TBD", color="TBD") slot for
+  // every period seen in the run. Aggregate edits at collapse modes
+  // that span multiple styles (e.g. By Sub Cat / By Category)
+  // route here when no single style owns the bucket — the planner
+  // gets a single visible "stock buy" row to type against. The
+  // catch-all uses a synthetic stylePeriod entry; the row renders
+  // even before the planner has typed anything.
+  const periodsSeen = new Map<string, { period_code: string; period_start: string; period_end: string }>();
+  for (const sp of stylePeriods.values()) {
+    if (!periodsSeen.has(sp.period_start)) {
+      periodsSeen.set(sp.period_start, { period_code: sp.period_code, period_start: sp.period_start, period_end: sp.period_end });
+    }
+  }
+  for (const p of periodsSeen.values()) {
+    const k = `TBD|${p.period_start}`;
+    if (!stylePeriods.has(k)) {
+      stylePeriods.set(k, { style_code: "TBD", period_code: p.period_code, period_start: p.period_start, period_end: p.period_end });
+    }
+  }
   // Index persisted TBD rows by the same (style_code, period_start)
   // grain so we can overlay them onto the synthetic rows.
   type TbdRow = (typeof tbdRows)[number];

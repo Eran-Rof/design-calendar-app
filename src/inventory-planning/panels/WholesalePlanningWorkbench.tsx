@@ -50,6 +50,17 @@ export default function WholesalePlanningWorkbench() {
   const [customers, setCustomers] = useState<IpCustomer[]>([]);
   const [categories, setCategories] = useState<IpCategory[]>([]);
   const [items, setItems] = useState<IpItem[]>([]);
+  // Distinct color values from the active item master (lower-cased).
+  // Used by the TBD color picker to decide whether a typed color is
+  // truly "new". Sourced from items master, not from rows in scope —
+  // colors that only appear on master entries with no demand pair
+  // would otherwise be flagged as new on the second time the planner
+  // typed them, then "not-new" once they were saved (and thus
+  // appeared in rows).
+  const [masterColorsLower, setMasterColorsLower] = useState<Set<string>>(new Set());
+  // Distinct (style_code, group_name, sub_category_name) tuples from
+  // the master. Drives the TBD style picker's category-wide list.
+  const [masterStyles, setMasterStyles] = useState<Array<{ style_code: string; group_name: string | null; sub_category_name: string | null }>>([]);
   const [requests, setRequests] = useState<IpFutureDemandRequest[]>([]);
   const [rows, setRows] = useState<IpPlanningGridRow[]>([]);
   const [overrides, setOverrides] = useState<IpPlannerOverride[]>([]);
@@ -131,17 +142,21 @@ export default function WholesalePlanningWorkbench() {
   const selectedRun = useMemo(() => runs.find((r) => r.id === selectedRunId) ?? null, [runs, selectedRunId]);
 
   const loadMasters = useCallback(async () => {
-    const [cs, cats, its, reqs, rs] = await Promise.all([
+    const [cs, cats, its, reqs, rs, mcl, mst] = await Promise.all([
       wholesaleRepo.listCustomers(),
       wholesaleRepo.listCategories(),
       wholesaleRepo.listItems(),
       wholesaleRepo.listOpenRequests(),
       wholesaleRepo.listPlanningRuns("wholesale"),
+      wholesaleRepo.listMasterColorsLower(),
+      wholesaleRepo.listMasterStyles(),
     ]);
     setCustomers(cs);
     setCategories(cats);
     setItems(its);
     setRequests(reqs);
+    setMasterColorsLower(mcl);
+    setMasterStyles(mst);
     setRuns(rs);
     if (!selectedRunId) {
       const active = rs.find((r) => r.status === "active") ?? rs[0] ?? null;
@@ -637,6 +652,70 @@ export default function WholesalePlanningWorkbench() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setToast({ text: `Add row failed — ${msg}`, kind: "error" });
+    }
+  }
+
+  // Rename the style on a TBD stock-buy row. Used by the Phase 5
+  // catch-all routing so a planner can promote a (style="TBD")
+  // catch-all row into a specific style — or revert any style-
+  // specific TBD row back to "TBD" to send its qty into the catch-
+  // all slot. The unique grain (run, style_code, color, customer,
+  // period_start) means a TBD row already exists for the target
+  // style would conflict; on conflict we surface a toast asking the
+  // planner to drill into the target row directly.
+  async function saveTbdStyle(row: IpPlanningGridRow, styleCode: string) {
+    if (!selectedRun) return;
+    if (!row.tbd_id) {
+      // The row is synthetic — upsert under the new style first so a
+      // real id exists, then patch it. (The synthetic catch-all rows
+      // start with no tbd_id and get one only on first edit.)
+      try {
+        await wholesaleRepo.upsertTbdRow(selectedRun.id, {
+          style_code: styleCode,
+          color: row.sku_color ?? "TBD",
+          is_new_color: row.is_new_color ?? false,
+          customer_id: row.customer_id,
+          group_name: row.group_name ?? null,
+          sub_category_name: row.sub_category_name ?? null,
+          period_start: row.period_start,
+          period_end: row.period_end,
+          period_code: row.period_code,
+          buyer_request_qty: row.buyer_request_qty,
+          override_qty: row.override_qty,
+          final_forecast_qty: row.final_forecast_qty,
+          planned_buy_qty: row.planned_buy_qty,
+          unit_cost: row.unit_cost,
+          notes: row.notes ?? null,
+        });
+        setToast({ text: `Style set to ${styleCode}`, kind: "success" });
+        const seq = ++rebuildSeq.current;
+        const refreshed = await buildGridRows(selectedRun);
+        if (seq !== rebuildSeq.current) return;
+        setRows(refreshed);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setToast({ text: `Style save failed — ${msg}`, kind: "error" });
+      }
+      return;
+    }
+    try {
+      await wholesaleRepo.patchTbdRow(row.tbd_id, { style_code: styleCode });
+      setToast({ text: `Style set to ${styleCode}`, kind: "success" });
+      const seq = ++rebuildSeq.current;
+      const refreshed = await buildGridRows(selectedRun);
+      if (seq !== rebuildSeq.current) return;
+      setRows(refreshed);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // 23505 = unique violation (the target style already has its
+      // own TBD row in this run/period). We can't auto-merge without
+      // the planner's input on which color / customer wins; ask
+      // them to drill in.
+      if (msg.includes("23505")) {
+        setToast({ text: `A TBD row already exists for ${styleCode} in this period. Drill in to edit it directly.`, kind: "error" });
+      } else {
+        setToast({ text: `Style save failed — ${msg}`, kind: "error" });
+      }
     }
   }
 
@@ -1143,8 +1222,11 @@ export default function WholesalePlanningWorkbench() {
               onUpdateOverride={saveOverrideQty}
               onUpdateSystemOverride={saveSystemOverride}
               onUpdateTbdColor={saveTbdColor}
+              onUpdateTbdStyle={saveTbdStyle}
               onUpdateTbdCustomer={saveTbdCustomer}
               onAddTbdRow={addTbdRow}
+              masterColorsLower={masterColorsLower}
+              masterStyles={masterStyles}
               onFiltersChange={setBuildFilter}
               bucketBuys={bucketBuys}
               systemSuggestionsOn={systemSuggestionsOn}

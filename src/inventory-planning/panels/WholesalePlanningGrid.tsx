@@ -19,6 +19,19 @@ export interface WholesalePlanningGridProps {
   // customer (Phase 3), and add a fresh row (Phase 4). Workbench
   // composes a saveTbdField call from these.
   onUpdateTbdColor?: (row: IpPlanningGridRow, color: string, isNewColor: boolean) => Promise<void>;
+  // Rename the style on a TBD row. Picking "TBD" as the style turns
+  // the row into the catch-all (style=TBD, color=TBD) line for the
+  // bucket's period; picking a real style code from the same
+  // category promotes the qty to that style's TBD line.
+  onUpdateTbdStyle?: (row: IpPlanningGridRow, styleCode: string) => Promise<void>;
+  // Master color set (lowercased, run-wide) used by the TBD color
+  // picker to decide whether a typed color is "new". Sourced from
+  // ip_item_master directly so colors on master entries with no
+  // demand pair don't false-fire the NEW flag.
+  masterColorsLower?: Set<string>;
+  // (style_code, group_name, sub_category_name) tuples from item
+  // master. Drives the TBD style picker's category-wide list.
+  masterStyles?: Array<{ style_code: string; group_name: string | null; sub_category_name: string | null }>;
   // Reassign a TBD row's customer. Picking a real customer promotes
   // the stock-buy line into that customer's committed demand; the
   // grid re-loads after save and the row shows under the new
@@ -210,7 +223,7 @@ function distributeAcrossChildren(
   return out;
 }
 
-export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdCustomer, onAddTbdRow, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdRow, masterColorsLower, masterStyles, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
   // Multi-select filters — empty array = no filter (all rows pass).
   // Each non-empty array narrows to rows whose value is in the set.
@@ -460,19 +473,21 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     }
     return out;
   }, [rows]);
-  // Lower-cased flat set of EVERY known color across the run, used by
-  // the picker's onSave to decide whether the typed string is "new"
-  // or matches something the master / siblings already carry. The
-  // auto-clear in buildGridRows uses the master directly; this set is
-  // a quick client-side proxy to make the picker feel responsive.
+  // Lower-cased flat set of EVERY known color, used by the picker's
+  // onSave to decide whether the typed string is "new". Prefers the
+  // workbench-fed `masterColorsLower` (sourced directly from
+  // ip_item_master, so colors on items with no demand pair still
+  // count as known). Falls back to a rows-derived approximation
+  // when the prop isn't passed (older call sites).
   const allKnownColorsLower = useMemo(() => {
+    if (masterColorsLower && masterColorsLower.size > 0) return masterColorsLower;
     const out = new Set<string>();
     for (const r of rows) {
       if (r.is_tbd) continue;
       if (r.sku_color) out.add(r.sku_color.trim().toLowerCase());
     }
     return out;
-  }, [rows]);
+  }, [rows, masterColorsLower]);
 
   // Pre-pack multiplier — checks color first, then size, then
   // description. The number after "PPK" (optionally separated by
@@ -611,11 +626,10 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       periodStart = child.period_start;
       if (!child.is_tbd) nonTbdTotal += child.planned_buy_qty ?? 0;
     }
-    if (styleSet.size !== 1 || !periodStart) {
-      console.warn(`[planning] aggregate Buy: bucket spans ${styleSet.size} styles — typed value can't be routed to a single TBD row. Drill in (▶) and edit individual TBD lines.`);
-      return;
-    }
-    const styleCode = Array.from(styleSet)[0];
+    if (!periodStart) return;
+    // Multi-style buckets route to (style=TBD, color=TBD); single-
+    // style buckets route to that style's TBD row.
+    const styleCode = styleSet.size === 1 ? Array.from(styleSet)[0] : "TBD";
     const tbdCandidates = mutedRows.filter((x) =>
       x.is_tbd
       && x.sku_style === styleCode
@@ -684,15 +698,12 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         nonTbdTotal += (child[field] as number | undefined) ?? 0;
       }
     }
-    if (styleSet.size !== 1 || !periodStart) {
-      console.warn(`[planning] aggregate ${field}: bucket spans ${styleSet.size} styles — typed value can't be routed to a single TBD row. Drill in (▶) and edit individual TBD lines, or use Buy (bucket-level).`);
-      return;
-    }
-    const styleCode = Array.from(styleSet)[0];
-    // Find the TBD row in mutedRows for this (style, period). Match
-    // on sku_style + period_start + (Supply Only) + color "TBD". If
-    // multiple TBD rows exist (e.g. planner has reassigned color on
-    // some), prefer the one with sku_color === "TBD".
+    if (!periodStart) return;
+    // Single-style bucket → route to that style's (Supply Only)/TBD
+    // row. Multi-style bucket → route to the catch-all (style=TBD,
+    // color=TBD) row for the same period. The catch-all is always
+    // synthesized in buildGridRows so it's reliably present.
+    const styleCode = styleSet.size === 1 ? Array.from(styleSet)[0] : "TBD";
     const tbdCandidates = mutedRows.filter((x) =>
       x.is_tbd
       && x.sku_style === styleCode
@@ -1258,7 +1269,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               >
                 <td style={{ ...S.td, color: PAL.textDim, ...colHide("category") }}>{r.group_name ?? "–"}</td>
                 <td style={{ ...S.td, color: PAL.textDim, ...colHide("subCat") }}>{r.sub_category_name ?? "–"}</td>
-                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent, paddingLeft: isChild ? 28 : undefined, ...colHide("style") }}>
+                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent, paddingLeft: isChild ? 28 : undefined, ...colHide("style") }} onClick={(e) => { if (r.is_tbd) e.stopPropagation(); }}>
                   {r.is_aggregate && (
                     <span
                       onClick={(e) => { e.stopPropagation(); toggleAggExpanded(r.forecast_id); }}
@@ -1266,7 +1277,17 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                       title={isExpanded ? "Collapse" : "Drill into this row"}
                     >▶</span>
                   )}
-                  {r.sku_style ?? r.sku_code}
+                  {r.is_tbd && onUpdateTbdStyle && masterStyles ? (
+                    <TbdStyleCell
+                      value={r.sku_style ?? "TBD"}
+                      categoryStyles={masterStyles
+                        .filter((m) => !r.group_name || m.group_name === r.group_name)
+                        .map((m) => m.style_code)}
+                      onSave={(styleCode) => onUpdateTbdStyle(r, styleCode)}
+                    />
+                  ) : (
+                    r.sku_style ?? r.sku_code
+                  )}
                 </td>
                 <td style={{ ...S.td, color: PAL.textDim, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", ...colHide("description") }} title={r.sku_description ?? ""}>
                   {r.sku_description ?? "—"}
@@ -1878,6 +1899,150 @@ function CollapseToggle({ label, active, onToggle }: { label: string; active: bo
   );
 }
 
+// Editable style cell on TBD rows. Click → popover listing every
+// style in the same item-master category plus a literal "TBD"
+// option at the top so the planner can revert to the catch-all
+// stock-buy slot. Picking a real style turns the row into that
+// style's TBD line; picking "TBD" sends the qty to the catch-all
+// (style=TBD, color=TBD) line for the period.
+function TbdStyleCell({
+  value, categoryStyles, onSave,
+}: {
+  value: string;
+  categoryStyles: string[];
+  onSave: (styleCode: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape") setOpen(false); }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  useEffect(() => { if (!open) setQuery(""); }, [open]);
+
+  const optionList = useMemo(() => {
+    const out: string[] = ["TBD"];
+    for (const s of categoryStyles) {
+      if (s.toLowerCase() !== "tbd") out.push(s);
+    }
+    return out;
+  }, [categoryStyles]);
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return optionList;
+    return optionList.filter((s) => s.toLowerCase().includes(q));
+  }, [query, optionList]);
+
+  async function commit(styleCode: string) {
+    if (busy || styleCode === value) { setOpen(false); return; }
+    setBusy(true);
+    try {
+      await onSave(styleCode);
+      setOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const isPlaceholder = value === "TBD";
+  return (
+    <div ref={ref} style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          background: isPlaceholder ? `${PAL.textMuted}22` : "transparent",
+          border: `1px solid ${isPlaceholder ? PAL.textMuted : PAL.border}`,
+          color: isPlaceholder ? PAL.textMuted : PAL.accent,
+          borderRadius: 6,
+          padding: "3px 8px",
+          fontSize: 12,
+          cursor: "pointer",
+          fontFamily: "monospace",
+          textAlign: "left" as const,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          marginLeft: 4,
+        }}
+        title={isPlaceholder ? "Catch-all stock-buy slot — click to assign a style" : "Click to change style or revert to TBD"}
+      >
+        <span>{value}</span>
+        <span style={{ color: PAL.textMuted, fontSize: 9 }}>▾</span>
+      </button>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 4px)",
+            left: 0,
+            zIndex: 60,
+            background: PAL.panel,
+            border: `1px solid ${PAL.border}`,
+            borderRadius: 8,
+            minWidth: 240,
+            maxHeight: 360,
+            overflowY: "auto",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+          }}
+        >
+          <div style={{ padding: 8, borderBottom: `1px solid ${PAL.borderFaint}`, position: "sticky", top: 0, background: PAL.panel }}>
+            <input
+              autoFocus
+              type="text"
+              placeholder="Search styles…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              style={{ ...S.input, width: "100%" }}
+            />
+            <div style={{ marginTop: 4, fontSize: 10, color: PAL.textMuted, lineHeight: 1.4 }}>
+              {categoryStyles.length === 0
+                ? "No styles in this category yet — pick TBD to keep as a catch-all."
+                : "Pick any style in this category, or TBD to revert."}
+            </div>
+          </div>
+          {filtered.length === 0 && (
+            <div style={{ padding: 12, color: PAL.textMuted, fontSize: 12 }}>No matches</div>
+          )}
+          {filtered.map((s) => (
+            <div
+              key={s}
+              role="option"
+              tabIndex={0}
+              onClick={() => commit(s)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(s); } }}
+              style={{
+                padding: "8px 12px",
+                cursor: "pointer",
+                fontFamily: "monospace",
+                fontSize: 13,
+                color: s === value ? PAL.accent : (s === "TBD" ? PAL.textMuted : PAL.text),
+                background: s === value ? `${PAL.accent}11` : (s === "TBD" ? `${PAL.textMuted}10` : undefined),
+                fontWeight: s === value ? 600 : undefined,
+                borderBottom: `1px solid ${PAL.borderFaint}`,
+              }}
+            >
+              {s}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Editable customer cell on TBD rows. Click → searchable customer
 // list (the same list used by the toolbar's customer filter). Picking
 // a real customer reassigns the TBD row to them; the row stays an
@@ -2047,20 +2212,33 @@ function TbdColorCell({
   }, [open]);
   useEffect(() => { if (!open) setQuery(""); }, [open]);
 
+  // Always offer TBD as the first option so the planner can revert
+  // to the catch-all stock-buy slot after picking a real color. We
+  // de-dupe in case knownColors happens to contain "TBD" already.
+  const optionList = useMemo(() => {
+    const out: string[] = ["TBD"];
+    for (const c of knownColors) {
+      if (c.toLowerCase() !== "tbd") out.push(c);
+    }
+    return out;
+  }, [knownColors]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return knownColors;
-    // Search-on-type: include any known color whose name contains
-    // the query (case-insensitive). The picker scope is already the
-    // category, so the planner sees every relevant option after a
-    // few keystrokes.
-    return knownColors.filter((c) => c.toLowerCase().includes(q));
-  }, [query, knownColors]);
+    if (!q) return optionList;
+    // Search-on-type: include any option whose name contains the
+    // query (case-insensitive). The picker scope is already the
+    // category + TBD, so the planner sees every relevant option
+    // after a few keystrokes.
+    return optionList.filter((c) => c.toLowerCase().includes(q));
+  }, [query, optionList]);
   const queryTrim = query.trim();
   // The query is "new" when no master color anywhere matches it.
   // Picking a category sibling's color (already in allKnownColorsLower)
-  // is NOT new even if it isn't on the current style yet.
-  const queryIsNew = queryTrim.length > 0 && !allKnownColorsLower.has(queryTrim.toLowerCase());
+  // is NOT new even if it isn't on the current style yet. The literal
+  // "TBD" is the canonical placeholder — never flagged as new.
+  const queryIsNew = queryTrim.length > 0
+    && queryTrim.toLowerCase() !== "tbd"
+    && !allKnownColorsLower.has(queryTrim.toLowerCase());
 
   async function commit(color: string, isNew: boolean) {
     if (busy) return;

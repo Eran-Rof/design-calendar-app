@@ -150,6 +150,38 @@ export const wholesaleRepo = {
   async listCategories(): Promise<IpCategory[]> {
     return sbGet<IpCategory>("ip_category_master?select=*&order=name.asc&limit=5000");
   },
+  // Distinct color values from the active item master. Used by the
+  // grid's TBD color picker for isNew detection without paying the
+  // full listItems() round trip every render. Returns lowercased,
+  // de-duped strings — order isn't meaningful.
+  async listMasterColorsLower(): Promise<Set<string>> {
+    const rows = await sbGetAll<{ color: string | null }>("ip_item_master?select=color&active=eq.true&color=not.is.null");
+    const out = new Set<string>();
+    for (const r of rows) {
+      const c = r.color?.trim();
+      if (c) out.add(c.toLowerCase());
+    }
+    return out;
+  },
+  // Distinct (style_code, color, group_name, sub_category_name) tuples
+  // from the active item master. Used by the TBD style + color
+  // pickers so the planner can pick a sibling style in the same
+  // category even when that sibling has no demand pairs in the
+  // current run (and therefore no rows in buildGridRows).
+  async listMasterStyles(): Promise<Array<{ style_code: string; group_name: string | null; sub_category_name: string | null }>> {
+    type RawItem = { style_code: string | null; sku_code: string; attributes: Record<string, unknown> | null; active: boolean };
+    const rows = await sbGetAll<RawItem>("ip_item_master?select=style_code,sku_code,attributes,active&active=eq.true");
+    const out = new Map<string, { style_code: string; group_name: string | null; sub_category_name: string | null }>();
+    for (const r of rows) {
+      const style = r.style_code ?? r.sku_code;
+      if (!style || out.has(style)) continue;
+      const attrs = r.attributes ?? {};
+      const group = typeof attrs.group_name === "string" ? attrs.group_name.trim() || null : null;
+      const sub = typeof attrs.category_name === "string" ? attrs.category_name.trim() || null : null;
+      out.set(style, { style_code: style, group_name: group, sub_category_name: sub });
+    }
+    return Array.from(out.values()).sort((a, b) => a.style_code.localeCompare(b.style_code));
+  },
   async listItems(): Promise<IpItem[]> {
     // Paginate so a 20k+ catalog (Xoro items-sync + auto-create from
     // invoice ingest can easily exceed the previous 20000 cap) doesn't
