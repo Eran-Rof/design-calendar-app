@@ -939,14 +939,48 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   const { displayRows, childIds } = useMemo(() => {
     const ids = new Set<string>();
     let base: typeof filtered = filtered;
-    if (expandedAggs.size > 0) {
+    // The just-added row's child forecast_id (the synthetic id we
+    // emit in buildGridRows for the underlying TBD row) — used both
+    // to auto-expand whichever aggregate contains it AND to position
+    // it first among that aggregate's children below.
+    let pinnedChildFid: string | null = null;
+    if (lastAddedTbdMarker) {
+      const matches = (r: IpPlanningGridRow) =>
+        r.is_tbd
+        && r.is_user_added
+        && (r.sku_style ?? "") === lastAddedTbdMarker.style_code
+        && (r.sku_color ?? "") === lastAddedTbdMarker.color
+        && r.customer_id === lastAddedTbdMarker.customer_id
+        && r.period_code === lastAddedTbdMarker.period_code;
+      const matchedRow = rows.find(matches);
+      if (matchedRow) pinnedChildFid = matchedRow.forecast_id;
+    }
+    // Build the effective expansion set — the planner's manual
+    // expandedAggs PLUS any aggregate that contains the just-added
+    // row's forecast_id (so the new line is visible under the
+    // collapsed header without the planner clicking ▶).
+    const effectiveExpanded = new Set(expandedAggs);
+    if (pinnedChildFid) {
+      for (const r of filtered) {
+        if (r.is_aggregate && r.aggregate_underlying_ids?.includes(pinnedChildFid)) {
+          effectiveExpanded.add(r.forecast_id);
+        }
+      }
+    }
+    if (effectiveExpanded.size > 0) {
       const out: typeof filtered = [];
       for (const r of filtered) {
         out.push(r);
         if (!r.is_aggregate) continue;
-        if (!expandedAggs.has(r.forecast_id)) continue;
+        if (!effectiveExpanded.has(r.forecast_id)) continue;
         const underlying = r.aggregate_underlying_ids ?? [];
-        for (const fid of underlying) {
+        // Walk children in order — but if the just-added row is one
+        // of them, lift it to the front so it appears as the first
+        // line under the collapsed header.
+        const orderedFids = pinnedChildFid && underlying.includes(pinnedChildFid)
+          ? [pinnedChildFid, ...underlying.filter((fid) => fid !== pinnedChildFid)]
+          : underlying;
+        for (const fid of orderedFids) {
           const child = mutedById.get(fid);
           if (!child) continue;
           const m = skuPeriodMath.get(`${child.sku_id}:${child.period_start}`);
@@ -963,12 +997,13 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       }
       base = out;
     }
-    // Pin the just-added TBD row to the top so the planner sees it
-    // immediately even when the natural sort would slot it deep in
-    // the list, OR when the toolbar filters would otherwise hide
-    // it. The marker is a 4-tuple identity so it survives the
-    // synthetic forecast_id refresh on rebuild. If the row isn't in
-    // the filtered set, we still surface it — the workbench fires a
+    // Pin the just-added TBD row right under its parent aggregate
+    // (e.g., if the planner added a TBD row in sub-cat BAGGY while
+    // collapsed by Sub Cat, the row appears as the first line under
+    // the BAGGY aggregate header — not at the top of the grid). The
+    // marker is a 4-tuple identity so it survives the synthetic
+    // forecast_id refresh on rebuild. If the row isn't in the
+    // filtered set we still surface it — the workbench fires a
     // separate toast warning so the planner knows their filters
     // would have hidden it.
     if (lastAddedTbdMarker) {
@@ -979,20 +1014,54 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         && (r.sku_color ?? "") === lastAddedTbdMarker.color
         && r.customer_id === lastAddedTbdMarker.customer_id
         && r.period_code === lastAddedTbdMarker.period_code;
-      const matchIdx = base.findIndex(matches);
-      if (matchIdx > 0) {
-        const pinned = base[matchIdx];
-        base = [pinned, ...base.slice(0, matchIdx), ...base.slice(matchIdx + 1)];
-      } else if (matchIdx === -1) {
-        // Filter excluded the row — find it in the unfiltered prop
-        // and prepend so the planner can still see (and edit) what
-        // they just added without manually clearing filters.
+      // Locate the row (or fetch from unfiltered if filters hide it).
+      let matchIdx = base.findIndex(matches);
+      let pinned: IpPlanningGridRow | null = null;
+      if (matchIdx >= 0) {
+        pinned = base[matchIdx];
+      } else {
         const fromAllRows = rows.find(matches);
-        if (fromAllRows) base = [fromAllRows, ...base];
+        if (fromAllRows) {
+          pinned = fromAllRows;
+          // Treat as not-in-base for splicing.
+          matchIdx = -1;
+        }
+      }
+      if (pinned) {
+        // Strip the existing position before re-inserting.
+        const stripped = matchIdx >= 0
+          ? [...base.slice(0, matchIdx), ...base.slice(matchIdx + 1)]
+          : base;
+        // Find the parent aggregate row this row "belongs under" by
+        // active collapse mode. When found, insert right after it so
+        // the planner sees the new line immediately under the
+        // collapsed header. When no aggregate matches (e.g., no
+        // collapse active, or the collapse mode doesn't bucket on a
+        // dim the new row carries), fall back to top-of-grid.
+        let parentIdx = -1;
+        if (collapse.subCat) {
+          parentIdx = stripped.findIndex((r) => r.is_aggregate && r.sub_category_name === pinned!.sub_category_name);
+        } else if (collapse.category) {
+          parentIdx = stripped.findIndex((r) => r.is_aggregate && r.group_name === pinned!.group_name);
+        } else if (collapse.allCustomersPerCategory) {
+          parentIdx = stripped.findIndex((r) => r.is_aggregate && r.group_name === pinned!.group_name);
+        } else if (collapse.allCustomersPerSubCat) {
+          parentIdx = stripped.findIndex((r) => r.is_aggregate && r.sub_category_name === pinned!.sub_category_name);
+        } else if (collapse.allCustomersPerStyle) {
+          parentIdx = stripped.findIndex((r) => r.is_aggregate && (r.sku_style ?? r.sku_code) === (pinned!.sku_style ?? pinned!.sku_code));
+        } else if (collapse.customerAllStyles) {
+          parentIdx = stripped.findIndex((r) => r.is_aggregate && r.customer_id === pinned!.customer_id);
+        }
+        if (parentIdx >= 0) {
+          base = [...stripped.slice(0, parentIdx + 1), pinned, ...stripped.slice(parentIdx + 1)];
+        } else {
+          // No collapsed parent to anchor against — pin to top.
+          base = [pinned, ...stripped];
+        }
       }
     }
     return { displayRows: base, childIds: ids };
-  }, [filtered, expandedAggs, mutedById, skuPeriodMath, lastAddedTbdMarker, rows]);
+  }, [filtered, expandedAggs, mutedById, skuPeriodMath, lastAddedTbdMarker, rows, collapse]);
 
   const totals = useMemo(() => {
     const t = { final: 0, shortage: 0, excess: 0, actions: {} as Record<string, number>, methods: {} as Record<string, number> };
