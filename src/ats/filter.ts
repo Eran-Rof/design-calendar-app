@@ -98,14 +98,31 @@ export function statFilterRows(
   return rows;
 }
 
+// Rows with open PO or SO activity float above inert rows so the user's
+// attention lands on lines that actually need watching. Applied as the
+// PRIMARY sort key on top of any user-chosen column sort (and even when no
+// column sort is active). Within each tier, the column sort (or input
+// order, if no sortCol) wins. Native Array.sort is stable in modern JS.
+export function hasOpenActivity(r: ATSRow): boolean {
+  return r.onPO > 0 || r.onOrder > 0;
+}
+
 // Column-header sort. Returns a new sorted array; input is not mutated.
 export function sortRows(
   rows: ATSRow[],
   sortCol: string | null,
   sortDir: "asc" | "desc",
 ): ATSRow[] {
-  if (!sortCol) return rows;
+  // If there's no user sort column, still bubble active rows to the top
+  // and keep everything else in input order.
+  if (!sortCol) {
+    return [...rows].sort((a, b) => Number(hasOpenActivity(b)) - Number(hasOpenActivity(a)));
+  }
   return [...rows].sort((a, b) => {
+    // Primary: bubble active (PO/SO > 0) rows above inert ones.
+    const actDiff = Number(hasOpenActivity(b)) - Number(hasOpenActivity(a));
+    if (actDiff !== 0) return actDiff;
+    // Secondary: user's column sort.
     let av: string | number;
     let bv: string | number;
     if      (sortCol === "sku")         { av = a.sku;         bv = b.sku; }

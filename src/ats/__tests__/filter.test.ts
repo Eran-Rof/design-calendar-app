@@ -144,8 +144,10 @@ describe("sortRows", () => {
     row({ sku: "C", onHand: 40 }),
   ];
 
-  it("returns input unchanged when sortCol null", () => {
-    expect(sortRows(rows, null, "asc")).toBe(rows);
+  it("with no sortCol, preserves order when no rows have open activity", () => {
+    // None of A/B/C have onPO or onOrder set → bubble is a no-op, content
+    // matches input. New array returned (sortRows now always returns new).
+    expect(sortRows(rows, null, "asc").map(r => r.sku)).toEqual(["B", "A", "C"]);
   });
 
   it("sorts by sku ascending/descending", () => {

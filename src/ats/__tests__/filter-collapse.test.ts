@@ -65,6 +65,49 @@ describe("filter + collapse: multi-store store filter", () => {
     expect(collapsed.find(r => r.master_category === "SHORTS")!.onHand).toBe(12); // 5 + 7
   });
 
+  it("active rows (onPO > 0 OR onOrder > 0) bubble above inert rows in sortRows — even with no sortCol", () => {
+    const rs: ATSRow[] = [
+      row({ sku: "inert-1", store: "ROF", master_category: "X", onHand: 100 }),
+      row({ sku: "po",      store: "ROF", master_category: "X", onHand: 0,  onPO: 50 }),
+      row({ sku: "inert-2", store: "ROF", master_category: "X", onHand: 80  }),
+      row({ sku: "so",      store: "ROF", master_category: "X", onHand: 0,  onOrder: 20 }),
+      row({ sku: "both",    store: "ROF", master_category: "X", onHand: 0,  onPO: 10, onOrder: 30 }),
+    ];
+    const sorted = sortRows(rs, null, "asc");
+    // Active rows first (po, so, both — in input order), then inert (inert-1, inert-2 — input order).
+    expect(sorted.map(r => r.sku)).toEqual(["po", "so", "both", "inert-1", "inert-2"]);
+  });
+
+  it("active rows bubble above inert in sortRows even with a column sort applied — column sort wins ties within each tier", () => {
+    const rs: ATSRow[] = [
+      row({ sku: "inert-A", store: "ROF", master_category: "X", onHand: 100 }),
+      row({ sku: "active-Z", store: "ROF", master_category: "X", onHand: 200, onPO: 5 }),
+      row({ sku: "inert-Z", store: "ROF", master_category: "X", onHand: 100 }),
+      row({ sku: "active-A", store: "ROF", master_category: "X", onHand: 200, onPO: 5 }),
+    ];
+    const sorted = sortRows(rs, "sku", "asc");
+    // Active first (sorted by sku asc), then inert (sorted by sku asc).
+    expect(sorted.map(r => r.sku)).toEqual(["active-A", "active-Z", "inert-A", "inert-Z"]);
+  });
+
+  it("expanded children: active rows bubble above inert, then store priority ROF > ROF ECOM > PT", () => {
+    const inputOrder: ATSRow[] = [
+      row({ sku: "ECOM-INERT", store: "ROF ECOM", master_category: "JACKETS", onHand: 100 }),
+      row({ sku: "PT-INERT",   store: "PT",       master_category: "JACKETS", onHand: 50  }),
+      row({ sku: "ROF-INERT",  store: "ROF",      master_category: "JACKETS", onHand: 80  }),
+      row({ sku: "PT-ACTIVE",  store: "PT",       master_category: "JACKETS", onPO: 200 }),
+      row({ sku: "ROF-ACTIVE", store: "ROF",      master_category: "JACKETS", onPO: 9000 }),
+      row({ sku: "ECOM-ACTIVE",store: "ROF ECOM", master_category: "JACKETS", onOrder: 30 }),
+    ];
+    const collapsed = collapseRows(inputOrder, "category", new Set(["category:JACKETS"]));
+    const children = collapsed.filter(r => !r.__collapsed);
+    // Active first by store rank, then inert by store rank.
+    expect(children.map(r => r.sku)).toEqual([
+      "ROF-ACTIVE", "ECOM-ACTIVE", "PT-ACTIVE",
+      "ROF-INERT",  "ECOM-INERT",  "PT-INERT",
+    ]);
+  });
+
   it("expanded children are ordered ROF first, then ROF ECOM, then PT — so 'All stores' page 0 still shows ROF data", () => {
     // Mimic the user-reported behavior: when input order puts non-ROF
     // first, ROF children get pushed past page 0 and the user sees only

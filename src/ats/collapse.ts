@@ -115,8 +115,16 @@ function storeRank(s: string | null | undefined): number {
   if (k === "PT") return 2;
   return 100;
 }
+function hasOpenActivity(r: ATSRow): boolean {
+  return r.onPO > 0 || r.onOrder > 0;
+}
 function stableSortByStore(rows: ATSRow[]): ATSRow[] {
-  // Stable sort by storeRank; ties keep their input order. Native
-  // Array.sort is stable in modern JS engines.
-  return [...rows].sort((a, b) => storeRank(a.store) - storeRank(b.store));
+  // Sort priority: (1) rows with open PO or SO bubble above inert rows;
+  //                (2) ROF, then ROF ECOM, then PT;
+  //                (3) input order (native Array.sort is stable).
+  return [...rows].sort((a, b) => {
+    const actDiff = Number(hasOpenActivity(b)) - Number(hasOpenActivity(a));
+    if (actDiff !== 0) return actDiff;
+    return storeRank(a.store) - storeRank(b.store);
+  });
 }
