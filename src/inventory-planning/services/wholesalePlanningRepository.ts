@@ -163,6 +163,29 @@ export const wholesaleRepo = {
     }
     return out;
   },
+  // Per-style set of known colors from item master (lowercased).
+  // Drives the TBD color picker's two-tier "new" badging:
+  //   - color in master for THIS style          → no badge
+  //   - color in master for OTHER styles only   → green "NEW for style"
+  //   - color not in master anywhere            → orange "NEW COLOR"
+  // Returns a Map keyed by style_code, with each value a Set of
+  // lowercased color strings.
+  async listMasterColorsByStyleLower(): Promise<Map<string, Set<string>>> {
+    type Row = { style_code: string | null; color: string | null };
+    const rows = await sbGetAll<Row>("ip_item_master?select=style_code,color&active=eq.true&style_code=not.is.null&color=not.is.null");
+    const out = new Map<string, Set<string>>();
+    for (const r of rows) {
+      if (!r.style_code || !r.color) continue;
+      const style = r.style_code;
+      const c = r.color.trim().toLowerCase();
+      if (!c) continue;
+      let set = out.get(style);
+      if (!set) { set = new Set<string>(); out.set(style, set); }
+      set.add(c);
+    }
+    return out;
+  },
+
   // Distinct (style_code, color, group_name, sub_category_name) tuples
   // from the active item master. Used by the TBD style + color
   // pickers so the planner can pick a sibling style in the same

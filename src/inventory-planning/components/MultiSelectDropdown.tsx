@@ -52,7 +52,11 @@ export function MultiSelectDropdown({
     if (selected.length === 1) {
       return options.find((o) => o.value === selected[0])?.label ?? selected[0];
     }
-    return `${allLabel} · ${selected.length} selected`;
+    // Multi-select trigger shows just the count — the allLabel
+    // prefix ("None · 3 selected", "All customers · 5 selected")
+    // was noisy and the prefix wasn't accurate once anything was
+    // chosen anyway.
+    return `${selected.length} selected`;
   })();
 
   useEffect(() => {
@@ -158,6 +162,8 @@ export function MultiSelectDropdown({
               placeholder={placeholder}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onFocus={(e) => { if (e.currentTarget.value) e.currentTarget.select(); }}
+              onClick={(e) => { if (e.currentTarget.value) e.currentTarget.select(); }}
               style={{ ...S.input, flex: 1, minWidth: 0 }}
             />
             {selected.length > 0 && (

@@ -58,6 +58,11 @@ export default function WholesalePlanningWorkbench() {
   // typed them, then "not-new" once they were saved (and thus
   // appeared in rows).
   const [masterColorsLower, setMasterColorsLower] = useState<Set<string>>(new Set());
+  // Per-style set of master colors. Drives the two-tier "new" badge:
+  //   - color exists for this style    → no badge
+  //   - color exists for other styles  → green "NEW for style"
+  //   - color not in master anywhere   → orange "NEW COLOR"
+  const [masterColorsByStyleLower, setMasterColorsByStyleLower] = useState<Map<string, Set<string>>>(new Map());
   // Distinct (style_code, group_name, sub_category_name) tuples from
   // the master. Drives the TBD style picker's category-wide list.
   const [masterStyles, setMasterStyles] = useState<Array<{ style_code: string; group_name: string | null; sub_category_name: string | null }>>([]);
@@ -142,7 +147,7 @@ export default function WholesalePlanningWorkbench() {
   const selectedRun = useMemo(() => runs.find((r) => r.id === selectedRunId) ?? null, [runs, selectedRunId]);
 
   const loadMasters = useCallback(async () => {
-    const [cs, cats, its, reqs, rs, mcl, mst] = await Promise.all([
+    const [cs, cats, its, reqs, rs, mcl, mst, mcs] = await Promise.all([
       wholesaleRepo.listCustomers(),
       wholesaleRepo.listCategories(),
       wholesaleRepo.listItems(),
@@ -150,6 +155,7 @@ export default function WholesalePlanningWorkbench() {
       wholesaleRepo.listPlanningRuns("wholesale"),
       wholesaleRepo.listMasterColorsLower(),
       wholesaleRepo.listMasterStyles(),
+      wholesaleRepo.listMasterColorsByStyleLower(),
     ]);
     setCustomers(cs);
     setCategories(cats);
@@ -157,6 +163,7 @@ export default function WholesalePlanningWorkbench() {
     setRequests(reqs);
     setMasterColorsLower(mcl);
     setMasterStyles(mst);
+    setMasterColorsByStyleLower(mcs);
     setRuns(rs);
     if (!selectedRunId) {
       const active = rs.find((r) => r.status === "active") ?? rs[0] ?? null;
@@ -1569,6 +1576,7 @@ export default function WholesalePlanningWorkbench() {
               onUndoLastAdd={undoLastAddedTbd}
               lastAddedTbdMarker={lastAddedTbdMarker}
               masterColorsLower={masterColorsLower}
+              masterColorsByStyleLower={masterColorsByStyleLower}
               masterStyles={masterStyles}
               onFiltersChange={setBuildFilter}
               bucketBuys={bucketBuys}

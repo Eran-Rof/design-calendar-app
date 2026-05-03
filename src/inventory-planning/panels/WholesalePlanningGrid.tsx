@@ -45,6 +45,10 @@ export interface WholesalePlanningGridProps {
   // ip_item_master directly so colors on master entries with no
   // demand pair don't false-fire the NEW flag.
   masterColorsLower?: Set<string>;
+  // Per-style master color set (lowercased). Used to differentiate
+  // "new for this style but exists elsewhere" (green badge) from
+  // "truly new, not in master at all" (orange badge).
+  masterColorsByStyleLower?: Map<string, Set<string>>;
   // (style_code, group_name, sub_category_name) tuples from item
   // master. Drives the TBD style picker's category-wide list.
   masterStyles?: Array<{ style_code: string; group_name: string | null; sub_category_name: string | null }>;
@@ -259,7 +263,7 @@ function distributeAcrossChildren(
   return out;
 }
 
-export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdRow, onDeleteTbdRow, onUndoLastAdd, lastAddedTbdMarker, masterColorsLower, masterStyles, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdRow, onDeleteTbdRow, onUndoLastAdd, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   // Persisted filter state — survives reloads + builds. Stored under
   // ws_planning_filter_<key> in localStorage so the planner doesn't
   // re-pick what they had narrowed to. Lazy useState initializer
@@ -1660,15 +1664,30 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   {r.sku_description ?? "—"}
                 </td>
                 <td style={{ ...S.td, color: PAL.textDim, padding: r.is_tbd ? "0 4px" : undefined, ...colHide("color") }} onClick={(e) => { if (r.is_tbd) e.stopPropagation(); }}>
-                  {r.is_tbd && onUpdateTbdColor ? (
-                    <TbdColorCell
-                      value={r.sku_color ?? "TBD"}
-                      isNewColor={!!r.is_new_color}
-                      knownColors={Array.from(colorsByGroupName.get(r.group_name ?? "—") ?? new Set<string>()).sort()}
-                      allKnownColorsLower={allKnownColorsLower}
-                      onSave={(color, isNew) => onUpdateTbdColor(r, color, isNew)}
-                    />
-                  ) : (
+                  {r.is_tbd && onUpdateTbdColor ? (() => {
+                    // Derive the green "NEW for this style" flag at
+                    // render time. The orange "NEW COLOR" flag
+                    // (is_new_color) is set + persisted at save
+                    // time; this one is purely display-derived from
+                    // master state, so renaming the color or moving
+                    // a row's style updates the badge instantly.
+                    const colorLower = (r.sku_color ?? "").trim().toLowerCase();
+                    const styleColors = masterColorsByStyleLower?.get(r.sku_style ?? "");
+                    const inAnyMaster = colorLower !== "" && colorLower !== "tbd"
+                      && (allKnownColorsLower.has(colorLower) || (masterColorsLower?.has(colorLower) ?? false));
+                    const inThisStyleMaster = colorLower !== "" && (styleColors?.has(colorLower) ?? false);
+                    const isNewForStyle = !r.is_new_color && inAnyMaster && !inThisStyleMaster;
+                    return (
+                      <TbdColorCell
+                        value={r.sku_color ?? "TBD"}
+                        isNewColor={!!r.is_new_color}
+                        isNewForStyle={isNewForStyle}
+                        knownColors={Array.from(colorsByGroupName.get(r.group_name ?? "—") ?? new Set<string>()).sort()}
+                        allKnownColorsLower={allKnownColorsLower}
+                        onSave={(color, isNew) => onUpdateTbdColor(r, color, isNew)}
+                      />
+                    );
+                  })() : (
                     <>
                       {r.sku_color ?? "—"}
                       {r.sku_color_inferred && (
@@ -2573,10 +2592,15 @@ function TbdCustomerCell({
 // flag, surfaces an orange "NEW" badge, and stays until the master
 // catches up.
 function TbdColorCell({
-  value, isNewColor, knownColors, allKnownColorsLower, onSave,
+  value, isNewColor, isNewForStyle, knownColors, allKnownColorsLower, onSave,
 }: {
   value: string;
+  // Truly new — color isn't in the item master at all. Orange badge.
   isNewColor: boolean;
+  // New for THIS style — color exists in the master for some other
+  // style but not for this row's style. Green badge. Mutually
+  // exclusive with isNewColor (the call site only sets one).
+  isNewForStyle: boolean;
   knownColors: string[];
   allKnownColorsLower: Set<string>;
   onSave: (color: string, isNew: boolean) => Promise<void>;
@@ -2648,9 +2672,11 @@ function TbdColorCell({
         type="button"
         onClick={() => setOpen((v) => !v)}
         style={{
-          background: isPlaceholder ? `${PAL.textMuted}22` : (isNewColor ? `${PAL.yellow}22` : "transparent"),
-          border: `1px solid ${isNewColor ? PAL.yellow : (isPlaceholder ? PAL.textMuted : PAL.border)}`,
-          color: isNewColor ? PAL.yellow : (isPlaceholder ? PAL.textMuted : PAL.text),
+          background: isPlaceholder
+            ? `${PAL.textMuted}22`
+            : (isNewColor ? `${PAL.yellow}22` : (isNewForStyle ? `${PAL.green}22` : "transparent")),
+          border: `1px solid ${isNewColor ? PAL.yellow : (isNewForStyle ? PAL.green : (isPlaceholder ? PAL.textMuted : PAL.border))}`,
+          color: isNewColor ? PAL.yellow : (isNewForStyle ? PAL.green : (isPlaceholder ? PAL.textMuted : PAL.text)),
           borderRadius: 6,
           padding: "3px 8px",
           fontSize: 12,
@@ -2662,12 +2688,17 @@ function TbdColorCell({
           gap: 6,
         }}
         title={isNewColor
-          ? "New color — not yet in the item master. Will auto-clear when the master gains this color."
-          : (isPlaceholder ? "Click to assign a color" : "Click to change color")}
+          ? "New color — not in the item master at all. Will auto-clear when the master gains this color."
+          : (isNewForStyle
+            ? "New for this style — color exists in the master for other styles, but not yet for this one."
+            : (isPlaceholder ? "Click to assign a color" : "Click to change color"))}
       >
         <span>{value}</span>
         {isNewColor && (
           <span style={{ background: PAL.yellow, color: "#000", borderRadius: 3, padding: "0 4px", fontSize: 9, fontWeight: 700 }}>NEW</span>
+        )}
+        {!isNewColor && isNewForStyle && (
+          <span style={{ background: PAL.green, color: "#000", borderRadius: 3, padding: "0 4px", fontSize: 9, fontWeight: 700 }}>NEW</span>
         )}
         <span style={{ color: PAL.textMuted, fontSize: 9 }}>▾</span>
       </button>
