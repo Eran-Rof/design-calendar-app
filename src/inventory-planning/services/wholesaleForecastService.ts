@@ -824,19 +824,24 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     const groupName = readGroupName(styleFb) ?? null;
     const subCategoryName = readSubCategoryName(styleFb) ?? null;
     const gender = readGender(styleFb) ?? null;
-    // Skip the synthetic supply line when:
-    //   1. The style only exists because a planner-added TBD row
-    //      references it (no forecast demand), AND
-    //   2. There's no real supplyTbd row for it, AND
-    //   3. It's not the canonical "TBD" catch-all (which we always
-    //      render as the multi-style routing target).
-    // Without this, a brand-new style typed via "Add as NEW style"
-    // produces a phantom (Supply Only) TBD row at the top of the
-    // grid with empty category/sub-cat — pure clutter, since the
-    // planner's actual rows are emitted in the per-row loop below.
+    // Skip the synthetic supply line whenever the style is NOT
+    // the canonical "TBD" catch-all AND the supplyTbd backing row
+    // (if any) is not a real planner add. The synthetic / catch-
+    // all line ONLY makes sense for "TBD"|period (the multi-style
+    // routing target). For any specific style, the row should
+    // exist iff a planner explicitly added it — the per-row loop
+    // below emits those.
+    //
+    // This also kills the leftover "phantom" rows for non-TBD
+    // styles whose backing DB row got is_user_added=false from the
+    // earlier mergeBucket-leakage bug (planner clicked TbdStyleCell
+    // on what looked like an aggregate header and patched the auto
+    // catch-all to a custom style code). Those rows should not
+    // render — they're stranded auto rows with the wrong style.
     const isTbdCatchAll = sp.style_code === "TBD";
     const hasForecast = forecastStylePeriods.has(key);
-    const skipSynthetic = !supplyTbd && !hasForecast && !isTbdCatchAll;
+    const supplyTbdIsRealAdd = !!supplyTbd?.is_user_added;
+    const skipSynthetic = !isTbdCatchAll && !supplyTbdIsRealAdd && !hasForecast;
     if (!skipSynthetic) {
     // Synthetic (Supply Only) TBD line — always rendered; overlays
     // persisted qty/cost when supplyTbd exists.

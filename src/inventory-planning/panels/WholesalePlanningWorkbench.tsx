@@ -716,13 +716,26 @@ export default function WholesalePlanningWorkbench() {
       setToast({ text: `Couldn't find period ${args.period_code} in the current run`, kind: "error" });
       return;
     }
-    const dup = findTbdDuplicate(args.style_code, args.color, args.customer_id, args.period_code);
-    if (dup) {
-      setToast({
-        text: `Already have a ${args.style_code} / ${args.color} row for ${dup.customer_name} in ${args.period_code}. Edit that row instead.`,
-        kind: "error",
-      });
-      return;
+    // Skip the dup check when the planner is adding with the
+    // form's default placeholder grain (style=TBD AND color=TBD).
+    // The "+ Add row" button always starts the planner here — they
+    // pick a real style/color via TbdStyleCell / TbdColorCell after
+    // the row appears. Blocking the placeholder add when another
+    // unrenamed placeholder already exists would lock the planner
+    // out of creating any second row, since there's nothing they
+    // can change in the form to escape the conflict. The dup
+    // check on saveTbdStyle/Color/Customer still prevents renaming
+    // INTO a duplicate.
+    const isPlaceholderAdd = args.style_code === "TBD" && args.color === "TBD";
+    if (!isPlaceholderAdd) {
+      const dup = findTbdDuplicate(args.style_code, args.color, args.customer_id, args.period_code);
+      if (dup) {
+        setToast({
+          text: `Already have a ${args.style_code} / ${args.color} row for ${dup.customer_name} in ${args.period_code}. Edit that row instead.`,
+          kind: "error",
+        });
+        return;
+      }
     }
     try {
       // Plain INSERT — every "+ Add row" creates a distinct row
