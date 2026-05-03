@@ -700,7 +700,16 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       if (setCustomer && !setCustomer.has(r.customer_id)) return false;
       if (setCategory && !setCategory.has(r.group_name ?? "—")) return false;
       if (setSubCat && !setSubCat.has(r.sub_category_name ?? "—")) return false;
-      if (setGender && !setGender.has(r.gender ?? "—")) return false;
+      // TBD rows with no gender (typical for planner-added new
+      // styles that aren't in the item master yet) pass any gender
+      // filter — otherwise the row vanishes whenever a planner
+      // narrows by gender, even though they explicitly added it for
+      // a real customer in a real category. The gender filter still
+      // excludes non-TBD rows whose explicit gender doesn't match.
+      if (setGender && !setGender.has(r.gender ?? "—")) {
+        const isUntaggedTbd = r.is_tbd && (r.gender == null || r.gender === "");
+        if (!isUntaggedTbd) return false;
+      }
       if (setPeriod && !setPeriod.has(r.period_code)) return false;
       if (setStyle && !setStyle.has(r.sku_style ?? r.sku_code)) return false;
       if (setAction && !setAction.has(r.recommended_action)) return false;
@@ -1968,17 +1977,39 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                     // a style is NEW when it isn't in masterStyles
                     // (any category). The literal "TBD" placeholder
                     // is never NEW.
+                    //
+                    // The dropdown's searchable list also includes
+                    // any planner-added styles already in the run,
+                    // so adding a second row with the same NEW style
+                    // surfaces it in the list (no second "Add as
+                    // NEW" prompt for a style the planner just typed).
                     const styleVal = r.sku_style ?? "TBD";
                     const styleLower = styleVal.trim().toLowerCase();
-                    const allStylesLower = new Set(masterStyles.map((m) => m.style_code.toLowerCase()));
-                    const isNewStyle = styleLower !== "" && styleLower !== "tbd" && !allStylesLower.has(styleLower);
+                    const masterStylesLower = new Set(masterStyles.map((m) => m.style_code.toLowerCase()));
+                    const userAddedStyles = new Set<string>();
+                    for (const x of rows) {
+                      if (x.is_tbd && x.sku_style && x.sku_style !== "TBD"
+                          && !masterStylesLower.has(x.sku_style.toLowerCase())) {
+                        userAddedStyles.add(x.sku_style);
+                      }
+                    }
+                    const allStylesLower = new Set([
+                      ...masterStylesLower,
+                      ...Array.from(userAddedStyles).map((s) => s.toLowerCase()),
+                    ]);
+                    const isNewStyle = styleLower !== "" && styleLower !== "tbd" && !masterStylesLower.has(styleLower);
+                    const masterCategoryStyles = masterStyles
+                      .filter((m) => !r.group_name || m.group_name === r.group_name)
+                      .map((m) => m.style_code);
+                    const categoryStyles = [
+                      ...masterCategoryStyles,
+                      ...Array.from(userAddedStyles),
+                    ];
                     return (
                       <TbdStyleCell
                         value={styleVal}
                         isNewStyle={isNewStyle}
-                        categoryStyles={masterStyles
-                          .filter((m) => !r.group_name || m.group_name === r.group_name)
-                          .map((m) => m.style_code)}
+                        categoryStyles={categoryStyles}
                         allKnownStylesLower={allStylesLower}
                         onSave={(styleCode) => onUpdateTbdStyle(r, styleCode)}
                       />

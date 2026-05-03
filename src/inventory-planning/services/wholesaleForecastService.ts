@@ -754,6 +754,34 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
   // a synthetic TBD line) and the persisted tbd rows (so a planner-
   // added TBD line with a style the master doesn't know — e.g. the
   // literal "TBD" placeholder from "+ Add row" — still renders).
+  // Most-common-gender per (group_name, sub_category_name) pair —
+  // used to infer the gender for planner-added TBD rows whose style
+  // isn't in the master yet. Without this, the planner-added row
+  // has gender=null and silently vanishes when a gender filter is
+  // active (and saves under the wrong scope downstream).
+  const genderByCatSubCat = new Map<string, string>();
+  {
+    const counts = new Map<string, Map<string, number>>();
+    for (const i of items) {
+      const g = readGender(i);
+      if (!g) continue;
+      const cat = readGroupName(i) ?? "";
+      const sub = readSubCategoryName(i) ?? "";
+      const key = `${cat}|${sub}`;
+      let m = counts.get(key);
+      if (!m) { m = new Map(); counts.set(key, m); }
+      m.set(g, (m.get(g) ?? 0) + 1);
+    }
+    for (const [key, m] of counts) {
+      let bestG: string | null = null;
+      let bestN = 0;
+      for (const [g, n] of m) {
+        if (n > bestN) { bestG = g; bestN = n; }
+      }
+      if (bestG) genderByCatSubCat.set(key, bestG);
+    }
+  }
+
   type StylePeriod = { style_code: string; period_code: string; period_start: string; period_end: string };
   const stylePeriods = new Map<string, StylePeriod>();
   // Track which (style, period) entries came from real forecast
@@ -823,7 +851,15 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     const description = styleFb?.description ?? null;
     const groupName = readGroupName(styleFb) ?? null;
     const subCategoryName = readSubCategoryName(styleFb) ?? null;
-    const gender = readGender(styleFb) ?? null;
+    let gender = readGender(styleFb) ?? null;
+    // Best-effort gender inference for planner-added new styles
+    // (no master row exists yet). Pulls the most common gender from
+    // sibling styles in the same (group_name, sub_category_name).
+    if (!gender) {
+      const siblingCat = supplyTbd?.group_name ?? groupName ?? "";
+      const siblingSub = supplyTbd?.sub_category_name ?? subCategoryName ?? "";
+      gender = genderByCatSubCat.get(`${siblingCat}|${siblingSub}`) ?? null;
+    }
     // Skip the synthetic supply line whenever the style is NOT
     // the canonical "TBD" catch-all AND the supplyTbd backing row
     // (if any) is not a real planner add. The synthetic / catch-
