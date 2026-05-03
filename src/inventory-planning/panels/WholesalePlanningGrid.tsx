@@ -336,8 +336,10 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   const [collapseRaw, setCollapseRaw] = useState<CollapseModes>(() => {
     try {
       const raw = localStorage.getItem("ws_planning_collapse");
-      // eslint-disable-next-line no-console
-      console.log("[ip-debug loadCollapse] raw=", raw);
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.log("[ip-debug loadCollapse] raw=", raw);
+      }
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === "object") {
@@ -370,8 +372,10 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       try {
         const json = JSON.stringify(computed);
         localStorage.setItem("ws_planning_collapse", json);
-        // eslint-disable-next-line no-console
-        console.log("[ip-debug writeCollapse] ←", json);
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.log("[ip-debug writeCollapse] ←", json);
+        }
       } catch { /* ignore */ }
       return computed;
     });
@@ -723,15 +727,22 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     }
     const ids = r.aggregate_underlying_ids;
     const styleSet = new Set<string>();
-    let nonTbdTotal = 0;
     let periodStart: string | null = null;
+    let missingChildren = 0;
     for (const fid of ids) {
       const child = mutedById.get(fid);
-      if (!child) continue;
+      if (!child) { missingChildren++; continue; }
       const style = child.sku_style ?? child.sku_code;
       if (style) styleSet.add(style);
       periodStart = child.period_start;
-      if (!child.is_tbd) nonTbdTotal += child.planned_buy_qty ?? 0;
+    }
+    if (missingChildren > 0) {
+      // mutedRows changed since the aggregate was computed (e.g. a
+      // filter dropdown moved while the planner was typing). Abort
+      // the save rather than computing a partial restSum that would
+      // misrepresent the bucket.
+      console.warn(`[planning] aggregate Buy: ${missingChildren} of ${ids.length} children missing from mutedById — view changed mid-edit. Try again.`);
+      return;
     }
     if (!periodStart) return;
     // Same routing preference as saveAggBuyerOrOverride: planner-
@@ -812,21 +823,25 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       return;
     }
     const ids = r.aggregate_underlying_ids;
-    // Sum non-TBD contributions; collect the (style, period) tuples
-    // present in the bucket so we can detect cross-style cases and
-    // pick the TBD row for the single-style case.
+    // Collect the (style, period) tuples present in the bucket so
+    // we can detect cross-style cases and pick the TBD row for the
+    // single-style case. restSum (computed below after target
+    // resolution) handles the per-field math.
     const styleSet = new Set<string>();
-    let nonTbdTotal = 0;
     let periodStart: string | null = null;
+    let missingChildren = 0;
     for (const fid of ids) {
       const child = mutedById.get(fid);
-      if (!child) continue;
+      if (!child) { missingChildren++; continue; }
       const style = child.sku_style ?? child.sku_code;
       if (style) styleSet.add(style);
       periodStart = child.period_start;
-      if (!child.is_tbd) {
-        nonTbdTotal += (child[field] as number | undefined) ?? 0;
-      }
+    }
+    if (missingChildren > 0) {
+      // mutedRows changed mid-edit — abort to avoid an incorrect
+      // restSum.
+      console.warn(`[planning] aggregate ${field}: ${missingChildren} of ${ids.length} children missing from mutedById — view changed mid-edit. Try again.`);
+      return;
     }
     if (!periodStart) return;
     // Pick the routing target. Preference order:
@@ -884,22 +899,24 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     // Diagnostic: surface the routing decision so we can see in
     // DevTools whether the typed aggregate value is landing on the
     // correct TBD row (or being routed to a stale/synthetic one).
-    // eslint-disable-next-line no-console
-    console.log("[ip-debug agg-edit]", {
-      field,
-      newTotal,
-      restSum,
-      target,
-      currentValue: tbdRow[field],
-      target_row: {
-        forecast_id: tbdRow.forecast_id,
-        tbd_id: tbdRow.tbd_id,
-        sku_style: tbdRow.sku_style,
-        sku_color: tbdRow.sku_color,
-        customer_name: tbdRow.customer_name,
-        is_user_added: tbdRow.is_user_added,
-      },
-    });
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.log("[ip-debug agg-edit]", {
+        field,
+        newTotal,
+        restSum,
+        target,
+        currentValue: tbdRow[field],
+        target_row: {
+          forecast_id: tbdRow.forecast_id,
+          tbd_id: tbdRow.tbd_id,
+          sku_style: tbdRow.sku_style,
+          sku_color: tbdRow.sku_color,
+          customer_name: tbdRow.customer_name,
+          is_user_added: tbdRow.is_user_added,
+        },
+      });
+    }
     await saver(tbdRow.forecast_id, target);
   }
 
@@ -994,7 +1011,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           if (aKey !== bKey) return aKey.localeCompare(bKey);
           return a.period_start.localeCompare(b.period_start);
         })
-      : collapsed.sort((a, b) => cmp(a, b, sortKey, sortDir));
+      : [...collapsed].sort((a, b) => cmp(a, b, sortKey, sortDir));
     // Top-down rolling pool: per-row ATS = on_hand − on_so + receipts +
     // buy; the next row inherits this row's ATS as its on_hand. Receipts
     // and buy contribute once per (sku, period) so multi-customer rows
@@ -1165,23 +1182,21 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         && r.customer_id === lastAddedTbdMarker.customer_id
         && r.period_code === lastAddedTbdMarker.period_code;
       // Locate the row (or fetch from unfiltered if filters hide it).
-      let matchIdx = base.findIndex(matches);
+      // Note: when multiple aggregates expand and contain the same
+      // child forecast_id (rare cross-collapse case), `base` can
+      // hold N copies of the matching row. Strip ALL of them, not
+      // just the first — otherwise the pin re-insert would
+      // duplicate.
       let pinned: IpPlanningGridRow | null = null;
-      if (matchIdx >= 0) {
-        pinned = base[matchIdx];
+      const inBase = base.filter(matches);
+      if (inBase.length > 0) {
+        pinned = inBase[0];
       } else {
         const fromAllRows = rows.find(matches);
-        if (fromAllRows) {
-          pinned = fromAllRows;
-          // Treat as not-in-base for splicing.
-          matchIdx = -1;
-        }
+        if (fromAllRows) pinned = fromAllRows;
       }
       if (pinned) {
-        // Strip the existing position before re-inserting.
-        const stripped = matchIdx >= 0
-          ? [...base.slice(0, matchIdx), ...base.slice(matchIdx + 1)]
-          : base;
+        const stripped = base.filter((r) => !matches(r));
         // Find the parent aggregate row this row "belongs under" by
         // active collapse mode. When found, insert right after it so
         // the planner sees the new line immediately under the

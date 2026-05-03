@@ -211,6 +211,10 @@ export default function WholesalePlanningWorkbench() {
   }, []);
 
   useEffect(() => {
+    // Clear any "just-added" marker — it pinned a row from the
+    // previous run and would now mis-pin in the new run if the
+    // 4-tuple happened to match.
+    setLastAddedTbdMarker(null);
     if (!selectedRun) {
       // No run to load — bootstrap is done as soon as masters were.
       setBootstrapPhase((prev) => (prev === "run-data" ? "ready" : prev));
@@ -852,6 +856,11 @@ export default function WholesalePlanningWorkbench() {
           style_code: styleCode,
           color: row.sku_color ?? "TBD",
           is_new_color: row.is_new_color ?? false,
+          // Preserve the row's user-added flag so a planner-added
+          // TBD row that's been style-renamed doesn't get re-tagged
+          // as auto. Without this the routing logic would conflate
+          // it with the auto catch-all.
+          is_user_added: row.is_user_added ?? false,
           customer_id: row.customer_id,
           group_name: row.group_name ?? null,
           sub_category_name: row.sub_category_name ?? null,
@@ -974,35 +983,44 @@ export default function WholesalePlanningWorkbench() {
     if (!row.sku_style) throw new Error("saveTbdField: TBD row missing sku_style");
     // Diagnostic — surface which path runs and the payload, so we
     // can debug "typed value reverted to original after save".
-    // eslint-disable-next-line no-console
-    console.log("[ip-debug saveTbdField]", {
-      path: row.tbd_id ? "patch" : "upsert",
-      tbd_id: row.tbd_id,
-      forecast_id: row.forecast_id,
-      sku_style: row.sku_style,
-      sku_color: row.sku_color,
-      customer_name: row.customer_name,
-      fields,
-    });
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.log("[ip-debug saveTbdField]", {
+        path: row.tbd_id ? "patch" : "upsert",
+        tbd_id: row.tbd_id,
+        forecast_id: row.forecast_id,
+        sku_style: row.sku_style,
+        sku_color: row.sku_color,
+        customer_name: row.customer_name,
+        fields,
+      });
+    }
     if (row.tbd_id) {
       await wholesaleRepo.patchTbdRow(row.tbd_id, fields);
     } else {
+      // For nullable fields (planned_buy_qty / unit_cost / notes /
+      // group_name / sub_category_name) the planner can legitimately
+      // pass `null` to clear the value. `??` would treat null as
+      // "absent" and fall back to the row's existing value, silently
+      // reverting the clear. Use `in` to distinguish "field provided
+      // (even null)" from "field not provided".
+      const has = <K extends keyof typeof fields>(k: K): boolean => Object.prototype.hasOwnProperty.call(fields, k);
       const { id: newTbdId } = await wholesaleRepo.upsertTbdRow(selectedRun.id, {
         style_code: row.sku_style,
-        color: fields.color ?? row.sku_color ?? "TBD",
-        is_new_color: fields.is_new_color ?? false,
-        customer_id: fields.customer_id ?? row.customer_id,
-        group_name: fields.group_name ?? row.group_name ?? null,
-        sub_category_name: fields.sub_category_name ?? row.sub_category_name ?? null,
+        color: has("color") ? (fields.color ?? "TBD") : (row.sku_color ?? "TBD"),
+        is_new_color: has("is_new_color") ? !!fields.is_new_color : (row.is_new_color ?? false),
+        customer_id: has("customer_id") ? fields.customer_id! : row.customer_id,
+        group_name: has("group_name") ? (fields.group_name ?? null) : (row.group_name ?? null),
+        sub_category_name: has("sub_category_name") ? (fields.sub_category_name ?? null) : (row.sub_category_name ?? null),
         period_start: row.period_start,
         period_end: row.period_end,
         period_code: row.period_code,
-        buyer_request_qty: fields.buyer_request_qty ?? row.buyer_request_qty,
-        override_qty: fields.override_qty ?? row.override_qty,
-        final_forecast_qty: fields.final_forecast_qty ?? row.final_forecast_qty,
-        planned_buy_qty: fields.planned_buy_qty ?? row.planned_buy_qty,
-        unit_cost: fields.unit_cost ?? row.unit_cost,
-        notes: fields.notes ?? row.notes ?? null,
+        buyer_request_qty: has("buyer_request_qty") ? (fields.buyer_request_qty ?? 0) : row.buyer_request_qty,
+        override_qty: has("override_qty") ? (fields.override_qty ?? 0) : row.override_qty,
+        final_forecast_qty: has("final_forecast_qty") ? (fields.final_forecast_qty ?? 0) : row.final_forecast_qty,
+        planned_buy_qty: has("planned_buy_qty") ? (fields.planned_buy_qty ?? null) : (row.planned_buy_qty ?? null),
+        unit_cost: has("unit_cost") ? (fields.unit_cost ?? null) : (row.unit_cost ?? null),
+        notes: has("notes") ? (fields.notes ?? null) : (row.notes ?? null),
       });
       // Stamp the returned id into local state so the row's
       // forecast_id and tbd_id reflect the persisted record.
@@ -1020,6 +1038,8 @@ export default function WholesalePlanningWorkbench() {
   }
 
   async function saveBuyQty(forecastId: string, qty: number | null) {
+    const run = selectedRun;
+    if (!run) return;
     const target = rows.find((r) => r.forecast_id === forecastId) ?? null;
     setRows((prev) => prev.map((r) => {
       if (r.forecast_id !== forecastId) return r;
@@ -1051,7 +1071,7 @@ export default function WholesalePlanningWorkbench() {
       const seq = ++rebuildSeq.current;
       void (async () => {
         try {
-          const refreshed = await buildGridRows(selectedRun!);
+          const refreshed = await buildGridRows(run);
           if (seq !== rebuildSeq.current) return;
           setRows(refreshed);
           setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
@@ -1061,10 +1081,12 @@ export default function WholesalePlanningWorkbench() {
       const msg = e instanceof Error ? e.message : String(e);
       setToast({ text: `Buy qty save failed — ${msg}`, kind: "error" });
       const seq = ++rebuildSeq.current;
-      const refreshed = await buildGridRows(selectedRun!);
-      if (seq !== rebuildSeq.current) return;
-      setRows(refreshed);
-      setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
+      try {
+        const refreshed = await buildGridRows(run);
+        if (seq !== rebuildSeq.current) return;
+        setRows(refreshed);
+        setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
+      } catch { /* swallow */ }
     }
   }
 
@@ -1073,6 +1095,8 @@ export default function WholesalePlanningWorkbench() {
   // TBD rows (forecast_id starts with "tbd:") route to the dedicated
   // ip_wholesale_forecast_tbd table instead of ip_wholesale_forecast.
   async function saveBuyerRequest(forecastId: string, qty: number) {
+    const run = selectedRun;
+    if (!run) return;
     const row = rows.find((r) => r.forecast_id === forecastId);
     if (!row) return;
     const final = Math.max(0, row.system_forecast_qty + qty + row.override_qty);
@@ -1088,7 +1112,7 @@ export default function WholesalePlanningWorkbench() {
       const seq = ++rebuildSeq.current;
       void (async () => {
         try {
-          const refreshed = await buildGridRows(selectedRun!);
+          const refreshed = await buildGridRows(run);
           if (seq !== rebuildSeq.current) return;
           setRows(refreshed);
           setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
@@ -1098,15 +1122,19 @@ export default function WholesalePlanningWorkbench() {
       const msg = e instanceof Error ? e.message : String(e);
       setToast({ text: `Buyer request save failed — ${msg}`, kind: "error" });
       const seq = ++rebuildSeq.current;
-      const refreshed = await buildGridRows(selectedRun!);
-      if (seq !== rebuildSeq.current) return;
-      setRows(refreshed);
+      try {
+        const refreshed = await buildGridRows(run);
+        if (seq !== rebuildSeq.current) return;
+        setRows(refreshed);
+      } catch { /* swallow */ }
     }
   }
 
   // Inline-edit Override qty. Bypasses the audit-logged applyOverride
   // path (use the drawer when you need a reason code + note).
   async function saveOverrideQty(forecastId: string, qty: number) {
+    const run = selectedRun;
+    if (!run) return;
     const row = rows.find((r) => r.forecast_id === forecastId);
     if (!row) return;
     const final = Math.max(0, row.system_forecast_qty + row.buyer_request_qty + qty);
@@ -1122,7 +1150,7 @@ export default function WholesalePlanningWorkbench() {
       const seq = ++rebuildSeq.current;
       void (async () => {
         try {
-          const refreshed = await buildGridRows(selectedRun!);
+          const refreshed = await buildGridRows(run);
           if (seq !== rebuildSeq.current) return;
           setRows(refreshed);
           setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
@@ -1132,9 +1160,11 @@ export default function WholesalePlanningWorkbench() {
       const msg = e instanceof Error ? e.message : String(e);
       setToast({ text: `Override save failed — ${msg}`, kind: "error" });
       const seq = ++rebuildSeq.current;
-      const refreshed = await buildGridRows(selectedRun!);
-      if (seq !== rebuildSeq.current) return;
-      setRows(refreshed);
+      try {
+        const refreshed = await buildGridRows(run);
+        if (seq !== rebuildSeq.current) return;
+        setRows(refreshed);
+      } catch { /* swallow */ }
     }
   }
 
@@ -1195,6 +1225,8 @@ export default function WholesalePlanningWorkbench() {
   // (revert to the computed value). Stamps overridden_at + overridden_by
   // so the cell tooltip can show "from X to Y on DATE".
   async function saveSystemOverride(forecastId: string, qty: number | null) {
+    const run = selectedRun;
+    if (!run) return;
     const row = rows.find((r) => r.forecast_id === forecastId);
     if (!row) return;
     const effectiveSystem = qty ?? row.system_forecast_qty_original;
@@ -1235,7 +1267,7 @@ export default function WholesalePlanningWorkbench() {
       const seq = ++rebuildSeq.current;
       void (async () => {
         try {
-          const refreshed = await buildGridRows(selectedRun!);
+          const refreshed = await buildGridRows(run);
           if (seq !== rebuildSeq.current) return;
           setRows(refreshed);
         } catch { /* swallow */ }
@@ -1243,12 +1275,18 @@ export default function WholesalePlanningWorkbench() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setToast({ text: `System forecast save failed — ${msg}`, kind: "error" });
-      const refreshed = await buildGridRows(selectedRun!);
-      setRows(refreshed);
+      const seq = ++rebuildSeq.current;
+      try {
+        const refreshed = await buildGridRows(run);
+        if (seq !== rebuildSeq.current) return;
+        setRows(refreshed);
+      } catch { /* swallow */ }
     }
   }
 
   async function saveUnitCost(forecastId: string, cost: number | null) {
+    const run = selectedRun;
+    if (!run) return;
     const target = rows.find((r) => r.forecast_id === forecastId) ?? null;
     setRows((prev) => prev.map((r) => {
       if (r.forecast_id !== forecastId) return r;
@@ -1274,15 +1312,40 @@ export default function WholesalePlanningWorkbench() {
       const msg = e instanceof Error ? e.message : String(e);
       setToast({ text: `Unit cost save failed — ${msg}`, kind: "error" });
       const seq = ++rebuildSeq.current;
-      const refreshed = await buildGridRows(selectedRun!);
-      if (seq !== rebuildSeq.current) return;
-      setRows(refreshed);
-      setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
+      try {
+        const refreshed = await buildGridRows(run);
+        if (seq !== rebuildSeq.current) return;
+        setRows(refreshed);
+        setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
+      } catch { /* swallow */ }
     }
   }
 
   async function saveOverride(args: { override_qty: number; reason_code: IpOverrideReasonCode; note: string | null }) {
     if (!selectedRow) return;
+    const run = selectedRun;
+    if (!run) return;
+    // TBD rows can't go through fetchForecast (their forecast_id is
+    // a synthetic "tbd:<uuid>" that PostgREST won't cast to uuid).
+    // Skip the audited applyOverride path and patch the TBD row's
+    // override_qty + final_forecast_qty directly.
+    if (selectedRow.is_tbd) {
+      const final = Math.max(0, selectedRow.system_forecast_qty + selectedRow.buyer_request_qty + args.override_qty);
+      try {
+        await saveTbdField(selectedRow, { override_qty: args.override_qty, final_forecast_qty: final });
+        setToast({ text: "Override saved (TBD stock buy — no audit log)", kind: "success" });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setToast({ text: `Override save failed — ${msg}`, kind: "error" });
+        throw e;
+      }
+      const seq = ++rebuildSeq.current;
+      const refreshed = await buildGridRows(run);
+      if (seq !== rebuildSeq.current) return;
+      setRows(refreshed);
+      setSelectedRow(refreshed.find((r) => r.forecast_id === selectedRow.forecast_id) ?? null);
+      return;
+    }
     // Find the underlying forecast row (grid row carries the id).
     const forecast = await fetchForecast(selectedRow.forecast_id);
     if (!forecast) throw new Error("Forecast row not found — was it deleted?");
@@ -1295,7 +1358,7 @@ export default function WholesalePlanningWorkbench() {
     });
     await loadRunData();
     // Refresh the drawer's row object from the rebuilt rows.
-    const refreshed = await buildGridRows(selectedRun!);
+    const refreshed = await buildGridRows(run);
     const row = refreshed.find((r) => r.forecast_id === selectedRow.forecast_id) ?? null;
     setSelectedRow(row);
     setToast({ text: "Override saved", kind: "success" });

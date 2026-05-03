@@ -196,7 +196,11 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): 
     style = `(${styleSet.size} styles)`;
     color = null;
     description = `Customer rollup — ${bucket.length} forecast rows`;
-    // customer_name stays as head.customer_name
+    // Group/sub-cat/gender are dimensions the rollup spans — clear
+    // them on the merged row so the cell doesn't display the
+    // arbitrary first child's category, which would mislead.
+    subCatOverride = null;
+    groupOverride = null;
   } else {
     if (modes.customers && customerSet.size > 1) label = `(${customerSet.size} customers)`;
     if (modes.colors && colorSet.size > 1) color = `(${colorSet.size} colors)`;
