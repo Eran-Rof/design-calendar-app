@@ -641,6 +641,7 @@ export default function WholesalePlanningWorkbench() {
     try {
       await wholesaleRepo.upsertTbdRow(selectedRun.id, {
         ...args,
+        is_user_added: true,
         period_start: sample.period_start,
         period_end: sample.period_end,
       });
@@ -652,6 +653,50 @@ export default function WholesalePlanningWorkbench() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setToast({ text: `Add row failed — ${msg}`, kind: "error" });
+    }
+  }
+
+  // Delete a planner-added TBD stock-buy row. Auto-synthesized rows
+  // (per-style and per-period catch-all) aren't deletable — they're
+  // the standing infrastructure aggregate edits land on. Only rows
+  // tagged is_user_added survive a delete request.
+  async function deleteTbdRow(row: IpPlanningGridRow) {
+    if (!selectedRun) return;
+    if (!row.is_user_added) {
+      setToast({ text: "Only rows you added with + Add row can be deleted.", kind: "error" });
+      return;
+    }
+    if (!row.tbd_id) {
+      // Synthetic — nothing to delete in the DB. Just refresh.
+      setToast({ text: "Row not yet saved — discarded.", kind: "success" });
+      const seq = ++rebuildSeq.current;
+      const refreshed = await buildGridRows(selectedRun);
+      if (seq !== rebuildSeq.current) return;
+      setRows(refreshed);
+      return;
+    }
+    // Optimistic remove from the local state so the row disappears
+    // immediately; a failed delete refreshes from server below.
+    const fid = row.forecast_id;
+    setRows((prev) => prev.filter((r) => r.forecast_id !== fid));
+    try {
+      await wholesaleRepo.deleteTbdRow(row.tbd_id);
+      setToast({ text: "Row deleted.", kind: "success" });
+      const seq = ++rebuildSeq.current;
+      void (async () => {
+        try {
+          const refreshed = await buildGridRows(selectedRun);
+          if (seq !== rebuildSeq.current) return;
+          setRows(refreshed);
+        } catch { /* swallow */ }
+      })();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `Delete failed — ${msg}`, kind: "error" });
+      const seq = ++rebuildSeq.current;
+      const refreshed = await buildGridRows(selectedRun);
+      if (seq !== rebuildSeq.current) return;
+      setRows(refreshed);
     }
   }
 
@@ -1225,6 +1270,7 @@ export default function WholesalePlanningWorkbench() {
               onUpdateTbdStyle={saveTbdStyle}
               onUpdateTbdCustomer={saveTbdCustomer}
               onAddTbdRow={addTbdRow}
+              onDeleteTbdRow={deleteTbdRow}
               masterColorsLower={masterColorsLower}
               masterStyles={masterStyles}
               onFiltersChange={setBuildFilter}

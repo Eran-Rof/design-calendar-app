@@ -23,10 +23,16 @@ export interface MultiSelectDropdownProps {
   // one-element array (or empty when toggling off the active value).
   // Useful for "pick one of N" UIs like the collapse-mode selector.
   singleSelect?: boolean;
+  // Close the popover when the cursor leaves the trigger + popover
+  // bounding box. Default off (the popover stays open until the
+  // user clicks outside or presses Escape — better for searching
+  // through long lists). Useful for short menus where the planner
+  // expects the popover to dismiss as soon as they move on.
+  closeOnMouseLeave?: boolean;
 }
 
 export function MultiSelectDropdown({
-  selected, onChange, options, allLabel = "All", placeholder = "Search…", title, minWidth, compact = false, singleSelect = false,
+  selected, onChange, options, allLabel = "All", placeholder = "Search…", title, minWidth, compact = false, singleSelect = false, closeOnMouseLeave = false,
 }: MultiSelectDropdownProps) {
   const triggerMinWidth = minWidth ?? (compact ? 130 : 180);
   const [open, setOpen] = useState(false);
@@ -79,7 +85,11 @@ export function MultiSelectDropdown({
   }
 
   return (
-    <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
+    <div
+      ref={ref}
+      style={{ position: "relative", display: "inline-block" }}
+      onMouseLeave={closeOnMouseLeave ? () => setOpen(false) : undefined}
+    >
       <button
         type="button"
         style={{

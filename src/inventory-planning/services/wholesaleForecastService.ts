@@ -841,6 +841,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       is_new_color: supplyTbd && supplyTbd.is_new_color && !isKnownColor(sp.style_code, supplyTbd.color)
         ? true
         : false,
+      is_user_added: supplyTbd?.is_user_added ?? false,
       tbd_id: supplyTbd?.id,
       sku_size: null,
       period_code: sp.period_code,
@@ -900,6 +901,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
         sku_color_inferred: false,
         is_tbd: true,
         is_new_color: t.is_new_color && !isKnownColor(sp.style_code, t.color),
+        is_user_added: t.is_user_added,
         tbd_id: t.id,
         sku_size: null,
         period_code: sp.period_code,

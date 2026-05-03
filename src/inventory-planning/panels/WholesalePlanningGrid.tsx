@@ -24,6 +24,9 @@ export interface WholesalePlanningGridProps {
   // bucket's period; picking a real style code from the same
   // category promotes the qty to that style's TBD line.
   onUpdateTbdStyle?: (row: IpPlanningGridRow, styleCode: string) => Promise<void>;
+  // Delete a planner-added TBD row. Hidden on auto-synthesized rows
+  // (the workbench enforces this server-side too).
+  onDeleteTbdRow?: (row: IpPlanningGridRow) => Promise<void>;
   // Master color set (lowercased, run-wide) used by the TBD color
   // picker to decide whether a typed color is "new". Sourced from
   // ip_item_master directly so colors on master entries with no
@@ -243,7 +246,7 @@ function distributeAcrossChildren(
   return out;
 }
 
-export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdRow, masterColorsLower, masterStyles, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdRow, onDeleteTbdRow, masterColorsLower, masterStyles, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
   // Multi-select filters — empty array = no filter (all rows pass).
   // Each non-empty array narrows to rows whose value is in the set.
@@ -1089,6 +1092,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         <span style={{ fontWeight: 600 }}>Collapse:</span>
         <MultiSelectDropdown
           compact
+          closeOnMouseLeave
           selected={currentCollapseKeys}
           onChange={(next) => setCollapse(applyCollapseKeys(next))}
           allLabel="None"
@@ -1279,9 +1283,20 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               <tr
                 key={rowKey}
                 onContextMenu={(e) => { e.preventDefault(); if (!r.is_aggregate) onSelectRow(r); }}
-                title={r.is_aggregate ? "Click chevron to drill in" : "Right-click for more info"}
+                title={
+                  r.is_user_added ? "Planner-added TBD row — click ✕ at the row tail to delete"
+                  : r.is_aggregate ? "Click chevron to drill in"
+                  : "Right-click for more info"
+                }
                 style={
-                  r.is_aggregate ? { background: aggBg }
+                  // is_user_added wins over the other tints because
+                  // the planner needs to spot their own rows quickly
+                  // even when they're aggregates of multiple sizes.
+                  r.is_user_added ? {
+                    background: `${PAL.accent2}11`,
+                    boxShadow: `inset 4px 0 0 ${PAL.accent2}`,
+                  }
+                  : r.is_aggregate ? { background: aggBg }
                   : isChild ? { background: "rgba(255,255,255,0.015)", color: PAL.textDim }
                   : undefined
                 }
@@ -1296,7 +1311,11 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                       title={isExpanded ? "Collapse" : "Drill into this row"}
                     >▶</span>
                   )}
-                  {r.is_tbd && onUpdateTbdStyle && masterStyles ? (
+                  {r.is_tbd && r.is_user_added && onUpdateTbdStyle && masterStyles ? (
+                    // Editable style picker only on planner-added rows.
+                    // Auto-synthesized per-style and per-period catch-
+                    // all rows show the style as plain text — they're
+                    // standing infrastructure, not free-form entries.
                     <TbdStyleCell
                       value={r.sku_style ?? "TBD"}
                       categoryStyles={masterStyles
@@ -1334,12 +1353,34 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 </td>
                 <td style={{ ...S.td, padding: r.is_tbd ? "0 4px" : undefined, ...colHide("customer") }} onClick={(e) => { if (r.is_tbd) e.stopPropagation(); }}>
                   {r.is_tbd && onUpdateTbdCustomer ? (
-                    <TbdCustomerCell
-                      value={r.customer_name}
-                      isSupplyOnly={r.customer_name === "(Supply Only)"}
-                      customers={customers}
-                      onSave={(id, name) => onUpdateTbdCustomer(r, id, name)}
-                    />
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <TbdCustomerCell
+                        value={r.customer_name}
+                        isSupplyOnly={r.customer_name === "(Supply Only)"}
+                        customers={customers}
+                        onSave={(id, name) => onUpdateTbdCustomer(r, id, name)}
+                      />
+                      {r.is_user_added && onDeleteTbdRow && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); void onDeleteTbdRow(r); }}
+                          title="Delete this planner-added row"
+                          style={{
+                            background: "transparent",
+                            border: `1px solid ${PAL.red}`,
+                            color: PAL.red,
+                            borderRadius: 6,
+                            padding: "1px 6px",
+                            fontSize: 11,
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                            lineHeight: 1.2,
+                          }}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </span>
                   ) : (
                     r.customer_name
                   )}

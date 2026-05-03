@@ -182,6 +182,15 @@ export interface IpPlanningGridRow {
   // aggregate Buyer / Override / Buy edits at any rollup grain are
   // routed here instead of distributed across real customer rows.
   is_tbd?: boolean;
+  // True ONLY when the planner created the row via "+ Add row" (as
+  // opposed to the per-style and per-period catch-all lines the
+  // build pipeline auto-synthesizes). Drives three UI affordances:
+  // visual distinction (left accent border), editable STYLE cell
+  // (so the row can be promoted from "TBD" into a real style), and
+  // a delete button at the row's tail. Auto-synthesized rows stay
+  // is_user_added=false and remain non-deletable / non-editable in
+  // the style cell.
+  is_user_added?: boolean;
   // Mirror of ip_wholesale_forecast_tbd.is_new_color — true when the
   // planner has typed a color string that no item_master variant of
   // the style currently carries. Cleared on next build when the

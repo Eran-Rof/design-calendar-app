@@ -461,6 +461,7 @@ export const wholesaleRepo = {
     style_code: string;
     color: string;
     is_new_color: boolean;
+    is_user_added: boolean;
     customer_id: string;
     group_name: string | null;
     sub_category_name: string | null;
@@ -486,6 +487,11 @@ export const wholesaleRepo = {
       style_code: string;
       color: string;
       is_new_color?: boolean;
+      // Set true ONLY when the planner explicitly created this row
+      // via "+ Add row". Aggregate-edit writes through saveTbdField
+      // leave it false so the auto-synthesized catch-alls aren't
+      // mistaken for planner-added rows.
+      is_user_added?: boolean;
       customer_id: string;
       group_name?: string | null;
       sub_category_name?: string | null;
