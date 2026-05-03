@@ -1312,15 +1312,27 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         if (!r.is_aggregate) continue;
         if (!effectiveExpanded.has(r.aggregate_key ?? r.forecast_id)) continue;
         const underlying = r.aggregate_underlying_ids ?? [];
-        // Walk children in order — but if the just-added row is one
-        // of them, lift it to the front so it appears as the first
-        // line under the collapsed header.
-        const orderedFids = pinnedChildFid && underlying.includes(pinnedChildFid)
-          ? [pinnedChildFid, ...underlying.filter((fid) => fid !== pinnedChildFid)]
-          : underlying;
-        for (const fid of orderedFids) {
-          const child = mutedById.get(fid);
-          if (!child) continue;
+        // Resolve children, sort them by the active sort key (so
+        // a-z / 0-9 toggles apply WITHIN each expanded bucket — the
+        // bucket header keeps its position dictated by collapse
+        // grouping but the rows below it follow the user's sort).
+        // Pinned (just-added) child still wins by being lifted to
+        // the front after the sort.
+        const childRows: IpPlanningGridRow[] = [];
+        for (const fid of underlying) {
+          const c = mutedById.get(fid);
+          if (c) childRows.push(c);
+        }
+        childRows.sort((a, b) => cmp(a, b, sortKey, sortDir));
+        if (pinnedChildFid) {
+          const pinnedIdx = childRows.findIndex((c) => c.forecast_id === pinnedChildFid);
+          if (pinnedIdx > 0) {
+            const [pinnedRow] = childRows.splice(pinnedIdx, 1);
+            childRows.unshift(pinnedRow);
+          }
+        }
+        for (const child of childRows) {
+          const fid = child.forecast_id;
           const m = skuPeriodMath.get(`${child.sku_id}:${child.period_start}`);
           const projected = m
             ? { on_hand_qty: m.onHand, available_supply_qty: m.ats, projected_excess_qty: m.excess, projected_shortage_qty: m.shortage }
@@ -1397,7 +1409,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       }
     }
     return { displayRows: base, childIds: ids };
-  }, [filtered, expandedAggs, mutedById, skuPeriodMath, lastAddedTbdMarker, rows, collapse, search]);
+  }, [filtered, expandedAggs, mutedById, skuPeriodMath, lastAddedTbdMarker, rows, collapse, search, sortKey, sortDir]);
 
   const totals = useMemo(() => {
     const t = { final: 0, shortage: 0, excess: 0, actions: {} as Record<string, number>, methods: {} as Record<string, number> };
