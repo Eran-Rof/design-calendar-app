@@ -714,6 +714,57 @@ export default function WholesalePlanningWorkbench() {
     }
   }
 
+  // Undo the most recent + Add row. Looks up the row matching
+  // lastAddedTbdMarker and deletes it via the same path the per-row
+  // ✕ button uses. Distinct UX from the row-level ✕ so the planner
+  // can hit Undo from the toolbar after Add without hunting for the
+  // row.
+  async function undoLastAddedTbd() {
+    if (!selectedRun || !lastAddedTbdMarker) return;
+    const target = rows.find((r) =>
+      r.is_tbd
+      && r.is_user_added
+      && (r.sku_style ?? "") === lastAddedTbdMarker.style_code
+      && (r.sku_color ?? "") === lastAddedTbdMarker.color
+      && r.customer_id === lastAddedTbdMarker.customer_id
+      && r.period_code === lastAddedTbdMarker.period_code,
+    );
+    if (!target) {
+      setToast({ text: "No recent row to undo.", kind: "error" });
+      setLastAddedTbdMarker(null);
+      return;
+    }
+    if (!target.tbd_id) {
+      // Synthetic row that never persisted (rare race with rebuild).
+      setLastAddedTbdMarker(null);
+      setRows((prev) => prev.filter((r) => r.forecast_id !== target.forecast_id));
+      setToast({ text: "Discarded.", kind: "success" });
+      return;
+    }
+    const fid = target.forecast_id;
+    setLastAddedTbdMarker(null);
+    setRows((prev) => prev.filter((r) => r.forecast_id !== fid));
+    try {
+      await wholesaleRepo.deleteTbdRow(target.tbd_id);
+      setToast({ text: "Last add undone.", kind: "success" });
+      const seq = ++rebuildSeq.current;
+      void (async () => {
+        try {
+          const refreshed = await buildGridRows(selectedRun);
+          if (seq !== rebuildSeq.current) return;
+          setRows(refreshed);
+        } catch { /* swallow */ }
+      })();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `Undo failed — ${msg}`, kind: "error" });
+      const seq = ++rebuildSeq.current;
+      const refreshed = await buildGridRows(selectedRun);
+      if (seq !== rebuildSeq.current) return;
+      setRows(refreshed);
+    }
+  }
+
   // Delete a planner-added TBD stock-buy row. Auto-synthesized rows
   // (per-style and per-period catch-all) aren't deletable — they're
   // the standing infrastructure aggregate edits land on. Only rows
@@ -768,10 +819,23 @@ export default function WholesalePlanningWorkbench() {
   // planner to drill into the target row directly.
   async function saveTbdStyle(row: IpPlanningGridRow, styleCode: string) {
     if (!selectedRun) return;
+    // Optimistic update so the picker dismiss feels instant — even
+    // before the network patch lands. The ~10s hang the user reported
+    // was the buildGridRows rebuild being awaited inline; switched
+    // to fire-and-forget like every other TBD save handler.
+    const fid = row.forecast_id;
+    setRows((prev) => prev.map((r) => r.forecast_id === fid ? { ...r, sku_style: styleCode } : r));
+    const fireRebuild = () => {
+      const seq = ++rebuildSeq.current;
+      void (async () => {
+        try {
+          const refreshed = await buildGridRows(selectedRun);
+          if (seq !== rebuildSeq.current) return;
+          setRows(refreshed);
+        } catch { /* swallow — next user action will refresh */ }
+      })();
+    };
     if (!row.tbd_id) {
-      // The row is synthetic — upsert under the new style first so a
-      // real id exists, then patch it. (The synthetic catch-all rows
-      // start with no tbd_id and get one only on first edit.)
       try {
         await wholesaleRepo.upsertTbdRow(selectedRun.id, {
           style_code: styleCode,
@@ -791,34 +855,26 @@ export default function WholesalePlanningWorkbench() {
           notes: row.notes ?? null,
         });
         setToast({ text: `Style set to ${styleCode}`, kind: "success" });
-        const seq = ++rebuildSeq.current;
-        const refreshed = await buildGridRows(selectedRun);
-        if (seq !== rebuildSeq.current) return;
-        setRows(refreshed);
+        fireRebuild();
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         setToast({ text: `Style save failed — ${msg}`, kind: "error" });
+        fireRebuild();
       }
       return;
     }
     try {
       await wholesaleRepo.patchTbdRow(row.tbd_id, { style_code: styleCode });
       setToast({ text: `Style set to ${styleCode}`, kind: "success" });
-      const seq = ++rebuildSeq.current;
-      const refreshed = await buildGridRows(selectedRun);
-      if (seq !== rebuildSeq.current) return;
-      setRows(refreshed);
+      fireRebuild();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      // 23505 = unique violation (the target style already has its
-      // own TBD row in this run/period). We can't auto-merge without
-      // the planner's input on which color / customer wins; ask
-      // them to drill in.
       if (msg.includes("23505")) {
         setToast({ text: `A TBD row already exists for ${styleCode} in this period. Drill in to edit it directly.`, kind: "error" });
       } else {
         setToast({ text: `Style save failed — ${msg}`, kind: "error" });
       }
+      fireRebuild();
     }
   }
 
@@ -905,6 +961,18 @@ export default function WholesalePlanningWorkbench() {
   ): Promise<void> {
     if (!selectedRun) return;
     if (!row.sku_style) throw new Error("saveTbdField: TBD row missing sku_style");
+    // Diagnostic — surface which path runs and the payload, so we
+    // can debug "typed value reverted to original after save".
+    // eslint-disable-next-line no-console
+    console.log("[ip-debug saveTbdField]", {
+      path: row.tbd_id ? "patch" : "upsert",
+      tbd_id: row.tbd_id,
+      forecast_id: row.forecast_id,
+      sku_style: row.sku_style,
+      sku_color: row.sku_color,
+      customer_name: row.customer_name,
+      fields,
+    });
     if (row.tbd_id) {
       await wholesaleRepo.patchTbdRow(row.tbd_id, fields);
     } else {
@@ -1329,6 +1397,7 @@ export default function WholesalePlanningWorkbench() {
               onUpdateTbdCustomer={saveTbdCustomer}
               onAddTbdRow={addTbdRow}
               onDeleteTbdRow={deleteTbdRow}
+              onUndoLastAdd={undoLastAddedTbd}
               lastAddedTbdMarker={lastAddedTbdMarker}
               masterColorsLower={masterColorsLower}
               masterStyles={masterStyles}

@@ -27,6 +27,10 @@ export interface WholesalePlanningGridProps {
   // Delete a planner-added TBD row. Hidden on auto-synthesized rows
   // (the workbench enforces this server-side too).
   onDeleteTbdRow?: (row: IpPlanningGridRow) => Promise<void>;
+  // Undo the most recent + Add row from the toolbar — distinct from
+  // the row-level ✕ so the planner can hit it without hunting for
+  // the row when they realize they added the wrong thing.
+  onUndoLastAdd?: () => Promise<void>;
   // Identity of the row the planner just added — pinned to the top
   // of displayRows so it's the first thing they see. Cleared from
   // the workbench if/when the planner does another add.
@@ -255,7 +259,7 @@ function distributeAcrossChildren(
   return out;
 }
 
-export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdRow, onDeleteTbdRow, lastAddedTbdMarker, masterColorsLower, masterStyles, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdRow, onDeleteTbdRow, onUndoLastAdd, lastAddedTbdMarker, masterColorsLower, masterStyles, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
   // Multi-select filters — empty array = no filter (all rows pass).
   // Each non-empty array narrows to rows whose value is in the set.
@@ -797,6 +801,25 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     let target = newTotal - restSum;
     if (!allowNegative && target < 0) target = 0;
     if (target === ((tbdRow[field] as number | undefined) ?? 0)) return;
+    // Diagnostic: surface the routing decision so we can see in
+    // DevTools whether the typed aggregate value is landing on the
+    // correct TBD row (or being routed to a stale/synthetic one).
+    // eslint-disable-next-line no-console
+    console.log("[ip-debug agg-edit]", {
+      field,
+      newTotal,
+      restSum,
+      target,
+      currentValue: tbdRow[field],
+      target_row: {
+        forecast_id: tbdRow.forecast_id,
+        tbd_id: tbdRow.tbd_id,
+        sku_style: tbdRow.sku_style,
+        sku_color: tbdRow.sku_color,
+        customer_name: tbdRow.customer_name,
+        is_user_added: tbdRow.is_user_added,
+      },
+    });
     await saver(tbdRow.forecast_id, target);
   }
 
@@ -1276,6 +1299,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       {onAddTbdRow && (
         <div style={{ marginBottom: 8 }}>
           {!addRowOpen ? (
+            <>
             <button
               type="button"
               onClick={() => {
@@ -1311,6 +1335,27 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
             >
               + Add row
             </button>
+              {lastAddedTbdMarker && onUndoLastAdd && (
+                <button
+                  type="button"
+                  onClick={() => { void onUndoLastAdd(); }}
+                  style={{
+                    background: "transparent",
+                    border: `1px solid ${PAL.yellow}`,
+                    color: PAL.yellow,
+                    borderRadius: 8,
+                    padding: "6px 14px",
+                    fontSize: 12,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    marginLeft: 8,
+                  }}
+                  title="Undo the most recent + Add row. The row will be deleted."
+                >
+                  ↶ Undo
+                </button>
+              )}
+            </>
           ) : (
             <div style={{
               background: PAL.panel,
@@ -1469,7 +1514,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               >
                 <td style={{ ...S.td, color: PAL.textDim, ...colHide("category") }}>{r.group_name ?? "–"}</td>
                 <td style={{ ...S.td, color: PAL.textDim, ...colHide("subCat") }}>{r.sub_category_name ?? "–"}</td>
-                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent, paddingLeft: isChild ? 28 : undefined, ...colHide("style") }} onClick={(e) => { if (r.is_tbd) e.stopPropagation(); }}>
+                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent, paddingLeft: (isChild || r.is_user_added) ? 28 : undefined, ...colHide("style") }} onClick={(e) => { if (r.is_tbd) e.stopPropagation(); }}>
                   {r.is_aggregate && (
                     <span
                       onClick={(e) => { e.stopPropagation(); toggleAggExpanded(r.forecast_id); }}
