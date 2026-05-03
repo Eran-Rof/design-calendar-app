@@ -1,7 +1,79 @@
-import React from "react";
+import React, { useState, useEffect, useRef } from "react";
 import S from "../styles";
 import { fmtDateDisplay } from "../helpers";
 import type { ExcelData } from "../types";
+
+// Reusable searchable dropdown built to match the existing Customer/Vendor
+// dropdown pattern. Single-select; "All" entry always at the top.
+interface SearchableDropdownProps {
+  label: string;
+  value: string;          // current selection (e.g. "DENIM" or "All")
+  options: string[];      // includes "All" at index 0 (caller's responsibility)
+  onChange: (v: string) => void;
+  minWidth?: number;
+  placeholder?: string;
+}
+const SearchableDropdown: React.FC<SearchableDropdownProps> = ({ label, value, options, onChange, minWidth = 140, placeholder }) => {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+  // Close on outside click so the dropdown doesn't sit open behind other UI.
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+  const q = search.toLowerCase();
+  const shown = q ? options.filter(o => o.toLowerCase().includes(q)) : options;
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        style={{ ...S.select, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", minWidth, justifyContent: "space-between" }}
+        onClick={() => setOpen(o => !o)}
+      >
+        <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, marginRight: 2 }}>{label}:</span>
+        <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {value === "All" ? "All" : value}
+        </span>
+        <span style={{ fontSize: 9, color: "#6B7280" }}>▼</span>
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, background: "#1E293B", border: "1px solid #334155", borderRadius: 8, zIndex: 100, width: 240, maxHeight: 340, display: "flex", flexDirection: "column", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+          <div style={{ padding: "8px 10px", borderBottom: "1px solid #334155" }}>
+            <input
+              type="text"
+              placeholder={placeholder ?? `Search ${label.toLowerCase()}…`}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              autoFocus
+              style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, padding: "6px 10px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit", outline: "none" }}
+            />
+          </div>
+          <div style={{ overflowY: "auto", flex: 1 }}>
+            {shown.map(opt => {
+              const active = value === opt;
+              return (
+                <div
+                  key={opt}
+                  style={{ padding: "7px 14px", cursor: "pointer", fontSize: 12, color: active ? "#6EE7B7" : "#CBD5E1", background: active ? "rgba(16,185,129,0.08)" : "transparent", fontWeight: active ? 600 : 400 }}
+                  onClick={() => { onChange(opt); setOpen(false); setSearch(""); }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(16,185,129,0.12)")}
+                  onMouseLeave={e => (e.currentTarget.style.background = active ? "rgba(16,185,129,0.08)" : "transparent")}
+                >{opt === "All" ? "All" : opt}</div>
+              );
+            })}
+            {shown.length === 0 && (
+              <div style={{ padding: "10px 14px", fontSize: 12, color: "#6B7280" }}>No matches</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 interface ToolbarProps {
   // Search + filters
@@ -77,18 +149,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       value={search}
       onChange={e => setSearch(e.target.value)}
     />
-    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-      <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Category:</span>
-      <select style={S.select} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
-        {categories.map(c => <option key={c} value={c}>{c === "All" ? "All" : c}</option>)}
-      </select>
-    </div>
-    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-      <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Sub Cat:</span>
-      <select style={S.select} value={filterSubCategory} onChange={e => setFilterSubCategory(e.target.value)}>
-        {subCategories.map(c => <option key={c} value={c}>{c === "All" ? "All" : c}</option>)}
-      </select>
-    </div>
+    <SearchableDropdown label="Category" value={filterCategory} options={categories} onChange={setFilterCategory} />
+    <SearchableDropdown label="Sub Cat"  value={filterSubCategory} options={subCategories} onChange={setFilterSubCategory} />
     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
       <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Gender:</span>
       <select style={S.select} value={filterGender} onChange={e => setFilterGender(e.target.value)}>
