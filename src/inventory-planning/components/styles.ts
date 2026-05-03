@@ -1,69 +1,69 @@
 // Shared styles for the planning UI. Aligned with the ATS app's
-// `TH` palette (src/utils/theme.ts) — light surface, slate-on-white
-// text, ROF-red brand gradient, soft drop-shadow on cards. The PAL
-// keys stay the same so the existing 175+ call sites need no
-// changes; only the values shift.
+// dark palette in src/ats/styles.ts — #0F172A page bg, #1E293B
+// panels, #334155 border, #2D3748 faint border, green→blue brand
+// gradient (#10B981 → #3B82F6). The PAL keys stay the same so the
+// existing 175+ call sites in the planning module need no changes;
+// only the values shift.
 
 import type React from "react";
 
 export const PAL = {
-  // Page background — slate-gray matching ATS's TH.bg so cards "lift".
-  bg:       "#4A5568",
-  // Card / panel surface — white, same as ATS TH.surface.
-  panel:    "#FFFFFF",
-  panelAlt: "#F7F8FA",
-  border:   "#CBD5E0",
-  borderFaint: "#E2E8F0",
-  text:     "#1A202C",
-  textDim:  "#4A5568",
-  textMuted:"#718096",
-  // ROF brand red — primary accent for buttons, links, action chips.
-  accent:   "#C8210A",
-  accent2:  "#E02B10",
-  green:    "#0E9F6E",
-  yellow:   "#B45309",
-  red:      "#C8210A",
-  chipBg:   "#EDF2F7",
+  bg:       "#0F172A",
+  panel:    "#1E293B",
+  panelAlt: "#0F172A",
+  border:   "#334155",
+  borderFaint: "#2D3748",
+  text:     "#F1F5F9",
+  textDim:  "#94A3B8",
+  textMuted:"#6B7280",
+  // accent stays blue (#3B82F6) for action chips, confidence chips,
+  // links, and per-cell highlights. The brand gradient on buttons /
+  // logos uses (accent2 -> accent) so it lands as green -> blue, the
+  // same direction ATS uses.
+  accent:   "#3B82F6",
+  accent2:  "#10B981",
+  green:    "#10B981",
+  yellow:   "#F59E0B",
+  red:      "#EF4444",
+  chipBg:   "#334155",
 };
-
-// Shared shadow tokens to keep cards/drawers consistent with ATS.
-const SHADOW_CARD = "0 2px 8px rgba(0,0,0,0.12)";
-const SHADOW_LG   = "0 8px 24px rgba(0,0,0,0.18)";
 
 export const S: Record<string, React.CSSProperties> = {
   app:        { minHeight: "100vh", background: PAL.bg, color: PAL.text, fontFamily: "'DM Sans','Segoe UI',sans-serif" },
   content:    { maxWidth: 1600, margin: "0 auto", padding: "20px" },
-  nav:        { background: PAL.panel, borderBottom: `1px solid ${PAL.border}`, padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56, position: "sticky", top: 0, zIndex: 100, boxShadow: SHADOW_CARD },
+  nav:        { background: PAL.panel, borderBottom: `1px solid ${PAL.border}`, padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56, position: "sticky", top: 0, zIndex: 100 },
   navLeft:    { display: "flex", alignItems: "center", gap: 12 },
-  navLogo:    { width: 32, height: 32, borderRadius: 8, background: `linear-gradient(135deg, ${PAL.accent}, ${PAL.accent2})`, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 13 },
+  // Brand gradient — green at top-left, blue at bottom-right, matching
+  // src/ats/styles.ts navLogo.
+  navLogo:    { width: 32, height: 32, borderRadius: 8, background: `linear-gradient(135deg, ${PAL.accent2}, ${PAL.accent})`, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 12, letterSpacing: "-0.5px" },
   navTitle:   { fontWeight: 700, fontSize: 16, color: PAL.text },
   navSub:     { fontSize: 12, color: PAL.textMuted },
   navRight:   { display: "flex", alignItems: "center", gap: 8 },
-  btnPrimary: { background: `linear-gradient(135deg, ${PAL.accent}, ${PAL.accent2})`, color: "#fff", border: "none", borderRadius: 8, padding: "9px 22px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
-  btnSecondary:{ background: PAL.panel, border: `1px solid ${PAL.border}`, color: PAL.textDim, borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer" },
+  btnPrimary: { background: `linear-gradient(135deg, ${PAL.accent2}, ${PAL.accent})`, color: "#fff", border: "none", borderRadius: 6, padding: "5px 14px", fontWeight: 600, fontSize: 13, cursor: "pointer" },
+  btnSecondary:{ background: "none", border: `1px solid ${PAL.border}`, color: PAL.textDim, borderRadius: 6, padding: "5px 12px", fontSize: 13, cursor: "pointer" },
   btnGhost:   { background: "transparent", border: "none", color: PAL.textDim, padding: "6px 8px", cursor: "pointer", fontSize: 13 },
-  card:       { background: PAL.panel, border: `1px solid ${PAL.border}`, borderRadius: 12, padding: "18px 20px", marginBottom: 16, boxShadow: SHADOW_CARD },
+  card:       { background: PAL.panel, borderRadius: 10, padding: 16, marginBottom: 16 },
   cardTitle:  { margin: "0 0 12px", fontSize: 15, fontWeight: 700, color: PAL.text },
   statsRow:   { display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12, marginBottom: 16 },
-  statCard:   { background: PAL.panel, border: `1px solid ${PAL.border}`, borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4, boxShadow: SHADOW_CARD },
+  statCard:   { background: PAL.panel, borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 4 },
   toolbar:    { display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap" },
-  // colorScheme: "light" makes the browser render its native widgets
-  // (date/month picker, scrollbars) for the now-light surface so the
-  // calendar glyph stays visible on white inputs.
-  input:      { background: PAL.panel, border: `1px solid ${PAL.border}`, borderRadius: 8, padding: "9px 13px", color: PAL.text, fontSize: 13, outline: "none", boxSizing: "border-box", colorScheme: "light" },
-  select:     { background: PAL.panel, border: `1px solid ${PAL.border}`, borderRadius: 8, padding: "9px 13px", color: PAL.text, fontSize: 13, outline: "none", colorScheme: "light" },
-  label:      { color: PAL.textMuted, fontSize: 10, letterSpacing: "0.12em", fontWeight: 600, textTransform: "uppercase" as const, display: "block", marginBottom: 5 },
-  tableWrap:  { overflow: "auto", maxHeight: "calc(100vh - 260px)", borderRadius: 12, border: `1px solid ${PAL.border}`, background: PAL.panel, boxShadow: SHADOW_CARD },
+  // colorScheme: "dark" makes the browser render its native widgets
+  // (date/month picker icon + popup, scrollbars) in dark mode so the
+  // calendar glyph is actually visible on PAL.panel inputs.
+  input:      { background: PAL.panel, border: `1px solid ${PAL.border}`, borderRadius: 8, padding: "8px 14px", color: PAL.text, fontSize: 13, outline: "none", boxSizing: "border-box", colorScheme: "dark" },
+  select:     { background: PAL.panel, border: `1px solid ${PAL.border}`, borderRadius: 8, padding: "8px 10px", color: PAL.text, fontSize: 13, outline: "none", colorScheme: "dark" },
+  label:      { color: PAL.textDim, fontSize: 12, display: "block", marginBottom: 4 },
+  tableWrap:  { overflow: "auto", maxHeight: "calc(100vh - 260px)", borderRadius: 10, border: `1px solid ${PAL.border}`, background: PAL.bg },
   table:      { borderCollapse: "separate" as const, borderSpacing: 0, width: "100%", fontSize: 12 },
-  th:         { background: PAL.panelAlt, color: PAL.textMuted, fontWeight: 600, fontSize: 10, textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "8px 10px", borderBottom: `1px solid ${PAL.border}`, borderRight: `1px solid ${PAL.borderFaint}`, whiteSpace: "nowrap" as const, position: "sticky" as const, top: 0, zIndex: 2, textAlign: "left" as const },
-  td:         { padding: "6px 10px", borderBottom: `1px solid ${PAL.borderFaint}`, borderRight: `1px solid ${PAL.borderFaint}`, whiteSpace: "nowrap" as const, verticalAlign: "middle" as const },
-  tdNum:      { padding: "6px 10px", borderBottom: `1px solid ${PAL.borderFaint}`, borderRight: `1px solid ${PAL.borderFaint}`, whiteSpace: "nowrap" as const, textAlign: "right" as const, fontFamily: "monospace" },
+  th:         { background: PAL.panel, color: PAL.textMuted, fontWeight: 600, fontSize: 11, textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "10px 12px", borderBottom: `1px solid ${PAL.border}`, borderRight: `1px solid ${PAL.borderFaint}`, whiteSpace: "nowrap" as const, position: "sticky" as const, top: 0, zIndex: 2, textAlign: "left" as const },
+  td:         { padding: "7px 10px", borderBottom: `1px solid ${PAL.borderFaint}`, borderRight: `1px solid ${PAL.borderFaint}`, whiteSpace: "nowrap" as const, verticalAlign: "middle" as const },
+  tdNum:      { padding: "7px 10px", borderBottom: `1px solid ${PAL.borderFaint}`, borderRight: `1px solid ${PAL.borderFaint}`, whiteSpace: "nowrap" as const, textAlign: "right" as const, fontFamily: "monospace" },
   chip:       { display: "inline-block", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600 },
-  drawerOverlay:{ position: "fixed" as const, inset: 0, background: "rgba(0,0,0,.45)", zIndex: 200, display: "flex", justifyContent: "flex-end" },
-  drawer:     { background: PAL.panel, width: 520, maxWidth: "90vw", height: "100%", overflowY: "auto" as const, display: "flex", flexDirection: "column" as const, borderLeft: `1px solid ${PAL.border}`, boxShadow: SHADOW_LG },
-  drawerHeader:{ padding: "16px 20px", borderBottom: `1px solid ${PAL.border}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start", background: PAL.panelAlt },
+  drawerOverlay:{ position: "fixed" as const, inset: 0, background: "rgba(0,0,0,.6)", zIndex: 200, display: "flex", justifyContent: "flex-end" },
+  drawer:     { background: PAL.panel, width: 520, maxWidth: "90vw", height: "100%", overflowY: "auto" as const, display: "flex", flexDirection: "column" as const, borderLeft: `1px solid ${PAL.border}` },
+  drawerHeader:{ padding: "16px 20px", borderBottom: `1px solid ${PAL.border}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start", background: PAL.bg },
   drawerBody: { padding: 20, flex: 1 },
-  infoCell:   { background: PAL.panelAlt, border: `1px solid ${PAL.borderFaint}`, borderRadius: 8, padding: 12 },
+  infoCell:   { background: PAL.bg, borderRadius: 8, padding: 12 },
   infoLabel:  { color: PAL.textMuted, fontSize: 11, textTransform: "uppercase" as const, letterSpacing: 1, marginBottom: 4 },
   infoValue:  { color: PAL.text, fontSize: 14, fontWeight: 600 },
 };

@@ -47,7 +47,6 @@ export default function PlanningShell({ title, children }: Props) {
         background: PAL.panel,
         borderBottom: `1px solid ${PAL.border}`,
         gap: 12,
-        boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14, color: PAL.text }}>
           <a href="/" style={{ color: PAL.textMuted, textDecoration: "none", fontSize: 13 }}>← PLM</a>
@@ -63,7 +62,7 @@ export default function PlanningShell({ title, children }: Props) {
             padding: "6px 12px",
             borderRadius: 6,
             border: `1px solid ${PAL.border}`,
-            background: showNotifs ? `${PAL.accent}15` : PAL.panel,
+            background: showNotifs ? `${PAL.accent}15` : "transparent",
             color: showNotifs ? PAL.accent : PAL.textDim,
             cursor: "pointer",
             fontSize: 13,
