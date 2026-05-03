@@ -312,16 +312,33 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   // selections survive reloads and follow-up builds. Storing each
   // filter under its own key keeps writes cheap (only the changed
   // filter touches localStorage).
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_search", search); } catch { /* ignore */ } }, [search]);
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_customer", JSON.stringify(filterCustomer)); } catch { /* ignore */ } }, [filterCustomer]);
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_category", JSON.stringify(filterCategory)); } catch { /* ignore */ } }, [filterCategory]);
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_subCat", JSON.stringify(filterSubCat)); } catch { /* ignore */ } }, [filterSubCat]);
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_gender", JSON.stringify(filterGender)); } catch { /* ignore */ } }, [filterGender]);
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_action", JSON.stringify(filterAction)); } catch { /* ignore */ } }, [filterAction]);
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_confidence", JSON.stringify(filterConfidence)); } catch { /* ignore */ } }, [filterConfidence]);
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_method", JSON.stringify(filterMethod)); } catch { /* ignore */ } }, [filterMethod]);
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_period", JSON.stringify(filterPeriod)); } catch { /* ignore */ } }, [filterPeriod]);
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_style", JSON.stringify(filterStyle)); } catch { /* ignore */ } }, [filterStyle]);
+  // Diagnostic write helper so we can verify the useEffect mirrors
+  // are firing whenever a filter changes. The user's last console
+  // dump showed every load returning null; we need to confirm
+  // whether writes happen at all (useEffect not firing) or whether
+  // they fire but the values aren't surviving (storage cleared
+  // somewhere downstream).
+  const writeFilter = (key: string, value: unknown) => {
+    try {
+      const json = typeof value === "string" ? value : JSON.stringify(value);
+      localStorage.setItem(`ws_planning_filter_${key}`, json);
+      // eslint-disable-next-line no-console
+      console.log(`[ip-debug writeFilter] ${key} ←`, json);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn(`[ip-debug writeFilter] ${key} failed`, e);
+    }
+  };
+  useEffect(() => writeFilter("search", search), [search]);
+  useEffect(() => writeFilter("customer", filterCustomer), [filterCustomer]);
+  useEffect(() => writeFilter("category", filterCategory), [filterCategory]);
+  useEffect(() => writeFilter("subCat", filterSubCat), [filterSubCat]);
+  useEffect(() => writeFilter("gender", filterGender), [filterGender]);
+  useEffect(() => writeFilter("action", filterAction), [filterAction]);
+  useEffect(() => writeFilter("confidence", filterConfidence), [filterConfidence]);
+  useEffect(() => writeFilter("method", filterMethod), [filterMethod]);
+  useEffect(() => writeFilter("period", filterPeriod), [filterPeriod]);
+  useEffect(() => writeFilter("style", filterStyle), [filterStyle]);
   // Inline "+ Add row" form state. Closed by default; opens above
   // the table to the planner's chosen cat/sub-cat/customer + first
   // period of the run. Style + color default to "TBD". Persists
