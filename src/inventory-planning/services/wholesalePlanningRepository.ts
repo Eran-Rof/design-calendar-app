@@ -87,6 +87,33 @@ async function sbPatch<T>(path: string, body: unknown): Promise<T[]> {
   return r.json();
 }
 
+// Retry single-row writes that hit Postgres statement timeout
+// (SQLSTATE 57014). Single-row upserts on tables with FK + RLS +
+// updated_at triggers occasionally hit the anon-role 8s timeout under
+// lock contention (planner typing rapidly into multiple aggregate
+// cells, or a concurrent build holding the row). Exponential backoff
+// across three attempts (250ms, 1s, 3s) is enough to ride out the
+// transient pressure without making the planner wait absurdly long
+// when the issue is real.
+async function withRetryOn57014<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  const delays = [250, 1000, 3000];
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      const msg = e instanceof Error ? e.message : String(e);
+      const isTimeout = msg.includes("57014") || msg.toLowerCase().includes("statement timeout") || msg.toLowerCase().includes("canceling statement");
+      if (!isTimeout || attempt === delays.length) throw e;
+      // eslint-disable-next-line no-console
+      console.warn(`[planning-repo] ${label} hit 57014 (attempt ${attempt + 1} of ${delays.length + 1}); retrying in ${delays[attempt]}ms`);
+      await new Promise((res) => setTimeout(res, delays[attempt]));
+    }
+  }
+  throw lastErr;
+}
+
 async function sbDelete(path: string): Promise<void> {
   assertSupabase();
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, {
@@ -311,9 +338,8 @@ export const wholesaleRepo = {
     override_qty: number,
     final_forecast_qty: number,
   ): Promise<IpWholesaleForecast> {
-    const rows = await sbPatch<IpWholesaleForecast>(
-      `ip_wholesale_forecast?id=eq.${forecastId}`,
-      { override_qty, final_forecast_qty },
+    const rows = await withRetryOn57014("patchForecastOverride", () =>
+      sbPatch<IpWholesaleForecast>(`ip_wholesale_forecast?id=eq.${forecastId}`, { override_qty, final_forecast_qty }),
     );
     if (!rows[0]) throw new Error(`patchForecastOverride: no row returned for ${forecastId}`);
     return rows[0];
@@ -323,23 +349,20 @@ export const wholesaleRepo = {
     buyer_request_qty: number,
     final_forecast_qty: number,
   ): Promise<void> {
-    const rows = await sbPatch<IpWholesaleForecast>(
-      `ip_wholesale_forecast?id=eq.${forecastId}`,
-      { buyer_request_qty, final_forecast_qty },
+    const rows = await withRetryOn57014("patchForecastBuyerRequest", () =>
+      sbPatch<IpWholesaleForecast>(`ip_wholesale_forecast?id=eq.${forecastId}`, { buyer_request_qty, final_forecast_qty }),
     );
     if (!rows[0]) throw new Error(`patchForecastBuyerRequest: no row returned for ${forecastId}`);
   },
   async patchForecastBuyQty(forecastId: string, planned_buy_qty: number | null): Promise<void> {
-    const rows = await sbPatch<IpWholesaleForecast>(
-      `ip_wholesale_forecast?id=eq.${forecastId}`,
-      { planned_buy_qty },
+    const rows = await withRetryOn57014("patchForecastBuyQty", () =>
+      sbPatch<IpWholesaleForecast>(`ip_wholesale_forecast?id=eq.${forecastId}`, { planned_buy_qty }),
     );
     if (!rows[0]) throw new Error(`patchForecastBuyQty: no row returned for ${forecastId}`);
   },
   async patchForecastUnitCostOverride(forecastId: string, unit_cost_override: number | null): Promise<void> {
-    const rows = await sbPatch<IpWholesaleForecast>(
-      `ip_wholesale_forecast?id=eq.${forecastId}`,
-      { unit_cost_override },
+    const rows = await withRetryOn57014("patchForecastUnitCostOverride", () =>
+      sbPatch<IpWholesaleForecast>(`ip_wholesale_forecast?id=eq.${forecastId}`, { unit_cost_override }),
     );
     if (!rows[0]) throw new Error(`patchForecastUnitCostOverride: no row returned for ${forecastId}`);
   },
@@ -378,14 +401,16 @@ export const wholesaleRepo = {
       created_by: string | null;
     },
   ): Promise<void> {
-    await sbPost(
+    await withRetryOn57014("upsertBucketBuy", () => sbPost(
       "ip_planner_bucket_buys?on_conflict=planning_run_id,bucket_key",
       [{ planning_run_id: planningRunId, ...args }],
       "resolution=merge-duplicates,return=minimal",
-    );
+    ));
   },
   async deleteBucketBuy(planningRunId: string, bucketKey: string): Promise<void> {
-    await sbDelete(`ip_planner_bucket_buys?planning_run_id=eq.${planningRunId}&bucket_key=eq.${encodeURIComponent(bucketKey)}`);
+    await withRetryOn57014("deleteBucketBuy", () => sbDelete(
+      `ip_planner_bucket_buys?planning_run_id=eq.${planningRunId}&bucket_key=eq.${encodeURIComponent(bucketKey)}`,
+    ));
   },
 
   // ── TBD stock-buy rows ───────────────────────────────────────────────────
@@ -443,17 +468,17 @@ export const wholesaleRepo = {
       notes?: string | null;
     },
   ): Promise<void> {
-    await sbPost(
+    await withRetryOn57014("upsertTbdRow", () => sbPost(
       "ip_wholesale_forecast_tbd?on_conflict=planning_run_id,style_code,color,customer_id,period_start",
       [{ planning_run_id: planningRunId, ...args }],
       "resolution=merge-duplicates,return=minimal",
-    );
+    ));
   },
   async patchTbdRow(id: string, patch: Record<string, unknown>): Promise<void> {
-    await sbPatch(`ip_wholesale_forecast_tbd?id=eq.${id}`, patch);
+    await withRetryOn57014("patchTbdRow", () => sbPatch(`ip_wholesale_forecast_tbd?id=eq.${id}`, patch));
   },
   async deleteTbdRow(id: string): Promise<void> {
-    await sbDelete(`ip_wholesale_forecast_tbd?id=eq.${id}`);
+    await withRetryOn57014("deleteTbdRow", () => sbDelete(`ip_wholesale_forecast_tbd?id=eq.${id}`));
   },
 
   // System-qty override: planner directly edits the System forecast.
