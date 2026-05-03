@@ -168,10 +168,14 @@ function row(p: Partial<IpPlanningGridRow>): IpPlanningGridRow {
   };
 }
 
-const ALL_SIZES_CUSTOMERS: CollapseModes = {
+// Sizes are always merged at the (style, color) grain — no toggle.
+// Combined with `customers: true`, this simulates the case the bug
+// was about: every customer + every size of (style, color) collapsed
+// into one row. Distinct colors must still stay in distinct buckets.
+const ALL_CUSTOMERS: CollapseModes = {
   customers: true, colors: false, category: false, subCat: false,
   customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false,
-  allCustomersPerStyle: false, sizes: true,
+  allCustomersPerStyle: false,
 };
 
 describe("All-sizes bucket key — color isolation regression", () => {
@@ -194,7 +198,7 @@ describe("All-sizes bucket key — color isolation regression", () => {
       on_hand_qty: 39,
     });
 
-    const out = aggregateRows([grey, navy], ALL_SIZES_CUSTOMERS);
+    const out = aggregateRows([grey, navy], ALL_CUSTOMERS);
 
     expect(out).toHaveLength(2);
     const colors = out.map((r) => r.sku_color).sort();
@@ -220,7 +224,7 @@ describe("All-sizes bucket key — color isolation regression", () => {
       sku_color: "GREY", // pretend fallback fired
     });
 
-    const out = aggregateRows([buggyGrey1, buggyGrey2], ALL_SIZES_CUSTOMERS);
+    const out = aggregateRows([buggyGrey1, buggyGrey2], ALL_CUSTOMERS);
 
     // With identical (style, color) the All-sizes bucket merges them.
     // That's the WRONG outcome we used to ship — the assertion below

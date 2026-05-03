@@ -106,12 +106,12 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   const [collapse, setCollapse] = useState<CollapseModes>({
     customers: false, colors: false, category: false, subCat: false,
     customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false,
-    allCustomersPerStyle: false, sizes: false,
+    allCustomersPerStyle: false,
   });
   const anyCollapsed =
     collapse.customers || collapse.colors || collapse.category || collapse.subCat ||
     collapse.customerAllStyles || collapse.allCustomersPerCategory || collapse.allCustomersPerSubCat ||
-    collapse.allCustomersPerStyle || collapse.sizes;
+    collapse.allCustomersPerStyle;
 
   // Forecast IDs of aggregate rows the planner has expanded — when set,
   // the underlying child rows render below the parent indented + muted.
@@ -431,7 +431,11 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
 
   const filtered = useMemo(() => {
     const muted = mutedRows;
-    const collapsed = anyCollapsed ? aggregateRows(muted, collapse) : muted;
+    // Sizes are always merged — aggregateRows is the canonical pass even
+    // when no other collapse is active, so a (style, color, customer,
+    // period) bucket with multiple sku_id variants always renders as one
+    // row. Single-size buckets fall through unchanged.
+    const collapsed = aggregateRows(muted, collapse);
     // groupKey identifies the "chain" the rolling pool walks across
     // periods. Whenever consecutive rows share the same groupKey, the
     // pool carries forward (this row's OnHand = previous row's ATS).
@@ -441,29 +445,27 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     // Defined per active collapse mode so the chain matches whatever
     // the user is viewing — works for sub-cat, category, per-style
     // rollup, per-cat-style rollup, per-customer rollup, and even
-    // non-collapsed (where the chain is just the SKU itself).
+    // non-collapsed (where the chain is style+color across sizes).
     const groupKeyFor = (r: IpPlanningGridRow): string => {
       if (collapse.subCat) return `sub:${r.sub_category_name ?? ""}`;
       if (collapse.category) return `cat:${r.group_name ?? ""}`;
       if (collapse.allCustomersPerStyle) return `acps:${r.sku_style ?? r.sku_code}`;
+      const styleColorPart = `${r.sku_style ?? r.sku_code}:${r.sku_color ?? "—"}`;
       if (collapse.allCustomersPerCategory) {
-        const skuPart = collapse.colors ? (r.sku_style ?? r.sku_code) : r.sku_id;
+        const skuPart = collapse.colors ? (r.sku_style ?? r.sku_code) : styleColorPart;
         return `acpc:${r.group_name ?? ""}:${skuPart}`;
       }
       if (collapse.allCustomersPerSubCat) {
-        const skuPart = collapse.colors ? (r.sku_style ?? r.sku_code) : r.sku_id;
+        const skuPart = collapse.colors ? (r.sku_style ?? r.sku_code) : styleColorPart;
         return `acpsc:${r.sub_category_name ?? ""}:${skuPart}`;
       }
       if (collapse.customerAllStyles) return `cas:${r.customer_id}`;
-      // Default — non-collapsed or only customers/colors/sizes. Group
-      // by SKU (or style if colors collapsed, or style+color if sizes
-      // collapsed). Customer dimension is ignored because customer-
-      // level rolling pool would chain multiple customers' demand
-      // through one stock pool, which is the per-customer issue the
-      // per-SKU rolling pool was built to avoid.
+      // Default — non-collapsed or only customers/colors. Group by
+      // (style, color) across sizes. `colors` further drops the color
+      // dim. Customer is ignored because customer-level rolling pool
+      // would chain multiple customers' demand through one stock pool.
       if (collapse.colors) return `sku:${r.sku_style ?? r.sku_code}`;
-      if (collapse.sizes) return `sku:${r.sku_style ?? r.sku_code}:${r.sku_color ?? "—"}`;
-      return `sku:${r.sku_id}`;
+      return `sku:${styleColorPart}`;
     };
     // When any collapse is active, force sort to (groupKey, period) so
     // chained rows render contiguously. Without collapse, keep the
@@ -717,16 +719,15 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         <span style={{ fontWeight: 600 }}>Collapse:</span>
         <CollapseToggle label="All customers" active={collapse.customers} onToggle={() => setCollapse((c) => ({ ...c, customers: !c.customers, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false, allCustomersPerStyle: false }))} />
         <CollapseToggle label="All colors per style" active={collapse.colors} onToggle={() => setCollapse((c) => ({ ...c, colors: !c.colors }))} />
-        <CollapseToggle label="All sizes" active={collapse.sizes} onToggle={() => setCollapse((c) => ({ ...c, sizes: !c.sizes, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false, allCustomersPerStyle: false, category: false, subCat: false }))} />
-        <CollapseToggle label="All styles per customer" active={collapse.customerAllStyles} onToggle={() => setCollapse((c) => ({ ...c, customerAllStyles: !c.customerAllStyles, customers: false, colors: false, sizes: false, category: false, subCat: false, allCustomersPerCategory: false, allCustomersPerSubCat: false, allCustomersPerStyle: false }))} />
-        <CollapseToggle label="All customers per style" active={collapse.allCustomersPerStyle} onToggle={() => setCollapse((c) => ({ ...c, allCustomersPerStyle: !c.allCustomersPerStyle, customers: false, colors: false, sizes: false, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false, category: false, subCat: false }))} />
-        <CollapseToggle label="All customers per category" active={collapse.allCustomersPerCategory} onToggle={() => setCollapse((c) => ({ ...c, allCustomersPerCategory: !c.allCustomersPerCategory, allCustomersPerSubCat: false, category: false, subCat: false, customerAllStyles: false, customers: false, sizes: false, allCustomersPerStyle: false }))} />
-        <CollapseToggle label="All customers per sub cat" active={collapse.allCustomersPerSubCat} onToggle={() => setCollapse((c) => ({ ...c, allCustomersPerSubCat: !c.allCustomersPerSubCat, allCustomersPerCategory: false, category: false, subCat: false, customerAllStyles: false, customers: false, sizes: false, allCustomersPerStyle: false }))} />
-        <CollapseToggle label="By category" active={collapse.category} onToggle={() => setCollapse((c) => ({ ...c, category: !c.category, subCat: c.category ? c.subCat : false, sizes: false, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false, allCustomersPerStyle: false }))} />
-        <CollapseToggle label="By sub cat" active={collapse.subCat} onToggle={() => setCollapse((c) => ({ ...c, subCat: !c.subCat, category: c.subCat ? c.category : false, sizes: false, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false, allCustomersPerStyle: false }))} />
+        <CollapseToggle label="All styles per customer" active={collapse.customerAllStyles} onToggle={() => setCollapse((c) => ({ ...c, customerAllStyles: !c.customerAllStyles, customers: false, colors: false, category: false, subCat: false, allCustomersPerCategory: false, allCustomersPerSubCat: false, allCustomersPerStyle: false }))} />
+        <CollapseToggle label="All customers per style" active={collapse.allCustomersPerStyle} onToggle={() => setCollapse((c) => ({ ...c, allCustomersPerStyle: !c.allCustomersPerStyle, customers: false, colors: false, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false, category: false, subCat: false }))} />
+        <CollapseToggle label="All customers per category" active={collapse.allCustomersPerCategory} onToggle={() => setCollapse((c) => ({ ...c, allCustomersPerCategory: !c.allCustomersPerCategory, allCustomersPerSubCat: false, category: false, subCat: false, customerAllStyles: false, customers: false, allCustomersPerStyle: false }))} />
+        <CollapseToggle label="All customers per sub cat" active={collapse.allCustomersPerSubCat} onToggle={() => setCollapse((c) => ({ ...c, allCustomersPerSubCat: !c.allCustomersPerSubCat, allCustomersPerCategory: false, category: false, subCat: false, customerAllStyles: false, customers: false, allCustomersPerStyle: false }))} />
+        <CollapseToggle label="By category" active={collapse.category} onToggle={() => setCollapse((c) => ({ ...c, category: !c.category, subCat: c.category ? c.subCat : false, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false, allCustomersPerStyle: false }))} />
+        <CollapseToggle label="By sub cat" active={collapse.subCat} onToggle={() => setCollapse((c) => ({ ...c, subCat: !c.subCat, category: c.subCat ? c.category : false, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false, allCustomersPerStyle: false }))} />
         {anyCollapsed && (
           <button style={{ ...S.btnSecondary, fontSize: 11, padding: "2px 8px" }}
-                  onClick={() => setCollapse({ customers: false, colors: false, category: false, subCat: false, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false, allCustomersPerStyle: false, sizes: false })}>
+                  onClick={() => setCollapse({ customers: false, colors: false, category: false, subCat: false, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false, allCustomersPerStyle: false })}>
             Reset
           </button>
         )}

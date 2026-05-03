@@ -28,10 +28,6 @@ export interface CollapseModes {
   // period). Useful when the planner wants total demand for a style
   // across every color and every customer.
   allCustomersPerStyle: boolean;
-  // Drop the size dimension while keeping style + color. Combinable
-  // with `customers`. Has no effect when `colors` is on (colors
-  // already collapses to sku_style, which inherently spans sizes).
-  sizes: boolean;
 }
 
 // Aggregate rows by the active collapse modes. Each toggle changes the
@@ -43,6 +39,11 @@ export interface CollapseModes {
 // Category and subCat are mutually exclusive — turning one on clears the
 // other (handled at toggle time). When customers/colors are also on, the
 // numeric totals are still by period within the chosen rollup.
+//
+// Sizes are ALWAYS merged. The base "row" of the grid is (style, color,
+// customer, period) — never sku_id. Multiple physical sizes of the same
+// style+color always show as one merged row. There's no toggle for
+// this; it's the default everywhere.
 export function aggregateRows(rows: IpPlanningGridRow[], modes: CollapseModes): IpPlanningGridRow[] {
   const groups = new Map<string, IpPlanningGridRow[]>();
   for (const r of rows) {
@@ -56,27 +57,31 @@ export function aggregateRows(rows: IpPlanningGridRow[], modes: CollapseModes): 
       // else fall back to sku_code as the grouping key.
       key = `acps:${r.sku_style ?? r.sku_code}:${r.period_code}`;
     } else if (modes.allCustomersPerCategory) {
-      // Within each category, one row per (style, period) summing every
-      // customer. `colors` collapses to style; otherwise color is preserved
-      // via sku_id so two color options of the same style don't merge.
-      const skuPart = modes.colors ? `style:${r.sku_style ?? r.sku_code}` : `sku:${r.sku_id}`;
+      // Within each category, one row per (style[+color], period) summing
+      // every customer. `colors` collapses to style; otherwise the
+      // (style, color) pair is preserved so two colors of the same
+      // style don't merge.
+      const skuPart = modes.colors
+        ? `style:${r.sku_style ?? r.sku_code}`
+        : `style+color:${r.sku_style ?? r.sku_code}:${r.sku_color ?? "—"}`;
       key = `acpc:${r.group_name ?? "—"}:${skuPart}:${r.period_code}`;
     } else if (modes.allCustomersPerSubCat) {
-      const skuPart = modes.colors ? `style:${r.sku_style ?? r.sku_code}` : `sku:${r.sku_id}`;
+      const skuPart = modes.colors
+        ? `style:${r.sku_style ?? r.sku_code}`
+        : `style+color:${r.sku_style ?? r.sku_code}:${r.sku_color ?? "—"}`;
       key = `acpsc:${r.sub_category_name ?? "—"}:${skuPart}:${r.period_code}`;
     } else if (modes.customerAllStyles) {
       // Customer × period only — sums every style this customer
       // bought into one row. Other style/color/SKU fields collapse.
       key = `cust-all:${r.customer_id}:${r.period_code}`;
     } else {
-      let skuPart: string;
-      if (modes.colors) {
-        skuPart = `style:${r.sku_style ?? r.sku_code}`;
-      } else if (modes.sizes) {
-        skuPart = `style+color:${r.sku_style ?? r.sku_code}:${r.sku_color ?? "—"}`;
-      } else {
-        skuPart = `sku:${r.sku_id}`;
-      }
+      // Default base granularity: (style, color, customer, period).
+      // Sizes always merge into the (style, color) cell — there is no
+      // mode that exposes sku_id directly. `colors` drops the color
+      // dim; `customers` drops the customer dim.
+      const skuPart = modes.colors
+        ? `style:${r.sku_style ?? r.sku_code}`
+        : `style+color:${r.sku_style ?? r.sku_code}:${r.sku_color ?? "—"}`;
       const custPart = modes.customers ? "all" : r.customer_id;
       key = `${skuPart}:${custPart}:${r.period_code}`;
     }

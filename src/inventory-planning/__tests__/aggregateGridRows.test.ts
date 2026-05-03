@@ -58,18 +58,36 @@ function row(p: Partial<IpPlanningGridRow>): IpPlanningGridRow {
 const NO_COLLAPSE: CollapseModes = {
   customers: false, colors: false, category: false, subCat: false,
   customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false,
-  allCustomersPerStyle: false, sizes: false,
+  allCustomersPerStyle: false,
 };
 
 describe("aggregateRows — grouping key", () => {
-  it("with no collapse, returns each row unchanged (singleton buckets)", () => {
-    const a = row({ forecast_id: "f1", customer_id: "c1", sku_id: "s1", period_code: "2026-06" });
-    const b = row({ forecast_id: "f2", customer_id: "c1", sku_id: "s2", period_code: "2026-06" });
+  it("with no collapse, two distinct (style, color) rows pass through unchanged", () => {
+    // Sizes are always merged (no toggle), so the base granularity is
+    // (style, color, customer, period) — not sku_id. This test asserts
+    // that distinct (style, color) rows do NOT merge when no collapse
+    // is set; the size-merge regression is in the next test.
+    const a = row({ forecast_id: "f1", customer_id: "c1", sku_id: "s1", sku_style: "STYLE1", sku_color: "Red", period_code: "2026-06" });
+    const b = row({ forecast_id: "f2", customer_id: "c1", sku_id: "s2", sku_style: "STYLE1", sku_color: "Blue", period_code: "2026-06" });
     const out = aggregateRows([a, b], NO_COLLAPSE);
     expect(out).toHaveLength(2);
     expect(out.find((r) => r.forecast_id === "f1")).toEqual(a);
     expect(out.find((r) => r.forecast_id === "f2")).toEqual(b);
     expect(out.every((r) => !r.is_aggregate)).toBe(true);
+  });
+
+  it("with no collapse, two sizes of the same (style, color, customer, period) ALWAYS merge", () => {
+    // No toggle — yet the bucket key uses (style, color), so different
+    // sku_id sizes of the same style+color collapse into one row by
+    // default. This is the always-on size-merge.
+    const a = row({ forecast_id: "f1", customer_id: "c1", sku_id: "s1-S",  sku_style: "STYLE1", sku_color: "Red", final_forecast_qty: 30 });
+    const b = row({ forecast_id: "f2", customer_id: "c1", sku_id: "s1-M",  sku_style: "STYLE1", sku_color: "Red", final_forecast_qty: 50 });
+    const c = row({ forecast_id: "f3", customer_id: "c1", sku_id: "s1-L",  sku_style: "STYLE1", sku_color: "Red", final_forecast_qty: 20 });
+    const out = aggregateRows([a, b, c], NO_COLLAPSE);
+    expect(out).toHaveLength(1);
+    expect(out[0].is_aggregate).toBe(true);
+    expect(out[0].final_forecast_qty).toBe(100);
+    expect(out[0].aggregate_count).toBe(3);
   });
 
   it("collapses across customers when customers=true", () => {
