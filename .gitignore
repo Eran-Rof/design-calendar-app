@@ -11,3 +11,13 @@ dist
 
 # OS
 .DS_Store
+
+# Local data exports — produced by scripts/download-item-master.mjs
+# and similar one-off dumps. May contain master data; keep out of git.
+item-master-*.xlsx
+
+# Excel lock files (created while a workbook is open)
+~$*
+
+# Local Claude Code skills folder
+Skills/
