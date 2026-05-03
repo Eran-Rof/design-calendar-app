@@ -2758,7 +2758,17 @@ function cmp(a: IpPlanningGridRow, b: IpPlanningGridRow, k: SortKey, d: "asc" | 
   switch (k) {
     case "category":    return cmpStr(a.group_name, b.group_name, sign);
     case "subCat":      return cmpStr(a.sub_category_name, b.sub_category_name, sign);
-    case "style":       return cmpStr((a.sku_style ?? a.sku_code) + ":" + (a.sku_color ?? ""), (b.sku_style ?? b.sku_code) + ":" + (b.sku_color ?? ""), sign);
+    case "style": {
+      // Tuple compare so a colon in a style code (rare but possible)
+      // can't mix the two segments, and so localeCompare's
+      // "sensitivity: base" doesn't fall over the synthetic ":"
+      // separator in a way that misorders nullable colors.
+      const styleA = a.sku_style ?? a.sku_code;
+      const styleB = b.sku_style ?? b.sku_code;
+      const styleCmp = cmpStr(styleA, styleB, sign);
+      if (styleCmp !== 0) return styleCmp;
+      return cmpStr(a.sku_color, b.sku_color, sign);
+    }
     case "color":       return cmpStr(a.sku_color, b.sku_color, sign);
     case "description": return cmpStr(a.sku_description, b.sku_description, sign);
     case "customer":    return cmpStr(a.customer_name, b.customer_name, sign);
