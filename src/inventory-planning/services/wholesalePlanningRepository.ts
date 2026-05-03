@@ -104,10 +104,20 @@ async function withRetryOn57014<T>(label: string, fn: () => Promise<T>): Promise
     } catch (e) {
       lastErr = e;
       const msg = e instanceof Error ? e.message : String(e);
-      const isTimeout = msg.includes("57014") || msg.toLowerCase().includes("statement timeout") || msg.toLowerCase().includes("canceling statement");
+      const lower = msg.toLowerCase();
+      // Supabase / PostgREST sometimes wraps a statement timeout as
+      // a bare 500 without the 57014 / "canceling statement" string
+      // — most often on long-running list reads. Treat any 5xx
+      // response as a retryable transient too, since the alternative
+      // is failing the whole grid build.
+      const isTimeout = msg.includes("57014")
+        || lower.includes("statement timeout")
+        || lower.includes("canceling statement")
+        || / 5\d\d /.test(` ${msg} `)
+        || lower.includes("internal server error");
       if (!isTimeout || attempt === delays.length) throw e;
       // eslint-disable-next-line no-console
-      console.warn(`[planning-repo] ${label} hit 57014 (attempt ${attempt + 1} of ${delays.length + 1}); retrying in ${delays[attempt]}ms`);
+      console.warn(`[planning-repo] ${label} hit transient (attempt ${attempt + 1} of ${delays.length + 1}); retrying in ${delays[attempt]}ms — ${msg.slice(0, 120)}`);
       await new Promise((res) => setTimeout(res, delays[attempt]));
     }
   }
@@ -242,7 +252,16 @@ export const wholesaleRepo = {
   // costs for in-stock SKUs — used as a fallback when ip_item_avg_cost
   // has no row.
   async listAtsAvgCostBySku(): Promise<Map<string, number>> {
-    const rows = await sbGet<{ value: string }>("app_data?key=eq.ats_excel_data&select=value");
+    let rows: Array<{ value: string }>;
+    try {
+      rows = await withRetryOn57014("listAtsAvgCostBySku",
+        () => sbGet<{ value: string }>("app_data?key=eq.ats_excel_data&select=value"));
+    } catch {
+      // Cost lookup is auxiliary — failing to load it shouldn't
+      // block the whole grid build. Return an empty map so the
+      // caller can keep going.
+      return new Map();
+    }
     const raw = rows[0]?.value;
     if (!raw) return new Map();
     let parsed: unknown;
@@ -268,15 +287,18 @@ export const wholesaleRepo = {
     return sbGetAll<IpInventorySnapshot>("ip_inventory_snapshot?select=*&order=snapshot_date.desc");
   },
   async listOpenPos(): Promise<IpOpenPoRow[]> {
-    return sbGetAll<IpOpenPoRow>("ip_open_purchase_orders?select=*&order=expected_date.asc");
+    return withRetryOn57014("listOpenPos",
+      () => sbGetAll<IpOpenPoRow>("ip_open_purchase_orders?select=*&order=expected_date.asc"));
   },
   async listOpenSos(): Promise<IpOpenSoRow[]> {
-    return sbGetAll<IpOpenSoRow>("ip_open_sales_orders?select=*&order=ship_date.asc");
+    return withRetryOn57014("listOpenSos",
+      () => sbGetAll<IpOpenSoRow>("ip_open_sales_orders?select=*&order=ship_date.asc"));
   },
   async listReceipts(sinceIso: string): Promise<IpReceiptRow[]> {
-    return sbGetAll<IpReceiptRow>(
-      `ip_receipts_history?select=*&received_date=gte.${sinceIso}&order=received_date.asc`,
-    );
+    return withRetryOn57014("listReceipts",
+      () => sbGetAll<IpReceiptRow>(
+        `ip_receipts_history?select=*&received_date=gte.${sinceIso}&order=received_date.asc`,
+      ));
   },
 
   // ── Planning runs ────────────────────────────────────────────────────────

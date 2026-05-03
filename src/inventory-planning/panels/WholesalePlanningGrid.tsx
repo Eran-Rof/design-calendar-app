@@ -1007,12 +1007,6 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       if (child?.is_tbd && child.is_user_added) userAddedInBucket.push(child);
     }
     if (userAddedInBucket.length > 0) {
-      // Two-tier recency: in-session bumps from rowEditOrderRef
-      // win first (covers same-session adds + edits including new
-      // styles), then DB updated_at (durable across logout/login),
-      // then lastAddedTbdMarker (legacy add-only signal). This is
-      // why a NEW-style row gets picked even after a fresh login —
-      // the row's tbd_updated_at is later than any sibling's.
       const seqOf = (r: IpPlanningGridRow) => rowEditOrderRef.current.get(r.forecast_id) ?? 0;
       const updatedAt = (r: IpPlanningGridRow) => r.tbd_updated_at ?? "";
       const sorted = userAddedInBucket.slice().sort((a, b) => {
@@ -1032,6 +1026,32 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         if (recent) tbdRow = recent;
       }
       if (!tbdRow) tbdRow = sorted[0];
+      // Always log the routing decision in DEV so we can confirm
+      // which row won — useful when "new style isn't getting the
+      // increase" turns out to be a different row claiming priority.
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.log(`[ip-debug agg-${field} routing]`, {
+          field,
+          newTotal,
+          bucket_size: ids.length,
+          userAddedInBucket: sorted.map((r) => ({
+            forecast_id: r.forecast_id,
+            sku_style: r.sku_style,
+            sku_color: r.sku_color,
+            customer_name: r.customer_name,
+            seq: seqOf(r),
+            tbd_updated_at: r.tbd_updated_at,
+            qty: r[field],
+          })),
+          chosen: tbdRow ? {
+            forecast_id: tbdRow.forecast_id,
+            sku_style: tbdRow.sku_style,
+            sku_color: tbdRow.sku_color,
+            customer_name: tbdRow.customer_name,
+          } : null,
+        });
+      }
     } else {
       const styleCode = styleSet.size === 1 ? Array.from(styleSet)[0] : "TBD";
       // Search the FULL row set (not just mutedRows) — the catch-all
