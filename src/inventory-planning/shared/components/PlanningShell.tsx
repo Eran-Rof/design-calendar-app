@@ -12,6 +12,7 @@ import NotificationsPage from "../../../components/notifications/NotificationsPa
 import NotificationsShell from "../../../components/notifications/NotificationsShell";
 import { useAppUnreadCount } from "../../../components/notifications/useAppUnreadCount";
 import { supabaseClient } from "../../../utils/supabase";
+import { PAL } from "../../components/styles";
 
 function readPlmUserId(): string | null {
   try {
@@ -37,19 +38,20 @@ export default function PlanningShell({ title, children }: Props) {
   });
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0F172A" }}>
+    <div style={{ minHeight: "100vh", background: PAL.bg }}>
       <header style={{
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
         padding: "10px 18px",
-        background: "#111827",
-        borderBottom: "1px solid #1F2937",
+        background: PAL.panel,
+        borderBottom: `1px solid ${PAL.border}`,
         gap: 12,
+        boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, color: "#E5E7EB" }}>
-          <a href="/" style={{ color: "rgba(255,255,255,0.7)", textDecoration: "none", fontSize: 13 }}>← PLM</a>
-          <span style={{ fontWeight: 700, fontSize: 14, color: "#F9FAFB" }}>{title}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, color: PAL.text }}>
+          <a href="/" style={{ color: PAL.textMuted, textDecoration: "none", fontSize: 13 }}>← PLM</a>
+          <span style={{ fontWeight: 700, fontSize: 14, color: PAL.text }}>{title}</span>
         </div>
         <button
           onClick={() => setShowNotifs((v) => !v)}
@@ -60,9 +62,9 @@ export default function PlanningShell({ title, children }: Props) {
             gap: 6,
             padding: "6px 12px",
             borderRadius: 6,
-            border: "1px solid rgba(255,255,255,0.18)",
-            background: showNotifs ? "#3B82F620" : "transparent",
-            color: showNotifs ? "#60A5FA" : "rgba(255,255,255,0.85)",
+            border: `1px solid ${PAL.border}`,
+            background: showNotifs ? `${PAL.accent}15` : PAL.panel,
+            color: showNotifs ? PAL.accent : PAL.textDim,
             cursor: "pointer",
             fontSize: 13,
             fontWeight: showNotifs ? 600 : 500,
@@ -73,7 +75,7 @@ export default function PlanningShell({ title, children }: Props) {
           {unread > 0 && (
             <span style={{
               minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
-              background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 700,
+              background: PAL.red, color: "#fff", fontSize: 10, fontWeight: 700,
               display: "inline-flex", alignItems: "center", justifyContent: "center",
             }}>{unread > 9 ? "9+" : unread}</span>
           )}

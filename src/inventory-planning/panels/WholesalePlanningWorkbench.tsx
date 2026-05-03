@@ -1149,17 +1149,17 @@ function OperationStatusBar({ label, message, canCancel, onCancel }: {
 }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ background: "#1E293B", borderRadius: 14, padding: "28px 32px", width: 380, maxWidth: "92vw", border: "1px solid #334155", boxSizing: "border-box" }}>
-        <div style={{ fontWeight: 700, fontSize: 16, color: "#F1F5F9", marginBottom: 8 }}>{label}</div>
-        <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 20, minHeight: 18, wordBreak: "break-word" as const }}>
+      <div style={{ background: PAL.panel, borderRadius: 14, padding: "28px 32px", width: 380, maxWidth: "92vw", border: `1px solid ${PAL.border}`, boxSizing: "border-box", boxShadow: "0 8px 24px rgba(0,0,0,0.18)" }}>
+        <div style={{ fontWeight: 700, fontSize: 16, color: PAL.text, marginBottom: 8 }}>{label}</div>
+        <div style={{ fontSize: 13, color: PAL.textMuted, marginBottom: 20, minHeight: 18, wordBreak: "break-word" as const }}>
           {message ?? "Working…"}
         </div>
-        <div style={{ background: "#0F172A", borderRadius: 8, height: 10, overflow: "hidden", marginBottom: 20, position: "relative" }}>
-          <div style={{ position: "absolute", top: 0, bottom: 0, borderRadius: 8, background: "linear-gradient(90deg,#10B981,#3B82F6)", width: "35%", animation: "ipOpPulse 1.4s ease-in-out infinite" }} />
+        <div style={{ background: PAL.panelAlt, borderRadius: 8, height: 10, overflow: "hidden", marginBottom: 20, position: "relative", border: `1px solid ${PAL.borderFaint}` }}>
+          <div style={{ position: "absolute", top: 0, bottom: 0, borderRadius: 8, background: `linear-gradient(90deg,${PAL.green},${PAL.accent})`, width: "35%", animation: "ipOpPulse 1.4s ease-in-out infinite" }} />
         </div>
         <style>{`@keyframes ipOpPulse { 0% { left: -35%; } 100% { left: 100%; } }`}</style>
         <button
-          style={{ background: "none", border: `1px solid ${canCancel ? "#EF4444" : "#475569"}`, color: canCancel ? "#EF4444" : "#94A3B8", borderRadius: 6, padding: "7px 18px", fontSize: 13, cursor: "pointer", width: "100%" }}
+          style={{ background: "none", border: `1px solid ${canCancel ? PAL.red : PAL.border}`, color: canCancel ? PAL.red : PAL.textMuted, borderRadius: 6, padding: "7px 18px", fontSize: 13, cursor: "pointer", width: "100%" }}
           onClick={onCancel}
           title={canCancel ? "Stop this and put things back the way they were" : "Hide this — work keeps going"}
         >
@@ -1179,14 +1179,14 @@ function BootstrapStatusBar({ phase, onCancel }: { phase: "masters" | "run-data"
   const pct = phase === "masters" ? 25 : phase === "run-data" ? 75 : 100;
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ background: "#1E293B", borderRadius: 14, padding: "28px 32px", width: 380, maxWidth: "92vw", border: "1px solid #334155", boxSizing: "border-box" }}>
-        <div style={{ fontWeight: 700, fontSize: 16, color: "#F1F5F9", marginBottom: 8 }}>Loading…</div>
-        <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 20 }}>{PHASE_LABELS[phase]}</div>
-        <div style={{ background: "#0F172A", borderRadius: 8, height: 10, overflow: "hidden", marginBottom: 20 }}>
-          <div style={{ height: "100%", borderRadius: 8, background: "linear-gradient(90deg,#10B981,#3B82F6)", width: `${pct}%`, transition: "width 0.4s ease" }} />
+      <div style={{ background: PAL.panel, borderRadius: 14, padding: "28px 32px", width: 380, maxWidth: "92vw", border: `1px solid ${PAL.border}`, boxSizing: "border-box", boxShadow: "0 8px 24px rgba(0,0,0,0.18)" }}>
+        <div style={{ fontWeight: 700, fontSize: 16, color: PAL.text, marginBottom: 8 }}>Loading…</div>
+        <div style={{ fontSize: 13, color: PAL.textMuted, marginBottom: 20 }}>{PHASE_LABELS[phase]}</div>
+        <div style={{ background: PAL.panelAlt, borderRadius: 8, height: 10, overflow: "hidden", marginBottom: 20, border: `1px solid ${PAL.borderFaint}` }}>
+          <div style={{ height: "100%", borderRadius: 8, background: `linear-gradient(90deg,${PAL.green},${PAL.accent})`, width: `${pct}%`, transition: "width 0.4s ease" }} />
         </div>
         <button
-          style={{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 6, padding: "7px 18px", fontSize: 13, cursor: "pointer", width: "100%" }}
+          style={{ background: "none", border: `1px solid ${PAL.red}`, color: PAL.red, borderRadius: 6, padding: "7px 18px", fontSize: 13, cursor: "pointer", width: "100%" }}
           onClick={onCancel}
         >
           Stop
