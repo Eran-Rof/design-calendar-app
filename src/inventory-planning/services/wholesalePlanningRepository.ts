@@ -517,6 +517,15 @@ export const wholesaleRepo = {
     return { id: created[0].id };
   },
 
+  // Idempotent upsert for AUTO-routed TBD rows. Used by saveTbdField
+  // when a synthetic row needs persisting for the first time
+  // (aggregate edit with no tbd_id yet). Cannot use PostgREST
+  // ON CONFLICT because the unique index is now PARTIAL (WHERE
+  // is_user_added=false) — PostgREST rejects partial indexes as
+  // ON CONFLICT targets with SQLSTATE 42P10. Instead: SELECT first
+  // to find the existing AUTO row at this grain, then PATCH or
+  // INSERT. Race-condition catch on 23505 falls back to a re-SELECT
+  // + PATCH.
   async upsertTbdRow(
     planningRunId: string,
     args: {
@@ -542,11 +551,49 @@ export const wholesaleRepo = {
       notes?: string | null;
     },
   ): Promise<void> {
-    await withRetryOn57014("upsertTbdRow", () => sbPost(
-      "ip_wholesale_forecast_tbd?on_conflict=planning_run_id,style_code,color,customer_id,period_start",
-      [{ planning_run_id: planningRunId, ...args }],
-      "resolution=merge-duplicates,return=minimal",
-    ));
+    const isUserAdded = args.is_user_added ?? false;
+    // User-added rows: plain INSERT. They never merge with anything.
+    if (isUserAdded) {
+      await withRetryOn57014("upsertTbdRow.insert", () => sbPost(
+        "ip_wholesale_forecast_tbd",
+        [{ planning_run_id: planningRunId, ...args }],
+        "return=minimal",
+      ));
+      return;
+    }
+    // Auto path: SELECT first, then PATCH or INSERT.
+    await withRetryOn57014("upsertTbdRow.findOrInsert", async () => {
+      const findUrl = `ip_wholesale_forecast_tbd?planning_run_id=eq.${planningRunId}`
+        + `&style_code=eq.${encodeURIComponent(args.style_code)}`
+        + `&color=eq.${encodeURIComponent(args.color)}`
+        + `&customer_id=eq.${args.customer_id}`
+        + `&period_start=eq.${args.period_start}`
+        + `&is_user_added=eq.false`
+        + `&select=id&limit=1`;
+      const existing = await sbGet<{ id: string }>(findUrl);
+      if (existing[0]?.id) {
+        await sbPatch(`ip_wholesale_forecast_tbd?id=eq.${existing[0].id}`, args);
+        return;
+      }
+      // Insert. If a concurrent writer beat us to it (23505), fall
+      // back to PATCH after a re-fetch.
+      try {
+        await sbPost(
+          "ip_wholesale_forecast_tbd",
+          [{ planning_run_id: planningRunId, ...args }],
+          "return=minimal",
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!msg.includes("23505")) throw e;
+        const refetch = await sbGet<{ id: string }>(findUrl);
+        if (refetch[0]?.id) {
+          await sbPatch(`ip_wholesale_forecast_tbd?id=eq.${refetch[0].id}`, args);
+        } else {
+          throw e;
+        }
+      }
+    });
   },
   async patchTbdRow(id: string, patch: Record<string, unknown>): Promise<void> {
     await withRetryOn57014("patchTbdRow", () => sbPatch(`ip_wholesale_forecast_tbd?id=eq.${id}`, patch));
