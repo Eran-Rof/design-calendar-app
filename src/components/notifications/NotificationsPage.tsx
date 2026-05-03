@@ -24,6 +24,10 @@ interface Props {
   /** When set, only notifications whose event_type is associated with
    *  this app are shown. See notificationApps.ts. */
   appFilter?: AppKey;
+  /** Optional close handler — when provided, an X button renders in the
+   *  header. Use when embedding inside a host app that toggles between
+   *  this view and its main UI. */
+  onClose?: () => void;
 }
 
 const C = {
@@ -98,7 +102,7 @@ function timeAgo(iso: string): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-export default function NotificationsPage({ kind, supabase, userId, title = "Notifications", backLink, embed = false, appFilter }: Props) {
+export default function NotificationsPage({ kind, supabase, userId, title = "Notifications", backLink, embed = false, appFilter, onClose }: Props) {
   const [items, setItems] = useState<NotificationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"unread" | "all">("unread");
@@ -235,6 +239,14 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
               <button onClick={markAllRead} style={{ ...smallBtn, color: C.primaryLt, borderColor: C.primary }}>
                 Mark all read
               </button>
+            )}
+            {onClose && (
+              <button
+                onClick={onClose}
+                title="Close notifications"
+                aria-label="Close notifications"
+                style={{ ...smallBtn, color: C.textMuted, fontSize: 16, lineHeight: 1, padding: "4px 10px" }}
+              >×</button>
             )}
           </div>
         </div>

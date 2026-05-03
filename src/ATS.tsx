@@ -908,6 +908,7 @@ function ATSReport() {
       userId={atsUserId}
       title="Notifications"
       appFilter="ats"
+      onClose={() => setShowingNotifications(false)}
     />
   ) : null;
 
