@@ -186,23 +186,16 @@ export function MultiSelectDropdown({
           }}>
             <input
               ref={inputRef}
+              className="ip-search-input"
               type="text"
               placeholder={placeholder}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onFocus={(e) => {
-                if (e.currentTarget.value) {
-                  // Defer past the caret placement so the selection
-                  // sticks. Calling select() synchronously inside
-                  // onFocus is clobbered by the browser's
-                  // pre-mouseup caret repositioning in Chrome /
-                  // Edge (Win 10), which is why the prior bare
-                  // .select() looked dead.
-                  const el = e.currentTarget;
-                  setTimeout(() => el.select(), 0);
-                }
-              }}
-              onClick={(e) => {
+                // Select-all on initial focus only — once focused,
+                // clicks inside the input position the cursor
+                // normally (so the planner can click between
+                // characters without losing their place).
                 if (e.currentTarget.value) {
                   const el = e.currentTarget;
                   setTimeout(() => el.select(), 0);

@@ -1497,6 +1497,19 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
 
   return (
     <div>
+      <style>{`
+        /* High-contrast selection highlight on the planning search
+           inputs so the planner immediately sees that the existing
+           text is selected and a single keystroke will replace it. */
+        .ip-search-input::selection {
+          background: ${PAL.yellow};
+          color: #000;
+        }
+        .ip-search-input::-moz-selection {
+          background: ${PAL.yellow};
+          color: #000;
+        }
+      `}</style>
       {pendingConfirm && (
         <div
           onClick={pendingConfirm.onCancel}
@@ -1555,17 +1568,17 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       <div style={S.toolbar}>
         <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
           <input
+            className="ip-search-input"
             style={{ ...S.input, width: 220, padding: "6px 32px 6px 12px", fontSize: 12 }}
             placeholder="Search customer / SKU / category"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onFocus={(e) => {
-              if (e.currentTarget.value) {
-                const el = e.currentTarget;
-                setTimeout(() => el.select(), 0);
-              }
-            }}
-            onClick={(e) => {
+              // Select-all only on initial focus (when the input
+              // wasn't already active). Subsequent clicks inside an
+              // already-focused input position the cursor normally
+              // — the planner can click between characters without
+              // losing their place.
               if (e.currentTarget.value) {
                 const el = e.currentTarget;
                 setTimeout(() => el.select(), 0);

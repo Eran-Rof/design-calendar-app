@@ -672,6 +672,32 @@ export default function WholesalePlanningWorkbench() {
   // category, sub-cat, customer, and period in the form. The new row
   // is upserted directly to ip_wholesale_forecast_tbd; on success we
   // rebuild the grid so the row appears.
+  // Duplicate guard for TBD rows. Same (style, color, customer,
+  // period) on the same planning run is not allowed regardless of
+  // is_user_added — the planner asked us to block instead of letting
+  // two lines coexist for the same grain. `excludeForecastId` skips
+  // the row being edited (so renaming a row's color to its current
+  // value doesn't false-fire). Returns a description of the
+  // conflict, or null if clear.
+  function findTbdDuplicate(
+    style: string,
+    color: string,
+    customerId: string,
+    periodCode: string,
+    excludeForecastId?: string,
+  ): IpPlanningGridRow | null {
+    for (const r of rows) {
+      if (!r.is_tbd) continue;
+      if (excludeForecastId && r.forecast_id === excludeForecastId) continue;
+      if ((r.sku_style ?? "") !== style) continue;
+      if ((r.sku_color ?? "") !== color) continue;
+      if (r.customer_id !== customerId) continue;
+      if (r.period_code !== periodCode) continue;
+      return r;
+    }
+    return null;
+  }
+
   async function addTbdRow(args: AddTbdRowArgs) {
     if (!selectedRun) return;
     // Resolve period_code → period_start / period_end from the run's
@@ -681,6 +707,14 @@ export default function WholesalePlanningWorkbench() {
     const sample = rows.find((r) => r.period_code === args.period_code);
     if (!sample) {
       setToast({ text: `Couldn't find period ${args.period_code} in the current run`, kind: "error" });
+      return;
+    }
+    const dup = findTbdDuplicate(args.style_code, args.color, args.customer_id, args.period_code);
+    if (dup) {
+      setToast({
+        text: `Already have a ${args.style_code} / ${args.color} row for ${dup.customer_name} in ${args.period_code}. Edit that row instead.`,
+        kind: "error",
+      });
       return;
     }
     try {
@@ -921,6 +955,14 @@ export default function WholesalePlanningWorkbench() {
   // planner to drill into the target row directly.
   async function saveTbdStyle(row: IpPlanningGridRow, styleCode: string) {
     if (!selectedRun) return;
+    const dup = findTbdDuplicate(styleCode, row.sku_color ?? "", row.customer_id, row.period_code, row.forecast_id);
+    if (dup) {
+      setToast({
+        text: `Already have a ${styleCode} / ${row.sku_color ?? "TBD"} row for ${dup.customer_name} in ${row.period_code}. Pick a different style or merge into the existing row.`,
+        kind: "error",
+      });
+      return;
+    }
     // Optimistic update so the picker dismiss feels instant — even
     // before the network patch lands. The ~10s hang the user reported
     // was the buildGridRows rebuild being awaited inline; switched
@@ -1006,6 +1048,14 @@ export default function WholesalePlanningWorkbench() {
   // then the line continues to render on the grid as is_tbd.
   async function saveTbdCustomer(row: IpPlanningGridRow, customerId: string, customerName: string) {
     if (!selectedRun) return;
+    const dup = findTbdDuplicate(row.sku_style ?? "", row.sku_color ?? "", customerId, row.period_code, row.forecast_id);
+    if (dup) {
+      setToast({
+        text: `Already have a ${row.sku_style ?? "TBD"} / ${row.sku_color ?? "TBD"} row for ${customerName} in ${row.period_code}. Pick a different customer.`,
+        kind: "error",
+      });
+      return;
+    }
     const fid = row.forecast_id;
     setRows((prev) => prev.map((r) => r.forecast_id === fid ? { ...r, customer_id: customerId, customer_name: customerName } : r));
     setLastAddedTbdMarker((prev) => {
@@ -1043,6 +1093,14 @@ export default function WholesalePlanningWorkbench() {
   // the local row immediately; rebuild reconciles on success.
   async function saveTbdColor(row: IpPlanningGridRow, color: string, isNewColor: boolean) {
     if (!selectedRun) return;
+    const dup = findTbdDuplicate(row.sku_style ?? "", color, row.customer_id, row.period_code, row.forecast_id);
+    if (dup) {
+      setToast({
+        text: `Already have a ${row.sku_style ?? "TBD"} / ${color} row for ${dup.customer_name} in ${row.period_code}. Pick a different color.`,
+        kind: "error",
+      });
+      return;
+    }
     const fid = row.forecast_id;
     setRows((prev) => prev.map((r) => r.forecast_id === fid ? { ...r, sku_color: color, is_new_color: isNewColor } : r));
     setLastAddedTbdMarker((prev) => {
