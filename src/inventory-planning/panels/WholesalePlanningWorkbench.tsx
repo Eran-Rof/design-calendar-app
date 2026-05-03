@@ -1199,8 +1199,15 @@ export default function WholesalePlanningWorkbench() {
       );
       if (!ok) return;
     }
+    // Optimistic sibling update so the customer cell repopulates
+    // on every period immediately — no waiting for the rebuild.
+    const custSiblingFids = new Set(custSiblings.map((s) => s.forecast_id));
     const fid = row.forecast_id;
-    setRows((prev) => prev.map((r) => r.forecast_id === fid ? { ...r, customer_id: customerId, customer_name: customerName } : r));
+    setRows((prev) => prev.map((r) => {
+      if (r.forecast_id === fid) return { ...r, customer_id: customerId, customer_name: customerName };
+      if (custSiblingFids.has(r.forecast_id)) return { ...r, customer_id: customerId, customer_name: customerName };
+      return r;
+    }));
     setLastAddedTbdMarker((prev) => {
       if (!prev) return prev;
       if (prev.style_code !== (row.sku_style ?? "")) return prev;
@@ -1211,12 +1218,11 @@ export default function WholesalePlanningWorkbench() {
     });
     try {
       await saveTbdField(row, { customer_id: customerId });
-      const siblings = siblingTbdRowsForNewStyle(row);
-      if (siblings.length > 0) {
-        await Promise.all(siblings.map((s) => wholesaleRepo.patchTbdRow(s.tbd_id!, { customer_id: customerId })
+      if (custSiblings.length > 0) {
+        await Promise.all(custSiblings.map((s) => wholesaleRepo.patchTbdRow(s.tbd_id!, { customer_id: customerId })
           .catch((e) => console.warn(`[planning] customer propagate ${s.period_code} failed`, e))));
       }
-      const cloneSuffix = siblings.length > 0 ? ` · cloned to ${siblings.length} sibling period${siblings.length === 1 ? "" : "s"}` : "";
+      const cloneSuffix = custSiblings.length > 0 ? ` · cloned to ${custSiblings.length} sibling period${custSiblings.length === 1 ? "" : "s"}` : "";
       setToast({ text: `Reassigned to ${customerName}${cloneSuffix}`, kind: "success" });
       const seq = ++rebuildSeq.current;
       void (async () => {
@@ -1265,29 +1271,37 @@ export default function WholesalePlanningWorkbench() {
     if (!selectedRun) return;
     const fid = row.forecast_id;
     const next = description.trim() === "" ? null : description.trim();
+    const siblings = siblingTbdRowsForNewStyle(row);
     // Confirm before propagating across periods — only when the
     // row already has a description (planner is REPLACING, not
     // setting for the first time) AND siblings exist on the same
     // master-unknown style. The first-time set is the common
     // single-row flow and shouldn't pop a modal.
-    const siblingsForGate = siblingTbdRowsForNewStyle(row);
     const hadValue = !!row.sku_description?.trim();
-    if (hadValue && siblingsForGate.length > 0) {
+    if (hadValue && siblings.length > 0) {
       const ok = await askConfirm(
-        `Update description across ${siblingsForGate.length + 1} periods?`,
+        `Update description across ${siblings.length + 1} periods?`,
         `Style ${row.sku_style ?? ""} description will change to "${next ?? "(empty)"}" on this row AND on every other period in the build.`,
         "Update all",
       );
       if (!ok) return;
     }
-    setRows((prev) => prev.map((r) => r.forecast_id === fid ? { ...r, sku_description: next } : r));
+    // Optimistic update — apply to the edited row AND every sibling
+    // up front so the cells repopulate the moment the planner
+    // confirms. Without this, the UI lagged ~15-20s waiting for
+    // the buildGridRows rebuild to finish on every save.
+    const siblingFids = new Set(siblings.map((s) => s.forecast_id));
+    setRows((prev) => prev.map((r) => {
+      if (r.forecast_id === fid) return { ...r, sku_description: next, is_new_description: !!next };
+      if (siblingFids.has(r.forecast_id)) return { ...r, sku_description: next, is_new_description: !!next };
+      return r;
+    }));
     try {
       await saveTbdField(row, { notes: next });
       // Propagate to every sibling-period row when the row's style
       // is master-unknown — the planner expects the description
       // they typed for "RYB9999" to apply across all the periods
       // their new style spans.
-      const siblings = siblingTbdRowsForNewStyle(row);
       if (siblings.length > 0) {
         await Promise.all(siblings.map((s) => wholesaleRepo.patchTbdRow(s.tbd_id!, { notes: next })
           .catch((e) => console.warn(`[planning] description propagate ${s.period_code} failed`, e))));
@@ -1367,8 +1381,16 @@ export default function WholesalePlanningWorkbench() {
       );
       if (!ok) return;
     }
+    // Optimistic sibling update so cells repopulate immediately
+    // — the buildGridRows rebuild runs in the background but the
+    // planner shouldn't have to wait for it to see the change.
+    const colorSiblingFids = new Set(colorSiblings.map((s) => s.forecast_id));
     const fid = row.forecast_id;
-    setRows((prev) => prev.map((r) => r.forecast_id === fid ? { ...r, sku_color: color, is_new_color: isNewColor } : r));
+    setRows((prev) => prev.map((r) => {
+      if (r.forecast_id === fid) return { ...r, sku_color: color, is_new_color: isNewColor };
+      if (colorSiblingFids.has(r.forecast_id)) return { ...r, sku_color: color, is_new_color: isNewColor };
+      return r;
+    }));
     setLastAddedTbdMarker((prev) => {
       if (!prev) return prev;
       if (prev.style_code !== (row.sku_style ?? "")) return prev;
@@ -1379,12 +1401,11 @@ export default function WholesalePlanningWorkbench() {
     });
     try {
       await saveTbdField(row, { color, is_new_color: isNewColor });
-      const siblings = siblingTbdRowsForNewStyle(row);
-      if (siblings.length > 0) {
-        await Promise.all(siblings.map((s) => wholesaleRepo.patchTbdRow(s.tbd_id!, { color, is_new_color: isNewColor })
+      if (colorSiblings.length > 0) {
+        await Promise.all(colorSiblings.map((s) => wholesaleRepo.patchTbdRow(s.tbd_id!, { color, is_new_color: isNewColor })
           .catch((e) => console.warn(`[planning] color propagate ${s.period_code} failed`, e))));
       }
-      const cloneSuffix = siblings.length > 0 ? ` · cloned to ${siblings.length} sibling period${siblings.length === 1 ? "" : "s"}` : "";
+      const cloneSuffix = colorSiblings.length > 0 ? ` · cloned to ${colorSiblings.length} sibling period${colorSiblings.length === 1 ? "" : "s"}` : "";
       setToast({
         text: isNewColor
           ? `Set color to "${color}" (NEW — not in master yet)${cloneSuffix}`
