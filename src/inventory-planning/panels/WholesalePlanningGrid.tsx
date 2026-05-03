@@ -25,6 +25,20 @@ export interface WholesalePlanningGridProps {
   // customer (still flagged is_tbd until the next planning build
   // surfaces a real forecast row).
   onUpdateTbdCustomer?: (row: IpPlanningGridRow, customerId: string, customerName: string) => Promise<void>;
+  // Add a brand-new TBD row (Phase 4 of the TBD feature). The grid
+  // collects style/color/customer/category/sub_cat/period from the
+  // inline form; the workbench upserts a fresh ip_wholesale_forecast_tbd
+  // record and rebuilds. Style + color default to "TBD"; period defaults
+  // to the first period of the planning run.
+  onAddTbdRow?: (args: {
+    style_code: string;
+    color: string;
+    is_new_color: boolean;
+    customer_id: string;
+    group_name: string | null;
+    sub_category_name: string | null;
+    period_code: string;
+  }) => Promise<void>;
   // Save bucket-level buy for an aggregate row. The grid computes
   // the bucket_key from the active collapse mode + filters + the
   // row's dimensions and passes the full descriptor — the workbench
@@ -187,7 +201,7 @@ function distributeAcrossChildren(
   return out;
 }
 
-export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdCustomer, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdCustomer, onAddTbdRow, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
   // Multi-select filters — empty array = no filter (all rows pass).
   // Each non-empty array narrows to rows whose value is in the set.
@@ -206,6 +220,23 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [filterPeriod, setFilterPeriod] = useState<string[]>([]);
   const [filterStyle, setFilterStyle] = useState<string[]>([]);
+  // Inline "+ Add row" form state. Closed by default; opens above
+  // the table to the planner's chosen cat/sub-cat/customer + first
+  // period of the run. Style + color default to "TBD". Persists
+  // through onAddTbdRow which the workbench wires to repo upsert.
+  const [addRowOpen, setAddRowOpen] = useState(false);
+  const [addRowDraft, setAddRowDraft] = useState<{
+    customer_id: string;
+    group_name: string | null;
+    sub_category_name: string | null;
+    period_code: string;
+  }>({
+    customer_id: "",
+    group_name: null,
+    sub_category_name: null,
+    period_code: "",
+  });
+  const [addRowSaving, setAddRowSaving] = useState(false);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(500);
   // Collapse / aggregation modes — independent toggles that change the
@@ -975,6 +1006,131 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           </span>
         )}
       </div>
+
+      {/* Add Row strip — sits above the table. Collapsed by default;
+          expands to a row of pickers (cat, sub-cat, customer, period)
+          that compose into a fresh (Supply Only) TBD line. Style +
+          color hardcoded to "TBD" per the planner's spec. */}
+      {onAddTbdRow && (
+        <div style={{ marginBottom: 8 }}>
+          {!addRowOpen ? (
+            <button
+              type="button"
+              onClick={() => {
+                setAddRowDraft({
+                  customer_id: "",
+                  group_name: null,
+                  sub_category_name: null,
+                  period_code: periods[0] ?? "",
+                });
+                setAddRowOpen(true);
+              }}
+              style={{
+                background: "transparent",
+                border: `1px dashed ${PAL.border}`,
+                color: PAL.textDim,
+                borderRadius: 8,
+                padding: "6px 14px",
+                fontSize: 12,
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+              title="Add a new TBD stock-buy row. Style + Color default to TBD; you can edit them after saving."
+            >
+              + Add row
+            </button>
+          ) : (
+            <div style={{
+              background: PAL.panel,
+              border: `1px solid ${PAL.accent}`,
+              borderRadius: 10,
+              padding: "10px 14px",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap" as const,
+              fontSize: 12,
+            }}>
+              <span style={{ fontWeight: 600, color: PAL.accent }}>+ New TBD row</span>
+              <span style={{ color: PAL.textMuted, fontSize: 11 }}>Style: TBD · Color: TBD</span>
+              <MultiSelectDropdown
+                compact
+                singleSelect
+                selected={addRowDraft.group_name ? [addRowDraft.group_name] : []}
+                onChange={(next) => setAddRowDraft((d) => ({ ...d, group_name: next[0] ?? null }))}
+                allLabel="Category"
+                placeholder="Search categories…"
+                options={groupNames.map((g) => ({ value: g, label: g }))}
+              />
+              <MultiSelectDropdown
+                compact
+                singleSelect
+                selected={addRowDraft.sub_category_name ? [addRowDraft.sub_category_name] : []}
+                onChange={(next) => setAddRowDraft((d) => ({ ...d, sub_category_name: next[0] ?? null }))}
+                allLabel="Sub Cat"
+                placeholder="Search sub cats…"
+                options={subCategoryNames.map((s) => ({ value: s, label: s }))}
+              />
+              <MultiSelectDropdown
+                compact
+                singleSelect
+                selected={addRowDraft.customer_id ? [addRowDraft.customer_id] : []}
+                onChange={(next) => setAddRowDraft((d) => ({ ...d, customer_id: next[0] ?? "" }))}
+                allLabel="Customer"
+                placeholder="Search customers…"
+                options={customers.map((c) => ({ value: c.id, label: c.name }))}
+              />
+              <MultiSelectDropdown
+                compact
+                singleSelect
+                selected={addRowDraft.period_code ? [addRowDraft.period_code] : []}
+                onChange={(next) => setAddRowDraft((d) => ({ ...d, period_code: next[0] ?? "" }))}
+                allLabel="Period"
+                placeholder="Search periods…"
+                options={periods.map((p) => ({ value: p, label: formatPeriodCode(p) }))}
+              />
+              <button
+                type="button"
+                disabled={addRowSaving || !addRowDraft.customer_id || !addRowDraft.period_code}
+                onClick={async () => {
+                  if (!onAddTbdRow) return;
+                  setAddRowSaving(true);
+                  try {
+                    await onAddTbdRow({
+                      style_code: "TBD",
+                      color: "TBD",
+                      is_new_color: false,
+                      customer_id: addRowDraft.customer_id,
+                      group_name: addRowDraft.group_name,
+                      sub_category_name: addRowDraft.sub_category_name,
+                      period_code: addRowDraft.period_code,
+                    });
+                    setAddRowOpen(false);
+                  } finally {
+                    setAddRowSaving(false);
+                  }
+                }}
+                style={{
+                  ...S.btnPrimary,
+                  padding: "5px 14px",
+                  fontSize: 12,
+                  opacity: addRowSaving || !addRowDraft.customer_id || !addRowDraft.period_code ? 0.5 : 1,
+                  cursor: addRowSaving || !addRowDraft.customer_id || !addRowDraft.period_code ? "not-allowed" : "pointer",
+                }}
+              >
+                {addRowSaving ? "Saving…" : "Save"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setAddRowOpen(false)}
+                style={{ ...S.btnSecondary, padding: "5px 12px", fontSize: 12 }}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={S.tableWrap}>
         <table style={S.table}>

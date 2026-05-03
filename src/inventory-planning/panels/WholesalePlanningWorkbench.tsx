@@ -594,6 +594,47 @@ export default function WholesalePlanningWorkbench() {
   // row all snap immediately. Downstream periods of the same SKU still
   // wait for the background grid rebuild to pick up rolling supply,
   // but the cell the planner is looking at updates without lag.
+  // Add a fresh (Supply Only) TBD stock-buy row from the inline +Add
+  // form. Style + color default to "TBD"; the planner picks
+  // category, sub-cat, customer, and period in the form. The new row
+  // is upserted directly to ip_wholesale_forecast_tbd; on success we
+  // rebuild the grid so the row appears.
+  async function addTbdRow(args: {
+    style_code: string;
+    color: string;
+    is_new_color: boolean;
+    customer_id: string;
+    group_name: string | null;
+    sub_category_name: string | null;
+    period_code: string;
+  }) {
+    if (!selectedRun) return;
+    // Resolve period_code → period_start / period_end from the run's
+    // periods list. We pull periods from the rows already loaded
+    // (every row carries period_start + period_end alongside
+    // period_code); pick the first match.
+    const sample = rows.find((r) => r.period_code === args.period_code);
+    if (!sample) {
+      setToast({ text: `Couldn't find period ${args.period_code} in the current run`, kind: "error" });
+      return;
+    }
+    try {
+      await wholesaleRepo.upsertTbdRow(selectedRun.id, {
+        ...args,
+        period_start: sample.period_start,
+        period_end: sample.period_end,
+      });
+      setToast({ text: `Added TBD row · ${args.period_code}`, kind: "success" });
+      const seq = ++rebuildSeq.current;
+      const refreshed = await buildGridRows(selectedRun);
+      if (seq !== rebuildSeq.current) return;
+      setRows(refreshed);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `Add row failed — ${msg}`, kind: "error" });
+    }
+  }
+
   // Reassign a TBD stock-buy row to a real customer (or back to the
   // (Supply Only) placeholder). Decision (a): the row stays as-is —
   // it just changes ownership. The next planning build may absorb
@@ -1098,6 +1139,7 @@ export default function WholesalePlanningWorkbench() {
               onUpdateSystemOverride={saveSystemOverride}
               onUpdateTbdColor={saveTbdColor}
               onUpdateTbdCustomer={saveTbdCustomer}
+              onAddTbdRow={addTbdRow}
               onFiltersChange={setBuildFilter}
               bucketBuys={bucketBuys}
               systemSuggestionsOn={systemSuggestionsOn}

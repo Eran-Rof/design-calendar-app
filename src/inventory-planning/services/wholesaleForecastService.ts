@@ -719,7 +719,11 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     return colorsByStyleMaster.get(style)?.has(color.trim().toLowerCase()) ?? false;
   };
 
-  // Build (style_code, period) tuple set from forecast rows.
+  // Build (style_code, period) tuple set. Sourced from BOTH the
+  // forecast rows (so every style with at least one demand pair gets
+  // a synthetic TBD line) and the persisted tbd rows (so a planner-
+  // added TBD line with a style the master doesn't know — e.g. the
+  // literal "TBD" placeholder from "+ Add row" — still renders).
   type StylePeriod = { style_code: string; period_code: string; period_start: string; period_end: string };
   const stylePeriods = new Map<string, StylePeriod>();
   for (const f of forecast) {
@@ -729,6 +733,12 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     const k = `${style}|${f.period_start}`;
     if (!stylePeriods.has(k)) {
       stylePeriods.set(k, { style_code: style, period_code: f.period_code, period_start: f.period_start, period_end: f.period_end });
+    }
+  }
+  for (const t of tbdRows) {
+    const k = `${t.style_code}|${t.period_start}`;
+    if (!stylePeriods.has(k)) {
+      stylePeriods.set(k, { style_code: t.style_code, period_code: t.period_code, period_start: t.period_start, period_end: t.period_end });
     }
   }
   // Index persisted TBD rows by the same (style_code, period_start)
