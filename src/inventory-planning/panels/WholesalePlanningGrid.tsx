@@ -1284,9 +1284,13 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 // narrowed to. Multi-selects collapse to the first
                 // value; period defaults to the toolbar's filter
                 // when one is selected, otherwise the first period
-                // of the run.
+                // of the run. Customer defaults to (Supply Only)
+                // when the planner hasn't filtered to a specific
+                // customer — most + Add rows are stock-buy slots
+                // under the synthetic placeholder customer.
+                const supplyOnly = customers.find((c) => c.name === "(Supply Only)");
                 setAddRowDraft({
-                  customer_id: filterCustomer[0] ?? "",
+                  customer_id: filterCustomer[0] ?? supplyOnly?.id ?? "",
                   group_name: filterCategory[0] ?? null,
                   sub_category_name: filterSubCat[0] ?? null,
                   period_code: filterPeriod[0] ?? periods[0] ?? "",
