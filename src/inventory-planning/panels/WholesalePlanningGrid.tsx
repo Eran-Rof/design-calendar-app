@@ -268,13 +268,24 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   const loadFilter = (key: string): string[] => {
     try {
       const raw = localStorage.getItem(`ws_planning_filter_${key}`);
+      // eslint-disable-next-line no-console
+      console.log(`[ip-debug loadFilter] ${key} raw=`, raw);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
       return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
-    } catch { return []; }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn(`[ip-debug loadFilter] ${key} parse failed`, e);
+      return [];
+    }
   };
   const loadString = (key: string): string => {
-    try { return localStorage.getItem(`ws_planning_filter_${key}`) ?? ""; }
+    try {
+      const raw = localStorage.getItem(`ws_planning_filter_${key}`);
+      // eslint-disable-next-line no-console
+      console.log(`[ip-debug loadString] ${key} raw=`, raw);
+      return raw ?? "";
+    }
     catch { return ""; }
   };
 
