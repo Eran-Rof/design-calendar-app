@@ -80,6 +80,49 @@ type SortKey =
 // references (CollapseModes) compile without churn.
 type CollapseModes = ExtractedCollapseModes;
 
+// Spread a typed total across N underlying forecast rows. Used when a
+// planner edits Buyer / Override on an aggregate row (size-merged or
+// any other collapse) — the typed value is the new TOTAL across the
+// bucket, and we fan it out to each underlying child.
+//
+// Strategy:
+//   1. If every child currently has the same value (e.g. all zero),
+//      split equally with the remainder distributed across the first
+//      few rows so the integer sum matches `newTotal` exactly.
+//   2. Otherwise, distribute proportionally to the children's current
+//      values. Round each child to the nearest integer; absorb the
+//      cumulative rounding error into the LAST child so the integer
+//      sum still hits `newTotal` exactly.
+//
+// Returns one entry per underlying id with the new qty. The caller
+// filters out no-op writes before dispatching network mutations.
+function distributeAcrossChildren(
+  underlyingIds: string[],
+  currentValues: number[],
+  newTotal: number,
+): Array<{ fid: string; qty: number }> {
+  const N = underlyingIds.length;
+  if (N === 0) return [];
+  if (N === 1) return [{ fid: underlyingIds[0], qty: newTotal }];
+  const currentTotal = currentValues.reduce((a, b) => a + b, 0);
+  if (currentTotal === 0) {
+    const base = Math.trunc(newTotal / N);
+    const remainder = newTotal - base * N;
+    return underlyingIds.map((fid, i) => ({ fid, qty: base + (i < Math.abs(remainder) ? Math.sign(remainder) : 0) }));
+  }
+  const out: Array<{ fid: string; qty: number }> = [];
+  let assigned = 0;
+  for (let i = 0; i < N; i++) {
+    const isLast = i === N - 1;
+    const qty = isLast
+      ? newTotal - assigned
+      : Math.round((newTotal * currentValues[i]) / currentTotal);
+    out.push({ fid: underlyingIds[i], qty });
+    assigned += qty;
+  }
+  return out;
+}
+
 export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
   // Multi-select filters — empty array = no filter (all rows pass).
@@ -835,33 +878,46 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                     />
                   )}
                 </td>
-                <td style={{ ...S.tdNum, padding: "0 4px", ...colHide("buyer") }}>
-                  {r.is_aggregate ? (
-                    <span style={{ fontFamily: "monospace", color: r.buyer_request_qty !== 0 ? PAL.accent : PAL.textMuted }}>
-                      {formatQty(r.buyer_request_qty)}
-                    </span>
-                  ) : (
-                    <IntCell
-                      value={r.buyer_request_qty}
-                      accent={PAL.accent}
-                      allowNegative={false}
-                      onSave={(qty) => onUpdateBuyerRequest(r.forecast_id, qty)}
-                    />
-                  )}
+                <td style={{ ...S.tdNum, padding: "0 4px", ...colHide("buyer") }} onClick={(e) => e.stopPropagation()}>
+                  <IntCell
+                    value={r.buyer_request_qty}
+                    accent={PAL.accent}
+                    allowNegative={false}
+                    onSave={async (qty) => {
+                      // Aggregate rows distribute the typed total
+                      // proportionally across their underlying
+                      // forecast_ids; non-aggregate rows save directly.
+                      if (!r.is_aggregate || !r.aggregate_underlying_ids) {
+                        await onUpdateBuyerRequest(r.forecast_id, qty);
+                        return;
+                      }
+                      const ids = r.aggregate_underlying_ids;
+                      const cur = ids.map((fid) => mutedById.get(fid)?.buyer_request_qty ?? 0);
+                      const dist = distributeAcrossChildren(ids, cur, qty);
+                      await Promise.all(
+                        dist.filter((d, i) => d.qty !== cur[i]).map((d) => onUpdateBuyerRequest(d.fid, d.qty)),
+                      );
+                    }}
+                  />
                 </td>
-                <td style={{ ...S.tdNum, padding: "0 4px", ...colHide("override") }}>
-                  {r.is_aggregate ? (
-                    <span style={{ fontFamily: "monospace", color: r.override_qty !== 0 ? PAL.yellow : PAL.textMuted }}>
-                      {formatQty(r.override_qty)}
-                    </span>
-                  ) : (
-                    <IntCell
-                      value={r.override_qty}
-                      accent={PAL.yellow}
-                      allowNegative={true}
-                      onSave={(qty) => onUpdateOverride(r.forecast_id, qty)}
-                    />
-                  )}
+                <td style={{ ...S.tdNum, padding: "0 4px", ...colHide("override") }} onClick={(e) => e.stopPropagation()}>
+                  <IntCell
+                    value={r.override_qty}
+                    accent={PAL.yellow}
+                    allowNegative={true}
+                    onSave={async (qty) => {
+                      if (!r.is_aggregate || !r.aggregate_underlying_ids) {
+                        await onUpdateOverride(r.forecast_id, qty);
+                        return;
+                      }
+                      const ids = r.aggregate_underlying_ids;
+                      const cur = ids.map((fid) => mutedById.get(fid)?.override_qty ?? 0);
+                      const dist = distributeAcrossChildren(ids, cur, qty);
+                      await Promise.all(
+                        dist.filter((d, i) => d.qty !== cur[i]).map((d) => onUpdateOverride(d.fid, d.qty)),
+                      );
+                    }}
+                  />
                 </td>
                 <td style={{ ...S.tdNum, color: PAL.green, fontWeight: 700, ...colHide("final") }}>
                   {formatQty(r.final_forecast_qty)}

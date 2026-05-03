@@ -78,16 +78,28 @@ export function bucketKeyFor(
   // customers share the buy.
   if (mode === "allCustomersPerCategory") groupName = row.group_name ?? null;
   if (mode === "allCustomersPerSubCat") subCategoryName = row.sub_category_name ?? null;
-  // (colors / customers don't add named dims beyond what the SKU /
-  // style + period already imply — bucket buys aren't meaningful for
-  // those modes alone, so we still build a key but it's narrowly
-  // scoped to the period.)
 
   // Filter-scoped dims (only applied when not already captured above):
   if (filters.customer_id && custId == null) custId = filters.customer_id;
   if (filters.group_name && groupName == null) groupName = filters.group_name;
   if (filters.sub_category_name && subCategoryName == null) subCategoryName = filters.sub_category_name;
   if (filters.gender) gender = filters.gender;
+
+  // Style + color identity for the row. Always included in the key so
+  // each visible aggregate has a unique bucket — without these, two
+  // style aggregates in the same period (e.g. "all customers per
+  // style") would collide on `mode|cust=*|...|period=2025-05` and a
+  // Buy typed on one would surface on every other style in that
+  // period (the "Buy copying to next row" symptom). For category /
+  // subCat modes that intentionally aggregate ACROSS styles, the
+  // row's sku_style is null/synthetic so this still scopes correctly.
+  const styleKey = mode === "category" || mode === "subCat" ? "-" : (row.sku_style ?? row.sku_code ?? "-");
+  // sku_color is dropped from the key when the collapse explicitly
+  // rolls up colors (mode = "colors" / "colors+customers" /
+  // "allCustomersPerStyle"), so the bucket still spans every color of
+  // the style. Otherwise color is part of the row's identity.
+  const collapsesColors = mode === "colors" || mode === "colors+customers" || mode === "allCustomersPerStyle" || mode === "category" || mode === "subCat";
+  const colorKey = collapsesColors ? "-" : (row.sku_color ?? "-");
 
   const period = row.period_code;
   const bucket_key = [
@@ -96,6 +108,8 @@ export function bucketKeyFor(
     `cat=${groupName ?? "-"}`,
     `sub=${subCategoryName ?? "-"}`,
     `gen=${gender ?? "-"}`,
+    `style=${styleKey}`,
+    `color=${colorKey}`,
     `period=${period}`,
   ].join("|");
   return {
