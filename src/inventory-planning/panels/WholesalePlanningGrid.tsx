@@ -80,22 +80,21 @@ type SortKey =
 // references (CollapseModes) compile without churn.
 type CollapseModes = ExtractedCollapseModes;
 
-// Spread a typed total across N underlying forecast rows. Used when a
-// planner edits Buyer / Override on an aggregate row (size-merged or
-// any other collapse) — the typed value is the new TOTAL across the
-// bucket, and we fan it out to each underlying child.
+// Spread a typed total across N supply-only forecast rows for a (style,
+// color) bucket. Aggregate Buyer / Override edits route 100% to the
+// "(Supply Only)" synthetic customer rows under the bucket, never to
+// real customer rows — the planner treats top-level edits as stock
+// buys, not as demand requests against any individual customer.
 //
-// Strategy:
-//   1. If every child currently has the same value (e.g. all zero),
-//      split equally with the remainder distributed across the first
-//      few rows so the integer sum matches `newTotal` exactly.
-//   2. Otherwise, distribute proportionally to the children's current
-//      values. Round each child to the nearest integer; absorb the
-//      cumulative rounding error into the LAST child so the integer
-//      sum still hits `newTotal` exactly.
+// When the bucket has multiple supply-only rows (e.g. multi-size where
+// several sizes have no customer pair), the total is split across
+// them — equally if every child is currently zero, otherwise weighted
+// by their existing values. Rounding error is absorbed into the LAST
+// child so the integer sum hits `newTotal` exactly.
 //
-// Returns one entry per underlying id with the new qty. The caller
-// filters out no-op writes before dispatching network mutations.
+// Returns one entry per underlying supply-only id with the new qty.
+// The caller filters out no-op writes before dispatching network
+// mutations.
 function distributeAcrossChildren(
   underlyingIds: string[],
   currentValues: number[],
@@ -429,6 +428,61 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     for (const r of mutedRows) m.set(r.forecast_id, r);
     return m;
   }, [mutedRows]);
+
+  // Aggregate Buyer / Override save handler. Top-level edits represent
+  // STOCK BUYS — they're routed exclusively to the synthetic
+  // "(Supply Only)" customer rows under the bucket, never to real
+  // customer rows. This way the planner can type a single number at
+  // the (style, color) or (style, color, customer-roll) grain without
+  // contaminating per-customer demand.
+  //
+  // Math: aggregate.buyer_request_qty (or override_qty) displays the
+  // SUM across all underlying rows, so when the planner types `qty`
+  // they expect that to be the new total. We subtract the existing
+  // non-supply-only sum to derive the value the supply-only rows need
+  // to carry, then distribute that across the supply-only ids. For
+  // buyer the result is clamped at zero (can't request negative); for
+  // override the value is allowed to go negative.
+  //
+  // If the bucket has no supply-only rows (every sku in the bucket has
+  // a customer pair, so wholesaleForecastService didn't synthesize
+  // one), we can't route the stock buy and log a warning instead.
+  // The planner can drill in (▶) to edit per-customer values directly.
+  async function saveAggBuyerOrOverride(
+    r: IpPlanningGridRow,
+    newTotal: number,
+    field: "buyer_request_qty" | "override_qty",
+    saver: (forecastId: string, qty: number) => Promise<void>,
+    allowNegative: boolean,
+  ): Promise<void> {
+    if (!r.is_aggregate || !r.aggregate_underlying_ids) {
+      await saver(r.forecast_id, newTotal);
+      return;
+    }
+    const ids = r.aggregate_underlying_ids;
+    const supplyOnlyIds: string[] = [];
+    let nonSupplyTotal = 0;
+    for (const fid of ids) {
+      const child = mutedById.get(fid);
+      if (!child) continue;
+      if (child.customer_name === "(Supply Only)") {
+        supplyOnlyIds.push(fid);
+      } else {
+        nonSupplyTotal += (child[field] as number | undefined) ?? 0;
+      }
+    }
+    if (supplyOnlyIds.length === 0) {
+      console.warn(`[planning] aggregate ${field}: no (Supply Only) row in this bucket — typed value can't be routed as a stock buy. Drill in (▶) to edit customer rows.`);
+      return;
+    }
+    let target = newTotal - nonSupplyTotal;
+    if (!allowNegative && target < 0) target = 0;
+    const cur = supplyOnlyIds.map((fid) => (mutedById.get(fid)?.[field] as number | undefined) ?? 0);
+    const dist = distributeAcrossChildren(supplyOnlyIds, cur, target);
+    await Promise.all(
+      dist.filter((d, i) => d.qty !== cur[i]).map((d) => saver(d.fid, d.qty)),
+    );
+  }
 
   // Step 2: per-(sku, period) display values using a proper per-SKU
   // multi-period rolling pool that subtracts demand each period (same
@@ -883,21 +937,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                     value={r.buyer_request_qty}
                     accent={PAL.accent}
                     allowNegative={false}
-                    onSave={async (qty) => {
-                      // Aggregate rows distribute the typed total
-                      // proportionally across their underlying
-                      // forecast_ids; non-aggregate rows save directly.
-                      if (!r.is_aggregate || !r.aggregate_underlying_ids) {
-                        await onUpdateBuyerRequest(r.forecast_id, qty);
-                        return;
-                      }
-                      const ids = r.aggregate_underlying_ids;
-                      const cur = ids.map((fid) => mutedById.get(fid)?.buyer_request_qty ?? 0);
-                      const dist = distributeAcrossChildren(ids, cur, qty);
-                      await Promise.all(
-                        dist.filter((d, i) => d.qty !== cur[i]).map((d) => onUpdateBuyerRequest(d.fid, d.qty)),
-                      );
-                    }}
+                    onSave={(qty) => saveAggBuyerOrOverride(r, qty, "buyer_request_qty", onUpdateBuyerRequest, false)}
                   />
                 </td>
                 <td style={{ ...S.tdNum, padding: "0 4px", ...colHide("override") }} onClick={(e) => e.stopPropagation()}>
@@ -905,18 +945,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                     value={r.override_qty}
                     accent={PAL.yellow}
                     allowNegative={true}
-                    onSave={async (qty) => {
-                      if (!r.is_aggregate || !r.aggregate_underlying_ids) {
-                        await onUpdateOverride(r.forecast_id, qty);
-                        return;
-                      }
-                      const ids = r.aggregate_underlying_ids;
-                      const cur = ids.map((fid) => mutedById.get(fid)?.override_qty ?? 0);
-                      const dist = distributeAcrossChildren(ids, cur, qty);
-                      await Promise.all(
-                        dist.filter((d, i) => d.qty !== cur[i]).map((d) => onUpdateOverride(d.fid, d.qty)),
-                      );
-                    }}
+                    onSave={(qty) => saveAggBuyerOrOverride(r, qty, "override_qty", onUpdateOverride, true)}
                   />
                 </td>
                 <td style={{ ...S.tdNum, color: PAL.green, fontWeight: 700, ...colHide("final") }}>
