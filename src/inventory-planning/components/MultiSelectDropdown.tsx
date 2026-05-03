@@ -168,17 +168,25 @@ export function MultiSelectDropdown({
             {query && (
               <button
                 type="button"
+                // Triple-handler so the click lands across browsers
+                // and React event delegation paths: onMouseDown
+                // fires first (preventDefault here also stops the
+                // button from stealing focus from the input);
+                // onClick is the canonical handler; onPointerDown
+                // covers touch + pen.
                 onMouseDown={(e) => { e.preventDefault(); setQuery(""); }}
+                onPointerDown={() => setQuery("")}
+                onClick={() => setQuery("")}
                 title="Clear search"
                 aria-label="Clear search"
                 style={{
-                  width: 22, height: 22, padding: 0,
+                  minWidth: 28, height: 28, padding: "0 8px",
                   border: `1px solid ${PAL.border}`,
-                  background: "transparent",
-                  color: PAL.textDim,
+                  background: PAL.bg,
+                  color: PAL.text,
                   cursor: "pointer",
-                  fontSize: 14, lineHeight: 1,
-                  borderRadius: 4,
+                  fontSize: 16, fontWeight: 700, lineHeight: 1,
+                  borderRadius: 6,
                   flexShrink: 0,
                 }}
               >×</button>

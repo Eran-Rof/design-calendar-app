@@ -910,6 +910,20 @@ export default function WholesalePlanningWorkbench() {
     // to fire-and-forget like every other TBD save handler.
     const fid = row.forecast_id;
     setRows((prev) => prev.map((r) => r.forecast_id === fid ? { ...r, sku_style: styleCode } : r));
+    // Move the just-added pin marker forward so the row keeps its
+    // top-of-bucket pin after the style is renamed. Without this
+    // the marker still references the OLD style_code, the pin
+    // identity check (style+color+customer+period) misses, the row
+    // de-pins, and a planner who picked a brand-new style sees
+    // "saved" with no visible row in their viewport.
+    setLastAddedTbdMarker((prev) => {
+      if (!prev) return prev;
+      if (prev.style_code !== (row.sku_style ?? "")) return prev;
+      if (prev.color !== (row.sku_color ?? "")) return prev;
+      if (prev.customer_id !== row.customer_id) return prev;
+      if (prev.period_code !== row.period_code) return prev;
+      return { ...prev, style_code: styleCode };
+    });
     const fireRebuild = () => {
       const seq = ++rebuildSeq.current;
       void (async () => {
@@ -977,6 +991,14 @@ export default function WholesalePlanningWorkbench() {
     if (!selectedRun) return;
     const fid = row.forecast_id;
     setRows((prev) => prev.map((r) => r.forecast_id === fid ? { ...r, customer_id: customerId, customer_name: customerName } : r));
+    setLastAddedTbdMarker((prev) => {
+      if (!prev) return prev;
+      if (prev.style_code !== (row.sku_style ?? "")) return prev;
+      if (prev.color !== (row.sku_color ?? "")) return prev;
+      if (prev.customer_id !== row.customer_id) return prev;
+      if (prev.period_code !== row.period_code) return prev;
+      return { ...prev, customer_id: customerId };
+    });
     try {
       await saveTbdField(row, { customer_id: customerId });
       setToast({ text: `Reassigned to ${customerName}`, kind: "success" });
@@ -1006,6 +1028,14 @@ export default function WholesalePlanningWorkbench() {
     if (!selectedRun) return;
     const fid = row.forecast_id;
     setRows((prev) => prev.map((r) => r.forecast_id === fid ? { ...r, sku_color: color, is_new_color: isNewColor } : r));
+    setLastAddedTbdMarker((prev) => {
+      if (!prev) return prev;
+      if (prev.style_code !== (row.sku_style ?? "")) return prev;
+      if (prev.color !== (row.sku_color ?? "")) return prev;
+      if (prev.customer_id !== row.customer_id) return prev;
+      if (prev.period_code !== row.period_code) return prev;
+      return { ...prev, color };
+    });
     try {
       await saveTbdField(row, { color, is_new_color: isNewColor });
       setToast({ text: isNewColor ? `Set color to "${color}" (NEW — not in master yet)` : `Set color to "${color}"`, kind: "success" });

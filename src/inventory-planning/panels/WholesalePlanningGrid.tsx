@@ -3,6 +3,7 @@
 // open the detail drawer.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { IpPlanningGridRow } from "../types/wholesale";
 import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, formatQty, formatPeriodCode } from "../components/styles";
 import { MultiSelectDropdown } from "../components/MultiSelectDropdown";
@@ -2504,11 +2505,24 @@ function TbdStyleCell({
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  // Anchor the popover to the trigger button using a portal so the
+  // grid's tableWrap (overflow:auto) can't clip or out-stack it.
+  const [anchor, setAnchor] = useState<{ top: number; left: number; minWidth: number } | null>(null);
+  useEffect(() => {
+    if (!open) { setAnchor(null); return; }
+    if (!ref.current) return;
+    const r = ref.current.getBoundingClientRect();
+    setAnchor({ top: r.bottom + 4, left: r.left, minWidth: Math.max(r.width, 240) });
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
     function onDocClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (ref.current?.contains(t)) return;
+      if (popoverRef.current?.contains(t)) return;
+      setOpen(false);
     }
     function onKey(e: KeyboardEvent) { if (e.key === "Escape") setOpen(false); }
     document.addEventListener("mousedown", onDocClick);
@@ -2584,17 +2598,18 @@ function TbdStyleCell({
         )}
         <span style={{ color: PAL.textMuted, fontSize: 9 }}>▾</span>
       </button>
-      {open && (
+      {open && anchor && createPortal(
         <div
+          ref={popoverRef}
           style={{
-            position: "absolute",
-            top: "calc(100% + 4px)",
-            left: 0,
-            zIndex: 60,
+            position: "fixed",
+            top: anchor.top,
+            left: anchor.left,
+            zIndex: 1000,
             background: PAL.panel,
             border: `1px solid ${PAL.border}`,
             borderRadius: 8,
-            minWidth: 240,
+            minWidth: anchor.minWidth,
             maxHeight: 360,
             overflowY: "auto",
             boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
@@ -2626,7 +2641,7 @@ function TbdStyleCell({
               key={s}
               role="option"
               tabIndex={0}
-              onClick={() => commit(s)}
+              onMouseDown={(e) => { e.preventDefault(); void commit(s); }}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(s); } }}
               style={{
                 padding: "8px 12px",
@@ -2646,7 +2661,7 @@ function TbdStyleCell({
             <div
               role="option"
               tabIndex={0}
-              onClick={() => commit(queryTrim)}
+              onMouseDown={(e) => { e.preventDefault(); void commit(queryTrim); }}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(queryTrim); } }}
               style={{
                 padding: "10px 12px",
@@ -2666,7 +2681,8 @@ function TbdStyleCell({
               <strong>{queryTrim}</strong>
             </div>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
