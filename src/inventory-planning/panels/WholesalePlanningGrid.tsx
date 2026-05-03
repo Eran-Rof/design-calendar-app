@@ -59,6 +59,16 @@ export interface WholesalePlanningGridProps {
   // customer (still flagged is_tbd until the next planning build
   // surfaces a real forecast row).
   onUpdateTbdCustomer?: (row: IpPlanningGridRow, customerId: string, customerName: string) => Promise<void>;
+  // Insert a brand-new customer into ip_customer_master and assign
+  // this TBD row to them. Triggered by "Add as NEW customer:" in
+  // the TBD customer picker. The workbench refreshes the local
+  // customers list so the new entry shows up in every dropdown.
+  onAddTbdNewCustomer?: (row: IpPlanningGridRow, customerName: string) => Promise<void>;
+  // Free-text description on TBD rows. Backed by the `notes`
+  // column on ip_wholesale_forecast_tbd; passing an empty string
+  // clears the override so the master's description (if any)
+  // shows through.
+  onUpdateTbdDescription?: (row: IpPlanningGridRow, description: string) => Promise<void>;
   // Add a brand-new TBD row (Phase 4 of the TBD feature). The grid
   // collects style/color/customer/category/sub_cat/period from the
   // inline form; the workbench upserts a fresh ip_wholesale_forecast_tbd
@@ -264,7 +274,7 @@ function distributeAcrossChildren(
   return out;
 }
 
-export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdRow, onDeleteTbdRow, onUndoLastAdd, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onUndoLastAdd, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   // Persisted filter state — survives reloads + builds. Stored under
   // ws_planning_filter_<key> in localStorage so the planner doesn't
   // re-pick what they had narrowed to. Lazy useState initializer
@@ -2018,8 +2028,19 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                     r.sku_style ?? r.sku_code
                   )}
                 </td>
-                <td style={{ ...S.td, color: PAL.textDim, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", ...colHide("description") }} title={r.sku_description ?? ""}>
-                  {r.sku_description ?? "—"}
+                <td
+                  style={{ ...S.td, color: PAL.textDim, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: !r.is_aggregate && r.is_tbd && r.is_user_added ? "0 4px" : undefined, ...colHide("description") }}
+                  title={r.sku_description ?? ""}
+                  onClick={(e) => { if (r.is_tbd) e.stopPropagation(); }}
+                >
+                  {!r.is_aggregate && r.is_tbd && r.is_user_added && onUpdateTbdDescription ? (
+                    <TbdDescriptionCell
+                      value={r.sku_description ?? ""}
+                      onSave={(d) => onUpdateTbdDescription(r, d)}
+                    />
+                  ) : (
+                    r.sku_description ?? "—"
+                  )}
                 </td>
                 <td style={{ ...S.td, color: PAL.textDim, padding: r.is_tbd ? "0 4px" : undefined, ...colHide("color") }} onClick={(e) => { if (r.is_tbd) e.stopPropagation(); }}>
                   {!r.is_aggregate && r.is_tbd && onUpdateTbdColor ? (() => {
@@ -2065,6 +2086,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                         isSupplyOnly={r.customer_name === "(Supply Only)"}
                         customers={customers}
                         onSave={(id, name) => onUpdateTbdCustomer(r, id, name)}
+                        onAddNew={onAddTbdNewCustomer ? (name) => onAddTbdNewCustomer(r, name) : undefined}
                       />
                       {r.is_user_added && onDeleteTbdRow && (
                         <button
@@ -2878,19 +2900,96 @@ function TbdStyleCell({
   );
 }
 
+// Editable description cell on TBD rows. Inline text input; commits
+// on blur or Enter. Empty string clears the override (falls back to
+// master description). No NEW badge — descriptions don't have a
+// canonical master list, so every typed value is fine. Same hover
+// affordances as the other Tbd cells.
+function TbdDescriptionCell({
+  value, onSave,
+}: {
+  value: string;
+  onSave: (description: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (!editing) setDraft(value); }, [value, editing]);
+
+  async function commit() {
+    if (busy) return;
+    if (draft === value) { setEditing(false); return; }
+    setBusy(true);
+    try {
+      await onSave(draft);
+      setEditing(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type="text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => void commit()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); void commit(); }
+          else if (e.key === "Escape") { setDraft(value); setEditing(false); }
+        }}
+        placeholder="Type a description…"
+        style={{
+          ...S.input,
+          width: "100%",
+          padding: "3px 8px",
+          fontSize: 12,
+          opacity: busy ? 0.5 : 1,
+        }}
+      />
+    );
+  }
+  return (
+    <span
+      onClick={() => setEditing(true)}
+      title="Click to edit description"
+      style={{
+        cursor: "pointer",
+        display: "inline-block",
+        maxWidth: "100%",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        color: value ? PAL.textDim : PAL.textMuted,
+        fontStyle: value ? "normal" : "italic",
+      }}
+    >
+      {value || "Click to add…"}
+    </span>
+  );
+}
+
 // Editable customer cell on TBD rows. Click → searchable customer
 // list (the same list used by the toolbar's customer filter). Picking
 // a real customer reassigns the TBD row to them; the row stays an
 // is_tbd line until a future planning build absorbs it as a normal
 // forecast row. The (Supply Only) placeholder stays as the default
 // trigger style; reassigned rows show the customer name as-is.
+//
+// Typing a name not in the existing list surfaces an orange
+// "Add as NEW customer:" footer — onAddNew handles the master
+// insert + row reassignment. Falls through silently when no
+// onAddNew is wired (the cell stays read-only-with-search).
 function TbdCustomerCell({
-  value, isSupplyOnly, customers, onSave,
+  value, isSupplyOnly, customers, onSave, onAddNew,
 }: {
   value: string;
   isSupplyOnly: boolean;
   customers: Array<{ id: string; name: string }>;
   onSave: (customerId: string, customerName: string) => Promise<void>;
+  onAddNew?: (customerName: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -2917,12 +3016,26 @@ function TbdCustomerCell({
     if (!q) return customers;
     return customers.filter((c) => c.name.toLowerCase().includes(q));
   }, [query, customers]);
+  const queryTrim = query.trim();
+  const queryIsNew = !!onAddNew
+    && queryTrim.length > 0
+    && !customers.some((c) => c.name.toLowerCase() === queryTrim.toLowerCase());
 
   async function commit(id: string, name: string) {
     if (busy) return;
     setBusy(true);
     try {
       await onSave(id, name);
+      setOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function commitNew() {
+    if (busy || !onAddNew || !queryIsNew) return;
+    setBusy(true);
+    try {
+      await onAddNew(queryTrim);
       setOpen(false);
     } finally {
       setBusy(false);
@@ -2973,13 +3086,16 @@ function TbdCustomerCell({
             <input
               autoFocus
               type="text"
-              placeholder="Search customers…"
+              placeholder={onAddNew ? "Search or add a new customer…" : "Search customers…"}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && queryIsNew) { e.preventDefault(); void commitNew(); }
+              }}
               style={{ ...S.input, width: "100%" }}
             />
           </div>
-          {filtered.length === 0 && (
+          {filtered.length === 0 && !queryIsNew && (
             <div style={{ padding: 12, color: PAL.textMuted, fontSize: 12 }}>No matches</div>
           )}
           {filtered.map((c) => (
@@ -3002,6 +3118,30 @@ function TbdCustomerCell({
               {c.name}
             </div>
           ))}
+          {queryIsNew && (
+            <div
+              role="option"
+              tabIndex={0}
+              onMouseDown={(e) => { e.preventDefault(); void commitNew(); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commitNew(); } }}
+              style={{
+                padding: "10px 12px",
+                cursor: "pointer",
+                fontSize: 13,
+                color: PAL.yellow,
+                background: `${PAL.yellow}11`,
+                borderTop: filtered.length > 0 ? `1px solid ${PAL.borderFaint}` : undefined,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+              title="This customer isn't in the master yet — clicking will insert them and assign this row."
+            >
+              <span>Add as NEW customer:</span>
+              <strong>{queryTrim}</strong>
+              <span style={{ background: PAL.yellow, color: "#000", borderRadius: 3, padding: "0 4px", fontSize: 9, fontWeight: 700 }}>NEW</span>
+            </div>
+          )}
         </div>
       )}
     </div>

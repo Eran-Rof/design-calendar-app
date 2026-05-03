@@ -1194,6 +1194,60 @@ export default function WholesalePlanningWorkbench() {
   // the caller's judgement (the grid checks the typed string against
   // the style's known colors before calling). Optimistic UI updates
   // the local row immediately; rebuild reconciles on success.
+  // Free-text description on TBD rows. Stored in the row's `notes`
+  // column (no dedicated description column on ip_wholesale_forecast_tbd
+  // — notes serves dual purpose for TBD rows). Empty string clears
+  // the override so the grid falls back to master description.
+  async function saveTbdDescription(row: IpPlanningGridRow, description: string) {
+    if (!selectedRun) return;
+    const fid = row.forecast_id;
+    const next = description.trim() === "" ? null : description.trim();
+    setRows((prev) => prev.map((r) => r.forecast_id === fid ? { ...r, sku_description: next } : r));
+    try {
+      await saveTbdField(row, { notes: next });
+      setToast({ text: next ? `Description set` : `Description cleared`, kind: "success" });
+      const seq = ++rebuildSeq.current;
+      void (async () => {
+        try {
+          const refreshed = await buildGridRows(selectedRun);
+          if (seq !== rebuildSeq.current) return;
+          setRows(refreshed);
+        } catch { /* swallow */ }
+      })();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `Description save failed — ${msg}`, kind: "error" });
+    }
+  }
+
+  // Create a brand-new customer in ip_customer_master and assign
+  // the row to them. Triggered from "Add as NEW customer" in the
+  // TBD customer picker. Refreshes the local customers list so the
+  // new customer immediately appears in every cell's dropdown.
+  async function saveTbdNewCustomer(row: IpPlanningGridRow, customerName: string) {
+    if (!selectedRun) return;
+    const trimmed = customerName.trim();
+    if (!trimmed) {
+      setToast({ text: "Customer name can't be empty", kind: "error" });
+      return;
+    }
+    try {
+      const created = await wholesaleRepo.insertCustomer(trimmed);
+      // Append the new customer to local state so all dropdowns
+      // know about them right away.
+      setCustomers((prev) => {
+        if (prev.some((c) => c.id === created.id)) return prev;
+        return [...prev, { id: created.id, name: created.name } as IpCustomer]
+          .sort((a, b) => a.name.localeCompare(b.name));
+      });
+      await saveTbdCustomer(row, created.id, created.name);
+      setToast({ text: `Added new customer "${created.name}" and assigned the row to them`, kind: "success" });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `Add customer failed — ${msg}`, kind: "error" });
+    }
+  }
+
   async function saveTbdColor(row: IpPlanningGridRow, color: string, isNewColor: boolean) {
     if (!selectedRun) return;
     const dup = findTbdDuplicate(row.sku_style ?? "", color, row.customer_id, row.period_code, row.forecast_id);
@@ -1779,6 +1833,8 @@ export default function WholesalePlanningWorkbench() {
               onUpdateTbdColor={saveTbdColor}
               onUpdateTbdStyle={saveTbdStyle}
               onUpdateTbdCustomer={saveTbdCustomer}
+              onAddTbdNewCustomer={saveTbdNewCustomer}
+              onUpdateTbdDescription={saveTbdDescription}
               onAddTbdRow={addTbdRow}
               onDeleteTbdRow={deleteTbdRow}
               onUndoLastAdd={undoLastAddedTbd}

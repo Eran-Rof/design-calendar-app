@@ -848,7 +848,11 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     // ships) are surfaced as their own grid lines below.
     const supplyTbd = persistedAll.find((t) => t.customer_id === supplyPlaceholderId && t.color === "TBD") ?? null;
     const styleFb = masterByStyle.get(sp.style_code) ?? null;
-    const description = styleFb?.description ?? null;
+    // For TBD rows, the planner-typed `notes` value (if any) acts
+    // as the description override — gives a working description on
+    // brand-new styles whose master row hasn't been created yet.
+    // Falls back to the master's description when notes is empty.
+    const description = supplyTbd?.notes?.trim() || styleFb?.description || null;
     const groupName = readGroupName(styleFb) ?? null;
     const subCategoryName = readSubCategoryName(styleFb) ?? null;
     let gender = readGender(styleFb) ?? null;
@@ -961,7 +965,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
         gender,
         sku_id: `tbd:${sp.style_code}`,
         sku_code: `${sp.style_code}-TBD`,
-        sku_description: description,
+        sku_description: t.notes?.trim() || description,
         sku_style: sp.style_code,
         sku_color: t.color,
         sku_color_inferred: false,

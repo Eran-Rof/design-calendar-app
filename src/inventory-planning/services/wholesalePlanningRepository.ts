@@ -150,6 +150,37 @@ export const wholesaleRepo = {
   async listCategories(): Promise<IpCategory[]> {
     return sbGet<IpCategory>("ip_category_master?select=*&order=name.asc&limit=5000");
   },
+  // Insert a planner-typed customer into ip_customer_master. Used by
+  // the "Add as NEW customer" path on the TBD customer cell. The
+  // customer_code is required + unique; we derive it from the name
+  // (uppercase, alphanumeric + dashes) and append a short suffix on
+  // collision so the planner doesn't have to think about codes.
+  async insertCustomer(name: string): Promise<{ id: string; name: string }> {
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error("insertCustomer: name required");
+    const baseCode = trimmed
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60);
+    let code = baseCode || "CUSTOMER";
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        const created = await withRetryOn57014("insertCustomer", () => sbPost<{ id: string; name: string }>(
+          "ip_customer_master",
+          [{ customer_code: code, name: trimmed }],
+          "return=representation",
+        ));
+        if (created[0]?.id) return { id: created[0].id, name: created[0].name };
+        throw new Error("insertCustomer: no id returned");
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!msg.includes("23505") || attempt === 3) throw e;
+        code = `${baseCode}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+      }
+    }
+    throw new Error("insertCustomer: could not resolve unique code");
+  },
   // Distinct color values from the active item master. Used by the
   // grid's TBD color picker for isNew detection without paying the
   // full listItems() round trip every render. Returns lowercased,
