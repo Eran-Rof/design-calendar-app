@@ -489,7 +489,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     const startingPoolFor = (rows: typeof sorted): number => {
       const seen = new Set<string>();
       let pool = 0;
-      const dbg: Array<{ sku_id: string; on_hand: number }> = [];
+      const dbg: Array<{ sku_code: string; sku_size: string | null; on_hand: number }> = [];
       for (const r of rows) {
         const ids = r.is_aggregate
           ? (r.aggregate_underlying_ids ?? [])
@@ -499,25 +499,21 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           if (!src || seen.has(src.sku_id)) continue;
           seen.add(src.sku_id);
           pool += src.on_hand_qty ?? 0;
-          dbg.push({ sku_id: src.sku_id, on_hand: src.on_hand_qty ?? 0 });
+          dbg.push({ sku_code: src.sku_code, sku_size: src.sku_size ?? null, on_hand: src.on_hand_qty ?? 0 });
         }
       }
-      // Temporary diagnostic for the "All sizes" pool double-count
-      // investigation. Logs the per-sku breakdown for the first
-      // visible aggregate group only, so the console isn't flooded.
+      // Temporary diagnostic — only expand when the bucket actually
+      // spans multiple sizes (the case the user is investigating).
       const firstAgg = rows.find((x) => x.is_aggregate);
-      if (firstAgg && (firstAgg as IpPlanningGridRow).sku_style?.toUpperCase().includes("RYB0412")) {
+      const isAllSizesGrey = firstAgg
+        && (firstAgg as IpPlanningGridRow).sku_style?.toUpperCase() === "RYB0412"
+        && (firstAgg as IpPlanningGridRow).sku_color === "Grey"
+        && dbg.length > 1;
+      if (isAllSizesGrey) {
         // eslint-disable-next-line no-console
-        console.log("[ip-debug startingPool]", {
-          style: (firstAgg as IpPlanningGridRow).sku_style,
-          color: (firstAgg as IpPlanningGridRow).sku_color,
-          period: (firstAgg as IpPlanningGridRow).period_code,
-          group_rows: rows.length,
-          underlying_ids: (firstAgg as IpPlanningGridRow).aggregate_underlying_ids?.length ?? 0,
-          unique_skus: dbg.length,
-          pool,
-          per_sku: dbg,
-        });
+        console.log(`[ip-debug pool] ${dbg.length} skus, total ${pool}`);
+        // eslint-disable-next-line no-console
+        console.table(dbg);
       }
       return pool;
     };
