@@ -27,9 +27,22 @@ export function rowMatchesSearch(row: ATSRow, tokens: string[]): boolean {
   return tokens.every(t => sku.includes(t) || desc.includes(t));
 }
 
+// Normalize a string for case-/whitespace-tolerant equality. Real upload
+// data sometimes has "rof" / "ROF " / "  PT" instead of "ROF" / "PT" — the
+// filter dropdowns use the canonical form, but exact-match comparisons
+// dropped legitimate rows. Normalize both sides on every check.
+function normForCompare(s: string | null | undefined): string {
+  return (s ?? "").trim().toUpperCase();
+}
+
 export function filterRows(rows: ATSRow[], opts: RowFilterOpts): ATSRow[] {
   const tokens = tokenizeSearch(opts.search);
   const todayKey = fmtDate(opts.today);
+  // Pre-normalize the filter selections once.
+  const wantStore = opts.storeFilter.includes("All")
+    ? null
+    : new Set(opts.storeFilter.map(normForCompare));
+  const wantGender = opts.filterGender === "All" ? null : normForCompare(opts.filterGender);
   return rows.filter(r => {
     if (!rowMatchesSearch(r, tokens)) return false;
     // Category filter pulls from master_category (the truth) with a fallback
@@ -42,7 +55,7 @@ export function filterRows(rows: ATSRow[], opts: RowFilterOpts): ATSRow[] {
     if (opts.filterSubCategory !== "All") {
       if ((r.master_sub_category ?? "") !== opts.filterSubCategory) return false;
     }
-    if (opts.filterGender !== "All" && (r.gender ?? "") !== opts.filterGender) return false;
+    if (wantGender !== null && normForCompare(r.gender) !== wantGender) return false;
     const todayQty = r.dates[todayKey] ?? r.onHand;
     if (opts.filterStatus !== "All") {
       if (opts.filterStatus === "Out" && !(todayQty <= 0)) return false;
@@ -50,7 +63,7 @@ export function filterRows(rows: ATSRow[], opts: RowFilterOpts): ATSRow[] {
       if (opts.filterStatus === "InStock" && !(todayQty > 10)) return false;
     }
     if (opts.minATS !== "" && todayQty < opts.minATS) return false;
-    if (!opts.storeFilter.includes("All") && !opts.storeFilter.includes(r.store ?? "ROF")) return false;
+    if (wantStore !== null && !wantStore.has(normForCompare(r.store ?? "ROF"))) return false;
     if (opts.customerSkuSet && !opts.customerSkuSet.has(r.sku)) return false;
     return true;
   });
