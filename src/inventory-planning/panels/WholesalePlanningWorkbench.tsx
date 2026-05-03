@@ -662,6 +662,29 @@ export default function WholesalePlanningWorkbench() {
   // master entry and the flag clears naturally).
   const [newCustomerIds, setNewCustomerIds] = useState<Set<string>>(() => new Set());
 
+  // App-themed confirm modal. Used by saveTbdColor / saveTbdDescription
+  // / saveTbdCustomer when a change on a master-unknown style row
+  // would propagate to sibling-period rows — the planner gets a
+  // styled "this will change across all N periods, proceed?" prompt
+  // instead of a bare window.confirm so the warning sits in the
+  // workbench's panel chrome.
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    title: string;
+    body: string;
+    confirmLabel: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+  } | null>(null);
+  const askConfirm = (title: string, body: string, confirmLabel = "Proceed"): Promise<boolean> => {
+    return new Promise((resolve) => {
+      setPendingConfirm({
+        title, body, confirmLabel,
+        onConfirm: () => { setPendingConfirm(null); resolve(true); },
+        onCancel: () => { setPendingConfirm(null); resolve(false); },
+      });
+    });
+  };
+
   // Args shape for the "+ Add row" handler. Kept as a named type
   // so the inline form's onAddTbdRow callback can reuse it.
   type AddTbdRowArgs = {
@@ -1166,6 +1189,16 @@ export default function WholesalePlanningWorkbench() {
       });
       return;
     }
+    const custSiblings = siblingTbdRowsForNewStyle(row);
+    const hadCust = row.customer_name !== "(Supply Only)";
+    if (hadCust && custSiblings.length > 0) {
+      const ok = await askConfirm(
+        `Update customer across ${custSiblings.length + 1} periods?`,
+        `Style ${row.sku_style ?? ""} customer will change from "${row.customer_name}" to "${customerName}" on this row AND on every other period in the build.`,
+        "Update all",
+      );
+      if (!ok) return;
+    }
     const fid = row.forecast_id;
     setRows((prev) => prev.map((r) => r.forecast_id === fid ? { ...r, customer_id: customerId, customer_name: customerName } : r));
     setLastAddedTbdMarker((prev) => {
@@ -1232,6 +1265,21 @@ export default function WholesalePlanningWorkbench() {
     if (!selectedRun) return;
     const fid = row.forecast_id;
     const next = description.trim() === "" ? null : description.trim();
+    // Confirm before propagating across periods — only when the
+    // row already has a description (planner is REPLACING, not
+    // setting for the first time) AND siblings exist on the same
+    // master-unknown style. The first-time set is the common
+    // single-row flow and shouldn't pop a modal.
+    const siblingsForGate = siblingTbdRowsForNewStyle(row);
+    const hadValue = !!row.sku_description?.trim();
+    if (hadValue && siblingsForGate.length > 0) {
+      const ok = await askConfirm(
+        `Update description across ${siblingsForGate.length + 1} periods?`,
+        `Style ${row.sku_style ?? ""} description will change to "${next ?? "(empty)"}" on this row AND on every other period in the build.`,
+        "Update all",
+      );
+      if (!ok) return;
+    }
     setRows((prev) => prev.map((r) => r.forecast_id === fid ? { ...r, sku_description: next } : r));
     try {
       await saveTbdField(row, { notes: next });
@@ -1308,6 +1356,16 @@ export default function WholesalePlanningWorkbench() {
         kind: "error",
       });
       return;
+    }
+    const colorSiblings = siblingTbdRowsForNewStyle(row);
+    const hadColor = (row.sku_color ?? "TBD") !== "TBD";
+    if (hadColor && colorSiblings.length > 0) {
+      const ok = await askConfirm(
+        `Update color across ${colorSiblings.length + 1} periods?`,
+        `Style ${row.sku_style ?? ""} color will change from "${row.sku_color ?? "TBD"}" to "${color}" on this row AND on every other period in the build.`,
+        "Update all",
+      );
+      if (!ok) return;
     }
     const fid = row.forecast_id;
     setRows((prev) => prev.map((r) => r.forecast_id === fid ? { ...r, sku_color: color, is_new_color: isNewColor } : r));
@@ -1939,6 +1997,45 @@ export default function WholesalePlanningWorkbench() {
       )}
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
+      {pendingConfirm && (
+        <div
+          onClick={pendingConfirm.onCancel}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+            zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: PAL.panel, color: PAL.text,
+              border: `1px solid ${PAL.yellow}`, borderRadius: 12,
+              padding: 20, width: "min(480px, 90vw)",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <span style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                width: 24, height: 24, borderRadius: 12,
+                background: PAL.yellow, color: "#000", fontWeight: 800, fontSize: 14,
+              }}>!</span>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>{pendingConfirm.title}</div>
+            </div>
+            <div style={{ fontSize: 13, color: PAL.textDim, lineHeight: 1.5, whiteSpace: "pre-wrap", marginBottom: 16 }}>
+              {pendingConfirm.body}
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button type="button" style={{ ...S.btnSecondary }} onClick={pendingConfirm.onCancel}>Cancel</button>
+              <button
+                type="button"
+                style={{ ...S.btnPrimary, background: PAL.yellow, color: "#000", border: `1px solid ${PAL.yellow}` }}
+                onClick={pendingConfirm.onConfirm}
+              >{pendingConfirm.confirmLabel}</button>
+            </div>
+          </div>
+        </div>
+      )}
       {opStatus && (
         <OperationStatusBar
           label={opStatus.label}
