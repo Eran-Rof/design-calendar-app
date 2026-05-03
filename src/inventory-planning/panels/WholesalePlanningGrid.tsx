@@ -672,6 +672,37 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     return out;
   }, [rows, masterColorsLower]);
 
+  // Distinct descriptions across the run + master fallback. Drives
+  // the description picker's options. Master descriptions come from
+  // non-TBD rows (sku_description is the master's value when no
+  // override is set); planner-typed overrides come from TBD rows.
+  const masterStylesLower = useMemo(() => {
+    const out = new Set<string>();
+    if (masterStyles) {
+      for (const m of masterStyles) out.add(m.style_code.toLowerCase());
+    }
+    return out;
+  }, [masterStyles]);
+  const masterDescriptionsLower = useMemo(() => {
+    const out = new Set<string>();
+    for (const r of rows) {
+      if (r.is_tbd) continue;
+      const d = r.sku_description?.trim();
+      if (d) out.add(d.toLowerCase());
+    }
+    return out;
+  }, [rows]);
+  const knownDescriptions = useMemo(() => {
+    const map = new Map<string, string>(); // key=lower, value=display
+    for (const r of rows) {
+      const d = r.sku_description?.trim();
+      if (!d) continue;
+      const k = d.toLowerCase();
+      if (!map.has(k)) map.set(k, d);
+    }
+    return Array.from(map.values()).sort((a, b) => a.localeCompare(b));
+  }, [rows]);
+
   // Pre-pack multiplier — checks color first, then size, then
   // description. The number after "PPK" (optionally separated by
   // whitespace, underscore, or dash) is the units-per-pack count.
@@ -2025,6 +2056,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                         isNewStyle={isNewStyle}
                         categoryStyles={categoryStyles}
                         allKnownStylesLower={allStylesLower}
+                        masterStylesLower={masterStylesLower}
                         onSave={(styleCode) => onUpdateTbdStyle(r, styleCode)}
                       />
                     );
@@ -2041,6 +2073,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                     <TbdDescriptionCell
                       value={r.sku_description ?? ""}
                       isNew={!!r.is_new_description}
+                      knownDescriptions={knownDescriptions}
+                      masterDescriptionsLower={masterDescriptionsLower}
                       onSave={(d) => onUpdateTbdDescription(r, d)}
                     />
                   ) : (
@@ -2068,6 +2102,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                         isNewForStyle={isNewForStyle}
                         knownColors={Array.from(colorsByGroupName.get(r.group_name ?? "—") ?? new Set<string>()).sort()}
                         allKnownColorsLower={allKnownColorsLower}
+                        masterColorsLower={masterColorsLower}
                         onSave={(color, isNew) => onUpdateTbdColor(r, color, isNew)}
                       />
                     );
@@ -2091,6 +2126,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                         isSupplyOnly={r.customer_name === "(Supply Only)"}
                         isNewCustomer={!!(r.customer_id && newCustomerIds?.has(r.customer_id))}
                         customers={customers}
+                        newCustomerIds={newCustomerIds}
                         onSave={(id, name) => onUpdateTbdCustomer(r, id, name)}
                         onAddNew={onAddTbdNewCustomer ? (name) => onAddTbdNewCustomer(r, name) : undefined}
                       />
@@ -2700,7 +2736,7 @@ function CollapseToggle({ label, active, onToggle }: { label: string; active: bo
 // style's TBD line; picking "TBD" sends the qty to the catch-all
 // (style=TBD, color=TBD) line for the period.
 function TbdStyleCell({
-  value, isNewStyle, categoryStyles, allKnownStylesLower, onSave,
+  value, isNewStyle, categoryStyles, allKnownStylesLower, masterStylesLower, onSave,
 }: {
   value: string;
   // Orange "NEW" badge when the row's style isn't in the item
@@ -2710,6 +2746,11 @@ function TbdStyleCell({
   // Master-wide style set (lowercased) used to decide whether a
   // typed query is brand-new vs already in another category.
   allKnownStylesLower: Set<string>;
+  // Master-only style set (lowercased). Drives the per-option NEW
+  // badge in the dropdown — a planner-added style still in
+  // categoryStyles shows orange so the planner sees it can be
+  // reused but is awaiting master sync.
+  masterStylesLower?: Set<string>;
   onSave: (styleCode: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -2854,27 +2895,40 @@ function TbdStyleCell({
           {filtered.length === 0 && !queryIsNew && (
             <div style={{ padding: 12, color: PAL.textMuted, fontSize: 12 }}>No matches</div>
           )}
-          {filtered.map((s) => (
-            <div
-              key={s}
-              role="option"
-              tabIndex={0}
-              onMouseDown={(e) => { e.preventDefault(); void commit(s); }}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(s); } }}
-              style={{
-                padding: "8px 12px",
-                cursor: "pointer",
-                fontFamily: "monospace",
-                fontSize: 13,
-                color: s === value ? PAL.accent : (s === "TBD" ? PAL.textMuted : PAL.text),
-                background: s === value ? `${PAL.accent}11` : (s === "TBD" ? `${PAL.textMuted}10` : undefined),
-                fontWeight: s === value ? 600 : undefined,
-                borderBottom: `1px solid ${PAL.borderFaint}`,
-              }}
-            >
-              {s}
-            </div>
-          ))}
+          {filtered.map((s) => {
+            const sLower = s.toLowerCase();
+            const optionIsNew = s !== "TBD"
+              && sLower !== "tbd"
+              && !!masterStylesLower
+              && !masterStylesLower.has(sLower);
+            return (
+              <div
+                key={s}
+                role="option"
+                tabIndex={0}
+                onMouseDown={(e) => { e.preventDefault(); void commit(s); }}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(s); } }}
+                style={{
+                  padding: "8px 12px",
+                  cursor: "pointer",
+                  fontFamily: "monospace",
+                  fontSize: 13,
+                  color: s === value ? PAL.accent : (s === "TBD" ? PAL.textMuted : (optionIsNew ? PAL.yellow : PAL.text)),
+                  background: s === value ? `${PAL.accent}11` : (s === "TBD" ? `${PAL.textMuted}10` : (optionIsNew ? `${PAL.yellow}11` : undefined)),
+                  fontWeight: s === value ? 600 : undefined,
+                  borderBottom: `1px solid ${PAL.borderFaint}`,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <span style={{ flex: 1 }}>{s}</span>
+                {optionIsNew && (
+                  <span style={{ background: PAL.yellow, color: "#000", borderRadius: 3, padding: "0 4px", fontSize: 9, fontWeight: 700, fontFamily: "inherit" }}>NEW</span>
+                )}
+              </div>
+            );
+          })}
           {queryIsNew && (
             <div
               role="option"
@@ -2912,79 +2966,208 @@ function TbdStyleCell({
 // canonical master list, so every typed value is fine. Same hover
 // affordances as the other Tbd cells.
 function TbdDescriptionCell({
-  value, isNew, onSave,
+  value, isNew, knownDescriptions, masterDescriptionsLower, onSave,
 }: {
   value: string;
   // Orange NEW badge when the description is a planner override
-  // (the row's `notes` column is non-empty) rather than coming
-  // from the master style's description. Same affordance pattern
-  // as the color / style cells.
+  // (the row's `notes` column is non-empty AND differs from master)
+  // — same affordance pattern as the color / style cells.
   isNew: boolean;
+  // Distinct descriptions used elsewhere in the run (master + TBD
+  // overrides). Drives the dropdown list so the planner can reuse
+  // a description they've typed before instead of retyping it.
+  knownDescriptions: string[];
+  // Master-known descriptions (lowercased). Used to flag dropdown
+  // options with the orange NEW badge when they aren't in any
+  // master row — same logic as the color/style cells.
+  masterDescriptionsLower?: Set<string>;
   onSave: (description: string) => Promise<void>;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (!editing) setDraft(value); }, [value, editing]);
+  const ref = useRef<HTMLDivElement>(null);
 
-  async function commit() {
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape") setOpen(false); }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  useEffect(() => { if (!open) setQuery(""); }, [open]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return knownDescriptions;
+    return knownDescriptions.filter((d) => d.toLowerCase().includes(q));
+  }, [query, knownDescriptions]);
+  const queryTrim = query.trim();
+  const queryIsNew = queryTrim.length > 0
+    && !knownDescriptions.some((d) => d.toLowerCase() === queryTrim.toLowerCase());
+
+  async function commit(description: string) {
     if (busy) return;
-    if (draft === value) { setEditing(false); return; }
     setBusy(true);
     try {
-      await onSave(draft);
-      setEditing(false);
+      await onSave(description);
+      setOpen(false);
     } finally {
       setBusy(false);
     }
   }
 
-  if (editing) {
-    return (
-      <input
-        autoFocus
-        type="text"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => void commit()}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") { e.preventDefault(); void commit(); }
-          else if (e.key === "Escape") { setDraft(value); setEditing(false); }
-        }}
-        placeholder="Type a description…"
+  return (
+    <div ref={ref} style={{ position: "relative", display: "inline-flex", alignItems: "center", maxWidth: "100%" }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title={isNew
+          ? "Planner-typed description (not in master). Click to edit."
+          : (value ? "Click to change description" : "Click to add a description")}
         style={{
-          ...S.input,
-          width: "100%",
+          background: isNew ? `${PAL.yellow}22` : "transparent",
+          border: `1px solid ${isNew ? PAL.yellow : PAL.border}`,
+          color: isNew ? PAL.yellow : (value ? PAL.textDim : PAL.textMuted),
+          borderRadius: 6,
           padding: "3px 8px",
           fontSize: 12,
-          opacity: busy ? 0.5 : 1,
+          cursor: "pointer",
+          fontFamily: "inherit",
+          textAlign: "left" as const,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          maxWidth: "100%",
+          overflow: "hidden",
         }}
-      />
-    );
-  }
-  return (
-    <span
-      onClick={() => setEditing(true)}
-      title={isNew ? "Planner-typed description (not in master). Click to edit." : "Click to edit description"}
-      style={{
-        cursor: "pointer",
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        maxWidth: "100%",
-        overflow: "hidden",
-        whiteSpace: "nowrap",
-        color: isNew ? PAL.yellow : (value ? PAL.textDim : PAL.textMuted),
-        fontStyle: value ? "normal" : "italic",
-      }}
-    >
-      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-        {value || "Click to add…"}
-      </span>
-      {isNew && (
-        <span style={{ background: PAL.yellow, color: "#000", borderRadius: 3, padding: "0 4px", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>NEW</span>
+      >
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontStyle: value ? "normal" : "italic" }}>
+          {value || "Click to add…"}
+        </span>
+        {isNew && (
+          <span style={{ background: PAL.yellow, color: "#000", borderRadius: 3, padding: "0 4px", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>NEW</span>
+        )}
+        <span style={{ color: PAL.textMuted, fontSize: 9 }}>▾</span>
+      </button>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 4px)",
+            left: 0,
+            zIndex: 60,
+            background: PAL.panel,
+            border: `1px solid ${PAL.border}`,
+            borderRadius: 8,
+            minWidth: 280,
+            maxHeight: 360,
+            overflowY: "auto",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+          }}
+        >
+          <div style={{ padding: 8, borderBottom: `1px solid ${PAL.borderFaint}`, position: "sticky", top: 0, background: PAL.panel }}>
+            <input
+              autoFocus
+              type="text"
+              placeholder="Type to search or add new description…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && queryIsNew) { e.preventDefault(); void commit(queryTrim); }
+              }}
+              style={{ ...S.input, width: "100%" }}
+            />
+            <div style={{ marginTop: 4, fontSize: 10, color: PAL.textMuted, lineHeight: 1.4 }}>
+              {knownDescriptions.length === 0
+                ? "No descriptions yet — type one to add a NEW description."
+                : "Pick any description used elsewhere, or type a new one (flagged NEW until the master catches up)."}
+            </div>
+          </div>
+          {value && (
+            <div
+              role="option"
+              tabIndex={0}
+              onMouseDown={(e) => { e.preventDefault(); void commit(""); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(""); } }}
+              style={{
+                padding: "8px 12px",
+                cursor: "pointer",
+                fontSize: 12,
+                color: PAL.textMuted,
+                fontStyle: "italic",
+                borderBottom: `1px solid ${PAL.borderFaint}`,
+              }}
+              title="Clear the override and revert to the master style description (if any)."
+            >
+              Clear description
+            </div>
+          )}
+          {filtered.length === 0 && !queryIsNew && (
+            <div style={{ padding: 12, color: PAL.textMuted, fontSize: 12 }}>No matches</div>
+          )}
+          {filtered.map((d) => {
+            const optionIsNew = !!masterDescriptionsLower && !masterDescriptionsLower.has(d.toLowerCase());
+            return (
+              <div
+                key={d}
+                role="option"
+                tabIndex={0}
+                onMouseDown={(e) => { e.preventDefault(); void commit(d); }}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(d); } }}
+                style={{
+                  padding: "8px 12px",
+                  cursor: "pointer",
+                  fontSize: 13,
+                  color: d === value ? PAL.accent : (optionIsNew ? PAL.yellow : PAL.text),
+                  background: d === value ? `${PAL.accent}11` : (optionIsNew ? `${PAL.yellow}11` : undefined),
+                  fontWeight: d === value ? 600 : undefined,
+                  borderBottom: `1px solid ${PAL.borderFaint}`,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d}</span>
+                {optionIsNew && (
+                  <span style={{ background: PAL.yellow, color: "#000", borderRadius: 3, padding: "0 4px", fontSize: 9, fontWeight: 700 }}>NEW</span>
+                )}
+              </div>
+            );
+          })}
+          {queryIsNew && (
+            <div
+              role="option"
+              tabIndex={0}
+              onMouseDown={(e) => { e.preventDefault(); void commit(queryTrim); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(queryTrim); } }}
+              style={{
+                padding: "10px 12px",
+                cursor: "pointer",
+                fontSize: 13,
+                color: PAL.yellow,
+                background: `${PAL.yellow}11`,
+                borderTop: filtered.length > 0 ? `1px solid ${PAL.borderFaint}` : undefined,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+              title="This description isn't in any master row — flagged NEW until the master catches up."
+            >
+              <span>Add as NEW description:</span>
+              <strong style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{queryTrim}</strong>
+              <span style={{ background: PAL.yellow, color: "#000", borderRadius: 3, padding: "0 4px", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>NEW</span>
+            </div>
+          )}
+        </div>
       )}
-    </span>
+    </div>
   );
 }
 
@@ -3000,15 +3183,20 @@ function TbdDescriptionCell({
 // insert + row reassignment. Falls through silently when no
 // onAddNew is wired (the cell stays read-only-with-search).
 function TbdCustomerCell({
-  value, isSupplyOnly, isNewCustomer, customers, onSave, onAddNew,
+  value, isSupplyOnly, isNewCustomer, customers, newCustomerIds, onSave, onAddNew,
 }: {
   value: string;
   isSupplyOnly: boolean;
-  // Orange NEW badge when this customer was created during the
-  // current session via "Add as NEW customer". Cleared on page
-  // refresh once the customer is just another master entry.
+  // Orange NEW badge when this customer was created via the
+  // planning-app "Add as NEW customer" flow (persists in DB via
+  // external_refs.planning_added until something else populates
+  // upstream identifiers).
   isNewCustomer: boolean;
   customers: Array<{ id: string; name: string }>;
+  // Set of customer IDs that should show a NEW badge in the
+  // dropdown list — same flag as isNewCustomer but applied to
+  // every option, not just the chosen one.
+  newCustomerIds?: Set<string>;
   onSave: (customerId: string, customerName: string) => Promise<void>;
   onAddNew?: (customerName: string) => Promise<void>;
 }) {
@@ -3126,26 +3314,35 @@ function TbdCustomerCell({
           {filtered.length === 0 && !queryIsNew && (
             <div style={{ padding: 12, color: PAL.textMuted, fontSize: 12 }}>No matches</div>
           )}
-          {filtered.map((c) => (
-            <div
-              key={c.id}
-              role="option"
-              tabIndex={0}
-              onClick={() => commit(c.id, c.name)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(c.id, c.name); } }}
-              style={{
-                padding: "8px 12px",
-                cursor: "pointer",
-                fontSize: 13,
-                color: c.name === value ? PAL.accent : PAL.text,
-                background: c.name === value ? `${PAL.accent}11` : undefined,
-                fontWeight: c.name === value ? 600 : undefined,
-                borderBottom: `1px solid ${PAL.borderFaint}`,
-              }}
-            >
-              {c.name}
-            </div>
-          ))}
+          {filtered.map((c) => {
+            const optionIsNew = !!newCustomerIds?.has(c.id);
+            return (
+              <div
+                key={c.id}
+                role="option"
+                tabIndex={0}
+                onClick={() => commit(c.id, c.name)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(c.id, c.name); } }}
+                style={{
+                  padding: "8px 12px",
+                  cursor: "pointer",
+                  fontSize: 13,
+                  color: c.name === value ? PAL.accent : (optionIsNew ? PAL.yellow : PAL.text),
+                  background: c.name === value ? `${PAL.accent}11` : (optionIsNew ? `${PAL.yellow}11` : undefined),
+                  fontWeight: c.name === value ? 600 : undefined,
+                  borderBottom: `1px solid ${PAL.borderFaint}`,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <span style={{ flex: 1 }}>{c.name}</span>
+                {optionIsNew && (
+                  <span style={{ background: PAL.yellow, color: "#000", borderRadius: 3, padding: "0 4px", fontSize: 9, fontWeight: 700 }}>NEW</span>
+                )}
+              </div>
+            );
+          })}
           {queryIsNew && (
             <div
               role="option"
@@ -3187,7 +3384,7 @@ function TbdCustomerCell({
 // flag, surfaces an orange "NEW" badge, and stays until the master
 // catches up.
 function TbdColorCell({
-  value, isNewColor, isNewForStyle, knownColors, allKnownColorsLower, onSave,
+  value, isNewColor, isNewForStyle, knownColors, allKnownColorsLower, masterColorsLower, onSave,
 }: {
   value: string;
   // Truly new — color isn't in the item master at all. Orange badge.
@@ -3198,6 +3395,11 @@ function TbdColorCell({
   isNewForStyle: boolean;
   knownColors: string[];
   allKnownColorsLower: Set<string>;
+  // Master-known colors (lowercased). Used to flag dropdown options
+  // with the orange NEW badge when they're not in the master —
+  // lets the planner reuse a color they typed earlier on a
+  // different row without re-typing it as new.
+  masterColorsLower?: Set<string>;
   onSave: (color: string, isNew: boolean) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -3334,26 +3536,43 @@ function TbdColorCell({
           {filtered.length === 0 && !queryIsNew && (
             <div style={{ padding: 12, color: PAL.textMuted, fontSize: 12 }}>No matches</div>
           )}
-          {filtered.map((c) => (
-            <div
-              key={c}
-              role="option"
-              tabIndex={0}
-              onClick={() => commit(c, false)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(c, false); } }}
-              style={{
-                padding: "8px 12px",
-                cursor: "pointer",
-                fontSize: 13,
-                color: c === value ? PAL.accent : PAL.text,
-                background: c === value ? `${PAL.accent}11` : undefined,
-                fontWeight: c === value ? 600 : undefined,
-                borderBottom: `1px solid ${PAL.borderFaint}`,
-              }}
-            >
-              {c}
-            </div>
-          ))}
+          {filtered.map((c) => {
+            const cLower = c.toLowerCase();
+            const optionIsNew = c !== "TBD"
+              && cLower !== "tbd"
+              && !!masterColorsLower
+              && !masterColorsLower.has(cLower);
+            // Picking an existing planner-typed color should keep
+            // the NEW flag set (so the row's badge stays accurate
+            // until the master picks up the color).
+            const commitIsNew = optionIsNew;
+            return (
+              <div
+                key={c}
+                role="option"
+                tabIndex={0}
+                onClick={() => commit(c, commitIsNew)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(c, commitIsNew); } }}
+                style={{
+                  padding: "8px 12px",
+                  cursor: "pointer",
+                  fontSize: 13,
+                  color: c === value ? PAL.accent : (optionIsNew ? PAL.yellow : PAL.text),
+                  background: c === value ? `${PAL.accent}11` : (optionIsNew ? `${PAL.yellow}11` : undefined),
+                  fontWeight: c === value ? 600 : undefined,
+                  borderBottom: `1px solid ${PAL.borderFaint}`,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <span style={{ flex: 1 }}>{c}</span>
+                {optionIsNew && (
+                  <span style={{ background: PAL.yellow, color: "#000", borderRadius: 3, padding: "0 4px", fontSize: 9, fontWeight: 700 }}>NEW</span>
+                )}
+              </div>
+            );
+          })}
           {queryIsNew && (
             <div
               role="option"
