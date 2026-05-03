@@ -225,6 +225,19 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes, b
     aggregate_count: bucket.length,
     aggregate_key: bucketKey,
     aggregate_underlying_ids: bucket.map((r) => r.forecast_id),
+    // Per-row flags shouldn't leak from the bucket head into the
+    // aggregate header. Otherwise the rolled-up "BAGGY" sub-cat row
+    // inherits the first child's is_user_added (green left border)
+    // and is_new_color (orange NEW badge), then the grid renders
+    // the editable Tbd*Cell — which collides with the expand
+    // chevron and lets the planner rename a bucket header instead
+    // of a row. The orange/green "NEW STYLE" badge is derived at
+    // render time from masterStyles so suppressing it on the
+    // aggregate is handled by the !r.is_aggregate guards.
+    is_user_added: false,
+    is_new_color: false,
+    tbd_id: undefined,
+    tbd_updated_at: undefined,
     customer_id: modes.customers ? "*" : head.customer_id,
     customer_name: label,
     sku_style: style,

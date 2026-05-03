@@ -1958,7 +1958,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                       title={isExpanded ? "Collapse" : "Drill into this row"}
                     >▶</span>
                   )}
-                  {r.is_tbd && r.is_user_added && onUpdateTbdStyle && masterStyles ? (() => {
+                  {!r.is_aggregate && r.is_tbd && r.is_user_added && onUpdateTbdStyle && masterStyles ? (() => {
                     // Editable style picker only on planner-added rows.
                     // Auto-synthesized per-style and per-period catch-
                     // all rows show the style as plain text — they're
@@ -1991,7 +1991,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   {r.sku_description ?? "—"}
                 </td>
                 <td style={{ ...S.td, color: PAL.textDim, padding: r.is_tbd ? "0 4px" : undefined, ...colHide("color") }} onClick={(e) => { if (r.is_tbd) e.stopPropagation(); }}>
-                  {r.is_tbd && onUpdateTbdColor ? (() => {
+                  {!r.is_aggregate && r.is_tbd && onUpdateTbdColor ? (() => {
                     // Derive the green "NEW for this style" flag at
                     // render time. The orange "NEW COLOR" flag
                     // (is_new_color) is set + persisted at save
@@ -2027,7 +2027,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   )}
                 </td>
                 <td style={{ ...S.td, padding: r.is_tbd ? "0 4px" : undefined, ...colHide("customer") }} onClick={(e) => { if (r.is_tbd) e.stopPropagation(); }}>
-                  {r.is_tbd && onUpdateTbdCustomer ? (
+                  {!r.is_aggregate && r.is_tbd && onUpdateTbdCustomer ? (
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                       <TbdCustomerCell
                         value={r.customer_name}

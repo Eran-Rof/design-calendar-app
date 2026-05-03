@@ -756,11 +756,20 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
   // literal "TBD" placeholder from "+ Add row" — still renders).
   type StylePeriod = { style_code: string; period_code: string; period_start: string; period_end: string };
   const stylePeriods = new Map<string, StylePeriod>();
+  // Track which (style, period) entries came from real forecast
+  // demand vs only from a tbdRows entry. The synthetic catch-all
+  // line should NOT be auto-emitted for tbd-only entries with no
+  // (Supply Only) supply row — otherwise a planner who typed a
+  // brand-new style on a real customer ends up with a phantom
+  // "(Supply Only) TBD" row at the top of the grid carrying no
+  // category, no qty, just clutter.
+  const forecastStylePeriods = new Set<string>();
   for (const f of forecast) {
     const item = itemById.get(f.sku_id);
     const style = item?.style_code;
     if (!style) continue;
     const k = `${style}|${f.period_start}`;
+    forecastStylePeriods.add(k);
     if (!stylePeriods.has(k)) {
       stylePeriods.set(k, { style_code: style, period_code: f.period_code, period_start: f.period_start, period_end: f.period_end });
     }
@@ -815,6 +824,20 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     const groupName = readGroupName(styleFb) ?? null;
     const subCategoryName = readSubCategoryName(styleFb) ?? null;
     const gender = readGender(styleFb) ?? null;
+    // Skip the synthetic supply line when:
+    //   1. The style only exists because a planner-added TBD row
+    //      references it (no forecast demand), AND
+    //   2. There's no real supplyTbd row for it, AND
+    //   3. It's not the canonical "TBD" catch-all (which we always
+    //      render as the multi-style routing target).
+    // Without this, a brand-new style typed via "Add as NEW style"
+    // produces a phantom (Supply Only) TBD row at the top of the
+    // grid with empty category/sub-cat — pure clutter, since the
+    // planner's actual rows are emitted in the per-row loop below.
+    const isTbdCatchAll = sp.style_code === "TBD";
+    const hasForecast = forecastStylePeriods.has(key);
+    const skipSynthetic = !supplyTbd && !hasForecast && !isTbdCatchAll;
+    if (!skipSynthetic) {
     // Synthetic (Supply Only) TBD line — always rendered; overlays
     // persisted qty/cost when supplyTbd exists.
     tbdGridRows.push({
@@ -878,6 +901,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       action_reason: null,
       notes: supplyTbd?.notes ?? null,
     });
+    }
     // Any other persisted TBD rows for this (style, period) (e.g.
     // a planner reassigned color/customer in a future phase) become
     // their own grid lines so the planner can see and edit them.

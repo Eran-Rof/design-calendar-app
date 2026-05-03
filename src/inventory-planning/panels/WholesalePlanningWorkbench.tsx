@@ -688,6 +688,13 @@ export default function WholesalePlanningWorkbench() {
   ): IpPlanningGridRow | null {
     for (const r of rows) {
       if (!r.is_tbd) continue;
+      // Auto-synthesized catch-all rows (is_user_added=false) are
+      // standing infrastructure — every "TBD/TBD/(Supply Only)" slot
+      // exists by default, so a planner doing "+ Add row" with the
+      // default style/color/customer would otherwise always get a
+      // false-positive conflict against the auto catch-all. Only
+      // count user-added rows as real duplicates.
+      if (!r.is_user_added) continue;
       if (excludeForecastId && r.forecast_id === excludeForecastId) continue;
       if ((r.sku_style ?? "") !== style) continue;
       if ((r.sku_color ?? "") !== color) continue;
