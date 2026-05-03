@@ -65,6 +65,23 @@ describe("filter + collapse: multi-store store filter", () => {
     expect(collapsed.find(r => r.master_category === "SHORTS")!.onHand).toBe(12); // 5 + 7
   });
 
+  it("expanded children are ordered ROF first, then ROF ECOM, then PT — so 'All stores' page 0 still shows ROF data", () => {
+    // Mimic the user-reported behavior: when input order puts non-ROF
+    // first, ROF children get pushed past page 0 and the user sees only
+    // non-ROF rows (which often have no PO data). Sort children by store
+    // priority so ROF surfaces first.
+    const inputOrder: ATSRow[] = [
+      row({ sku: "ECOM-A", store: "ROF ECOM", master_category: "JACKETS", onHand: 100, onPO: 0   }),
+      row({ sku: "ECOM-B", store: "ROF ECOM", master_category: "JACKETS", onHand: 50,  onPO: 0   }),
+      row({ sku: "PT-X",   store: "PT",       master_category: "JACKETS", onHand: 30,  onPO: 0   }),
+      row({ sku: "ROF-1",  store: "ROF",      master_category: "JACKETS", onHand: 0,   onPO: 9000 }),
+      row({ sku: "ROF-2",  store: "ROF",      master_category: "JACKETS", onHand: 0,   onPO: 5000 }),
+    ];
+    const collapsed = collapseRows(inputOrder, "category", new Set(["category:JACKETS"]));
+    const children = collapsed.filter(r => !r.__collapsed);
+    expect(children.map(r => r.sku)).toEqual(["ROF-1", "ROF-2", "ECOM-A", "ECOM-B", "PT-X"]);
+  });
+
   it("expand reveals only filtered children (multi-store)", () => {
     const f = filterRows(data, { ...filtDefaults, storeFilter: ["ROF", "PT"] });
     const collapsed = collapseRows(sortRows(f, null, "asc"), "category", new Set(["category:DENIM"]));

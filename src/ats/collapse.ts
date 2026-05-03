@@ -95,8 +95,28 @@ export function collapseRows(rows: ATSRow[], level: CollapseLevel, expandedGroup
     const g = groups.get(key)!;
     out.push(buildAggregate(level, key, g.parts, g.children));
     if (expandedGroups.has(key)) {
-      for (const c of g.children) out.push(c);
+      // Order children within an expanded group: ROF first, then ROF ECOM,
+      // then PT, then anything else — alphabetical fallback. Without this,
+      // children appear in input order which can push ROF (the bulk of PO
+      // data) onto a later page, making expanded groups look empty of PO
+      // data when "All stores" is selected. Within each store, preserve
+      // the upstream sort order via a stable sort.
+      const sorted = stableSortByStore(g.children);
+      for (const c of sorted) out.push(c);
     }
   }
   return out;
+}
+
+function storeRank(s: string | null | undefined): number {
+  const k = (s ?? "ROF").trim().toUpperCase();
+  if (k === "ROF") return 0;
+  if (k === "ROF ECOM") return 1;
+  if (k === "PT") return 2;
+  return 100;
+}
+function stableSortByStore(rows: ATSRow[]): ATSRow[] {
+  // Stable sort by storeRank; ties keep their input order. Native
+  // Array.sort is stable in modern JS engines.
+  return [...rows].sort((a, b) => storeRank(a.store) - storeRank(b.store));
 }
