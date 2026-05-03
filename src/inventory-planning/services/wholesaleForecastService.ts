@@ -30,6 +30,7 @@ import {
   recommendForRow,
 } from "../compute";
 import { wholesaleRepo, BuildCancelledError } from "./wholesalePlanningRepository";
+import { resolveVariantColor } from "./resolveVariantColor";
 
 export { BuildCancelledError };
 
@@ -606,24 +607,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     };
     const styleFallback = item?.style_code ? masterByStyle.get(item.style_code) : null;
     const description = item?.description ?? styleFallback?.description ?? null;
-    // Color resolution: variant's own color > parsed from sku_code suffix
-    // (e.g. "RYB0412-NAVY" → "NAVY") > null. We deliberately do NOT fall
-    // back to styleFallback.color: the style-master row carries one
-    // arbitrary variant's color, so falling back tags every color-less
-    // variant with the same wrong color (e.g. all 31 RYB0412 variants
-    // becoming "Grey") and corrupts the All-sizes/All-colors collapse
-    // buckets.
-    const parseColorFromSkuCode = (sku: string | null | undefined, style: string | null | undefined): string | null => {
-      if (!sku || !style) return null;
-      const prefix = `${style}-`;
-      if (!sku.startsWith(prefix)) return null;
-      const rest = sku.slice(prefix.length).trim();
-      return rest.length > 0 ? rest : null;
-    };
-    const colorDisplay =
-      (item?.color && item.color.trim().length > 0 ? item.color : null)
-      ?? parseColorFromSkuCode(item?.sku_code, item?.style_code)
-      ?? null;
+    const colorDisplay = resolveVariantColor(item?.color, item?.sku_code, item?.style_code);
     // Resolved master cost: variant.unit_cost > variant avg_cost > any
     // sibling-variant unit_cost in the same style > any sibling avg_cost.
     // Then PO weighted avg, then ATS snapshot avg.
