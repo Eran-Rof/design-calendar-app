@@ -84,11 +84,27 @@ export function MultiSelectDropdown({
     else onChange([...selected, value]);
   }
 
+  // Grace-delay state for closeOnMouseLeave so cursor flicker
+  // (crossing from trigger to popover, brief slips outside the
+  // bounding box) doesn't dismiss the popover before the planner
+  // can pick. The delay is cancelled on mouse re-entry.
+  const closeTimer = useRef<number | null>(null);
+  function cancelCloseTimer() {
+    if (closeTimer.current != null) {
+      window.clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  }
+  useEffect(() => () => cancelCloseTimer(), []);
   return (
     <div
       ref={ref}
       style={{ position: "relative", display: "inline-block" }}
-      onMouseLeave={closeOnMouseLeave ? () => setOpen(false) : undefined}
+      onMouseEnter={closeOnMouseLeave ? cancelCloseTimer : undefined}
+      onMouseLeave={closeOnMouseLeave ? () => {
+        cancelCloseTimer();
+        closeTimer.current = window.setTimeout(() => setOpen(false), 600);
+      } : undefined}
     >
       <button
         type="button"

@@ -260,24 +260,57 @@ function distributeAcrossChildren(
 }
 
 export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdRow, onDeleteTbdRow, onUndoLastAdd, lastAddedTbdMarker, masterColorsLower, masterStyles, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
-  const [search, setSearch] = useState("");
+  // Persisted filter state — survives reloads + builds. Stored under
+  // ws_planning_filter_<key> in localStorage so the planner doesn't
+  // re-pick what they had narrowed to. Lazy useState initializer
+  // pulls the saved value on mount; a useEffect below mirrors any
+  // change back to localStorage.
+  const loadFilter = (key: string): string[] => {
+    try {
+      const raw = localStorage.getItem(`ws_planning_filter_${key}`);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+    } catch { return []; }
+  };
+  const loadString = (key: string): string => {
+    try { return localStorage.getItem(`ws_planning_filter_${key}`) ?? ""; }
+    catch { return ""; }
+  };
+
+  const [search, setSearch] = useState<string>(() => loadString("search"));
   // Multi-select filters — empty array = no filter (all rows pass).
   // Each non-empty array narrows to rows whose value is in the set.
-  const [filterCustomer, setFilterCustomer] = useState<string[]>([]);
-  const [filterCategory, setFilterCategory] = useState<string[]>([]);
-  const [filterSubCat, setFilterSubCat] = useState<string[]>([]);
-  const [filterGender, setFilterGender] = useState<string[]>([]);
-  const [filterAction, setFilterAction] = useState<string[]>([]);
-  const [filterConfidence, setFilterConfidence] = useState<string[]>([]);
+  const [filterCustomer, setFilterCustomer] = useState<string[]>(() => loadFilter("customer"));
+  const [filterCategory, setFilterCategory] = useState<string[]>(() => loadFilter("category"));
+  const [filterSubCat, setFilterSubCat] = useState<string[]>(() => loadFilter("subCat"));
+  const [filterGender, setFilterGender] = useState<string[]>(() => loadFilter("gender"));
+  const [filterAction, setFilterAction] = useState<string[]>(() => loadFilter("action"));
+  const [filterConfidence, setFilterConfidence] = useState<string[]>(() => loadFilter("confidence"));
   // Master toggle — owned by the workbench. When OFF, system forecast
   // suggestions are blanked out so the planner drives demand purely
   // through Buyer / Override edits.
   const setSystemSuggestionsOnPersistent = onSystemSuggestionsChange;
-  const [filterMethod, setFilterMethod] = useState<string[]>([]);
+  const [filterMethod, setFilterMethod] = useState<string[]>(() => loadFilter("method"));
   const [sortKey, setSortKey] = useState<SortKey>("period");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const [filterPeriod, setFilterPeriod] = useState<string[]>([]);
-  const [filterStyle, setFilterStyle] = useState<string[]>([]);
+  const [filterPeriod, setFilterPeriod] = useState<string[]>(() => loadFilter("period"));
+  const [filterStyle, setFilterStyle] = useState<string[]>(() => loadFilter("style"));
+
+  // Mirror filter state back to localStorage on every change so the
+  // selections survive reloads and follow-up builds. Storing each
+  // filter under its own key keeps writes cheap (only the changed
+  // filter touches localStorage).
+  useEffect(() => { try { localStorage.setItem("ws_planning_filter_search", search); } catch { /* ignore */ } }, [search]);
+  useEffect(() => { try { localStorage.setItem("ws_planning_filter_customer", JSON.stringify(filterCustomer)); } catch { /* ignore */ } }, [filterCustomer]);
+  useEffect(() => { try { localStorage.setItem("ws_planning_filter_category", JSON.stringify(filterCategory)); } catch { /* ignore */ } }, [filterCategory]);
+  useEffect(() => { try { localStorage.setItem("ws_planning_filter_subCat", JSON.stringify(filterSubCat)); } catch { /* ignore */ } }, [filterSubCat]);
+  useEffect(() => { try { localStorage.setItem("ws_planning_filter_gender", JSON.stringify(filterGender)); } catch { /* ignore */ } }, [filterGender]);
+  useEffect(() => { try { localStorage.setItem("ws_planning_filter_action", JSON.stringify(filterAction)); } catch { /* ignore */ } }, [filterAction]);
+  useEffect(() => { try { localStorage.setItem("ws_planning_filter_confidence", JSON.stringify(filterConfidence)); } catch { /* ignore */ } }, [filterConfidence]);
+  useEffect(() => { try { localStorage.setItem("ws_planning_filter_method", JSON.stringify(filterMethod)); } catch { /* ignore */ } }, [filterMethod]);
+  useEffect(() => { try { localStorage.setItem("ws_planning_filter_period", JSON.stringify(filterPeriod)); } catch { /* ignore */ } }, [filterPeriod]);
+  useEffect(() => { try { localStorage.setItem("ws_planning_filter_style", JSON.stringify(filterStyle)); } catch { /* ignore */ } }, [filterStyle]);
   // Inline "+ Add row" form state. Closed by default; opens above
   // the table to the planner's chosen cat/sub-cat/customer + first
   // period of the run. Style + color default to "TBD". Persists
@@ -300,11 +333,35 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   // Collapse / aggregation modes — independent toggles that change the
   // grouping key of the displayed rows. When any are on, grids show
   // aggregate rows and inline editing is disabled on those rows.
-  const [collapse, setCollapse] = useState<CollapseModes>({
-    customers: false, colors: false, category: false, subCat: false,
-    customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false,
-    allCustomersPerStyle: false,
+  const [collapse, setCollapse] = useState<CollapseModes>(() => {
+    try {
+      const raw = localStorage.getItem("ws_planning_collapse");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          return {
+            customers: !!parsed.customers,
+            colors: !!parsed.colors,
+            category: !!parsed.category,
+            subCat: !!parsed.subCat,
+            customerAllStyles: !!parsed.customerAllStyles,
+            allCustomersPerCategory: !!parsed.allCustomersPerCategory,
+            allCustomersPerSubCat: !!parsed.allCustomersPerSubCat,
+            allCustomersPerStyle: !!parsed.allCustomersPerStyle,
+          };
+        }
+      }
+    } catch { /* ignore */ }
+    return {
+      customers: false, colors: false, category: false, subCat: false,
+      customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false,
+      allCustomersPerStyle: false,
+    };
   });
+  useEffect(() => {
+    try { localStorage.setItem("ws_planning_collapse", JSON.stringify(collapse)); }
+    catch { /* ignore */ }
+  }, [collapse]);
   const anyCollapsed =
     collapse.customers || collapse.colors || collapse.category || collapse.subCat ||
     collapse.customerAllStyles || collapse.allCustomersPerCategory || collapse.allCustomersPerSubCat ||
