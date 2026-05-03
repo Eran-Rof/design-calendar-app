@@ -550,19 +550,23 @@ export const wholesaleRepo = {
       unit_cost?: number | null;
       notes?: string | null;
     },
-  ): Promise<void> {
+  ): Promise<{ id: string }> {
     const isUserAdded = args.is_user_added ?? false;
     // User-added rows: plain INSERT. They never merge with anything.
     if (isUserAdded) {
-      await withRetryOn57014("upsertTbdRow.insert", () => sbPost(
+      const created = await withRetryOn57014("upsertTbdRow.insert", () => sbPost<{ id: string }>(
         "ip_wholesale_forecast_tbd",
         [{ planning_run_id: planningRunId, ...args }],
-        "return=minimal",
+        "return=representation",
       ));
-      return;
+      if (!created[0]?.id) throw new Error("upsertTbdRow: no id returned");
+      return { id: created[0].id };
     }
-    // Auto path: SELECT first, then PATCH or INSERT.
-    await withRetryOn57014("upsertTbdRow.findOrInsert", async () => {
+    // Auto path: SELECT first, then PATCH or INSERT. Returns the id
+    // so the caller can stamp it into local state immediately —
+    // future edits then use patchTbdRow directly without going
+    // through this select/insert dance.
+    return withRetryOn57014("upsertTbdRow.findOrInsert", async () => {
       const findUrl = `ip_wholesale_forecast_tbd?planning_run_id=eq.${planningRunId}`
         + `&style_code=eq.${encodeURIComponent(args.style_code)}`
         + `&color=eq.${encodeURIComponent(args.color)}`
@@ -573,25 +577,27 @@ export const wholesaleRepo = {
       const existing = await sbGet<{ id: string }>(findUrl);
       if (existing[0]?.id) {
         await sbPatch(`ip_wholesale_forecast_tbd?id=eq.${existing[0].id}`, args);
-        return;
+        return { id: existing[0].id };
       }
       // Insert. If a concurrent writer beat us to it (23505), fall
       // back to PATCH after a re-fetch.
       try {
-        await sbPost(
+        const created = await sbPost<{ id: string }>(
           "ip_wholesale_forecast_tbd",
           [{ planning_run_id: planningRunId, ...args }],
-          "return=minimal",
+          "return=representation",
         );
+        if (!created[0]?.id) throw new Error("upsertTbdRow: no id returned from insert");
+        return { id: created[0].id };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (!msg.includes("23505")) throw e;
         const refetch = await sbGet<{ id: string }>(findUrl);
         if (refetch[0]?.id) {
           await sbPatch(`ip_wholesale_forecast_tbd?id=eq.${refetch[0].id}`, args);
-        } else {
-          throw e;
+          return { id: refetch[0].id };
         }
+        throw e;
       }
     });
   },

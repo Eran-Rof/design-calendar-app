@@ -987,7 +987,7 @@ export default function WholesalePlanningWorkbench() {
     if (row.tbd_id) {
       await wholesaleRepo.patchTbdRow(row.tbd_id, fields);
     } else {
-      await wholesaleRepo.upsertTbdRow(selectedRun.id, {
+      const { id: newTbdId } = await wholesaleRepo.upsertTbdRow(selectedRun.id, {
         style_code: row.sku_style,
         color: fields.color ?? row.sku_color ?? "TBD",
         is_new_color: fields.is_new_color ?? false,
@@ -1004,6 +1004,18 @@ export default function WholesalePlanningWorkbench() {
         unit_cost: fields.unit_cost ?? row.unit_cost,
         notes: fields.notes ?? row.notes ?? null,
       });
+      // Stamp the returned id into local state so the row's
+      // forecast_id and tbd_id reflect the persisted record.
+      // Future edits hit the simpler patchTbdRow path, and the
+      // optimistic state survives whatever the next rebuild
+      // returns (the rebuild will produce a row with the same
+      // tbd_id, so setRows-replacing won't re-introduce a
+      // synthetic).
+      const newForecastId = `tbd:${newTbdId}`;
+      setRows((prev) => prev.map((r) => r.forecast_id === row.forecast_id
+        ? { ...r, tbd_id: newTbdId, forecast_id: newForecastId }
+        : r,
+      ));
     }
   }
 
