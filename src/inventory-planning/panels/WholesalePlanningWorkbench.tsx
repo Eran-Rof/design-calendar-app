@@ -655,6 +655,13 @@ export default function WholesalePlanningWorkbench() {
     period_code: string;
   } | null>(null);
 
+  // Customers the planner created during this session via the TBD
+  // "Add as NEW customer" path. Drives the orange NEW badge on the
+  // customer cell so freshly-added customers stand out until the
+  // page is refreshed (at which point the customer is just another
+  // master entry and the flag clears naturally).
+  const [newCustomerIds, setNewCustomerIds] = useState<Set<string>>(() => new Set());
+
   // Args shape for the "+ Add row" handler. Kept as a named type
   // so the inline form's onAddTbdRow callback can reuse it.
   type AddTbdRowArgs = {
@@ -1171,7 +1178,13 @@ export default function WholesalePlanningWorkbench() {
     });
     try {
       await saveTbdField(row, { customer_id: customerId });
-      setToast({ text: `Reassigned to ${customerName}`, kind: "success" });
+      const siblings = siblingTbdRowsForNewStyle(row);
+      if (siblings.length > 0) {
+        await Promise.all(siblings.map((s) => wholesaleRepo.patchTbdRow(s.tbd_id!, { customer_id: customerId })
+          .catch((e) => console.warn(`[planning] customer propagate ${s.period_code} failed`, e))));
+      }
+      const cloneSuffix = siblings.length > 0 ? ` · cloned to ${siblings.length} sibling period${siblings.length === 1 ? "" : "s"}` : "";
+      setToast({ text: `Reassigned to ${customerName}${cloneSuffix}`, kind: "success" });
       const seq = ++rebuildSeq.current;
       void (async () => {
         try {
@@ -1194,6 +1207,23 @@ export default function WholesalePlanningWorkbench() {
   // the caller's judgement (the grid checks the typed string against
   // the style's known colors before calling). Optimistic UI updates
   // the local row immediately; rebuild reconciles on success.
+  // Helper: collect every TBD row sharing the same style_code as
+  // the input row, EXCEPT the row itself. Used by the new-style
+  // propagation paths below — when the planner edits color /
+  // description / customer on a master-unknown style, the change
+  // applies to every period the new style spans.
+  function siblingTbdRowsForNewStyle(row: IpPlanningGridRow): IpPlanningGridRow[] {
+    const styleLower = (row.sku_style ?? "").toLowerCase();
+    if (!styleLower || styleLower === "tbd") return [];
+    if (masterStyles.some((m) => m.style_code.toLowerCase() === styleLower)) return [];
+    return rows.filter((r) =>
+      r.is_tbd
+      && r.tbd_id
+      && r.forecast_id !== row.forecast_id
+      && (r.sku_style ?? "").toLowerCase() === styleLower,
+    );
+  }
+
   // Free-text description on TBD rows. Stored in the row's `notes`
   // column (no dedicated description column on ip_wholesale_forecast_tbd
   // — notes serves dual purpose for TBD rows). Empty string clears
@@ -1205,7 +1235,21 @@ export default function WholesalePlanningWorkbench() {
     setRows((prev) => prev.map((r) => r.forecast_id === fid ? { ...r, sku_description: next } : r));
     try {
       await saveTbdField(row, { notes: next });
-      setToast({ text: next ? `Description set` : `Description cleared`, kind: "success" });
+      // Propagate to every sibling-period row when the row's style
+      // is master-unknown — the planner expects the description
+      // they typed for "RYB9999" to apply across all the periods
+      // their new style spans.
+      const siblings = siblingTbdRowsForNewStyle(row);
+      if (siblings.length > 0) {
+        await Promise.all(siblings.map((s) => wholesaleRepo.patchTbdRow(s.tbd_id!, { notes: next })
+          .catch((e) => console.warn(`[planning] description propagate ${s.period_code} failed`, e))));
+      }
+      setToast({
+        text: next
+          ? (siblings.length > 0 ? `Description set · cloned to ${siblings.length} sibling period${siblings.length === 1 ? "" : "s"}` : `Description set`)
+          : `Description cleared`,
+        kind: "success",
+      });
       const seq = ++rebuildSeq.current;
       void (async () => {
         try {
@@ -1240,6 +1284,13 @@ export default function WholesalePlanningWorkbench() {
         return [...prev, { id: created.id, name: created.name } as IpCustomer]
           .sort((a, b) => a.name.localeCompare(b.name));
       });
+      // Flag the customer as NEW for this session so the customer
+      // cell badges them. Cleared on page refresh.
+      setNewCustomerIds((prev) => {
+        const next = new Set(prev);
+        next.add(created.id);
+        return next;
+      });
       await saveTbdCustomer(row, created.id, created.name);
       setToast({ text: `Added new customer "${created.name}" and assigned the row to them`, kind: "success" });
     } catch (e) {
@@ -1270,7 +1321,18 @@ export default function WholesalePlanningWorkbench() {
     });
     try {
       await saveTbdField(row, { color, is_new_color: isNewColor });
-      setToast({ text: isNewColor ? `Set color to "${color}" (NEW — not in master yet)` : `Set color to "${color}"`, kind: "success" });
+      const siblings = siblingTbdRowsForNewStyle(row);
+      if (siblings.length > 0) {
+        await Promise.all(siblings.map((s) => wholesaleRepo.patchTbdRow(s.tbd_id!, { color, is_new_color: isNewColor })
+          .catch((e) => console.warn(`[planning] color propagate ${s.period_code} failed`, e))));
+      }
+      const cloneSuffix = siblings.length > 0 ? ` · cloned to ${siblings.length} sibling period${siblings.length === 1 ? "" : "s"}` : "";
+      setToast({
+        text: isNewColor
+          ? `Set color to "${color}" (NEW — not in master yet)${cloneSuffix}`
+          : `Set color to "${color}"${cloneSuffix}`,
+        kind: "success",
+      });
       const seq = ++rebuildSeq.current;
       void (async () => {
         try {
@@ -1834,6 +1896,7 @@ export default function WholesalePlanningWorkbench() {
               onUpdateTbdStyle={saveTbdStyle}
               onUpdateTbdCustomer={saveTbdCustomer}
               onAddTbdNewCustomer={saveTbdNewCustomer}
+              newCustomerIds={newCustomerIds}
               onUpdateTbdDescription={saveTbdDescription}
               onAddTbdRow={addTbdRow}
               onDeleteTbdRow={deleteTbdRow}

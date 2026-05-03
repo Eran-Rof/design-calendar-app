@@ -222,6 +222,11 @@ export interface IpPlanningGridRow {
   // an arbitrary user-added row instead of the one they touched
   // most recently last session.
   tbd_updated_at?: string;
+  // True when the displayed description came from the planner's
+  // override (the TBD row's `notes` column) rather than the master
+  // style's description. Drives the orange NEW badge in the
+  // description cell — same affordance pattern as is_new_color.
+  is_new_description?: boolean;
   // The underlying forecast_id list for an aggregate row. The Buy cell
   // uses these to distribute a typed total across the constituent
   // forecast rows proportional to final_forecast_qty.

@@ -64,6 +64,10 @@ export interface WholesalePlanningGridProps {
   // the TBD customer picker. The workbench refreshes the local
   // customers list so the new entry shows up in every dropdown.
   onAddTbdNewCustomer?: (row: IpPlanningGridRow, customerName: string) => Promise<void>;
+  // Customer IDs flagged NEW for this session — shown with an
+  // orange NEW badge on the customer cell. Populated by the
+  // workbench when the planner uses "Add as NEW customer".
+  newCustomerIds?: Set<string>;
   // Free-text description on TBD rows. Backed by the `notes`
   // column on ip_wholesale_forecast_tbd; passing an empty string
   // clears the override so the master's description (if any)
@@ -274,7 +278,7 @@ function distributeAcrossChildren(
   return out;
 }
 
-export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onUndoLastAdd, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onUndoLastAdd, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   // Persisted filter state — survives reloads + builds. Stored under
   // ws_planning_filter_<key> in localStorage so the planner doesn't
   // re-pick what they had narrowed to. Lazy useState initializer
@@ -2036,6 +2040,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   {!r.is_aggregate && r.is_tbd && r.is_user_added && onUpdateTbdDescription ? (
                     <TbdDescriptionCell
                       value={r.sku_description ?? ""}
+                      isNew={!!r.is_new_description}
                       onSave={(d) => onUpdateTbdDescription(r, d)}
                     />
                   ) : (
@@ -2084,6 +2089,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                       <TbdCustomerCell
                         value={r.customer_name}
                         isSupplyOnly={r.customer_name === "(Supply Only)"}
+                        isNewCustomer={!!(r.customer_id && newCustomerIds?.has(r.customer_id))}
                         customers={customers}
                         onSave={(id, name) => onUpdateTbdCustomer(r, id, name)}
                         onAddNew={onAddTbdNewCustomer ? (name) => onAddTbdNewCustomer(r, name) : undefined}
@@ -2906,9 +2912,14 @@ function TbdStyleCell({
 // canonical master list, so every typed value is fine. Same hover
 // affordances as the other Tbd cells.
 function TbdDescriptionCell({
-  value, onSave,
+  value, isNew, onSave,
 }: {
   value: string;
+  // Orange NEW badge when the description is a planner override
+  // (the row's `notes` column is non-empty) rather than coming
+  // from the master style's description. Same affordance pattern
+  // as the color / style cells.
+  isNew: boolean;
   onSave: (description: string) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
@@ -2954,19 +2965,25 @@ function TbdDescriptionCell({
   return (
     <span
       onClick={() => setEditing(true)}
-      title="Click to edit description"
+      title={isNew ? "Planner-typed description (not in master). Click to edit." : "Click to edit description"}
       style={{
         cursor: "pointer",
-        display: "inline-block",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
         maxWidth: "100%",
         overflow: "hidden",
-        textOverflow: "ellipsis",
         whiteSpace: "nowrap",
-        color: value ? PAL.textDim : PAL.textMuted,
+        color: isNew ? PAL.yellow : (value ? PAL.textDim : PAL.textMuted),
         fontStyle: value ? "normal" : "italic",
       }}
     >
-      {value || "Click to add…"}
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+        {value || "Click to add…"}
+      </span>
+      {isNew && (
+        <span style={{ background: PAL.yellow, color: "#000", borderRadius: 3, padding: "0 4px", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>NEW</span>
+      )}
     </span>
   );
 }
@@ -2983,10 +3000,14 @@ function TbdDescriptionCell({
 // insert + row reassignment. Falls through silently when no
 // onAddNew is wired (the cell stays read-only-with-search).
 function TbdCustomerCell({
-  value, isSupplyOnly, customers, onSave, onAddNew,
+  value, isSupplyOnly, isNewCustomer, customers, onSave, onAddNew,
 }: {
   value: string;
   isSupplyOnly: boolean;
+  // Orange NEW badge when this customer was created during the
+  // current session via "Add as NEW customer". Cleared on page
+  // refresh once the customer is just another master entry.
+  isNewCustomer: boolean;
   customers: Array<{ id: string; name: string }>;
   onSave: (customerId: string, customerName: string) => Promise<void>;
   onAddNew?: (customerName: string) => Promise<void>;
@@ -3048,9 +3069,11 @@ function TbdCustomerCell({
         type="button"
         onClick={() => setOpen((v) => !v)}
         style={{
-          background: isSupplyOnly ? `${PAL.textMuted}22` : "transparent",
-          border: `1px solid ${isSupplyOnly ? PAL.textMuted : PAL.border}`,
-          color: isSupplyOnly ? PAL.textMuted : PAL.text,
+          background: isSupplyOnly
+            ? `${PAL.textMuted}22`
+            : (isNewCustomer ? `${PAL.yellow}22` : "transparent"),
+          border: `1px solid ${isNewCustomer ? PAL.yellow : (isSupplyOnly ? PAL.textMuted : PAL.border)}`,
+          color: isNewCustomer ? PAL.yellow : (isSupplyOnly ? PAL.textMuted : PAL.text),
           borderRadius: 6,
           padding: "3px 8px",
           fontSize: 12,
@@ -3061,9 +3084,14 @@ function TbdCustomerCell({
           alignItems: "center",
           gap: 6,
         }}
-        title={isSupplyOnly ? "Click to reassign this stock buy to a real customer" : "Click to change customer"}
+        title={isNewCustomer
+          ? "Customer added during this session — orange tag clears on page refresh."
+          : (isSupplyOnly ? "Click to reassign this stock buy to a real customer" : "Click to change customer")}
       >
         <span>{value}</span>
+        {isNewCustomer && (
+          <span style={{ background: PAL.yellow, color: "#000", borderRadius: 3, padding: "0 4px", fontSize: 9, fontWeight: 700 }}>NEW</span>
+        )}
         <span style={{ color: PAL.textMuted, fontSize: 9 }}>▾</span>
       </button>
       {open && (
