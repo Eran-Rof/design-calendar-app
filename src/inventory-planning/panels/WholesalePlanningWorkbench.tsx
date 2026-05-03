@@ -655,12 +655,22 @@ export default function WholesalePlanningWorkbench() {
     period_code: string;
   } | null>(null);
 
-  // Customers the planner created during this session via the TBD
-  // "Add as NEW customer" path. Drives the orange NEW badge on the
-  // customer cell so freshly-added customers stand out until the
-  // page is refreshed (at which point the customer is just another
-  // master entry and the flag clears naturally).
+  // Customers tagged as planner-added — surfaces the orange NEW
+  // badge on the customer cell. Seeded from the master each load
+  // (any customer whose external_refs.planning_added === "1" stays
+  // NEW across sessions until something else populates real
+  // upstream identifiers — same lifecycle as the style/color NEW
+  // flags, which clear once the master "catches up").
   const [newCustomerIds, setNewCustomerIds] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    setNewCustomerIds((prev) => {
+      const next = new Set(prev);
+      for (const c of customers) {
+        if (c.external_refs?.planning_added === "1") next.add(c.id);
+      }
+      return next;
+    });
+  }, [customers]);
 
   // App-themed confirm modal. Used by saveTbdColor / saveTbdDescription
   // / saveTbdCustomer when a change on a master-unknown style row

@@ -166,9 +166,13 @@ export const wholesaleRepo = {
     let code = baseCode || "CUSTOMER";
     for (let attempt = 0; attempt < 4; attempt++) {
       try {
+        // Stamp external_refs.planning_added so the orange NEW
+        // badge persists across reloads — until something else
+        // (Xoro / Shopify integration, manual master refresh)
+        // populates the customer's real upstream identifiers.
         const created = await withRetryOn57014("insertCustomer", () => sbPost<{ id: string; name: string }>(
           "ip_customer_master",
-          [{ customer_code: code, name: trimmed }],
+          [{ customer_code: code, name: trimmed, external_refs: { planning_added: "1" } }],
           "return=representation",
         ));
         if (created[0]?.id) return { id: created[0].id, name: created[0].name };
