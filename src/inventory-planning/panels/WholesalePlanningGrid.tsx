@@ -965,24 +965,34 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     }
     // Pin the just-added TBD row to the top so the planner sees it
     // immediately even when the natural sort would slot it deep in
-    // the list. The marker is a 4-tuple identity so it survives the
-    // synthetic forecast_id refresh on rebuild.
+    // the list, OR when the toolbar filters would otherwise hide
+    // it. The marker is a 4-tuple identity so it survives the
+    // synthetic forecast_id refresh on rebuild. If the row isn't in
+    // the filtered set, we still surface it — the workbench fires a
+    // separate toast warning so the planner knows their filters
+    // would have hidden it.
     if (lastAddedTbdMarker) {
-      const matchIdx = base.findIndex((r) =>
+      const matches = (r: IpPlanningGridRow) =>
         r.is_tbd
         && r.is_user_added
         && (r.sku_style ?? "") === lastAddedTbdMarker.style_code
         && (r.sku_color ?? "") === lastAddedTbdMarker.color
         && r.customer_id === lastAddedTbdMarker.customer_id
-        && r.period_code === lastAddedTbdMarker.period_code,
-      );
+        && r.period_code === lastAddedTbdMarker.period_code;
+      const matchIdx = base.findIndex(matches);
       if (matchIdx > 0) {
         const pinned = base[matchIdx];
         base = [pinned, ...base.slice(0, matchIdx), ...base.slice(matchIdx + 1)];
+      } else if (matchIdx === -1) {
+        // Filter excluded the row — find it in the unfiltered prop
+        // and prepend so the planner can still see (and edit) what
+        // they just added without manually clearing filters.
+        const fromAllRows = rows.find(matches);
+        if (fromAllRows) base = [fromAllRows, ...base];
       }
     }
     return { displayRows: base, childIds: ids };
-  }, [filtered, expandedAggs, mutedById, skuPeriodMath, lastAddedTbdMarker]);
+  }, [filtered, expandedAggs, mutedById, skuPeriodMath, lastAddedTbdMarker, rows]);
 
   const totals = useMemo(() => {
     const t = { final: 0, shortage: 0, excess: 0, actions: {} as Record<string, number>, methods: {} as Record<string, number> };
