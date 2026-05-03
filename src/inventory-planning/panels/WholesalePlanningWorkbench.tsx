@@ -46,7 +46,20 @@ type TabKey = "grid" | "requests";
 
 export default function WholesalePlanningWorkbench() {
   const [runs, setRuns] = useState<IpPlanningRun[]>([]);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  // Persisted selection — keeps the planner on the same run across
+  // logout/login. Without this, login auto-selects the "active" run,
+  // which strands edits made on a non-active run (e.g. a NEW style
+  // saved on a draft run looks "lost" because the grid rebuilds
+  // against a different run on relogin).
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(() => {
+    try { return localStorage.getItem("ws_planning_selected_run_id"); } catch { return null; }
+  });
+  useEffect(() => {
+    try {
+      if (selectedRunId) localStorage.setItem("ws_planning_selected_run_id", selectedRunId);
+      else localStorage.removeItem("ws_planning_selected_run_id");
+    } catch { /* ignore */ }
+  }, [selectedRunId]);
   const [customers, setCustomers] = useState<IpCustomer[]>([]);
   const [categories, setCategories] = useState<IpCategory[]>([]);
   const [items, setItems] = useState<IpItem[]>([]);
@@ -165,7 +178,11 @@ export default function WholesalePlanningWorkbench() {
     setMasterStyles(mst);
     setMasterColorsByStyleLower(mcs);
     setRuns(rs);
-    if (!selectedRunId) {
+    // If the persisted run no longer exists in the fetched list,
+    // drop the stale id so the fallback runs and the planner doesn't
+    // get stuck pointing at a missing run.
+    const stillExists = selectedRunId ? rs.some((r) => r.id === selectedRunId) : false;
+    if (!selectedRunId || !stillExists) {
       const active = rs.find((r) => r.status === "active") ?? rs[0] ?? null;
       if (active) setSelectedRunId(active.id);
     }

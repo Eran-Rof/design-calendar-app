@@ -815,8 +815,13 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     }
     if (userAddedInBucket.length > 0) {
       const seqOf = (r: IpPlanningGridRow) => rowEditOrderRef.current.get(r.forecast_id) ?? 0;
-      const sorted = userAddedInBucket.slice().sort((a, b) => seqOf(b) - seqOf(a));
-      if (seqOf(sorted[0]) > 0) {
+      const updatedAt = (r: IpPlanningGridRow) => r.tbd_updated_at ?? "";
+      const sorted = userAddedInBucket.slice().sort((a, b) => {
+        const sd = seqOf(b) - seqOf(a);
+        if (sd !== 0) return sd;
+        return updatedAt(b).localeCompare(updatedAt(a));
+      });
+      if (seqOf(sorted[0]) > 0 || updatedAt(sorted[0]) !== "") {
         tbdRow = sorted[0];
       } else if (lastAddedTbdMarker) {
         const recent = userAddedInBucket.find((r) =>
@@ -1002,9 +1007,20 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       if (child?.is_tbd && child.is_user_added) userAddedInBucket.push(child);
     }
     if (userAddedInBucket.length > 0) {
+      // Two-tier recency: in-session bumps from rowEditOrderRef
+      // win first (covers same-session adds + edits including new
+      // styles), then DB updated_at (durable across logout/login),
+      // then lastAddedTbdMarker (legacy add-only signal). This is
+      // why a NEW-style row gets picked even after a fresh login —
+      // the row's tbd_updated_at is later than any sibling's.
       const seqOf = (r: IpPlanningGridRow) => rowEditOrderRef.current.get(r.forecast_id) ?? 0;
-      const sorted = userAddedInBucket.slice().sort((a, b) => seqOf(b) - seqOf(a));
-      if (seqOf(sorted[0]) > 0) {
+      const updatedAt = (r: IpPlanningGridRow) => r.tbd_updated_at ?? "";
+      const sorted = userAddedInBucket.slice().sort((a, b) => {
+        const sd = seqOf(b) - seqOf(a);
+        if (sd !== 0) return sd;
+        return updatedAt(b).localeCompare(updatedAt(a));
+      });
+      if (seqOf(sorted[0]) > 0 || updatedAt(sorted[0]) !== "") {
         tbdRow = sorted[0];
       } else if (lastAddedTbdMarker) {
         const recent = userAddedInBucket.find((r) =>

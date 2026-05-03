@@ -214,6 +214,14 @@ export interface IpPlanningGridRow {
   // changes don't auto-collapse expanded rows when the synthetic
   // forecast_id (which embeds bucket.length) changes shape.
   aggregate_key?: string;
+  // Server-side updated_at on the underlying TBD row (only set on
+  // is_tbd rows). Lets the routing logic prefer the most recently
+  // edited TBD row in a bucket EVEN AFTER LOGOUT/LOGIN, when the
+  // client's in-memory rowEditOrderRef is empty. Without this, a
+  // freshly-logged-in planner's first aggregate edit could land on
+  // an arbitrary user-added row instead of the one they touched
+  // most recently last session.
+  tbd_updated_at?: string;
   // The underlying forecast_id list for an aggregate row. The Buy cell
   // uses these to distribute a typed total across the constituent
   // forecast rows proportional to final_forecast_qty.

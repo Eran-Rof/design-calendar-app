@@ -190,7 +190,24 @@ export function MultiSelectDropdown({
               placeholder={placeholder}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onFocus={(e) => { if (e.currentTarget.value) e.currentTarget.select(); }}
+              onFocus={(e) => {
+                if (e.currentTarget.value) {
+                  // Defer past the caret placement so the selection
+                  // sticks. Calling select() synchronously inside
+                  // onFocus is clobbered by the browser's
+                  // pre-mouseup caret repositioning in Chrome /
+                  // Edge (Win 10), which is why the prior bare
+                  // .select() looked dead.
+                  const el = e.currentTarget;
+                  setTimeout(() => el.select(), 0);
+                }
+              }}
+              onClick={(e) => {
+                if (e.currentTarget.value) {
+                  const el = e.currentTarget;
+                  setTimeout(() => el.select(), 0);
+                }
+              }}
               style={{ ...S.input, flex: 1, minWidth: 0 }}
             />
             {query && (
