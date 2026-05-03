@@ -1192,6 +1192,16 @@ export default function WholesalePlanningWorkbench() {
       }
     ));
     try {
+      // TBD rows have synthetic forecast_ids ("tbd:<uuid>") that
+      // can't be cast to uuid by PostgREST. The system override is
+      // stored on the regular forecast table only — for TBD rows,
+      // there's no equivalent column, so we just no-op the network
+      // write and let the optimistic update stand. The grid reflects
+      // the typed value; rebuild reconciles.
+      if (row.is_tbd) {
+        setToast({ text: "System override doesn't apply to TBD stock-buy rows.", kind: "error" });
+        return;
+      }
       await wholesaleRepo.patchForecastSystemOverride(forecastId, qty, final, userName);
       setToast({
         text: qty != null
@@ -1216,15 +1226,25 @@ export default function WholesalePlanningWorkbench() {
   }
 
   async function saveUnitCost(forecastId: string, cost: number | null) {
+    const target = rows.find((r) => r.forecast_id === forecastId) ?? null;
     setRows((prev) => prev.map((r) => {
       if (r.forecast_id !== forecastId) return r;
       const effective = cost ?? r.avg_cost ?? r.ats_avg_cost ?? r.item_cost ?? null;
       return { ...r, unit_cost_override: cost, unit_cost: effective };
     }));
     try {
-      await wholesaleRepo.patchForecastUnitCostOverride(forecastId, cost);
+      // TBD rows live in ip_wholesale_forecast_tbd, not the regular
+      // forecast table. Their forecast_id has a "tbd:" prefix that
+      // PostgREST can't cast to uuid for the regular forecast PATCH;
+      // route through saveTbdField (patchTbdRow under the hood) so
+      // the PATCH hits the right table with the right id.
+      if (target?.is_tbd) {
+        await saveTbdField(target, { unit_cost: cost });
+      } else {
+        await wholesaleRepo.patchForecastUnitCostOverride(forecastId, cost);
+      }
       setToast({
-        text: cost != null ? `Unit cost set to $${cost.toFixed(2)}` : "Unit cost reset to auto-fill",
+        text: cost != null ? `Unit cost set to $${cost.toFixed(2)}${target?.is_tbd ? " (TBD stock buy)" : ""}` : "Unit cost reset to auto-fill",
         kind: "success",
       });
     } catch (e) {
