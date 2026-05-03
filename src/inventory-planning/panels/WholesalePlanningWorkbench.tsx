@@ -614,6 +614,19 @@ export default function WholesalePlanningWorkbench() {
   // row all snap immediately. Downstream periods of the same SKU still
   // wait for the background grid rebuild to pick up rolling supply,
   // but the cell the planner is looking at updates without lag.
+  // Marker for the row the planner just added — used by the grid to
+  // pin that row to the top of displayRows for the rest of the
+  // session (or until they add another / hard-refresh). Null when no
+  // recent add. Identified by the (style, color, customer, period)
+  // tuple since the synthetic forecast_id round-trips through a
+  // rebuild.
+  const [lastAddedTbdMarker, setLastAddedTbdMarker] = useState<{
+    style_code: string;
+    color: string;
+    customer_id: string;
+    period_code: string;
+  } | null>(null);
+
   // Add a fresh (Supply Only) TBD stock-buy row from the inline +Add
   // form. Style + color default to "TBD"; the planner picks
   // category, sub-cat, customer, and period in the form. The new row
@@ -645,14 +658,47 @@ export default function WholesalePlanningWorkbench() {
         period_start: sample.period_start,
         period_end: sample.period_end,
       });
-      setToast({ text: `Added TBD row · ${args.period_code}`, kind: "success" });
+      // Pin the freshly-added row to the top of the grid so the
+      // planner sees it immediately even if it would otherwise sort
+      // far down the list.
+      setLastAddedTbdMarker({
+        style_code: args.style_code,
+        color: args.color,
+        customer_id: args.customer_id,
+        period_code: args.period_code,
+      });
+      // Warn when the current grid filters don't match the new row's
+      // dimensions — it'd otherwise vanish from the visible set and
+      // the planner would think the save failed.
+      const mismatches: string[] = [];
+      if (buildFilter?.customer_id && buildFilter.customer_id !== args.customer_id) mismatches.push("customer");
+      if (buildFilter?.style_code && buildFilter.style_code !== args.style_code) mismatches.push("style");
+      if (buildFilter?.group_name && buildFilter.group_name !== (args.group_name ?? null)) mismatches.push("category");
+      if (buildFilter?.sub_category_name && buildFilter.sub_category_name !== (args.sub_category_name ?? null)) mismatches.push("sub cat");
+      if (buildFilter?.period_code && buildFilter.period_code !== args.period_code) mismatches.push("period");
+      if (mismatches.length > 0) {
+        setToast({ text: `⚠ Added — but won't show under current filters: ${mismatches.join(", ")} mismatch. Clear those filters to see it.`, kind: "error" });
+      } else {
+        setToast({ text: `Added TBD row · ${args.period_code}`, kind: "success" });
+      }
+      // Fire-and-forget the grid rebuild so the Save button releases
+      // as soon as the upsert returns. Without this the form sat on
+      // "Saving…" for as long as the rebuild took (10+ parallel
+      // fetches; multi-second on a large run). The new row appears
+      // when the rebuild lands a moment later — guarded by
+      // rebuildSeq so a slow rebuild can't overwrite a faster one.
       const seq = ++rebuildSeq.current;
-      const refreshed = await buildGridRows(selectedRun);
-      if (seq !== rebuildSeq.current) return;
-      setRows(refreshed);
+      void (async () => {
+        try {
+          const refreshed = await buildGridRows(selectedRun);
+          if (seq !== rebuildSeq.current) return;
+          setRows(refreshed);
+        } catch { /* swallow — next user action will refresh */ }
+      })();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setToast({ text: `Add row failed — ${msg}`, kind: "error" });
+      throw e;
     }
   }
 
@@ -1271,6 +1317,7 @@ export default function WholesalePlanningWorkbench() {
               onUpdateTbdCustomer={saveTbdCustomer}
               onAddTbdRow={addTbdRow}
               onDeleteTbdRow={deleteTbdRow}
+              lastAddedTbdMarker={lastAddedTbdMarker}
               masterColorsLower={masterColorsLower}
               masterStyles={masterStyles}
               onFiltersChange={setBuildFilter}

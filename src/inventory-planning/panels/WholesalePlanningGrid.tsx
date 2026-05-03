@@ -27,6 +27,15 @@ export interface WholesalePlanningGridProps {
   // Delete a planner-added TBD row. Hidden on auto-synthesized rows
   // (the workbench enforces this server-side too).
   onDeleteTbdRow?: (row: IpPlanningGridRow) => Promise<void>;
+  // Identity of the row the planner just added — pinned to the top
+  // of displayRows so it's the first thing they see. Cleared from
+  // the workbench if/when the planner does another add.
+  lastAddedTbdMarker?: {
+    style_code: string;
+    color: string;
+    customer_id: string;
+    period_code: string;
+  } | null;
   // Master color set (lowercased, run-wide) used by the TBD color
   // picker to decide whether a typed color is "new". Sourced from
   // ip_item_master directly so colors on master entries with no
@@ -246,7 +255,7 @@ function distributeAcrossChildren(
   return out;
 }
 
-export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdRow, onDeleteTbdRow, masterColorsLower, masterStyles, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdRow, onDeleteTbdRow, lastAddedTbdMarker, masterColorsLower, masterStyles, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
   // Multi-select filters — empty array = no filter (all rows pass).
   // Each non-empty array narrows to rows whose value is in the set.
@@ -929,30 +938,51 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   // children — drilling down is purely visual.
   const { displayRows, childIds } = useMemo(() => {
     const ids = new Set<string>();
-    if (expandedAggs.size === 0) return { displayRows: filtered, childIds: ids };
-    const out: typeof filtered = [];
-    for (const r of filtered) {
-      out.push(r);
-      if (!r.is_aggregate) continue;
-      if (!expandedAggs.has(r.forecast_id)) continue;
-      const underlying = r.aggregate_underlying_ids ?? [];
-      for (const fid of underlying) {
-        const child = mutedById.get(fid);
-        if (!child) continue;
-        const m = skuPeriodMath.get(`${child.sku_id}:${child.period_start}`);
-        const projected = m
-          ? { on_hand_qty: m.onHand, available_supply_qty: m.ats, projected_excess_qty: m.excess, projected_shortage_qty: m.shortage }
-          : {};
-        // Keep the real forecast_id so edit handlers continue to save
-        // against the underlying row. _displayKey gives React a unique
-        // key when the same child appears under multiple expanded
-        // parents (rare but possible across collapse modes).
-        out.push({ ...child, ...projected, _displayKey: `child:${r.forecast_id}:${fid}` } as IpPlanningGridRow & { _displayKey: string });
-        ids.add(fid);
+    let base: typeof filtered = filtered;
+    if (expandedAggs.size > 0) {
+      const out: typeof filtered = [];
+      for (const r of filtered) {
+        out.push(r);
+        if (!r.is_aggregate) continue;
+        if (!expandedAggs.has(r.forecast_id)) continue;
+        const underlying = r.aggregate_underlying_ids ?? [];
+        for (const fid of underlying) {
+          const child = mutedById.get(fid);
+          if (!child) continue;
+          const m = skuPeriodMath.get(`${child.sku_id}:${child.period_start}`);
+          const projected = m
+            ? { on_hand_qty: m.onHand, available_supply_qty: m.ats, projected_excess_qty: m.excess, projected_shortage_qty: m.shortage }
+            : {};
+          // Keep the real forecast_id so edit handlers continue to save
+          // against the underlying row. _displayKey gives React a unique
+          // key when the same child appears under multiple expanded
+          // parents (rare but possible across collapse modes).
+          out.push({ ...child, ...projected, _displayKey: `child:${r.forecast_id}:${fid}` } as IpPlanningGridRow & { _displayKey: string });
+          ids.add(fid);
+        }
+      }
+      base = out;
+    }
+    // Pin the just-added TBD row to the top so the planner sees it
+    // immediately even when the natural sort would slot it deep in
+    // the list. The marker is a 4-tuple identity so it survives the
+    // synthetic forecast_id refresh on rebuild.
+    if (lastAddedTbdMarker) {
+      const matchIdx = base.findIndex((r) =>
+        r.is_tbd
+        && r.is_user_added
+        && (r.sku_style ?? "") === lastAddedTbdMarker.style_code
+        && (r.sku_color ?? "") === lastAddedTbdMarker.color
+        && r.customer_id === lastAddedTbdMarker.customer_id
+        && r.period_code === lastAddedTbdMarker.period_code,
+      );
+      if (matchIdx > 0) {
+        const pinned = base[matchIdx];
+        base = [pinned, ...base.slice(0, matchIdx), ...base.slice(matchIdx + 1)];
       }
     }
-    return { displayRows: out, childIds: ids };
-  }, [filtered, expandedAggs, mutedById, skuPeriodMath]);
+    return { displayRows: base, childIds: ids };
+  }, [filtered, expandedAggs, mutedById, skuPeriodMath, lastAddedTbdMarker]);
 
   const totals = useMemo(() => {
     const t = { final: 0, shortage: 0, excess: 0, actions: {} as Record<string, number>, methods: {} as Record<string, number> };
@@ -1123,11 +1153,17 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
             <button
               type="button"
               onClick={() => {
+                // Seed the draft from the toolbar filters so the
+                // planner doesn't have to re-pick what they already
+                // narrowed to. Multi-selects collapse to the first
+                // value; period defaults to the toolbar's filter
+                // when one is selected, otherwise the first period
+                // of the run.
                 setAddRowDraft({
-                  customer_id: "",
-                  group_name: null,
-                  sub_category_name: null,
-                  period_code: periods[0] ?? "",
+                  customer_id: filterCustomer[0] ?? "",
+                  group_name: filterCategory[0] ?? null,
+                  sub_category_name: filterSubCat[0] ?? null,
+                  period_code: filterPeriod[0] ?? periods[0] ?? "",
                 });
                 setAddRowOpen(true);
               }}
