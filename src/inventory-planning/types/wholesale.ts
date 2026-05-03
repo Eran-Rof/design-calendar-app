@@ -208,6 +208,12 @@ export interface IpPlanningGridRow {
   // inline-edit cells and renders read-only tallies.
   is_aggregate?: boolean;
   aggregate_count?: number;
+  // Stable bucket grain key for aggregate rows — derived from the
+  // grouping key in aggregateRows (e.g. "cust-all:CUST123:2026-04").
+  // Used as the expansion identity in the grid so search/filter/page
+  // changes don't auto-collapse expanded rows when the synthetic
+  // forecast_id (which embeds bucket.length) changes shape.
+  aggregate_key?: string;
   // The underlying forecast_id list for an aggregate row. The Buy cell
   // uses these to distribute a typed total across the constituent
   // forecast rows proportional to final_forecast_qty.

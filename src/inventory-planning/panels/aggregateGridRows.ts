@@ -90,13 +90,13 @@ export function aggregateRows(rows: IpPlanningGridRow[], modes: CollapseModes): 
     bucket.push(r);
   }
   const out: IpPlanningGridRow[] = [];
-  for (const [, bucket] of groups) {
-    out.push(bucket.length === 1 ? bucket[0] : mergeBucket(bucket, modes));
+  for (const [bucketKey, bucket] of groups) {
+    out.push(bucket.length === 1 ? bucket[0] : mergeBucket(bucket, modes, bucketKey));
   }
   return out;
 }
 
-export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): IpPlanningGridRow {
+export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes, bucketKey?: string): IpPlanningGridRow {
   const head = bucket[0];
   const sum = (k: keyof IpPlanningGridRow) =>
     bucket.reduce((a, r) => a + ((r[k] as number) ?? 0), 0);
@@ -223,6 +223,7 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): 
     forecast_id: `agg:${head.forecast_id}:${bucket.length}`,
     is_aggregate: true,
     aggregate_count: bucket.length,
+    aggregate_key: bucketKey,
     aggregate_underlying_ids: bucket.map((r) => r.forecast_id),
     customer_id: modes.customers ? "*" : head.customer_id,
     customer_name: label,

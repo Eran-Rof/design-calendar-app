@@ -156,16 +156,59 @@ export function MultiSelectDropdown({
             gap: 6,
             alignItems: "center",
           }}>
-            <input
-              autoFocus
-              type="text"
-              placeholder={placeholder}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onFocus={(e) => { if (e.currentTarget.value) e.currentTarget.select(); }}
-              onClick={(e) => { if (e.currentTarget.value) e.currentTarget.select(); }}
-              style={{ ...S.input, flex: 1, minWidth: 0 }}
-            />
+            <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+              <input
+                autoFocus
+                type="text"
+                placeholder={placeholder}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onFocus={(e) => {
+                  // Defer select() past the click's mouseup so the
+                  // browser doesn't reposition the caret and wipe the
+                  // selection. Microtask via rAF is reliable across
+                  // browsers; the bare select() in onClick was being
+                  // clobbered by the trailing mouseup.
+                  if (e.currentTarget.value) {
+                    const el = e.currentTarget;
+                    requestAnimationFrame(() => el.select());
+                  }
+                }}
+                onMouseUp={(e) => {
+                  // On a re-click (input already focused), onFocus
+                  // doesn't fire — re-select here so a second click
+                  // also highlights the whole text.
+                  if (e.currentTarget.value && document.activeElement === e.currentTarget) {
+                    const el = e.currentTarget;
+                    requestAnimationFrame(() => el.select());
+                  }
+                }}
+                style={{ ...S.input, width: "100%", paddingRight: query ? 26 : undefined }}
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  title="Clear search"
+                  aria-label="Clear search"
+                  style={{
+                    position: "absolute",
+                    right: 4,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    width: 18,
+                    height: 18,
+                    padding: 0,
+                    border: "none",
+                    background: "transparent",
+                    color: PAL.textMuted,
+                    cursor: "pointer",
+                    fontSize: 14,
+                    lineHeight: 1,
+                  }}
+                >×</button>
+              )}
+            </div>
             {selected.length > 0 && (
               <button
                 type="button"

@@ -401,9 +401,11 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       return next;
     });
   };
-  // Drop expansion state any time the collapse modes change — the
-  // aggregate forecast_ids regenerate, so old IDs would dangle.
-  useEffect(() => { setExpandedAggs(new Set()); }, [collapse]);
+  // No reset on collapse change: expandedAggs is keyed on
+  // aggregate_key (e.g. "cat:Knits:2026-04"), which is mode-prefixed
+  // and stable across filter/search/page changes. Switching modes
+  // changes the prefix, so stale keys from a prior mode are simply
+  // never matched — they linger in the Set but cause no UI effect.
   // Reset to first page whenever filters/sort change so the user doesn't
   // wonder why an empty page is showing.
   useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterAction, filterConfidence, filterMethod, sortKey, sortDir, pageSize, collapse, systemSuggestionsOn]);
@@ -1153,7 +1155,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     if (pinnedChildFid) {
       for (const r of filtered) {
         if (r.is_aggregate && r.aggregate_underlying_ids?.includes(pinnedChildFid)) {
-          effectiveExpanded.add(r.forecast_id);
+          effectiveExpanded.add(r.aggregate_key ?? r.forecast_id);
         }
       }
     }
@@ -1162,7 +1164,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       for (const r of filtered) {
         out.push(r);
         if (!r.is_aggregate) continue;
-        if (!effectiveExpanded.has(r.forecast_id)) continue;
+        if (!effectiveExpanded.has(r.aggregate_key ?? r.forecast_id)) continue;
         const underlying = r.aggregate_underlying_ids ?? [];
         // Walk children in order — but if the just-added row is one
         // of them, lift it to the front so it appears as the first
@@ -1607,7 +1609,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           <tbody>
             {displayRows.slice(page * pageSize, (page + 1) * pageSize).map((r) => {
               const isChild = childIds.has(r.forecast_id);
-              const isExpanded = r.is_aggregate && expandedAggs.has(r.forecast_id);
+              const aggExpansionKey = r.aggregate_key ?? r.forecast_id;
+              const isExpanded = r.is_aggregate && expandedAggs.has(aggExpansionKey);
               const rowKey = (r as IpPlanningGridRow & { _displayKey?: string })._displayKey ?? r.forecast_id;
               const aggBg = isExpanded
                 ? "rgba(96,165,250,0.10)"
@@ -1639,7 +1642,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent, paddingLeft: (isChild || r.is_user_added) ? 28 : undefined, ...colHide("style") }} onClick={(e) => { if (r.is_tbd) e.stopPropagation(); }}>
                   {r.is_aggregate && (
                     <span
-                      onClick={(e) => { e.stopPropagation(); toggleAggExpanded(r.forecast_id); }}
+                      onClick={(e) => { e.stopPropagation(); toggleAggExpanded(aggExpansionKey); }}
                       style={{ cursor: "pointer", display: "inline-block", width: 14, color: PAL.textMuted, userSelect: "none", transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}
                       title={isExpanded ? "Collapse" : "Drill into this row"}
                     >▶</span>
