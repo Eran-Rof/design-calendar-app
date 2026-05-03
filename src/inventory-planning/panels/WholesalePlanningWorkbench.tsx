@@ -668,11 +668,74 @@ export default function WholesalePlanningWorkbench() {
       // already-committed" check has no value to compare against.
       // If a duplicate causes confusion later, the row can be
       // deleted via the ✕ button.
-      await wholesaleRepo.insertTbdRow(selectedRun.id, {
+      const { id: newTbdId } = await wholesaleRepo.insertTbdRow(selectedRun.id, {
         ...args,
         period_start: sample.period_start,
         period_end: sample.period_end,
       });
+      // Optimistic insert: append the new row to local state right
+      // away so the grid renders it within the same React commit
+      // as the toast. Without this the planner sees "Added" then
+      // a blank gap until buildGridRows finishes (multi-second on
+      // a large run). buildGridRows produces the same forecast_id
+      // for the same tbd_id, so the rebuild's setRows reconciles
+      // cleanly — no flicker.
+      const cust = customers.find((c) => c.id === args.customer_id);
+      const optimisticRow: IpPlanningGridRow = {
+        forecast_id: `tbd:${newTbdId}`,
+        planning_run_id: selectedRun.id,
+        customer_id: args.customer_id,
+        customer_name: cust?.name ?? "(unknown customer)",
+        category_id: null,
+        category_name: null,
+        group_name: args.group_name,
+        sub_category_name: args.sub_category_name,
+        gender: null,
+        sku_id: `tbd:${args.style_code}`,
+        sku_code: `${args.style_code}-TBD`,
+        sku_description: null,
+        sku_style: args.style_code,
+        sku_color: args.color,
+        sku_color_inferred: false,
+        is_tbd: true,
+        is_new_color: args.is_new_color,
+        is_user_added: true,
+        tbd_id: newTbdId,
+        sku_size: null,
+        period_code: args.period_code,
+        period_start: sample.period_start,
+        period_end: sample.period_end,
+        historical_trailing_qty: 0,
+        system_forecast_qty: 0,
+        system_forecast_qty_original: 0,
+        system_forecast_qty_overridden_at: null,
+        system_forecast_qty_overridden_by: null,
+        buyer_request_qty: 0,
+        override_qty: 0,
+        final_forecast_qty: 0,
+        confidence_level: "estimate",
+        forecast_method: "zero_floor",
+        ly_reference_qty: null,
+        item_cost: null,
+        ats_avg_cost: null,
+        avg_cost: null,
+        unit_cost_override: null,
+        unit_cost: null,
+        planned_buy_qty: null,
+        on_hand_qty: 0,
+        on_so_qty: 0,
+        on_po_qty: 0,
+        receipts_due_qty: 0,
+        historical_receipts_qty: 0,
+        available_supply_qty: 0,
+        projected_shortage_qty: 0,
+        projected_excess_qty: 0,
+        recommended_action: "monitor",
+        recommended_qty: null,
+        action_reason: null,
+        notes: null,
+      };
+      setRows((prev) => [...prev, optimisticRow]);
       // Pin the freshly-added row to the top of the grid so the
       // planner sees it immediately even if it would otherwise sort
       // far down the list.
