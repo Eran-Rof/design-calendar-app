@@ -218,8 +218,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     { key: "category", label: "Category" },
     { key: "subCat", label: "Sub Cat" },
     { key: "style", label: "Style" },
-    { key: "color", label: "Color" },
     { key: "description", label: "Description" },
+    { key: "color", label: "Color" },
     { key: "customer", label: "Customer" },
     { key: "period", label: "Period" },
     { key: "histT3", label: "Hist T3" },
@@ -744,8 +744,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               <Th label="Category"    k="category"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("category")} />
               <Th label="Sub Cat"     k="subCat"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("subCat")} />
               <Th label="Style"       k="style"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("style")} />
-              <Th label="Color"       k="color"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("color")} />
               <Th label="Description" k="description" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("description")} />
+              <Th label="Color"       k="color"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("color")} />
               <Th label="Customer"    k="customer"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("customer")} />
               <Th label="Period"      k="period"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("period")} />
               <Th label="Hist T3"     k="histT3"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("histT3")} />
@@ -801,6 +801,9 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   )}
                   {r.sku_style ?? r.sku_code}
                 </td>
+                <td style={{ ...S.td, color: PAL.textDim, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", ...colHide("description") }} title={r.sku_description ?? ""}>
+                  {r.sku_description ?? "—"}
+                </td>
                 <td style={{ ...S.td, color: PAL.textDim, ...colHide("color") }}>
                   {r.sku_color ?? "—"}
                   {r.sku_color_inferred && (
@@ -809,9 +812,6 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                       title="Color inferred from sku_code suffix — variant master row has no color set. Populate items.color upstream to silence this hint."
                     >⚠</span>
                   )}
-                </td>
-                <td style={{ ...S.td, color: PAL.textDim, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", ...colHide("description") }} title={r.sku_description ?? ""}>
-                  {r.sku_description ?? "—"}
                 </td>
                 <td style={{ ...S.td, ...colHide("customer") }}>{r.customer_name}</td>
                 <td style={{ ...S.td, ...colHide("period") }}>{formatPeriodCode(r.period_code)}</td>
