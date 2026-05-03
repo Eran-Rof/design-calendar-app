@@ -406,6 +406,35 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   // and stable across filter/search/page changes. Switching modes
   // changes the prefix, so stale keys from a prior mode are simply
   // never matched — they linger in the Set but cause no UI effect.
+
+  // Edit-recency tracker for TBD rows, keyed by tbd_id (stable across
+  // rebuilds). Each "touch" — row added, or buyer/override qty saved
+  // via the aggregate path — bumps a monotonic counter. Used by
+  // saveAggBuyerOrOverride to sequentially reduce the most recently
+  // edited rows first when the planner types a smaller bucket total.
+  const tbdEditOrderRef = useRef<Map<string, number>>(new Map());
+  const tbdEditSeqRef = useRef<number>(0);
+  const bumpTbdEditOrder = (tbdId: string | undefined): void => {
+    if (!tbdId) return;
+    tbdEditSeqRef.current += 1;
+    tbdEditOrderRef.current.set(tbdId, tbdEditSeqRef.current);
+  };
+  // Mark the most recently added row as the most recently touched
+  // — covers the "or add" leg of the user's "last style that had a
+  // qty change OR add" sequencing rule.
+  useEffect(() => {
+    if (!lastAddedTbdMarker) return;
+    const match = rows.find((r) =>
+      r.is_tbd
+      && r.is_user_added
+      && (r.sku_style ?? "") === lastAddedTbdMarker.style_code
+      && (r.sku_color ?? "") === lastAddedTbdMarker.color
+      && r.customer_id === lastAddedTbdMarker.customer_id
+      && r.period_code === lastAddedTbdMarker.period_code,
+    );
+    if (match?.tbd_id) bumpTbdEditOrder(match.tbd_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastAddedTbdMarker]);
   // Reset to first page whenever filters/sort change so the user doesn't
   // wonder why an empty page is showing.
   useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterAction, filterConfidence, filterMethod, sortKey, sortDir, pageSize, collapse, systemSuggestionsOn]);
@@ -835,10 +864,77 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     allowNegative: boolean,
   ): Promise<void> {
     if (!r.is_aggregate || !r.aggregate_underlying_ids) {
+      // Single-row edit: bump edit-order if it's a TBD row so future
+      // bucket reductions know this row was the most recently
+      // touched.
+      if (r.is_tbd && r.tbd_id) bumpTbdEditOrder(r.tbd_id);
       await saver(r.forecast_id, newTotal);
       return;
     }
     const ids = r.aggregate_underlying_ids;
+    // Reduction case (newTotal < currentSum): walk the bucket's TBD
+    // rows in edit-recency order (most recently added/edited first)
+    // and reduce each to zero before moving to the next, until the
+    // delta is fully absorbed. Any leftover delta lands on the auto
+    // catch-all (Supply Only) TBD row. Matches the planner mental
+    // model: "I just added/edited row X, dropping the bucket total
+    // should peel back row X first, not chip a slice off some
+    // unrelated line."
+    const currentSum = (r[field] as number | undefined) ?? 0;
+    if (newTotal < currentSum) {
+      const tbdChildren: IpPlanningGridRow[] = [];
+      let missingChildren = 0;
+      for (const fid of ids) {
+        const child = mutedById.get(fid);
+        if (!child) { missingChildren++; continue; }
+        if (child.is_tbd) tbdChildren.push(child);
+      }
+      if (missingChildren > 0) {
+        console.warn(`[planning] aggregate ${field}: ${missingChildren} of ${ids.length} children missing from mutedById — view changed mid-edit. Try again.`);
+        return;
+      }
+      if (tbdChildren.length === 0) {
+        // No TBD rows in the bucket to drain — fall through to the
+        // routing-target path so the existing behavior covers
+        // non-TBD-only buckets.
+      } else {
+        // Sort: user-added first by edit recency desc; auto catch-
+        // all rows last (in any order). Rows with no entry in the
+        // edit-order map sort lowest within their group.
+        const seqOf = (row: IpPlanningGridRow) => row.tbd_id ? (tbdEditOrderRef.current.get(row.tbd_id) ?? 0) : 0;
+        tbdChildren.sort((a, b) => {
+          const aUser = a.is_user_added ? 1 : 0;
+          const bUser = b.is_user_added ? 1 : 0;
+          if (aUser !== bUser) return bUser - aUser;
+          return seqOf(b) - seqOf(a);
+        });
+        let remaining = currentSum - newTotal;
+        const updates: Array<{ row: IpPlanningGridRow; nextQty: number }> = [];
+        for (const child of tbdChildren) {
+          if (remaining <= 0) break;
+          const childQty = (child[field] as number | undefined) ?? 0;
+          if (childQty <= 0 && !allowNegative) continue;
+          const reduceBy = Math.min(childQty, remaining);
+          updates.push({ row: child, nextQty: childQty - reduceBy });
+          remaining -= reduceBy;
+        }
+        if (remaining > 0 && allowNegative && tbdChildren.length > 0) {
+          // Override allows negative: push the leftover into the
+          // last (oldest / auto) row.
+          const tail = tbdChildren[tbdChildren.length - 1];
+          const tailQty = (tail[field] as number | undefined) ?? 0;
+          const existing = updates.find((u) => u.row.forecast_id === tail.forecast_id);
+          if (existing) existing.nextQty -= remaining;
+          else updates.push({ row: tail, nextQty: tailQty - remaining });
+          remaining = 0;
+        }
+        for (const u of updates) {
+          if (u.row.tbd_id) bumpTbdEditOrder(u.row.tbd_id);
+          await saver(u.row.forecast_id, u.nextQty);
+        }
+        return;
+      }
+    }
     // Collect the (style, period) tuples present in the bucket so
     // we can detect cross-style cases and pick the TBD row for the
     // single-style case. restSum (computed below after target
@@ -942,6 +1038,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         },
       });
     }
+    if (tbdRow.tbd_id) bumpTbdEditOrder(tbdRow.tbd_id);
     await saver(tbdRow.forecast_id, target);
   }
 
