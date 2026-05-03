@@ -746,8 +746,9 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     }
     if (!periodStart) return;
     // Same routing preference as saveAggBuyerOrOverride: planner-
-    // added rows in the bucket win, then per-style TBD, then the
-    // catch-all (style=TBD).
+    // added rows in the bucket win, with the most recently added
+    // (lastAddedTbdMarker match) preferred over older ones; then
+    // per-style TBD, then the catch-all (style=TBD).
     let tbdRow: IpPlanningGridRow | null = null;
     const userAddedInBucket: IpPlanningGridRow[] = [];
     for (const fid of ids) {
@@ -755,7 +756,16 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       if (child?.is_tbd && child.is_user_added) userAddedInBucket.push(child);
     }
     if (userAddedInBucket.length > 0) {
-      tbdRow = userAddedInBucket[0];
+      if (lastAddedTbdMarker) {
+        const recent = userAddedInBucket.find((r) =>
+          (r.sku_style ?? "") === lastAddedTbdMarker.style_code
+          && (r.sku_color ?? "") === lastAddedTbdMarker.color
+          && r.customer_id === lastAddedTbdMarker.customer_id
+          && r.period_code === lastAddedTbdMarker.period_code,
+        );
+        if (recent) tbdRow = recent;
+      }
+      if (!tbdRow) tbdRow = userAddedInBucket[0];
     } else {
       const styleCode = styleSet.size === 1 ? Array.from(styleSet)[0] : "TBD";
       // Same as saveAggBuyerOrOverride — search the FULL row set so
@@ -845,11 +855,11 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     }
     if (!periodStart) return;
     // Pick the routing target. Preference order:
-    //   1. A planner-added (is_user_added) TBD row IN this bucket.
-    //      The planner created it as a deliberate stock-buy slot
-    //      and expects aggregate edits to land there regardless of
-    //      its customer / color (they may have picked Burlington +
-    //      a real color from + Add row).
+    //   1. The MOST RECENTLY added (is_user_added) TBD row IN this
+    //      bucket — matched against lastAddedTbdMarker. The planner
+    //      who's just added a fresh row expects the next typed value
+    //      to roll into THAT row, not the prior one. Falls back to
+    //      the first user-added in the bucket if no marker match.
     //   2. The (Supply Only) TBD row for the bucket's single style.
     //   3. The catch-all (style=TBD) (Supply Only) TBD row for the
     //      bucket's period (multi-style buckets).
@@ -860,7 +870,16 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       if (child?.is_tbd && child.is_user_added) userAddedInBucket.push(child);
     }
     if (userAddedInBucket.length > 0) {
-      tbdRow = userAddedInBucket[0];
+      if (lastAddedTbdMarker) {
+        const recent = userAddedInBucket.find((r) =>
+          (r.sku_style ?? "") === lastAddedTbdMarker.style_code
+          && (r.sku_color ?? "") === lastAddedTbdMarker.color
+          && r.customer_id === lastAddedTbdMarker.customer_id
+          && r.period_code === lastAddedTbdMarker.period_code,
+        );
+        if (recent) tbdRow = recent;
+      }
+      if (!tbdRow) tbdRow = userAddedInBucket[0];
     } else {
       const styleCode = styleSet.size === 1 ? Array.from(styleSet)[0] : "TBD";
       // Search the FULL row set (not just mutedRows) — the catch-all
