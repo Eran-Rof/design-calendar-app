@@ -31,3 +31,19 @@ export function resolveVariantColor(
   const own = variantColor && variantColor.trim().length > 0 ? variantColor.trim() : null;
   return own ?? parseColorFromSkuCode(skuCode, styleCode);
 }
+
+// Same resolution but also reports whether the color came from the
+// variant's own master field (false) or was inferred from the sku_code
+// suffix (true). Callers stamp the flag onto forecast rows so the grid
+// can render a "⚠ inferred" hint, surfacing the upstream data gap
+// without hiding it.
+export function resolveVariantColorWithProvenance(
+  variantColor: string | null | undefined,
+  skuCode: string | null | undefined,
+  styleCode: string | null | undefined,
+): { color: string | null; inferred: boolean } {
+  const own = variantColor && variantColor.trim().length > 0 ? variantColor.trim() : null;
+  if (own) return { color: own, inferred: false };
+  const parsed = parseColorFromSkuCode(skuCode, styleCode);
+  return { color: parsed, inferred: parsed != null };
+}

@@ -203,6 +203,12 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): 
     }
   }
 
+  // Surface the inferred-color hint on the rollup row whenever any of
+  // its children were inferred. Without this, drilling into a bucket
+  // that contains a mix of master-color and parser-inferred variants
+  // hides the data gap on the parent — and many planners only ever
+  // look at the rolled-up view.
+  const anyColorInferred = bucket.some((r) => r.sku_color_inferred);
   return {
     ...head,
     forecast_id: `agg:${head.forecast_id}:${bucket.length}`,
@@ -213,6 +219,7 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes): 
     customer_name: label,
     sku_style: style,
     sku_color: color,
+    sku_color_inferred: anyColorInferred || undefined,
     sku_description: description,
     sub_category_name: subCatOverride !== undefined ? subCatOverride : head.sub_category_name,
     group_name: groupOverride !== undefined ? groupOverride : head.group_name,

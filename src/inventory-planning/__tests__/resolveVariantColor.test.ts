@@ -12,7 +12,7 @@
 //   4. distinct variants with no own color produce distinct bucket keys
 
 import { describe, it, expect } from "vitest";
-import { resolveVariantColor, parseColorFromSkuCode } from "../services/resolveVariantColor";
+import { resolveVariantColor, resolveVariantColorWithProvenance, parseColorFromSkuCode } from "../services/resolveVariantColor";
 import { aggregateRows, type CollapseModes } from "../panels/aggregateGridRows";
 import type { IpPlanningGridRow } from "../types/wholesale";
 
@@ -48,6 +48,21 @@ describe("resolveVariantColor", () => {
     expect(parseColorFromSkuCode(null, "RYB0412")).toBeNull();
     expect(parseColorFromSkuCode("RYB0412-NAVY", null)).toBeNull();
     expect(parseColorFromSkuCode(null, null)).toBeNull();
+  });
+
+  it("reports provenance: variant own color is not inferred", () => {
+    expect(resolveVariantColorWithProvenance("Navy", "RYB0412-NAVY", "RYB0412"))
+      .toEqual({ color: "Navy", inferred: false });
+  });
+
+  it("reports provenance: parsed-from-sku_code is inferred", () => {
+    expect(resolveVariantColorWithProvenance(null, "RYB0412-NAVY", "RYB0412"))
+      .toEqual({ color: "NAVY", inferred: true });
+  });
+
+  it("reports provenance: null result is not inferred", () => {
+    expect(resolveVariantColorWithProvenance(null, "RYB0412", "RYB0412"))
+      .toEqual({ color: null, inferred: false });
   });
 
   it("never returns a sibling/master color when variant has no own color", () => {

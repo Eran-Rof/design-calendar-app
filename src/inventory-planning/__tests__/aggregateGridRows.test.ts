@@ -82,6 +82,22 @@ describe("aggregateRows — grouping key", () => {
     expect(out[0].customer_id).toBe("*");
   });
 
+  it("propagates sku_color_inferred onto the aggregate when any child is inferred", () => {
+    const a = row({ forecast_id: "f1", customer_id: "c1", sku_id: "s1", sku_color_inferred: false });
+    const b = row({ forecast_id: "f2", customer_id: "c2", sku_id: "s1", sku_color_inferred: true });
+    const out = aggregateRows([a, b], { ...NO_COLLAPSE, customers: true });
+    expect(out[0].sku_color_inferred).toBe(true);
+  });
+
+  it("does not flag the aggregate when every child has a master-set color", () => {
+    const a = row({ forecast_id: "f1", customer_id: "c1", sku_id: "s1" });
+    const b = row({ forecast_id: "f2", customer_id: "c2", sku_id: "s1" });
+    const out = aggregateRows([a, b], { ...NO_COLLAPSE, customers: true });
+    // Field is intentionally omitted (undefined) when no child was
+    // inferred — keeps the row JSON small and the warning truthy-only.
+    expect(out[0].sku_color_inferred).toBeFalsy();
+  });
+
   it("keeps customers separate when collapsing colors only", () => {
     const a = row({ forecast_id: "f1", customer_id: "c1", sku_id: "s1", sku_style: "X", final_forecast_qty: 10 });
     const b = row({ forecast_id: "f2", customer_id: "c1", sku_id: "s2", sku_style: "X", final_forecast_qty: 20 });

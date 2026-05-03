@@ -171,6 +171,11 @@ export interface IpPlanningGridRow {
   sku_description: string | null;
   sku_style: string | null;
   sku_color: string | null;
+  // True when sku_color was derived from the sku_code suffix because
+  // the variant's own item-master color was missing. The grid renders
+  // a "⚠ inferred" hint on these rows so the planner sees the data
+  // gap instead of trusting it as authoritative.
+  sku_color_inferred?: boolean;
   // Size from item.size (Option 2 Value column in Excel). Used as a
   // fallback PPK-multiplier source when color doesn't carry "PPKn".
   sku_size: string | null;

@@ -30,7 +30,7 @@ import {
   recommendForRow,
 } from "../compute";
 import { wholesaleRepo, BuildCancelledError } from "./wholesalePlanningRepository";
-import { resolveVariantColor } from "./resolveVariantColor";
+import { resolveVariantColorWithProvenance } from "./resolveVariantColor";
 
 export { BuildCancelledError };
 
@@ -607,7 +607,8 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     };
     const styleFallback = item?.style_code ? masterByStyle.get(item.style_code) : null;
     const description = item?.description ?? styleFallback?.description ?? null;
-    const colorDisplay = resolveVariantColor(item?.color, item?.sku_code, item?.style_code);
+    const colorResolved = resolveVariantColorWithProvenance(item?.color, item?.sku_code, item?.style_code);
+    const colorDisplay = colorResolved.color;
     // Resolved master cost: variant.unit_cost > variant avg_cost > any
     // sibling-variant unit_cost in the same style > any sibling avg_cost.
     // Then PO weighted avg, then ATS snapshot avg.
@@ -637,6 +638,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       sku_description: description,
       sku_style: item?.style_code ?? null,
       sku_color: colorDisplay,
+      sku_color_inferred: colorResolved.inferred || undefined,
       sku_size: item?.size ?? styleFallback?.size ?? null,
       // Item-master classification — falls back to a sibling variant in
       // the same style if the variant master row hasn't been populated yet.

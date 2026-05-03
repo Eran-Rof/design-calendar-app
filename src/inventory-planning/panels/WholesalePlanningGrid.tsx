@@ -801,7 +801,15 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   )}
                   {r.sku_style ?? r.sku_code}
                 </td>
-                <td style={{ ...S.td, color: PAL.textDim, ...colHide("color") }}>{r.sku_color ?? "—"}</td>
+                <td style={{ ...S.td, color: PAL.textDim, ...colHide("color") }}>
+                  {r.sku_color ?? "—"}
+                  {r.sku_color_inferred && (
+                    <span
+                      style={{ marginLeft: 6, color: PAL.yellow, cursor: "help", fontSize: 11 }}
+                      title="Color inferred from sku_code suffix — variant master row has no color set. Populate items.color upstream to silence this hint."
+                    >⚠</span>
+                  )}
+                </td>
                 <td style={{ ...S.td, color: PAL.textDim, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", ...colHide("description") }} title={r.sku_description ?? ""}>
                   {r.sku_description ?? "—"}
                 </td>
