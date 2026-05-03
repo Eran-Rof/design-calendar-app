@@ -322,13 +322,14 @@ export const wholesaleRepo = {
   //      Mirrors the upsert side's halving pattern.
   async listForecast(planningRunId: string): Promise<IpWholesaleForecast[]> {
     const out: IpWholesaleForecast[] = [];
-    // Start small so the first request fits inside the anon-role 8s
-    // statement timeout — the prior 500-row initial page was hitting
-    // 500 (Internal Server Error) on the very first call for runs
-    // with thousands of rows. The halving fallback below still kicks
-    // in if even 250 is too many under load.
-    const INITIAL_PAGE = 250;
-    const MIN_PAGE = 50;
+    // 100 rows per chunk fits well under the anon-role 8s timeout
+    // for typical wholesale runs. Was 250, which still tripped 500
+    // (Internal Server Error) on cursor-paginated chunks deeper
+    // into the run when concurrent writes held locks. Smaller pages
+    // = more round trips but no console noise on load. The halving
+    // fallback below stays as a safety net if 100 still times out.
+    const INITIAL_PAGE = 100;
+    const MIN_PAGE = 25;
     let cursor: string | null = null;
     let page = INITIAL_PAGE;
 
