@@ -975,6 +975,24 @@ export default function WholesalePlanningWorkbench() {
   // planner to drill into the target row directly.
   async function saveTbdStyle(row: IpPlanningGridRow, styleCode: string) {
     if (!selectedRun) return;
+    // Trace log so we can see exactly which row the planner is
+    // editing — was the click landing on the user-added row, or on
+    // the auto catch-all (which would silently rewrite the wrong
+    // row's style).
+    // eslint-disable-next-line no-console
+    console.log("[ip-saveTbdStyle]", {
+      newStyle: styleCode,
+      row: {
+        forecast_id: row.forecast_id,
+        tbd_id: row.tbd_id,
+        sku_style: row.sku_style,
+        sku_color: row.sku_color,
+        customer_name: row.customer_name,
+        period_code: row.period_code,
+        is_user_added: row.is_user_added,
+        is_aggregate: row.is_aggregate,
+      },
+    });
     const dup = findTbdDuplicate(styleCode, row.sku_color ?? "", row.customer_id, row.period_code, row.forecast_id);
     if (dup) {
       setToast({

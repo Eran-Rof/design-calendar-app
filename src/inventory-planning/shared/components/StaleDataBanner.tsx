@@ -21,12 +21,15 @@ export interface StaleDataBannerProps {
   dismissKey?: string;
 }
 
-export default function StaleDataBanner({ watch, dismissKey }: StaleDataBannerProps) {
+export default function StaleDataBanner({ watch }: StaleDataBannerProps) {
   const [signals, setSignals] = useState<IpFreshnessSignal[]>([]);
-  const [dismissed, setDismissed] = useState<boolean>(() => {
-    if (typeof window === "undefined" || !dismissKey) return false;
-    return window.sessionStorage.getItem(`ip_banner_dismiss_${dismissKey}`) === "1";
-  });
+  // Dismissal is per-mount only — the planner asked to see this on
+  // every login when data is stale. Persisting in sessionStorage
+  // meant a dismissal survived reloads in the same tab and only
+  // re-fired when the tab itself was closed (which the user
+  // reported as "every 5th login"). Now Dismiss just hides for the
+  // current React tree; reload re-evaluates freshness from scratch.
+  const [dismissed, setDismissed] = useState<boolean>(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,9 +52,6 @@ export default function StaleDataBanner({ watch, dismissKey }: StaleDataBannerPr
 
   function dismiss() {
     setDismissed(true);
-    if (typeof window !== "undefined" && dismissKey) {
-      window.sessionStorage.setItem(`ip_banner_dismiss_${dismissKey}`, "1");
-    }
   }
 
   return (
