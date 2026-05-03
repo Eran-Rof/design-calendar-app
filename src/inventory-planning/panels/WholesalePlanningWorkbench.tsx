@@ -1066,7 +1066,72 @@ export default function WholesalePlanningWorkbench() {
     }
     try {
       await wholesaleRepo.patchTbdRow(row.tbd_id, { style_code: styleCode });
-      setToast({ text: `Style set to ${styleCode}`, kind: "success" });
+      // Sibling-period propagation for brand-new styles: if the
+      // planner just renamed a row to a style not in the master,
+      // also create matching TBD rows for every OTHER period that
+      // sibling styles in the same (group_name, sub_category_name)
+      // are being planned for. The new style starts off appearing
+      // alongside its siblings instead of stranded in one period.
+      // Only triggers on master-unknown styles — renaming to an
+      // existing master style doesn't clone (those styles already
+      // have their own forecast rows in other periods).
+      const masterStyleSet = new Set(masterStyles.map((m) => m.style_code.toLowerCase()));
+      const isNewMasterStyle = !!styleCode
+        && styleCode.toLowerCase() !== "tbd"
+        && !masterStyleSet.has(styleCode.toLowerCase());
+      if (isNewMasterStyle) {
+        const siblingPeriods = new Map<string, { period_code: string; period_start: IpIsoDate; period_end: IpIsoDate }>();
+        for (const r of rows) {
+          if (r.is_tbd) continue;
+          if (r.period_code === row.period_code) continue;
+          if ((r.group_name ?? "") !== (row.group_name ?? "")) continue;
+          if ((r.sub_category_name ?? "") !== (row.sub_category_name ?? "")) continue;
+          if (!siblingPeriods.has(r.period_code)) {
+            siblingPeriods.set(r.period_code, {
+              period_code: r.period_code,
+              period_start: r.period_start,
+              period_end: r.period_end,
+            });
+          }
+        }
+        // Skip periods where a TBD row at this (style, color,
+        // customer) already exists — avoid double-creating after
+        // a planner re-applies the same NEW style.
+        const alreadyHave = new Set<string>();
+        for (const r of rows) {
+          if (!r.is_tbd) continue;
+          if ((r.sku_style ?? "") !== styleCode) continue;
+          if ((r.sku_color ?? "") !== (row.sku_color ?? "")) continue;
+          if (r.customer_id !== row.customer_id) continue;
+          alreadyHave.add(r.period_code);
+        }
+        const toClone = Array.from(siblingPeriods.values()).filter((p) => !alreadyHave.has(p.period_code));
+        if (toClone.length > 0) {
+          await Promise.all(toClone.map((p) => wholesaleRepo.insertTbdRow(selectedRun.id, {
+            style_code: styleCode,
+            color: row.sku_color ?? "TBD",
+            is_new_color: row.is_new_color ?? false,
+            customer_id: row.customer_id,
+            group_name: row.group_name ?? null,
+            sub_category_name: row.sub_category_name ?? null,
+            period_start: p.period_start,
+            period_end: p.period_end,
+            period_code: p.period_code,
+          }).catch((e) => {
+            // Surface but don't block the main save — the planner
+            // can retry or add manually.
+            console.warn(`[planning] sibling-period clone for ${styleCode} ${p.period_code} failed`, e);
+          })));
+          setToast({
+            text: `Style set to ${styleCode} · cloned to ${toClone.length} other period${toClone.length === 1 ? "" : "s"}`,
+            kind: "success",
+          });
+        } else {
+          setToast({ text: `Style set to ${styleCode}`, kind: "success" });
+        }
+      } else {
+        setToast({ text: `Style set to ${styleCode}`, kind: "success" });
+      }
       fireRebuild();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
