@@ -502,24 +502,29 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   }, [mutedRows]);
 
   // Aggregate Buyer / Override save handler. Top-level edits represent
-  // STOCK BUYS — they're routed exclusively to the synthetic
-  // "(Supply Only)" customer rows under the bucket, never to real
-  // customer rows. This way the planner can type a single number at
-  // the (style, color) or (style, color, customer-roll) grain without
-  // contaminating per-customer demand.
+  // STOCK BUYS — they're routed to the (Supply Only) TBD row for the
+  // bucket's (style, period) instead of distributed across real
+  // customer rows. The TBD row is a synthesized line in mutedRows
+  // (carrying is_tbd=true, customer = (Supply Only), color = "TBD"
+  // by default) — every (style, period) has exactly one. The
+  // planner can type at any rollup grain and the value lands on
+  // that single TBD row.
   //
-  // Math: aggregate.buyer_request_qty (or override_qty) displays the
-  // SUM across all underlying rows, so when the planner types `qty`
-  // they expect that to be the new total. We subtract the existing
-  // non-supply-only sum to derive the value the supply-only rows need
-  // to carry, then distribute that across the supply-only ids. For
-  // buyer the result is clamped at zero (can't request negative); for
-  // override the value is allowed to go negative.
+  // Math: aggregate.buyer_request_qty / override_qty displays the
+  // SUM across all underlying rows, so the typed total is the new
+  // sum. We subtract the existing non-TBD contribution to derive
+  // what the TBD row should carry, then save that single value via
+  // saver(tbdRow.forecast_id, ...). For buyer the result is clamped
+  // at zero; override allows negative.
   //
-  // If the bucket has no supply-only rows (every sku in the bucket has
-  // a customer pair, so wholesaleForecastService didn't synthesize
-  // one), we can't route the stock buy and log a warning instead.
-  // The planner can drill in (▶) to edit per-customer values directly.
+  // Edge cases:
+  //   1. Bucket spans multiple styles (e.g. category collapse) — no
+  //      single TBD row owns it. We warn and skip; the planner can
+  //      use the per-style TBD lines directly, or rely on bucket_buys
+  //      for Buy (still works for that mode).
+  //   2. No TBD row found for the (style, period) of the bucket —
+  //      shouldn't happen post buildGridRows synthesis but log a
+  //      warning if it does.
   async function saveAggBuyerOrOverride(
     r: IpPlanningGridRow,
     newTotal: number,
@@ -532,28 +537,46 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       return;
     }
     const ids = r.aggregate_underlying_ids;
-    const supplyOnlyIds: string[] = [];
-    let nonSupplyTotal = 0;
+    // Sum non-TBD contributions; collect the (style, period) tuples
+    // present in the bucket so we can detect cross-style cases and
+    // pick the TBD row for the single-style case.
+    const styleSet = new Set<string>();
+    let nonTbdTotal = 0;
+    let periodStart: string | null = null;
     for (const fid of ids) {
       const child = mutedById.get(fid);
       if (!child) continue;
-      if (child.customer_name === "(Supply Only)") {
-        supplyOnlyIds.push(fid);
-      } else {
-        nonSupplyTotal += (child[field] as number | undefined) ?? 0;
+      const style = child.sku_style ?? child.sku_code;
+      if (style) styleSet.add(style);
+      periodStart = child.period_start;
+      if (!child.is_tbd) {
+        nonTbdTotal += (child[field] as number | undefined) ?? 0;
       }
     }
-    if (supplyOnlyIds.length === 0) {
-      console.warn(`[planning] aggregate ${field}: no (Supply Only) row in this bucket — typed value can't be routed as a stock buy. Drill in (▶) to edit customer rows.`);
+    if (styleSet.size !== 1 || !periodStart) {
+      console.warn(`[planning] aggregate ${field}: bucket spans ${styleSet.size} styles — typed value can't be routed to a single TBD row. Drill in (▶) and edit individual TBD lines, or use Buy (bucket-level).`);
       return;
     }
-    let target = newTotal - nonSupplyTotal;
-    if (!allowNegative && target < 0) target = 0;
-    const cur = supplyOnlyIds.map((fid) => (mutedById.get(fid)?.[field] as number | undefined) ?? 0);
-    const dist = distributeAcrossChildren(supplyOnlyIds, cur, target);
-    await Promise.all(
-      dist.filter((d, i) => d.qty !== cur[i]).map((d) => saver(d.fid, d.qty)),
+    const styleCode = Array.from(styleSet)[0];
+    // Find the TBD row in mutedRows for this (style, period). Match
+    // on sku_style + period_start + (Supply Only) + color "TBD". If
+    // multiple TBD rows exist (e.g. planner has reassigned color on
+    // some), prefer the one with sku_color === "TBD".
+    const tbdCandidates = mutedRows.filter((x) =>
+      x.is_tbd
+      && x.sku_style === styleCode
+      && x.period_start === periodStart
+      && x.customer_name === "(Supply Only)"
     );
+    const tbdRow = tbdCandidates.find((x) => x.sku_color === "TBD") ?? tbdCandidates[0] ?? null;
+    if (!tbdRow) {
+      console.warn(`[planning] aggregate ${field}: no TBD row found for (${styleCode}, ${periodStart}). Has buildGridRows been refreshed?`);
+      return;
+    }
+    let target = newTotal - nonTbdTotal;
+    if (!allowNegative && target < 0) target = 0;
+    if (target === ((tbdRow[field] as number | undefined) ?? 0)) return;
+    await saver(tbdRow.forecast_id, target);
   }
 
   // Step 2: per-(sku, period) display values using a proper per-SKU

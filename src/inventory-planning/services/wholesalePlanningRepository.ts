@@ -388,6 +388,74 @@ export const wholesaleRepo = {
     await sbDelete(`ip_planner_bucket_buys?planning_run_id=eq.${planningRunId}&bucket_key=eq.${encodeURIComponent(bucketKey)}`);
   },
 
+  // ── TBD stock-buy rows ───────────────────────────────────────────────────
+  // One row per (planning_run, style_code, period_start) by default.
+  // Carries Buyer / Override / Buy values typed at any rollup grain.
+  // Color starts as "TBD" and is editable by the planner; is_new_color
+  // marks a value the master doesn't yet know about. Full lifecycle:
+  //   ensureForRun  - on every grid open, seed one TBD row per style/period
+  //                   that doesn't already have one (idempotent).
+  //   list          - load all TBD rows for the run.
+  //   upsert        - save planner edits.
+  //   delete        - remove a TBD row (used by Add-row's undo).
+  async listTbdRows(planningRunId: string): Promise<Array<{
+    id: string;
+    planning_run_id: string;
+    style_code: string;
+    color: string;
+    is_new_color: boolean;
+    customer_id: string;
+    group_name: string | null;
+    sub_category_name: string | null;
+    period_start: string;
+    period_end: string;
+    period_code: string;
+    buyer_request_qty: number;
+    override_qty: number;
+    final_forecast_qty: number;
+    planned_buy_qty: number | null;
+    unit_cost: number | null;
+    notes: string | null;
+    created_at: string;
+    updated_at: string;
+  }>> {
+    return sbGet(
+      `ip_wholesale_forecast_tbd?planning_run_id=eq.${planningRunId}&select=*&limit=20000`,
+    );
+  },
+  async upsertTbdRow(
+    planningRunId: string,
+    args: {
+      style_code: string;
+      color: string;
+      is_new_color?: boolean;
+      customer_id: string;
+      group_name?: string | null;
+      sub_category_name?: string | null;
+      period_start: string;
+      period_end: string;
+      period_code: string;
+      buyer_request_qty?: number;
+      override_qty?: number;
+      final_forecast_qty?: number;
+      planned_buy_qty?: number | null;
+      unit_cost?: number | null;
+      notes?: string | null;
+    },
+  ): Promise<void> {
+    await sbPost(
+      "ip_wholesale_forecast_tbd?on_conflict=planning_run_id,style_code,color,customer_id,period_start",
+      [{ planning_run_id: planningRunId, ...args }],
+      "resolution=merge-duplicates,return=minimal",
+    );
+  },
+  async patchTbdRow(id: string, patch: Record<string, unknown>): Promise<void> {
+    await sbPatch(`ip_wholesale_forecast_tbd?id=eq.${id}`, patch);
+  },
+  async deleteTbdRow(id: string): Promise<void> {
+    await sbDelete(`ip_wholesale_forecast_tbd?id=eq.${id}`);
+  },
+
   // System-qty override: planner directly edits the System forecast.
   // Stored alongside the original system_forecast_qty so the grid can
   // show "changed from X to Y on DATE". Pass null to clear.

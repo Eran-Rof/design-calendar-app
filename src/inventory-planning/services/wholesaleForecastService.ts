@@ -428,7 +428,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
   // back here (they exist for audit/archival from the forecast pass).
   // Removing the read eliminates a 1k-row paginated query that timed
   // out (PostgREST 57014) once a run accumulated thousands of recs.
-  const [items, customers, categories, forecast, sales, inv, pos, openSos, receipts, atsCostBySku, avgCostBySku] = await Promise.all([
+  const [items, customers, categories, forecast, sales, inv, pos, openSos, receipts, atsCostBySku, avgCostBySku, tbdRows, supplyPlaceholderId] = await Promise.all([
     wholesaleRepo.listItems(),
     wholesaleRepo.listCustomers(),
     wholesaleRepo.listCategories(),
@@ -440,6 +440,8 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     wholesaleRepo.listReceipts(historySince(run.source_snapshot_date, 3)),
     wholesaleRepo.listAtsAvgCostBySku(),
     wholesaleRepo.listItemAvgCostBySku(),
+    wholesaleRepo.listTbdRows(run.id),
+    wholesaleRepo.ensureSupplyPlaceholderCustomer(),
   ]);
 
   const itemById = new Map(items.map((i) => [i.id, i]));
@@ -683,5 +685,175 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     };
   });
 
-  return rows;
+  // ── TBD synthetic stock-buy rows ─────────────────────────────────────────
+  // One row per (style_code, period) — surfaced in the grid as a
+  // "(Supply Only) TBD" line. Aggregate Buyer / Override / Buy edits
+  // route here instead of distributing across real customer rows.
+  // These rows are lazy: until the planner types into one, no
+  // ip_wholesale_forecast_tbd record exists. Any persisted edits in
+  // tbdRows are overlaid onto the synthetic per-(style, period)
+  // entry (matched by style_code + period_start; per-style we expect
+  // at most one row, since the dropdown / cell edits keep that
+  // invariant). A planner who has reassigned a TBD row to a real
+  // customer will see it under that customer instead — we still
+  // synthesize a fresh "(Supply Only) TBD" line for the now-vacated
+  // slot so they always have a place to type stock buys against.
+  const supplyCust = customerById.get(supplyPlaceholderId);
+  const supplyCustomerName = supplyCust?.name ?? "(Supply Only)";
+
+  // Build (style_code, period) tuple set from forecast rows.
+  type StylePeriod = { style_code: string; period_code: string; period_start: string; period_end: string };
+  const stylePeriods = new Map<string, StylePeriod>();
+  for (const f of forecast) {
+    const item = itemById.get(f.sku_id);
+    const style = item?.style_code;
+    if (!style) continue;
+    const k = `${style}|${f.period_start}`;
+    if (!stylePeriods.has(k)) {
+      stylePeriods.set(k, { style_code: style, period_code: f.period_code, period_start: f.period_start, period_end: f.period_end });
+    }
+  }
+  // Index persisted TBD rows by the same (style_code, period_start)
+  // grain so we can overlay them onto the synthetic rows.
+  type TbdRow = (typeof tbdRows)[number];
+  const tbdByKey = new Map<string, TbdRow[]>();
+  for (const t of tbdRows) {
+    const k = `${t.style_code}|${t.period_start}`;
+    let bucket = tbdByKey.get(k);
+    if (!bucket) { bucket = []; tbdByKey.set(k, bucket); }
+    bucket.push(t);
+  }
+  // Pull category metadata from the style master so a TBD row
+  // displays under the right Category / Sub Cat / Gender.
+  const tbdGridRows: IpPlanningGridRow[] = [];
+  for (const [key, sp] of stylePeriods) {
+    const persistedAll = tbdByKey.get(key) ?? [];
+    // For Phase 1 the natural representation is one TBD row per
+    // (style, period) under (Supply Only). Extra persisted rows
+    // (after a future "reassign customer" or "rename color" feature
+    // ships) are surfaced as their own grid lines below.
+    const supplyTbd = persistedAll.find((t) => t.customer_id === supplyPlaceholderId && t.color === "TBD") ?? null;
+    const styleFb = masterByStyle.get(sp.style_code) ?? null;
+    const description = styleFb?.description ?? null;
+    const groupName = readGroupName(styleFb) ?? null;
+    const subCategoryName = readSubCategoryName(styleFb) ?? null;
+    const gender = readGender(styleFb) ?? null;
+    // Synthetic (Supply Only) TBD line — always rendered; overlays
+    // persisted qty/cost when supplyTbd exists.
+    tbdGridRows.push({
+      forecast_id: supplyTbd ? `tbd:${supplyTbd.id}` : `tbd:synthetic:${sp.style_code}:${sp.period_start}`,
+      planning_run_id: run.id,
+      customer_id: supplyPlaceholderId,
+      customer_name: supplyCustomerName,
+      category_id: null,
+      category_name: null,
+      group_name: supplyTbd?.group_name ?? groupName,
+      sub_category_name: supplyTbd?.sub_category_name ?? subCategoryName,
+      gender,
+      sku_id: `tbd:${sp.style_code}`,
+      sku_code: `${sp.style_code}-TBD`,
+      sku_description: description,
+      sku_style: sp.style_code,
+      sku_color: supplyTbd?.color ?? "TBD",
+      sku_color_inferred: false,
+      is_tbd: true,
+      is_new_color: supplyTbd?.is_new_color ?? false,
+      tbd_id: supplyTbd?.id,
+      sku_size: null,
+      period_code: sp.period_code,
+      period_start: sp.period_start as IpIsoDate,
+      period_end: sp.period_end as IpIsoDate,
+      historical_trailing_qty: 0,
+      system_forecast_qty: 0,
+      system_forecast_qty_original: 0,
+      system_forecast_qty_overridden_at: null,
+      system_forecast_qty_overridden_by: null,
+      buyer_request_qty: supplyTbd?.buyer_request_qty ?? 0,
+      override_qty: supplyTbd?.override_qty ?? 0,
+      final_forecast_qty: supplyTbd?.final_forecast_qty ?? 0,
+      confidence_level: "estimate",
+      forecast_method: "zero_floor",
+      ly_reference_qty: null,
+      item_cost: null,
+      ats_avg_cost: null,
+      avg_cost: supplyTbd?.unit_cost ?? null,
+      unit_cost_override: null,
+      unit_cost: supplyTbd?.unit_cost ?? null,
+      planned_buy_qty: supplyTbd?.planned_buy_qty ?? null,
+      on_hand_qty: 0,
+      on_so_qty: 0,
+      on_po_qty: 0,
+      receipts_due_qty: 0,
+      historical_receipts_qty: 0,
+      available_supply_qty: 0,
+      projected_shortage_qty: 0,
+      projected_excess_qty: 0,
+      recommended_action: "monitor",
+      recommended_qty: null,
+      action_reason: null,
+      notes: supplyTbd?.notes ?? null,
+    });
+    // Any other persisted TBD rows for this (style, period) (e.g.
+    // a planner reassigned color/customer in a future phase) become
+    // their own grid lines so the planner can see and edit them.
+    for (const t of persistedAll) {
+      if (supplyTbd && t.id === supplyTbd.id) continue;
+      const cust = customerById.get(t.customer_id);
+      tbdGridRows.push({
+        forecast_id: `tbd:${t.id}`,
+        planning_run_id: run.id,
+        customer_id: t.customer_id,
+        customer_name: cust?.name ?? "(unknown customer)",
+        category_id: null,
+        category_name: null,
+        group_name: t.group_name ?? groupName,
+        sub_category_name: t.sub_category_name ?? subCategoryName,
+        gender,
+        sku_id: `tbd:${sp.style_code}`,
+        sku_code: `${sp.style_code}-TBD`,
+        sku_description: description,
+        sku_style: sp.style_code,
+        sku_color: t.color,
+        sku_color_inferred: false,
+        is_tbd: true,
+        is_new_color: t.is_new_color,
+        tbd_id: t.id,
+        sku_size: null,
+        period_code: sp.period_code,
+        period_start: sp.period_start as IpIsoDate,
+        period_end: sp.period_end as IpIsoDate,
+        historical_trailing_qty: 0,
+        system_forecast_qty: 0,
+        system_forecast_qty_original: 0,
+        system_forecast_qty_overridden_at: null,
+        system_forecast_qty_overridden_by: null,
+        buyer_request_qty: t.buyer_request_qty,
+        override_qty: t.override_qty,
+        final_forecast_qty: t.final_forecast_qty,
+        confidence_level: "estimate",
+        forecast_method: "zero_floor",
+        ly_reference_qty: null,
+        item_cost: null,
+        ats_avg_cost: null,
+        avg_cost: t.unit_cost ?? null,
+        unit_cost_override: null,
+        unit_cost: t.unit_cost ?? null,
+        planned_buy_qty: t.planned_buy_qty ?? null,
+        on_hand_qty: 0,
+        on_so_qty: 0,
+        on_po_qty: 0,
+        receipts_due_qty: 0,
+        historical_receipts_qty: 0,
+        available_supply_qty: 0,
+        projected_shortage_qty: 0,
+        projected_excess_qty: 0,
+        recommended_action: "monitor",
+        recommended_qty: null,
+        action_reason: null,
+        notes: t.notes,
+      });
+    }
+  }
+
+  return [...rows, ...tbdGridRows];
 }

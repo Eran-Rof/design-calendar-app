@@ -176,6 +176,22 @@ export interface IpPlanningGridRow {
   // a "⚠ inferred" hint on these rows so the planner sees the data
   // gap instead of trusting it as authoritative.
   sku_color_inferred?: boolean;
+  // True when the row is a synthetic "(Supply Only) TBD" stock-buy
+  // row from ip_wholesale_forecast_tbd. The grid lets the planner
+  // edit color / customer / qty fields directly on these rows; all
+  // aggregate Buyer / Override / Buy edits at any rollup grain are
+  // routed here instead of distributed across real customer rows.
+  is_tbd?: boolean;
+  // Mirror of ip_wholesale_forecast_tbd.is_new_color — true when the
+  // planner has typed a color string that no item_master variant of
+  // the style currently carries. Cleared on next build when the
+  // master catches up. Surfaced as an orange "NEW COLOR" badge.
+  is_new_color?: boolean;
+  // For TBD rows: id of the underlying ip_wholesale_forecast_tbd
+  // record so edit handlers can patch it directly. forecast_id stays
+  // a synthetic prefix ("tbd:<style>:<period>") so it can't collide
+  // with real ip_wholesale_forecast ids in mutedById and friends.
+  tbd_id?: string;
   // Size from item.size (Option 2 Value column in Excel). Used as a
   // fallback PPK-multiplier source when color doesn't carry "PPKn".
   sku_size: string | null;

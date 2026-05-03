@@ -594,7 +594,55 @@ export default function WholesalePlanningWorkbench() {
   // row all snap immediately. Downstream periods of the same SKU still
   // wait for the background grid rebuild to pick up rolling supply,
   // but the cell the planner is looking at updates without lag.
+  // Persist edits on a TBD stock-buy row (forecast_id prefixed "tbd:").
+  // Synthetic rows (no tbd_id yet) get upserted into
+  // ip_wholesale_forecast_tbd with the supplied field overrides; rows
+  // already persisted get a targeted PATCH. Either way, on success we
+  // rebuild the grid (fire-and-forget) so the rest of the row state
+  // (final_forecast_qty, etc.) reconciles.
+  async function saveTbdField(
+    row: IpPlanningGridRow,
+    fields: Partial<{
+      buyer_request_qty: number;
+      override_qty: number;
+      final_forecast_qty: number;
+      planned_buy_qty: number | null;
+      unit_cost: number | null;
+      color: string;
+      is_new_color: boolean;
+      customer_id: string;
+      group_name: string | null;
+      sub_category_name: string | null;
+      notes: string | null;
+    }>,
+  ): Promise<void> {
+    if (!selectedRun) return;
+    if (!row.sku_style) throw new Error("saveTbdField: TBD row missing sku_style");
+    if (row.tbd_id) {
+      await wholesaleRepo.patchTbdRow(row.tbd_id, fields);
+    } else {
+      await wholesaleRepo.upsertTbdRow(selectedRun.id, {
+        style_code: row.sku_style,
+        color: fields.color ?? row.sku_color ?? "TBD",
+        is_new_color: fields.is_new_color ?? false,
+        customer_id: fields.customer_id ?? row.customer_id,
+        group_name: fields.group_name ?? row.group_name ?? null,
+        sub_category_name: fields.sub_category_name ?? row.sub_category_name ?? null,
+        period_start: row.period_start,
+        period_end: row.period_end,
+        period_code: row.period_code,
+        buyer_request_qty: fields.buyer_request_qty ?? row.buyer_request_qty,
+        override_qty: fields.override_qty ?? row.override_qty,
+        final_forecast_qty: fields.final_forecast_qty ?? row.final_forecast_qty,
+        planned_buy_qty: fields.planned_buy_qty ?? row.planned_buy_qty,
+        unit_cost: fields.unit_cost ?? row.unit_cost,
+        notes: fields.notes ?? row.notes ?? null,
+      });
+    }
+  }
+
   async function saveBuyQty(forecastId: string, qty: number | null) {
+    const target = rows.find((r) => r.forecast_id === forecastId) ?? null;
     setRows((prev) => prev.map((r) => {
       if (r.forecast_id !== forecastId) return r;
       const newBuy = qty ?? 0;
@@ -613,8 +661,12 @@ export default function WholesalePlanningWorkbench() {
       };
     }));
     try {
-      await wholesaleRepo.patchForecastBuyQty(forecastId, qty);
-      setToast({ text: qty != null ? `Buy qty set to ${qty.toLocaleString()}` : "Buy qty cleared", kind: "success" });
+      if (target?.is_tbd) {
+        await saveTbdField(target, { planned_buy_qty: qty });
+      } else {
+        await wholesaleRepo.patchForecastBuyQty(forecastId, qty);
+      }
+      setToast({ text: qty != null ? `Buy qty set to ${qty.toLocaleString()}${target?.is_tbd ? " (TBD stock buy)" : ""}` : "Buy qty cleared", kind: "success" });
       // Fire-and-forget — Short/Excess update a moment later when the
       // rebuild finishes. Guarded by rebuildSeq so a slow rebuild can't
       // overwrite a faster one started later.
@@ -640,14 +692,21 @@ export default function WholesalePlanningWorkbench() {
 
   // Inline-edit Buyer request qty. Recomputes final_forecast_qty from
   // (system + buyer + override) clamped at 0, mirrors the compute layer.
+  // TBD rows (forecast_id starts with "tbd:") route to the dedicated
+  // ip_wholesale_forecast_tbd table instead of ip_wholesale_forecast.
   async function saveBuyerRequest(forecastId: string, qty: number) {
     const row = rows.find((r) => r.forecast_id === forecastId);
     if (!row) return;
     const final = Math.max(0, row.system_forecast_qty + qty + row.override_qty);
     setRows((prev) => prev.map((r) => r.forecast_id === forecastId ? { ...r, buyer_request_qty: qty, final_forecast_qty: final } : r));
     try {
-      await wholesaleRepo.patchForecastBuyerRequest(forecastId, qty, final);
-      setToast({ text: `Buyer request set to ${qty.toLocaleString()}`, kind: "success" });
+      if (row.is_tbd) {
+        await saveTbdField(row, { buyer_request_qty: qty, final_forecast_qty: final });
+        setToast({ text: `Buyer request set to ${qty.toLocaleString()} (TBD stock buy)`, kind: "success" });
+      } else {
+        await wholesaleRepo.patchForecastBuyerRequest(forecastId, qty, final);
+        setToast({ text: `Buyer request set to ${qty.toLocaleString()}`, kind: "success" });
+      }
       const seq = ++rebuildSeq.current;
       void (async () => {
         try {
@@ -675,8 +734,13 @@ export default function WholesalePlanningWorkbench() {
     const final = Math.max(0, row.system_forecast_qty + row.buyer_request_qty + qty);
     setRows((prev) => prev.map((r) => r.forecast_id === forecastId ? { ...r, override_qty: qty, final_forecast_qty: final } : r));
     try {
-      await wholesaleRepo.patchForecastOverride(forecastId, qty, final);
-      setToast({ text: `Override set to ${qty > 0 ? "+" : ""}${qty.toLocaleString()}`, kind: "success" });
+      if (row.is_tbd) {
+        await saveTbdField(row, { override_qty: qty, final_forecast_qty: final });
+        setToast({ text: `Override set to ${qty > 0 ? "+" : ""}${qty.toLocaleString()} (TBD stock buy)`, kind: "success" });
+      } else {
+        await wholesaleRepo.patchForecastOverride(forecastId, qty, final);
+        setToast({ text: `Override set to ${qty > 0 ? "+" : ""}${qty.toLocaleString()}`, kind: "success" });
+      }
       const seq = ++rebuildSeq.current;
       void (async () => {
         try {
