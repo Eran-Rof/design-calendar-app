@@ -322,7 +322,12 @@ export const wholesaleRepo = {
   //      Mirrors the upsert side's halving pattern.
   async listForecast(planningRunId: string): Promise<IpWholesaleForecast[]> {
     const out: IpWholesaleForecast[] = [];
-    const INITIAL_PAGE = 500;
+    // Start small so the first request fits inside the anon-role 8s
+    // statement timeout — the prior 500-row initial page was hitting
+    // 500 (Internal Server Error) on the very first call for runs
+    // with thousands of rows. The halving fallback below still kicks
+    // in if even 250 is too many under load.
+    const INITIAL_PAGE = 250;
     const MIN_PAGE = 50;
     let cursor: string | null = null;
     let page = INITIAL_PAGE;
@@ -335,7 +340,22 @@ export const wholesaleRepo = {
         chunk = await sbGet<IpWholesaleForecast>(url);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        if (msg.includes("57014") && page > MIN_PAGE) {
+        const lower = msg.toLowerCase();
+        // Halve on any transient — Supabase frequently returns a
+        // bare 500 (no "57014" / "canceling statement" in the body)
+        // for the same statement-timeout root cause. Without a
+        // broader match the first chunk's 500 was bubbling up and
+        // logging in the planner's console even though the load
+        // ultimately succeeded after halving.
+        const isTransient = msg.includes("57014")
+          || lower.includes("statement timeout")
+          || lower.includes("canceling statement")
+          || msg.includes(" 500 ")
+          || lower.includes("internal server error")
+          || msg.includes(" 502 ")
+          || msg.includes(" 503 ")
+          || msg.includes(" 504 ");
+        if (isTransient && page > MIN_PAGE) {
           page = Math.max(MIN_PAGE, Math.floor(page / 2));
           continue;
         }
