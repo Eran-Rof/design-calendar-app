@@ -104,20 +104,10 @@ async function withRetryOn57014<T>(label: string, fn: () => Promise<T>): Promise
     } catch (e) {
       lastErr = e;
       const msg = e instanceof Error ? e.message : String(e);
-      const lower = msg.toLowerCase();
-      // Supabase / PostgREST sometimes wraps a statement timeout as
-      // a bare 500 without the 57014 / "canceling statement" string
-      // — most often on long-running list reads. Treat any 5xx
-      // response as a retryable transient too, since the alternative
-      // is failing the whole grid build.
-      const isTimeout = msg.includes("57014")
-        || lower.includes("statement timeout")
-        || lower.includes("canceling statement")
-        || / 5\d\d /.test(` ${msg} `)
-        || lower.includes("internal server error");
+      const isTimeout = msg.includes("57014") || msg.toLowerCase().includes("statement timeout") || msg.toLowerCase().includes("canceling statement");
       if (!isTimeout || attempt === delays.length) throw e;
       // eslint-disable-next-line no-console
-      console.warn(`[planning-repo] ${label} hit transient (attempt ${attempt + 1} of ${delays.length + 1}); retrying in ${delays[attempt]}ms — ${msg.slice(0, 120)}`);
+      console.warn(`[planning-repo] ${label} hit 57014 (attempt ${attempt + 1} of ${delays.length + 1}); retrying in ${delays[attempt]}ms`);
       await new Promise((res) => setTimeout(res, delays[attempt]));
     }
   }
