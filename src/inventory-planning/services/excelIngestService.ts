@@ -22,11 +22,25 @@ export interface ExcelIngestResult {
   skipped_zero_qty: number;
   skipped_bad_cost: number;
   errors: string[];
+  // Data-quality warnings raised at ingest time. Variant rows missing
+  // identifying dimensions (color/size) are flagged here so the planner
+  // sees the gap instead of letting the forecast service silently
+  // backfill from style-master fallbacks (the bug that grouped 31
+  // distinct colors of RYB0412 into one "Grey" bucket). Soft signal —
+  // ingest still completes; the planner is expected to fix the master
+  // upstream and re-import.
+  warnings: string[];
+  warning_counts?: {
+    missing_color: number;
+    missing_size: number;
+    color_mismatches_skucode: number;
+  };
 }
 
 const empty = (): ExcelIngestResult => ({
   parsed: 0, inserted: 0, skipped_no_sku: 0,
   skipped_no_date: 0, skipped_zero_qty: 0, skipped_bad_cost: 0, errors: [],
+  warnings: [],
 });
 
 // Local thin wrapper so existing call sites don't need renaming.
@@ -408,6 +422,18 @@ export async function ingestItemMasterExcel(
   const itemPayload: Array<Record<string, unknown>> = [];
   const costPayload: Array<Record<string, unknown>> = [];
   const seenSkus = new Set<string>();
+  // Quality counters — populated during the row loop, surfaced via
+  // result.warnings/warning_counts at the end.
+  const dq = {
+    missing_color: 0,
+    missing_size: 0,
+    color_mismatches_skucode: 0,
+    // Sample SKUs for each issue so the planner can spot-check which
+    // master rows need fixing without scrolling through thousands.
+    sample_missing_color: [] as string[],
+    sample_color_mismatch: [] as string[],
+  };
+  const SAMPLE_LIMIT = 5;
 
   // Expanded aliases — common Excel column names from Xoro / TandA / ATS
   // exports plus typical planner spreadsheets. normHeader (in pick) strips
@@ -515,6 +541,33 @@ export async function ingestItemMasterExcel(
     // BasePartNumber as before.
     const style = isPrepack ? sku : (explicitStyle ? canon(explicitStyle) : sku);
     const color = explicitColor;
+    // Identifying-dimension validation. Skip pre-packs (sku == style by
+    // design) and rows where sku == style_code (style-only master row,
+    // not a variant — color genuinely doesn't apply).
+    const isVariantRow = !isPrepack && sku !== style;
+    if (isVariantRow) {
+      if (!color) {
+        dq.missing_color++;
+        if (dq.sample_missing_color.length < SAMPLE_LIMIT) dq.sample_missing_color.push(sku);
+      } else {
+        // Sanity check: when both an explicit color and a sku_code
+        // suffix exist, they should describe the same color (canonical
+        // forms compared). Mismatches usually mean either the master
+        // typed the wrong color or the SKU naming convention drifted —
+        // either way the planner should know.
+        const suffix = sku.startsWith(`${style}-`) ? sku.slice(style.length + 1).trim() : "";
+        if (suffix) {
+          const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
+          if (norm(suffix) !== norm(color)) {
+            dq.color_mismatches_skucode++;
+            if (dq.sample_color_mismatch.length < SAMPLE_LIMIT) {
+              dq.sample_color_mismatch.push(`${sku} (color="${color}", sku suffix="${suffix}")`);
+            }
+          }
+        }
+      }
+      if (!explicitSize) dq.missing_size++;
+    }
     // Strip HTML when description came from a BodyHtml column.
     const description = descRaw.includes("<")
       ? descRaw.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim()
@@ -651,6 +704,37 @@ export async function ingestItemMasterExcel(
     }
   }
 
+  // Surface data-quality findings. These are warnings, not errors —
+  // ingest still succeeds — but they're loud enough that the planner
+  // sees them in the upload status banner. The fix is upstream
+  // (populate items.color/size in the master Excel before re-uploading).
+  result.warning_counts = {
+    missing_color: dq.missing_color,
+    missing_size: dq.missing_size,
+    color_mismatches_skucode: dq.color_mismatches_skucode,
+  };
+  if (dq.missing_color > 0) {
+    let msg = `${dq.missing_color.toLocaleString()} variant row(s) had no Color set`;
+    if (dq.sample_missing_color.length > 0) {
+      msg += ` — e.g. ${dq.sample_missing_color.slice(0, 5).join(", ")}`;
+      if (dq.missing_color > dq.sample_missing_color.length) msg += `, …`;
+    }
+    msg += `. Forecast will infer color from sku_code suffix; populate the master to silence this.`;
+    result.warnings.push(msg);
+  }
+  if (dq.color_mismatches_skucode > 0) {
+    let msg = `${dq.color_mismatches_skucode.toLocaleString()} variant(s) have a Color that disagrees with the sku_code suffix`;
+    if (dq.sample_color_mismatch.length > 0) msg += ` — e.g. ${dq.sample_color_mismatch.slice(0, 3).join("; ")}`;
+    msg += `. One side is wrong; reconcile in the master.`;
+    result.warnings.push(msg);
+  }
+  if (dq.missing_size > 0) {
+    result.warnings.push(`${dq.missing_size.toLocaleString()} variant row(s) had no Size set. Size-level grouping will be unreliable for those.`);
+  }
+  if (result.warnings.length > 0) {
+    log(`⚠ ${result.warnings.length} data-quality warning(s):`);
+    for (const w of result.warnings) log(`  - ${w}`);
+  }
   log(`✓ DONE — ${result.inserted.toLocaleString()} items, ${costPayload.length.toLocaleString()} avg costs, ${result.errors.length} errors`);
   return result;
 }

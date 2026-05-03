@@ -339,8 +339,16 @@ export default function WholesalePlanningWorkbench() {
       if (r.skipped_bad_cost) skipParts.push(`${r.skipped_bad_cost} bad cost`);
       const skipSummary = skipParts.length > 0 ? ` · skipped ${skipParts.join(", ")}` : "";
       const errSummary = r.errors.length > 0 ? ` · ${r.errors.length} had problems` : "";
+      const warnSummary = r.warnings && r.warnings.length > 0 ? ` · ${r.warnings.length} data-quality warning(s)` : "";
       if (r.errors.length > 0) console.error(`[excel-${kind}] errors:`, r.errors);
-      reportOp(`Done — read ${r.parsed.toLocaleString()} rows, saved ${r.inserted.toLocaleString()}${skipSummary}${errSummary}`);
+      if (r.warnings && r.warnings.length > 0) console.warn(`[excel-${kind}] warnings:`, r.warnings);
+      reportOp(`Done — read ${r.parsed.toLocaleString()} rows, saved ${r.inserted.toLocaleString()}${skipSummary}${errSummary}${warnSummary}`);
+      // Surface the first warning verbatim so the planner sees the
+      // most actionable detail (sample SKUs) without opening DevTools.
+      if (r.warnings && r.warnings.length > 0) {
+        await new Promise<void>((res) => setTimeout(res, 1500));
+        reportOp(`⚠ ${r.warnings[0]}${r.warnings.length > 1 ? ` (+${r.warnings.length - 1} more in console)` : ""}`);
+      }
       await new Promise<void>((res) => setTimeout(res, 1800));
       if (r.inserted > 0 && kind === "sales") await loadRunData();
       if (r.inserted > 0 && kind === "master" && selectedRun) {
