@@ -594,6 +594,35 @@ export default function WholesalePlanningWorkbench() {
   // row all snap immediately. Downstream periods of the same SKU still
   // wait for the background grid rebuild to pick up rolling supply,
   // but the cell the planner is looking at updates without lag.
+  // Rename the color on a TBD stock-buy row. is_new_color is set per
+  // the caller's judgement (the grid checks the typed string against
+  // the style's known colors before calling). Optimistic UI updates
+  // the local row immediately; rebuild reconciles on success.
+  async function saveTbdColor(row: IpPlanningGridRow, color: string, isNewColor: boolean) {
+    if (!selectedRun) return;
+    const fid = row.forecast_id;
+    setRows((prev) => prev.map((r) => r.forecast_id === fid ? { ...r, sku_color: color, is_new_color: isNewColor } : r));
+    try {
+      await saveTbdField(row, { color, is_new_color: isNewColor });
+      setToast({ text: isNewColor ? `Set color to "${color}" (NEW — not in master yet)` : `Set color to "${color}"`, kind: "success" });
+      const seq = ++rebuildSeq.current;
+      void (async () => {
+        try {
+          const refreshed = await buildGridRows(selectedRun);
+          if (seq !== rebuildSeq.current) return;
+          setRows(refreshed);
+        } catch { /* swallow */ }
+      })();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `Color save failed — ${msg}`, kind: "error" });
+      const seq = ++rebuildSeq.current;
+      const refreshed = await buildGridRows(selectedRun);
+      if (seq !== rebuildSeq.current) return;
+      setRows(refreshed);
+    }
+  }
+
   // Persist edits on a TBD stock-buy row (forecast_id prefixed "tbd:").
   // Synthetic rows (no tbd_id yet) get upserted into
   // ip_wholesale_forecast_tbd with the supplied field overrides; rows
@@ -1037,6 +1066,7 @@ export default function WholesalePlanningWorkbench() {
               onUpdateBuyerRequest={saveBuyerRequest}
               onUpdateOverride={saveOverrideQty}
               onUpdateSystemOverride={saveSystemOverride}
+              onUpdateTbdColor={saveTbdColor}
               onFiltersChange={setBuildFilter}
               bucketBuys={bucketBuys}
               systemSuggestionsOn={systemSuggestionsOn}

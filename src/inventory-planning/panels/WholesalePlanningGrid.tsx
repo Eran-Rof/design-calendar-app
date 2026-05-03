@@ -15,6 +15,10 @@ export interface WholesalePlanningGridProps {
   rows: IpPlanningGridRow[];
   onSelectRow: (row: IpPlanningGridRow) => void;
   onUpdateBuyQty: (forecastId: string, qty: number | null) => Promise<void>;
+  // TBD-row mutations: rename color (with is_new_color flag), reassign
+  // customer (Phase 3), and add a fresh row (Phase 4). Workbench
+  // composes a saveTbdField call from these.
+  onUpdateTbdColor?: (row: IpPlanningGridRow, color: string, isNewColor: boolean) => Promise<void>;
   // Save bucket-level buy for an aggregate row. The grid computes
   // the bucket_key from the active collapse mode + filters + the
   // row's dimensions and passes the full descriptor — the workbench
@@ -177,7 +181,7 @@ function distributeAcrossChildren(
   return out;
 }
 
-export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
   // Multi-select filters — empty array = no filter (all rows pass).
   // Each non-empty array narrows to rows whose value is in the set.
@@ -383,6 +387,24 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       if (style) s.add(style);
     }
     return Array.from(s).sort();
+  }, [rows]);
+
+  // Map of style → set of "known" colors for the TBD color picker.
+  // Sources from non-TBD rows so the picker only suggests colors the
+  // item master actually carries for the style. The literal "TBD" is
+  // excluded so it doesn't surface as a "known color" option.
+  const colorsByStyle = useMemo(() => {
+    const out = new Map<string, Set<string>>();
+    for (const r of rows) {
+      if (r.is_tbd) continue;
+      const style = r.sku_style ?? r.sku_code;
+      const color = r.sku_color;
+      if (!style || !color) continue;
+      let set = out.get(style);
+      if (!set) { set = new Set<string>(); out.set(style, set); }
+      set.add(color);
+    }
+    return out;
   }, [rows]);
 
   // Pre-pack multiplier — checks color first, then size, then
@@ -1015,13 +1037,24 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 <td style={{ ...S.td, color: PAL.textDim, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", ...colHide("description") }} title={r.sku_description ?? ""}>
                   {r.sku_description ?? "—"}
                 </td>
-                <td style={{ ...S.td, color: PAL.textDim, ...colHide("color") }}>
-                  {r.sku_color ?? "—"}
-                  {r.sku_color_inferred && (
-                    <span
-                      style={{ marginLeft: 6, color: PAL.yellow, cursor: "help", fontSize: 11 }}
-                      title="Color inferred from sku_code suffix — variant master row has no color set. Populate items.color upstream to silence this hint."
-                    >⚠</span>
+                <td style={{ ...S.td, color: PAL.textDim, padding: r.is_tbd ? "0 4px" : undefined, ...colHide("color") }} onClick={(e) => { if (r.is_tbd) e.stopPropagation(); }}>
+                  {r.is_tbd && onUpdateTbdColor ? (
+                    <TbdColorCell
+                      value={r.sku_color ?? "TBD"}
+                      isNewColor={!!r.is_new_color}
+                      knownColors={Array.from(colorsByStyle.get(r.sku_style ?? "") ?? new Set<string>()).sort()}
+                      onSave={(color, isNew) => onUpdateTbdColor(r, color, isNew)}
+                    />
+                  ) : (
+                    <>
+                      {r.sku_color ?? "—"}
+                      {r.sku_color_inferred && (
+                        <span
+                          style={{ marginLeft: 6, color: PAL.yellow, cursor: "help", fontSize: 11 }}
+                          title="Color inferred from sku_code suffix — variant master row has no color set. Populate items.color upstream to silence this hint."
+                        >⚠</span>
+                      )}
+                    </>
                   )}
                 </td>
                 <td style={{ ...S.td, ...colHide("customer") }}>{r.customer_name}</td>
@@ -1625,6 +1658,176 @@ function CollapseToggle({ label, active, onToggle }: { label: string; active: bo
       <input type="checkbox" checked={active} onChange={onToggle} style={{ accentColor: PAL.accent }} />
       {label}
     </label>
+  );
+}
+
+// Editable color cell on TBD rows. Click → popover with searchable
+// list of the style's known item-master colors plus a free-text input
+// for new colors. Picking a known color saves with isNew=false; typing
+// a new color saves with isNew=true so the row gets the orange "NEW
+// COLOR" badge until the master catches up.
+function TbdColorCell({
+  value, isNewColor, knownColors, onSave,
+}: {
+  value: string;
+  isNewColor: boolean;
+  knownColors: string[];
+  onSave: (color: string, isNew: boolean) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape") setOpen(false); }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  useEffect(() => { if (!open) setQuery(""); }, [open]);
+
+  const knownLower = useMemo(() => new Set(knownColors.map((c) => c.toLowerCase())), [knownColors]);
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return knownColors;
+    return knownColors.filter((c) => c.toLowerCase().includes(q));
+  }, [query, knownColors]);
+  const queryTrim = query.trim();
+  const queryIsNew = queryTrim.length > 0 && !knownLower.has(queryTrim.toLowerCase());
+
+  async function commit(color: string, isNew: boolean) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await onSave(color, isNew);
+      setOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Trigger: shows current color + (NEW) badge or (TBD) hint.
+  const isPlaceholder = value === "TBD";
+  return (
+    <div ref={ref} style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 6 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          background: isPlaceholder ? `${PAL.textMuted}22` : (isNewColor ? `${PAL.yellow}22` : "transparent"),
+          border: `1px solid ${isNewColor ? PAL.yellow : (isPlaceholder ? PAL.textMuted : PAL.border)}`,
+          color: isNewColor ? PAL.yellow : (isPlaceholder ? PAL.textMuted : PAL.text),
+          borderRadius: 6,
+          padding: "3px 8px",
+          fontSize: 12,
+          cursor: "pointer",
+          fontFamily: "inherit",
+          textAlign: "left" as const,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+        }}
+        title={isNewColor
+          ? "New color — not yet in the item master. Will auto-clear when the master gains this color."
+          : (isPlaceholder ? "Click to assign a color" : "Click to change color")}
+      >
+        <span>{value}</span>
+        {isNewColor && (
+          <span style={{ background: PAL.yellow, color: "#000", borderRadius: 3, padding: "0 4px", fontSize: 9, fontWeight: 700 }}>NEW</span>
+        )}
+        <span style={{ color: PAL.textMuted, fontSize: 9 }}>▾</span>
+      </button>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 4px)",
+            left: 0,
+            zIndex: 60,
+            background: PAL.panel,
+            border: `1px solid ${PAL.border}`,
+            borderRadius: 8,
+            minWidth: 240,
+            maxHeight: 320,
+            overflowY: "auto",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+          }}
+        >
+          <div style={{ padding: 8, borderBottom: `1px solid ${PAL.borderFaint}`, position: "sticky", top: 0, background: PAL.panel }}>
+            <input
+              autoFocus
+              type="text"
+              placeholder="Type to search or add new color…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && queryIsNew) { e.preventDefault(); void commit(queryTrim, true); }
+              }}
+              style={{ ...S.input, width: "100%" }}
+            />
+            <div style={{ marginTop: 4, fontSize: 10, color: PAL.textMuted, lineHeight: 1.4 }}>
+              {knownColors.length === 0
+                ? "No known colors for this style yet — type one to add a NEW color."
+                : "Pick a known color or type a new one (will be flagged NEW until the master catches up)."}
+            </div>
+          </div>
+          {filtered.length === 0 && !queryIsNew && (
+            <div style={{ padding: 12, color: PAL.textMuted, fontSize: 12 }}>No matches</div>
+          )}
+          {filtered.map((c) => (
+            <div
+              key={c}
+              role="option"
+              tabIndex={0}
+              onClick={() => commit(c, false)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(c, false); } }}
+              style={{
+                padding: "8px 12px",
+                cursor: "pointer",
+                fontSize: 13,
+                color: c === value ? PAL.accent : PAL.text,
+                background: c === value ? `${PAL.accent}11` : undefined,
+                fontWeight: c === value ? 600 : undefined,
+                borderBottom: `1px solid ${PAL.borderFaint}`,
+              }}
+            >
+              {c}
+            </div>
+          ))}
+          {queryIsNew && (
+            <div
+              role="option"
+              tabIndex={0}
+              onClick={() => commit(queryTrim, true)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(queryTrim, true); } }}
+              style={{
+                padding: "10px 12px",
+                cursor: "pointer",
+                fontSize: 13,
+                color: PAL.yellow,
+                background: `${PAL.yellow}11`,
+                borderTop: filtered.length > 0 ? `1px solid ${PAL.borderFaint}` : undefined,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+              title="This color isn't in the item master yet — it'll be flagged NEW until a future build sees it."
+            >
+              <span>Add as NEW color:</span>
+              <strong>{queryTrim}</strong>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

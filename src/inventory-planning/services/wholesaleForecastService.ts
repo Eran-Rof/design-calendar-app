@@ -701,6 +701,24 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
   const supplyCust = customerById.get(supplyPlaceholderId);
   const supplyCustomerName = supplyCust?.name ?? "(Supply Only)";
 
+  // For each style, the set of item-master colors. Used to auto-clear
+  // is_new_color on persisted TBD rows whose typed color has since
+  // been added to the master — the planner gets one build cycle of
+  // the orange "NEW COLOR" badge, then it disappears.
+  const colorsByStyleMaster = new Map<string, Set<string>>();
+  for (const it of items) {
+    if (!it.style_code || !it.color) continue;
+    const c = it.color.trim();
+    if (!c) continue;
+    let set = colorsByStyleMaster.get(it.style_code);
+    if (!set) { set = new Set<string>(); colorsByStyleMaster.set(it.style_code, set); }
+    set.add(c.toLowerCase());
+  }
+  const isKnownColor = (style: string | null, color: string | null): boolean => {
+    if (!style || !color) return false;
+    return colorsByStyleMaster.get(style)?.has(color.trim().toLowerCase()) ?? false;
+  };
+
   // Build (style_code, period) tuple set from forecast rows.
   type StylePeriod = { style_code: string; period_code: string; period_start: string; period_end: string };
   const stylePeriods = new Map<string, StylePeriod>();
@@ -757,7 +775,13 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       sku_color: supplyTbd?.color ?? "TBD",
       sku_color_inferred: false,
       is_tbd: true,
-      is_new_color: supplyTbd?.is_new_color ?? false,
+      // Auto-clear: if the planner-typed color is now in the master,
+      // the row is no longer "new" — even if it was flagged when
+      // saved. This is the only place the flag gets cleared without
+      // an explicit edit.
+      is_new_color: supplyTbd && supplyTbd.is_new_color && !isKnownColor(sp.style_code, supplyTbd.color)
+        ? true
+        : false,
       tbd_id: supplyTbd?.id,
       sku_size: null,
       period_code: sp.period_code,
@@ -816,7 +840,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
         sku_color: t.color,
         sku_color_inferred: false,
         is_tbd: true,
-        is_new_color: t.is_new_color,
+        is_new_color: t.is_new_color && !isKnownColor(sp.style_code, t.color),
         tbd_id: t.id,
         sku_size: null,
         period_code: sp.period_code,
