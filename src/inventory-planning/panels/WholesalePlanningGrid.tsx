@@ -440,20 +440,36 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     return Array.from(s).sort();
   }, [rows]);
 
-  // Map of style → set of "known" colors for the TBD color picker.
-  // Sources from non-TBD rows so the picker only suggests colors the
-  // item master actually carries for the style. The literal "TBD" is
-  // excluded so it doesn't surface as a "known color" option.
-  const colorsByStyle = useMemo(() => {
+  // Map of category (group_name) → set of "known" colors for the TBD
+  // color picker. Sourced from non-TBD rows so the picker offers every
+  // color any style in the same category carries — useful when the
+  // planner picks a color from a sibling style (e.g. RYB0594 borrowing
+  // a color from RYB0599 in the same Shorts category) without having
+  // to retype it. The literal "TBD" is excluded so it never surfaces
+  // as a "known color" option.
+  const colorsByGroupName = useMemo(() => {
     const out = new Map<string, Set<string>>();
     for (const r of rows) {
       if (r.is_tbd) continue;
-      const style = r.sku_style ?? r.sku_code;
+      const group = r.group_name ?? "—";
       const color = r.sku_color;
-      if (!style || !color) continue;
-      let set = out.get(style);
-      if (!set) { set = new Set<string>(); out.set(style, set); }
+      if (!color) continue;
+      let set = out.get(group);
+      if (!set) { set = new Set<string>(); out.set(group, set); }
       set.add(color);
+    }
+    return out;
+  }, [rows]);
+  // Lower-cased flat set of EVERY known color across the run, used by
+  // the picker's onSave to decide whether the typed string is "new"
+  // or matches something the master / siblings already carry. The
+  // auto-clear in buildGridRows uses the master directly; this set is
+  // a quick client-side proxy to make the picker feel responsive.
+  const allKnownColorsLower = useMemo(() => {
+    const out = new Set<string>();
+    for (const r of rows) {
+      if (r.is_tbd) continue;
+      if (r.sku_color) out.add(r.sku_color.trim().toLowerCase());
     }
     return out;
   }, [rows]);
@@ -573,6 +589,48 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     for (const r of mutedRows) m.set(r.forecast_id, r);
     return m;
   }, [mutedRows]);
+
+  // Aggregate Buy save handler. Mirrors saveAggBuyerOrOverride: route
+  // the typed value to the (Supply Only) TBD row for the bucket's
+  // (style, period). For non-aggregate rows the value saves directly
+  // to the row's own planned_buy_qty.
+  async function saveAggBuy(r: IpPlanningGridRow, qty: number | null): Promise<void> {
+    if (!r.is_aggregate || !r.aggregate_underlying_ids) {
+      await onUpdateBuyQty(r.forecast_id, qty);
+      return;
+    }
+    const ids = r.aggregate_underlying_ids;
+    const styleSet = new Set<string>();
+    let nonTbdTotal = 0;
+    let periodStart: string | null = null;
+    for (const fid of ids) {
+      const child = mutedById.get(fid);
+      if (!child) continue;
+      const style = child.sku_style ?? child.sku_code;
+      if (style) styleSet.add(style);
+      periodStart = child.period_start;
+      if (!child.is_tbd) nonTbdTotal += child.planned_buy_qty ?? 0;
+    }
+    if (styleSet.size !== 1 || !periodStart) {
+      console.warn(`[planning] aggregate Buy: bucket spans ${styleSet.size} styles — typed value can't be routed to a single TBD row. Drill in (▶) and edit individual TBD lines.`);
+      return;
+    }
+    const styleCode = Array.from(styleSet)[0];
+    const tbdCandidates = mutedRows.filter((x) =>
+      x.is_tbd
+      && x.sku_style === styleCode
+      && x.period_start === periodStart
+      && x.customer_name === "(Supply Only)"
+    );
+    const tbdRow = tbdCandidates.find((x) => x.sku_color === "TBD") ?? tbdCandidates[0] ?? null;
+    if (!tbdRow) {
+      console.warn(`[planning] aggregate Buy: no TBD row found for (${styleCode}, ${periodStart}). Has buildGridRows been refreshed?`);
+      return;
+    }
+    const target = qty == null ? null : Math.max(0, qty - nonTbdTotal);
+    if (target === (tbdRow.planned_buy_qty ?? null)) return;
+    await onUpdateBuyQty(tbdRow.forecast_id, target);
+  }
 
   // Aggregate Buyer / Override save handler. Top-level edits represent
   // STOCK BUYS — they're routed to the (Supply Only) TBD row for the
@@ -1218,7 +1276,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                     <TbdColorCell
                       value={r.sku_color ?? "TBD"}
                       isNewColor={!!r.is_new_color}
-                      knownColors={Array.from(colorsByStyle.get(r.sku_style ?? "") ?? new Set<string>()).sort()}
+                      knownColors={Array.from(colorsByGroupName.get(r.group_name ?? "—") ?? new Set<string>()).sort()}
+                      allKnownColorsLower={allKnownColorsLower}
                       onSave={(color, isNew) => onUpdateTbdColor(r, color, isNew)}
                     />
                   ) : (
@@ -1302,39 +1361,10 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 <td style={{ ...S.tdNum, color: PAL.textMuted, ...colHide("histRecv") }}>{r.historical_receipts_qty ? formatQty(r.historical_receipts_qty) : "—"}</td>
                 <td style={{ ...S.tdNum, color: PAL.text, ...colHide("ats") }}>{formatQty(r.available_supply_qty)}</td>
                 <td style={{ ...S.tdNum, padding: "0 4px", ...colHide("buy") }} onClick={(e) => e.stopPropagation()}>
-                  {r.is_aggregate ? (() => {
-                    // Aggregate Buy is bucket-level: a single qty
-                    // recorded against (collapse_mode + filters + row
-                    // dims). Compute the bucket_key here, look up the
-                    // existing qty, render an editable cell. On save
-                    // the workbench upserts via repo.
-                    const filters: BucketKeyFilters = {
-                      // Bucket-buy filters scope to a single dim value;
-                      // when the planner has multi-selected, key the
-                      // bucket against the first selection (most common
-                      // scope is one).
-                      customer_id: filterCustomer[0] ?? null,
-                      group_name: filterCategory[0] ?? null,
-                      sub_category_name: filterSubCat[0] ?? null,
-                      gender: filterGender[0] ?? null,
-                    };
-                    const desc = bucketKeyFor(r, collapse, filters);
-                    if (!desc) {
-                      return <span style={{ color: PAL.textMuted }}>—</span>;
-                    }
-                    const stored = bucketBuys?.get(desc.bucket_key) ?? null;
-                    return (
-                      <BuyCell
-                        value={stored}
-                        onSave={(qty) => onUpdateBucketBuy({ ...desc, qty })}
-                      />
-                    );
-                  })() : (
-                    <BuyCell
-                      value={r.planned_buy_qty}
-                      onSave={(qty) => onUpdateBuyQty(r.forecast_id, qty)}
-                    />
-                  )}
+                  <BuyCell
+                    value={r.planned_buy_qty}
+                    onSave={(qty) => saveAggBuy(r, qty)}
+                  />
                 </td>
                 <td style={{ ...S.tdNum, color: r.avg_cost ? PAL.text : PAL.textMuted, fontFamily: "monospace", ...colHide("avgCost") }}>
                   {r.avg_cost ? `$${r.avg_cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "–"}
@@ -1979,16 +2009,22 @@ function TbdCustomerCell({
 }
 
 // Editable color cell on TBD rows. Click → popover with searchable
-// list of the style's known item-master colors plus a free-text input
-// for new colors. Picking a known color saves with isNew=false; typing
-// a new color saves with isNew=true so the row gets the orange "NEW
-// COLOR" badge until the master catches up.
+// list of every color used by any style in the same category, plus a
+// free-text input for brand-new colors.
+//
+// "isNew" semantics: a typed color is flagged NEW only when it's not
+// in `allKnownColorsLower` (every color seen anywhere in the current
+// run). Picking a sibling-style color in the same category clears
+// the flag immediately. Picking a string nothing else uses sets the
+// flag, surfaces an orange "NEW" badge, and stays until the master
+// catches up.
 function TbdColorCell({
-  value, isNewColor, knownColors, onSave,
+  value, isNewColor, knownColors, allKnownColorsLower, onSave,
 }: {
   value: string;
   isNewColor: boolean;
   knownColors: string[];
+  allKnownColorsLower: Set<string>;
   onSave: (color: string, isNew: boolean) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -2011,14 +2047,20 @@ function TbdColorCell({
   }, [open]);
   useEffect(() => { if (!open) setQuery(""); }, [open]);
 
-  const knownLower = useMemo(() => new Set(knownColors.map((c) => c.toLowerCase())), [knownColors]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return knownColors;
+    // Search-on-type: include any known color whose name contains
+    // the query (case-insensitive). The picker scope is already the
+    // category, so the planner sees every relevant option after a
+    // few keystrokes.
     return knownColors.filter((c) => c.toLowerCase().includes(q));
   }, [query, knownColors]);
   const queryTrim = query.trim();
-  const queryIsNew = queryTrim.length > 0 && !knownLower.has(queryTrim.toLowerCase());
+  // The query is "new" when no master color anywhere matches it.
+  // Picking a category sibling's color (already in allKnownColorsLower)
+  // is NOT new even if it isn't on the current style yet.
+  const queryIsNew = queryTrim.length > 0 && !allKnownColorsLower.has(queryTrim.toLowerCase());
 
   async function commit(color: string, isNew: boolean) {
     if (busy) return;
@@ -2092,8 +2134,8 @@ function TbdColorCell({
             />
             <div style={{ marginTop: 4, fontSize: 10, color: PAL.textMuted, lineHeight: 1.4 }}>
               {knownColors.length === 0
-                ? "No known colors for this style yet — type one to add a NEW color."
-                : "Pick a known color or type a new one (will be flagged NEW until the master catches up)."}
+                ? "No known colors in this category yet — type one to add a NEW color."
+                : "Pick any color used in this category, or type a new one (flagged NEW until the master catches up)."}
             </div>
           </div>
           {filtered.length === 0 && !queryIsNew && (

@@ -731,22 +731,22 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
   const supplyCust = customerById.get(supplyPlaceholderId);
   const supplyCustomerName = supplyCust?.name ?? "(Supply Only)";
 
-  // For each style, the set of item-master colors. Used to auto-clear
-  // is_new_color on persisted TBD rows whose typed color has since
-  // been added to the master — the planner gets one build cycle of
-  // the orange "NEW COLOR" badge, then it disappears.
-  const colorsByStyleMaster = new Map<string, Set<string>>();
+  // Set of every color any item-master variant carries (case-
+  // insensitive). The TBD picker is category-wide, so the auto-clear
+  // here matches that scope: once the typed color exists ANYWHERE in
+  // the master, is_new_color drops on the next refresh. The planner
+  // gets one build cycle of the orange "NEW COLOR" badge, then it
+  // disappears.
+  const allKnownColorsLowerMaster = new Set<string>();
   for (const it of items) {
-    if (!it.style_code || !it.color) continue;
+    if (!it.color) continue;
     const c = it.color.trim();
     if (!c) continue;
-    let set = colorsByStyleMaster.get(it.style_code);
-    if (!set) { set = new Set<string>(); colorsByStyleMaster.set(it.style_code, set); }
-    set.add(c.toLowerCase());
+    allKnownColorsLowerMaster.add(c.toLowerCase());
   }
-  const isKnownColor = (style: string | null, color: string | null): boolean => {
-    if (!style || !color) return false;
-    return colorsByStyleMaster.get(style)?.has(color.trim().toLowerCase()) ?? false;
+  const isKnownColor = (_style: string | null, color: string | null): boolean => {
+    if (!color) return false;
+    return allKnownColorsLowerMaster.has(color.trim().toLowerCase());
   };
 
   // Build (style_code, period) tuple set. Sourced from BOTH the
