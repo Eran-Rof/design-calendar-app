@@ -659,21 +659,41 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       if (!child.is_tbd) nonTbdTotal += child.planned_buy_qty ?? 0;
     }
     if (!periodStart) return;
-    // Multi-style buckets route to (style=TBD, color=TBD); single-
-    // style buckets route to that style's TBD row.
-    const styleCode = styleSet.size === 1 ? Array.from(styleSet)[0] : "TBD";
-    const tbdCandidates = mutedRows.filter((x) =>
-      x.is_tbd
-      && x.sku_style === styleCode
-      && x.period_start === periodStart
-      && x.customer_name === "(Supply Only)"
-    );
-    const tbdRow = tbdCandidates.find((x) => x.sku_color === "TBD") ?? tbdCandidates[0] ?? null;
+    // Same routing preference as saveAggBuyerOrOverride: planner-
+    // added rows in the bucket win, then per-style TBD, then the
+    // catch-all (style=TBD).
+    let tbdRow: IpPlanningGridRow | null = null;
+    const userAddedInBucket: IpPlanningGridRow[] = [];
+    for (const fid of ids) {
+      const child = mutedById.get(fid);
+      if (child?.is_tbd && child.is_user_added) userAddedInBucket.push(child);
+    }
+    if (userAddedInBucket.length > 0) {
+      tbdRow = userAddedInBucket[0];
+    } else {
+      const styleCode = styleSet.size === 1 ? Array.from(styleSet)[0] : "TBD";
+      const tbdCandidates = mutedRows.filter((x) =>
+        x.is_tbd
+        && x.sku_style === styleCode
+        && x.period_start === periodStart
+        && x.customer_name === "(Supply Only)"
+      );
+      tbdRow = tbdCandidates.find((x) => x.sku_color === "TBD") ?? tbdCandidates[0] ?? null;
+    }
     if (!tbdRow) {
-      console.warn(`[planning] aggregate Buy: no TBD row found for (${styleCode}, ${periodStart}). Has buildGridRows been refreshed?`);
+      console.warn(`[planning] aggregate Buy: no TBD routing target found for period ${periodStart}. Has buildGridRows been refreshed?`);
       return;
     }
-    const target = qty == null ? null : Math.max(0, qty - nonTbdTotal);
+    // Subtract the rest of the bucket so the displayed sum hits
+    // exactly the typed qty.
+    let restSum = 0;
+    for (const fid of ids) {
+      if (fid === tbdRow.forecast_id) continue;
+      const child = mutedById.get(fid);
+      if (!child) continue;
+      restSum += child.planned_buy_qty ?? 0;
+    }
+    const target = qty == null ? null : Math.max(0, qty - restSum);
     if (target === (tbdRow.planned_buy_qty ?? null)) return;
     await onUpdateBuyQty(tbdRow.forecast_id, target);
   }
@@ -731,23 +751,50 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       }
     }
     if (!periodStart) return;
-    // Single-style bucket → route to that style's (Supply Only)/TBD
-    // row. Multi-style bucket → route to the catch-all (style=TBD,
-    // color=TBD) row for the same period. The catch-all is always
-    // synthesized in buildGridRows so it's reliably present.
-    const styleCode = styleSet.size === 1 ? Array.from(styleSet)[0] : "TBD";
-    const tbdCandidates = mutedRows.filter((x) =>
-      x.is_tbd
-      && x.sku_style === styleCode
-      && x.period_start === periodStart
-      && x.customer_name === "(Supply Only)"
-    );
-    const tbdRow = tbdCandidates.find((x) => x.sku_color === "TBD") ?? tbdCandidates[0] ?? null;
+    // Pick the routing target. Preference order:
+    //   1. A planner-added (is_user_added) TBD row IN this bucket.
+    //      The planner created it as a deliberate stock-buy slot
+    //      and expects aggregate edits to land there regardless of
+    //      its customer / color (they may have picked Burlington +
+    //      a real color from + Add row).
+    //   2. The (Supply Only) TBD row for the bucket's single style.
+    //   3. The catch-all (style=TBD) (Supply Only) TBD row for the
+    //      bucket's period (multi-style buckets).
+    let tbdRow: IpPlanningGridRow | null = null;
+    const userAddedInBucket: IpPlanningGridRow[] = [];
+    for (const fid of ids) {
+      const child = mutedById.get(fid);
+      if (child?.is_tbd && child.is_user_added) userAddedInBucket.push(child);
+    }
+    if (userAddedInBucket.length > 0) {
+      tbdRow = userAddedInBucket[0];
+    } else {
+      const styleCode = styleSet.size === 1 ? Array.from(styleSet)[0] : "TBD";
+      const tbdCandidates = mutedRows.filter((x) =>
+        x.is_tbd
+        && x.sku_style === styleCode
+        && x.period_start === periodStart
+        && x.customer_name === "(Supply Only)"
+      );
+      tbdRow = tbdCandidates.find((x) => x.sku_color === "TBD") ?? tbdCandidates[0] ?? null;
+    }
     if (!tbdRow) {
-      console.warn(`[planning] aggregate ${field}: no TBD row found for (${styleCode}, ${periodStart}). Has buildGridRows been refreshed?`);
+      console.warn(`[planning] aggregate ${field}: no TBD routing target found for period ${periodStart}. Has buildGridRows been refreshed?`);
       return;
     }
-    let target = newTotal - nonTbdTotal;
+    // Subtract the rest of the bucket (every underlying except the
+    // chosen target) so typing newTotal makes the aggregate's
+    // displayed sum hit exactly newTotal. Earlier we only subtracted
+    // non-TBD rows, which broke the math when the bucket also held
+    // an auto catch-all alongside a user-added row.
+    let restSum = 0;
+    for (const fid of ids) {
+      if (fid === tbdRow.forecast_id) continue;
+      const child = mutedById.get(fid);
+      if (!child) continue;
+      restSum += (child[field] as number | undefined) ?? 0;
+    }
+    let target = newTotal - restSum;
     if (!allowNegative && target < 0) target = 0;
     if (target === ((tbdRow[field] as number | undefined) ?? 0)) return;
     await saver(tbdRow.forecast_id, target);
