@@ -32,8 +32,7 @@ describe("itemMasterLookup.resolveStyle", () => {
         color: "Black",
         attributes: {
           group_name: "Tops",
-          sub_category_name: "Tees",
-          category_name: "Apparel",
+          category_name: "Tees",
           gender: "Womens",
         },
       }),
@@ -42,14 +41,14 @@ describe("itemMasterLookup.resolveStyle", () => {
         sku_code: "RYB200 - Bark",
         style_code: "RYB200",
         color: "Bark",
-        attributes: { group_name: "Bottoms", sub_category_name: "Jeans" },
+        attributes: { group_name: "Bottoms", category_name: "Jeans" },
       }),
       makeRecord({
         id: "3",
         sku_code: "RYB300 - White",
         style_code: "RYB300",
         color: "White",
-        attributes: { group_name: "Tops", sub_category_name: "Polos" },
+        attributes: { group_name: "Tops", category_name: "Polos" },
       }),
     ]);
 
@@ -70,7 +69,7 @@ describe("itemMasterLookup.resolveStyle", () => {
         sku_code: "ABC - Bark",
         style_code: "ABC",
         color: "Bark",
-        attributes: { group_name: "Tops", sub_category_name: "Tees" },
+        attributes: { group_name: "Tops", category_name: "Tees" },
       }),
     ]);
 
@@ -91,7 +90,7 @@ describe("itemMasterLookup.resolveStyle", () => {
         sku_code: "S100 - Black",
         style_code: "S100",
         color: "Black",
-        attributes: { group_name: "Outerwear", sub_category_name: "Jackets" },
+        attributes: { group_name: "Outerwear", category_name: "Jackets" },
       }),
     ]);
 
@@ -138,14 +137,14 @@ describe("itemMasterLookup.resolveStyle", () => {
       sku_code: "S100-A",
       style_code: "S100",
       color: "Aqua",
-      attributes: { group_name: "Tops", sub_category_name: "Tees" },
+      attributes: { group_name: "Tops", category_name: "Tees" },
     });
     const recB = makeRecord({
       id: "b",
       sku_code: "S100-B",
       style_code: "S100",
       color: "Blue",
-      attributes: { group_name: "Tops", sub_category_name: "Tees" },
+      attributes: { group_name: "Tops", category_name: "Tees" },
     });
 
     // Inject A then B → expect A (smaller sku_code) wins.
@@ -162,6 +161,43 @@ describe("itemMasterLookup.resolveStyle", () => {
     expect(r2.color).toBe("Aqua");
   });
 
+  it("style fallback prefers the canonical style-level row with populated attributes over empty-attribute variants", () => {
+    // Mirrors live master shape: variant rows like "RYB0185-BLKCAMO" have
+    // empty {} attributes while the canonical "RYB0185" row carries the
+    // group_name / category_name. The resolver must pick the populated one.
+    const variantA = makeRecord({
+      id: "var-a",
+      sku_code: "RYB0185-BLKCAMO",
+      style_code: "RYB0185",
+      color: null,
+      attributes: {},
+    });
+    const variantB = makeRecord({
+      id: "var-b",
+      sku_code: "RYB0185-OLIVE",
+      style_code: "RYB0185",
+      color: null,
+      attributes: {},
+    });
+    const canonical = makeRecord({
+      id: "canon",
+      sku_code: "RYB0185",
+      style_code: "RYB0185",
+      color: "Blk Camo",
+      attributes: { group_name: "DENIM", category_name: "SLIM" },
+    });
+
+    // Inject in a few orders — populated row should win every time.
+    for (const order of [[variantA, variantB, canonical], [canonical, variantA, variantB], [variantA, canonical, variantB]]) {
+      clearItemMasterCache();
+      __setCacheForTest(order);
+      const r = resolveStyle("MISS", "RYB0185");
+      expect(r.match_source).toBe("style");
+      expect(r.category).toBe("DENIM");
+      expect(r.sub_category).toBe("SLIM");
+    }
+  });
+
   it("style fallback strips whitespace — ATS 'R7113 ED2' matches master 'R7113ED2', and the reverse", () => {
     __setCacheForTest([
       makeRecord({
@@ -169,7 +205,7 @@ describe("itemMasterLookup.resolveStyle", () => {
         sku_code: "R7113ED2",
         style_code: "R7113ED2",
         color: "Black",
-        attributes: { group_name: "Tops", sub_category_name: "Tees" },
+        attributes: { group_name: "Tops", category_name: "Tees" },
       }),
       makeRecord({
         id: "with-space",
@@ -199,7 +235,7 @@ describe("itemMasterLookup.resolveStyle", () => {
         sku_code: "RYB0335 - Navy",
         style_code: "RYB0335",
         color: "Navy",
-        attributes: { group_name: "Bottoms", sub_category_name: "Jeans" },
+        attributes: { group_name: "Bottoms", category_name: "Jeans" },
       }),
       makeRecord({
         id: "ptyg",

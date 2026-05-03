@@ -50,19 +50,19 @@ describe("enrichRowsWithItemMaster", () => {
         sku_code: "ABC123 - Black",
         style_code: "ABC123",
         color: "Black",
-        attributes: { group_name: "Tops", sub_category_name: "T-Shirts" },
+        attributes: { group_name: "Tops", category_name: "T-Shirts" },
       }),
       makeMasterRec({
         sku_code: "ABC123 - White",
         style_code: "ABC123",
         color: "White",
-        attributes: { group_name: "Tops", sub_category_name: "T-Shirts" },
+        attributes: { group_name: "Tops", category_name: "T-Shirts" },
       }),
       makeMasterRec({
         sku_code: "XYZ789 - Blue",
         style_code: "XYZ789",
         color: "Blue",
-        attributes: { group_name: "Bottoms", sub_category_name: "Jeans" },
+        attributes: { group_name: "Bottoms", category_name: "Jeans" },
       }),
     ]);
 
@@ -99,13 +99,13 @@ describe("enrichRowsWithItemMaster", () => {
         sku_code: "ABC123 - Black",
         style_code: "ABC123",
         color: "Black",
-        attributes: { group_name: "Tops", sub_category_name: "T-Shirts" },
+        attributes: { group_name: "Tops", category_name: "T-Shirts" },
       }),
       makeMasterRec({
         sku_code: "ABC123 - White",
         style_code: "ABC123",
         color: "White",
-        attributes: { group_name: "Tops", sub_category_name: "T-Shirts" },
+        attributes: { group_name: "Tops", category_name: "T-Shirts" },
       }),
       // Style-only fallback target — sku_code won't match the test row but
       // style_code will (via the " - " split on the row sku).
@@ -113,7 +113,7 @@ describe("enrichRowsWithItemMaster", () => {
         sku_code: "STY999 - Red",
         style_code: "STY999",
         color: "Red",
-        attributes: { group_name: "Outerwear", sub_category_name: "Jackets" },
+        attributes: { group_name: "Outerwear", category_name: "Jackets" },
       }),
     ]);
 
@@ -198,7 +198,7 @@ describe("enrichRowsWithItemMaster", () => {
         sku_code: "ABC123 - Black",
         style_code: "ABC123",
         color: "Black",
-        attributes: { group_name: "Tops", sub_category_name: "T-Shirts" },
+        attributes: { group_name: "Tops", category_name: "T-Shirts" },
       }),
     ]);
 

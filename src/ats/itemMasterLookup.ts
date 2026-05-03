@@ -22,10 +22,16 @@ export interface ItemMasterRecord {
   color: string | null;
   size: string | null;
   description: string | null;
+  // Master schema (verified against live ip_item_master): the planning side
+  // labels `group_name` as "Category" and `category_name` as "Sub Cat".
+  // `product_category` is a higher-level rollup (e.g. BOTTOMS / TOPS) we
+  // don't currently surface. Variant rows (`sku_code !== style_code`) often
+  // have an empty {} here; the populated attributes live on the style-level
+  // row where `sku_code === style_code`.
   attributes: {
     group_name?: string | null;
     category_name?: string | null;
-    sub_category_name?: string | null;
+    product_category?: string | null;
     gender?: string | null;
   } | null;
 }
@@ -51,6 +57,21 @@ const NULL_RESULT: ResolvedStyle = {
   match_source: null,
 };
 
+// A record is the "canonical" style-level row when its sku_code equals its
+// style_code. Those rows carry the populated attributes (group_name etc.);
+// variant rows (sku_code like "STYLE-COLOR") usually have attributes: {}.
+function isStyleLevel(rec: ItemMasterRecord): boolean {
+  return !!rec.style_code && rec.sku_code === rec.style_code;
+}
+
+// True when attributes has at least one populated metadata field. Prevents
+// us from picking an empty-attributes variant when a populated row exists.
+function hasMetadata(rec: ItemMasterRecord): boolean {
+  const a = rec.attributes;
+  if (!a) return false;
+  return !!(a.group_name || a.category_name || a.product_category);
+}
+
 function buildIndexes(records: ItemMasterRecord[]): void {
   const sku = new Map<string, ItemMasterRecord>();
   const style = new Map<string, ItemMasterRecord>();
@@ -63,19 +84,8 @@ function buildIndexes(records: ItemMasterRecord[]): void {
       // regardless of casing.
       const styleKey = rec.style_code.toUpperCase();
       const existing = style.get(styleKey);
-      if (!existing) {
+      if (!existing || preferRec(rec, existing)) {
         style.set(styleKey, rec);
-      } else {
-        // Deterministic tie-break: prefer the record with no color (the
-        // "base" style row, if one exists), otherwise the lexicographically
-        // smallest sku_code wins so injection order doesn't change results.
-        const existingHasColor = !!existing.color;
-        const recHasColor = !!rec.color;
-        if (existingHasColor && !recHasColor) {
-          style.set(styleKey, rec);
-        } else if (existingHasColor === recHasColor && rec.sku_code < existing.sku_code) {
-          style.set(styleKey, rec);
-        }
       }
       // Whitespace alias: store under the space-stripped uppercase key too
       // so an ATS row with the opposite spacing still hits. Only insert if
@@ -89,6 +99,20 @@ function buildIndexes(records: ItemMasterRecord[]): void {
   }
   bySkuCode = sku;
   byStyleCode = style;
+}
+
+// Decide whether `cand` should replace `incumbent` for a style key. Priority:
+// 1. Has populated attributes (the metadata is what the grid renders)
+// 2. Is the canonical style-level row (sku_code === style_code)
+// 3. Lexicographically smallest sku_code (deterministic tie-break)
+function preferRec(cand: ItemMasterRecord, incumbent: ItemMasterRecord): boolean {
+  const candMeta = hasMetadata(cand);
+  const incMeta = hasMetadata(incumbent);
+  if (candMeta !== incMeta) return candMeta;
+  const candStyleLevel = isStyleLevel(cand);
+  const incStyleLevel = isStyleLevel(incumbent);
+  if (candStyleLevel !== incStyleLevel) return candStyleLevel;
+  return cand.sku_code < incumbent.sku_code;
 }
 
 async function fetchAllItemMaster(): Promise<ItemMasterRecord[]> {
@@ -150,7 +174,8 @@ export function resolveStyle(sku: string, stylePart?: string | null): ResolvedSt
   if (skuHit) {
     return {
       category: skuHit.attributes?.group_name ?? null,
-      sub_category: skuHit.attributes?.sub_category_name ?? null,
+      // Planning labels `category_name` as "Sub Cat" — match its convention.
+      sub_category: skuHit.attributes?.category_name ?? null,
       style: skuHit.style_code ?? null,
       color: skuHit.color ?? null,
       match_source: "sku",
@@ -175,7 +200,8 @@ export function resolveStyle(sku: string, stylePart?: string | null): ResolvedSt
       if (styleHit) {
         return {
           category: styleHit.attributes?.group_name ?? null,
-          sub_category: styleHit.attributes?.sub_category_name ?? null,
+          // Planning labels `category_name` as "Sub Cat" — match its convention.
+          sub_category: styleHit.attributes?.category_name ?? null,
           style: styleHit.style_code ?? null,
           color: styleHit.color ?? null,
           match_source: "style",
