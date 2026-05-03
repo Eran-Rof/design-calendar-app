@@ -14,6 +14,7 @@ import { NavBar, SyncProgressBanner } from "./panels/NavBar";
 import { Toolbar } from "./panels/Toolbar";
 import { GridTable } from "./panels/GridTable";
 import { GridErrorBoundary } from "./panels/GridErrorBoundary";
+import { UnmatchedBanner } from "./panels/UnmatchedBanner";
 import type { ATSState } from "./state/atsTypes";
 import type { ATSRow, ExcelData, ATSPoEvent, ATSSoEvent, UploadWarning } from "./types";
 import type { NormChange } from "./normalize";
@@ -58,6 +59,8 @@ interface ATSDerivedCtx {
   pageRows: ATSRow[];
   totalPages: number;
   categories: string[];
+  subCategories: string[];
+  unmatchedRows: ATSRow[];
   filteredSkuSet: Set<string>;
   todayKey: string;
   // Summary stats
@@ -111,7 +114,7 @@ interface ATSDerivedCtx {
 export type ATSRenderCtx = ATSState & ATSStateSetters & ATSDerivedCtx;
 
 export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
-  const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterGender, setFilterGender, filterStatus, setFilterStatus, minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, syncing, syncStatus, lastSync, syncError, setSyncError, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, sortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
+  const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterGender, setFilterGender, filterStatus, setFilterStatus, minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, syncing, syncStatus, lastSync, syncError, setSyncError, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, sortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
   mergeHistory, undoLastMerge, clearMergeAndNavigate,
   atShip, setAtShip, onNegInven, onAgedInven,
   unreadNotifs, showingNotifications, onToggleNotifications, notificationsView } = ctx;
@@ -154,6 +157,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         onToggleNotifications={onToggleNotifications}
       />
       <SyncProgressBanner syncProgress={syncProgress} />
+      <UnmatchedBanner unmatchedRows={unmatchedRows} />
 
       {showingNotifications ? (
         <div style={{ ...S.content, padding: "24px 24px 60px" }}>
@@ -174,6 +178,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         <Toolbar
           search={search} setSearch={setSearch}
           filterCategory={filterCategory} setFilterCategory={setFilterCategory} categories={categories}
+          filterSubCategory={filterSubCategory} setFilterSubCategory={setFilterSubCategory} subCategories={subCategories}
           filterGender={filterGender} setFilterGender={setFilterGender}
           STORES={STORES} storeFilter={storeFilter} setStoreFilter={setStoreFilter}
           poDropOpen={poDropOpen} setPoDropOpen={setPoDropOpen} setSoDropOpen={setSoDropOpen}

@@ -1,9 +1,10 @@
 import type { ATSRow } from "./types";
-import { fmtDate } from "./helpers";
+import { fmtDate, displayColor } from "./helpers";
 
 export interface RowFilterOpts {
   search: string;
   filterCategory: string;
+  filterSubCategory: string;
   filterGender: string;
   filterStatus: string;
   minATS: number | "";
@@ -31,7 +32,16 @@ export function filterRows(rows: ATSRow[], opts: RowFilterOpts): ATSRow[] {
   const todayKey = fmtDate(opts.today);
   return rows.filter(r => {
     if (!rowMatchesSearch(r, tokens)) return false;
-    if (opts.filterCategory !== "All" && r.category !== opts.filterCategory) return false;
+    // Category filter pulls from master_category (the truth) with a fallback
+    // to legacy r.category so rows from older code paths still filter sanely
+    // — at 100% master coverage the fallback is unused.
+    if (opts.filterCategory !== "All") {
+      const cat = r.master_category ?? r.category ?? "";
+      if (cat !== opts.filterCategory) return false;
+    }
+    if (opts.filterSubCategory !== "All") {
+      if ((r.master_sub_category ?? "") !== opts.filterSubCategory) return false;
+    }
     if (opts.filterGender !== "All" && (r.gender ?? "") !== opts.filterGender) return false;
     const todayQty = r.dates[todayKey] ?? r.onHand;
     if (opts.filterStatus !== "All") {
@@ -87,6 +97,10 @@ export function sortRows(
     let bv: string | number;
     if      (sortCol === "sku")         { av = a.sku;         bv = b.sku; }
     else if (sortCol === "description") { av = a.description; bv = b.description; }
+    else if (sortCol === "category")    { av = a.master_category    ?? ""; bv = b.master_category    ?? ""; }
+    else if (sortCol === "subCategory") { av = a.master_sub_category ?? ""; bv = b.master_sub_category ?? ""; }
+    else if (sortCol === "style")       { av = a.master_style       ?? ""; bv = b.master_style       ?? ""; }
+    else if (sortCol === "color")       { av = displayColor(a);            bv = displayColor(b); }
     else if (sortCol === "onHand")      { av = a.onHand;      bv = b.onHand; }
     else if (sortCol === "onOrder")  { av = a.onOrder; bv = b.onOrder; }
     else if (sortCol === "onPO")     { av = a.onPO;    bv = b.onPO;   }

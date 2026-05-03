@@ -70,7 +70,7 @@ function ATSReport() {
   const today = new Date();
   // ── State → useATSState() + useATSDispatch() (see ats/state/) ──
   const {
-    startDate, rangeUnit, rangeValue, search, filterCategory, filterGender, filterStatus,
+    startDate, rangeUnit, rangeValue, search, filterCategory, filterSubCategory, filterGender, filterStatus,
     minATS, storeFilter, poDropOpen, soDropOpen, rows, loading, mockMode,
     page, excelData, uploadingFile, uploadProgress, uploadSuccess, uploadError,
     uploadWarnings, pendingUploadData, showUpload, invFile, purFile, ordFile,
@@ -84,6 +84,7 @@ function ATSReport() {
   const setRangeValue        = mk("rangeValue");
   const setSearch            = mk("search");
   const setFilterCategory    = mk("filterCategory");
+  const setFilterSubCategory = mk("filterSubCategory");
   const setFilterGender      = mk("filterGender");
   const setFilterStatus      = mk("filterStatus");
   const setMinATS            = mk("minATS");
@@ -724,11 +725,47 @@ function ATSReport() {
 
   // cancelUpload now lives in useExcelUpload hook.
 
+  // ── Master-resolved row split ──────────────────────────────────────────
+  // Strict rule: rows whose style isn't in ip_item_master are "exceptions"
+  // and must NOT enter the main grid. They surface only in the
+  // UnmatchedBanner so the user can fix the data upstream.
+  const matchedRows = useMemo(
+    () => rows.filter(r => r.master_match_source !== null && r.master_match_source !== undefined),
+    [rows],
+  );
+  const unmatchedRows = useMemo(
+    () => rows.filter(r => r.master_match_source === null || r.master_match_source === undefined),
+    [rows],
+  );
+
   // ── Filtering ──────────────────────────────────────────────────────────
-  const categories = ["All", ...Array.from(new Set(
-    rows.filter(r => r.onHand > 0 || r.onPO > 0 || r.onOrder > 0)
-        .map(r => r.category).filter(Boolean) as string[]
-  )).sort()];
+  // Categories now come from master_category (the truth) instead of the
+  // freeform r.category. Restrict to rows with non-zero activity so the
+  // dropdown isn't cluttered with empty styles.
+  const categories = useMemo(() => ["All", ...Array.from(new Set(
+    matchedRows.filter(r => r.onHand > 0 || r.onPO > 0 || r.onOrder > 0)
+        .map(r => r.master_category).filter(Boolean) as string[]
+  )).sort()], [matchedRows]);
+
+  // Sub Cat dropdown is dependent: when a Category is picked, list only
+  // sub cats that exist within that category. "All" shows every sub cat.
+  const subCategories = useMemo(() => {
+    const pool = filterCategory === "All"
+      ? matchedRows
+      : matchedRows.filter(r => r.master_category === filterCategory);
+    return ["All", ...Array.from(new Set(
+      pool.map(r => r.master_sub_category).filter(Boolean) as string[]
+    )).sort()];
+  }, [matchedRows, filterCategory]);
+
+  // Reset Sub Cat selection when the chosen value is no longer valid for
+  // the active Category (e.g. user changes Category and the previous Sub
+  // Cat doesn't exist under the new one).
+  useEffect(() => {
+    if (filterSubCategory !== "All" && !subCategories.includes(filterSubCategory)) {
+      setFilterSubCategory("All");
+    }
+  }, [subCategories, filterSubCategory]);
 
   // Build SKU sets keyed by store for fast row filtering
   const poSkusByStore = useMemo(() => {
@@ -768,7 +805,7 @@ function ATSReport() {
   const {
     customerSkuSet, filtered, statFiltered, sortedFiltered, pageRows, totalPages, filteredSkuSet,
   } = useRowFiltering({
-    rows, excelData, search, filterCategory, filterGender, filterStatus, minATS, storeFilter,
+    rows: matchedRows, excelData, search, filterCategory, filterSubCategory, filterGender, filterStatus, minATS, storeFilter,
     customerFilter, activeSort, sortCol, sortDir, displayPeriods, today,
     pageSize: PAGE_SIZE, page,
   });
@@ -831,7 +868,7 @@ function ATSReport() {
   }
 
   // Reset to page 0 whenever filters/search/sort change
-  useEffect(() => { setPage(0); }, [search, filterCategory, filterGender, filterStatus, minATS, poStores, soStores, rows, activeSort, sortCol, sortDir, customerFilter]);
+  useEffect(() => { setPage(0); }, [search, filterCategory, filterSubCategory, filterGender, filterStatus, minATS, poStores, soStores, rows, activeSort, sortCol, sortDir, customerFilter]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Notifications: in-app view + bell badge (ATS-relevant events only)
@@ -858,7 +895,7 @@ function ATSReport() {
   // RENDER — see ats/renderPanel.tsx
   return atsRenderPanel({
     startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue,
-    search, setSearch, filterCategory, setFilterCategory, filterGender, setFilterGender, filterStatus, setFilterStatus,
+    search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterGender, setFilterGender, filterStatus, setFilterStatus,
     minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen,
     soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage,
     excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess,
@@ -869,7 +906,7 @@ function ATSReport() {
     summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, sortDir,
     STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef,
     ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered,
-    statFiltered, sortedFiltered, pageRows, totalPages, categories, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct,
+    statFiltered, sortedFiltered, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct,
     handleFileUpload, refreshPOsFromWIP, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel,
     repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef,
     cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress,

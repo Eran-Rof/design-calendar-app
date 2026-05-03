@@ -55,7 +55,7 @@ describe("filterRows", () => {
     row({ sku: "C", category: "red",  store: "PT",       dates: { "2026-04-10": 50 }, onHand: 50 }),
   ];
   const defaults = {
-    search: "", filterCategory: "All", filterGender: "All", filterStatus: "All", minATS: "" as const,
+    search: "", filterCategory: "All", filterSubCategory: "All", filterGender: "All", filterStatus: "All", minATS: "" as const,
     storeFilter: ["All"], customerSkuSet: null, today: TODAY,
   };
 

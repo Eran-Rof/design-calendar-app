@@ -102,6 +102,20 @@ export function normalizeSku(sku: string): string {
   return s;
 }
 
+/** Color string to render in the ATS grid's Color column.
+ *
+ *  Master is truth for category/sub-cat/style, but master_color is often null
+ *  (most ATS rows match via the style fallback, which prefers the no-color
+ *  base record). The actual variant color lives in the ATS SKU string, after
+ *  the first " - ". Use master's color when sku-level matched (rare),
+ *  otherwise parse from the SKU.  */
+export function displayColor(row: { sku: string; master_color?: string | null; master_match_source?: "sku" | "style" | null }): string {
+  if (row.master_match_source === "sku" && row.master_color) return row.master_color;
+  const dash = row.sku.indexOf(" - ");
+  if (dash === -1) return row.master_color ?? "";
+  return row.sku.slice(dash + 3).trim();
+}
+
 /** Dice-coefficient bigram similarity between two SKU strings (0–1).
  *  Normalizes both strings first, strips spaces/dashes for the comparison. */
 export function skuSimilarity(a: string, b: string): number {

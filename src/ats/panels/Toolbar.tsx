@@ -10,6 +10,9 @@ interface ToolbarProps {
   filterCategory: string;
   setFilterCategory: (v: string) => void;
   categories: string[];
+  filterSubCategory: string;
+  setFilterSubCategory: (v: string) => void;
+  subCategories: string[];
   filterGender: string;
   setFilterGender: (v: string) => void;
   // Store dropdown
@@ -50,6 +53,7 @@ interface ToolbarProps {
 
 export const Toolbar: React.FC<ToolbarProps> = ({
   search, setSearch, filterCategory, setFilterCategory, categories,
+  filterSubCategory, setFilterSubCategory, subCategories,
   filterGender, setFilterGender,
   STORES, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, setSoDropOpen,
   poDropRef, toggleStore,
@@ -72,6 +76,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Category:</span>
       <select style={S.select} value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
         {categories.map(c => <option key={c} value={c}>{c === "All" ? "All" : c}</option>)}
+      </select>
+    </div>
+    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+      <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Sub Cat:</span>
+      <select style={S.select} value={filterSubCategory} onChange={e => setFilterSubCategory(e.target.value)}>
+        {subCategories.map(c => <option key={c} value={c}>{c === "All" ? "All" : c}</option>)}
       </select>
     </div>
     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
