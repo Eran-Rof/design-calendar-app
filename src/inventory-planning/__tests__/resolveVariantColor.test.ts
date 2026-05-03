@@ -12,7 +12,7 @@
 //   4. distinct variants with no own color produce distinct bucket keys
 
 import { describe, it, expect } from "vitest";
-import { resolveVariantColor, resolveVariantColorWithProvenance, parseColorFromSkuCode } from "../services/resolveVariantColor";
+import { resolveVariantColor, resolveVariantColorWithProvenance, parseColorFromSkuCode, prettifyColorCode } from "../services/resolveVariantColor";
 import { aggregateRows, type CollapseModes } from "../panels/aggregateGridRows";
 import type { IpPlanningGridRow } from "../types/wholesale";
 
@@ -21,7 +21,10 @@ describe("resolveVariantColor", () => {
     expect(resolveVariantColor("Navy", "RYB0412-NAVY", "RYB0412")).toBe("Navy");
   });
 
-  it("treats blank variant color as missing and parses from sku_code", () => {
+  it("treats blank variant color as missing and parses from sku_code (raw, no prettify)", () => {
+    // resolveVariantColor returns the raw parser output. Prettification
+    // only happens through resolveVariantColorWithProvenance, which is
+    // what production code uses.
     expect(resolveVariantColor("", "RYB0412-NAVY", "RYB0412")).toBe("NAVY");
     expect(resolveVariantColor("   ", "RYB0412-NAVY", "RYB0412")).toBe("NAVY");
     expect(resolveVariantColor(null, "RYB0412-NAVY", "RYB0412")).toBe("NAVY");
@@ -55,14 +58,23 @@ describe("resolveVariantColor", () => {
       .toEqual({ color: "Navy", inferred: false });
   });
 
-  it("reports provenance: parsed-from-sku_code is inferred", () => {
+  it("reports provenance: parsed-from-sku_code is inferred (and prettified)", () => {
     expect(resolveVariantColorWithProvenance(null, "RYB0412-NAVY", "RYB0412"))
-      .toEqual({ color: "NAVY", inferred: true });
+      .toEqual({ color: "Navy", inferred: true });
   });
 
   it("reports provenance: null result is not inferred", () => {
     expect(resolveVariantColorWithProvenance(null, "RYB0412", "RYB0412"))
       .toEqual({ color: null, inferred: false });
+  });
+
+  it("prettifies inferred colors via the vocabulary", () => {
+    expect(resolveVariantColorWithProvenance(null, "RYB0412-TONALGREYCAMO", "RYB0412"))
+      .toEqual({ color: "Tonal Grey Camo", inferred: true });
+    expect(resolveVariantColorWithProvenance(null, "RYB0412-LTGREY", "RYB0412"))
+      .toEqual({ color: "Lt Grey", inferred: true });
+    expect(resolveVariantColorWithProvenance(null, "RYB0412-BLKCAMO", "RYB0412"))
+      .toEqual({ color: "Black Camo", inferred: true });
   });
 
   it("never returns a sibling/master color when variant has no own color", () => {
@@ -72,7 +84,33 @@ describe("resolveVariantColor", () => {
     // suffix OR null. Nothing else.
     const result = resolveVariantColor(null, "RYB0412-NAVY", "RYB0412");
     expect(result).not.toBe("Grey");
-    expect(result).toBe("NAVY");
+    expect(result).toBe("NAVY"); // raw resolver output
+  });
+});
+
+describe("prettifyColorCode", () => {
+  it("breaks concatenated upper-case codes on the color vocabulary", () => {
+    expect(prettifyColorCode("TONALGREYCAMO")).toBe("Tonal Grey Camo");
+    expect(prettifyColorCode("WITHERFADEASHENCAMO")).toBe("Wither Fade Ashen Camo");
+    expect(prettifyColorCode("CREAMTONALGRIZZLYCAMO")).toBe("Cream Tonal Grizzly Camo");
+    expect(prettifyColorCode("AUTUMNGRIZZLYCAMO")).toBe("Autumn Grizzly Camo");
+  });
+
+  it("expands abbreviations via the alias map", () => {
+    expect(prettifyColorCode("BLKCAMO")).toBe("Black Camo");
+    expect(prettifyColorCode("LTGREY")).toBe("Lt Grey");
+    expect(prettifyColorCode("LTBROWN")).toBe("Lt Brown");
+  });
+
+  it("title-cases lone vocabulary words", () => {
+    expect(prettifyColorCode("BLACK")).toBe("Black");
+    expect(prettifyColorCode("GREY")).toBe("Grey");
+    expect(prettifyColorCode("ESPRESSO")).toBe("Espresso");
+  });
+
+  it("falls through unknown chunks as a single title-cased token", () => {
+    expect(prettifyColorCode("RUSSET")).toBe("Russet");
+    expect(prettifyColorCode("RUSSETCAMO")).toBe("Russet Camo");
   });
 });
 
