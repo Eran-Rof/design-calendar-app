@@ -2369,7 +2369,7 @@ function TbdStyleCell({
 
   const isPlaceholder = value === "TBD";
   return (
-    <div ref={ref} style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+    <div ref={ref} style={{ position: "relative", display: "inline-flex", alignItems: "center", marginLeft: -9 }}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -2386,7 +2386,6 @@ function TbdStyleCell({
           display: "inline-flex",
           alignItems: "center",
           gap: 6,
-          marginLeft: 4,
         }}
         title={isPlaceholder ? "Catch-all stock-buy slot — click to assign a style" : "Click to change style or revert to TBD"}
       >

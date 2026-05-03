@@ -163,24 +163,16 @@ export function MultiSelectDropdown({
                 placeholder={placeholder}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                onFocus={(e) => {
-                  // Defer select() past the click's mouseup so the
-                  // browser doesn't reposition the caret and wipe the
-                  // selection. Microtask via rAF is reliable across
-                  // browsers; the bare select() in onClick was being
-                  // clobbered by the trailing mouseup.
-                  if (e.currentTarget.value) {
-                    const el = e.currentTarget;
-                    requestAnimationFrame(() => el.select());
-                  }
-                }}
+                onFocus={(e) => { if (e.currentTarget.value) e.currentTarget.select(); }}
                 onMouseUp={(e) => {
-                  // On a re-click (input already focused), onFocus
-                  // doesn't fire — re-select here so a second click
-                  // also highlights the whole text.
-                  if (e.currentTarget.value && document.activeElement === e.currentTarget) {
-                    const el = e.currentTarget;
-                    requestAnimationFrame(() => el.select());
+                  // Prevent the browser's default mouseup behavior
+                  // (caret placement at click position) so the
+                  // selection from onFocus's select() — or from this
+                  // call on a re-click of an already-focused input —
+                  // survives the click.
+                  if (e.currentTarget.value) {
+                    e.preventDefault();
+                    e.currentTarget.select();
                   }
                 }}
                 style={{ ...S.input, width: "100%", paddingRight: query ? 26 : undefined }}
