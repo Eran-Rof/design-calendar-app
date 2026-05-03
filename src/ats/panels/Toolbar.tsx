@@ -49,7 +49,7 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({ label, value, o
               value={search}
               onChange={e => setSearch(e.target.value)}
               autoFocus
-              style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, padding: "6px 10px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit", outline: "none" }}
+              style={{ width: "100%", boxSizing: "border-box", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, padding: "6px 10px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit", outline: "none" }}
             />
           </div>
           <div style={{ overflowY: "auto", flex: 1 }}>
@@ -269,7 +269,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               value={customerSearch}
               onChange={e => setCustomerSearch(e.target.value)}
               autoFocus
-              style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, padding: "6px 10px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit", outline: "none" }}
+              style={{ width: "100%", boxSizing: "border-box", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, padding: "6px 10px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit", outline: "none" }}
             />
           </div>
           <div style={{ overflowY: "auto", flex: 1 }}>
