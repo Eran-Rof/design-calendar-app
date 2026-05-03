@@ -71,10 +71,10 @@ export const GridTable: React.FC<GridTableProps> = ({
           <tr>
             {/* Sticky left columns: Category | Sub Cat | Style | Color | On Hand | On Order | On PO.
                Master is truth for the four ID columns; numeric columns unchanged. */}
-            {(["category","subCategory","style","color","onHand","onOrder","onPO"] as const).map((col, ci) => {
-              const labels: Record<string, string> = { category: "Category", subCategory: "Sub Cat", style: "Style", color: "Color", onHand: "On Hand", onOrder: "On Order", onPO: "On PO" };
-              const lefts  = [0, 110, 220, 320, 450, 530, 610];
-              const widths = [110, 110, 100, 130,  80,  80,  80];
+            {(["category","subCategory","style","description","color","onHand","onOrder","onPO"] as const).map((col, ci) => {
+              const labels: Record<string, string> = { category: "Category", subCategory: "Sub Cat", style: "Style", description: "Description", color: "Color", onHand: "On Hand", onOrder: "On Order", onPO: "On PO" };
+              const lefts  = [0, 110, 220, 320, 500, 630, 710, 790];
+              const widths = [110, 110, 100, 180, 130,  80,  80,  80];
               const isActive = sortCol === col;
               return (
                 <th
@@ -82,7 +82,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                   style={{
                     ...S.th, ...S.stickyCol,
                     left: lefts[ci], minWidth: widths[ci], zIndex: 3,
-                    textAlign: ci >= 4 ? "center" : "left",
+                    textAlign: ci >= 5 ? "center" : "left",
                     cursor: "pointer",
                     color: isActive ? "#F1F5F9" : "#6B7280",
                     background: isActive ? "#243048" : "#1E293B",
@@ -196,13 +196,17 @@ export const GridTable: React.FC<GridTableProps> = ({
                     )}
                   </div>
                 </td>
+                {/* Description */}
+                <td style={{ ...S.td, ...S.stickyCol, left: 320, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", color: "#D1D5DB", fontSize: 13 }}>
+                  {row.description}
+                </td>
                 {/* Color */}
-                <td style={{ ...S.td, ...S.stickyCol, left: 320, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", color: "#D1D5DB", fontSize: 12 }}>
+                <td style={{ ...S.td, ...S.stickyCol, left: 500, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", color: "#D1D5DB", fontSize: 12 }}>
                   {displayColor(row) || "—"}
                 </td>
                 {/* On Hand */}
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: 450, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center", cursor: "context-menu" }}
+                  style={{ ...S.td, ...S.stickyCol, left: 630, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center", cursor: "context-menu" }}
                   onContextMenu={e => openSummaryCtx(e, "onHand", row)}
                 >
                   <span style={{ color: "#F1F5F9", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
@@ -211,7 +215,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                 </td>
                 {/* On Order (committed SOs) */}
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: 530, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center", cursor: row.onOrder > 0 ? "context-menu" : "default" }}
+                  style={{ ...S.td, ...S.stickyCol, left: 710, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center", cursor: row.onOrder > 0 ? "context-menu" : "default" }}
                   onContextMenu={e => { if (row.onOrder > 0) openSummaryCtx(e, "onOrder", row); }}
                 >
                   <span style={{ color: "#F59E0B", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
@@ -220,7 +224,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                 </td>
                 {/* On PO (open purchase orders) */}
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: 610, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center", cursor: row.onPO > 0 ? "context-menu" : "default" }}
+                  style={{ ...S.td, ...S.stickyCol, left: 790, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center", cursor: row.onPO > 0 ? "context-menu" : "default" }}
                   onContextMenu={e => { if (row.onPO > 0) openSummaryCtx(e, "onPO", row); }}
                 >
                   <span style={{ color: "#10B981", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
