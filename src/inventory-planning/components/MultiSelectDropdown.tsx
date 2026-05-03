@@ -2,32 +2,28 @@
 // the wholesale grid filter strip so the planner can scope to several
 // customers / categories / etc. at once instead of one at a time.
 // Empty `selected` = no filter (everything passes).
+//
+// Popover is rendered via React Portal anchored to the trigger via
+// getBoundingClientRect — this prevents any ancestor with
+// overflow:hidden / overflow:auto from clipping it or trapping its
+// stacking context. The previous inline absolutely-positioned popover
+// had ghost-click issues whenever the dropdown lived inside a panel
+// that scrolled.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { S, PAL } from "./styles";
 
 export interface MultiSelectDropdownProps {
   selected: string[];
   onChange: (next: string[]) => void;
   options: Array<{ value: string; label: string }>;
-  // Label shown on the trigger button when `selected` is empty.
   allLabel?: string;
   placeholder?: string;
   title?: string;
   minWidth?: number;
-  // "compact" shrinks the trigger button (smaller font, tighter
-  // padding, lower minWidth) so a row of dropdowns fits in less
-  // horizontal space. The popover stays the original size.
   compact?: boolean;
-  // Single-select mode — picking an option replaces `selected` with a
-  // one-element array (or empty when toggling off the active value).
-  // Useful for "pick one of N" UIs like the collapse-mode selector.
   singleSelect?: boolean;
-  // Close the popover when the cursor leaves the trigger + popover
-  // bounding box. Default off (the popover stays open until the
-  // user clicks outside or presses Escape — better for searching
-  // through long lists). Useful for short menus where the planner
-  // expects the popover to dismiss as soon as they move on.
   closeOnMouseLeave?: boolean;
 }
 
@@ -37,7 +33,10 @@ export function MultiSelectDropdown({
   const triggerMinWidth = minWidth ?? (compact ? 130 : 180);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [anchor, setAnchor] = useState<{ top: number; left: number; minWidth: number } | null>(null);
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
@@ -52,17 +51,44 @@ export function MultiSelectDropdown({
     if (selected.length === 1) {
       return options.find((o) => o.value === selected[0])?.label ?? selected[0];
     }
-    // Multi-select trigger shows just the count — the allLabel
-    // prefix ("None · 3 selected", "All customers · 5 selected")
-    // was noisy and the prefix wasn't accurate once anything was
-    // chosen anyway.
     return `${selected.length} selected`;
   })();
+
+  // Position the popover relative to the trigger when it opens, and
+  // refresh on scroll / resize so it tracks if the page moves.
+  useEffect(() => {
+    if (!open) { setAnchor(null); return; }
+    const update = () => {
+      const t = triggerRef.current;
+      if (!t) return;
+      const r = t.getBoundingClientRect();
+      setAnchor({ top: r.bottom + 4, left: r.left, minWidth: Math.max(r.width, 260) });
+    };
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [open]);
+
+  // Focus the search input shortly after the popover mounts. The
+  // portal can render after a tick; calling .focus() in a layout
+  // effect with no value to select is the most reliable approach.
+  useEffect(() => {
+    if (!open) return;
+    const id = window.setTimeout(() => inputRef.current?.focus(), 0);
+    return () => window.clearTimeout(id);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
     function onDocClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (triggerRef.current?.contains(t)) return;
+      if (popoverRef.current?.contains(t)) return;
+      setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
@@ -88,10 +114,10 @@ export function MultiSelectDropdown({
     else onChange([...selected, value]);
   }
 
-  // Grace-delay state for closeOnMouseLeave so cursor flicker
-  // (crossing from trigger to popover, brief slips outside the
-  // bounding box) doesn't dismiss the popover before the planner
-  // can pick. The delay is cancelled on mouse re-entry.
+  // Grace-delay state for closeOnMouseLeave so cursor flicker doesn't
+  // dismiss the popover before the planner can pick. Mouse-leave on
+  // either the trigger OR the popover starts the timer; mouse-enter
+  // on either cancels.
   const closeTimer = useRef<number | null>(null);
   function cancelCloseTimer() {
     if (closeTimer.current != null) {
@@ -99,18 +125,16 @@ export function MultiSelectDropdown({
       closeTimer.current = null;
     }
   }
+  function scheduleClose() {
+    cancelCloseTimer();
+    closeTimer.current = window.setTimeout(() => setOpen(false), 600);
+  }
   useEffect(() => () => cancelCloseTimer(), []);
+
   return (
-    <div
-      ref={ref}
-      style={{ position: "relative", display: "inline-block" }}
-      onMouseEnter={closeOnMouseLeave ? cancelCloseTimer : undefined}
-      onMouseLeave={closeOnMouseLeave ? () => {
-        cancelCloseTimer();
-        closeTimer.current = window.setTimeout(() => setOpen(false), 600);
-      } : undefined}
-    >
+    <>
       <button
+        ref={triggerRef}
         type="button"
         style={{
           ...S.select,
@@ -125,39 +149,43 @@ export function MultiSelectDropdown({
         }}
         title={title}
         onClick={() => setOpen((v) => !v)}
+        onMouseEnter={closeOnMouseLeave ? cancelCloseTimer : undefined}
+        onMouseLeave={closeOnMouseLeave ? scheduleClose : undefined}
       >
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{buttonLabel}</span>
         <span style={{ color: PAL.textMuted, fontSize: 10 }}>▾</span>
       </button>
-      {open && (
+      {open && anchor && createPortal(
         <div
+          ref={popoverRef}
+          onMouseEnter={closeOnMouseLeave ? cancelCloseTimer : undefined}
+          onMouseLeave={closeOnMouseLeave ? scheduleClose : undefined}
           style={{
-            position: "absolute",
-            top: "calc(100% + 4px)",
-            left: 0,
-            zIndex: 50,
+            position: "fixed",
+            top: anchor.top,
+            left: anchor.left,
+            zIndex: 1000,
             background: PAL.panel,
             border: `1px solid ${PAL.border}`,
             borderRadius: 8,
-            minWidth: Math.max(triggerMinWidth, 260),
+            minWidth: anchor.minWidth,
             maxHeight: 380,
-            overflowY: "auto",
+            display: "flex",
+            flexDirection: "column",
             boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
           }}
         >
           <div style={{
             padding: 8,
             borderBottom: `1px solid ${PAL.borderFaint}`,
-            position: "sticky" as const,
-            top: 0,
             background: PAL.panel,
-            zIndex: 1,
             display: "flex",
             gap: 6,
             alignItems: "center",
+            flexShrink: 0,
           }}>
             <input
-              autoFocus
+              ref={inputRef}
               type="text"
               placeholder={placeholder}
               value={query}
@@ -168,91 +196,99 @@ export function MultiSelectDropdown({
             {query && (
               <button
                 type="button"
-                // Triple-handler so the click lands across browsers
-                // and React event delegation paths: onMouseDown
-                // fires first (preventDefault here also stops the
-                // button from stealing focus from the input);
-                // onClick is the canonical handler; onPointerDown
-                // covers touch + pen.
-                onMouseDown={(e) => { e.preventDefault(); setQuery(""); }}
-                onPointerDown={() => setQuery("")}
-                onClick={() => setQuery("")}
+                onMouseDown={(e) => {
+                  // Pre-empt the input's blur. preventDefault stops
+                  // the button from stealing focus, so the input's
+                  // selection / caret stay put while we wipe the
+                  // query. Doing the wipe here (not onClick) means
+                  // the popover doesn't ghost-shift between mousedown
+                  // and click.
+                  e.preventDefault();
+                  setQuery("");
+                  inputRef.current?.focus();
+                }}
                 title="Clear search"
                 aria-label="Clear search"
                 style={{
-                  minWidth: 28, height: 28, padding: "0 8px",
+                  height: 30,
+                  padding: "0 10px",
                   border: `1px solid ${PAL.border}`,
                   background: PAL.bg,
                   color: PAL.text,
                   cursor: "pointer",
-                  fontSize: 16, fontWeight: 700, lineHeight: 1,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  lineHeight: 1,
                   borderRadius: 6,
                   flexShrink: 0,
                 }}
-              >×</button>
+              >Clear</button>
             )}
             {selected.length > 0 && (
               <button
                 type="button"
-                style={{ ...S.btnGhost, fontSize: 11, whiteSpace: "nowrap" }}
-                onClick={() => onChange([])}
+                onMouseDown={(e) => { e.preventDefault(); onChange([]); }}
                 title="Clear all selections"
+                style={{ ...S.btnGhost, fontSize: 11, whiteSpace: "nowrap", height: 30 }}
               >
-                Clear
+                Reset
               </button>
             )}
           </div>
-          {filtered.length === 0 ? (
-            <div style={{ padding: 12, color: PAL.textMuted, fontSize: 12 }}>No matches</div>
-          ) : (
-            filtered.map((o) => {
-              const isSelected = selectedSet.has(o.value);
-              return (
-                <div
-                  key={o.value}
-                  role="option"
-                  aria-selected={isSelected}
-                  tabIndex={0}
-                  onClick={() => toggle(o.value)}
-                  onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggle(o.value); } }}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    padding: "8px 12px",
-                    cursor: "pointer",
-                    fontSize: 13,
-                    color: isSelected ? PAL.text : PAL.textDim,
-                    background: isSelected ? PAL.bg : undefined,
-                    userSelect: "none",
-                  }}
-                >
-                  <span
-                    aria-hidden="true"
+          <div style={{ overflowY: "auto", flex: 1 }}>
+            {filtered.length === 0 ? (
+              <div style={{ padding: 12, color: PAL.textMuted, fontSize: 12 }}>No matches</div>
+            ) : (
+              filtered.map((o) => {
+                const isSelected = selectedSet.has(o.value);
+                return (
+                  <div
+                    key={o.value}
+                    role="option"
+                    aria-selected={isSelected}
+                    tabIndex={0}
+                    onMouseDown={(e) => { e.preventDefault(); toggle(o.value); }}
+                    onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggle(o.value); } }}
                     style={{
-                      display: "inline-flex",
+                      display: "flex",
                       alignItems: "center",
-                      justifyContent: "center",
-                      width: 16,
-                      height: 16,
-                      borderRadius: 3,
-                      border: `1px solid ${isSelected ? PAL.accent : PAL.border}`,
-                      background: isSelected ? PAL.accent : "transparent",
-                      color: "#fff",
-                      fontSize: 12,
-                      lineHeight: 1,
-                      flexShrink: 0,
+                      gap: 10,
+                      padding: "8px 12px",
+                      cursor: "pointer",
+                      fontSize: 13,
+                      color: isSelected ? PAL.text : PAL.textDim,
+                      background: isSelected ? PAL.bg : undefined,
+                      userSelect: "none",
                     }}
                   >
-                    {isSelected ? "✓" : ""}
-                  </span>
-                  {o.label}
-                </div>
-              );
-            })
-          )}
-        </div>
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: 16,
+                        height: 16,
+                        borderRadius: 3,
+                        border: `1px solid ${isSelected ? PAL.accent : PAL.border}`,
+                        background: isSelected ? PAL.accent : "transparent",
+                        color: "#fff",
+                        fontSize: 12,
+                        lineHeight: 1,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {isSelected ? "✓" : ""}
+                    </span>
+                    {o.label}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>,
+        document.body,
       )}
-    </div>
+    </>
   );
 }

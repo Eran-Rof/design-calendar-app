@@ -814,7 +814,11 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       if (child?.is_tbd && child.is_user_added) userAddedInBucket.push(child);
     }
     if (userAddedInBucket.length > 0) {
-      if (lastAddedTbdMarker) {
+      const seqOf = (r: IpPlanningGridRow) => rowEditOrderRef.current.get(r.forecast_id) ?? 0;
+      const sorted = userAddedInBucket.slice().sort((a, b) => seqOf(b) - seqOf(a));
+      if (seqOf(sorted[0]) > 0) {
+        tbdRow = sorted[0];
+      } else if (lastAddedTbdMarker) {
         const recent = userAddedInBucket.find((r) =>
           (r.sku_style ?? "") === lastAddedTbdMarker.style_code
           && (r.sku_color ?? "") === lastAddedTbdMarker.color
@@ -823,7 +827,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         );
         if (recent) tbdRow = recent;
       }
-      if (!tbdRow) tbdRow = userAddedInBucket[0];
+      if (!tbdRow) tbdRow = sorted[0];
     } else {
       const styleCode = styleSet.size === 1 ? Array.from(styleSet)[0] : "TBD";
       // Same as saveAggBuyerOrOverride — search the FULL row set so
@@ -980,11 +984,14 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     }
     if (!periodStart) return;
     // Pick the routing target. Preference order:
-    //   1. The MOST RECENTLY added (is_user_added) TBD row IN this
-    //      bucket — matched against lastAddedTbdMarker. The planner
-    //      who's just added a fresh row expects the next typed value
-    //      to roll into THAT row, not the prior one. Falls back to
-    //      the first user-added in the bucket if no marker match.
+    //   1. The most recently edited/added user-added TBD row in
+    //      this bucket — sorted by rowEditOrderRef (which is bumped
+    //      on every save AND on add). Treats new-style rows the
+    //      same as any other TBD row, so a planner who just typed
+    //      a NEW style sees the next aggregate increment land
+    //      there. Falls back to lastAddedTbdMarker, then to the
+    //      first user-added in the bucket if no recency entry
+    //      exists.
     //   2. The (Supply Only) TBD row for the bucket's single style.
     //   3. The catch-all (style=TBD) (Supply Only) TBD row for the
     //      bucket's period (multi-style buckets).
@@ -995,7 +1002,11 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       if (child?.is_tbd && child.is_user_added) userAddedInBucket.push(child);
     }
     if (userAddedInBucket.length > 0) {
-      if (lastAddedTbdMarker) {
+      const seqOf = (r: IpPlanningGridRow) => rowEditOrderRef.current.get(r.forecast_id) ?? 0;
+      const sorted = userAddedInBucket.slice().sort((a, b) => seqOf(b) - seqOf(a));
+      if (seqOf(sorted[0]) > 0) {
+        tbdRow = sorted[0];
+      } else if (lastAddedTbdMarker) {
         const recent = userAddedInBucket.find((r) =>
           (r.sku_style ?? "") === lastAddedTbdMarker.style_code
           && (r.sku_color ?? "") === lastAddedTbdMarker.color
@@ -1004,7 +1015,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         );
         if (recent) tbdRow = recent;
       }
-      if (!tbdRow) tbdRow = userAddedInBucket[0];
+      if (!tbdRow) tbdRow = sorted[0];
     } else {
       const styleCode = styleSet.size === 1 ? Array.from(styleSet)[0] : "TBD";
       // Search the FULL row set (not just mutedRows) — the catch-all
@@ -1268,13 +1279,28 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       if (matchedRow) pinnedChildFid = matchedRow.forecast_id;
     }
     // Build the effective expansion set — the planner's manual
-    // expandedAggs PLUS any aggregate that contains the just-added
-    // row's forecast_id (so the new line is visible under the
-    // collapsed header without the planner clicking ▶).
+    // expandedAggs PLUS:
+    //   1. Any aggregate that contains the just-added row's
+    //      forecast_id (so the new line is visible under the
+    //      collapsed header without the planner clicking ▶).
+    //   2. Any aggregate whose children match the active search
+    //      term — when a planner types a search query, they want
+    //      to see the matching row, not just the bucket header.
     const effectiveExpanded = new Set(expandedAggs);
     if (pinnedChildFid) {
       for (const r of filtered) {
         if (r.is_aggregate && r.aggregate_underlying_ids?.includes(pinnedChildFid)) {
+          effectiveExpanded.add(r.aggregate_key ?? r.forecast_id);
+        }
+      }
+    }
+    const searchTrim = search.trim();
+    if (searchTrim.length > 0) {
+      // Auto-expand every aggregate while the planner is searching
+      // — bucketing the matches behind a header defeats the
+      // purpose of typing a query.
+      for (const r of filtered) {
+        if (r.is_aggregate) {
           effectiveExpanded.add(r.aggregate_key ?? r.forecast_id);
         }
       }
@@ -1371,7 +1397,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       }
     }
     return { displayRows: base, childIds: ids };
-  }, [filtered, expandedAggs, mutedById, skuPeriodMath, lastAddedTbdMarker, rows, collapse]);
+  }, [filtered, expandedAggs, mutedById, skuPeriodMath, lastAddedTbdMarker, rows, collapse, search]);
 
   const totals = useMemo(() => {
     const t = { final: 0, shortage: 0, excess: 0, actions: {} as Record<string, number>, methods: {} as Record<string, number> };
