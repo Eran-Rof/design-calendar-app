@@ -452,6 +452,19 @@ function ATSReport() {
     }
   }, [excelData, dates, poStores, soStores, mergeHistory, masterReady]);
 
+  // Snapshot-path safety net: if rows were populated by the legacy
+  // ats_snapshots load before the master cache was ready, re-enrich them
+  // once the cache flips. Detect via match_source absence on the first row.
+  // No-op for the common excelData path because the chokepoint useEffect
+  // above already handles the masterReady transition.
+  useEffect(() => {
+    if (!masterReady) return;
+    if (excelData) return; // chokepoint handles excelData path
+    if (rows.length === 0) return;
+    if (rows[0].master_match_source !== null && rows[0].master_match_source !== undefined) return;
+    setRows(enrichRowsWithItemMaster(rows).rows);
+  }, [masterReady, excelData, rows]);
+
   // PO data comes from PO WIP (tanda_pos) — no separate Xoro sync needed
   const syncProgress = null;
 
@@ -924,7 +937,7 @@ function ATSReport() {
     pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
     mergeHistory, setMergeHistory, saveMergeHistory, undoLastMerge, clearMergeAndNavigate,
     atShip, setAtShip, onNegInven, onAgedInven,
-    collapseLevel, setCollapseLevel, expandedGroups, setExpandedGroups, toggleExpandGroup,
+    collapseLevel, setCollapseLevel, expandedGroups, setExpandedGroups, toggleExpandGroup, expandedGroupSet,
     unreadNotifs,
     showingNotifications,
     onToggleNotifications: () => setShowingNotifications((v) => !v),

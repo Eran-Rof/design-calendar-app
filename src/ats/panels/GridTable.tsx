@@ -153,6 +153,9 @@ export const GridTable: React.FC<GridTableProps> = ({
                 }}
                 onDragEnd={() => { setDragSku(null); setDragOverSku(null); }}
                 onDragOver={e => {
+                  // Aggregate rows are synthetic (__group:...); merging into
+                  // them is meaningless. Block the drop target entirely.
+                  if (isAggregate) return;
                   e.preventDefault();
                   if (dragSku && dragSku !== row.sku && dragOverSku !== row.sku) {
                     setDragOverSku(row.sku);
@@ -160,6 +163,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                 }}
                 onDragLeave={() => setDragOverSku(null)}
                 onDrop={e => {
+                  if (isAggregate) return;
                   e.preventDefault();
                   // Prefer the dataTransfer payload; fall back to React state.
                   const fromSku = e.dataTransfer.getData("application/x-ats-sku") || dragSku || "";

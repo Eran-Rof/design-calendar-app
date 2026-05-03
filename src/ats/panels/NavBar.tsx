@@ -63,7 +63,7 @@ export const NavBar: React.FC<NavBarProps> = ({
       </button>
       <button
         style={{ ...S.navBtn, background: "#1D6F42", border: "1px solid #155734", color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 7px" }}
-        onClick={() => exportToExcel(filtered, displayPeriods.map(p => ({ endDate: p.endDate, label: p.label })), atShip)}
+        onClick={() => exportToExcel(filtered.filter(r => !r.__collapsed), displayPeriods.map(p => ({ endDate: p.endDate, label: p.label })), atShip)}
       >
         <svg width="13" height="13" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
           <rect width="20" height="20" rx="3" fill="#1D6F42" />
