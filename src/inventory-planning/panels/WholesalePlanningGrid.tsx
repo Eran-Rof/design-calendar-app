@@ -19,6 +19,12 @@ export interface WholesalePlanningGridProps {
   // customer (Phase 3), and add a fresh row (Phase 4). Workbench
   // composes a saveTbdField call from these.
   onUpdateTbdColor?: (row: IpPlanningGridRow, color: string, isNewColor: boolean) => Promise<void>;
+  // Reassign a TBD row's customer. Picking a real customer promotes
+  // the stock-buy line into that customer's committed demand; the
+  // grid re-loads after save and the row shows under the new
+  // customer (still flagged is_tbd until the next planning build
+  // surfaces a real forecast row).
+  onUpdateTbdCustomer?: (row: IpPlanningGridRow, customerId: string, customerName: string) => Promise<void>;
   // Save bucket-level buy for an aggregate row. The grid computes
   // the bucket_key from the active collapse mode + filters + the
   // row's dimensions and passes the full descriptor — the workbench
@@ -181,7 +187,7 @@ function distributeAcrossChildren(
   return out;
 }
 
-export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdCustomer, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   const [search, setSearch] = useState("");
   // Multi-select filters — empty array = no filter (all rows pass).
   // Each non-empty array narrows to rows whose value is in the set.
@@ -1057,7 +1063,18 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                     </>
                   )}
                 </td>
-                <td style={{ ...S.td, ...colHide("customer") }}>{r.customer_name}</td>
+                <td style={{ ...S.td, padding: r.is_tbd ? "0 4px" : undefined, ...colHide("customer") }} onClick={(e) => { if (r.is_tbd) e.stopPropagation(); }}>
+                  {r.is_tbd && onUpdateTbdCustomer ? (
+                    <TbdCustomerCell
+                      value={r.customer_name}
+                      isSupplyOnly={r.customer_name === "(Supply Only)"}
+                      customers={customers}
+                      onSave={(id, name) => onUpdateTbdCustomer(r, id, name)}
+                    />
+                  ) : (
+                    r.customer_name
+                  )}
+                </td>
                 <td style={{ ...S.td, ...colHide("period") }}>{formatPeriodCode(r.period_code)}</td>
                 <td style={{ ...S.tdNum, ...colHide("histT3") }}>{formatQty(r.historical_trailing_qty)}</td>
                 <td style={{ ...S.tdNum, color: r.forecast_method === "ly_sales" && r.ly_reference_qty != null ? PAL.accent2 : PAL.textMuted, ...colHide("histLY") }}>
@@ -1658,6 +1675,136 @@ function CollapseToggle({ label, active, onToggle }: { label: string; active: bo
       <input type="checkbox" checked={active} onChange={onToggle} style={{ accentColor: PAL.accent }} />
       {label}
     </label>
+  );
+}
+
+// Editable customer cell on TBD rows. Click → searchable customer
+// list (the same list used by the toolbar's customer filter). Picking
+// a real customer reassigns the TBD row to them; the row stays an
+// is_tbd line until a future planning build absorbs it as a normal
+// forecast row. The (Supply Only) placeholder stays as the default
+// trigger style; reassigned rows show the customer name as-is.
+function TbdCustomerCell({
+  value, isSupplyOnly, customers, onSave,
+}: {
+  value: string;
+  isSupplyOnly: boolean;
+  customers: Array<{ id: string; name: string }>;
+  onSave: (customerId: string, customerName: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape") setOpen(false); }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  useEffect(() => { if (!open) setQuery(""); }, [open]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return customers;
+    return customers.filter((c) => c.name.toLowerCase().includes(q));
+  }, [query, customers]);
+
+  async function commit(id: string, name: string) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await onSave(id, name);
+      setOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div ref={ref} style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          background: isSupplyOnly ? `${PAL.textMuted}22` : "transparent",
+          border: `1px solid ${isSupplyOnly ? PAL.textMuted : PAL.border}`,
+          color: isSupplyOnly ? PAL.textMuted : PAL.text,
+          borderRadius: 6,
+          padding: "3px 8px",
+          fontSize: 12,
+          cursor: "pointer",
+          fontFamily: "inherit",
+          textAlign: "left" as const,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+        }}
+        title={isSupplyOnly ? "Click to reassign this stock buy to a real customer" : "Click to change customer"}
+      >
+        <span>{value}</span>
+        <span style={{ color: PAL.textMuted, fontSize: 9 }}>▾</span>
+      </button>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 4px)",
+            left: 0,
+            zIndex: 60,
+            background: PAL.panel,
+            border: `1px solid ${PAL.border}`,
+            borderRadius: 8,
+            minWidth: 260,
+            maxHeight: 360,
+            overflowY: "auto",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+          }}
+        >
+          <div style={{ padding: 8, borderBottom: `1px solid ${PAL.borderFaint}`, position: "sticky", top: 0, background: PAL.panel }}>
+            <input
+              autoFocus
+              type="text"
+              placeholder="Search customers…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              style={{ ...S.input, width: "100%" }}
+            />
+          </div>
+          {filtered.length === 0 && (
+            <div style={{ padding: 12, color: PAL.textMuted, fontSize: 12 }}>No matches</div>
+          )}
+          {filtered.map((c) => (
+            <div
+              key={c.id}
+              role="option"
+              tabIndex={0}
+              onClick={() => commit(c.id, c.name)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(c.id, c.name); } }}
+              style={{
+                padding: "8px 12px",
+                cursor: "pointer",
+                fontSize: 13,
+                color: c.name === value ? PAL.accent : PAL.text,
+                background: c.name === value ? `${PAL.accent}11` : undefined,
+                fontWeight: c.name === value ? 600 : undefined,
+                borderBottom: `1px solid ${PAL.borderFaint}`,
+              }}
+            >
+              {c.name}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
