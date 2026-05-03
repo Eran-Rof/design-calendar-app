@@ -15,11 +15,20 @@ export interface MultiSelectDropdownProps {
   placeholder?: string;
   title?: string;
   minWidth?: number;
+  // "compact" shrinks the trigger button (smaller font, tighter
+  // padding, lower minWidth) so a row of dropdowns fits in less
+  // horizontal space. The popover stays the original size.
+  compact?: boolean;
+  // Single-select mode — picking an option replaces `selected` with a
+  // one-element array (or empty when toggling off the active value).
+  // Useful for "pick one of N" UIs like the collapse-mode selector.
+  singleSelect?: boolean;
 }
 
 export function MultiSelectDropdown({
-  selected, onChange, options, allLabel = "All", placeholder = "Search…", title, minWidth = 180,
+  selected, onChange, options, allLabel = "All", placeholder = "Search…", title, minWidth, compact = false, singleSelect = false,
 }: MultiSelectDropdownProps) {
+  const triggerMinWidth = minWidth ?? (compact ? 130 : 180);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const ref = useRef<HTMLDivElement>(null);
@@ -59,6 +68,12 @@ export function MultiSelectDropdown({
   useEffect(() => { if (!open) setQuery(""); }, [open]);
 
   function toggle(value: string) {
+    if (singleSelect) {
+      if (selectedSet.has(value)) onChange([]);
+      else onChange([value]);
+      setOpen(false);
+      return;
+    }
     if (selectedSet.has(value)) onChange(selected.filter((v) => v !== value));
     else onChange([...selected, value]);
   }
@@ -71,11 +86,12 @@ export function MultiSelectDropdown({
           ...S.select,
           cursor: "pointer",
           textAlign: "left" as const,
-          minWidth,
+          minWidth: triggerMinWidth,
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "space-between",
           gap: 8,
+          ...(compact ? { padding: "5px 10px", fontSize: 12 } : {}),
         }}
         title={title}
         onClick={() => setOpen((v) => !v)}
@@ -93,7 +109,7 @@ export function MultiSelectDropdown({
             background: PAL.panel,
             border: `1px solid ${PAL.border}`,
             borderRadius: 8,
-            minWidth: Math.max(minWidth, 260),
+            minWidth: Math.max(triggerMinWidth, 260),
             maxHeight: 380,
             overflowY: "auto",
             boxShadow: "0 4px 12px rgba(0,0,0,0.4)",

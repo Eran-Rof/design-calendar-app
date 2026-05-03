@@ -80,6 +80,61 @@ type SortKey =
 // references (CollapseModes) compile without churn.
 type CollapseModes = ExtractedCollapseModes;
 
+// Single-select dropdown options for the collapse selector. Each
+// option represents one mutually-exclusive view; the "customers +
+// colors" combo is the only multi-flag combination kept as a first-
+// class option since it's the only useful overlap.
+const COLLAPSE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "customers",                  label: "All customers (per style/color)" },
+  { value: "colors",                     label: "All colors per style" },
+  { value: "customersAndColors",         label: "All customers + colors per style" },
+  { value: "customerAllStyles",          label: "All styles per customer" },
+  { value: "allCustomersPerStyle",       label: "All customers per style" },
+  { value: "allCustomersPerCategory",    label: "All customers per category" },
+  { value: "allCustomersPerSubCat",      label: "All customers per sub cat" },
+  { value: "category",                   label: "By category" },
+  { value: "subCat",                     label: "By sub cat" },
+];
+
+const NO_COLLAPSE: CollapseModes = {
+  customers: false, colors: false, category: false, subCat: false,
+  customerAllStyles: false, allCustomersPerCategory: false,
+  allCustomersPerSubCat: false, allCustomersPerStyle: false,
+};
+
+// Collapse-object → option key. Picks the most specific mode that
+// matches; the customers+colors combo wins over either alone.
+function collapseToKey(c: CollapseModes): string | null {
+  if (c.customerAllStyles) return "customerAllStyles";
+  if (c.allCustomersPerStyle) return "allCustomersPerStyle";
+  if (c.allCustomersPerCategory) return "allCustomersPerCategory";
+  if (c.allCustomersPerSubCat) return "allCustomersPerSubCat";
+  if (c.subCat) return "subCat";
+  if (c.category) return "category";
+  if (c.customers && c.colors) return "customersAndColors";
+  if (c.customers) return "customers";
+  if (c.colors) return "colors";
+  return null;
+}
+
+// Option key → collapse object. Reset everything to false, then flip
+// the flags the chosen mode requires. `null` means no collapse.
+function applyCollapseModeKey(key: string | null): CollapseModes {
+  if (!key) return { ...NO_COLLAPSE };
+  switch (key) {
+    case "customers":               return { ...NO_COLLAPSE, customers: true };
+    case "colors":                  return { ...NO_COLLAPSE, colors: true };
+    case "customersAndColors":      return { ...NO_COLLAPSE, customers: true, colors: true };
+    case "customerAllStyles":       return { ...NO_COLLAPSE, customerAllStyles: true };
+    case "allCustomersPerStyle":    return { ...NO_COLLAPSE, allCustomersPerStyle: true };
+    case "allCustomersPerCategory": return { ...NO_COLLAPSE, allCustomersPerCategory: true };
+    case "allCustomersPerSubCat":   return { ...NO_COLLAPSE, allCustomersPerSubCat: true };
+    case "category":                return { ...NO_COLLAPSE, category: true };
+    case "subCat":                  return { ...NO_COLLAPSE, subCat: true };
+    default:                        return { ...NO_COLLAPSE };
+  }
+}
+
 // Spread a typed total across N supply-only forecast rows for a (style,
 // color) bucket. Aggregate Buyer / Override edits route 100% to the
 // "(Supply Only)" synthetic customer rows under the bucket, never to
@@ -140,6 +195,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   const [sortKey, setSortKey] = useState<SortKey>("period");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [filterPeriod, setFilterPeriod] = useState<string[]>([]);
+  const [filterStyle, setFilterStyle] = useState<string[]>([]);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(500);
   // Collapse / aggregation modes — independent toggles that change the
@@ -154,6 +210,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     collapse.customers || collapse.colors || collapse.category || collapse.subCat ||
     collapse.customerAllStyles || collapse.allCustomersPerCategory || collapse.allCustomersPerSubCat ||
     collapse.allCustomersPerStyle;
+  const currentCollapseKey = collapseToKey(collapse);
 
   // Forecast IDs of aggregate rows the planner has expanded — when set,
   // the underlying child rows render below the parent indented + muted.
@@ -171,7 +228,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   useEffect(() => { setExpandedAggs(new Set()); }, [collapse]);
   // Reset to first page whenever filters/sort change so the user doesn't
   // wonder why an empty page is showing.
-  useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterAction, filterConfidence, filterMethod, sortKey, sortDir, pageSize, collapse, systemSuggestionsOn]);
+  useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterAction, filterConfidence, filterMethod, sortKey, sortDir, pageSize, collapse, systemSuggestionsOn]);
 
   // Report active build-relevant filters up to the workbench so the
   // PlanningRunControls' Build button can scope itself to this subset.
@@ -315,6 +372,19 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     return Array.from(s).sort();
   }, [rows]);
 
+  // Distinct styles for the by-Style filter dropdown. Styles are
+  // sourced from sku_style; rows without a style fall back to sku_code
+  // so prepacks (which use the full item number as their style) still
+  // show up under their own line.
+  const styles = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of rows) {
+      const style = r.sku_style ?? r.sku_code;
+      if (style) s.add(style);
+    }
+    return Array.from(s).sort();
+  }, [rows]);
+
   // Pre-pack multiplier — checks color first, then size, then
   // description. The number after "PPK" (optionally separated by
   // whitespace, underscore, or dash) is the units-per-pack count.
@@ -349,6 +419,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     const setSubCat = filterSubCat.length > 0 ? new Set(filterSubCat) : null;
     const setGender = filterGender.length > 0 ? new Set(filterGender) : null;
     const setPeriod = filterPeriod.length > 0 ? new Set(filterPeriod) : null;
+    const setStyle = filterStyle.length > 0 ? new Set(filterStyle) : null;
     const setAction = filterAction.length > 0 ? new Set(filterAction) : null;
     const setConfidence = filterConfidence.length > 0 ? new Set(filterConfidence) : null;
     const setMethod = filterMethod.length > 0 ? new Set(filterMethod) : null;
@@ -358,6 +429,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       if (setSubCat && !setSubCat.has(r.sub_category_name ?? "—")) return false;
       if (setGender && !setGender.has(r.gender ?? "—")) return false;
       if (setPeriod && !setPeriod.has(r.period_code)) return false;
+      if (setStyle && !setStyle.has(r.sku_style ?? r.sku_code)) return false;
       if (setAction && !setAction.has(r.recommended_action)) return false;
       if (setConfidence && !setConfidence.has(r.confidence_level)) return false;
       if (setMethod && !setMethod.has(r.forecast_method)) return false;
@@ -411,7 +483,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       system_forecast_qty: 0,
       final_forecast_qty: Math.max(0, 0 + r.buyer_request_qty + r.override_qty),
     }));
-  }, [rows, search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterAction, filterConfidence, filterMethod, systemSuggestionsOn]);
+  }, [rows, search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterAction, filterConfidence, filterMethod, systemSuggestionsOn]);
 
   // Notify the workbench when the visible (filter+mute) row set changes
   // so MonthlyTotalsCards uses the same subset (drives the top FINAL
@@ -735,9 +807,10 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       {headerSlot}
 
       <div style={S.toolbar}>
-        <input style={{ ...S.input, width: 240 }} placeholder="Search customer / SKU / category"
+        <input style={{ ...S.input, width: 220, padding: "6px 12px", fontSize: 12 }} placeholder="Search customer / SKU / category"
                value={search} onChange={(e) => setSearch(e.target.value)} />
         <MultiSelectDropdown
+          compact
           selected={filterCustomer}
           onChange={setFilterCustomer}
           allLabel="All customers"
@@ -745,6 +818,15 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           options={customers.map((c) => ({ value: c.id, label: c.name }))}
         />
         <MultiSelectDropdown
+          compact
+          selected={filterStyle}
+          onChange={setFilterStyle}
+          allLabel="All styles"
+          placeholder="Search styles…"
+          options={styles.map((s) => ({ value: s, label: s }))}
+        />
+        <MultiSelectDropdown
+          compact
           selected={filterCategory}
           onChange={setFilterCategory}
           allLabel="All categories"
@@ -752,6 +834,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           options={groupNames.map((g) => ({ value: g, label: g }))}
         />
         <MultiSelectDropdown
+          compact
           selected={filterSubCat}
           onChange={setFilterSubCat}
           allLabel="All sub cats"
@@ -759,6 +842,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           options={subCategoryNames.map((s) => ({ value: s, label: s }))}
         />
         <MultiSelectDropdown
+          compact
           selected={filterGender}
           onChange={setFilterGender}
           allLabel="All genders"
@@ -767,6 +851,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           title="Gender filter — sourced from item-master GenderCode. No grid column rendered."
         />
         <MultiSelectDropdown
+          compact
           selected={filterAction}
           onChange={setFilterAction}
           allLabel="All actions"
@@ -774,6 +859,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           options={["buy", "expedite", "reduce", "hold", "monitor"].map((a) => ({ value: a, label: a }))}
         />
         <MultiSelectDropdown
+          compact
           selected={filterConfidence}
           onChange={setFilterConfidence}
           allLabel="All confidence"
@@ -781,6 +867,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           options={["committed", "probable", "possible", "estimate"].map((c) => ({ value: c, label: c }))}
         />
         <MultiSelectDropdown
+          compact
           selected={filterMethod}
           onChange={setFilterMethod}
           allLabel="All methods"
@@ -788,15 +875,16 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           options={Object.keys(METHOD_LABEL).map((m) => ({ value: m, label: METHOD_LABEL[m] }))}
         />
         <MultiSelectDropdown
+          compact
           selected={filterPeriod}
           onChange={setFilterPeriod}
           allLabel="All periods"
           placeholder="Search periods…"
           options={periods.map((p) => ({ value: p, label: formatPeriodCode(p) }))}
         />
-        <button style={S.btnSecondary} onClick={() => {
+        <button style={{ ...S.btnSecondary, padding: "5px 10px", fontSize: 12 }} onClick={() => {
           setSearch("");
-          setFilterCustomer([]); setFilterCategory([]); setFilterSubCat([]); setFilterGender([]); setFilterPeriod([]);
+          setFilterCustomer([]); setFilterCategory([]); setFilterSubCat([]); setFilterGender([]); setFilterPeriod([]); setFilterStyle([]);
           setFilterAction([]); setFilterConfidence([]); setFilterMethod([]);
         }}>Clear</button>
         <ColumnsButton
@@ -812,16 +900,18 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         />
       </div>
 
-      <div style={{ ...S.toolbar, marginTop: -4, paddingTop: 0, gap: 14, fontSize: 12, color: PAL.textDim }}>
+      <div style={{ ...S.toolbar, marginTop: -4, paddingTop: 0, gap: 10, fontSize: 12, color: PAL.textDim }}>
         <span style={{ fontWeight: 600 }}>Collapse:</span>
-        <CollapseToggle label="All customers" active={collapse.customers} onToggle={() => setCollapse((c) => ({ ...c, customers: !c.customers, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false, allCustomersPerStyle: false }))} />
-        <CollapseToggle label="All colors per style" active={collapse.colors} onToggle={() => setCollapse((c) => ({ ...c, colors: !c.colors }))} />
-        <CollapseToggle label="All styles per customer" active={collapse.customerAllStyles} onToggle={() => setCollapse((c) => ({ ...c, customerAllStyles: !c.customerAllStyles, customers: false, colors: false, category: false, subCat: false, allCustomersPerCategory: false, allCustomersPerSubCat: false, allCustomersPerStyle: false }))} />
-        <CollapseToggle label="All customers per style" active={collapse.allCustomersPerStyle} onToggle={() => setCollapse((c) => ({ ...c, allCustomersPerStyle: !c.allCustomersPerStyle, customers: false, colors: false, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false, category: false, subCat: false }))} />
-        <CollapseToggle label="All customers per category" active={collapse.allCustomersPerCategory} onToggle={() => setCollapse((c) => ({ ...c, allCustomersPerCategory: !c.allCustomersPerCategory, allCustomersPerSubCat: false, category: false, subCat: false, customerAllStyles: false, customers: false, allCustomersPerStyle: false }))} />
-        <CollapseToggle label="All customers per sub cat" active={collapse.allCustomersPerSubCat} onToggle={() => setCollapse((c) => ({ ...c, allCustomersPerSubCat: !c.allCustomersPerSubCat, allCustomersPerCategory: false, category: false, subCat: false, customerAllStyles: false, customers: false, allCustomersPerStyle: false }))} />
-        <CollapseToggle label="By category" active={collapse.category} onToggle={() => setCollapse((c) => ({ ...c, category: !c.category, subCat: c.category ? c.subCat : false, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false, allCustomersPerStyle: false }))} />
-        <CollapseToggle label="By sub cat" active={collapse.subCat} onToggle={() => setCollapse((c) => ({ ...c, subCat: !c.subCat, category: c.subCat ? c.category : false, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false, allCustomersPerStyle: false }))} />
+        <MultiSelectDropdown
+          compact
+          singleSelect
+          selected={currentCollapseKey ? [currentCollapseKey] : []}
+          onChange={(next) => setCollapse(applyCollapseModeKey(next[0] ?? null))}
+          allLabel="None"
+          placeholder="Search collapse modes…"
+          options={COLLAPSE_OPTIONS}
+          minWidth={210}
+        />
         {anyCollapsed && (
           <button style={{ ...S.btnSecondary, fontSize: 11, padding: "2px 8px" }}
                   onClick={() => setCollapse({ customers: false, colors: false, category: false, subCat: false, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false, allCustomersPerStyle: false })}>
