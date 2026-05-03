@@ -481,6 +481,42 @@ export const wholesaleRepo = {
       `ip_wholesale_forecast_tbd?planning_run_id=eq.${planningRunId}&select=*&limit=20000`,
     );
   },
+  // Plain INSERT for planner-added TBD rows. Each call creates a
+  // distinct row regardless of (style, color, customer, period)
+  // duplication — the partial unique index on
+  // ip_wholesale_forecast_tbd (added in migration 20260511) only
+  // constrains rows where is_user_added=false, so user-added rows
+  // can multiply at will. Sets is_user_added=true server-side too
+  // as a belt-and-suspenders.
+  async insertTbdRow(
+    planningRunId: string,
+    args: {
+      style_code: string;
+      color: string;
+      is_new_color?: boolean;
+      customer_id: string;
+      group_name?: string | null;
+      sub_category_name?: string | null;
+      period_start: string;
+      period_end: string;
+      period_code: string;
+      buyer_request_qty?: number;
+      override_qty?: number;
+      final_forecast_qty?: number;
+      planned_buy_qty?: number | null;
+      unit_cost?: number | null;
+      notes?: string | null;
+    },
+  ): Promise<{ id: string }> {
+    const created = await withRetryOn57014("insertTbdRow", () => sbPost<{ id: string }>(
+      "ip_wholesale_forecast_tbd",
+      [{ planning_run_id: planningRunId, is_user_added: true, ...args }],
+      "return=representation",
+    ));
+    if (!created[0]?.id) throw new Error("insertTbdRow: no id returned");
+    return { id: created[0].id };
+  },
+
   async upsertTbdRow(
     planningRunId: string,
     args: {

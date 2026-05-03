@@ -652,9 +652,11 @@ export default function WholesalePlanningWorkbench() {
       return;
     }
     try {
-      await wholesaleRepo.upsertTbdRow(selectedRun.id, {
+      // Plain INSERT — every "+ Add row" creates a distinct row
+      // regardless of duplicate dims with the auto-synthesized
+      // routing target, thanks to the partial unique index.
+      await wholesaleRepo.insertTbdRow(selectedRun.id, {
         ...args,
-        is_user_added: true,
         period_start: sample.period_start,
         period_end: sample.period_end,
       });
