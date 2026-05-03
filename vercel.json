@@ -7,6 +7,26 @@
     { "source": "/api/:rest*", "destination": "/api/dispatch?__fullpath=/api/:rest*" },
     { "source": "/((?!api/|@|src/|node_modules/|assets/).*)", "destination": "/index.html" }
   ],
+  "headers": [
+    {
+      "source": "/",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/index.html",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    }
+  ],
   "crons": [
     { "path": "/api/cron/compliance-daily", "schedule": "0 14 * * *" },
     { "path": "/api/cron/contracts-daily", "schedule": "0 15 * * *" },
