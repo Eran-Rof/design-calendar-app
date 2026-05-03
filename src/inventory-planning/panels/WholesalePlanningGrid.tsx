@@ -882,6 +882,20 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     // unrelated line."
     const currentSum = (r[field] as number | undefined) ?? 0;
     if (newTotal < currentSum) {
+      // Confirm before reducing. Hits the planner's mental model:
+      // dropping a buyer total below what's already committed is a
+      // meaningful action ("am I really cancelling this much
+      // demand?"), so we pause before peeling rows back. Cancel
+      // aborts; OK proceeds with the sequential reduction. Plain
+      // window.confirm so the prompt is synchronous and obvious —
+      // a non-blocking toast wouldn't gate the action.
+      const fieldLabel = field === "buyer_request_qty" ? "Buyer" : "Override";
+      const ok = window.confirm(
+        `${fieldLabel} bucket total going from ${currentSum.toLocaleString()} to ${newTotal.toLocaleString()}.\n\n`
+        + `The ${(currentSum - newTotal).toLocaleString()} reduction will peel back the most recently added/edited TBD rows first, zeroing each before moving to the next.\n\n`
+        + `Proceed?`,
+      );
+      if (!ok) return;
       const tbdChildren: IpPlanningGridRow[] = [];
       let missingChildren = 0;
       for (const fid of ids) {
@@ -1744,19 +1758,32 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                       title={isExpanded ? "Collapse" : "Drill into this row"}
                     >▶</span>
                   )}
-                  {r.is_tbd && r.is_user_added && onUpdateTbdStyle && masterStyles ? (
+                  {r.is_tbd && r.is_user_added && onUpdateTbdStyle && masterStyles ? (() => {
                     // Editable style picker only on planner-added rows.
                     // Auto-synthesized per-style and per-period catch-
                     // all rows show the style as plain text — they're
                     // standing infrastructure, not free-form entries.
-                    <TbdStyleCell
-                      value={r.sku_style ?? "TBD"}
-                      categoryStyles={masterStyles
-                        .filter((m) => !r.group_name || m.group_name === r.group_name)
-                        .map((m) => m.style_code)}
-                      onSave={(styleCode) => onUpdateTbdStyle(r, styleCode)}
-                    />
-                  ) : (
+                    //
+                    // Derive the orange "NEW" badge at render time:
+                    // a style is NEW when it isn't in masterStyles
+                    // (any category). The literal "TBD" placeholder
+                    // is never NEW.
+                    const styleVal = r.sku_style ?? "TBD";
+                    const styleLower = styleVal.trim().toLowerCase();
+                    const allStylesLower = new Set(masterStyles.map((m) => m.style_code.toLowerCase()));
+                    const isNewStyle = styleLower !== "" && styleLower !== "tbd" && !allStylesLower.has(styleLower);
+                    return (
+                      <TbdStyleCell
+                        value={styleVal}
+                        isNewStyle={isNewStyle}
+                        categoryStyles={masterStyles
+                          .filter((m) => !r.group_name || m.group_name === r.group_name)
+                          .map((m) => m.style_code)}
+                        allKnownStylesLower={allStylesLower}
+                        onSave={(styleCode) => onUpdateTbdStyle(r, styleCode)}
+                      />
+                    );
+                  })() : (
                     r.sku_style ?? r.sku_code
                   )}
                 </td>
@@ -2414,10 +2441,16 @@ function CollapseToggle({ label, active, onToggle }: { label: string; active: bo
 // style's TBD line; picking "TBD" sends the qty to the catch-all
 // (style=TBD, color=TBD) line for the period.
 function TbdStyleCell({
-  value, categoryStyles, onSave,
+  value, isNewStyle, categoryStyles, allKnownStylesLower, onSave,
 }: {
   value: string;
+  // Orange "NEW" badge when the row's style isn't in the item
+  // master at all (matches the same-named flag on TbdColorCell).
+  isNewStyle: boolean;
   categoryStyles: string[];
+  // Master-wide style set (lowercased) used to decide whether a
+  // typed query is brand-new vs already in another category.
+  allKnownStylesLower: Set<string>;
   onSave: (styleCode: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -2452,6 +2485,14 @@ function TbdStyleCell({
     if (!q) return optionList;
     return optionList.filter((s) => s.toLowerCase().includes(q));
   }, [query, optionList]);
+  const queryTrim = query.trim();
+  // The query is "new" when no master style anywhere matches it
+  // (case-insensitive). Picking a category sibling style from the
+  // dropdown is NOT new even if it isn't on this row's category
+  // yet. The literal "TBD" placeholder is never new.
+  const queryIsNew = queryTrim.length > 0
+    && queryTrim.toLowerCase() !== "tbd"
+    && !allKnownStylesLower.has(queryTrim.toLowerCase());
 
   async function commit(styleCode: string) {
     if (busy || styleCode === value) { setOpen(false); return; }
@@ -2471,9 +2512,11 @@ function TbdStyleCell({
         type="button"
         onClick={() => setOpen((v) => !v)}
         style={{
-          background: isPlaceholder ? `${PAL.textMuted}22` : "transparent",
-          border: `1px solid ${isPlaceholder ? PAL.textMuted : PAL.border}`,
-          color: isPlaceholder ? PAL.textMuted : PAL.accent,
+          background: isPlaceholder
+            ? `${PAL.textMuted}22`
+            : (isNewStyle ? `${PAL.yellow}22` : "transparent"),
+          border: `1px solid ${isNewStyle ? PAL.yellow : (isPlaceholder ? PAL.textMuted : PAL.border)}`,
+          color: isNewStyle ? PAL.yellow : (isPlaceholder ? PAL.textMuted : PAL.accent),
           borderRadius: 6,
           padding: "3px 8px",
           fontSize: 12,
@@ -2484,9 +2527,14 @@ function TbdStyleCell({
           alignItems: "center",
           gap: 6,
         }}
-        title={isPlaceholder ? "Catch-all stock-buy slot — click to assign a style" : "Click to change style or revert to TBD"}
+        title={isNewStyle
+          ? "New style — not yet in the item master. Will auto-clear when the master gains this style."
+          : (isPlaceholder ? "Catch-all stock-buy slot — click to assign a style" : "Click to change style or revert to TBD")}
       >
         <span>{value}</span>
+        {isNewStyle && (
+          <span style={{ background: PAL.yellow, color: "#000", borderRadius: 3, padding: "0 4px", fontSize: 9, fontWeight: 700 }}>NEW</span>
+        )}
         <span style={{ color: PAL.textMuted, fontSize: 9 }}>▾</span>
       </button>
       {open && (
@@ -2509,18 +2557,21 @@ function TbdStyleCell({
             <input
               autoFocus
               type="text"
-              placeholder="Search styles…"
+              placeholder="Type to search or add new style…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && queryIsNew) { e.preventDefault(); void commit(queryTrim); }
+              }}
               style={{ ...S.input, width: "100%" }}
             />
             <div style={{ marginTop: 4, fontSize: 10, color: PAL.textMuted, lineHeight: 1.4 }}>
               {categoryStyles.length === 0
-                ? "No styles in this category yet — pick TBD to keep as a catch-all."
-                : "Pick any style in this category, or TBD to revert."}
+                ? "No styles in this category yet — type one to add a NEW style, or pick TBD to keep as a catch-all."
+                : "Pick any style in this category, type a new one (flagged NEW until the master catches up), or TBD to revert."}
             </div>
           </div>
-          {filtered.length === 0 && (
+          {filtered.length === 0 && !queryIsNew && (
             <div style={{ padding: 12, color: PAL.textMuted, fontSize: 12 }}>No matches</div>
           )}
           {filtered.map((s) => (
@@ -2544,6 +2595,30 @@ function TbdStyleCell({
               {s}
             </div>
           ))}
+          {queryIsNew && (
+            <div
+              role="option"
+              tabIndex={0}
+              onClick={() => commit(queryTrim)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(queryTrim); } }}
+              style={{
+                padding: "10px 12px",
+                cursor: "pointer",
+                fontSize: 13,
+                color: PAL.yellow,
+                background: `${PAL.yellow}11`,
+                borderTop: filtered.length > 0 ? `1px solid ${PAL.borderFaint}` : undefined,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontFamily: "monospace",
+              }}
+              title="This style isn't in the item master yet — it'll be flagged NEW until a future build sees it."
+            >
+              <span style={{ fontFamily: "inherit" }}>Add as NEW style:</span>
+              <strong>{queryTrim}</strong>
+            </div>
+          )}
         </div>
       )}
     </div>
