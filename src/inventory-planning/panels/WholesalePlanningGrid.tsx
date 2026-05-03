@@ -126,14 +126,14 @@ type SortKey =
 // references (CollapseModes) compile without churn.
 type CollapseModes = ExtractedCollapseModes;
 
-// Single-select dropdown options for the collapse selector. Each
-// option represents one mutually-exclusive view; the "customers +
-// colors" combo is the only multi-flag combination kept as a first-
-// class option since it's the only useful overlap.
+// Multi-select dropdown options for the collapse selector. The
+// dropdown stays open across selections so the planner can flick
+// on combinations (e.g. customers + colors). applyCollapseKeys
+// enforces the runtime invariants (category vs subCat exclusive,
+// wide rollups override simple customers/colors).
 const COLLAPSE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "customers",                  label: "All customers (per style/color)" },
   { value: "colors",                     label: "All colors per style" },
-  { value: "customersAndColors",         label: "All customers + colors per style" },
   { value: "customerAllStyles",          label: "All styles per customer" },
   { value: "allCustomersPerStyle",       label: "All customers per style" },
   { value: "allCustomersPerCategory",    label: "All customers per category" },
@@ -148,37 +148,57 @@ const NO_COLLAPSE: CollapseModes = {
   allCustomersPerSubCat: false, allCustomersPerStyle: false,
 };
 
-// Collapse-object → option key. Picks the most specific mode that
-// matches; the customers+colors combo wins over either alone.
-function collapseToKey(c: CollapseModes): string | null {
-  if (c.customerAllStyles) return "customerAllStyles";
-  if (c.allCustomersPerStyle) return "allCustomersPerStyle";
-  if (c.allCustomersPerCategory) return "allCustomersPerCategory";
-  if (c.allCustomersPerSubCat) return "allCustomersPerSubCat";
-  if (c.subCat) return "subCat";
-  if (c.category) return "category";
-  if (c.customers && c.colors) return "customersAndColors";
-  if (c.customers) return "customers";
-  if (c.colors) return "colors";
-  return null;
+// Collapse-object → option keys. The dropdown stays open and is
+// multi-select; the planner can flick on multiple modes at once.
+// We surface the same option keys that applyCollapseKeys reads,
+// reverse-mapped from whichever flags are currently true. The
+// "customersAndColors" combo is decomposed back to "customers" +
+// "colors" so the dropdown's checkmarks line up with the actual
+// flags driving the grid.
+function collapseToKeys(c: CollapseModes): string[] {
+  const keys: string[] = [];
+  if (c.customerAllStyles) keys.push("customerAllStyles");
+  if (c.allCustomersPerStyle) keys.push("allCustomersPerStyle");
+  if (c.allCustomersPerCategory) keys.push("allCustomersPerCategory");
+  if (c.allCustomersPerSubCat) keys.push("allCustomersPerSubCat");
+  if (c.subCat) keys.push("subCat");
+  if (c.category) keys.push("category");
+  if (c.customers) keys.push("customers");
+  if (c.colors) keys.push("colors");
+  return keys;
 }
 
-// Option key → collapse object. Reset everything to false, then flip
-// the flags the chosen mode requires. `null` means no collapse.
-function applyCollapseModeKey(key: string | null): CollapseModes {
-  if (!key) return { ...NO_COLLAPSE };
-  switch (key) {
-    case "customers":               return { ...NO_COLLAPSE, customers: true };
-    case "colors":                  return { ...NO_COLLAPSE, colors: true };
-    case "customersAndColors":      return { ...NO_COLLAPSE, customers: true, colors: true };
-    case "customerAllStyles":       return { ...NO_COLLAPSE, customerAllStyles: true };
-    case "allCustomersPerStyle":    return { ...NO_COLLAPSE, allCustomersPerStyle: true };
-    case "allCustomersPerCategory": return { ...NO_COLLAPSE, allCustomersPerCategory: true };
-    case "allCustomersPerSubCat":   return { ...NO_COLLAPSE, allCustomersPerSubCat: true };
-    case "category":                return { ...NO_COLLAPSE, category: true };
-    case "subCat":                  return { ...NO_COLLAPSE, subCat: true };
-    default:                        return { ...NO_COLLAPSE };
+// Option keys → collapse object. The grid's CollapseModes object is
+// flag-based, but several flags are mutually exclusive at runtime
+// (e.g. category vs subCat). When the planner picks a wider rollup
+// like customerAllStyles or allCustomersPerCategory, that mode
+// supersedes the simpler customers / colors flags — picking it
+// auto-clears the others to keep the bucketing sane.
+function applyCollapseKeys(keys: string[]): CollapseModes {
+  const out: CollapseModes = { ...NO_COLLAPSE };
+  const set = new Set(keys);
+  if (set.has("customers")) out.customers = true;
+  if (set.has("colors")) out.colors = true;
+  if (set.has("category")) out.category = true;
+  if (set.has("subCat")) out.subCat = true;
+  if (set.has("customerAllStyles")) out.customerAllStyles = true;
+  if (set.has("allCustomersPerStyle")) out.allCustomersPerStyle = true;
+  if (set.has("allCustomersPerCategory")) out.allCustomersPerCategory = true;
+  if (set.has("allCustomersPerSubCat")) out.allCustomersPerSubCat = true;
+  // Mutually-exclusive enforcement: category vs subCat.
+  if (out.category && out.subCat) out.subCat = false;
+  // The "wide rollup" modes drop the simpler customer/color flags
+  // because their bucketing already drops those dims. Keeping the
+  // simpler flags on alongside would just be ignored, but they'd
+  // light up in the dropdown and confuse the planner.
+  const wideRollupActive =
+    out.customerAllStyles || out.allCustomersPerStyle
+    || out.allCustomersPerCategory || out.allCustomersPerSubCat;
+  if (wideRollupActive) {
+    out.customers = false;
+    out.colors = false;
   }
+  return out;
 }
 
 // Spread a typed total across N supply-only forecast rows for a (style,
@@ -273,7 +293,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     collapse.customers || collapse.colors || collapse.category || collapse.subCat ||
     collapse.customerAllStyles || collapse.allCustomersPerCategory || collapse.allCustomersPerSubCat ||
     collapse.allCustomersPerStyle;
-  const currentCollapseKey = collapseToKey(collapse);
+  const currentCollapseKeys = collapseToKeys(collapse);
 
   // Forecast IDs of aggregate rows the planner has expanded — when set,
   // the underlying child rows render below the parent indented + muted.
@@ -1069,9 +1089,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         <span style={{ fontWeight: 600 }}>Collapse:</span>
         <MultiSelectDropdown
           compact
-          singleSelect
-          selected={currentCollapseKey ? [currentCollapseKey] : []}
-          onChange={(next) => setCollapse(applyCollapseModeKey(next[0] ?? null))}
+          selected={currentCollapseKeys}
+          onChange={(next) => setCollapse(applyCollapseKeys(next))}
           allLabel="None"
           placeholder="Search collapse modes…"
           options={COLLAPSE_OPTIONS}
