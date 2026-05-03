@@ -45,6 +45,8 @@ interface GridTableProps {
   setSummaryCtx: (v: any) => void;
   openSummaryCtx: (e: React.MouseEvent, type: "onHand" | "onOrder" | "onPO", row: ATSRow) => void;
   handleSkuDrop: (fromSku: string, toSku: string) => void;
+  toggleExpandGroup: (key: string) => void;
+  expandedGroupSet: ReadonlySet<string>;
 }
 
 export const GridTable: React.FC<GridTableProps> = ({
@@ -54,7 +56,7 @@ export const GridTable: React.FC<GridTableProps> = ({
   hoveredCell, setHoveredCell,
   todayKey, atShip, eventIndex, getEventsInPeriod,
   ctxMenu, setCtxMenu, setSummaryCtx,
-  openSummaryCtx, handleSkuDrop,
+  openSummaryCtx, handleSkuDrop, toggleExpandGroup, expandedGroupSet,
 }) => {
   if (loading) return <div style={S.loadingState}>Loading ATS data…</div>;
   if (filtered.length === 0) return (
@@ -125,11 +127,21 @@ export const GridTable: React.FC<GridTableProps> = ({
             const isPinned = pinnedSku === row.sku;
             const isDragging = dragSku === row.sku;
             const isDropTarget = dragOverSku === row.sku && dragSku !== row.sku;
+            const isAggregate = !!row.__collapsed;
+            const aggLevel = row.__collapsed?.level ?? null;
+            const aggKey = row.__collapsed?.key ?? "";
+            const isExpanded = aggKey ? expandedGroupSet.has(aggKey) : false;
+            // Tint aggregate rows so they read as group headers, not leaves.
+            const baseBg = isAggregate
+              ? (ri % 2 === 0 ? "#1a2332" : "#1e2738")
+              : (ri % 2 === 0 ? "#0F172A" : "#111827");
+            const stickyBg = isPinned ? "#1a2332" : baseBg;
             return (
               <tr
                 key={`${row.sku}::${row.store ?? "ROF"}`}
-                draggable
+                draggable={!isAggregate}
                 onDragStart={e => {
+                  if (isAggregate) { e.preventDefault(); return; }
                   // Carry the source sku on the event itself so the drop
                   // handler is independent of React state flush timing.
                   // This fixes the intermittent "row 2 → row 1 doesn't
@@ -158,55 +170,90 @@ export const GridTable: React.FC<GridTableProps> = ({
                   setDragOverSku(null);
                 }}
                 style={{
-                  background: isDropTarget ? "#1e3a2a" : isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827",
+                  background: isDropTarget ? "#1e3a2a" : stickyBg,
                   opacity: isDragging ? 0.45 : 1,
                   outline: isDropTarget ? "2px solid #10B981" : "none",
                   transition: "background 0.1s, opacity 0.1s",
-                  cursor: "grab",
+                  cursor: isAggregate ? "default" : "grab",
+                  fontWeight: isAggregate ? 600 : 400,
                 }}
               >
                 {/* Category */}
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: 0, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", color: "#9CA3AF", fontSize: 12 }}
-                  onClick={() => setPinnedSku(isPinned ? null : row.sku)}
+                  style={{ ...S.td, ...S.stickyCol, left: 0, background: stickyBg, color: "#9CA3AF", fontSize: 12 }}
+                  onClick={() => { if (!isAggregate) setPinnedSku(isPinned ? null : row.sku); }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <div style={{ width: 6, height: 6, borderRadius: 2, background: getQtyColor(row.dates[todayKey] ?? row.onHand), flexShrink: 0 }} />
-                    <span>{row.master_category ?? "—"}</span>
+                    {aggLevel === "category" ? (
+                      <button
+                        onClick={e => { e.stopPropagation(); toggleExpandGroup(aggKey); }}
+                        style={{ background: "transparent", border: "none", color: "#60A5FA", cursor: "pointer", padding: 0, fontSize: 11, width: 14, textAlign: "center" }}
+                        aria-label={isExpanded ? "Collapse group" : "Expand group"}
+                      >
+                        {isExpanded ? "▼" : "▶"}
+                      </button>
+                    ) : (
+                      <div style={{ width: 6, height: 6, borderRadius: 2, background: getQtyColor(row.dates[todayKey] ?? row.onHand), flexShrink: 0 }} />
+                    )}
+                    <span style={{ color: isAggregate ? "#F1F5F9" : "#9CA3AF" }}>{row.master_category ?? "—"}</span>
                   </div>
                 </td>
                 {/* Sub Cat */}
-                <td style={{ ...S.td, ...S.stickyCol, left: 110, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", color: "#9CA3AF", fontSize: 12 }}>
-                  {row.master_sub_category ?? "—"}
+                <td style={{ ...S.td, ...S.stickyCol, left: 110, background: stickyBg, color: "#9CA3AF", fontSize: 12 }}>
+                  {aggLevel === "category" ? "" : (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      {aggLevel === "subCategory" && (
+                        <button
+                          onClick={e => { e.stopPropagation(); toggleExpandGroup(aggKey); }}
+                          style={{ background: "transparent", border: "none", color: "#60A5FA", cursor: "pointer", padding: 0, fontSize: 11, width: 14, textAlign: "center" }}
+                          aria-label={isExpanded ? "Collapse group" : "Expand group"}
+                        >
+                          {isExpanded ? "▼" : "▶"}
+                        </button>
+                      )}
+                      <span style={{ color: isAggregate ? "#F1F5F9" : "#9CA3AF" }}>{row.master_sub_category ?? "—"}</span>
+                    </div>
+                  )}
                 </td>
                 {/* Style — primary identifier; raw SKU on hover for traceability;
                    store badge stays here */}
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: 220, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827" }}
-                  title={row.sku}
+                  style={{ ...S.td, ...S.stickyCol, left: 220, background: stickyBg }}
+                  title={isAggregate ? undefined : row.sku}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ fontFamily: "monospace", color: "#60A5FA", fontSize: 12, fontWeight: 700 }}>
-                      {row.master_style ?? "—"}
-                    </span>
-                    {row.store && row.store !== "ROF" && (
-                      <span style={{ fontSize: 9, fontWeight: 700, color: "#FBBF24", background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.35)", borderRadius: 3, padding: "1px 5px", letterSpacing: 0.3 }}>
-                        {row.store}
+                  {(aggLevel === "category" || aggLevel === "subCategory") ? "" : (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      {aggLevel === "style" && (
+                        <button
+                          onClick={e => { e.stopPropagation(); toggleExpandGroup(aggKey); }}
+                          style={{ background: "transparent", border: "none", color: "#60A5FA", cursor: "pointer", padding: 0, fontSize: 11, width: 14, textAlign: "center" }}
+                          aria-label={isExpanded ? "Collapse group" : "Expand group"}
+                        >
+                          {isExpanded ? "▼" : "▶"}
+                        </button>
+                      )}
+                      <span style={{ fontFamily: "monospace", color: "#60A5FA", fontSize: 12, fontWeight: 700 }}>
+                        {row.master_style ?? "—"}
                       </span>
-                    )}
-                  </div>
+                      {!isAggregate && row.store && row.store !== "ROF" && (
+                        <span style={{ fontSize: 9, fontWeight: 700, color: "#FBBF24", background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.35)", borderRadius: 3, padding: "1px 5px", letterSpacing: 0.3 }}>
+                          {row.store}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </td>
                 {/* Description */}
-                <td style={{ ...S.td, ...S.stickyCol, left: 320, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", color: "#D1D5DB", fontSize: 13 }}>
+                <td style={{ ...S.td, ...S.stickyCol, left: 320, background: stickyBg, color: isAggregate ? "#94A3B8" : "#D1D5DB", fontSize: 13, fontStyle: isAggregate ? "italic" : "normal" }}>
                   {row.description}
                 </td>
                 {/* Color */}
-                <td style={{ ...S.td, ...S.stickyCol, left: 500, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", color: "#D1D5DB", fontSize: 12 }}>
-                  {displayColor(row) || "—"}
+                <td style={{ ...S.td, ...S.stickyCol, left: 500, background: stickyBg, color: "#D1D5DB", fontSize: 12 }}>
+                  {isAggregate ? "" : (displayColor(row) || "—")}
                 </td>
                 {/* On Hand */}
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: 630, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center", cursor: "context-menu" }}
+                  style={{ ...S.td, ...S.stickyCol, left: 630, background: stickyBg, textAlign: "center", cursor: "context-menu" }}
                   onContextMenu={e => openSummaryCtx(e, "onHand", row)}
                 >
                   <span style={{ color: "#F1F5F9", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
@@ -215,7 +262,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                 </td>
                 {/* On Order (committed SOs) */}
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: 710, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center", cursor: row.onOrder > 0 ? "context-menu" : "default" }}
+                  style={{ ...S.td, ...S.stickyCol, left: 710, background: stickyBg, textAlign: "center", cursor: row.onOrder > 0 ? "context-menu" : "default" }}
                   onContextMenu={e => { if (row.onOrder > 0) openSummaryCtx(e, "onOrder", row); }}
                 >
                   <span style={{ color: "#F59E0B", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
@@ -224,7 +271,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                 </td>
                 {/* On PO (open purchase orders) */}
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: 790, background: isPinned ? "#1a2332" : ri % 2 === 0 ? "#0F172A" : "#111827", textAlign: "center", cursor: row.onPO > 0 ? "context-menu" : "default" }}
+                  style={{ ...S.td, ...S.stickyCol, left: 790, background: stickyBg, textAlign: "center", cursor: row.onPO > 0 ? "context-menu" : "default" }}
                   onContextMenu={e => { if (row.onPO > 0) openSummaryCtx(e, "onPO", row); }}
                 >
                   <span style={{ color: "#10B981", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>

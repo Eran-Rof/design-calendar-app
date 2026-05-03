@@ -57,6 +57,11 @@ export interface ATSState {
   sortDir: "asc" | "desc";
   mergeHistory: Array<{ fromSku: string; toSku: string }>;
   atShip: boolean;
+  // Phase 3: row collapse mode + per-group expand toggles. "none" = leaf
+  // rows only (current behavior); other levels group + sum upward and
+  // expandedGroups carries the keys of groups the user has drilled into.
+  collapseLevel: "none" | "category" | "subCategory" | "style";
+  expandedGroups: string[];
 }
 
 // Per-field SET action so `value` is typed to match `field`.
@@ -128,5 +133,7 @@ export function createInitialState(startDate: string): ATSState {
     sortDir: "asc",
     mergeHistory: [],
     atShip: false,
+    collapseLevel: "none",
+    expandedGroups: [],
   };
 }

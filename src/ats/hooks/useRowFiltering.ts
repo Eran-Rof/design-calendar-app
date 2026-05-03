@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { ATSRow, ExcelData } from "../types";
 import { filterRows, statFilterRows, sortRows } from "../filter";
+import { collapseRows, type CollapseLevel } from "../collapse";
 
 interface UseRowFilteringOpts {
   rows: ATSRow[];
@@ -20,6 +21,8 @@ interface UseRowFilteringOpts {
   today: Date;
   pageSize: number;
   page: number;
+  collapseLevel: CollapseLevel;
+  expandedGroups: ReadonlySet<string>;
 }
 
 // Bundles the filter → statFilter → sort → paginate chain into a single
@@ -54,9 +57,22 @@ export function useRowFiltering(opts: UseRowFilteringOpts) {
     [filtered, opts.activeSort, opts.displayPeriods],
   );
 
-  const sortedFiltered = useMemo(
+  // Sort runs BEFORE collapse so leaf children inside expanded groups
+  // appear in the user's chosen order. Collapse then groups + emits
+  // aggregates by master fields (its own deterministic order); user sort
+  // is intentionally not re-applied across aggregates because mixing
+  // aggregates with leaves under a single sort key breaks the visual
+  // hierarchy.
+  const sortedLeaves = useMemo(
     () => sortRows(statFiltered, opts.sortCol, opts.sortDir),
     [statFiltered, opts.sortCol, opts.sortDir],
+  );
+
+  const sortedFiltered = useMemo(
+    () => opts.collapseLevel === "none"
+      ? sortedLeaves
+      : collapseRows(sortedLeaves, opts.collapseLevel, opts.expandedGroups),
+    [sortedLeaves, opts.collapseLevel, opts.expandedGroups],
   );
 
   const totalPages = Math.ceil(sortedFiltered.length / opts.pageSize);

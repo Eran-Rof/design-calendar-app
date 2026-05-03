@@ -44,6 +44,10 @@ interface ToolbarProps {
   customerSearch: string;
   setCustomerSearch: (v: string) => void;
 
+  // Collapse mode
+  collapseLevel: "none" | "category" | "subCategory" | "style";
+  setCollapseLevel: (v: "none" | "category" | "subCategory" | "style") => void;
+
   // AT SHIP + status line
   atShip: boolean;
   setAtShip: (v: boolean) => void;
@@ -61,6 +65,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   rangeUnit, setRangeUnit, rangeValue, setRangeValue,
   excelData, customerFilter, setCustomerFilter,
   customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch,
+  collapseLevel, setCollapseLevel,
   atShip, setAtShip, filteredCount, lastSync,
 }) => (
   <div style={S.toolbar}>
@@ -93,6 +98,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <option value="C">Child</option>
         <option value="Wms">Women's</option>
         <option value="G">Girls</option>
+      </select>
+    </div>
+    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+      <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Collapse:</span>
+      <select style={S.select} value={collapseLevel} onChange={e => setCollapseLevel(e.target.value as typeof collapseLevel)}>
+        <option value="none">None</option>
+        <option value="category">Category</option>
+        <option value="subCategory">Sub Cat</option>
+        <option value="style">Style</option>
       </select>
     </div>
     {/* Store filter */}

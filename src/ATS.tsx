@@ -77,7 +77,7 @@ function ATSReport() {
     syncing, syncStatus, lastSync, syncError, hoveredCell, pinnedSku, ctxMenu,
     summaryCtx, activeSort, sortCol, sortDir, mergeHistory, atShip,
     normChanges, normPendingData, normSource, customerFilter, customerDropOpen,
-    customerSearch,
+    customerSearch, collapseLevel, expandedGroups,
   } = st;
   const setStartDate         = mk("startDate");
   const setRangeUnit         = mk("rangeUnit");
@@ -125,6 +125,12 @@ function ATSReport() {
   const setCustomerFilter    = mk("customerFilter");
   const setCustomerDropOpen  = mk("customerDropOpen");
   const setCustomerSearch    = mk("customerSearch");
+  const setCollapseLevel     = mk("collapseLevel");
+  const setExpandedGroups    = mk("expandedGroups");
+  const expandedGroupSet     = useMemo(() => new Set(expandedGroups), [expandedGroups]);
+  const toggleExpandGroup    = useCallback((key: string) => {
+    setExpandedGroups(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  }, [setExpandedGroups]);
   const STORES = ["ROF", "ROF ECOM", "PT"] as const;
   const poStores = storeFilter;
   const soStores = storeFilter;
@@ -808,6 +814,7 @@ function ATSReport() {
     rows: matchedRows, excelData, search, filterCategory, filterSubCategory, filterGender, filterStatus, minATS, storeFilter,
     customerFilter, activeSort, sortCol, sortDir, displayPeriods, today,
     pageSize: PAGE_SIZE, page,
+    collapseLevel, expandedGroups: expandedGroupSet,
   });
 
   // ── Summary stats (all based on filtered rows) ─────────────────────────
@@ -868,7 +875,7 @@ function ATSReport() {
   }
 
   // Reset to page 0 whenever filters/search/sort change
-  useEffect(() => { setPage(0); }, [search, filterCategory, filterSubCategory, filterGender, filterStatus, minATS, poStores, soStores, rows, activeSort, sortCol, sortDir, customerFilter]);
+  useEffect(() => { setPage(0); }, [search, filterCategory, filterSubCategory, filterGender, filterStatus, minATS, poStores, soStores, rows, activeSort, sortCol, sortDir, customerFilter, collapseLevel]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Notifications: in-app view + bell badge (ATS-relevant events only)
@@ -917,6 +924,7 @@ function ATSReport() {
     pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
     mergeHistory, setMergeHistory, saveMergeHistory, undoLastMerge, clearMergeAndNavigate,
     atShip, setAtShip, onNegInven, onAgedInven,
+    collapseLevel, setCollapseLevel, expandedGroups, setExpandedGroups, toggleExpandGroup,
     unreadNotifs,
     showingNotifications,
     onToggleNotifications: () => setShowingNotifications((v) => !v),

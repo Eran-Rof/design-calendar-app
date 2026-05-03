@@ -21,6 +21,15 @@ export interface ATSRow {
   master_style?: string | null;
   master_color?: string | null;
   master_match_source?: "sku" | "style" | null;
+  // Phase 3 collapse mode: present on synthetic aggregate rows produced by
+  // collapseRows(). Leaf rows from compute.ts never set this. UI uses it to
+  // render an expand triangle, blank inapplicable cells, and disable
+  // SKU-merge drag/drop.
+  __collapsed?: {
+    level: "category" | "subCategory" | "style";
+    key: string;
+    childCount: number;
+  } | null;
 }
 
 export interface ATSSnapshot {
