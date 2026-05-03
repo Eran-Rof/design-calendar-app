@@ -407,21 +407,23 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   // changes the prefix, so stale keys from a prior mode are simply
   // never matched — they linger in the Set but cause no UI effect.
 
-  // Edit-recency tracker for TBD rows, keyed by tbd_id (stable across
-  // rebuilds). Each "touch" — row added, or buyer/override qty saved
-  // via the aggregate path — bumps a monotonic counter. Used by
-  // saveAggBuyerOrOverride to sequentially reduce the most recently
-  // edited rows first when the planner types a smaller bucket total.
-  const tbdEditOrderRef = useRef<Map<string, number>>(new Map());
-  const tbdEditSeqRef = useRef<number>(0);
-  const bumpTbdEditOrder = (tbdId: string | undefined): void => {
-    if (!tbdId) return;
-    tbdEditSeqRef.current += 1;
-    tbdEditOrderRef.current.set(tbdId, tbdEditSeqRef.current);
+  // Edit-recency tracker for grid rows, keyed by forecast_id (stable
+  // across rebuilds for both real forecast rows and TBD rows). Each
+  // "touch" — row added, single-row qty save, or aggregate routing
+  // target save — bumps a monotonic counter. Used by reduction logic
+  // to peel back the most recently edited rows first when the
+  // planner drops an aggregate total — applies to ALL rows with qty
+  // in the bucket, not just TBD.
+  const rowEditOrderRef = useRef<Map<string, number>>(new Map());
+  const rowEditSeqRef = useRef<number>(0);
+  const bumpRowEditOrder = (forecastId: string | undefined): void => {
+    if (!forecastId) return;
+    rowEditSeqRef.current += 1;
+    rowEditOrderRef.current.set(forecastId, rowEditSeqRef.current);
   };
-  // Mark the most recently added row as the most recently touched
-  // — covers the "or add" leg of the user's "last style that had a
-  // qty change OR add" sequencing rule.
+  // Mark the most recently added TBD row as the most recently
+  // touched — covers the "or add" leg of "last style that had a qty
+  // change OR add" sequencing.
   useEffect(() => {
     if (!lastAddedTbdMarker) return;
     const match = rows.find((r) =>
@@ -432,9 +434,29 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       && r.customer_id === lastAddedTbdMarker.customer_id
       && r.period_code === lastAddedTbdMarker.period_code,
     );
-    if (match?.tbd_id) bumpTbdEditOrder(match.tbd_id);
+    if (match) bumpRowEditOrder(match.forecast_id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastAddedTbdMarker]);
+
+  // Inline confirmation modal state — replaces window.confirm so the
+  // warning matches the rest of the app's dark-theme styling. Resolved
+  // by the user clicking Confirm or Cancel.
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    title: string;
+    body: string;
+    confirmLabel: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+  } | null>(null);
+  const askConfirm = (title: string, body: string, confirmLabel = "Proceed"): Promise<boolean> => {
+    return new Promise((resolve) => {
+      setPendingConfirm({
+        title, body, confirmLabel,
+        onConfirm: () => { setPendingConfirm(null); resolve(true); },
+        onCancel: () => { setPendingConfirm(null); resolve(false); },
+      });
+    });
+  };
   // Reset to first page whenever filters/sort change so the user doesn't
   // wonder why an empty page is showing.
   useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterAction, filterConfidence, filterMethod, sortKey, sortDir, pageSize, collapse, systemSuggestionsOn]);
@@ -864,90 +886,76 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     allowNegative: boolean,
   ): Promise<void> {
     if (!r.is_aggregate || !r.aggregate_underlying_ids) {
-      // Single-row edit: bump edit-order if it's a TBD row so future
-      // bucket reductions know this row was the most recently
-      // touched.
-      if (r.is_tbd && r.tbd_id) bumpTbdEditOrder(r.tbd_id);
+      // Single-row edit: bump edit-order so future bucket reductions
+      // know this row was the most recently touched.
+      bumpRowEditOrder(r.forecast_id);
       await saver(r.forecast_id, newTotal);
       return;
     }
     const ids = r.aggregate_underlying_ids;
-    // Reduction case (newTotal < currentSum): walk the bucket's TBD
-    // rows in edit-recency order (most recently added/edited first)
-    // and reduce each to zero before moving to the next, until the
-    // delta is fully absorbed. Any leftover delta lands on the auto
-    // catch-all (Supply Only) TBD row. Matches the planner mental
-    // model: "I just added/edited row X, dropping the bucket total
-    // should peel back row X first, not chip a slice off some
-    // unrelated line."
+    // Reduction case (newTotal < currentSum): walk EVERY child row
+    // with qty in edit-recency order (most recently added/edited
+    // first) and reduce each to zero before moving to the next,
+    // until the delta is fully absorbed. Applies to TBD AND real
+    // forecast rows alike. Matches the planner mental model: "drop
+    // the bucket total → peel back the rows I just touched first."
     const currentSum = (r[field] as number | undefined) ?? 0;
     if (newTotal < currentSum) {
-      // Confirm before reducing. Hits the planner's mental model:
-      // dropping a buyer total below what's already committed is a
-      // meaningful action ("am I really cancelling this much
-      // demand?"), so we pause before peeling rows back. Cancel
-      // aborts; OK proceeds with the sequential reduction. Plain
-      // window.confirm so the prompt is synchronous and obvious —
-      // a non-blocking toast wouldn't gate the action.
       const fieldLabel = field === "buyer_request_qty" ? "Buyer" : "Override";
-      const ok = window.confirm(
-        `${fieldLabel} bucket total going from ${currentSum.toLocaleString()} to ${newTotal.toLocaleString()}.\n\n`
-        + `The ${(currentSum - newTotal).toLocaleString()} reduction will peel back the most recently added/edited TBD rows first, zeroing each before moving to the next.\n\n`
-        + `Proceed?`,
+      const ok = await askConfirm(
+        `Reduce ${fieldLabel} bucket total?`,
+        `${currentSum.toLocaleString()} → ${newTotal.toLocaleString()} (-${(currentSum - newTotal).toLocaleString()}).\n\n`
+        + `The reduction will peel back the most recently added/edited rows first — TBD or otherwise — zeroing each before moving to the next.`,
+        "Reduce",
       );
       if (!ok) return;
-      const tbdChildren: IpPlanningGridRow[] = [];
+      const allChildren: IpPlanningGridRow[] = [];
       let missingChildren = 0;
       for (const fid of ids) {
         const child = mutedById.get(fid);
         if (!child) { missingChildren++; continue; }
-        if (child.is_tbd) tbdChildren.push(child);
+        allChildren.push(child);
       }
       if (missingChildren > 0) {
         console.warn(`[planning] aggregate ${field}: ${missingChildren} of ${ids.length} children missing from mutedById — view changed mid-edit. Try again.`);
         return;
       }
-      if (tbdChildren.length === 0) {
-        // No TBD rows in the bucket to drain — fall through to the
-        // routing-target path so the existing behavior covers
-        // non-TBD-only buckets.
-      } else {
-        // Sort: user-added first by edit recency desc; auto catch-
-        // all rows last (in any order). Rows with no entry in the
-        // edit-order map sort lowest within their group.
-        const seqOf = (row: IpPlanningGridRow) => row.tbd_id ? (tbdEditOrderRef.current.get(row.tbd_id) ?? 0) : 0;
-        tbdChildren.sort((a, b) => {
-          const aUser = a.is_user_added ? 1 : 0;
-          const bUser = b.is_user_added ? 1 : 0;
-          if (aUser !== bUser) return bUser - aUser;
-          return seqOf(b) - seqOf(a);
-        });
-        let remaining = currentSum - newTotal;
-        const updates: Array<{ row: IpPlanningGridRow; nextQty: number }> = [];
-        for (const child of tbdChildren) {
-          if (remaining <= 0) break;
-          const childQty = (child[field] as number | undefined) ?? 0;
-          if (childQty <= 0 && !allowNegative) continue;
-          const reduceBy = Math.min(childQty, remaining);
-          updates.push({ row: child, nextQty: childQty - reduceBy });
-          remaining -= reduceBy;
-        }
-        if (remaining > 0 && allowNegative && tbdChildren.length > 0) {
-          // Override allows negative: push the leftover into the
-          // last (oldest / auto) row.
-          const tail = tbdChildren[tbdChildren.length - 1];
-          const tailQty = (tail[field] as number | undefined) ?? 0;
-          const existing = updates.find((u) => u.row.forecast_id === tail.forecast_id);
-          if (existing) existing.nextQty -= remaining;
-          else updates.push({ row: tail, nextQty: tailQty - remaining });
-          remaining = 0;
-        }
+      // Sort: most-recently-edited first, with rows having no
+      // recency entry sorting last. TBD rows that DO have a
+      // recency entry rank by that entry alongside non-TBD rows.
+      const seqOf = (row: IpPlanningGridRow) => rowEditOrderRef.current.get(row.forecast_id) ?? 0;
+      const sorted = allChildren.slice().sort((a, b) => seqOf(b) - seqOf(a));
+      let remaining = currentSum - newTotal;
+      const updates: Array<{ row: IpPlanningGridRow; nextQty: number }> = [];
+      for (const child of sorted) {
+        if (remaining <= 0) break;
+        const childQty = (child[field] as number | undefined) ?? 0;
+        if (childQty <= 0 && !allowNegative) continue;
+        const reduceBy = Math.min(childQty, remaining);
+        updates.push({ row: child, nextQty: childQty - reduceBy });
+        remaining -= reduceBy;
+      }
+      if (remaining > 0 && allowNegative && sorted.length > 0) {
+        // Override allows negative: push the leftover into the
+        // last row in recency order so the bucket sum still hits
+        // the typed total.
+        const tail = sorted[sorted.length - 1];
+        const tailQty = (tail[field] as number | undefined) ?? 0;
+        const existing = updates.find((u) => u.row.forecast_id === tail.forecast_id);
+        if (existing) existing.nextQty -= remaining;
+        else updates.push({ row: tail, nextQty: tailQty - remaining });
+        remaining = 0;
+      }
+      if (updates.length > 0) {
         for (const u of updates) {
-          if (u.row.tbd_id) bumpTbdEditOrder(u.row.tbd_id);
+          bumpRowEditOrder(u.row.forecast_id);
           await saver(u.row.forecast_id, u.nextQty);
         }
         return;
       }
+      // No child had qty to drain — fall through to the routing-
+      // target path so a fresh bucket can still receive the typed
+      // value (the existing logic places it on the catch-all TBD).
     }
     // Collect the (style, period) tuples present in the bucket so
     // we can detect cross-style cases and pick the TBD row for the
@@ -1052,7 +1060,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         },
       });
     }
-    if (tbdRow.tbd_id) bumpTbdEditOrder(tbdRow.tbd_id);
+    bumpRowEditOrder(tbdRow.forecast_id);
     await saver(tbdRow.forecast_id, target);
   }
 
@@ -1388,6 +1396,45 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
 
   return (
     <div>
+      {pendingConfirm && (
+        <div
+          onClick={pendingConfirm.onCancel}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+            zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: PAL.panel, color: PAL.text,
+              border: `1px solid ${PAL.yellow}`, borderRadius: 12,
+              padding: 20, width: "min(480px, 90vw)",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <span style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                width: 24, height: 24, borderRadius: 12,
+                background: PAL.yellow, color: "#000", fontWeight: 800, fontSize: 14,
+              }}>!</span>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>{pendingConfirm.title}</div>
+            </div>
+            <div style={{ fontSize: 13, color: PAL.textDim, lineHeight: 1.5, whiteSpace: "pre-wrap", marginBottom: 16 }}>
+              {pendingConfirm.body}
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button type="button" style={{ ...S.btnSecondary }} onClick={pendingConfirm.onCancel}>Cancel</button>
+              <button
+                type="button"
+                style={{ ...S.btnPrimary, background: PAL.yellow, color: "#000", borderColor: PAL.yellow }}
+                onClick={pendingConfirm.onConfirm}
+              >{pendingConfirm.confirmLabel}</button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Stats row */}
       <div style={{ ...S.statsRow, gridTemplateColumns: "repeat(6,1fr)" }}>
         <StatCell label="Rows" value={filtered.length > pageSize ? `${pageSize.toLocaleString()} / ${filtered.length.toLocaleString()}` : filtered.length.toLocaleString()} accent={filtered.length > pageSize ? PAL.yellow : undefined} />

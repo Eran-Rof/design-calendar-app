@@ -156,51 +156,33 @@ export function MultiSelectDropdown({
             gap: 6,
             alignItems: "center",
           }}>
-            <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
-              <input
-                autoFocus
-                type="text"
-                placeholder={placeholder}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onFocus={(e) => { if (e.currentTarget.value) e.currentTarget.select(); }}
-                onMouseUp={(e) => {
-                  // Prevent the browser's default mouseup behavior
-                  // (caret placement at click position) so the
-                  // selection from onFocus's select() — or from this
-                  // call on a re-click of an already-focused input —
-                  // survives the click.
-                  if (e.currentTarget.value) {
-                    e.preventDefault();
-                    e.currentTarget.select();
-                  }
+            <input
+              autoFocus
+              type="text"
+              placeholder={placeholder}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onFocus={(e) => { if (e.currentTarget.value) e.currentTarget.select(); }}
+              style={{ ...S.input, flex: 1, minWidth: 0 }}
+            />
+            {query && (
+              <button
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); setQuery(""); }}
+                title="Clear search"
+                aria-label="Clear search"
+                style={{
+                  width: 22, height: 22, padding: 0,
+                  border: `1px solid ${PAL.border}`,
+                  background: "transparent",
+                  color: PAL.textDim,
+                  cursor: "pointer",
+                  fontSize: 14, lineHeight: 1,
+                  borderRadius: 4,
+                  flexShrink: 0,
                 }}
-                style={{ ...S.input, width: "100%", paddingRight: query ? 26 : undefined }}
-              />
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => setQuery("")}
-                  title="Clear search"
-                  aria-label="Clear search"
-                  style={{
-                    position: "absolute",
-                    right: 4,
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    width: 18,
-                    height: 18,
-                    padding: 0,
-                    border: "none",
-                    background: "transparent",
-                    color: PAL.textMuted,
-                    cursor: "pointer",
-                    fontSize: 14,
-                    lineHeight: 1,
-                  }}
-                >×</button>
-              )}
-            </div>
+              >×</button>
+            )}
             {selected.length > 0 && (
               <button
                 type="button"
