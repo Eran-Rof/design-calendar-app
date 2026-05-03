@@ -333,7 +333,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   // Collapse / aggregation modes — independent toggles that change the
   // grouping key of the displayed rows. When any are on, grids show
   // aggregate rows and inline editing is disabled on those rows.
-  const [collapse, setCollapse] = useState<CollapseModes>(() => {
+  const [collapseRaw, setCollapseRaw] = useState<CollapseModes>(() => {
     try {
       const raw = localStorage.getItem("ws_planning_collapse");
       // eslint-disable-next-line no-console
@@ -360,14 +360,22 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       allCustomersPerStyle: false,
     };
   });
-  useEffect(() => {
-    try {
-      const json = JSON.stringify(collapse);
-      localStorage.setItem("ws_planning_collapse", json);
-      // eslint-disable-next-line no-console
-      console.log("[ip-debug writeCollapse] ←", json);
-    } catch { /* ignore */ }
-  }, [collapse]);
+  // Persist synchronously inside the setter so a subsequent unmount
+  // (tab switch, run change, build refresh) can't drop the write the
+  // way a deferred useEffect could. Wraps setCollapseRaw.
+  const collapse = collapseRaw;
+  const setCollapse: typeof setCollapseRaw = (next) => {
+    setCollapseRaw((cur) => {
+      const computed = typeof next === "function" ? (next as (c: CollapseModes) => CollapseModes)(cur) : next;
+      try {
+        const json = JSON.stringify(computed);
+        localStorage.setItem("ws_planning_collapse", json);
+        // eslint-disable-next-line no-console
+        console.log("[ip-debug writeCollapse] ←", json);
+      } catch { /* ignore */ }
+      return computed;
+    });
+  };
   const anyCollapsed =
     collapse.customers || collapse.colors || collapse.category || collapse.subCat ||
     collapse.customerAllStyles || collapse.allCustomersPerCategory || collapse.allCustomersPerSubCat ||
@@ -1494,8 +1502,12 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                       sub_category_name: addRowDraft.sub_category_name,
                       period_code: addRowDraft.period_code,
                     });
+                  } catch { /* error toast surfaces from workbench */ }
+                  finally {
+                    // Close the form whether or not the save succeeded —
+                    // a lingering open form after an error toast is more
+                    // confusing than a re-open required to retry.
                     setAddRowOpen(false);
-                  } finally {
                     setAddRowSaving(false);
                   }
                 }}

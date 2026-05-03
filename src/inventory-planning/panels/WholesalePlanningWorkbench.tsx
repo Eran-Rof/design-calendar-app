@@ -31,7 +31,6 @@ import PlanningRunControls from "./PlanningRunControls";
 import WholesalePlanningGrid from "./WholesalePlanningGrid";
 import FutureDemandRequestsPanel from "./FutureDemandRequestsPanel";
 import ForecastDetailDrawer from "../components/ForecastDetailDrawer";
-import ConfirmModal from "../components/ConfirmModal";
 import Toast, { type ToastMessage } from "../components/Toast";
 import StaleDataBanner from "../shared/components/StaleDataBanner";
 
@@ -628,12 +627,8 @@ export default function WholesalePlanningWorkbench() {
     period_code: string;
   } | null>(null);
 
-  // Two-step confirmation for "+ Add row" when there are auto-routed
-  // TBD rows in the same scope (period + sub-cat) with non-zero
-  // qtys. The planner must confirm twice — first that they want to
-  // proceed, then that the existing rows will be zeroed out — before
-  // we insert. step=1 → first confirm; step=2 → list-of-affected
-  // confirm. Cancelling at either step discards the pending args.
+  // Args shape for the "+ Add row" handler. Kept as a named type
+  // so the inline form's onAddTbdRow callback can reuse it.
   type AddTbdRowArgs = {
     style_code: string;
     color: string;
@@ -643,11 +638,6 @@ export default function WholesalePlanningWorkbench() {
     sub_category_name: string | null;
     period_code: string;
   };
-  const [pendingAddRow, setPendingAddRow] = useState<{
-    step: 1 | 2;
-    args: AddTbdRowArgs;
-    affected: IpPlanningGridRow[];
-  } | null>(null);
 
   // Add a fresh (Supply Only) TBD stock-buy row from the inline +Add
   // form. Style + color default to "TBD"; the planner picks
@@ -665,57 +655,15 @@ export default function WholesalePlanningWorkbench() {
       setToast({ text: `Couldn't find period ${args.period_code} in the current run`, kind: "error" });
       return;
     }
-    // Look for auto-routed TBD rows in the same scope that already
-    // carry buyer / override / buy values. These were populated by
-    // aggregate edits before the planner clicked + Add row; if we
-    // proceed without zeroing them out, the totals double-count
-    // (the planner's intent is the new row to be the canonical
-    // entry, not an addition on top of the auto rows).
-    const affected = rows.filter((r) =>
-      r.is_tbd
-      && !r.is_user_added
-      && r.tbd_id != null
-      && r.period_code === args.period_code
-      && (args.sub_category_name == null || r.sub_category_name === args.sub_category_name)
-      && (
-        (r.buyer_request_qty ?? 0) !== 0
-        || (r.override_qty ?? 0) !== 0
-        || (r.planned_buy_qty ?? 0) !== 0
-      ),
-    );
-    if (affected.length > 0) {
-      // Open the two-step confirm. The actual insert + zero-out
-      // happens in actuallyAddTbdRow, called from the modal's
-      // step-2 onConfirm.
-      setPendingAddRow({ step: 1, args, affected });
-      // Throw so the grid's Save handler stays open with inputs
-      // intact — same pattern as the saveTbdField rejection path.
-      throw new Error("Pending confirmation: routed stock buys will be zeroed");
-    }
-    await actuallyAddTbdRow(args, []);
-  }
-
-  async function actuallyAddTbdRow(args: AddTbdRowArgs, zeroOut: IpPlanningGridRow[]) {
-    if (!selectedRun) return;
-    const sample = rows.find((r) => r.period_code === args.period_code);
-    if (!sample) {
-      setToast({ text: `Couldn't find period ${args.period_code} in the current run`, kind: "error" });
-      return;
-    }
     try {
-      // Zero out the affected auto TBD rows first so the new row's
-      // qty doesn't double-count when summed alongside them.
-      await Promise.all(
-        zeroOut.filter((r) => r.tbd_id).map((r) => wholesaleRepo.patchTbdRow(r.tbd_id!, {
-          buyer_request_qty: 0,
-          override_qty: 0,
-          planned_buy_qty: null,
-          final_forecast_qty: 0,
-        })),
-      );
       // Plain INSERT — every "+ Add row" creates a distinct row
       // regardless of duplicate dims with the auto-synthesized
-      // routing target, thanks to the partial unique index.
+      // routing target, thanks to the partial unique index. The
+      // earlier warn-then-zero workflow was removed: on a fresh
+      // row the planner hasn't typed any qty, so a "less than the
+      // already-committed" check has no value to compare against.
+      // If a duplicate causes confusion later, the row can be
+      // deleted via the ✕ button.
       await wholesaleRepo.insertTbdRow(selectedRun.id, {
         ...args,
         period_start: sample.period_start,
@@ -1514,36 +1462,6 @@ export default function WholesalePlanningWorkbench() {
           onClose={() => setSelectedRow(null)}
           onSaveOverride={saveOverride}
           onUpdateBuyQty={saveBuyQty}
-        />
-      )}
-
-      {/* Step 1 — first warning when "+ Add row" would supplant
-          existing auto-routed TBD rows in the same scope. */}
-      {pendingAddRow?.step === 1 && (
-        <ConfirmModal
-          icon="⚠"
-          title="Stock buys already routed in this scope"
-          message={`There are ${pendingAddRow.affected.length} stock buy${pendingAddRow.affected.length === 1 ? "" : "s"} already routed under ${pendingAddRow.args.sub_category_name ? `sub-cat "${pendingAddRow.args.sub_category_name}"` : `period ${pendingAddRow.args.period_code}`} from earlier aggregate edits. Adding a new row will require zeroing those out so the totals don't double-count. Continue?`}
-          confirmText="Continue"
-          onConfirm={() => setPendingAddRow((p) => p ? { ...p, step: 2 } : null)}
-          onCancel={() => setPendingAddRow(null)}
-        />
-      )}
-
-      {/* Step 2 — confirm the actual zero-out, listing affected rows. */}
-      {pendingAddRow?.step === 2 && (
-        <ConfirmModal
-          icon="🗑"
-          title="Zero out and add"
-          message="The following rows will have their Buyer / Override / Buy zeroed before the new row is inserted:"
-          listItems={pendingAddRow.affected.map((r) => `${r.sku_style ?? r.sku_code ?? "?"} / ${r.sku_color ?? "—"} / ${r.customer_name}`)}
-          confirmText="Zero out and add"
-          onConfirm={() => {
-            const c = pendingAddRow;
-            setPendingAddRow(null);
-            if (c) void actuallyAddTbdRow(c.args, c.affected);
-          }}
-          onCancel={() => setPendingAddRow(null)}
         />
       )}
 
