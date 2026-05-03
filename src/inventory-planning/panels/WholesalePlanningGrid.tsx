@@ -1026,32 +1026,30 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         if (recent) tbdRow = recent;
       }
       if (!tbdRow) tbdRow = sorted[0];
-      // Always log the routing decision in DEV so we can confirm
-      // which row won — useful when "new style isn't getting the
-      // increase" turns out to be a different row claiming priority.
-      if (import.meta.env.DEV) {
-        // eslint-disable-next-line no-console
-        console.log(`[ip-debug agg-${field} routing]`, {
-          field,
-          newTotal,
-          bucket_size: ids.length,
-          userAddedInBucket: sorted.map((r) => ({
-            forecast_id: r.forecast_id,
-            sku_style: r.sku_style,
-            sku_color: r.sku_color,
-            customer_name: r.customer_name,
-            seq: seqOf(r),
-            tbd_updated_at: r.tbd_updated_at,
-            qty: r[field],
-          })),
-          chosen: tbdRow ? {
-            forecast_id: tbdRow.forecast_id,
-            sku_style: tbdRow.sku_style,
-            sku_color: tbdRow.sku_color,
-            customer_name: tbdRow.customer_name,
-          } : null,
-        });
-      }
+      // Routing decision log — kept on in prod while we hunt the
+      // "buyer qty bypasses new style" report. Reveals which row
+      // won and why (in-session seq vs DB updated_at vs the legacy
+      // marker fallback).
+      // eslint-disable-next-line no-console
+      console.log(`[ip-routing ${field}]`, {
+        newTotal,
+        bucket_size: ids.length,
+        candidates: sorted.map((r) => ({
+          forecast_id: r.forecast_id,
+          style: r.sku_style,
+          color: r.sku_color,
+          customer: r.customer_name,
+          seq: seqOf(r),
+          updated_at: r.tbd_updated_at,
+          qty: r[field],
+        })),
+        chosen: tbdRow ? {
+          forecast_id: tbdRow.forecast_id,
+          style: tbdRow.sku_style,
+          color: tbdRow.sku_color,
+          customer: tbdRow.customer_name,
+        } : null,
+      });
     } else {
       const styleCode = styleSet.size === 1 ? Array.from(styleSet)[0] : "TBD";
       // Search the FULL row set (not just mutedRows) — the catch-all
@@ -1067,6 +1065,34 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         && x.customer_name === "(Supply Only)"
       );
       tbdRow = tbdCandidates.find((x) => x.sku_color === "TBD") ?? tbdCandidates[0] ?? null;
+      // Fallback path log — fires when no user-added row was found
+      // in the bucket (this is what the user keeps hitting when a
+      // NEW style row exists but lives in a DIFFERENT bucket than
+      // the one being edited; the qty lands on the auto catch-all
+      // for the bucket's style+period instead of the new style).
+      // Surfaces the user-added rows OUTSIDE the bucket so we can
+      // see where they ended up.
+      const allUserAddedTbd = rows.filter((x) => x.is_tbd && x.is_user_added);
+      // eslint-disable-next-line no-console
+      console.log(`[ip-routing ${field} fallback]`, {
+        newTotal,
+        bucket_size: ids.length,
+        bucket_styleSet: Array.from(styleSet),
+        bucket_periodStart: periodStart,
+        chose_catchall: tbdRow ? {
+          forecast_id: tbdRow.forecast_id,
+          style: tbdRow.sku_style,
+          color: tbdRow.sku_color,
+        } : null,
+        user_added_rows_anywhere: allUserAddedTbd.map((r) => ({
+          forecast_id: r.forecast_id,
+          style: r.sku_style,
+          color: r.sku_color,
+          customer: r.customer_name,
+          period_start: r.period_start,
+          updated_at: r.tbd_updated_at,
+        })),
+      });
     }
     if (!tbdRow) {
       console.warn(`[planning] aggregate ${field}: no TBD routing target found for period ${periodStart}. Has buildGridRows been refreshed?`);
@@ -1527,8 +1553,47 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       {headerSlot}
 
       <div style={S.toolbar}>
-        <input style={{ ...S.input, width: 220, padding: "6px 12px", fontSize: 12 }} placeholder="Search customer / SKU / category"
-               value={search} onChange={(e) => setSearch(e.target.value)} />
+        <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+          <input
+            style={{ ...S.input, width: 220, padding: "6px 32px 6px 12px", fontSize: 12 }}
+            placeholder="Search customer / SKU / category"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onFocus={(e) => {
+              if (e.currentTarget.value) {
+                const el = e.currentTarget;
+                setTimeout(() => el.select(), 0);
+              }
+            }}
+            onClick={(e) => {
+              if (e.currentTarget.value) {
+                const el = e.currentTarget;
+                setTimeout(() => el.select(), 0);
+              }
+            }}
+          />
+          {search && (
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); setSearch(""); }}
+              title="Clear search"
+              aria-label="Clear search"
+              style={{
+                position: "absolute",
+                right: 6,
+                top: "50%",
+                transform: "translateY(-50%)",
+                width: 22, height: 22, padding: 0,
+                border: `1px solid ${PAL.border}`,
+                background: PAL.bg,
+                color: PAL.text,
+                cursor: "pointer",
+                fontSize: 13, fontWeight: 700, lineHeight: 1,
+                borderRadius: 4,
+              }}
+            >×</button>
+          )}
+        </div>
         <MultiSelectDropdown
           compact
           selected={filterCustomer}
@@ -2628,6 +2693,13 @@ function TbdStyleCell({
   const queryIsNew = queryTrim.length > 0
     && queryTrim.toLowerCase() !== "tbd"
     && !allKnownStylesLower.has(queryTrim.toLowerCase());
+  // Style-code sanitizer for the "Add as NEW" path: uppercase
+  // alphanumeric only. Style codes are SKU prefixes (e.g.
+  // "RYO0659") — symbols and lowercase letters break downstream
+  // joins (item master, label batches, ATS lookups). Strip on
+  // commit, not on input, so the planner can paste freely.
+  const sanitizeStyleCode = (s: string): string =>
+    s.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
   async function commit(styleCode: string) {
     if (busy || styleCode === value) { setOpen(false); return; }
@@ -2695,11 +2767,11 @@ function TbdStyleCell({
               type="text"
               placeholder="Type to search or add new style…"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => setQuery(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && queryIsNew) { e.preventDefault(); void commit(queryTrim); }
+                if (e.key === "Enter" && queryIsNew) { e.preventDefault(); void commit(sanitizeStyleCode(queryTrim)); }
               }}
-              style={{ ...S.input, width: "100%" }}
+              style={{ ...S.input, width: "100%", fontFamily: "monospace" }}
             />
             <div style={{ marginTop: 4, fontSize: 10, color: PAL.textMuted, lineHeight: 1.4 }}>
               {categoryStyles.length === 0
@@ -2735,8 +2807,8 @@ function TbdStyleCell({
             <div
               role="option"
               tabIndex={0}
-              onMouseDown={(e) => { e.preventDefault(); void commit(queryTrim); }}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(queryTrim); } }}
+              onMouseDown={(e) => { e.preventDefault(); void commit(sanitizeStyleCode(queryTrim)); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(sanitizeStyleCode(queryTrim)); } }}
               style={{
                 padding: "10px 12px",
                 cursor: "pointer",
