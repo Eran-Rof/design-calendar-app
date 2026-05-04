@@ -344,6 +344,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     sub_category_name: string | null;
     period_code: string;
     style_code: string;
+    color: string;
+    is_new_color: boolean;
     description: string;
   }>({
     customer_id: "",
@@ -351,6 +353,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     sub_category_name: null,
     period_code: "",
     style_code: "TBD",
+    color: "TBD",
+    is_new_color: false,
     description: "",
   });
   const [addRowSaving, setAddRowSaving] = useState(false);
@@ -1879,6 +1883,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   sub_category_name: filterSubCat[0] ?? null,
                   period_code: filterPeriod[0] ?? periods[0] ?? "",
                   style_code: filterStyle[0] ?? "TBD",
+                  color: filterColor[0] ?? "TBD",
+                  is_new_color: false,
                   description: "",
                 });
                 setAddRowOpen(true);
@@ -1931,7 +1937,6 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               fontSize: 12,
             }}>
               <span style={{ fontWeight: 600, color: PAL.accent }}>+ New TBD row</span>
-              <span style={{ color: PAL.textMuted, fontSize: 11 }}>Color: TBD</span>
               <MultiSelectDropdown
                 compact
                 singleSelect
@@ -1950,12 +1955,15 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 placeholder="Search sub cats…"
                 options={subCategoryNames.map((s) => ({ value: s, label: s }))}
               />
+              <span style={{ color: PAL.textMuted, fontSize: 11 }}>Style:</span>
               {/* Style — reuse the in-grid TbdStyleCell so the form's
                   picker is byte-for-byte identical to the grid's
                   (same colors, search bar, "Add as NEW" footer).
                   Scoped to the form's selected category when one is
                   picked; falls back to every style in the run when
-                  the planner hasn't narrowed the category yet. */}
+                  the planner hasn't narrowed the category yet. Defaults
+                  to TBD; the planner can pick TBD explicitly to keep
+                  it as a catch-all stock-buy slot. */}
               {(() => {
                 const masterStylesLowerSet = new Set((masterStyles ?? []).map((m) => m.style_code.toLowerCase()));
                 const userAddedStylesSet = new Set<string>();
@@ -1997,6 +2005,38 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   />
                 );
               })()}
+              <span style={{ color: PAL.textMuted, fontSize: 11 }}>Color:</span>
+              {/* Color — reuse the in-grid TbdColorCell so the form's
+                  picker is byte-for-byte identical (same TBD/NEW
+                  badges, search bar, "Add as NEW" footer). Scoped to
+                  the form's selected category's known colors when
+                  one is picked; falls back to every color in the run
+                  when the category is unset. Defaults to TBD. */}
+              {(() => {
+                const knownColors = Array.from(
+                  colorsByGroupName.get(addRowDraft.group_name ?? "—") ?? new Set<string>(),
+                ).sort();
+                const colorVal = addRowDraft.color || "TBD";
+                const colorLower = colorVal.trim().toLowerCase();
+                const inAnyMaster = colorLower !== "" && colorLower !== "tbd"
+                  && (allKnownColorsLower.has(colorLower) || (masterColorsLower?.has(colorLower) ?? false));
+                const styleColors = masterColorsByStyleLower?.get(addRowDraft.style_code);
+                const inThisStyleMaster = colorLower !== "" && (styleColors?.has(colorLower) ?? false);
+                const isNewForStyle = !addRowDraft.is_new_color && inAnyMaster && !inThisStyleMaster;
+                return (
+                  <TbdColorCell
+                    value={colorVal}
+                    isNewColor={!!addRowDraft.is_new_color}
+                    isNewForStyle={isNewForStyle}
+                    knownColors={knownColors}
+                    allKnownColorsLower={allKnownColorsLower}
+                    masterColorsLower={masterColorsLower}
+                    onSave={async (color, isNew) => {
+                      setAddRowDraft((d) => ({ ...d, color, is_new_color: isNew }));
+                    }}
+                  />
+                );
+              })()}
               <input
                 type="text"
                 placeholder="Description"
@@ -2032,8 +2072,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   try {
                     await onAddTbdRow({
                       style_code: addRowDraft.style_code || "TBD",
-                      color: "TBD",
-                      is_new_color: false,
+                      color: addRowDraft.color || "TBD",
+                      is_new_color: addRowDraft.is_new_color,
                       customer_id: addRowDraft.customer_id,
                       group_name: addRowDraft.group_name,
                       sub_category_name: addRowDraft.sub_category_name,
