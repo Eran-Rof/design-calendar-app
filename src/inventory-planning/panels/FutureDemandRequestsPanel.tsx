@@ -16,6 +16,7 @@ import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { monthOf } from "../compute/periods";
 import { S, PAL, formatQty, formatPeriodCode } from "../components/styles";
 import ConfirmModal from "../components/ConfirmModal";
+import { MultiSelectDropdown } from "../components/MultiSelectDropdown";
 import type { ToastMessage } from "../components/Toast";
 
 const REQUEST_TYPES: IpRequestType[] = [
@@ -54,6 +55,19 @@ export default function FutureDemandRequestsPanel({
 
   const customerById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
   const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+  // Style → first sku_id resolver. The table stores sku_id (the master
+  // FK) but the planner picks at the STYLE level — variants are
+  // represented by their first SKU. Same convention the wholesale grid
+  // uses for its TBD style picker.
+  const skuByStyle = useMemo(() => {
+    const out = new Map<string, string>();
+    for (const i of items) {
+      const v = i.style_code ?? i.sku_code;
+      if (!v) continue;
+      if (!out.has(v)) out.set(v, i.id);
+    }
+    return out;
+  }, [items]);
 
   async function archive(id: string) {
     setBusyId(id);
@@ -88,18 +102,47 @@ export default function FutureDemandRequestsPanel({
     <div style={S.card}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <h3 style={S.cardTitle}>Future demand requests</h3>
-        <button style={S.btnPrimary} onClick={() => setShowForm(true)}>+ New request</button>
+        <button style={S.btnPrimary} onClick={() => setShowForm((v) => !v)}>
+          {showForm ? "Cancel" : "+ New request"}
+        </button>
       </div>
 
+      {showForm && (
+        <RequestForm
+          customers={customers}
+          items={items}
+          categories={categories}
+          skuByStyle={skuByStyle}
+          currentUser={currentUser}
+          onCancel={() => setShowForm(false)}
+          onToast={onToast}
+          onSaved={async () => {
+            await onChange();
+            setShowForm(false);
+            onToast({ text: "Request created", kind: "success" });
+          }}
+        />
+      )}
+
       <div style={S.toolbar}>
-        <select style={S.select} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as IpRequestStatus | "all")}>
-          <option value="all">All statuses</option>
-          {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <select style={S.select} value={filterCustomer} onChange={(e) => setFilterCustomer(e.target.value)}>
-          <option value="all">All customers</option>
-          {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
+        <MultiSelectDropdown
+          compact
+          singleSelect
+          selected={filterStatus === "all" ? [] : [filterStatus]}
+          onChange={(next) => setFilterStatus(((next[0] as IpRequestStatus) ?? "all") as IpRequestStatus | "all")}
+          allLabel="All statuses"
+          placeholder="Search statuses…"
+          options={STATUSES.map((s) => ({ value: s, label: s }))}
+        />
+        <MultiSelectDropdown
+          compact
+          singleSelect
+          selected={filterCustomer === "all" ? [] : [filterCustomer]}
+          onChange={(next) => setFilterCustomer(next[0] ?? "all")}
+          allLabel="All customers"
+          placeholder="Search customers…"
+          options={customers.map((c) => ({ value: c.id, label: c.name }))}
+        />
         <span style={{ color: PAL.textMuted, fontSize: 12 }}>
           {visible.length} of {requests.length}
         </span>
@@ -129,7 +172,7 @@ export default function FutureDemandRequestsPanel({
                   <td style={S.td}>{formatPeriodCode(monthOf(r.target_period_start).period_code)}</td>
                   <td style={S.td}>{customer?.name ?? r.customer_id.slice(0, 8)}</td>
                   <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>
-                    {item?.sku_code ?? r.sku_id.slice(0, 8)}
+                    {item?.style_code ?? item?.sku_code ?? r.sku_id.slice(0, 8)}
                   </td>
                   <td style={S.tdNum}>{formatQty(r.requested_qty)}</td>
                   <td style={S.td}>{r.request_type}</td>
@@ -160,21 +203,6 @@ export default function FutureDemandRequestsPanel({
         </table>
       </div>
 
-      {showForm && (
-        <RequestForm
-          customers={customers}
-          categories={categories}
-          items={items}
-          currentUser={currentUser}
-          onClose={() => setShowForm(false)}
-          onToast={onToast}
-          onSaved={async () => {
-            await onChange();
-            setShowForm(false);
-            onToast({ text: "Request created", kind: "success" });
-          }}
-        />
-      )}
       {deleteTarget && (
         <ConfirmModal
           icon="🗑"
@@ -191,19 +219,19 @@ export default function FutureDemandRequestsPanel({
 }
 
 function RequestForm({
-  customers, categories, items, currentUser, onClose, onSaved, onToast,
+  customers, items, skuByStyle, currentUser, onCancel, onSaved, onToast,
 }: {
   customers: IpCustomer[];
   categories: IpCategory[];
   items: IpItem[];
+  skuByStyle: Map<string, string>;
   currentUser?: string | null;
-  onClose: () => void;
+  onCancel: () => void;
   onSaved: () => Promise<void>;
   onToast: (t: ToastMessage) => void;
 }) {
   const [customerId, setCustomerId] = useState<string>(customers[0]?.id ?? "");
-  const [skuId, setSkuId] = useState<string>("");
-  const [skuSearch, setSkuSearch] = useState("");
+  const [styleCode, setStyleCode] = useState<string>("");
   const [periodCode, setPeriodCode] = useState<string>(() => {
     const now = new Date();
     return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -214,18 +242,24 @@ function RequestForm({
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const filteredItems = useMemo(() => {
-    const q = skuSearch.trim().toUpperCase();
-    if (!q) return items.slice(0, 50);
-    return items.filter((i) =>
-      i.sku_code.includes(q) || (i.description ?? "").toUpperCase().includes(q),
-    ).slice(0, 50);
-  }, [items, skuSearch]);
+  // Distinct style options for the picker. Same construction the
+  // wholesale grid uses (style_code with sku_code fallback for legacy
+  // master rows that have no style yet).
+  const styleOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const i of items) {
+      const v = i.style_code ?? i.sku_code;
+      if (v) set.add(v);
+    }
+    return Array.from(set).sort().map((s) => ({ value: s, label: s }));
+  }, [items]);
 
   async function save() {
     const qn = Number(qty);
     if (!customerId) { onToast({ text: "Pick a customer", kind: "error" }); return; }
-    if (!skuId)      { onToast({ text: "Pick a SKU", kind: "error" }); return; }
+    if (!styleCode)  { onToast({ text: "Pick a style", kind: "error" }); return; }
+    const skuId = skuByStyle.get(styleCode);
+    if (!skuId)      { onToast({ text: `No items found for style ${styleCode}`, kind: "error" }); return; }
     if (!/^\d{4}-\d{2}$/.test(periodCode)) { onToast({ text: "Pick a target month", kind: "error" }); return; }
     if (!Number.isFinite(qn) || qn <= 0)   { onToast({ text: "Qty must be a positive number", kind: "error" }); return; }
 
@@ -255,77 +289,100 @@ function RequestForm({
   }
 
   return (
-    <div style={S.drawerOverlay} onClick={onClose}>
-      <div style={S.drawer} onClick={(e) => e.stopPropagation()}>
-        <div style={S.drawerHeader}>
-          <h3 style={{ margin: 0, fontSize: 16 }}>New future demand request</h3>
-          <button style={S.btnGhost} onClick={onClose}>✕</button>
-        </div>
-        <div style={S.drawerBody}>
-          <div style={{ display: "grid", gap: 12 }}>
-            <div>
-              <label style={S.label}>Customer</label>
-              <select style={{ ...S.select, width: "100%" }} value={customerId}
-                      onChange={(e) => setCustomerId(e.target.value)}>
-                <option value="">— pick —</option>
-                {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={S.label}>SKU search</label>
-              <input style={{ ...S.input, width: "100%" }} value={skuSearch}
-                     placeholder="Search by SKU or description"
-                     onChange={(e) => setSkuSearch(e.target.value)} />
-              <select style={{ ...S.select, width: "100%", marginTop: 6 }} value={skuId}
-                      onChange={(e) => setSkuId(e.target.value)} size={8}>
-                {filteredItems.map((i) => (
-                  <option key={i.id} value={i.id}>
-                    {i.sku_code}{i.description ? ` — ${i.description}` : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <div>
-                <label style={S.label}>Target month</label>
-                <input type="month" style={{ ...S.input, width: "100%" }} value={periodCode}
-                       onChange={(e) => setPeriodCode(e.target.value)} />
-              </div>
-              <div>
-                <label style={S.label}>Quantity</label>
-                <input style={{ ...S.input, width: "100%" }} value={qty}
-                       inputMode="numeric"
-                       onChange={(e) => setQty(e.target.value)} />
-              </div>
-              <div>
-                <label style={S.label}>Type</label>
-                <select style={{ ...S.select, width: "100%" }} value={type}
-                        onChange={(e) => setType(e.target.value as IpRequestType)}>
-                  {REQUEST_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={S.label}>Confidence</label>
-                <select style={{ ...S.select, width: "100%" }} value={confidence}
-                        onChange={(e) => setConfidence(e.target.value as IpConfidenceLevel)}>
-                  {CONFIDENCE_LEVELS.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-            </div>
-            <div>
-              <label style={S.label}>Note</label>
-              <input style={{ ...S.input, width: "100%" }} value={note}
-                     onChange={(e) => setNote(e.target.value)} />
-            </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <button style={S.btnSecondary} onClick={onClose}>Cancel</button>
-              <button style={S.btnPrimary} onClick={save} disabled={saving}>
-                {saving ? "Saving…" : "Create request"}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+    <div style={{
+      background: PAL.panel,
+      border: `1px solid ${PAL.accent}`,
+      borderRadius: 10,
+      padding: "12px 14px",
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      flexWrap: "wrap" as const,
+      fontSize: 12,
+      marginBottom: 12,
+    }}>
+      <span style={{ fontWeight: 600, color: PAL.accent }}>+ New request</span>
+      <span style={{ color: PAL.textMuted, fontSize: 11 }}>Customer:</span>
+      <MultiSelectDropdown
+        compact
+        singleSelect
+        selected={customerId ? [customerId] : []}
+        onChange={(next) => setCustomerId(next[0] ?? "")}
+        allLabel="— pick —"
+        placeholder="Search customers…"
+        options={customers.map((c) => ({ value: c.id, label: c.name }))}
+      />
+      <span style={{ color: PAL.textMuted, fontSize: 11 }}>Style:</span>
+      <MultiSelectDropdown
+        compact
+        singleSelect
+        selected={styleCode ? [styleCode] : []}
+        onChange={(next) => setStyleCode(next[0] ?? "")}
+        allLabel="— pick —"
+        placeholder="Search styles…"
+        options={styleOptions}
+      />
+      <span style={{ color: PAL.textMuted, fontSize: 11 }}>Type:</span>
+      <MultiSelectDropdown
+        compact
+        singleSelect
+        selected={[type]}
+        onChange={(next) => setType((next[0] as IpRequestType) ?? "buyer_request")}
+        allLabel="Type"
+        placeholder="Search types…"
+        options={REQUEST_TYPES.map((t) => ({ value: t, label: t.replace(/_/g, " ") }))}
+      />
+      <span style={{ color: PAL.textMuted, fontSize: 11 }}>Confidence:</span>
+      <MultiSelectDropdown
+        compact
+        singleSelect
+        selected={[confidence]}
+        onChange={(next) => setConfidence((next[0] as IpConfidenceLevel) ?? "possible")}
+        allLabel="Confidence"
+        placeholder="Search confidence…"
+        options={CONFIDENCE_LEVELS.map((c) => ({ value: c, label: c }))}
+      />
+      <input
+        type="month"
+        style={{ ...S.input, width: 130, fontSize: 12, padding: "4px 8px" }}
+        value={periodCode}
+        onChange={(e) => setPeriodCode(e.target.value)}
+        title="Target month"
+      />
+      <input
+        style={{ ...S.input, width: 90, fontSize: 12, padding: "4px 8px", textAlign: "right", fontFamily: "monospace" }}
+        value={qty}
+        inputMode="numeric"
+        placeholder="Qty"
+        onChange={(e) => setQty(e.target.value)}
+      />
+      <input
+        style={{ ...S.input, minWidth: 180, fontSize: 12, padding: "4px 8px" }}
+        value={note}
+        placeholder="Note (optional)"
+        onChange={(e) => setNote(e.target.value)}
+      />
+      <button
+        type="button"
+        disabled={saving || !customerId || !styleCode}
+        onClick={save}
+        style={{
+          ...S.btnPrimary,
+          padding: "5px 14px",
+          fontSize: 12,
+          opacity: saving || !customerId || !styleCode ? 0.5 : 1,
+          cursor: saving || !customerId || !styleCode ? "not-allowed" : "pointer",
+        }}
+      >
+        {saving ? "Saving…" : "Create request"}
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        style={{ ...S.btnSecondary, padding: "5px 12px", fontSize: 12 }}
+      >
+        Cancel
+      </button>
     </div>
   );
 }
