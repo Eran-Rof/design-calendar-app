@@ -342,14 +342,24 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       const touched = generalMarginPct !== 21;
       return (
         <label
-          title="Target gross margin % used as fallback in the totals row when a SKU has no SO sale prices or no cost basis. SKUs with no SO, no avg cost, AND no PO cost are skipped (* shown next to Mrgn)."
-          style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 8, border: `1px solid ${touched ? "#3B82F6" : "#334155"}`, background: touched ? "rgba(59,130,246,0.12)" : "transparent", userSelect: "none", whiteSpace: "nowrap" }}
+          title="Click to edit. Target gross margin % used as fallback in the totals row when a SKU has no SO sale prices or no cost basis. SKUs with no SO, no avg cost, AND no PO cost are skipped (* shown next to Mrgn)."
+          onClick={(e) => {
+            // Click anywhere on the bubble (label or % suffix) focuses
+            // and selects the value so the planner can type to
+            // overwrite immediately. The wrapping <label> already
+            // forwards bare clicks, but on the input itself we want
+            // to call select() not just focus.
+            const input = (e.currentTarget as HTMLLabelElement).querySelector("input");
+            if (input) { input.focus(); input.select(); }
+          }}
+          style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 8, border: `1px solid ${touched ? "#3B82F6" : "#334155"}`, background: touched ? "rgba(59,130,246,0.12)" : "transparent", userSelect: "none", whiteSpace: "nowrap", cursor: "text" }}
         >
           <span style={{ color: touched ? "#93C5FD" : "#9CA3AF", fontSize: 12, fontWeight: touched ? 700 : 600 }}>MARGIN</span>
           <input
             type="text"
             inputMode="decimal"
             value={String(generalMarginPct)}
+            onFocus={(e) => e.currentTarget.select()}
             onChange={e => {
               const raw = e.target.value.replace(/[^0-9.]/g, "");
               if (raw === "") { setGeneralMarginPct(0); return; }
