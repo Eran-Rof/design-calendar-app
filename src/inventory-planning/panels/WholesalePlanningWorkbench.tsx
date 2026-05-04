@@ -888,6 +888,13 @@ export default function WholesalePlanningWorkbench() {
         sku_id: `tbd:${args.style_code}`,
         sku_code: `${args.style_code}-TBD`,
         sku_description: args.notes ?? null,
+        // Flag the orange NEW badge in the Description column when
+        // the planner typed something. The forecast service's
+        // is_new_description heuristic compares against master, so
+        // the rebuild reconciles to the right state — until then,
+        // showing NEW is the correct optimistic guess (a planner-
+        // typed description wouldn't be in the master yet).
+        is_new_description: !!(args.notes && args.notes.trim()),
         sku_style: args.style_code,
         sku_color: args.color,
         sku_color_inferred: false,
@@ -1398,13 +1405,17 @@ export default function WholesalePlanningWorkbench() {
       });
       return;
     }
-    // Customer is per-row, with one exception that mirrors saveTbdColor:
-    // sibling rows on the same NEW style still showing the "(Supply
-    // Only)" placeholder are backfilled. Rows where the planner has
-    // already set a real customer stay untouched.
+    // Customer is per-row, with one exception: sibling rows on the
+    // same NEW style that share the row's PRE-edit customer (or the
+    // "(Supply Only)" placeholder) are backfilled to the new customer.
+    // Catches the typical workflow where a + Add row created N period
+    // rows all assigned to customer A, and the planner now wants to
+    // re-target the whole NEW style to customer B. Siblings the
+    // planner has individually re-targeted to a different customer
+    // stay untouched — they don't match row.customer_id.
     const fid = row.forecast_id;
     const placeholderSiblings = siblingTbdRowsForNewStyle(row).filter((s) =>
-      s.customer_name === "(Supply Only)",
+      s.customer_id === row.customer_id || s.customer_name === "(Supply Only)",
     );
     const placeholderSiblingFids = new Set(placeholderSiblings.map((s) => s.forecast_id));
     setRows((prev) => prev.map((r) => {
