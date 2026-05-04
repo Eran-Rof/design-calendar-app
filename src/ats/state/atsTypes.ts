@@ -60,6 +60,10 @@ export interface ATSState {
   // Toggles the totals row above the column headers (Qty / Cost / Sale
   // / Mrgn% summed across the filtered set). Defaults on.
   showTotalsRow: boolean;
+  // Target gross margin % (0-100). Used in the totals row as a
+  // fallback when a SKU is missing SO sale prices or cost basis,
+  // so the header still produces a meaningful Sale / Cost / Mrgn.
+  generalMarginPct: number;
   // Phase 3: row collapse mode + per-group expand toggles. "none" = leaf
   // rows only (current behavior); other levels group + sum upward and
   // expandedGroups carries the keys of groups the user has drilled into.
@@ -137,6 +141,7 @@ export function createInitialState(startDate: string): ATSState {
     mergeHistory: [],
     atShip: false,
     showTotalsRow: true,
+    generalMarginPct: 50,
     collapseLevel: "none",
     expandedGroups: [],
   };

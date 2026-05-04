@@ -52,6 +52,11 @@ interface GridTableProps {
   todayKey: string;
   atShip: boolean;
   showTotalsRow: boolean;
+  // Target gross margin % used as a fallback in the totals row when a
+  // SKU is missing SO sale prices or cost basis. SKUs with NO SOs, NO
+  // avg cost, AND NO PO cost are excluded — the Mrgn label gets a *
+  // when any cell had to skip SKUs because of this.
+  generalMarginPct: number;
   eventIndex: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null;
   getEventsInPeriod: (sku: string, periodStart: string, endDate: string, rowStore?: string) => { pos: ATSPoEvent[]; sos: ATSSoEvent[] };
   ctxMenu: CtxMenu | null;
@@ -68,74 +73,115 @@ export const GridTable: React.FC<GridTableProps> = ({
   sortCol, sortDir, handleThClick, rangeUnit,
   pinnedSku, setPinnedSku, dragSku, setDragSku, dragOverSku, setDragOverSku,
   hoveredCell, setHoveredCell,
-  todayKey, atShip, showTotalsRow, eventIndex, getEventsInPeriod,
+  todayKey, atShip, showTotalsRow, generalMarginPct, eventIndex, getEventsInPeriod,
   ctxMenu, setCtxMenu, setSummaryCtx,
   openSummaryCtx, handleSkuDrop, toggleExpandGroup, expandedGroupSet,
 }) => {
-  // Totals across the filtered set (not just the current page) for the
-  // sticky totals row above the column headers. Each ATS period column
-  // sums whichever value the cell would render — freeMap when atShip
-  // is on, otherwise dates — so the header total matches what's
-  // visible below.
+  // Totals across the filtered set (not just the current page).
   //
-  // Cost and Sale are derived from each row's avgCost and a per-SKU
-  // average sale price computed from the SO events in eventIndex
-  // (sum of SO totalPrice / sum of SO qty). The same Qty × Cost and
-  // Qty × Sale formulas apply to every column so On Hand / On Order /
-  // On PO and every ATS period stay consistent.
+  // Per-SKU resolution chain (drives Cost and Sale):
+  //   sale: SO avg price from events  →  cost / (1 − margin%)  if no SO
+  //   cost: row.avgCost (inventory)   →  PO avg unitCost       →  sale × (1 − margin%) if no SO either
+  //   skip: SKU with no SO, no avgCost, AND no PO cost → ignored
+  //         and counted in `incompleteSkus` so the Mrgn label can
+  //         show a `*`.
   const sums = useMemo(() => {
-    // Per-SKU avg sale price from SO events. eventIndex is keyed
-    // SKU → date → { pos, sos }; sum across all dates per SKU.
-    const salePriceBySku = new Map<string, number>();
+    const m = Math.max(0, Math.min(99, generalMarginPct ?? 50)) / 100;
+    const oneMinusM = 1 - m;
+
+    // Per-SKU SO avg price + PO avg unit cost from event index.
+    const soPriceBySku = new Map<string, number>();
+    const poCostBySku  = new Map<string, number>();
     if (eventIndex) {
       for (const sku of Object.keys(eventIndex)) {
-        let qty = 0, value = 0;
+        let soQty = 0, soVal = 0, poQty = 0, poVal = 0;
         for (const buckets of Object.values(eventIndex[sku])) {
           for (const so of buckets.sos) {
             const v = so.totalPrice || (so.unitPrice * so.qty) || 0;
-            if (so.qty > 0 && v > 0) { qty += so.qty; value += v; }
+            if (so.qty > 0 && v > 0) { soQty += so.qty; soVal += v; }
+          }
+          for (const po of buckets.pos) {
+            if (po.qty > 0 && po.unitCost > 0) { poQty += po.qty; poVal += po.qty * po.unitCost; }
           }
         }
-        if (qty > 0) salePriceBySku.set(sku, value / qty);
+        if (soQty > 0) soPriceBySku.set(sku, soVal / soQty);
+        if (poQty > 0) poCostBySku.set(sku, poVal / poQty);
       }
     }
-    const salePriceFor = (r: ATSRow): number => salePriceBySku.get(r.sku) ?? 0;
 
-    let onHandQty  = 0, onHandCost  = 0, onHandSale  = 0;
-    let onOrderQty = 0, onOrderCost = 0, onOrderSale = 0;
-    let onPOQty    = 0, onPOCost    = 0, onPOSale    = 0;
+    // Resolve cost + sale for each filtered SKU, returning null when
+    // there's no signal at all (SO, avgCost, and PO cost all missing).
+    type Resolved = { cost: number; sale: number };
+    const resolved = new Map<string, Resolved | null>();
     for (const r of filtered) {
-      const cost = r.avgCost ?? 0;
-      const sale = salePriceFor(r);
-      onHandQty  += r.onHand  || 0;  onHandCost  += (r.onHand  || 0) * cost; onHandSale  += (r.onHand  || 0) * sale;
-      onOrderQty += r.onOrder || 0;  onOrderCost += (r.onOrder || 0) * cost; onOrderSale += (r.onOrder || 0) * sale;
-      onPOQty    += r.onPO    || 0;  onPOCost    += (r.onPO    || 0) * cost; onPOSale    += (r.onPO    || 0) * sale;
+      if (resolved.has(r.sku)) continue;
+      const so   = soPriceBySku.get(r.sku);
+      const po   = poCostBySku.get(r.sku);
+      const ac   = r.avgCost && r.avgCost > 0 ? r.avgCost : undefined;
+      const costKnown = ac ?? po ?? null;
+      if (so == null && costKnown == null) {
+        resolved.set(r.sku, null); // skip
+        continue;
+      }
+      let cost: number, sale: number;
+      if (so != null && costKnown != null) {
+        cost = costKnown;
+        sale = so;
+      } else if (so != null) {
+        // Have sale, no cost basis → derive cost from margin.
+        cost = so * oneMinusM;
+        sale = so;
+      } else {
+        // Have cost, no SO → derive sale from margin.
+        cost = costKnown!;
+        sale = oneMinusM > 0 ? costKnown! / oneMinusM : costKnown!;
+      }
+      resolved.set(r.sku, { cost, sale });
     }
-    const periodQty:  Record<string, number> = {};
-    const periodCost: Record<string, number> = {};
-    const periodSale: Record<string, number> = {};
+
+    let onHandQty  = 0, onHandCost  = 0, onHandSale  = 0,  onHandSkipped  = 0;
+    let onOrderQty = 0, onOrderCost = 0, onOrderSale = 0,  onOrderSkipped = 0;
+    let onPOQty    = 0, onPOCost    = 0, onPOSale    = 0,  onPOSkipped    = 0;
+    for (const r of filtered) {
+      const res = resolved.get(r.sku);
+      if (!res) {
+        if ((r.onHand  || 0) > 0) onHandSkipped++;
+        if ((r.onOrder || 0) > 0) onOrderSkipped++;
+        if ((r.onPO    || 0) > 0) onPOSkipped++;
+        continue;
+      }
+      onHandQty  += r.onHand  || 0;  onHandCost  += (r.onHand  || 0) * res.cost; onHandSale  += (r.onHand  || 0) * res.sale;
+      onOrderQty += r.onOrder || 0;  onOrderCost += (r.onOrder || 0) * res.cost; onOrderSale += (r.onOrder || 0) * res.sale;
+      onPOQty    += r.onPO    || 0;  onPOCost    += (r.onPO    || 0) * res.cost; onPOSale    += (r.onPO    || 0) * res.sale;
+    }
+
+    const periodQty:     Record<string, number> = {};
+    const periodCost:    Record<string, number> = {};
+    const periodSale:    Record<string, number> = {};
+    const periodSkipped: Record<string, number> = {};
     for (const p of displayPeriods) {
-      let q = 0, c = 0, s = 0;
+      let q = 0, c = 0, s = 0, skipped = 0;
       for (const r of filtered) {
         const v = atShip ? (r.freeMap?.[p.endDate] ?? r.dates[p.endDate]) : r.dates[p.endDate];
         if (v == null) continue;
-        const cost = r.avgCost ?? 0;
-        const sale = salePriceFor(r);
+        const res = resolved.get(r.sku);
+        if (!res) { if (v !== 0) skipped++; continue; }
         q += v;
-        c += v * cost;
-        s += v * sale;
+        c += v * res.cost;
+        s += v * res.sale;
       }
-      periodQty[p.key]  = q;
-      periodCost[p.key] = c;
-      periodSale[p.key] = s;
+      periodQty[p.key]     = q;
+      periodCost[p.key]    = c;
+      periodSale[p.key]    = s;
+      periodSkipped[p.key] = skipped;
     }
     return {
-      onHand:  { qty: onHandQty,  cost: onHandCost,  sale: onHandSale  },
-      onOrder: { qty: onOrderQty, cost: onOrderCost, sale: onOrderSale },
-      onPO:    { qty: onPOQty,    cost: onPOCost,    sale: onPOSale    },
-      periodQty, periodCost, periodSale,
+      onHand:  { qty: onHandQty,  cost: onHandCost,  sale: onHandSale,  skipped: onHandSkipped  },
+      onOrder: { qty: onOrderQty, cost: onOrderCost, sale: onOrderSale, skipped: onOrderSkipped },
+      onPO:    { qty: onPOQty,    cost: onPOCost,    sale: onPOSale,    skipped: onPOSkipped    },
+      periodQty, periodCost, periodSale, periodSkipped,
     };
-  }, [filtered, displayPeriods, atShip, eventIndex]);
+  }, [filtered, displayPeriods, atShip, eventIndex, generalMarginPct]);
 
   if (loading) return <div style={S.loadingState}>Loading ATS data…</div>;
   if (filtered.length === 0) return (
@@ -170,16 +216,19 @@ export const GridTable: React.FC<GridTableProps> = ({
     sale: number;
     qtyColor: string;
     qtyPrefix?: string; // for "+" on On PO
+    skipped: number;    // SKUs ignored due to no SO/avgCost/PO cost
   };
-  const TotalsCell: React.FC<TotalsCellProps> = ({ qty, cost, sale, qtyColor, qtyPrefix }) => {
+  const TotalsCell: React.FC<TotalsCellProps> = ({ qty, cost, sale, qtyColor, qtyPrefix, skipped }) => {
     const margin = sale > 0 ? ((sale - cost) / sale) * 100 : 0;
     const marginColor = !sale ? "#475569" : margin >= 30 ? "#10B981" : margin >= 10 ? "#F59E0B" : "#F87171";
     // Two-column grid so the colons line up vertically: left column =
     // labels (right-aligned), right column = values (right-aligned).
-    // The whole grid is pushed to the right edge of the cell via
-    // justifyContent: "end".
     const labelStyle: React.CSSProperties = { color: "#6B7280", fontSize: 10, textAlign: "right" };
     const valueStyle: React.CSSProperties = { textAlign: "right", fontFamily: "monospace" };
+    const mrgnLabel = skipped > 0 ? "Mrgn:*" : "Mrgn:";
+    const mrgnTitle = skipped > 0
+      ? `${skipped} SKU${skipped === 1 ? "" : "s"} skipped — no SO sale price, no avg cost, no PO cost`
+      : undefined;
     return (
       <div style={{ display: "grid", gridTemplateColumns: "auto auto", columnGap: 4, rowGap: 1, justifyContent: "end", alignItems: "baseline", fontFamily: "monospace", lineHeight: 1.2 }}>
         <span style={labelStyle}>Qty:</span>
@@ -190,8 +239,8 @@ export const GridTable: React.FC<GridTableProps> = ({
         <span style={{ ...valueStyle, color: "#94A3B8", fontWeight: 600, fontSize: 11 }}>{fmtUSD(cost)}</span>
         <span style={labelStyle}>Sale:</span>
         <span style={{ ...valueStyle, color: "#3B82F6", fontWeight: 600, fontSize: 11 }}>{fmtUSD(sale)}</span>
-        <span style={labelStyle}>Mrgn:</span>
-        <span style={{ ...valueStyle, color: marginColor, fontWeight: 600, fontSize: 11 }}>
+        <span style={labelStyle} title={mrgnTitle}>{mrgnLabel}</span>
+        <span style={{ ...valueStyle, color: marginColor, fontWeight: 600, fontSize: 11 }} title={mrgnTitle}>
           {sale > 0 ? `${margin.toFixed(1)}%` : "—"}
         </span>
       </div>
@@ -217,21 +266,22 @@ export const GridTable: React.FC<GridTableProps> = ({
             <th style={{ ...totalsThBase, ...S.stickyCol, left: 500, minWidth: 130, zIndex: 4 }} />
             {/* On Hand sum */}
             <th style={{ ...totalsThBase, ...S.stickyCol, left: 630, minWidth: 80, zIndex: 4 }}>
-              <TotalsCell qty={sums.onHand.qty} cost={sums.onHand.cost} sale={sums.onHand.sale} qtyColor="#F1F5F9" />
+              <TotalsCell qty={sums.onHand.qty} cost={sums.onHand.cost} sale={sums.onHand.sale} skipped={sums.onHand.skipped} qtyColor="#F1F5F9" />
             </th>
             {/* On Order sum */}
             <th style={{ ...totalsThBase, ...S.stickyCol, left: 710, minWidth: 80, zIndex: 4 }}>
-              <TotalsCell qty={sums.onOrder.qty} cost={sums.onOrder.cost} sale={sums.onOrder.sale} qtyColor="#F59E0B" />
+              <TotalsCell qty={sums.onOrder.qty} cost={sums.onOrder.cost} sale={sums.onOrder.sale} skipped={sums.onOrder.skipped} qtyColor="#F59E0B" />
             </th>
             {/* On PO sum */}
             <th style={{ ...totalsThBase, ...S.stickyCol, left: 790, minWidth: 80, zIndex: 4 }}>
-              <TotalsCell qty={sums.onPO.qty} cost={sums.onPO.cost} sale={sums.onPO.sale} qtyColor="#10B981" qtyPrefix="+" />
+              <TotalsCell qty={sums.onPO.qty} cost={sums.onPO.cost} sale={sums.onPO.sale} skipped={sums.onPO.skipped} qtyColor="#10B981" qtyPrefix="+" />
             </th>
             {/* Period sums */}
             {displayPeriods.map(p => {
-              const q = sums.periodQty[p.key]  ?? 0;
-              const c = sums.periodCost[p.key] ?? 0;
-              const s = sums.periodSale[p.key] ?? 0;
+              const q = sums.periodQty[p.key]     ?? 0;
+              const c = sums.periodCost[p.key]    ?? 0;
+              const s = sums.periodSale[p.key]    ?? 0;
+              const sk = sums.periodSkipped[p.key] ?? 0;
               const isNeg = q < 0;
               const qtyColor = isNeg ? "#F87171" : (q === 0 ? "#475569" : getQtyColor(q));
               return (
@@ -243,7 +293,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                     background: p.isToday ? "#1a2a1e" : p.isWeekend ? "#141e2e" : "#1E293B",
                   }}
                 >
-                  <TotalsCell qty={q} cost={c} sale={s} qtyColor={qtyColor} />
+                  <TotalsCell qty={q} cost={c} sale={s} qtyColor={qtyColor} skipped={sk} />
                 </th>
               );
             })}
