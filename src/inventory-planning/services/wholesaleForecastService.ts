@@ -20,7 +20,6 @@ import type {
 import {
   buildFinalWholesaleForecast,
   buildRollingWholesaleSupply,
-  classifyAbcXyz,
   generateWholesaleRecommendations,
   historicalReceiptsInPeriod,
   latestOnHandBySku,
@@ -475,10 +474,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     wholesaleRepo.listCustomers(),
     wholesaleRepo.listCategories(),
     wholesaleRepo.listForecast(run.id),
-    // 12-month sales fetch so ABC/XYZ classification has enough buckets
-    // to be meaningful. The trailing-3 calc below filters in-memory so
-    // the Hist T3 column still reflects the prior quarter only.
-    wholesaleRepo.listWholesaleSales(historySince(run.source_snapshot_date, 12)),
+    wholesaleRepo.listWholesaleSales(historySince(run.source_snapshot_date, 3)),
     wholesaleRepo.listInventorySnapshots(),
     wholesaleRepo.listOpenPos(),
     wholesaleRepo.listOpenSos(),
@@ -590,21 +586,12 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     }
   }
 
-  // Trailing-3 per (customer, sku). The sales fetch was widened to
-  // 12 months for classification, so filter in-place here to keep
-  // the Hist T3 column at exactly the prior quarter.
-  const t3Cutoff = historySince(run.source_snapshot_date, 3);
+  // Trailing-3 per (customer, sku).
   const trailing = new Map<string, number>();
   for (const s of sales) {
-    if (s.txn_date < t3Cutoff) continue;
     const key = `${s.customer_id}:${s.sku_id}`;
     trailing.set(key, (trailing.get(key) ?? 0) + s.qty);
   }
-
-  // ABC / XYZ classification per SKU, using the full 12-month window.
-  // Stamped on every row (TBD + forecast) below so the grid can render
-  // a Class column and the planner can filter by it.
-  const classBySku = classifyAbcXyz(sales, run.source_snapshot_date, { monthsBack: 12 });
 
   const asOf = new Date().toISOString().slice(0, 10);
 
@@ -705,8 +692,6 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       period_start: f.period_start,
       period_end: f.period_end,
       historical_trailing_qty: trailing.get(`${f.customer_id}:${f.sku_id}`) ?? 0,
-      abc_class: classBySku.get(f.sku_id)?.abc,
-      xyz_class: classBySku.get(f.sku_id)?.xyz,
       // Effective system: override wins when set, otherwise the
       // computed value. The original is preserved separately so the
       // grid tooltip can display "from X to Y on DATE".

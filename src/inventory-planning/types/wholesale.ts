@@ -235,11 +235,6 @@ export interface IpPlanningGridRow {
   period_start: IpIsoDate;
   period_end: IpIsoDate;
   historical_trailing_qty: number;
-  // ABC/XYZ classification computed at build time from trailing-12mo
-  // sales. abc = volume rank (A/B/C), xyz = demand variability (X/Y/Z).
-  // Optional — TBD rows and SKUs with no sales history don't carry one.
-  abc_class?: "A" | "B" | "C";
-  xyz_class?: "X" | "Y" | "Z";
   system_forecast_qty: number;
   // Original computed system value before any override. Equal to
   // system_forecast_qty when no override is set; otherwise carries
