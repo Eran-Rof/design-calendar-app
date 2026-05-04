@@ -2320,9 +2320,18 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               const aggExpansionKey = r.aggregate_key ?? r.forecast_id;
               const isExpanded = r.is_aggregate && expandedAggs.has(aggExpansionKey);
               const rowKey = (r as IpPlanningGridRow & { _displayKey?: string })._displayKey ?? r.forecast_id;
+              // Aggregate row visual treatment — distinctly tinted from
+              // the panel background so the planner can spot rolled-up
+              // rows at a glance, with a left accent bar that intensifies
+              // when expanded. Uses the app's accent colors (green when
+              // collapsed, blue when drilled-in) at higher opacity than
+              // the previous near-invisible white tint. Content keeps
+              // the same color family as child rows; weight goes bold
+              // for emphasis.
               const aggBg = isExpanded
-                ? "rgba(96,165,250,0.10)"
-                : (PAL.panelMuted ?? "rgba(255,255,255,0.03)");
+                ? `${PAL.accent}26`     // blue ~15% — drilled-in
+                : `${PAL.accent2}1F`;   // green ~12% — rolled-up
+              const aggBar = isExpanded ? PAL.accent : `${PAL.accent2}99`;
               return (
               <tr
                 key={rowKey}
@@ -2340,7 +2349,12 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                     background: `${PAL.accent2}11`,
                     boxShadow: `inset 4px 0 0 ${PAL.accent2}`,
                   }
-                  : r.is_aggregate ? { background: aggBg }
+                  : r.is_aggregate ? {
+                    background: aggBg,
+                    boxShadow: `inset 3px 0 0 ${aggBar}`,
+                    color: PAL.textDim,
+                    fontWeight: 700,
+                  }
                   : isChild ? { background: "rgba(255,255,255,0.015)", color: PAL.textDim }
                   : undefined
                 }
