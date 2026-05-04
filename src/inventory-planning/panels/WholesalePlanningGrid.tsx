@@ -425,11 +425,26 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   // Forecast IDs of aggregate rows the planner has expanded — when set,
   // the underlying child rows render below the parent indented + muted.
   const [expandedAggs, setExpandedAggs] = useState<Set<string>>(new Set());
+  // Aggregates the planner has EXPLICITLY collapsed despite an
+  // auto-expand trigger (e.g. an active search). Without this, the
+  // chevron click was a no-op while a search was active because
+  // effectiveExpanded re-added every aggregate every render.
+  const [manuallyCollapsedAggs, setManuallyCollapsedAggs] = useState<Set<string>>(new Set());
   const toggleAggExpanded = (forecastId: string) => {
+    // Resolve the row's effective expansion at click time so toggling
+    // means "do the opposite of what the user sees right now".
+    const wasExpanded = expandedAggs.has(forecastId)
+      || (search.trim().length > 0 && !manuallyCollapsedAggs.has(forecastId));
     setExpandedAggs((prev) => {
       const next = new Set(prev);
-      if (next.has(forecastId)) next.delete(forecastId);
-      else next.add(forecastId);
+      next.delete(forecastId);
+      if (!wasExpanded) next.add(forecastId);
+      return next;
+    });
+    setManuallyCollapsedAggs((prev) => {
+      const next = new Set(prev);
+      if (wasExpanded) next.add(forecastId);
+      else next.delete(forecastId);
       return next;
     });
   };
@@ -1478,11 +1493,17 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     //   2. Any aggregate whose children match the active search
     //      term — when a planner types a search query, they want
     //      to see the matching row, not just the bucket header.
+    // The auto-expanders honor manuallyCollapsedAggs: an aggregate
+    // the planner explicitly collapsed via the chevron stays
+    // collapsed even if it would otherwise be auto-expanded.
     const effectiveExpanded = new Set(expandedAggs);
     if (pinnedChildFid) {
       for (const r of filtered) {
-        if (r.is_aggregate && r.aggregate_underlying_ids?.includes(pinnedChildFid)) {
-          effectiveExpanded.add(r.aggregate_key ?? r.forecast_id);
+        if (!r.is_aggregate) continue;
+        const key = r.aggregate_key ?? r.forecast_id;
+        if (manuallyCollapsedAggs.has(key)) continue;
+        if (r.aggregate_underlying_ids?.includes(pinnedChildFid)) {
+          effectiveExpanded.add(key);
         }
       }
     }
@@ -1492,9 +1513,10 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       // — bucketing the matches behind a header defeats the
       // purpose of typing a query.
       for (const r of filtered) {
-        if (r.is_aggregate) {
-          effectiveExpanded.add(r.aggregate_key ?? r.forecast_id);
-        }
+        if (!r.is_aggregate) continue;
+        const key = r.aggregate_key ?? r.forecast_id;
+        if (manuallyCollapsedAggs.has(key)) continue;
+        effectiveExpanded.add(key);
       }
     }
     if (effectiveExpanded.size > 0) {
@@ -1601,7 +1623,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       }
     }
     return { displayRows: base, childIds: ids };
-  }, [filtered, expandedAggs, mutedById, skuPeriodMath, lastAddedTbdMarker, rows, collapse, search, sortKey, sortDir]);
+  }, [filtered, expandedAggs, manuallyCollapsedAggs, mutedById, skuPeriodMath, lastAddedTbdMarker, rows, collapse, search, sortKey, sortDir]);
 
   const totals = useMemo(() => {
     const t = { final: 0, shortage: 0, excess: 0, actions: {} as Record<string, number>, methods: {} as Record<string, number> };
