@@ -1950,52 +1950,34 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 placeholder="Search sub cats…"
                 options={subCategoryNames.map((s) => ({ value: s, label: s }))}
               />
-              {/* Style picker — same options as the toolbar Style
-                  filter (existing master + planner-added). To pick a
-                  brand-new style, leave as TBD here and rename the
-                  row's style cell after the row appears. The style
-                  input also accepts a typed override below. */}
-              <MultiSelectDropdown
-                compact
-                singleSelect
-                selected={addRowDraft.style_code && addRowDraft.style_code !== "TBD" ? [addRowDraft.style_code] : []}
-                onChange={(next) => {
-                  const picked = next[0] ?? "TBD";
-                  // Auto-fill the Description field from the picked
-                  // style's existing description (master or planner-
-                  // typed). Don't overwrite if the planner already
-                  // typed one — only fill when the field is empty.
-                  setAddRowDraft((d) => {
-                    const inherited = picked !== "TBD" ? descriptionByStyle.get(picked) ?? "" : "";
-                    return {
-                      ...d,
-                      style_code: picked,
-                      description: d.description.trim() ? d.description : inherited,
-                    };
-                  });
-                }}
-                allLabel="Style: TBD"
-                placeholder="Pick existing style…"
-                options={styles.map((s) => ({ value: s, label: s }))}
-              />
+              {/* Style — single field that mirrors the in-grid
+                  TbdStyleCell behavior: force uppercase + alphanumeric
+                  on input, accept any value (flagged NEW later if not
+                  in the run), auto-fill Description when the typed
+                  style is recognised. */}
               <input
                 type="text"
-                placeholder="…or new style"
+                placeholder="Style (TBD)"
                 value={addRowDraft.style_code === "TBD" ? "" : addRowDraft.style_code}
                 onChange={(e) => {
-                  const typed = e.target.value.trim() || "TBD";
+                  const typed = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+                  const next = typed || "TBD";
                   setAddRowDraft((d) => {
-                    const inherited = typed !== "TBD" ? descriptionByStyle.get(typed) ?? "" : "";
+                    const inherited = next !== "TBD" ? descriptionByStyle.get(next) ?? "" : "";
                     return {
                       ...d,
-                      style_code: typed,
+                      style_code: next,
                       description: d.description.trim() ? d.description : inherited,
                     };
                   });
                 }}
-                style={{ ...S.input, minWidth: 120, fontSize: 12, padding: "4px 8px" }}
-                title="Type a brand-new style code, or one already in the run. Description auto-fills when the typed style is recognised."
+                list="ip-add-row-style-list"
+                style={{ ...S.input, minWidth: 130, fontSize: 12, padding: "4px 8px", fontFamily: "monospace" }}
+                title="Type any style code — uppercase letters + digits only. Existing styles auto-suggest from the datalist; brand-new codes are accepted and flagged NEW once the row is added."
               />
+              <datalist id="ip-add-row-style-list">
+                {styles.map((s) => <option key={s} value={s} />)}
+              </datalist>
               <input
                 type="text"
                 placeholder="Description"

@@ -1643,15 +1643,14 @@ export default function WholesalePlanningWorkbench() {
       });
       return;
     }
-    // Color is a per-row attribute. The edited row is the only one
-    // overwritten unconditionally — for sibling rows on the same NEW
-    // style we ONLY backfill periods still showing the placeholder
-    // ("TBD"). This matches "populate the newly created rows, leave
-    // the previously created rows alone": rows where the planner has
-    // already set a real color stay untouched.
+    // Color is a per-row attribute. Backfill siblings of the same NEW
+    // style that share the row's PRE-edit color (a second color change
+    // from Blue → Red should propagate to siblings still showing Blue),
+    // OR siblings still showing the placeholder TBD. Siblings where the
+    // planner has already set a different explicit color stay untouched.
     const fid = row.forecast_id;
     const placeholderSiblings = siblingTbdRowsForNewStyle(row).filter((s) =>
-      !s.sku_color || s.sku_color === "TBD",
+      !s.sku_color || s.sku_color === "TBD" || s.sku_color === row.sku_color,
     );
     const placeholderSiblingFids = new Set(placeholderSiblings.map((s) => s.forecast_id));
     setRows((prev) => prev.map((r) => {
