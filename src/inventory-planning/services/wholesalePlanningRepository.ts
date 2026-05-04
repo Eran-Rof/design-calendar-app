@@ -255,10 +255,17 @@ export const wholesaleRepo = {
     // Paginate so a 20k+ catalog (Xoro items-sync + auto-create from
     // invoice ingest can easily exceed the previous 20000 cap) doesn't
     // truncate. PostgREST limit caps at 1000/req on most configurations.
+    //
+    // Explicit column list: skips external_refs (Xoro JSONB import
+    // payload, can be many KB per row) and other columns no IP caller
+    // reads (vendor_id, unit_price, lead_time_days, moq_units,
+    // lifecycle_status, planning_class, uom, active). Big disk-IO win
+    // — the JSONB blob alone was the bulk of every item-master fetch.
+    const COLS = "id,sku_code,style_code,description,category_id,color,size,unit_cost,attributes";
     const out: IpItem[] = [];
     const PAGE = 1000;
     for (let offset = 0; ; offset += PAGE) {
-      const chunk = await sbGet<IpItem>(`ip_item_master?select=*&order=sku_code.asc&limit=${PAGE}&offset=${offset}`);
+      const chunk = await sbGet<IpItem>(`ip_item_master?select=${COLS}&order=sku_code.asc&limit=${PAGE}&offset=${offset}`);
       out.push(...chunk);
       if (chunk.length < PAGE) break;
       if (offset > 200_000) break; // safety cap
@@ -315,25 +322,49 @@ export const wholesaleRepo = {
     return out;
   },
   async listWholesaleSales(sinceIso: string): Promise<IpSalesWholesaleRow[]> {
+    // Trimmed select — drops the unused order_number / invoice_number
+    // / txn_type / unit_price / gross_amount / discount_amount /
+    // currency / source / raw_payload_id / source_line_key / channel_id
+    // columns. accuracyService is the only caller that reads net_amount
+    // so it's retained.
     return sbGetAll<IpSalesWholesaleRow>(
-      `ip_sales_history_wholesale?select=*&txn_date=gte.${sinceIso}&order=txn_date.asc`,
+      `ip_sales_history_wholesale?select=sku_id,customer_id,category_id,txn_date,qty,net_amount&txn_date=gte.${sinceIso}&order=txn_date.asc`,
     );
   },
   async listInventorySnapshots(): Promise<IpInventorySnapshot[]> {
-    return sbGetAll<IpInventorySnapshot>("ip_inventory_snapshot?select=*&order=snapshot_date.desc");
+    // Trimmed: drops warehouse_code / qty_on_order / qty_in_transit /
+    // raw_payload_id. `source` is kept — used as dedup-priority key.
+    return sbGetAll<IpInventorySnapshot>(
+      "ip_inventory_snapshot?select=sku_id,snapshot_date,qty_on_hand,qty_available,qty_committed,source&order=snapshot_date.desc",
+    );
   },
   async listOpenPos(): Promise<IpOpenPoRow[]> {
+    // Trimmed: drops vendor_id / buyer_name / po_line_number /
+    // order_date / qty_ordered / qty_received / currency / status /
+    // source / raw_payload_id / source_line_key / last_seen_at. Big
+    // win on this hot path — every grid build re-reads every open
+    // PO. Kept: po_number (scenario detail display).
     return withRetryOn57014("listOpenPos",
-      () => sbGetAll<IpOpenPoRow>("ip_open_purchase_orders?select=*&order=expected_date.asc"));
+      () => sbGetAll<IpOpenPoRow>(
+        "ip_open_purchase_orders?select=sku_id,qty_open,expected_date,unit_cost,customer_id,po_number&order=expected_date.asc",
+      ));
   },
   async listOpenSos(): Promise<IpOpenSoRow[]> {
+    // Trimmed: drops customer_name / so_number / cancel_date /
+    // qty_ordered / qty_shipped / unit_price / currency / status /
+    // store / source / source_line_key / last_seen_at. SO grid only
+    // needs the four aggregation keys + qty.
     return withRetryOn57014("listOpenSos",
-      () => sbGetAll<IpOpenSoRow>("ip_open_sales_orders?select=*&order=ship_date.asc"));
+      () => sbGetAll<IpOpenSoRow>(
+        "ip_open_sales_orders?select=sku_id,customer_id,qty_open,ship_date&order=ship_date.asc",
+      ));
   },
   async listReceipts(sinceIso: string): Promise<IpReceiptRow[]> {
+    // Trimmed: drops vendor_id / po_number / receipt_number /
+    // warehouse_code / source / raw_payload_id / source_line_key.
     return withRetryOn57014("listReceipts",
       () => sbGetAll<IpReceiptRow>(
-        `ip_receipts_history?select=*&received_date=gte.${sinceIso}&order=received_date.asc`,
+        `ip_receipts_history?select=sku_id,received_date,qty&received_date=gte.${sinceIso}&order=received_date.asc`,
       ));
   },
 
