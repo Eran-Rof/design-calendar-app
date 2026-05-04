@@ -333,10 +333,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     </label>
 
     {/* General margin % — fills in Sale / Cost when SOs / avg cost / PO cost are missing.
-       Once the user changes the value off the default (21), the
-       input lights up light-blue to make it obvious the totals are
-       being driven by a custom assumption. */}
-    {(() => {
+       Only relevant when the totals header is showing, so the
+       bubble is hidden when TOTALS is off. Once the user changes
+       the value off the default (21), the input lights up
+       light-blue to make it obvious the totals are being driven
+       by a custom assumption. */}
+    {showTotalsRow && (() => {
       const touched = generalMarginPct !== 21;
       return (
         <label
@@ -359,7 +361,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <span style={{ color: touched ? "#93C5FD" : "#6B7280", fontSize: 12 }}>%</span>
         </label>
       );
-    })()}
+    })()}{/* /MARGIN bubble — totals-conditional */}
 
 
     <div style={{ color: "#6B7280", fontSize: 12, whiteSpace: "nowrap" }}>
