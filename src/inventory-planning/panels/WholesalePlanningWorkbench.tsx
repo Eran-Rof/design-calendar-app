@@ -1613,9 +1613,14 @@ export default function WholesalePlanningWorkbench() {
       // PATCH only siblings with a real tbd_id — optimistic ones
       // still in flight will be reconciled by addTbdRow's resolver
       // when their INSERT lands. Local state already updated above.
+      // Await Promise.all (instead of fire-and-forget) so the rebuild
+      // below kicks off only AFTER the DB has every sibling's new
+      // color persisted. Without this, a rebuild started in the gap
+      // between PATCHes could fetch a half-mutated state and revert
+      // some periods to their pre-edit color.
       const patchableSiblings = placeholderSiblings.filter((s) => !!s.tbd_id);
       if (patchableSiblings.length > 0) {
-        void Promise.all(patchableSiblings.map((s) => wholesaleRepo.patchTbdRow(s.tbd_id!, {
+        await Promise.all(patchableSiblings.map((s) => wholesaleRepo.patchTbdRow(s.tbd_id!, {
           color, is_new_color: isNewColor,
         }).catch((e) => console.warn(`[planning] color backfill ${s.period_code} failed`, e))));
       }

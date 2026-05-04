@@ -337,6 +337,12 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   // the table to the planner's chosen cat/sub-cat/customer + first
   // period of the run. Style + color default to "TBD". Persists
   // through onAddTbdRow which the workbench wires to repo upsert.
+  // Modal shown when the planner clicks a Color cell on a non-first
+  // row of a NEW style. Color edits on those rows used to backfill
+  // every period of the style — easy to mis-trigger and surfaced as
+  // "some periods reverted to the original color" race conditions.
+  // Lock editing to the first row, surface the why in-app.
+  const [colorEditBlocked, setColorEditBlocked] = useState(false);
   const [addRowOpen, setAddRowOpen] = useState(false);
   const [addRowDraft, setAddRowDraft] = useState<{
     customer_id: string;
@@ -1673,6 +1679,47 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           </div>
         </div>
       )}
+      {colorEditBlocked && (
+        <div
+          onClick={() => setColorEditBlocked(false)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+            zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: PAL.panel, color: PAL.text,
+              border: `1px solid ${PAL.red}`, borderRadius: 12,
+              padding: 20, width: "min(480px, 90vw)",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <span style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                width: 24, height: 24, borderRadius: 12,
+                background: PAL.red, color: "#000", fontWeight: 800, fontSize: 14,
+              }}>!</span>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>Color can't be changed on this row</div>
+            </div>
+            <div style={{ fontSize: 13, color: PAL.textDim, lineHeight: 1.5, marginBottom: 16 }}>
+              Color edits are locked to the <strong style={{ color: PAL.text }}>first row</strong> (earliest period) of a NEW style. Changing color on a later period would propagate to every period of the style and overwrite the planner's per-period work.
+              <div style={{ marginTop: 10, color: PAL.textMuted, fontSize: 12 }}>
+                To change the color for the whole NEW style, edit the first-period row. To split into a different colorway, use <strong style={{ color: PAL.text }}>+ Add row</strong> with a new color value.
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                style={{ ...S.btnPrimary, background: PAL.red, color: "#000", borderColor: PAL.red }}
+                onClick={() => setColorEditBlocked(false)}
+              >Got it</button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Stats row */}
       <div style={{ ...S.statsRow, gridTemplateColumns: "repeat(6,1fr)" }}>
         <StatCell label="Rows" value={filtered.length > pageSize ? `${pageSize.toLocaleString()} / ${filtered.length.toLocaleString()}` : filtered.length.toLocaleString()} accent={filtered.length > pageSize ? PAL.yellow : undefined} />
@@ -2276,6 +2323,29 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                       && (allKnownColorsLower.has(colorLower) || (masterColorsLower?.has(colorLower) ?? false));
                     const inThisStyleMaster = colorLower !== "" && (styleColors?.has(colorLower) ?? false);
                     const isNewForStyle = !r.is_new_color && inAnyMaster && !inThisStyleMaster;
+                    // Block color edits on non-first rows of NEW styles.
+                    // First = earliest period_start in the NEW-style
+                    // family, tied broken by tbd_id. Master-known styles
+                    // and orphan rows always edit freely — no propagation
+                    // happens there. Mirrors the workbench's
+                    // isFirstRowOfNewStyle helper so UI + save layer
+                    // agree on what counts as "first".
+                    const blockColorEdit = (() => {
+                      const sLower = (r.sku_style ?? "").toLowerCase();
+                      if (!sLower || sLower === "tbd") return false;
+                      const isMaster = (masterStyles ?? []).some((m) => m.style_code.toLowerCase() === sLower);
+                      if (isMaster) return false;
+                      const family = rows.filter((x) =>
+                        x.is_tbd && (x.sku_style ?? "").toLowerCase() === sLower,
+                      );
+                      if (family.length <= 1) return false;
+                      const sorted = [...family].sort((a, b) => {
+                        const ps = a.period_start.localeCompare(b.period_start);
+                        if (ps !== 0) return ps;
+                        return (a.tbd_id ?? "").localeCompare(b.tbd_id ?? "");
+                      });
+                      return sorted[0].forecast_id !== r.forecast_id;
+                    })();
                     return (
                       <TbdColorCell
                         value={r.sku_color ?? "TBD"}
@@ -2285,6 +2355,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                         allKnownColorsLower={allKnownColorsLower}
                         masterColorsLower={masterColorsLower}
                         onSave={(color, isNew) => onUpdateTbdColor(r, color, isNew)}
+                        blocked={blockColorEdit}
+                        onBlocked={() => setColorEditBlocked(true)}
                       />
                     );
                   })() : (
@@ -3598,6 +3670,7 @@ function TbdCustomerCell({
 // catches up.
 function TbdColorCell({
   value, isNewColor, isNewForStyle, knownColors, allKnownColorsLower, masterColorsLower, onSave,
+  blocked, onBlocked,
 }: {
   value: string;
   // Truly new — color isn't in the item master at all. Orange badge.
@@ -3614,6 +3687,11 @@ function TbdColorCell({
   // different row without re-typing it as new.
   masterColorsLower?: Set<string>;
   onSave: (color: string, isNew: boolean) => Promise<void>;
+  // When true, clicking the trigger fires onBlocked instead of
+  // opening the picker. Used to lock color edits to the first row
+  // of a NEW style — see WholesalePlanningGrid's render call site.
+  blocked?: boolean;
+  onBlocked?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -3680,7 +3758,10 @@ function TbdColorCell({
     <div ref={ref} style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 6 }}>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          if (blocked) { onBlocked?.(); return; }
+          setOpen((v) => !v);
+        }}
         style={{
           background: isPlaceholder
             ? `${PAL.textMuted}22`
@@ -3690,7 +3771,7 @@ function TbdColorCell({
           borderRadius: 6,
           padding: "3px 8px",
           fontSize: 12,
-          cursor: "pointer",
+          cursor: blocked ? "not-allowed" : "pointer",
           fontFamily: "inherit",
           textAlign: "left" as const,
           display: "inline-flex",
