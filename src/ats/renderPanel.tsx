@@ -156,6 +156,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         atShip={atShip}
         onNegInven={onNegInven}
         onAgedInven={onAgedInven}
+        onDownloadIncompleteSkus={() => exportIncompleteSkus(filtered, eventIndex)}
         categories={categories}
         filterCategory={filterCategory}
         unreadNotifs={unreadNotifs}
@@ -201,7 +202,6 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           atShip={atShip} setAtShip={setAtShip}
           showTotalsRow={showTotalsRow} setShowTotalsRow={setShowTotalsRow!}
           generalMarginPct={generalMarginPct ?? 21} setGeneralMarginPct={setGeneralMarginPct!}
-          onDownloadIncompleteSkus={() => exportIncompleteSkus(filtered, eventIndex)}
           filteredCount={filtered.length} lastSync={lastSync}
         />
 

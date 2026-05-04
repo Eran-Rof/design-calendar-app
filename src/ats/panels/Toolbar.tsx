@@ -131,10 +131,6 @@ interface ToolbarProps {
   // sale prices or cost basis. 0-100, drives the totals row only.
   generalMarginPct: number;
   setGeneralMarginPct: (v: number) => void;
-  // Excel download of styles the totals row had to skip (no SO, no
-  // avg cost, no PO cost). renderPanel computes the data and runs
-  // the export — Toolbar just renders the button.
-  onDownloadIncompleteSkus: () => void;
   filteredCount: number;
   lastSync: string;
 }
@@ -153,7 +149,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   atShip, setAtShip,
   showTotalsRow, setShowTotalsRow,
   generalMarginPct, setGeneralMarginPct,
-  onDownloadIncompleteSkus,
   filteredCount, lastSync,
 }) => (
   <div style={S.toolbar}>
@@ -366,15 +361,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       );
     })()}
 
-    {/* Download styles the totals row had to skip (no SO, no avg cost, no PO cost) */}
-    <button
-      type="button"
-      onClick={onDownloadIncompleteSkus}
-      title="Download styles with no open SOs, no avg cost, and no PO unit cost — these are the SKUs the red Mrgn:* asterisk refers to"
-      style={{ background: "transparent", border: "1px solid #EF4444", color: "#FCA5A5", borderRadius: 8, padding: "4px 10px", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap", fontWeight: 600 }}
-    >
-      NO Mrgn Data
-    </button>
 
     <div style={{ color: "#6B7280", fontSize: 12, whiteSpace: "nowrap" }}>
       {filteredCount.toLocaleString()} SKUs

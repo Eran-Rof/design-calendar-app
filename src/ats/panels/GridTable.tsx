@@ -139,10 +139,18 @@ export const GridTable: React.FC<GridTableProps> = ({
       resolved.set(r.sku, { cost, sale });
     }
 
+    // Qty totals match the stat cards / row aggregates — every
+    // filtered SKU contributes regardless of whether it has cost/sale
+    // signals. Cost / Sale / Mrgn $ / Mrgn % only sum the resolvable
+    // SKUs, with `skipped` counting how many were left out so the
+    // cell can render the red * next to those labels.
     let onHandQty  = 0, onHandCost  = 0, onHandSale  = 0,  onHandSkipped  = 0;
     let onOrderQty = 0, onOrderCost = 0, onOrderSale = 0,  onOrderSkipped = 0;
     let onPOQty    = 0, onPOCost    = 0, onPOSale    = 0,  onPOSkipped    = 0;
     for (const r of filtered) {
+      onHandQty  += r.onHand  || 0;
+      onOrderQty += r.onOrder || 0;
+      onPOQty    += r.onPO    || 0;
       const res = resolved.get(r.sku);
       if (!res) {
         if ((r.onHand  || 0) > 0) onHandSkipped++;
@@ -150,9 +158,9 @@ export const GridTable: React.FC<GridTableProps> = ({
         if ((r.onPO    || 0) > 0) onPOSkipped++;
         continue;
       }
-      onHandQty  += r.onHand  || 0;  onHandCost  += (r.onHand  || 0) * res.cost; onHandSale  += (r.onHand  || 0) * res.sale;
-      onOrderQty += r.onOrder || 0;  onOrderCost += (r.onOrder || 0) * res.cost; onOrderSale += (r.onOrder || 0) * res.sale;
-      onPOQty    += r.onPO    || 0;  onPOCost    += (r.onPO    || 0) * res.cost; onPOSale    += (r.onPO    || 0) * res.sale;
+      onHandCost  += (r.onHand  || 0) * res.cost; onHandSale  += (r.onHand  || 0) * res.sale;
+      onOrderCost += (r.onOrder || 0) * res.cost; onOrderSale += (r.onOrder || 0) * res.sale;
+      onPOCost    += (r.onPO    || 0) * res.cost; onPOSale    += (r.onPO    || 0) * res.sale;
     }
 
     const periodQty:     Record<string, number> = {};
@@ -164,9 +172,9 @@ export const GridTable: React.FC<GridTableProps> = ({
       for (const r of filtered) {
         const v = atShip ? (r.freeMap?.[p.endDate] ?? r.dates[p.endDate]) : r.dates[p.endDate];
         if (v == null) continue;
+        q += v;
         const res = resolved.get(r.sku);
         if (!res) { if (v !== 0) skipped++; continue; }
-        q += v;
         c += v * res.cost;
         s += v * res.sale;
       }

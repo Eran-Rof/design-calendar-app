@@ -17,6 +17,7 @@ interface NavBarProps {
   atShip: boolean;
   onNegInven: () => void;
   onAgedInven: (days: number, category: string) => "ok" | "empty";
+  onDownloadIncompleteSkus: () => void;
   categories: string[];
   filterCategory: string;
   unreadNotifs: number;
@@ -27,7 +28,7 @@ interface NavBarProps {
 export const NavBar: React.FC<NavBarProps> = ({
   mergeHistory, undoLastMerge, onNavigateHome, setShowUpload,
   uploadingFile, invFile, purFile, ordFile,
-  exportToExcel, filtered, displayPeriods, atShip, onNegInven, onAgedInven,
+  exportToExcel, filtered, displayPeriods, atShip, onNegInven, onAgedInven, onDownloadIncompleteSkus,
   categories, filterCategory,
   unreadNotifs, showingNotifications, onToggleNotifications,
 }) => {
@@ -92,6 +93,17 @@ export const NavBar: React.FC<NavBarProps> = ({
           <path d="M11 10l3-4.5h-2.1L10 8.3 8.1 5.5H6l3 4.5L6 14.5h2.1L10 11.7l1.9 2.8H14L11 10z" fill="white" />
         </svg>
         Aged Inven
+      </button>
+      <button
+        style={{ ...S.navBtn, background: "#1D6F42", border: "1px solid #155734", color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 7px" }}
+        onClick={onDownloadIncompleteSkus}
+        title="Download styles with no open SOs, no avg cost, and no PO unit cost — these are the SKUs the red Mrgn:* asterisk in the totals row refers to"
+      >
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="20" height="20" rx="3" fill="#1D6F42" />
+          <path d="M11 10l3-4.5h-2.1L10 8.3 8.1 5.5H6l3 4.5L6 14.5h2.1L10 11.7l1.9 2.8H14L11 10z" fill="white" />
+        </svg>
+        NO Mrgn Data
       </button>
       <button
         style={{
