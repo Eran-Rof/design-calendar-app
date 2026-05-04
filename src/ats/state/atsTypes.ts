@@ -57,6 +57,9 @@ export interface ATSState {
   sortDir: "asc" | "desc";
   mergeHistory: Array<{ fromSku: string; toSku: string }>;
   atShip: boolean;
+  // Toggles the totals row above the column headers (Qty / Cost / Sale
+  // / Mrgn% summed across the filtered set). Defaults on.
+  showTotalsRow: boolean;
   // Phase 3: row collapse mode + per-group expand toggles. "none" = leaf
   // rows only (current behavior); other levels group + sum upward and
   // expandedGroups carries the keys of groups the user has drilled into.
@@ -133,6 +136,7 @@ export function createInitialState(startDate: string): ATSState {
     sortDir: "asc",
     mergeHistory: [],
     atShip: false,
+    showTotalsRow: true,
     collapseLevel: "none",
     expandedGroups: [],
   };

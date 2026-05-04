@@ -5,8 +5,8 @@ import type { ATSRow, ATSPoEvent, ATSSoEvent, CtxMenu } from "../types";
 
 // Height of the totals row at the top of the table. Used to push the
 // regular sticky header down so the two stack without overlap. Tall
-// enough to fit three stacked lines (Qty / Cost / Sale).
-const TOTALS_ROW_HEIGHT = 66;
+// enough to fit four stacked lines (Qty / Cost / Sale / Mrgn).
+const TOTALS_ROW_HEIGHT = 82;
 
 // Format dollars for the totals header. Whole-dollar precision keeps
 // the rows scannable when totals run into millions.
@@ -51,6 +51,7 @@ interface GridTableProps {
   // cell behavior
   todayKey: string;
   atShip: boolean;
+  showTotalsRow: boolean;
   eventIndex: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null;
   getEventsInPeriod: (sku: string, periodStart: string, endDate: string, rowStore?: string) => { pos: ATSPoEvent[]; sos: ATSSoEvent[] };
   ctxMenu: CtxMenu | null;
@@ -67,7 +68,7 @@ export const GridTable: React.FC<GridTableProps> = ({
   sortCol, sortDir, handleThClick, rangeUnit,
   pinnedSku, setPinnedSku, dragSku, setDragSku, dragOverSku, setDragOverSku,
   hoveredCell, setHoveredCell,
-  todayKey, atShip, eventIndex, getEventsInPeriod,
+  todayKey, atShip, showTotalsRow, eventIndex, getEventsInPeriod,
   ctxMenu, setCtxMenu, setSummaryCtx,
   openSummaryCtx, handleSkuDrop, toggleExpandGroup, expandedGroupSet,
 }) => {
@@ -160,10 +161,9 @@ export const GridTable: React.FC<GridTableProps> = ({
     verticalAlign: "middle",
   };
 
-  // Renders a single totals cell with three stacked lines: Qty / Cost /
-  // Sale. Each line is "Label: value". Color matches the column's value
-  // accent. Pass undefined for cost/sale to omit those lines (e.g. on
-  // ATS period columns where you only want qty).
+  // Renders a single totals cell with four stacked lines: Qty / Cost /
+  // Sale / Mrgn. Each line is "Label: value". Color matches the
+  // column's value accent. Margin % = (sale - cost) / sale × 100.
   type TotalsCellProps = {
     qty: number;
     cost: number;
@@ -171,24 +171,34 @@ export const GridTable: React.FC<GridTableProps> = ({
     qtyColor: string;
     qtyPrefix?: string; // for "+" on On PO
   };
-  const TotalsCell: React.FC<TotalsCellProps> = ({ qty, cost, sale, qtyColor, qtyPrefix }) => (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: "flex-end", fontFamily: "monospace", lineHeight: 1.25 }}>
-      <div>
-        <span style={{ color: "#6B7280", fontSize: 10, marginRight: 4 }}>Qty:</span>
-        <span style={{ color: qtyColor, fontWeight: 700, fontSize: 12 }}>
-          {qty === 0 ? "—" : `${qtyPrefix ?? ""}${qty.toLocaleString()}`}
-        </span>
+  const TotalsCell: React.FC<TotalsCellProps> = ({ qty, cost, sale, qtyColor, qtyPrefix }) => {
+    const margin = sale > 0 ? ((sale - cost) / sale) * 100 : 0;
+    const marginColor = !sale ? "#475569" : margin >= 30 ? "#10B981" : margin >= 10 ? "#F59E0B" : "#F87171";
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 1, alignItems: "flex-end", fontFamily: "monospace", lineHeight: 1.2 }}>
+        <div>
+          <span style={{ color: "#6B7280", fontSize: 10, marginRight: 4 }}>Qty:</span>
+          <span style={{ color: qtyColor, fontWeight: 700, fontSize: 12 }}>
+            {qty === 0 ? "—" : `${qtyPrefix ?? ""}${qty.toLocaleString()}`}
+          </span>
+        </div>
+        <div>
+          <span style={{ color: "#6B7280", fontSize: 10, marginRight: 4 }}>Cost:</span>
+          <span style={{ color: "#94A3B8", fontWeight: 600, fontSize: 11 }}>{fmtUSD(cost)}</span>
+        </div>
+        <div>
+          <span style={{ color: "#6B7280", fontSize: 10, marginRight: 4 }}>Sale:</span>
+          <span style={{ color: "#3B82F6", fontWeight: 600, fontSize: 11 }}>{fmtUSD(sale)}</span>
+        </div>
+        <div>
+          <span style={{ color: "#6B7280", fontSize: 10, marginRight: 4 }}>Mrgn:</span>
+          <span style={{ color: marginColor, fontWeight: 600, fontSize: 11 }}>
+            {sale > 0 ? `${margin.toFixed(1)}%` : "—"}
+          </span>
+        </div>
       </div>
-      <div>
-        <span style={{ color: "#6B7280", fontSize: 10, marginRight: 4 }}>Cost:</span>
-        <span style={{ color: "#94A3B8", fontWeight: 600, fontSize: 11 }}>{fmtUSD(cost)}</span>
-      </div>
-      <div>
-        <span style={{ color: "#6B7280", fontSize: 10, marginRight: 4 }}>Sale:</span>
-        <span style={{ color: "#3B82F6", fontWeight: 600, fontSize: 11 }}>{fmtUSD(sale)}</span>
-      </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div style={S.tableWrap} ref={tableRef}>
@@ -197,7 +207,9 @@ export const GridTable: React.FC<GridTableProps> = ({
           {/* Totals row — sticky top: 0, sums across the filtered set.
              Column geometry MUST mirror the column-header row below
              (lefts [0, 110, 220, 320, 500, 630, 710, 790], widths
-             [110, 110, 100, 180, 130, 80, 80, 80]). */}
+             [110, 110, 100, 180, 130, 80, 80, 80]). Hidden when the
+             user has toggled the totals off. */}
+          {showTotalsRow && (
           <tr>
             {/* Empty Category | Sub Cat | Style | Description | Color (sticky to keep alignment) */}
             <th style={{ ...totalsThBase, ...S.stickyCol, left:   0, minWidth: 110, zIndex: 4 }} />
@@ -238,6 +250,7 @@ export const GridTable: React.FC<GridTableProps> = ({
               );
             })}
           </tr>
+          )}
           {/* Column headers — pushed below the totals row */}
           <tr>
             {/* Sticky left columns: Category | Sub Cat | Style | Color | On Hand | On Order | On PO.
@@ -252,7 +265,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                   key={col}
                   style={{
                     ...S.th, ...S.stickyCol,
-                    top: TOTALS_ROW_HEIGHT,
+                    top: showTotalsRow ? TOTALS_ROW_HEIGHT : 0,
                     left: lefts[ci], minWidth: widths[ci], zIndex: 3,
                     textAlign: ci >= 5 ? "center" : "left",
                     cursor: "pointer",
@@ -273,7 +286,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                   key={p.key}
                   style={{
                     ...S.th,
-                    top: TOTALS_ROW_HEIGHT,
+                    top: showTotalsRow ? TOTALS_ROW_HEIGHT : 0,
                     minWidth: rangeUnit === "days" ? 68 : rangeUnit === "weeks" ? 120 : 100,
                     textAlign: "center",
                     background: isActive ? "#243048" : p.isToday ? "#1a2a1e" : p.isWeekend ? "#141e2e" : "#1E293B",

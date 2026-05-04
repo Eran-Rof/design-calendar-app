@@ -119,6 +119,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
   const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterGender, setFilterGender, filterStatus, setFilterStatus, minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, syncing, syncStatus, lastSync, syncError, setSyncError, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, sortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
   mergeHistory, undoLastMerge, clearMergeAndNavigate,
   atShip, setAtShip, onNegInven, onAgedInven,
+  showTotalsRow, setShowTotalsRow,
   collapseLevel, setCollapseLevel, expandedGroups, expandedGroupSet, toggleExpandGroup,
   unreadNotifs, showingNotifications, onToggleNotifications, notificationsView } = ctx;
 
@@ -196,6 +197,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           customerSearch={customerSearch} setCustomerSearch={setCustomerSearch}
           collapseLevel={collapseLevel} setCollapseLevel={setCollapseLevel!}
           atShip={atShip} setAtShip={setAtShip}
+          showTotalsRow={showTotalsRow} setShowTotalsRow={setShowTotalsRow!}
           filteredCount={filtered.length} lastSync={lastSync}
         />
 
@@ -225,6 +227,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
             dragOverSku={dragOverSku} setDragOverSku={setDragOverSku}
             hoveredCell={hoveredCell} setHoveredCell={setHoveredCell}
             todayKey={todayKey} atShip={atShip}
+            showTotalsRow={showTotalsRow}
             eventIndex={eventIndex} getEventsInPeriod={getEventsInPeriod}
             ctxMenu={ctxMenu} setCtxMenu={setCtxMenu} setSummaryCtx={setSummaryCtx}
             openSummaryCtx={openSummaryCtx} handleSkuDrop={handleSkuDrop}
