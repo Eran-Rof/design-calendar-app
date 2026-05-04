@@ -2967,34 +2967,55 @@ function UnitCostCell({ value, overridden, onSave }: {
   }
 
   const baseColor = err ? PAL.red : overridden ? PAL.accent2 : PAL.textDim;
+  // $ prefix sits OUTSIDE the input so the value the planner edits stays
+  // a clean number (no need to strip a leading $ on parse). The dim
+  // adornment turns the planner's eye-track right-aligned dollars into
+  // a single mental block: "$ 8.50".
   return (
-    <input
-      data-unitcost="1"
-      type="text"
-      inputMode="decimal"
-      value={str}
-      onChange={(e) => { setStr(e.target.value); setErr(false); }}
-      onBlur={(e) => void commit(e.target.value)}
-      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-      placeholder="—"
-      title={overridden ? "Planner override — clear to revert to ATS avg" : "Auto-filled from ATS avg cost — type to override"}
+    <span
       style={{
-        width: 72,
-        background: "transparent",
-        color: baseColor,
-        border: `1px solid ${err ? PAL.red : "transparent"}`,
-        borderRadius: 4,
-        padding: "2px 4px",
-        fontFamily: "monospace",
-        fontSize: 13,
-        textAlign: "right",
-        outline: "none",
-        opacity: saving ? 0.5 : 1,
-        fontStyle: overridden ? "normal" : "italic",
+        display: "inline-flex",
+        alignItems: "baseline",
+        justifyContent: "flex-end",
+        gap: 1,
       }}
-      onFocus={(e) => { focused.current = true; e.target.select(); e.target.style.borderColor = err ? PAL.red : PAL.accent2; e.target.style.background = PAL.panel; }}
-      onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
-    />
+    >
+      <span
+        style={{
+          color: str.trim() === "" ? PAL.textMuted : baseColor,
+          fontFamily: "monospace",
+          fontSize: 13,
+          opacity: saving ? 0.5 : 1,
+        }}
+      >$</span>
+      <input
+        data-unitcost="1"
+        type="text"
+        inputMode="decimal"
+        value={str}
+        onChange={(e) => { setStr(e.target.value); setErr(false); }}
+        onBlur={(e) => void commit(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+        placeholder="—"
+        title={overridden ? "Planner override — clear to revert to ATS avg" : "Auto-filled from ATS avg cost — type to override"}
+        style={{
+          width: 64,
+          background: "transparent",
+          color: baseColor,
+          border: `1px solid ${err ? PAL.red : "transparent"}`,
+          borderRadius: 4,
+          padding: "2px 4px",
+          fontFamily: "monospace",
+          fontSize: 13,
+          textAlign: "right",
+          outline: "none",
+          opacity: saving ? 0.5 : 1,
+          fontStyle: overridden ? "normal" : "italic",
+        }}
+        onFocus={(e) => { focused.current = true; e.target.select(); e.target.style.borderColor = err ? PAL.red : PAL.accent2; e.target.style.background = PAL.panel; }}
+        onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
+      />
+    </span>
   );
 }
 
