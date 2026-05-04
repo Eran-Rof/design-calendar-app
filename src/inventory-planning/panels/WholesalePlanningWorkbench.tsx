@@ -90,6 +90,19 @@ export default function WholesalePlanningWorkbench() {
   const [ingestTo, setIngestTo] = useState(new Date().toISOString().slice(0, 10));
   const [selectedRow, setSelectedRow] = useState<IpPlanningGridRow | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  // Per-section collapse toggles. Each card on the workbench (sales
+  // history bar, monthly totals cards) can be hidden via a small ▾
+  // chevron at the card's top-right edge so the planner can free up
+  // vertical space. Persisted to localStorage so the choice survives
+  // reloads.
+  const loadCollapsedFlag = (key: string) => {
+    try { return localStorage.getItem(key) === "1"; } catch { return false; }
+  };
+  const saveCollapsedFlag = (key: string, val: boolean) => {
+    try { localStorage.setItem(key, val ? "1" : "0"); } catch { /* ignore */ }
+  };
+  const [salesHistCollapsed, setSalesHistCollapsed] = useState<boolean>(() => loadCollapsedFlag("ws_planning_collapse_sales"));
+  const [monthlyTotalsCollapsed, setMonthlyTotalsCollapsed] = useState<boolean>(() => loadCollapsedFlag("ws_planning_collapse_totals"));
   // Bucket-level buy qty map for the active run. key = bucket_key,
   // value = stored qty. Refreshed when the run changes or the planner
   // saves a new bucket buy.
@@ -2101,8 +2114,18 @@ export default function WholesalePlanningWorkbench() {
           watch={["xoro_sales_history", "xoro_inventory", "wholesale_forecast"]}
           dismissKey="wholesale_workbench"
         />
-        <div style={{ ...S.card, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ ...S.card, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", position: "relative" }}>
+          <CollapseChevron
+            collapsed={salesHistCollapsed}
+            onToggle={() => {
+              const next = !salesHistCollapsed;
+              setSalesHistCollapsed(next);
+              saveCollapsedFlag("ws_planning_collapse_sales", next);
+            }}
+            label="Sales history"
+          />
           <strong style={{ color: PAL.text, fontSize: 13 }}>Sales history:</strong>
+          {!salesHistCollapsed && (<>
           <input type="date" value={ingestFrom} onChange={(e) => setIngestFrom(e.target.value)}
                  style={{ ...S.input, width: 140 }} />
           <span style={{ color: PAL.textDim, fontSize: 12 }}>to</span>
@@ -2142,6 +2165,7 @@ export default function WholesalePlanningWorkbench() {
           <span style={{ color: PAL.textMuted, fontSize: 12, flexBasis: "100%" }}>
             Item master columns: SKU (or Style+Color), Description, Style, Color, AvgCost. Sales columns: SKU, Customer, Date, Qty (UnitPrice/InvoiceNumber optional). Rebuild forecast after upload.
           </span>
+          </>)}
         </div>
 
         <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
@@ -2153,7 +2177,25 @@ export default function WholesalePlanningWorkbench() {
 
         {tab === "grid" && (
           <>
-            <MonthlyTotalsCards rows={scopedRows} systemSuggestionsOn={systemSuggestionsOn} />
+            <div style={{ position: "relative" }}>
+              <CollapseChevron
+                collapsed={monthlyTotalsCollapsed}
+                onToggle={() => {
+                  const next = !monthlyTotalsCollapsed;
+                  setMonthlyTotalsCollapsed(next);
+                  saveCollapsedFlag("ws_planning_collapse_totals", next);
+                }}
+                label="Monthly totals"
+              />
+              {!monthlyTotalsCollapsed && (
+                <MonthlyTotalsCards rows={scopedRows} systemSuggestionsOn={systemSuggestionsOn} />
+              )}
+              {monthlyTotalsCollapsed && (
+                <div style={{ ...S.card, padding: "10px 14px", color: PAL.textMuted, fontSize: 12, marginBottom: 12 }}>
+                  Total Buy + Final Forecast hidden — click ▾ to expand.
+                </div>
+              )}
+            </div>
             <WholesalePlanningGrid
               headerSlot={
                 <>
@@ -2347,10 +2389,14 @@ function MonthlyTotalsCards({ rows, systemSuggestionsOn }: { rows: IpPlanningGri
   }, [rows, systemSuggestionsOn]);
 
   const fmtUnits = (n: number) => Math.round(n).toLocaleString();
-  const fmtUsd = (n: number) =>
-    n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(2)}M`
-      : n >= 10_000 ? `$${(n / 1000).toFixed(1)}k`
-      : `$${Math.round(n).toLocaleString()}`;
+  // Round dollars UP to the nearest $1,000 and render with no decimal
+  // — the planner reads totals at a glance, the cents are noise.
+  // Sub-$1,000 totals still surface so a near-zero plan reads "$0".
+  const fmtUsd = (n: number) => {
+    if (n <= 0) return "$0";
+    const ceiled = Math.ceil(n / 1000) * 1000;
+    return `$${ceiled.toLocaleString()}`;
+  };
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
@@ -2497,6 +2543,47 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
               cursor: "pointer",
             }}>
       {children}
+    </button>
+  );
+}
+
+// Small ▾ / ▸ button absolutely positioned at the top-right of a card.
+// Clicking flips the parent's collapse state. Intentionally minimal —
+// the parent decides what to render when collapsed (an empty space, a
+// hint message, or fully gone).
+function CollapseChevron({ collapsed, onToggle, label }: {
+  collapsed: boolean;
+  onToggle: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      title={collapsed ? `Expand ${label}` : `Collapse ${label}`}
+      aria-label={collapsed ? `Expand ${label}` : `Collapse ${label}`}
+      style={{
+        position: "absolute",
+        top: 6,
+        right: 6,
+        width: 22,
+        height: 22,
+        padding: 0,
+        background: "transparent",
+        border: `1px solid ${PAL.border}`,
+        color: PAL.textDim,
+        borderRadius: 4,
+        fontSize: 11,
+        lineHeight: 1,
+        cursor: "pointer",
+        fontFamily: "inherit",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 2,
+      }}
+    >
+      {collapsed ? "▸" : "▾"}
     </button>
   );
 }

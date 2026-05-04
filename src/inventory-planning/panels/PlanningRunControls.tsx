@@ -114,10 +114,42 @@ export default function PlanningRunControls({
     await onChange();
   }
 
+  // Card-level collapse toggle. Persists to localStorage so a planner
+  // who hides the run controls keeps the extra vertical space across
+  // reloads.
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem("ws_planning_collapse_run") === "1"; } catch { return false; }
+  });
+  function toggleCollapsed() {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("ws_planning_collapse_run", next ? "1" : "0"); } catch { /* ignore */ }
+      return next;
+    });
+  }
+
   return (
-    <div style={{ ...S.card, marginBottom: 12 }}>
+    <div style={{ ...S.card, marginBottom: 12, position: "relative" }}>
+      <button
+        type="button"
+        onClick={toggleCollapsed}
+        title={collapsed ? "Expand planning run" : "Collapse planning run"}
+        aria-label={collapsed ? "Expand planning run" : "Collapse planning run"}
+        style={{
+          position: "absolute", top: 6, right: 6, width: 22, height: 22, padding: 0,
+          background: "transparent", border: `1px solid ${PAL.border}`, color: PAL.textDim,
+          borderRadius: 4, fontSize: 11, lineHeight: 1, cursor: "pointer",
+          display: "inline-flex", alignItems: "center", justifyContent: "center", zIndex: 2,
+        }}
+      >{collapsed ? "▸" : "▾"}</button>
       <div style={S.toolbar}>
         <strong style={{ color: PAL.text, fontSize: 14 }}>Planning run</strong>
+        {collapsed && selected && (
+          <span style={{ color: PAL.textDim, fontSize: 12 }}>
+            {selected.name} · {selected.status}
+          </span>
+        )}
+        {!collapsed && (<>
         <select style={S.select}
                 value={selectedRunId ?? ""}
                 onChange={(e) => onSelect(e.target.value)}>
@@ -180,11 +212,12 @@ export default function PlanningRunControls({
             </a>
           </>
         )}
+        </>)}
       </div>
       {building && progress && (
         <BuildStatusBar progress={progress} onCancel={cancelBuild} />
       )}
-      {selected && (
+      {!collapsed && selected && (
         <div style={{ color: PAL.textMuted, fontSize: 12 }}>
           Snapshot {formatDate(selected.source_snapshot_date)}
           {selected.note ? ` · ${selected.note}` : ""}

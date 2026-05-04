@@ -2356,7 +2356,11 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                     fontWeight: 700,
                     fontStyle: "italic",
                     textDecoration: "underline",
-                    textDecorationColor: `${aggBar}66`,
+                    // currentColor → underline matches whatever color the
+                    // cell's text is rendered in. Greens stay green,
+                    // chips' colors stay theirs, etc. Cleaner than a
+                    // hard-coded accent tint that fights every cell.
+                    textDecorationColor: "currentColor",
                     textDecorationThickness: 1,
                     textUnderlineOffset: 2,
                   }
@@ -2975,79 +2979,100 @@ function UnitCostCell({ value, overridden, onSave }: {
   overridden: boolean;
   onSave: (cost: number | null) => Promise<void>;
 }) {
+  const [editing, setEditing] = useState(false);
   const [str, setStr] = useState(value != null ? value.toFixed(2) : "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState(false);
-  const focused = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!focused.current) setStr(value != null ? value.toFixed(2) : "");
-  }, [value]);
+    if (!editing) setStr(value != null ? value.toFixed(2) : "");
+  }, [value, editing]);
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
 
   async function commit(raw: string) {
     const trimmed = raw.trim();
     const cost = trimmed === "" ? null : Number(trimmed);
-    if (cost !== null && (!Number.isFinite(cost) || cost < 0)) { setErr(true); focused.current = false; return; }
-    if (cost === value) { focused.current = false; return; }
+    if (cost !== null && (!Number.isFinite(cost) || cost < 0)) { setErr(true); setEditing(false); return; }
+    if (cost === value) { setEditing(false); return; }
     setErr(false);
     setSaving(true);
-    try { await onSave(cost); } catch { setErr(true); } finally { setSaving(false); focused.current = false; }
+    try { await onSave(cost); } catch { setErr(true); } finally { setSaving(false); setEditing(false); }
   }
 
-  const baseColor = err ? PAL.red : overridden ? PAL.accent2 : PAL.textDim;
-  // $ prefix sits OUTSIDE the input so the value the planner edits stays
-  // a clean number (no need to strip a leading $ on parse). The dim
-  // adornment turns the planner's eye-track right-aligned dollars into
-  // a single mental block: "$ 8.50".
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "baseline",
-        justifyContent: "flex-end",
-        gap: 1,
-      }}
-    >
+  const colorRaw = err ? PAL.red : (value != null ? PAL.accent2 : PAL.textMuted);
+  const title = overridden
+    ? "Planner override — click to edit, clear to revert to ATS avg"
+    : "Auto-filled from ATS avg cost — click to override";
+
+  // Display state: plain text "$5.00" right-justified in the cell so it
+  // matches the aggregate row's rendering exactly (no input box, no
+  // gap between $ and number). Click flips into the editable input.
+  if (!editing) {
+    return (
       <span
+        role="button"
+        tabIndex={0}
+        onClick={() => setEditing(true)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setEditing(true); } }}
+        title={title}
         style={{
-          color: str.trim() === "" ? PAL.textMuted : PAL.accent2,
+          display: "inline-block",
           fontFamily: "monospace",
           fontSize: 13,
+          color: colorRaw,
           fontWeight: 600,
-          opacity: saving ? 0.5 : 1,
-        }}
-      >$</span>
-      <input
-        data-unitcost="1"
-        type="text"
-        inputMode="decimal"
-        value={str}
-        onChange={(e) => { setStr(e.target.value); setErr(false); }}
-        onBlur={(e) => void commit(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-        placeholder="—"
-        title={overridden ? "Planner override — clear to revert to ATS avg" : "Auto-filled from ATS avg cost — type to override"}
-        style={{
-          width: 56,
-          background: "transparent",
-          color: str.trim() === "" ? PAL.textMuted : (overridden ? PAL.accent2 : PAL.accent2),
-          border: `1px solid ${err ? PAL.red : "transparent"}`,
-          borderRadius: 4,
-          padding: "2px 2px",
-          fontFamily: "monospace",
-          fontSize: 13,
-          textAlign: "left",
-          outline: "none",
-          opacity: saving ? 0.5 : 1,
-          fontStyle: overridden ? "normal" : "italic",
-          // Inherit row-level italic / underline so aggregate rows
-          // affect this input. Inputs don't inherit these by default.
+          fontStyle: overridden ? "italic" : "inherit",
           textDecoration: "inherit",
+          textDecorationColor: "currentColor",
+          cursor: "pointer",
+          padding: "2px 4px",
+          borderRadius: 4,
+          opacity: saving ? 0.5 : 1,
         }}
-        onFocus={(e) => { focused.current = true; e.target.select(); e.target.style.borderColor = err ? PAL.red : PAL.accent2; e.target.style.background = PAL.panel; }}
-        onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
-      />
-    </span>
+      >
+        {value != null ? `$${value.toFixed(2)}` : "—"}
+      </span>
+    );
+  }
+
+  return (
+    <input
+      ref={inputRef}
+      data-unitcost="1"
+      type="text"
+      inputMode="decimal"
+      value={str}
+      onChange={(e) => { setStr(e.target.value); setErr(false); }}
+      onBlur={(e) => void commit(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        else if (e.key === "Escape") { setStr(value != null ? value.toFixed(2) : ""); setEditing(false); }
+      }}
+      placeholder="—"
+      title={title}
+      style={{
+        width: 64,
+        background: PAL.panel,
+        color: colorRaw,
+        border: `1px solid ${err ? PAL.red : PAL.accent2}`,
+        borderRadius: 4,
+        padding: "2px 4px",
+        fontFamily: "monospace",
+        fontSize: 13,
+        textAlign: "right",
+        outline: "none",
+        opacity: saving ? 0.5 : 1,
+        fontStyle: "inherit",
+        fontWeight: "inherit",
+        textDecoration: "inherit",
+      }}
+    />
   );
 }
 
