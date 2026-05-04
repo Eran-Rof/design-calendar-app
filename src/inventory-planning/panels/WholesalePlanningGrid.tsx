@@ -3138,7 +3138,33 @@ function TbdDescriptionCell({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && queryIsNew) { e.preventDefault(); void commit(queryTrim); }
+                if (e.key === "Enter") {
+                  // Enter commits: the typed-but-known existing
+                  // description, the typed new description, or
+                  // — when the input is unchanged — close cleanly.
+                  e.preventDefault();
+                  if (queryIsNew) { void commit(queryTrim); return; }
+                  const hit = knownDescriptions.find((d) => d.toLowerCase() === queryTrim.toLowerCase());
+                  if (hit) { void commit(hit); return; }
+                  setOpen(false);
+                } else if (e.key === "Tab") {
+                  // Tab cancels without committing. Without this the
+                  // input loses focus, the picker stays open, and a
+                  // subsequent stray Enter on a focused option div
+                  // commits the empty Clear-description option —
+                  // which then triggers the "change all 9 periods?"
+                  // confirm modal even though the planner only meant
+                  // to step out of the cell.
+                  e.preventDefault();
+                  setOpen(false);
+                }
+              }}
+              onBlur={() => {
+                // Defer the close so onMouseDown handlers on options
+                // get a chance to fire first. If focus left because
+                // the user clicked an option, the option's commit
+                // already fired and setOpen(false) is a no-op.
+                setTimeout(() => setOpen(false), 100);
               }}
               style={{ ...S.input, width: "100%" }}
             />

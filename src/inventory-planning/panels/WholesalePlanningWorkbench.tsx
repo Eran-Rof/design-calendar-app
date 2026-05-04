@@ -1129,17 +1129,14 @@ export default function WholesalePlanningWorkbench() {
           && (r.sku_description?.trim() || r.sku_color !== "TBD"),
         ) ?? null;
       })();
-      // Source values — "row one" is existingNewStyleRow when it
-      // exists; otherwise it's the row being saved (the planner's
-      // current line is the originator). Used both to fill the
-      // row being saved (when its values are placeholders) AND to
-      // seed every cloned sibling row.
-      const sourceColor = (existingNewStyleRow?.sku_color && existingNewStyleRow.sku_color !== "TBD")
-        ? existingNewStyleRow.sku_color
-        : (row.sku_color ?? "TBD");
-      const sourceIsNewColor = (existingNewStyleRow?.sku_color && existingNewStyleRow.sku_color !== "TBD")
-        ? !!existingNewStyleRow.is_new_color
-        : !!row.is_new_color;
+      // Source values for cloned siblings + main-row inheritance.
+      // Color is INTENTIONALLY not inherited from existingNewStyleRow:
+      // a second row added on the same NEW style is treated as a
+      // new-color variant intent (planner's typical workflow — they
+      // re-add to add a different colorway). Customer + description
+      // still inherit since those usually do match across variants.
+      const sourceColor = row.sku_color ?? "TBD";
+      const sourceIsNewColor = !!row.is_new_color;
       const sourceCustomerId = (existingNewStyleRow && existingNewStyleRow.customer_name !== "(Supply Only)")
         ? existingNewStyleRow.customer_id
         : row.customer_id;
@@ -1150,16 +1147,12 @@ export default function WholesalePlanningWorkbench() {
         || row.sku_description?.trim()
         || null;
       // Patch the main row with the new style + any inherited
-      // values for fields the planner left as placeholder.
-      const rowColorEmpty = !row.sku_color || row.sku_color === "TBD";
+      // values for fields the planner left as placeholder. Color
+      // is excluded — see comment above.
       const rowCustomerEmpty = row.customer_name === "(Supply Only)";
       const rowDescriptionEmpty = !row.sku_description?.trim();
       const stylePatch: Record<string, unknown> = { style_code: styleCode };
       if (existingNewStyleRow) {
-        if (rowColorEmpty && existingNewStyleRow.sku_color && existingNewStyleRow.sku_color !== "TBD") {
-          stylePatch.color = existingNewStyleRow.sku_color;
-          stylePatch.is_new_color = !!existingNewStyleRow.is_new_color;
-        }
         if (rowCustomerEmpty && existingNewStyleRow.customer_name !== "(Supply Only)") {
           stylePatch.customer_id = existingNewStyleRow.customer_id;
         }
@@ -1175,10 +1168,6 @@ export default function WholesalePlanningWorkbench() {
         if (r.forecast_id !== fid2) return r;
         const next = { ...r };
         if (existingNewStyleRow) {
-          if (rowColorEmpty && existingNewStyleRow.sku_color && existingNewStyleRow.sku_color !== "TBD") {
-            next.sku_color = existingNewStyleRow.sku_color;
-            next.is_new_color = !!existingNewStyleRow.is_new_color;
-          }
           if (rowCustomerEmpty && existingNewStyleRow.customer_name !== "(Supply Only)") {
             next.customer_id = existingNewStyleRow.customer_id;
             next.customer_name = existingNewStyleRow.customer_name;
@@ -1218,16 +1207,16 @@ export default function WholesalePlanningWorkbench() {
             });
           }
         }
-        // Skip periods where a TBD row of this NEW style already
-        // exists (any color / customer) — those were created in a
-        // prior save and the user said "leave previously created
-        // rows alone". Without this widened guard a planner who
-        // changes color on row 1 then re-saves the same style would
-        // create dup rows alongside the existing TBD lines.
+        // Skip periods where a TBD row at this exact (style, color,
+        // customer) grain already exists. A different-color variant
+        // of the same NEW style is allowed to coexist in the same
+        // period — that's the second-add new-colorway workflow.
         const alreadyHave = new Set<string>();
         for (const r of rows) {
           if (!r.is_tbd) continue;
           if ((r.sku_style ?? "") !== styleCode) continue;
+          if ((r.sku_color ?? "") !== sourceColor) continue;
+          if (r.customer_id !== sourceCustomerId) continue;
           alreadyHave.add(r.period_code);
         }
         const toClone = Array.from(siblingPeriods.values()).filter((p) => !alreadyHave.has(p.period_code));
