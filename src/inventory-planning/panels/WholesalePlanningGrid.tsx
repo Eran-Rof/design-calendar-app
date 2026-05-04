@@ -85,7 +85,7 @@ export interface WholesalePlanningGridProps {
     customer_id: string;
     group_name: string | null;
     sub_category_name: string | null;
-    period_code: string;
+    period_codes: string[];
     notes?: string | null;
   }) => Promise<void>;
   // Save bucket-level buy for an aggregate row. The grid computes
@@ -342,7 +342,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     customer_id: string;
     group_name: string | null;
     sub_category_name: string | null;
-    period_code: string;
+    period_codes: string[];
     style_code: string;
     color: string;
     is_new_color: boolean;
@@ -351,7 +351,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     customer_id: "",
     group_name: null,
     sub_category_name: null,
-    period_code: "",
+    period_codes: [],
     style_code: "TBD",
     color: "TBD",
     is_new_color: false,
@@ -1881,7 +1881,11 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   customer_id: filterCustomer[0] ?? supplyOnly?.id ?? "",
                   group_name: filterCategory[0] ?? null,
                   sub_category_name: filterSubCat[0] ?? null,
-                  period_code: filterPeriod[0] ?? periods[0] ?? "",
+                  // Default to every period in the run when no period
+                  // filter is active. Empty array means "all periods"
+                  // both visually (renders "All periods") and at
+                  // save-time (workbench falls back to every period).
+                  period_codes: filterPeriod.length > 0 ? filterPeriod : [],
                   style_code: filterStyle[0] ?? "TBD",
                   color: filterColor[0] ?? "TBD",
                   is_new_color: false,
@@ -2054,18 +2058,22 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 placeholder="Search customers…"
                 options={customers.map((c) => ({ value: c.id, label: c.name }))}
               />
+              {/* Periods — multi-select. Empty selection = every
+                  period in the run (default). Pick a subset to limit
+                  the add to those months only. One row per chosen
+                  period; no automatic sibling-period cloning. */}
               <MultiSelectDropdown
                 compact
-                singleSelect
-                selected={addRowDraft.period_code ? [addRowDraft.period_code] : []}
-                onChange={(next) => setAddRowDraft((d) => ({ ...d, period_code: next[0] ?? "" }))}
-                allLabel="Period"
+                selected={addRowDraft.period_codes}
+                onChange={(next) => setAddRowDraft((d) => ({ ...d, period_codes: next }))}
+                allLabel="All periods"
                 placeholder="Search periods…"
                 options={periods.map((p) => ({ value: p, label: formatPeriodCode(p) }))}
+                title="Pick which periods to add a row in. Leave empty for every period in the run."
               />
               <button
                 type="button"
-                disabled={addRowSaving || !addRowDraft.customer_id || !addRowDraft.period_code}
+                disabled={addRowSaving || !addRowDraft.customer_id}
                 onClick={async () => {
                   if (!onAddTbdRow) return;
                   setAddRowSaving(true);
@@ -2077,7 +2085,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                       customer_id: addRowDraft.customer_id,
                       group_name: addRowDraft.group_name,
                       sub_category_name: addRowDraft.sub_category_name,
-                      period_code: addRowDraft.period_code,
+                      period_codes: addRowDraft.period_codes,
                       notes: addRowDraft.description.trim() || null,
                     });
                   } catch { /* error toast surfaces from workbench */ }
@@ -2093,8 +2101,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   ...S.btnPrimary,
                   padding: "5px 14px",
                   fontSize: 12,
-                  opacity: addRowSaving || !addRowDraft.customer_id || !addRowDraft.period_code ? 0.5 : 1,
-                  cursor: addRowSaving || !addRowDraft.customer_id || !addRowDraft.period_code ? "not-allowed" : "pointer",
+                  opacity: addRowSaving || !addRowDraft.customer_id ? 0.5 : 1,
+                  cursor: addRowSaving || !addRowDraft.customer_id ? "not-allowed" : "pointer",
                 }}
               >
                 {addRowSaving ? "Saving…" : "Save"}
