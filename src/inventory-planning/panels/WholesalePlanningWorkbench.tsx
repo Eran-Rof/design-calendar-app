@@ -861,11 +861,39 @@ export default function WholesalePlanningWorkbench() {
               notes: args.notes ?? null,
             })
               .then((r) => {
-                setRows((prev) => prev.map((row) =>
-                  row.forecast_id === synthFid
-                    ? { ...row, forecast_id: `tbd:${r.id}`, tbd_id: r.id }
-                    : row,
-                ));
+                // Stamp the real tbd_id onto the optimistic row AND
+                // capture its current local state in the same setRows
+                // pass. If the planner edited row 1's color / customer
+                // / description while this INSERT was in flight, the
+                // backfill setRows above would have updated the local
+                // sibling — but the network PATCH skipped it because
+                // tbd_id wasn't known yet. Here we detect the drift
+                // and PATCH the now-known id so DB matches the UI.
+                let drifted: IpPlanningGridRow | null = null;
+                setRows((prev) => prev.map((row) => {
+                  if (row.forecast_id !== synthFid) return row;
+                  drifted = row;
+                  return { ...row, forecast_id: `tbd:${r.id}`, tbd_id: r.id };
+                }));
+                if (!drifted) return;
+                const drifty: IpPlanningGridRow = drifted;
+                const patch: Record<string, unknown> = {};
+                if ((drifty.sku_color ?? "TBD") !== args.color) {
+                  patch.color = drifty.sku_color ?? "TBD";
+                  patch.is_new_color = !!drifty.is_new_color;
+                }
+                if (drifty.customer_id !== args.customer_id) {
+                  patch.customer_id = drifty.customer_id;
+                }
+                const drifyDesc = drifty.sku_description?.trim() || null;
+                const initDesc = (args.notes ?? null) && (args.notes ?? "").trim() ? args.notes!.trim() : null;
+                if (drifyDesc !== initDesc) {
+                  patch.notes = drifyDesc;
+                }
+                if (Object.keys(patch).length > 0) {
+                  void wholesaleRepo.patchTbdRow(r.id, patch)
+                    .catch((e) => console.warn(`[planning] sibling reconcile ${p.period_code} failed`, e));
+                }
               })
               .catch((e) => console.warn(`[planning] sibling clone for ${args.style_code} ${p.period_code} failed`, e));
           }
@@ -1440,8 +1468,9 @@ export default function WholesalePlanningWorkbench() {
     });
     try {
       await saveTbdField(row, { customer_id: customerId });
-      if (placeholderSiblings.length > 0) {
-        void Promise.all(placeholderSiblings.map((s) => wholesaleRepo.patchTbdRow(s.tbd_id!, {
+      const patchableSiblings = placeholderSiblings.filter((s) => !!s.tbd_id);
+      if (patchableSiblings.length > 0) {
+        void Promise.all(patchableSiblings.map((s) => wholesaleRepo.patchTbdRow(s.tbd_id!, {
           customer_id: customerId,
         }).catch((e) => console.warn(`[planning] customer backfill ${s.period_code} failed`, e))));
       }
@@ -1474,17 +1503,19 @@ export default function WholesalePlanningWorkbench() {
   // the style's known colors before calling). Optimistic UI updates
   // the local row immediately; rebuild reconciles on success.
   // Helper: collect every TBD row sharing the same style_code as
-  // the input row, EXCEPT the row itself. Used by the new-style
-  // propagation paths below — when the planner edits color /
-  // description / customer on a master-unknown style, the change
-  // applies to every period the new style spans.
+  // the input row, EXCEPT the row itself. Includes optimistic siblings
+  // that don't yet have a tbd_id stamped — callers must filter to
+  // tbd_id-only when issuing network PATCHes, and use the full set
+  // for local-state updates so the UI reflects the change on every
+  // sibling immediately. The addTbdRow sibling-insert resolver
+  // reconciles any drift the planner introduced while the insert
+  // was in flight.
   function siblingTbdRowsForNewStyle(row: IpPlanningGridRow): IpPlanningGridRow[] {
     const styleLower = (row.sku_style ?? "").toLowerCase();
     if (!styleLower || styleLower === "tbd") return [];
     if (masterStyles.some((m) => m.style_code.toLowerCase() === styleLower)) return [];
     return rows.filter((r) =>
       r.is_tbd
-      && r.tbd_id
       && r.forecast_id !== row.forecast_id
       && (r.sku_style ?? "").toLowerCase() === styleLower,
     );
@@ -1529,8 +1560,9 @@ export default function WholesalePlanningWorkbench() {
       // is master-unknown — the planner expects the description
       // they typed for "RYB9999" to apply across all the periods
       // their new style spans.
-      if (siblings.length > 0) {
-        await Promise.all(siblings.map((s) => wholesaleRepo.patchTbdRow(s.tbd_id!, { notes: next })
+      const patchableSiblings = siblings.filter((s) => !!s.tbd_id);
+      if (patchableSiblings.length > 0) {
+        await Promise.all(patchableSiblings.map((s) => wholesaleRepo.patchTbdRow(s.tbd_id!, { notes: next })
           .catch((e) => console.warn(`[planning] description propagate ${s.period_code} failed`, e))));
       }
       setToast({
@@ -1637,8 +1669,12 @@ export default function WholesalePlanningWorkbench() {
     });
     try {
       await saveTbdField(row, { color, is_new_color: isNewColor });
-      if (placeholderSiblings.length > 0) {
-        void Promise.all(placeholderSiblings.map((s) => wholesaleRepo.patchTbdRow(s.tbd_id!, {
+      // PATCH only siblings with a real tbd_id — optimistic ones
+      // still in flight will be reconciled by addTbdRow's resolver
+      // when their INSERT lands. Local state already updated above.
+      const patchableSiblings = placeholderSiblings.filter((s) => !!s.tbd_id);
+      if (patchableSiblings.length > 0) {
+        void Promise.all(patchableSiblings.map((s) => wholesaleRepo.patchTbdRow(s.tbd_id!, {
           color, is_new_color: isNewColor,
         }).catch((e) => console.warn(`[planning] color backfill ${s.period_code} failed`, e))));
       }
