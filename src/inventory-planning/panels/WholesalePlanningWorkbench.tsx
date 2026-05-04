@@ -805,12 +805,17 @@ export default function WholesalePlanningWorkbench() {
         && !masterStyleSet.has(args.style_code.toLowerCase());
       const clonedSiblings: Array<{ period_code: string; period_start: IpIsoDate; period_end: IpIsoDate }> = [];
       if (isNewMasterStyle) {
+        // Every period present in the run — NOT just periods carrying
+        // a non-TBD forecast row in the same cat/sub-cat. The earlier
+        // narrower scan left gaps for months with no historical demand
+        // in that cat/sub-cat (the planner reported Jul / Oct / Nov
+        // missing on Denim/Baggy because last year had zero sales for
+        // that combo in those months). For a NEW style introduction
+        // we want a row in every period so the planner can buy
+        // through the whole horizon.
         const siblingPeriods = new Map<string, { period_code: string; period_start: IpIsoDate; period_end: IpIsoDate }>();
         for (const r of rows) {
-          if (r.is_tbd) continue;
           if (r.period_code === args.period_code) continue;
-          if ((r.group_name ?? "") !== (args.group_name ?? "")) continue;
-          if ((r.sub_category_name ?? "") !== (args.sub_category_name ?? "")) continue;
           if (!siblingPeriods.has(r.period_code)) {
             siblingPeriods.set(r.period_code, {
               period_code: r.period_code,
@@ -1291,12 +1296,14 @@ export default function WholesalePlanningWorkbench() {
         && styleCode.toLowerCase() !== "tbd"
         && !masterStyleSet.has(styleCode.toLowerCase());
       if (isNewMasterStyle) {
+        // Every period the run covers — see the matching comment in
+        // addTbdRow. Restricting to periods with non-TBD forecast rows
+        // in the same cat/sub-cat skipped months that had zero
+        // historical demand for the combo, leaving holes the planner
+        // had to fill manually.
         const siblingPeriods = new Map<string, { period_code: string; period_start: IpIsoDate; period_end: IpIsoDate }>();
         for (const r of rows) {
-          if (r.is_tbd) continue;
           if (r.period_code === row.period_code) continue;
-          if ((r.group_name ?? "") !== (row.group_name ?? "")) continue;
-          if ((r.sub_category_name ?? "") !== (row.sub_category_name ?? "")) continue;
           if (!siblingPeriods.has(r.period_code)) {
             siblingPeriods.set(r.period_code, {
               period_code: r.period_code,
