@@ -153,7 +153,7 @@ export interface WholesalePlanningGridProps {
 // the same key; clicking a different column resets to asc.
 type SortKey =
   | "category" | "subCat" | "style" | "color" | "description" | "customer"
-  | "period" | "histT3" | "histLY" | "system" | "buyer" | "override" | "final"
+  | "period" | "class" | "histT3" | "histLY" | "system" | "buyer" | "override" | "final"
   | "confidence" | "method" | "onHand" | "onSo" | "receipts" | "histRecv" | "ats"
   | "buy" | "avgCost" | "unitCost" | "buyDollars" | "shortage" | "excess" | "action";
 
@@ -593,6 +593,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     { key: "color", label: "Color" },
     { key: "customer", label: "Customer" },
     { key: "period", label: "Period" },
+    { key: "class", label: "Class" },
     { key: "histT3", label: "Hist T3" },
     { key: "histLY", label: "Hist LY" },
     { key: "system", label: "System" },
@@ -2242,6 +2243,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               <Th label="Color"       k="color"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("color")} />
               <Th label="Customer"    k="customer"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("customer")} />
               <Th label="Period"      k="period"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("period")} />
+              <Th label="Class"       k="class"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="ABC volume rank × XYZ demand variability" hidden={hiddenColumns.has("class")} />
               <Th label="Hist T3"     k="histT3"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("histT3")} />
               <Th label="Hist LY"     k="histLY"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("histLY")} />
               <Th label="System"      k="system"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("system")} />
@@ -2474,6 +2476,13 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   )}
                 </td>
                 <td style={{ ...S.td, ...colHide("period") }}>{formatPeriodCode(r.period_code)}</td>
+                <td style={{ ...S.td, color: PAL.textDim, fontFamily: "monospace", fontSize: 11, ...colHide("class") }}
+                    title={r.abc_class && r.xyz_class
+                      ? `ABC ${r.abc_class} (volume rank) × XYZ ${r.xyz_class} (demand variability)`
+                      : "Not classified — no trailing sales"}
+                >
+                  {r.abc_class && r.xyz_class ? `${r.abc_class}${r.xyz_class}` : "—"}
+                </td>
                 <td style={{ ...S.tdNum, ...colHide("histT3") }}>{formatQty(r.historical_trailing_qty)}</td>
                 <td style={{ ...S.tdNum, color: r.forecast_method === "ly_sales" && r.ly_reference_qty != null ? PAL.accent2 : PAL.textMuted, ...colHide("histLY") }}>
                   {r.ly_reference_qty != null ? formatQty(r.ly_reference_qty) : "—"}
@@ -3996,6 +4005,7 @@ function cmp(a: IpPlanningGridRow, b: IpPlanningGridRow, k: SortKey, d: "asc" | 
     case "description": return cmpStr(a.sku_description, b.sku_description, sign);
     case "customer":    return cmpStr(a.customer_name, b.customer_name, sign);
     case "period":      return cmpStr(a.period_start, b.period_start, sign);
+    case "class":       return cmpStr(`${a.abc_class ?? "Z"}${a.xyz_class ?? "Z"}`, `${b.abc_class ?? "Z"}${b.xyz_class ?? "Z"}`, sign);
     case "histT3":      return cmpNum(a.historical_trailing_qty, b.historical_trailing_qty, sign);
     case "histLY":      return cmpNum(a.ly_reference_qty, b.ly_reference_qty, sign);
     case "system":      return cmpNum(a.system_forecast_qty, b.system_forecast_qty, sign);
