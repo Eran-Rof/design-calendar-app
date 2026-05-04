@@ -123,6 +123,10 @@ interface ToolbarProps {
   // AT SHIP + status line
   atShip: boolean;
   setAtShip: (v: boolean) => void;
+  // TOTALS row (sticky header above column labels with Qty / Cost /
+  // Sale / Mrgn% summed across the filtered set)
+  showTotalsRow: boolean;
+  setShowTotalsRow: (v: boolean) => void;
   filteredCount: number;
   lastSync: string;
 }
@@ -138,7 +142,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   excelData, customerFilter, setCustomerFilter,
   customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch,
   collapseLevel, setCollapseLevel,
-  atShip, setAtShip, filteredCount, lastSync,
+  atShip, setAtShip,
+  showTotalsRow, setShowTotalsRow,
+  filteredCount, lastSync,
 }) => (
   <div style={S.toolbar}>
     <input
@@ -310,6 +316,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     >
       <input type="checkbox" checked={atShip} onChange={e => setAtShip(e.target.checked)} style={{ accentColor: "#10B981", cursor: "pointer", width: 14, height: 14 }} />
       <span style={{ color: atShip ? "#6EE7B7" : "#9CA3AF", fontSize: 12, fontWeight: atShip ? 700 : 400 }}>AT SHIP</span>
+    </label>
+
+    {/* TOTALS row toggle */}
+    <label
+      title="Show or hide the totals row above the column headers (Qty, Cost, Sale, Margin)"
+      style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "4px 10px", borderRadius: 8, border: `1px solid ${showTotalsRow ? "#3B82F6" : "#334155"}`, background: showTotalsRow ? "rgba(59,130,246,0.12)" : "transparent", userSelect: "none", whiteSpace: "nowrap" }}
+    >
+      <input type="checkbox" checked={showTotalsRow} onChange={e => setShowTotalsRow(e.target.checked)} style={{ accentColor: "#3B82F6", cursor: "pointer", width: 14, height: 14 }} />
+      <span style={{ color: showTotalsRow ? "#93C5FD" : "#9CA3AF", fontSize: 12, fontWeight: showTotalsRow ? 700 : 400 }}>TOTALS</span>
     </label>
 
     <div style={{ color: "#6B7280", fontSize: 12, whiteSpace: "nowrap" }}>
