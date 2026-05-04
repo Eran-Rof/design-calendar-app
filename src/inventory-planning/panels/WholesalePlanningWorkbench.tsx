@@ -705,6 +705,7 @@ export default function WholesalePlanningWorkbench() {
     group_name: string | null;
     sub_category_name: string | null;
     period_code: string;
+    notes?: string | null;
   };
 
   // Add a fresh (Supply Only) TBD stock-buy row from the inline +Add
@@ -791,6 +792,64 @@ export default function WholesalePlanningWorkbench() {
         period_start: sample.period_start,
         period_end: sample.period_end,
       });
+      // Sibling-period cloning when the picked style is a NEW
+      // master-unknown style. Mirrors the same logic saveTbdStyle
+      // runs when a row's style is renamed in the grid: the new
+      // style starts off appearing across every period its category
+      // siblings span, instead of stranded in one. Without this, a
+      // planner using the form's Style picker would only get one
+      // row per add — they'd have to add manually for every period.
+      const masterStyleSet = new Set(masterStyles.map((m) => m.style_code.toLowerCase()));
+      const isNewMasterStyle = !!args.style_code
+        && args.style_code.toLowerCase() !== "tbd"
+        && !masterStyleSet.has(args.style_code.toLowerCase());
+      const clonedSiblings: Array<{ period_code: string; period_start: IpIsoDate; period_end: IpIsoDate }> = [];
+      if (isNewMasterStyle) {
+        const siblingPeriods = new Map<string, { period_code: string; period_start: IpIsoDate; period_end: IpIsoDate }>();
+        for (const r of rows) {
+          if (r.is_tbd) continue;
+          if (r.period_code === args.period_code) continue;
+          if ((r.group_name ?? "") !== (args.group_name ?? "")) continue;
+          if ((r.sub_category_name ?? "") !== (args.sub_category_name ?? "")) continue;
+          if (!siblingPeriods.has(r.period_code)) {
+            siblingPeriods.set(r.period_code, {
+              period_code: r.period_code,
+              period_start: r.period_start,
+              period_end: r.period_end,
+            });
+          }
+        }
+        // Skip periods that already carry a TBD row at this exact
+        // (style, color, customer) grain. Different colorways of the
+        // same NEW style coexist by design.
+        const alreadyHave = new Set<string>();
+        for (const r of rows) {
+          if (!r.is_tbd) continue;
+          if ((r.sku_style ?? "") !== args.style_code) continue;
+          if ((r.sku_color ?? "") !== args.color) continue;
+          if (r.customer_id !== args.customer_id) continue;
+          alreadyHave.add(r.period_code);
+        }
+        const toClone = Array.from(siblingPeriods.values()).filter((p) => !alreadyHave.has(p.period_code));
+        if (toClone.length > 0) {
+          // Fire-and-forget — the optimistic rows below show up
+          // instantly and the rebuild reconciles real ids when the
+          // network inserts settle.
+          void Promise.all(toClone.map((p) => wholesaleRepo.insertTbdRow(selectedRun.id, {
+            style_code: args.style_code,
+            color: args.color,
+            is_new_color: args.is_new_color,
+            customer_id: args.customer_id,
+            group_name: args.group_name,
+            sub_category_name: args.sub_category_name,
+            period_start: p.period_start,
+            period_end: p.period_end,
+            period_code: p.period_code,
+            notes: args.notes ?? null,
+          }).catch((e) => console.warn(`[planning] sibling clone for ${args.style_code} ${p.period_code} failed`, e))));
+          clonedSiblings.push(...toClone);
+        }
+      }
       // Optimistic insert: append the new row to local state right
       // away so the grid renders it within the same React commit
       // as the toast. Without this the planner sees "Added" then
@@ -811,7 +870,7 @@ export default function WholesalePlanningWorkbench() {
         gender: null,
         sku_id: `tbd:${args.style_code}`,
         sku_code: `${args.style_code}-TBD`,
-        sku_description: null,
+        sku_description: args.notes ?? null,
         sku_style: args.style_code,
         sku_color: args.color,
         sku_color_inferred: false,
@@ -853,7 +912,19 @@ export default function WholesalePlanningWorkbench() {
         action_reason: null,
         notes: null,
       };
-      setRows((prev) => [...prev, optimisticRow]);
+      // Optimistic sibling rows so the cloned periods appear instantly
+      // alongside the primary row. Each carries a synthetic
+      // forecast_id; the rebuild's setRows replaces them with
+      // persisted ones once the network inserts settle.
+      const optimisticSiblings: IpPlanningGridRow[] = clonedSiblings.map((p) => ({
+        ...optimisticRow,
+        forecast_id: `tbd:optimistic:${newTbdId}:${p.period_code}`,
+        tbd_id: undefined as string | undefined,
+        period_code: p.period_code,
+        period_start: p.period_start,
+        period_end: p.period_end,
+      }));
+      setRows((prev) => [...prev, optimisticRow, ...optimisticSiblings]);
       // Pin the freshly-added row to the top of the grid so the
       // planner sees it immediately even if it would otherwise sort
       // far down the list.
@@ -887,7 +958,10 @@ export default function WholesalePlanningWorkbench() {
       if (mismatches.length > 0) {
         setToast({ text: `Added — pinned to top. Note: your filters don't match (${mismatches.join(", ")}); clear them to see the row alongside the others.`, kind: "info" });
       } else {
-        setToast({ text: `Added TBD row · ${args.period_code}`, kind: "success" });
+        const cloneNote = clonedSiblings.length > 0
+          ? ` · cloned to ${clonedSiblings.length} other period${clonedSiblings.length === 1 ? "" : "s"}`
+          : "";
+        setToast({ text: `Added TBD row · ${args.period_code}${cloneNote}`, kind: "success" });
       }
       // Fire-and-forget the grid rebuild so the Save button releases
       // as soon as the upsert returns. Without this the form sat on

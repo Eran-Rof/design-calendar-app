@@ -86,6 +86,7 @@ export interface WholesalePlanningGridProps {
     group_name: string | null;
     sub_category_name: string | null;
     period_code: string;
+    notes?: string | null;
   }) => Promise<void>;
   // Save bucket-level buy for an aggregate row. The grid computes
   // the bucket_key from the active collapse mode + filters + the
@@ -342,11 +343,15 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     group_name: string | null;
     sub_category_name: string | null;
     period_code: string;
+    style_code: string;
+    description: string;
   }>({
     customer_id: "",
     group_name: null,
     sub_category_name: null,
     period_code: "",
+    style_code: "TBD",
+    description: "",
   });
   const [addRowSaving, setAddRowSaving] = useState(false);
   const [page, setPage] = useState(0);
@@ -1855,6 +1860,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   group_name: filterCategory[0] ?? null,
                   sub_category_name: filterSubCat[0] ?? null,
                   period_code: filterPeriod[0] ?? periods[0] ?? "",
+                  style_code: filterStyle[0] ?? "TBD",
+                  description: "",
                 });
                 setAddRowOpen(true);
               }}
@@ -1906,7 +1913,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               fontSize: 12,
             }}>
               <span style={{ fontWeight: 600, color: PAL.accent }}>+ New TBD row</span>
-              <span style={{ color: PAL.textMuted, fontSize: 11 }}>Style: TBD · Color: TBD</span>
+              <span style={{ color: PAL.textMuted, fontSize: 11 }}>Color: TBD</span>
               <MultiSelectDropdown
                 compact
                 singleSelect
@@ -1924,6 +1931,36 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 allLabel="Sub Cat"
                 placeholder="Search sub cats…"
                 options={subCategoryNames.map((s) => ({ value: s, label: s }))}
+              />
+              {/* Style picker — same options as the toolbar Style
+                  filter (existing master + planner-added). To pick a
+                  brand-new style, leave as TBD here and rename the
+                  row's style cell after the row appears. The style
+                  input also accepts a typed override below. */}
+              <MultiSelectDropdown
+                compact
+                singleSelect
+                selected={addRowDraft.style_code && addRowDraft.style_code !== "TBD" ? [addRowDraft.style_code] : []}
+                onChange={(next) => setAddRowDraft((d) => ({ ...d, style_code: next[0] ?? "TBD" }))}
+                allLabel="Style: TBD"
+                placeholder="Pick existing style…"
+                options={styles.map((s) => ({ value: s, label: s }))}
+              />
+              <input
+                type="text"
+                placeholder="…or new style"
+                value={addRowDraft.style_code === "TBD" ? "" : addRowDraft.style_code}
+                onChange={(e) => setAddRowDraft((d) => ({ ...d, style_code: e.target.value.trim() || "TBD" }))}
+                style={{ ...S.input, minWidth: 120, fontSize: 12, padding: "4px 8px" }}
+                title="Type a brand-new style code. Flagged NEW until the master catches up."
+              />
+              <input
+                type="text"
+                placeholder="Description"
+                value={addRowDraft.description}
+                onChange={(e) => setAddRowDraft((d) => ({ ...d, description: e.target.value }))}
+                style={{ ...S.input, minWidth: 160, fontSize: 12, padding: "4px 8px" }}
+                title="Optional. Shows in the Description column with a NEW badge until the master gets one."
               />
               <MultiSelectDropdown
                 compact
@@ -1951,13 +1988,14 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   setAddRowSaving(true);
                   try {
                     await onAddTbdRow({
-                      style_code: "TBD",
+                      style_code: addRowDraft.style_code || "TBD",
                       color: "TBD",
                       is_new_color: false,
                       customer_id: addRowDraft.customer_id,
                       group_name: addRowDraft.group_name,
                       sub_category_name: addRowDraft.sub_category_name,
                       period_code: addRowDraft.period_code,
+                      notes: addRowDraft.description.trim() || null,
                     });
                   } catch { /* error toast surfaces from workbench */ }
                   finally {
