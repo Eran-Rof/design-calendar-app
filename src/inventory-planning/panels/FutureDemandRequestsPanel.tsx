@@ -298,23 +298,35 @@ export default function FutureDemandRequestsPanel({
             {visible.map((r) => {
               const customer = customerById.get(r.customer_id);
               const item = itemById.get(r.sku_id);
-              const style = item?.style_code ?? item?.sku_code ?? r.sku_id.slice(0, 8);
+              // TBD marker parse — when the planner saves a TBD request
+              // the sku_id FK points at an arbitrary master row, so the
+              // actual style/color/description has to come from the
+              // note. Strip the marker out of the displayed note while
+              // we're at it.
+              const tbdMatch = r.note?.match(/^\[TBD style=([^ ]+) color=([^ ]+) desc=([^\]]+)\]\s*(.*)$/);
+              const isTbd = !!tbdMatch;
+              const styleDisp = isTbd ? tbdMatch![1] : (item?.style_code ?? item?.sku_code ?? r.sku_id.slice(0, 8));
+              const colorDisp = isTbd ? tbdMatch![2] : (item?.color ?? "–");
+              const descDisp  = isTbd ? tbdMatch![3] : (item?.description ?? "–");
+              const catDisp   = isTbd ? "–" : (readGroupName(item) ?? "–");
+              const subCatDisp = isTbd ? "–" : (readSubCategoryName(item) ?? "–");
+              const noteDisp  = isTbd ? (tbdMatch![4] ?? "") : (r.note ?? "");
               return (
                 <tr key={r.id}>
                   <td style={S.td}>{formatPeriodCode(monthOf(r.target_period_start).period_code)}</td>
                   <td style={S.td}>{customer?.name ?? r.customer_id.slice(0, 8)}</td>
-                  <td style={{ ...S.td, color: PAL.textDim }}>{readGroupName(item) ?? "–"}</td>
-                  <td style={{ ...S.td, color: PAL.textDim }}>{readSubCategoryName(item) ?? "–"}</td>
-                  <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>{style}</td>
-                  <td style={{ ...S.td, color: PAL.textDim }}>{item?.color ?? "–"}</td>
-                  <td style={{ ...S.td, color: PAL.textDim, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item?.description ?? ""}>
-                    {item?.description ?? "–"}
+                  <td style={{ ...S.td, color: PAL.textDim }}>{catDisp}</td>
+                  <td style={{ ...S.td, color: PAL.textDim }}>{subCatDisp}</td>
+                  <td style={{ ...S.td, fontFamily: "monospace", color: isTbd ? PAL.yellow : PAL.accent }}>{styleDisp}</td>
+                  <td style={{ ...S.td, color: PAL.textDim }}>{colorDisp}</td>
+                  <td style={{ ...S.td, color: PAL.textDim, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={descDisp}>
+                    {descDisp}
                   </td>
                   <td style={S.tdNum}>{formatQty(r.requested_qty)}</td>
                   <td style={S.td}>{r.request_type}</td>
                   <td style={S.td}>{r.confidence_level}</td>
                   <td style={S.td}>{r.request_status}</td>
-                  <td style={{ ...S.td, color: PAL.textMuted }}>{r.note ?? ""}</td>
+                  <td style={{ ...S.td, color: PAL.textMuted }}>{noteDisp}</td>
                   <td style={S.td}>
                     {r.request_status !== "archived" && (
                       <button style={S.btnGhost} onClick={() => archive(r.id)} disabled={busyId === r.id}>
@@ -485,13 +497,19 @@ function RequestForm({
       for (const c of combos) {
         const period = monthOf(`${c.period}-01`);
         const item = items.find((i) => i.id === c.skuId);
-        // Tag TBD requests in the note so the table makes their
-        // placeholder nature obvious despite the fallback sku_id FK.
+        // TBD requests use a fallback sku_id (any master row satisfies
+        // the FK), so the planner's actual style / color / description
+        // selection has to ride on the note column. Encode as a
+        // structured prefix the panel can parse on render — without it,
+        // the table would read Cat / Sub Cat / Style / Color from the
+        // unrelated fallback master row.
         const isTbd = styleCode.toUpperCase() === "TBD" || c.color.toUpperCase() === "TBD";
         const noteParts: string[] = [];
-        if (isTbd) noteParts.push(`TBD ${styleCode}/${c.color}${description ? `/${description}` : ""}`);
+        if (isTbd) {
+          noteParts.push(`[TBD style=${styleCode} color=${c.color} desc=${description || "TBD"}]`);
+        }
         if (note.trim()) noteParts.push(note.trim());
-        const noteOut = noteParts.length > 0 ? noteParts.join(" — ") : null;
+        const noteOut = noteParts.length > 0 ? noteParts.join(" ") : null;
         await wholesaleRepo.createRequest({
           customer_id: customerId,
           category_id: item?.category_id ?? null,
