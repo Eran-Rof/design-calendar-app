@@ -1,7 +1,11 @@
-import React from "react";
+import React, { useMemo } from "react";
 import S from "../styles";
 import { getQtyColor, getQtyBg } from "../helpers";
 import type { ATSRow, ATSPoEvent, ATSSoEvent, CtxMenu } from "../types";
+
+// Height of the totals row at the top of the table. Used to push the
+// regular sticky header down so the two stack without overlap.
+const TOTALS_ROW_HEIGHT = 34;
 
 interface Period {
   key: string;
@@ -56,6 +60,30 @@ export const GridTable: React.FC<GridTableProps> = ({
   ctxMenu, setCtxMenu, setSummaryCtx,
   openSummaryCtx, handleSkuDrop,
 }) => {
+  // Totals across the filtered set (not just the current page) for the
+  // sticky totals row above the column headers. Each ATS period column
+  // sums whichever value the cell would render — freeMap when atShip
+  // is on, otherwise dates — so the header total matches what's
+  // visible below.
+  const sums = useMemo(() => {
+    let onHand = 0, onOrder = 0, onPO = 0;
+    for (const r of filtered) {
+      onHand  += r.onHand  || 0;
+      onOrder += r.onOrder || 0;
+      onPO    += r.onPO    || 0;
+    }
+    const periodSums: Record<string, number> = {};
+    for (const p of displayPeriods) {
+      let s = 0;
+      for (const r of filtered) {
+        const v = atShip ? (r.freeMap?.[p.endDate] ?? r.dates[p.endDate]) : r.dates[p.endDate];
+        if (v != null) s += v;
+      }
+      periodSums[p.key] = s;
+    }
+    return { onHand, onOrder, onPO, periodSums };
+  }, [filtered, displayPeriods, atShip]);
+
   if (loading) return <div style={S.loadingState}>Loading ATS data…</div>;
   if (filtered.length === 0) return (
     <div style={S.emptyState}>
@@ -64,10 +92,77 @@ export const GridTable: React.FC<GridTableProps> = ({
     </div>
   );
 
+  // Style helper for cells in the totals row. Totals row sits at top: 0;
+  // the regular header row below uses top: TOTALS_ROW_HEIGHT.
+  const totalsThBase: React.CSSProperties = {
+    ...S.th,
+    top: 0,
+    height: TOTALS_ROW_HEIGHT,
+    padding: "6px 10px",
+    background: "#0b1220",
+    borderBottom: "1px solid #334155",
+    fontSize: 12,
+    textTransform: "none",
+    letterSpacing: 0,
+  };
+
   return (
     <div style={S.tableWrap} ref={tableRef}>
       <table style={S.table}>
         <thead>
+          {/* Totals row — sticky top: 0, sums across the filtered set */}
+          <tr>
+            {/* Empty SKU + Description cells (sticky to match column widths) */}
+            <th style={{ ...totalsThBase, ...S.stickyCol, left: 0, minWidth: 130, zIndex: 4 }} />
+            <th style={{ ...totalsThBase, ...S.stickyCol, left: 130, minWidth: 200, zIndex: 4 }} />
+            {/* On Hand sum */}
+            <th style={{ ...totalsThBase, ...S.stickyCol, left: 330, minWidth: 80, zIndex: 4, textAlign: "center" }}>
+              <span style={{ color: "#F1F5F9", fontWeight: 700, fontFamily: "monospace" }}>
+                {sums.onHand.toLocaleString()}
+              </span>
+            </th>
+            {/* On Order sum */}
+            <th style={{ ...totalsThBase, ...S.stickyCol, left: 410, minWidth: 80, zIndex: 4, textAlign: "center" }}>
+              <span style={{ color: "#F59E0B", fontWeight: 700, fontFamily: "monospace" }}>
+                {sums.onOrder > 0 ? sums.onOrder.toLocaleString() : "—"}
+              </span>
+            </th>
+            {/* On PO sum */}
+            <th style={{ ...totalsThBase, ...S.stickyCol, left: 490, minWidth: 80, zIndex: 4, textAlign: "center" }}>
+              <span style={{ color: "#10B981", fontWeight: 700, fontFamily: "monospace" }}>
+                {sums.onPO > 0 ? `+${sums.onPO.toLocaleString()}` : "—"}
+              </span>
+            </th>
+            {/* Period sums */}
+            {displayPeriods.map(p => {
+              const v = sums.periodSums[p.key] ?? 0;
+              const isNeg = v < 0;
+              return (
+                <th
+                  key={`tot-${p.key}`}
+                  style={{
+                    ...totalsThBase,
+                    minWidth: rangeUnit === "days" ? 68 : rangeUnit === "weeks" ? 120 : 100,
+                    textAlign: "center",
+                    background: p.isToday ? "#0d1f17" : p.isWeekend ? "#0a1422" : "#0b1220",
+                  }}
+                >
+                  {v === 0 ? (
+                    <span style={{ color: "#334155", fontSize: 11 }}>—</span>
+                  ) : (
+                    <span style={{
+                      fontFamily: "monospace",
+                      fontWeight: 700,
+                      color: isNeg ? "#F87171" : getQtyColor(v),
+                    }}>
+                      {isNeg ? v.toLocaleString() : v.toLocaleString()}
+                    </span>
+                  )}
+                </th>
+              );
+            })}
+          </tr>
+          {/* Column headers — pushed below the totals row */}
           <tr>
             {/* Sticky left columns */}
             {(["sku","description","onHand","onOrder","onPO"] as const).map((col, ci) => {
@@ -80,6 +175,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                   key={col}
                   style={{
                     ...S.th, ...S.stickyCol,
+                    top: TOTALS_ROW_HEIGHT,
                     left: lefts[ci], minWidth: widths[ci], zIndex: 3,
                     textAlign: ci >= 2 ? "center" : "left",
                     cursor: "pointer",
@@ -100,6 +196,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                   key={p.key}
                   style={{
                     ...S.th,
+                    top: TOTALS_ROW_HEIGHT,
                     minWidth: rangeUnit === "days" ? 68 : rangeUnit === "weeks" ? 120 : 100,
                     textAlign: "center",
                     background: isActive ? "#243048" : p.isToday ? "#1a2a1e" : p.isWeekend ? "#141e2e" : "#1E293B",
