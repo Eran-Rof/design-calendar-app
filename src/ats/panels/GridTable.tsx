@@ -109,6 +109,19 @@ export const GridTable: React.FC<GridTableProps> = ({
       }
     }
 
+    // First pass: capture the BEST avgCost per SKU across every store
+    // row in the filtered set. avgCost is per (sku, store) so a SKU
+    // can have a $5 cost on its ROF row but $0 on its ROF ECOM row;
+    // resolving on whichever row appears first would mis-skip half
+    // the inventory.
+    const avgCostBySku = new Map<string, number>();
+    for (const r of filtered) {
+      if (r.avgCost && r.avgCost > 0) {
+        const cur = avgCostBySku.get(r.sku);
+        if (cur == null || r.avgCost > cur) avgCostBySku.set(r.sku, r.avgCost);
+      }
+    }
+
     // Resolve cost + sale for each filtered SKU, returning null when
     // there's no signal at all (SO, avgCost, and PO cost all missing).
     type Resolved = { cost: number; sale: number };
@@ -117,7 +130,7 @@ export const GridTable: React.FC<GridTableProps> = ({
       if (resolved.has(r.sku)) continue;
       const so   = soPriceBySku.get(r.sku);
       const po   = poCostBySku.get(r.sku);
-      const ac   = r.avgCost && r.avgCost > 0 ? r.avgCost : undefined;
+      const ac   = avgCostBySku.get(r.sku);
       const costKnown = ac ?? po ?? null;
       if (so == null && costKnown == null) {
         resolved.set(r.sku, null); // skip
