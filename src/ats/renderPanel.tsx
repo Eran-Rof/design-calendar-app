@@ -16,6 +16,7 @@ import { GridTable } from "./panels/GridTable";
 import { GridErrorBoundary } from "./panels/GridErrorBoundary";
 import { UnmatchedBanner } from "./panels/UnmatchedBanner";
 import { exportIncompleteSkus } from "./exportIncompleteSkus";
+import { exportStockVsSo } from "./exportStockVsSo";
 import type { ATSState } from "./state/atsTypes";
 import type { ATSRow, ExcelData, ATSPoEvent, ATSSoEvent, UploadWarning } from "./types";
 import type { NormChange } from "./normalize";
@@ -157,6 +158,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         onNegInven={onNegInven}
         onAgedInven={onAgedInven}
         onDownloadIncompleteSkus={() => exportIncompleteSkus(filtered, eventIndex)}
+        onDownloadStockVsSo={() => exportStockVsSo(filtered, eventIndex)}
         categories={categories}
         filterCategory={filterCategory}
         unreadNotifs={unreadNotifs}
