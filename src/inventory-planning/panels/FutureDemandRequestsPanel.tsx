@@ -298,19 +298,42 @@ export default function FutureDemandRequestsPanel({
             {visible.map((r) => {
               const customer = customerById.get(r.customer_id);
               const item = itemById.get(r.sku_id);
-              // TBD marker parse — when the planner saves a TBD request
-              // the sku_id FK points at an arbitrary master row, so the
-              // actual style/color/description has to come from the
-              // note. Strip the marker out of the displayed note while
-              // we're at it.
-              const tbdMatch = r.note?.match(/^\[TBD style=([^ ]+) color=([^ ]+) desc=([^\]]+)\]\s*(.*)$/);
-              const isTbd = !!tbdMatch;
-              const styleDisp = isTbd ? tbdMatch![1] : (item?.style_code ?? item?.sku_code ?? r.sku_id.slice(0, 8));
-              const colorDisp = isTbd ? tbdMatch![2] : (item?.color ?? "–");
-              const descDisp  = isTbd ? tbdMatch![3] : (item?.description ?? "–");
-              const catDisp   = isTbd ? "–" : (readGroupName(item) ?? "–");
-              const subCatDisp = isTbd ? "–" : (readSubCategoryName(item) ?? "–");
-              const noteDisp  = isTbd ? (tbdMatch![4] ?? "") : (r.note ?? "");
+              // Parse the structured note marker the form writes on
+              // save. Format: [REQ key1=val1|key2=val2|…] user note
+              // (TBD prefix is the same shape with a different tag).
+              // When present, prefer the planner's picks over what the
+              // resolved sku_id's item row carries — works for both
+              // TBD requests (where sku_id is a fallback) AND non-TBD
+              // requests (where the item often lacks group_name /
+              // category_name).
+              const meta: Record<string, string> = {};
+              let isTbd = false;
+              let cleanNote = r.note ?? "";
+              const m = cleanNote.match(/^\[(TBD|REQ)\s+([^\]]+)\]\s*(.*)$/);
+              if (m) {
+                isTbd = m[1] === "TBD";
+                for (const pair of m[2].split("|")) {
+                  const eq = pair.indexOf("=");
+                  if (eq < 0) continue;
+                  meta[pair.slice(0, eq)] = pair.slice(eq + 1);
+                }
+                cleanNote = m[3] ?? "";
+              } else {
+                // Legacy support — pre-marker TBD format from earlier
+                // commits used "TBD <style>/<color>" plain text.
+                const old = cleanNote.match(/^\[TBD style=([^ ]+) color=([^ ]+) desc=([^\]]+)\]\s*(.*)$/);
+                if (old) {
+                  isTbd = true;
+                  meta.style = old[1]; meta.color = old[2]; meta.desc = old[3];
+                  cleanNote = old[4] ?? "";
+                }
+              }
+              const styleDisp = meta.style ?? item?.style_code ?? item?.sku_code ?? r.sku_id.slice(0, 8);
+              const colorDisp = meta.color ?? item?.color ?? "–";
+              const descDisp  = meta.desc  ?? item?.description ?? "–";
+              const catDisp   = meta.cat   ?? readGroupName(item) ?? "–";
+              const subCatDisp = meta.subcat ?? readSubCategoryName(item) ?? "–";
+              const noteDisp  = cleanNote;
               return (
                 <tr key={r.id}>
                   <td style={S.td}>{formatPeriodCode(monthOf(r.target_period_start).period_code)}</td>
@@ -497,19 +520,26 @@ function RequestForm({
       for (const c of combos) {
         const period = monthOf(`${c.period}-01`);
         const item = items.find((i) => i.id === c.skuId);
-        // TBD requests use a fallback sku_id (any master row satisfies
-        // the FK), so the planner's actual style / color / description
-        // selection has to ride on the note column. Encode as a
-        // structured prefix the panel can parse on render — without it,
-        // the table would read Cat / Sub Cat / Style / Color from the
-        // unrelated fallback master row.
+        // Encode every planner-picked dimension into a structured note
+        // marker so the table can render the planner's actual choices,
+        // not whatever the resolved sku_id's master row happens to
+        // carry. Non-TBD requests need this for Cat / Sub Cat (the
+        // master item often lacks group_name / category_name in
+        // attributes) AND TBD requests need it because the sku_id
+        // points to an arbitrary fallback row. Fields with no value
+        // are omitted; the renderer falls back to the item lookup
+        // for missing fields.
+        const meta: string[] = [];
+        if (groupName) meta.push(`cat=${groupName}`);
+        if (subCatName) meta.push(`subcat=${subCatName}`);
+        meta.push(`style=${styleCode}`);
+        meta.push(`color=${c.color}`);
+        if (description) meta.push(`desc=${description}`);
         const isTbd = styleCode.toUpperCase() === "TBD" || c.color.toUpperCase() === "TBD";
-        const noteParts: string[] = [];
-        if (isTbd) {
-          noteParts.push(`[TBD style=${styleCode} color=${c.color} desc=${description || "TBD"}]`);
-        }
+        const tag = isTbd ? "TBD" : "REQ";
+        const noteParts: string[] = [`[${tag} ${meta.join("|")}]`];
         if (note.trim()) noteParts.push(note.trim());
-        const noteOut = noteParts.length > 0 ? noteParts.join(" ") : null;
+        const noteOut = noteParts.join(" ");
         await wholesaleRepo.createRequest({
           customer_id: customerId,
           category_id: item?.category_id ?? null,
@@ -590,14 +620,19 @@ function RequestForm({
         onChange={(next) => {
           const picked = next[0] ?? "";
           setStyleCode(picked);
-          // Auto-fill Color + Description to TBD when Style=TBD —
-          // the planner can't drill into a variant of an unknown
-          // style, so keeping these in sync removes a redundant
-          // pair of clicks (and avoids leaving Color/Desc empty
-          // which would block the save).
           if (picked === "TBD") {
+            // TBD style → auto-fill variant pickers to TBD too. The
+            // planner can't drill into a variant of an unknown style.
             setColorCodes(["TBD"]);
             setDescription("TBD");
+          } else if (picked) {
+            // Existing style → auto-fill Description from the master's
+            // first row that carries this style. Saves the planner the
+            // redundant click for the common case where description
+            // matches the style's master description verbatim.
+            const masterDesc = items.find((i) => (i.style_code ?? i.sku_code) === picked && i.description)?.description ?? "";
+            setColorCodes([]);
+            setDescription(masterDesc);
           } else {
             setColorCodes([]);
             setDescription("");
