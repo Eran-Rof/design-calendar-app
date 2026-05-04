@@ -1950,34 +1950,53 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 placeholder="Search sub cats…"
                 options={subCategoryNames.map((s) => ({ value: s, label: s }))}
               />
-              {/* Style — single field that mirrors the in-grid
-                  TbdStyleCell behavior: force uppercase + alphanumeric
-                  on input, accept any value (flagged NEW later if not
-                  in the run), auto-fill Description when the typed
-                  style is recognised. */}
-              <input
-                type="text"
-                placeholder="Style (TBD)"
-                value={addRowDraft.style_code === "TBD" ? "" : addRowDraft.style_code}
-                onChange={(e) => {
-                  const typed = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
-                  const next = typed || "TBD";
-                  setAddRowDraft((d) => {
-                    const inherited = next !== "TBD" ? descriptionByStyle.get(next) ?? "" : "";
-                    return {
-                      ...d,
-                      style_code: next,
-                      description: d.description.trim() ? d.description : inherited,
-                    };
-                  });
-                }}
-                list="ip-add-row-style-list"
-                style={{ ...S.input, minWidth: 130, fontSize: 12, padding: "4px 8px", fontFamily: "monospace" }}
-                title="Type any style code — uppercase letters + digits only. Existing styles auto-suggest from the datalist; brand-new codes are accepted and flagged NEW once the row is added."
-              />
-              <datalist id="ip-add-row-style-list">
-                {styles.map((s) => <option key={s} value={s} />)}
-              </datalist>
+              {/* Style — reuse the in-grid TbdStyleCell so the form's
+                  picker is byte-for-byte identical to the grid's
+                  (same colors, search bar, "Add as NEW" footer).
+                  Scoped to the form's selected category when one is
+                  picked; falls back to every style in the run when
+                  the planner hasn't narrowed the category yet. */}
+              {(() => {
+                const masterStylesLowerSet = new Set((masterStyles ?? []).map((m) => m.style_code.toLowerCase()));
+                const userAddedStylesSet = new Set<string>();
+                for (const x of rows) {
+                  if (x.is_tbd && x.sku_style && x.sku_style !== "TBD"
+                      && !masterStylesLowerSet.has(x.sku_style.toLowerCase())) {
+                    userAddedStylesSet.add(x.sku_style);
+                  }
+                }
+                const allStylesLower = new Set<string>([
+                  ...masterStylesLowerSet,
+                  ...Array.from(userAddedStylesSet).map((s) => s.toLowerCase()),
+                ]);
+                const masterCategoryStyles = (masterStyles ?? [])
+                  .filter((m) => !addRowDraft.group_name || m.group_name === addRowDraft.group_name)
+                  .map((m) => m.style_code);
+                const categoryStyles = [
+                  ...masterCategoryStyles,
+                  ...Array.from(userAddedStylesSet),
+                ];
+                const styleVal = addRowDraft.style_code || "TBD";
+                const isNewStyle = styleVal !== "" && styleVal.toLowerCase() !== "tbd"
+                  && !masterStylesLowerSet.has(styleVal.toLowerCase());
+                return (
+                  <TbdStyleCell
+                    value={styleVal}
+                    isNewStyle={isNewStyle}
+                    categoryStyles={categoryStyles}
+                    allKnownStylesLower={allStylesLower}
+                    masterStylesLower={masterStylesLowerSet}
+                    onSave={async (next) => {
+                      const inherited = next !== "TBD" ? descriptionByStyle.get(next) ?? "" : "";
+                      setAddRowDraft((d) => ({
+                        ...d,
+                        style_code: next,
+                        description: d.description.trim() ? d.description : inherited,
+                      }));
+                    }}
+                  />
+                );
+              })()}
               <input
                 type="text"
                 placeholder="Description"
