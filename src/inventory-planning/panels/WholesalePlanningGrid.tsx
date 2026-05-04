@@ -2355,6 +2355,10 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                     color: PAL.textDim,
                     fontWeight: 700,
                     fontStyle: "italic",
+                    textDecoration: "underline",
+                    textDecorationColor: `${aggBar}66`,
+                    textDecorationThickness: 1,
+                    textUnderlineOffset: 2,
                   }
                   : isChild ? { background: "rgba(255,255,255,0.015)", color: PAL.textDim }
                   : undefined
@@ -2887,6 +2891,9 @@ function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number
         textAlign: "right",
         outline: "none",
         opacity: saving ? 0.5 : 1,
+        fontStyle: "inherit",
+        textDecoration: "inherit",
+        fontWeight: "inherit",
       }}
       onFocus={(e) => { focused.current = true; e.target.select(); e.target.style.borderColor = err ? PAL.red : PAL.green; e.target.style.background = PAL.panel; }}
       onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
@@ -2946,6 +2953,12 @@ function IntCell({ value, accent, allowNegative, onSave }: {
         textAlign: "right",
         outline: "none",
         opacity: saving ? 0.5 : 1,
+        // Inherit italic + underline from the parent <tr> so aggregate
+        // rows' rolled-up styling reaches the editable Buyer / Override
+        // cells. Native inputs don't inherit these by default.
+        fontStyle: "inherit",
+        textDecoration: "inherit",
+        fontWeight: "inherit",
       }}
       onFocus={(e) => { focused.current = true; e.target.select(); e.target.style.borderColor = err ? PAL.red : accent; e.target.style.background = PAL.panel; }}
       onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
@@ -2997,12 +3010,11 @@ function UnitCostCell({ value, overridden, onSave }: {
     >
       <span
         style={{
-          color: str.trim() === "" ? PAL.textMuted : (overridden ? PAL.accent2 : PAL.text),
+          color: str.trim() === "" ? PAL.textMuted : PAL.accent2,
           fontFamily: "monospace",
           fontSize: 13,
           fontWeight: 600,
           opacity: saving ? 0.5 : 1,
-          marginRight: 1,
         }}
       >$</span>
       <input
@@ -3016,18 +3028,21 @@ function UnitCostCell({ value, overridden, onSave }: {
         placeholder="—"
         title={overridden ? "Planner override — clear to revert to ATS avg" : "Auto-filled from ATS avg cost — type to override"}
         style={{
-          width: 64,
+          width: 56,
           background: "transparent",
-          color: baseColor,
+          color: str.trim() === "" ? PAL.textMuted : (overridden ? PAL.accent2 : PAL.accent2),
           border: `1px solid ${err ? PAL.red : "transparent"}`,
           borderRadius: 4,
-          padding: "2px 4px",
+          padding: "2px 2px",
           fontFamily: "monospace",
           fontSize: 13,
-          textAlign: "right",
+          textAlign: "left",
           outline: "none",
           opacity: saving ? 0.5 : 1,
           fontStyle: overridden ? "normal" : "italic",
+          // Inherit row-level italic / underline so aggregate rows
+          // affect this input. Inputs don't inherit these by default.
+          textDecoration: "inherit",
         }}
         onFocus={(e) => { focused.current = true; e.target.select(); e.target.style.borderColor = err ? PAL.red : PAL.accent2; e.target.style.background = PAL.panel; }}
         onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
@@ -3124,8 +3139,12 @@ function SystemCell({ value, original, overriddenAt, overriddenBy, onSave }: {
         textAlign: "right",
         outline: "none",
         opacity: saving ? 0.5 : 1,
-        fontStyle: overridden ? "italic" : "normal",
-        fontWeight: overridden ? 700 : 400,
+        // Override forces italic + bold for planner-changed cells.
+        // Otherwise inherit so aggregate rows can apply their italic +
+        // underline styling without losing the override visual.
+        fontStyle: overridden ? "italic" : "inherit",
+        fontWeight: overridden ? 700 : "inherit",
+        textDecoration: "inherit",
       }}
       onFocus={(e) => { focused.current = true; e.target.select(); e.target.style.borderColor = err ? PAL.red : PAL.yellow; e.target.style.background = PAL.panel; }}
       onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : overridden ? `${PAL.yellow}66` : "transparent"; e.target.style.background = overridden ? `${PAL.yellow}11` : "transparent"; }}
