@@ -158,6 +158,17 @@ export const wholesaleRepo = {
   async insertCustomer(name: string): Promise<{ id: string; name: string }> {
     const trimmed = name.trim();
     if (!trimmed) throw new Error("insertCustomer: name required");
+    // Reuse an existing customer when the planner re-types a name
+    // already in the master. Without this the unique-name constraint
+    // returns 409 and the picker fails — even though the right
+    // answer is "just use the existing row." Match case-insensitively
+    // since the planner's spelling won't match storage casing.
+    const encoded = encodeURIComponent(trimmed.replace(/[%,]/g, " "));
+    const existing = await sbGetAll<{ id: string; name: string }>(
+      `ip_customer_master?select=id,name&name=ilike.${encoded}`,
+    ).catch(() => [] as { id: string; name: string }[]);
+    const hit = existing.find((r) => r.name.trim().toLowerCase() === trimmed.toLowerCase());
+    if (hit) return { id: hit.id, name: hit.name };
     const baseCode = trimmed
       .toUpperCase()
       .replace(/[^A-Z0-9]+/g, "-")
