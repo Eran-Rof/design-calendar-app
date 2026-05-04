@@ -167,6 +167,17 @@ export default function PlanningRunControls({
             {selected.status !== "archived" && (
               <button style={S.btnSecondary} onClick={() => setStatus("archived")}>Archive</button>
             )}
+            {/* Quick jump to the scenario manager pre-targeted at this
+                run as the base. The manager reads ?baseRunId from the
+                URL and pre-fills the New Scenario form so the planner
+                can fork and start tweaking assumptions in one click. */}
+            <a
+              href={`/planning/scenarios?baseRunId=${encodeURIComponent(selected.id)}`}
+              style={{ ...S.btnSecondary, textDecoration: "none" }}
+              title="Open Scenarios — fork this run into a what-if scenario, tune assumptions, compare to base"
+            >
+              What-if →
+            </a>
           </>
         )}
       </div>

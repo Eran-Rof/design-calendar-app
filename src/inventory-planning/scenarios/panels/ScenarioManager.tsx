@@ -71,6 +71,17 @@ export default function ScenarioManager() {
   const [showAudit, setShowAudit] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  // Optional ?baseRunId=… deep-link from the wholesale workbench's
+  // "What-if →" button. When present, auto-open the new-scenario
+  // modal with the run pre-selected so the planner lands inside the
+  // form they wanted, not on the empty scenarios list.
+  const [initialBaseRunId, setInitialBaseRunId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      return sp.get("baseRunId");
+    } catch { return null; }
+  });
 
   const selected = useMemo(() => scenarios.find((s) => s.id === selectedId) ?? null, [scenarios, selectedId]);
   const readOnly = selected ? isReadOnly(selected) : false;
@@ -124,6 +135,23 @@ export default function ScenarioManager() {
 
   useEffect(() => { void refresh(); /* eslint-disable-line */ }, []);
   useEffect(() => { void loadSelected(); /* eslint-disable-line */ }, [selectedId, tab]);
+
+  // Once runs have loaded and the deep-link's baseRunId matches an
+  // existing run, pop the New Scenario modal automatically. Strip the
+  // query param afterwards so a refresh doesn't re-open the modal.
+  useEffect(() => {
+    if (!initialBaseRunId) return;
+    if (runs.length === 0) return;
+    if (!runs.some((r) => r.id === initialBaseRunId)) return;
+    setShowNew(true);
+    if (typeof window !== "undefined" && window.history?.replaceState) {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("baseRunId");
+        window.history.replaceState({}, "", url.toString());
+      } catch { /* ignore */ }
+    }
+  }, [runs, initialBaseRunId]);
 
   async function applyAndRecompute() {
     if (!selected) return;
@@ -357,9 +385,11 @@ export default function ScenarioManager() {
       {showNew && (
         <NewScenarioModal
           runs={runs}
-          onClose={() => setShowNew(false)}
+          initialBaseRunId={initialBaseRunId}
+          onClose={() => { setShowNew(false); setInitialBaseRunId(null); }}
           onCreated={async (id) => {
             setShowNew(false);
+            setInitialBaseRunId(null);
             setSelectedId(id);
             await refresh();
             setToast({ text: "Scenario created", kind: "success" });
@@ -438,14 +468,18 @@ function ScenarioList({
 
 // ── New scenario modal ────────────────────────────────────────────────────
 function NewScenarioModal({
-  runs, onClose, onCreated, onToast,
+  runs, initialBaseRunId, onClose, onCreated, onToast,
 }: {
   runs: IpPlanningRun[];
+  initialBaseRunId?: string | null;
   onClose: () => void;
   onCreated: (id: string) => Promise<void>;
   onToast: (t: ToastMessage) => void;
 }) {
-  const [baseRunId, setBaseRunId] = useState(runs[0]?.id ?? "");
+  const [baseRunId, setBaseRunId] = useState(() => {
+    if (initialBaseRunId && runs.some((r) => r.id === initialBaseRunId)) return initialBaseRunId;
+    return runs[0]?.id ?? "";
+  });
   const [name, setName] = useState(`Scenario ${new Date().toISOString().slice(0, 10)}`);
   const [type, setType] = useState<IpScenarioType>("what_if");
   const [note, setNote] = useState("");
