@@ -127,6 +127,10 @@ interface ToolbarProps {
   // Sale / Mrgn% summed across the filtered set)
   showTotalsRow: boolean;
   setShowTotalsRow: (v: boolean) => void;
+  // Target gross margin % used as fallback when a SKU is missing SO
+  // sale prices or cost basis. 0-100, drives the totals row only.
+  generalMarginPct: number;
+  setGeneralMarginPct: (v: number) => void;
   filteredCount: number;
   lastSync: string;
 }
@@ -144,6 +148,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   collapseLevel, setCollapseLevel,
   atShip, setAtShip,
   showTotalsRow, setShowTotalsRow,
+  generalMarginPct, setGeneralMarginPct,
   filteredCount, lastSync,
 }) => (
   <div style={S.toolbar}>
@@ -325,6 +330,27 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     >
       <input type="checkbox" checked={showTotalsRow} onChange={e => setShowTotalsRow(e.target.checked)} style={{ accentColor: "#3B82F6", cursor: "pointer", width: 14, height: 14 }} />
       <span style={{ color: showTotalsRow ? "#93C5FD" : "#9CA3AF", fontSize: 12, fontWeight: showTotalsRow ? 700 : 400 }}>TOTALS</span>
+    </label>
+
+    {/* General margin % — fills in Sale / Cost when SOs / avg cost / PO cost are missing */}
+    <label
+      title="Target gross margin % used as fallback in the totals row when a SKU has no SO sale prices or no cost basis. SKUs with no SO, no avg cost, AND no PO cost are skipped (* shown next to Mrgn)."
+      style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 8, border: "1px solid #334155", background: "transparent", userSelect: "none", whiteSpace: "nowrap" }}
+    >
+      <span style={{ color: "#9CA3AF", fontSize: 12, fontWeight: 600 }}>MARGIN</span>
+      <input
+        type="number"
+        min={0}
+        max={99}
+        step={1}
+        value={generalMarginPct}
+        onChange={e => {
+          const n = parseFloat(e.target.value);
+          if (Number.isFinite(n)) setGeneralMarginPct(Math.max(0, Math.min(99, n)));
+        }}
+        style={{ width: 48, background: "#0F172A", border: "1px solid #334155", borderRadius: 4, color: "#F1F5F9", padding: "2px 6px", fontSize: 12, textAlign: "right", fontFamily: "monospace" }}
+      />
+      <span style={{ color: "#6B7280", fontSize: 12 }}>%</span>
     </label>
 
     <div style={{ color: "#6B7280", fontSize: 12, whiteSpace: "nowrap" }}>
