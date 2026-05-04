@@ -141,7 +141,7 @@ export function createInitialState(startDate: string): ATSState {
     mergeHistory: [],
     atShip: false,
     showTotalsRow: true,
-    generalMarginPct: 50,
+    generalMarginPct: 21,
     collapseLevel: "none",
     expandedGroups: [],
   };

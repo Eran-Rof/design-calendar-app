@@ -200,7 +200,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           collapseLevel={collapseLevel} setCollapseLevel={setCollapseLevel!}
           atShip={atShip} setAtShip={setAtShip}
           showTotalsRow={showTotalsRow} setShowTotalsRow={setShowTotalsRow!}
-          generalMarginPct={generalMarginPct ?? 50} setGeneralMarginPct={setGeneralMarginPct!}
+          generalMarginPct={generalMarginPct ?? 21} setGeneralMarginPct={setGeneralMarginPct!}
           onDownloadIncompleteSkus={() => exportIncompleteSkus(filtered, eventIndex)}
           filteredCount={filtered.length} lastSync={lastSync}
         />
@@ -232,7 +232,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
             hoveredCell={hoveredCell} setHoveredCell={setHoveredCell}
             todayKey={todayKey} atShip={atShip}
             showTotalsRow={showTotalsRow}
-            generalMarginPct={generalMarginPct ?? 50}
+            generalMarginPct={generalMarginPct ?? 21}
             eventIndex={eventIndex} getEventsInPeriod={getEventsInPeriod}
             ctxMenu={ctxMenu} setCtxMenu={setCtxMenu} setSummaryCtx={setSummaryCtx}
             openSummaryCtx={openSummaryCtx} handleSkuDrop={handleSkuDrop}

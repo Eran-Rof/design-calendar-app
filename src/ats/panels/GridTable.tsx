@@ -5,8 +5,8 @@ import type { ATSRow, ATSPoEvent, ATSSoEvent, CtxMenu } from "../types";
 
 // Height of the totals row at the top of the table. Used to push the
 // regular sticky header down so the two stack without overlap. Tall
-// enough to fit four stacked lines (Qty / Cost / Sale / Mrgn).
-const TOTALS_ROW_HEIGHT = 82;
+// enough to fit five stacked lines (Qty / Cost / Sale / Mrgn $ / Mrgn).
+const TOTALS_ROW_HEIGHT = 96;
 
 // Format dollars for the totals header. Whole-dollar precision keeps
 // the rows scannable when totals run into millions.
@@ -219,16 +219,24 @@ export const GridTable: React.FC<GridTableProps> = ({
     skipped: number;    // SKUs ignored due to no SO/avgCost/PO cost
   };
   const TotalsCell: React.FC<TotalsCellProps> = ({ qty, cost, sale, qtyColor, qtyPrefix, skipped }) => {
-    const margin = sale > 0 ? ((sale - cost) / sale) * 100 : 0;
+    const marginDollars = sale - cost;
+    const margin = sale > 0 ? (marginDollars / sale) * 100 : 0;
     const marginColor = !sale ? "#475569" : margin >= 30 ? "#10B981" : margin >= 10 ? "#F59E0B" : "#F87171";
-    // Two-column grid so the colons line up vertically: left column =
-    // labels (right-aligned), right column = values (right-aligned).
+    const dollarColor = !sale ? "#475569" : marginDollars >= 0 ? "#10B981" : "#F87171";
     const labelStyle: React.CSSProperties = { color: "#6B7280", fontSize: 10, textAlign: "right" };
     const valueStyle: React.CSSProperties = { textAlign: "right", fontFamily: "monospace" };
-    const mrgnLabel = skipped > 0 ? "Mrgn:*" : "Mrgn:";
-    const mrgnTitle = skipped > 0
+    const skipTitle = skipped > 0
       ? `${skipped} SKU${skipped === 1 ? "" : "s"} skipped — no SO sale price, no avg cost, no PO cost`
       : undefined;
+    // Renders a label that appends a red * when the cell had to
+    // skip SKUs. Keeps colon alignment because the * sits inside
+    // the label cell to the right of the colon.
+    const Label: React.FC<{ children: string }> = ({ children }) => (
+      <span style={labelStyle} title={skipTitle}>
+        {children}
+        {skipped > 0 && <span style={{ color: "#EF4444", fontWeight: 700 }}>*</span>}
+      </span>
+    );
     return (
       <div style={{ display: "grid", gridTemplateColumns: "auto auto", columnGap: 4, rowGap: 1, justifyContent: "end", alignItems: "baseline", fontFamily: "monospace", lineHeight: 1.2 }}>
         <span style={labelStyle}>Qty:</span>
@@ -239,8 +247,12 @@ export const GridTable: React.FC<GridTableProps> = ({
         <span style={{ ...valueStyle, color: "#94A3B8", fontWeight: 600, fontSize: 11 }}>{fmtUSD(cost)}</span>
         <span style={labelStyle}>Sale:</span>
         <span style={{ ...valueStyle, color: "#3B82F6", fontWeight: 600, fontSize: 11 }}>{fmtUSD(sale)}</span>
-        <span style={labelStyle} title={mrgnTitle}>{mrgnLabel}</span>
-        <span style={{ ...valueStyle, color: marginColor, fontWeight: 600, fontSize: 11 }} title={mrgnTitle}>
+        <Label>Mrgn $:</Label>
+        <span style={{ ...valueStyle, color: dollarColor, fontWeight: 600, fontSize: 11 }} title={skipTitle}>
+          {sale > 0 ? fmtUSD(marginDollars) : "—"}
+        </span>
+        <Label>Mrgn:</Label>
+        <span style={{ ...valueStyle, color: marginColor, fontWeight: 600, fontSize: 11 }} title={skipTitle}>
           {sale > 0 ? `${margin.toFixed(1)}%` : "—"}
         </span>
       </div>
