@@ -191,6 +191,12 @@ export default function FutureDemandRequestsPanel({
         />
       )}
 
+      {/* Hide the filter / search row while the new-request form is
+          open — the filter dropdowns visually compete with the form's
+          own pickers (same component, same layout) and the planner
+          can't tell them apart at a glance. The row reappears as soon
+          as the form is closed (Save success or Cancel). */}
+      {!showForm && (
       <div style={{ ...S.toolbar, flexWrap: "wrap" }}>
         <MultiSelectDropdown
           compact
@@ -267,6 +273,7 @@ export default function FutureDemandRequestsPanel({
           {visible.length} of {requests.length}
         </span>
       </div>
+      )}
 
       <div style={S.tableWrap}>
         <table style={S.table}>
