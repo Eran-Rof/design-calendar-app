@@ -87,31 +87,35 @@ export default function FutureDemandRequestsPanel({
     }
     return Array.from(set).sort();
   }, [items, filterCategory]);
+  // TBD always rides at the top of style / color / description option
+  // lists — same convention the wholesale grid's pickers use for the
+  // catch-all stock-buy slot. Lets the planner record a request even
+  // when the variant hasn't been added to the master yet.
   const styleNames = useMemo(() => {
     const set = new Set<string>();
     for (const i of items) {
       if (filterCategory !== "all" && readGroupName(i) !== filterCategory) continue;
       if (filterSubCat !== "all" && readSubCategoryName(i) !== filterSubCat) continue;
       const v = i.style_code ?? i.sku_code;
-      if (v) set.add(v);
+      if (v && v.toUpperCase() !== "TBD") set.add(v);
     }
-    return Array.from(set).sort();
+    return ["TBD", ...Array.from(set).sort()];
   }, [items, filterCategory, filterSubCat]);
   const colorNames = useMemo(() => {
     const set = new Set<string>();
     for (const i of items) {
-      if (filterStyle !== "all" && (i.style_code ?? i.sku_code) !== filterStyle) continue;
-      if (i.color) set.add(i.color);
+      if (filterStyle !== "all" && filterStyle !== "TBD" && (i.style_code ?? i.sku_code) !== filterStyle) continue;
+      if (i.color && i.color.toUpperCase() !== "TBD") set.add(i.color);
     }
-    return Array.from(set).sort();
+    return ["TBD", ...Array.from(set).sort()];
   }, [items, filterStyle]);
   const descriptionNames = useMemo(() => {
     const set = new Set<string>();
     for (const i of items) {
-      if (filterStyle !== "all" && (i.style_code ?? i.sku_code) !== filterStyle) continue;
-      if (i.description) set.add(i.description);
+      if (filterStyle !== "all" && filterStyle !== "TBD" && (i.style_code ?? i.sku_code) !== filterStyle) continue;
+      if (i.description && i.description.toUpperCase() !== "TBD") set.add(i.description);
     }
-    return Array.from(set).sort();
+    return ["TBD", ...Array.from(set).sort()];
   }, [items, filterStyle]);
 
   // ── Filter pass ────────────────────────────────────────────────────
@@ -384,31 +388,36 @@ function RequestForm({
     }
     return Array.from(set).sort().map((s) => ({ value: s, label: s }));
   }, [items, groupName]);
+  // TBD pinned to the top of every variant-level picker so the planner
+  // can place a request even before the master has the SKU. Picking
+  // TBD on Style auto-fills Color + Description to TBD too (handled in
+  // the picker's onChange below) since TBD style implies an unknown
+  // variant.
   const styleOptions = useMemo(() => {
     const set = new Set<string>();
     for (const i of items) {
       if (groupName && readGroupName(i) !== groupName) continue;
       if (subCatName && readSubCategoryName(i) !== subCatName) continue;
       const v = i.style_code ?? i.sku_code;
-      if (v) set.add(v);
+      if (v && v.toUpperCase() !== "TBD") set.add(v);
     }
-    return Array.from(set).sort().map((s) => ({ value: s, label: s }));
+    return [{ value: "TBD", label: "TBD" }, ...Array.from(set).sort().map((s) => ({ value: s, label: s }))];
   }, [items, groupName, subCatName]);
   const colorOptions = useMemo(() => {
     const set = new Set<string>();
     for (const i of items) {
-      if (styleCode && (i.style_code ?? i.sku_code) !== styleCode) continue;
-      if (i.color) set.add(i.color);
+      if (styleCode && styleCode !== "TBD" && (i.style_code ?? i.sku_code) !== styleCode) continue;
+      if (i.color && i.color.toUpperCase() !== "TBD") set.add(i.color);
     }
-    return Array.from(set).sort().map((c) => ({ value: c, label: c }));
+    return [{ value: "TBD", label: "TBD" }, ...Array.from(set).sort().map((c) => ({ value: c, label: c }))];
   }, [items, styleCode]);
   const descriptionOptions = useMemo(() => {
     const set = new Set<string>();
     for (const i of items) {
-      if (styleCode && (i.style_code ?? i.sku_code) !== styleCode) continue;
-      if (i.description) set.add(i.description);
+      if (styleCode && styleCode !== "TBD" && (i.style_code ?? i.sku_code) !== styleCode) continue;
+      if (i.description && i.description.toUpperCase() !== "TBD") set.add(i.description);
     }
-    return Array.from(set).sort().map((d) => ({ value: d, label: d }));
+    return [{ value: "TBD", label: "TBD" }, ...Array.from(set).sort().map((d) => ({ value: d, label: d }))];
   }, [items, styleCode]);
   // Period options — next 12 months from today. The planner picks one
   // or more YYYY-MM codes; each creates a separate request row.
@@ -426,7 +435,14 @@ function RequestForm({
   // Resolve a (style, color) pair to the FIRST matching sku_id from
   // the master. Same convention the wholesale grid uses to map a NEW
   // style → variant id when persisting TBD rows.
+  // When style or color is TBD, fall back to the first item in the
+  // master (any sku_id satisfies the FK) and prepend a TBD marker to
+  // the note so the request is still persistable while clearly tagged
+  // as awaiting a real variant.
   function resolveSkuId(style: string, color: string): string | null {
+    if (style.toUpperCase() === "TBD" || color.toUpperCase() === "TBD") {
+      return items[0]?.id ?? null;
+    }
     for (const i of items) {
       if ((i.style_code ?? i.sku_code) !== style) continue;
       if (i.color === color) return i.id;
@@ -462,6 +478,13 @@ function RequestForm({
       for (const c of combos) {
         const period = monthOf(`${c.period}-01`);
         const item = items.find((i) => i.id === c.skuId);
+        // Tag TBD requests in the note so the table makes their
+        // placeholder nature obvious despite the fallback sku_id FK.
+        const isTbd = styleCode.toUpperCase() === "TBD" || c.color.toUpperCase() === "TBD";
+        const noteParts: string[] = [];
+        if (isTbd) noteParts.push(`TBD ${styleCode}/${c.color}${description ? `/${description}` : ""}`);
+        if (note.trim()) noteParts.push(note.trim());
+        const noteOut = noteParts.length > 0 ? noteParts.join(" — ") : null;
         await wholesaleRepo.createRequest({
           customer_id: customerId,
           category_id: item?.category_id ?? null,
@@ -472,7 +495,7 @@ function RequestForm({
           confidence_level: confidence,
           request_type: type,
           request_status: "open",
-          note: note.trim() || null,
+          note: noteOut,
           created_by: currentUser ?? null,
         });
         written++;
@@ -539,7 +562,22 @@ function RequestForm({
         compact
         singleSelect
         selected={styleCode ? [styleCode] : []}
-        onChange={(next) => { setStyleCode(next[0] ?? ""); setColorCodes([]); setDescription(""); }}
+        onChange={(next) => {
+          const picked = next[0] ?? "";
+          setStyleCode(picked);
+          // Auto-fill Color + Description to TBD when Style=TBD —
+          // the planner can't drill into a variant of an unknown
+          // style, so keeping these in sync removes a redundant
+          // pair of clicks (and avoids leaving Color/Desc empty
+          // which would block the save).
+          if (picked === "TBD") {
+            setColorCodes(["TBD"]);
+            setDescription("TBD");
+          } else {
+            setColorCodes([]);
+            setDescription("");
+          }
+        }}
         allLabel="— pick —"
         placeholder="Search styles…"
         options={styleOptions}
