@@ -1710,10 +1710,12 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           text-decoration-color: currentColor !important;
           font-size: inherit;
         }
+        /* The td's text-decoration draws an underline below the line of
+           inline content, which already passes visually under the input
+           box — no need for an extra border-bottom on the input itself
+           (that produced a second stacked line on Buyer / Override / Buy). */
         tr[data-agg="1"] input {
-          text-decoration: none !important;
-          border-bottom: 1px solid currentColor !important;
-          padding-bottom: 1px !important;
+          border-bottom: none !important;
         }
       `}</style>
       {pendingConfirm && (
