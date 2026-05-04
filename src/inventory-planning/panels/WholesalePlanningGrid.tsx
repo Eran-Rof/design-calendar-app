@@ -2354,6 +2354,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                     boxShadow: `inset 3px 0 0 ${aggBar}`,
                     color: PAL.textDim,
                     fontWeight: 700,
+                    fontStyle: "italic",
                   }
                   : isChild ? { background: "rgba(255,255,255,0.015)", color: PAL.textDim }
                   : undefined
@@ -2996,10 +2997,12 @@ function UnitCostCell({ value, overridden, onSave }: {
     >
       <span
         style={{
-          color: str.trim() === "" ? PAL.textMuted : baseColor,
+          color: str.trim() === "" ? PAL.textMuted : (overridden ? PAL.accent2 : PAL.text),
           fontFamily: "monospace",
           fontSize: 13,
+          fontWeight: 600,
           opacity: saving ? 0.5 : 1,
+          marginRight: 1,
         }}
       >$</span>
       <input
