@@ -2114,6 +2114,11 @@ export default function WholesalePlanningWorkbench() {
           watch={["xoro_sales_history", "xoro_inventory", "wholesale_forecast"]}
           dismissKey="wholesale_workbench"
         />
+        {/* Xoro sales-history ingestion controls — only relevant on the
+            planning grid. The Future Demand Requests tab has its own
+            sales-history readout (per Cat / Sub Cat / Style) so this
+            ingestion bar stays hidden there to remove the visual noise. */}
+        {tab === "grid" && (
         <div style={{ ...S.card, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", position: "relative" }}>
           <CollapseChevron
             collapsed={salesHistCollapsed}
@@ -2167,6 +2172,7 @@ export default function WholesalePlanningWorkbench() {
           </span>
           </>)}
         </div>
+        )}
 
         <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
           <TabButton active={tab === "grid"} onClick={() => setTab("grid")}>Planning grid</TabButton>
