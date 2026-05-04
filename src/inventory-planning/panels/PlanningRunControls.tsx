@@ -36,11 +36,35 @@ export default function PlanningRunControls({
   const [showNew, setShowNew] = useState(false);
   const [building, setBuilding] = useState(false);
   const [progress, setProgress] = useState<BuildProgress | null>(null);
+  const [pendingRebuildConfirm, setPendingRebuildConfirm] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const selected = runs.find((r) => r.id === selectedRunId) ?? null;
 
   const filterActive = !!buildFilter && Object.values(buildFilter).some((v) => v != null && v !== "");
+
+  // Treat a run as "already built" when its updated_at is meaningfully
+  // newer than created_at — the build pipeline writes forecast rows
+  // and bumps updated_at, so a non-trivial gap means re-building will
+  // overwrite existing data. New runs start with updated_at == created_at
+  // (give or take milliseconds), so the >2s threshold avoids spurious
+  // warnings on the very first build right after a run is created.
+  const hasExistingBuild = !!selected
+    && !!selected.updated_at
+    && new Date(selected.updated_at).getTime() - new Date(selected.created_at).getTime() > 2000;
+
+  function onBuildClick() {
+    if (!selected) { onToast({ text: "Pick a run first", kind: "error" }); return; }
+    if (building) {
+      onToast({ text: "A build is already in progress — wait for it to finish or cancel.", kind: "info" });
+      return;
+    }
+    if (hasExistingBuild) {
+      setPendingRebuildConfirm(true);
+      return;
+    }
+    void buildForecast();
+  }
 
   async function buildForecast() {
     if (!selected) { onToast({ text: "Pick a run first", kind: "error" }); return; }
@@ -113,7 +137,7 @@ export default function PlanningRunControls({
                   ...S.btnPrimary,
                   ...(filterActive ? { background: PAL.yellow, color: "#111" } : {}),
                 }}
-                onClick={buildForecast}
+                onClick={onBuildClick}
                 disabled={building}
                 title={filterActive
                   ? `Build only the rows matching the current grid filters: ${[
@@ -165,6 +189,42 @@ export default function PlanningRunControls({
                        onToast({ text: "Planning run created", kind: "success" });
                        await onChange();
                      }} />
+      )}
+      {pendingRebuildConfirm && selected && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setPendingRebuildConfirm(false); }}
+        >
+          <div style={{
+            background: PAL.panel, border: `1px solid ${PAL.border}`, borderRadius: 10,
+            padding: 18, minWidth: 360, maxWidth: 480, boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ background: PAL.yellow, color: "#000", borderRadius: 3, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>WARNING</span>
+              <strong style={{ color: PAL.text, fontSize: 14 }}>Rebuild this run?</strong>
+            </div>
+            <div style={{ color: PAL.textDim, fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>
+              <strong style={{ color: PAL.text }}>{selected.name}</strong> already has a forecast built (last updated {formatDate(selected.updated_at)}). Re-building will overwrite every system-computed forecast row in the run.
+              <div style={{ marginTop: 8, color: PAL.textMuted, fontSize: 12 }}>
+                Planner overrides (Buyer / Override) and TBD stock-buy rows are preserved.
+              </div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button style={S.btnSecondary} onClick={() => setPendingRebuildConfirm(false)}>Cancel</button>
+              <button
+                style={{ ...S.btnPrimary, background: PAL.yellow, color: "#111" }}
+                onClick={() => { setPendingRebuildConfirm(false); void buildForecast(); }}
+              >
+                Rebuild anyway
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
