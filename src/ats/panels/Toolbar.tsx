@@ -131,6 +131,10 @@ interface ToolbarProps {
   // sale prices or cost basis. 0-100, drives the totals row only.
   generalMarginPct: number;
   setGeneralMarginPct: (v: number) => void;
+  // Excel download of styles the totals row had to skip (no SO, no
+  // avg cost, no PO cost). renderPanel computes the data and runs
+  // the export — Toolbar just renders the button.
+  onDownloadIncompleteSkus: () => void;
   filteredCount: number;
   lastSync: string;
 }
@@ -149,6 +153,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   atShip, setAtShip,
   showTotalsRow, setShowTotalsRow,
   generalMarginPct, setGeneralMarginPct,
+  onDownloadIncompleteSkus,
   filteredCount, lastSync,
 }) => (
   <div style={S.toolbar}>
@@ -339,19 +344,31 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     >
       <span style={{ color: "#9CA3AF", fontSize: 12, fontWeight: 600 }}>MARGIN</span>
       <input
-        type="number"
-        min={0}
-        max={99}
-        step={1}
-        value={generalMarginPct}
+        type="text"
+        inputMode="decimal"
+        value={String(generalMarginPct)}
         onChange={e => {
-          const n = parseFloat(e.target.value);
+          // Allow only digits + an optional decimal point. Strip
+          // anything else so the user can type or paste freely.
+          const raw = e.target.value.replace(/[^0-9.]/g, "");
+          if (raw === "") { setGeneralMarginPct(0); return; }
+          const n = parseFloat(raw);
           if (Number.isFinite(n)) setGeneralMarginPct(Math.max(0, Math.min(99, n)));
         }}
-        style={{ width: 48, background: "#0F172A", border: "1px solid #334155", borderRadius: 4, color: "#F1F5F9", padding: "2px 6px", fontSize: 12, textAlign: "right", fontFamily: "monospace" }}
+        style={{ width: 44, background: "#0F172A", border: "1px solid #334155", borderRadius: 4, color: "#F1F5F9", padding: "2px 6px", fontSize: 12, textAlign: "right", fontFamily: "monospace" }}
       />
       <span style={{ color: "#6B7280", fontSize: 12 }}>%</span>
     </label>
+
+    {/* Download styles the totals row had to skip (no SO, no avg cost, no PO cost) */}
+    <button
+      type="button"
+      onClick={onDownloadIncompleteSkus}
+      title="Download styles with no open SOs, no avg cost, and no PO unit cost — these are the SKUs the Mrgn:* asterisk refers to"
+      style={{ background: "transparent", border: "1px solid #334155", color: "#94A3B8", borderRadius: 8, padding: "4px 10px", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" }}
+    >
+      Mrgn:* xls
+    </button>
 
     <div style={{ color: "#6B7280", fontSize: 12, whiteSpace: "nowrap" }}>
       {filteredCount.toLocaleString()} SKUs
