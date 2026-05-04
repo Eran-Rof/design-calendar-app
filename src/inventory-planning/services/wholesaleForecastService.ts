@@ -380,13 +380,9 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
   checkAbort(signal);
   onProgress?.({ phase: "computing_recs", label: "Generating recommendations", current: 0, total: relevantPersisted.length });
   const horizon = monthsBetween(run.horizon_start, run.horizon_end);
-  // Pass openSos so the rolling supply deducts SO commitments in their
-  // ship-month instead of taking the full snapshot qty_committed off
-  // period 1 (Phase 2 SO-by-month accuracy fix). Lines without
-  // ship_date apply to period 1 as a conservative fallback.
   const supplyBySkuPeriod = buildRollingWholesaleSupply(
     relevantPersisted,
-    { inventorySnapshots: inv, openPos: pos, openSos, receipts },
+    { inventorySnapshots: inv, openPos: pos, receipts },
     horizon,
   );
   const asOf = new Date().toISOString().slice(0, 10);

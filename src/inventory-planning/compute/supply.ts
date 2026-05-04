@@ -18,18 +18,11 @@
 // shared wholesale+ecom is explicitly Phase 2+.
 
 import type { IpIsoDate } from "../types/entities";
-import type { IpOpenPoRow, IpOpenSoRow, IpReceiptRow, IpInventorySnapshot } from "../types/entities";
+import type { IpOpenPoRow, IpReceiptRow, IpInventorySnapshot } from "../types/entities";
 
 export interface SupplyInputs {
   inventorySnapshots: IpInventorySnapshot[]; // latest-per-sku is enough
   openPos: IpOpenPoRow[];
-  // Open SO commitments. Rolling supply buckets each SO into the period
-  // its ship_date falls in (instead of all hitting period 1 like the
-  // snapshot's qty_committed aggregate did). When openSos is missing
-  // or omitted, the rolling supply falls back to qty_committed at
-  // period 1 — matches the previous behavior so a missing feed doesn't
-  // silently lose the commitment.
-  openSos?: IpOpenSoRow[];
   receipts: IpReceiptRow[];
 }
 
@@ -129,38 +122,6 @@ export function receiptsDueInPeriod(
   return total;
 }
 
-// Open SO commitments whose ship_date falls in [periodStart, periodEnd].
-// Drives the rolling supply: each period only sheds the SO commitments
-// actually shipping in that period instead of taking the full
-// qty_committed snapshot off month 1. SOs without a ship_date can't be
-// bucketed — caller decides what to do with them (rolling supply
-// applies them to the FIRST period as a fallback so no SO is lost).
-export function openSoQtyBySkuPeriod(
-  openSos: IpOpenSoRow[],
-  periodStart: IpIsoDate,
-  periodEnd: IpIsoDate,
-): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const so of openSos) {
-    if (!so.ship_date) continue;
-    if (so.ship_date < periodStart || so.ship_date > periodEnd) continue;
-    out.set(so.sku_id, (out.get(so.sku_id) ?? 0) + (so.qty_open ?? 0));
-  }
-  return out;
-}
-
-// SOs with no ship_date — bucketed only by sku, applied to month 1 as a
-// fallback when openSos is provided but some lines lack a date. Without
-// this, those commitments would be silently dropped.
-export function openSoQtyBySkuUndated(openSos: IpOpenSoRow[]): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const so of openSos) {
-    if (so.ship_date) continue;
-    out.set(so.sku_id, (out.get(so.sku_id) ?? 0) + (so.qty_open ?? 0));
-  }
-  return out;
-}
-
 // Past actual receipts that landed in [periodStart, periodEnd]. Display
 // only — does NOT feed supply math (those qtys are already in on_hand).
 export function historicalReceiptsInPeriod(
@@ -234,59 +195,22 @@ export function buildRollingWholesaleSupply(
     buyByGrain.set(k, Math.max(buyByGrain.get(k) ?? 0, f.planned_buy_qty));
   }
 
-  // SO commitments bucketed by (sku, period). Built once when openSos
-  // is provided so the per-period deduction inside the rolling loop
-  // doesn't re-walk the SO array. Falls back to the snapshot
-  // qty_committed aggregate (committedMap) when openSos isn't provided
-  // — matches the previous "all hits month 1" behavior so a missing
-  // feed doesn't silently lose the commitments.
-  const useDatedSos = !!inputs.openSos;
-  const datedSoMap = new Map<string, number>();
-  if (useDatedSos) {
-    for (const p of periods) {
-      const m = openSoQtyBySkuPeriod(inputs.openSos!, p.period_start, p.period_end);
-      for (const [sku, qty] of m) {
-        datedSoMap.set(`${sku}:${p.period_start}`, qty);
-      }
-    }
-  }
-  // Undated SOs (ship_date missing) — applied to period 1 so the
-  // commitment isn't silently dropped from the math. Surfaces as a data-
-  // quality issue elsewhere; here we just keep the math conservative.
-  const undatedSoMap = useDatedSos ? openSoQtyBySkuUndated(inputs.openSos!) : new Map<string, number>();
-
   const skuIds = new Set(forecasts.map((f) => f.sku_id));
   const out = new Map<string, PeriodSupply>();
 
   for (const skuId of skuIds) {
     const on_hand_qty = onHandMap.get(skuId) ?? 0;
     const on_po_qty = onPoMap.get(skuId) ?? 0;
-    // Period 1 starting balance:
-    // - Dated-SO mode: on_hand minus only the period 1 SO ship-out
-    //   plus any undated SOs (conservative: assume they ship soon).
-    // - Snapshot mode (legacy / no openSos feed): subtract the whole
-    //   qty_committed snapshot from period 1, matching previous
-    //   behavior.
-    let rolling: number;
-    if (useDatedSos) {
-      rolling = on_hand_qty;
-    } else {
-      rolling = Math.max(0, on_hand_qty - (committedMap.get(skuId) ?? 0));
-    }
+    let rolling = Math.max(0, on_hand_qty - (committedMap.get(skuId) ?? 0));
 
-    for (let i = 0; i < periods.length; i++) {
-      const p = periods[i];
+    for (const p of periods) {
       const receipts_due_qty = receiptsDueInPeriod(inputs, skuId, p.period_start, p.period_end);
       const planned_buy = buyByGrain.get(`${skuId}:${p.period_start}`) ?? 0;
       const beginning_balance_qty = rolling;
       const available_supply_qty = rolling + receipts_due_qty + planned_buy;
       out.set(`${skuId}:${p.period_start}`, { on_hand_qty, beginning_balance_qty, on_po_qty, receipts_due_qty, available_supply_qty });
       const demand = demandByGrain.get(`${skuId}:${p.period_start}`) ?? 0;
-      const datedSoForPeriod = useDatedSos ? (datedSoMap.get(`${skuId}:${p.period_start}`) ?? 0) : 0;
-      // Undated SOs only deplete in period 1 — they're our best guess
-      // when ship_date is missing.
-      const undatedSoForPeriod = (useDatedSos && i === 0) ? (undatedSoMap.get(skuId) ?? 0) : 0;
-      rolling = Math.max(0, available_supply_qty - demand - datedSoForPeriod - undatedSoForPeriod);
+      rolling = Math.max(0, available_supply_qty - demand);
     }
   }
 

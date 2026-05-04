@@ -1,25 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
   applyRollingPool,
-  buildRollingWholesaleSupply,
   historicalReceiptsInPeriod,
   latestOnHandBySku,
   openPoQtyBySku,
   openPoQtyBySkuPeriod,
-  openSoQtyBySkuPeriod,
   receiptsDueInPeriod,
   supplyForPeriod,
 } from "../compute/supply";
-import type { IpInventorySnapshot, IpOpenPoRow, IpOpenSoRow, IpReceiptRow } from "../types/entities";
-
-function so(p: Partial<IpOpenSoRow>): IpOpenSoRow {
-  return {
-    sku_id: "sku-a", customer_id: null, customer_name: null, so_number: "SO-1",
-    ship_date: null, cancel_date: null, qty_ordered: 0, qty_shipped: 0, qty_open: 0,
-    unit_price: null, currency: null, status: null, store: null, source: "xoro",
-    source_line_key: "k", last_seen_at: "2026-04-01T00:00:00Z", ...p,
-  };
-}
+import type { IpInventorySnapshot, IpOpenPoRow, IpReceiptRow } from "../types/entities";
 
 function snap(p: Partial<IpInventorySnapshot>): IpInventorySnapshot {
   return {
@@ -217,79 +206,6 @@ describe("supply compute", () => {
 
     it("returns an empty array for empty input", () => {
       expect(applyRollingPool([], 100)).toEqual([]);
-    });
-  });
-
-  describe("openSoQtyBySkuPeriod", () => {
-    it("buckets open SOs by ship_date", () => {
-      const out = openSoQtyBySkuPeriod(
-        [
-          so({ sku_id: "a", ship_date: "2026-06-15", qty_open: 30 }),
-          so({ sku_id: "a", ship_date: "2026-06-30", qty_open: 20 }),
-          so({ sku_id: "a", ship_date: "2026-07-01", qty_open: 999 }), // outside
-        ],
-        "2026-06-01",
-        "2026-06-30",
-      );
-      expect(out.get("a")).toBe(50);
-    });
-
-    it("excludes SOs with no ship_date", () => {
-      const out = openSoQtyBySkuPeriod(
-        [so({ sku_id: "a", ship_date: null, qty_open: 100 })],
-        "2026-06-01",
-        "2026-06-30",
-      );
-      expect(out.get("a")).toBeUndefined();
-    });
-  });
-
-  describe("buildRollingWholesaleSupply — SO-by-month bucketing", () => {
-    const periods = [
-      { period_start: "2026-04-01", period_end: "2026-04-30" },
-      { period_start: "2026-05-01", period_end: "2026-05-31" },
-      { period_start: "2026-06-01", period_end: "2026-06-30" },
-    ] as const;
-    const baseInputs = (extra: { openSos?: IpOpenSoRow[] } = {}) => ({
-      inventorySnapshots: [snap({ sku_id: "a", qty_on_hand: 100, qty_committed: 60 })],
-      openPos: [],
-      receipts: [],
-      ...extra,
-    });
-    const forecasts = [
-      { sku_id: "a", period_start: "2026-04-01", final_forecast_qty: 0 },
-      { sku_id: "a", period_start: "2026-05-01", final_forecast_qty: 0 },
-      { sku_id: "a", period_start: "2026-06-01", final_forecast_qty: 0 },
-    ];
-
-    it("legacy mode (no openSos) deducts qty_committed from period 1 only", () => {
-      const out = buildRollingWholesaleSupply(forecasts, baseInputs(), [...periods]);
-      // 100 on_hand − 60 committed = 40 starts period 1 and rolls forward
-      expect(out.get("a:2026-04-01")?.beginning_balance_qty).toBe(40);
-      expect(out.get("a:2026-05-01")?.beginning_balance_qty).toBe(40);
-      expect(out.get("a:2026-06-01")?.beginning_balance_qty).toBe(40);
-    });
-
-    it("dated SOs only deduct from their ship-month, not month 1", () => {
-      const out = buildRollingWholesaleSupply(forecasts, baseInputs({
-        openSos: [
-          so({ sku_id: "a", ship_date: "2026-04-15", qty_open: 10 }),
-          so({ sku_id: "a", ship_date: "2026-05-20", qty_open: 30 }),
-          so({ sku_id: "a", ship_date: "2026-06-10", qty_open: 20 }),
-        ],
-      }), [...periods]);
-      expect(out.get("a:2026-04-01")?.beginning_balance_qty).toBe(100); // full on_hand at start
-      expect(out.get("a:2026-05-01")?.beginning_balance_qty).toBe(90);  // 100 − 10 ship-out in April
-      expect(out.get("a:2026-06-01")?.beginning_balance_qty).toBe(60);  // 90 − 30 in May
-    });
-
-    it("undated SOs apply to period 1 as a fallback so commitment isn't lost", () => {
-      const out = buildRollingWholesaleSupply(forecasts, baseInputs({
-        openSos: [so({ sku_id: "a", ship_date: null, qty_open: 25 })],
-      }), [...periods]);
-      expect(out.get("a:2026-04-01")?.beginning_balance_qty).toBe(100);
-      expect(out.get("a:2026-05-01")?.beginning_balance_qty).toBe(75); // 100 − 25 undated
-      expect(out.get("a:2026-06-01")?.beginning_balance_qty).toBe(75);
     });
   });
 });
