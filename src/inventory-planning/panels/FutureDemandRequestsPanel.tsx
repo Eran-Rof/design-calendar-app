@@ -354,7 +354,25 @@ export default function FutureDemandRequestsPanel({
                   <td style={{ ...S.td, color: PAL.textDim, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={descDisp}>
                     {descDisp}
                   </td>
-                  <td style={S.tdNum}>{formatQty(r.requested_qty)}</td>
+                  <td style={{ ...S.tdNum, padding: "0 4px" }} onClick={(e) => e.stopPropagation()}>
+                    <QtyCell
+                      value={r.requested_qty}
+                      busy={busyId === r.id}
+                      onSave={async (next) => {
+                        if (next === r.requested_qty) return;
+                        setBusyId(r.id);
+                        try {
+                          await wholesaleRepo.updateRequest(r.id, { requested_qty: next });
+                          await onChange();
+                          onToast({ text: `Qty updated to ${next.toLocaleString()}`, kind: "success" });
+                        } catch (e) {
+                          onToast({ text: `Update failed — ${e instanceof Error ? e.message : String(e)}`, kind: "error" });
+                        } finally {
+                          setBusyId(null);
+                        }
+                      }}
+                    />
+                  </td>
                   <td style={S.td}>{r.request_type}</td>
                   <td style={S.td}>{r.confidence_level}</td>
                   <td style={S.td}>{r.request_status}</td>
@@ -415,6 +433,11 @@ function RequestForm({
   const [styleCode, setStyleCode] = useState<string>("");
   const [description, setDescription] = useState<string>("");
   const [colorCodes, setColorCodes] = useState<string[]>([]);
+  // When TBD is among the picked colors, the planner often wants
+  // multiple TBD rows reserved (e.g. 3 unspecified colorways for a
+  // future drop). The form prompts for the count and the save loop
+  // emits that many TBD entries per period.
+  const [tbdColorCount, setTbdColorCount] = useState<number>(1);
   // Multi-select periods. Empty = single fallback (the current month).
   // Each picked YYYY-MM creates one request row.
   const [periodCodes, setPeriodCodes] = useState<string[]>([]);
@@ -457,11 +480,21 @@ function RequestForm({
   const colorOptions = useMemo(() => {
     const set = new Set<string>();
     for (const i of items) {
-      if (styleCode && styleCode !== "TBD" && (i.style_code ?? i.sku_code) !== styleCode) continue;
+      // Scope cascade: prefer style narrowing when picked, else
+      // sub-cat, else cat, else every color in the master. Without
+      // this fallback the picker collapsed to "TBD + one color"
+      // whenever a style without a clear color set was chosen.
+      if (styleCode && styleCode !== "TBD") {
+        if ((i.style_code ?? i.sku_code) !== styleCode) continue;
+      } else if (subCatName) {
+        if (readSubCategoryName(i) !== subCatName) continue;
+      } else if (groupName) {
+        if (readGroupName(i) !== groupName) continue;
+      }
       if (i.color && i.color.toUpperCase() !== "TBD") set.add(i.color);
     }
     return [{ value: "TBD", label: "TBD" }, ...Array.from(set).sort().map((c) => ({ value: c, label: c }))];
-  }, [items, styleCode]);
+  }, [items, styleCode, subCatName, groupName]);
   const descriptionOptions = useMemo(() => {
     const set = new Set<string>();
     for (const i of items) {
@@ -510,13 +543,19 @@ function RequestForm({
     if (!Number.isFinite(qn) || qn <= 0)                { onToast({ text: "Qty must be a positive number", kind: "error" }); return; }
 
     // Pre-resolve every (color × period) combination's sku_id so we
-    // fail fast if the master is missing any of them.
+    // fail fast if the master is missing any of them. TBD colors are
+    // expanded by tbdColorCount so the planner can reserve N
+    // unspecified colorways per period in one save.
     const combos: Array<{ skuId: string; color: string; period: string }> = [];
     const missing: string[] = [];
     for (const color of colorCodes) {
       const skuId = resolveSkuId(styleCode, color);
       if (!skuId) { missing.push(`${styleCode}-${color}`); continue; }
-      for (const periodCode of periodCodes) combos.push({ skuId, color, period: periodCode });
+      const isTbdColor = color.toUpperCase() === "TBD";
+      const repeat = isTbdColor ? Math.max(1, Math.round(tbdColorCount)) : 1;
+      for (const periodCode of periodCodes) {
+        for (let n = 0; n < repeat; n++) combos.push({ skuId, color, period: periodCode });
+      }
     }
     if (missing.length > 0) {
       onToast({ text: `No items found for: ${missing.join(", ")}. Check the item master.`, kind: "error" });
@@ -575,7 +614,13 @@ function RequestForm({
     }
   }
 
-  const totalRows = colorCodes.length * periodCodes.length;
+  // Account for the TBD multiplier when previewing the row count.
+  const totalRows = colorCodes.reduce((acc, c) => {
+    const isTbd = c.toUpperCase() === "TBD";
+    const repeat = isTbd ? Math.max(1, Math.round(tbdColorCount)) : 1;
+    return acc + repeat;
+  }, 0) * periodCodes.length;
+  const tbdSelected = colorCodes.some((c) => c.toUpperCase() === "TBD");
 
   return (
     <div style={{
@@ -669,8 +714,25 @@ function RequestForm({
         allLabel="Colors"
         placeholder="Search colors…"
         options={colorOptions}
-        title="Pick one or more colors. Each color × period combo creates a row."
+        title="Pick one or more colors. Each color × period combo creates a row. TBD multiplies — see TBD rows control."
       />
+      {tbdSelected && (
+        <>
+          <span style={{ color: PAL.yellow, fontSize: 11 }}>TBD rows:</span>
+          <input
+            type="number"
+            min={1}
+            max={50}
+            value={tbdColorCount}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              if (Number.isFinite(n) && n >= 1) setTbdColorCount(Math.min(50, Math.round(n)));
+            }}
+            style={{ ...S.input, width: 60, fontSize: 12, padding: "4px 6px", textAlign: "right", fontFamily: "monospace", borderColor: PAL.yellow }}
+            title="How many TBD-color rows to create per period. Each TBD row is a placeholder for an unspecified colorway."
+          />
+        </>
+      )}
       <span style={{ color: PAL.textMuted, fontSize: 11 }}>Periods:</span>
       <MultiSelectDropdown
         compact
@@ -899,5 +961,88 @@ function Stat({ label, value, accent }: { label: string; value: string; accent: 
       <div style={{ fontSize: 9, color: PAL.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
       <div style={{ fontSize: 16, fontWeight: 700, color: accent, fontFamily: "monospace" }}>{value}</div>
     </div>
+  );
+}
+
+// Click-to-edit qty cell. Renders the formatted "5,000" value as
+// plain text by default; clicking flips to a raw editable input.
+// Enter or blur commits, Escape cancels. Same UX pattern the
+// wholesale grid uses on Unit Cost.
+function QtyCell({ value, busy, onSave }: {
+  value: number;
+  busy: boolean;
+  onSave: (next: number) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [str, setStr] = useState(String(value));
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(false);
+
+  useEffect(() => { if (!editing) setStr(String(value)); }, [value, editing]);
+
+  async function commit(raw: string) {
+    const trimmed = raw.trim().replace(/,/g, "");
+    const n = Number(trimmed);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+      setErr(true); setEditing(false); return;
+    }
+    setErr(false);
+    if (n === value) { setEditing(false); return; }
+    setSaving(true);
+    try { await onSave(n); } catch { setErr(true); } finally { setSaving(false); setEditing(false); }
+  }
+
+  if (!editing) {
+    return (
+      <span
+        role="button"
+        tabIndex={0}
+        onClick={() => { if (!busy && !saving) setEditing(true); }}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (!busy && !saving) setEditing(true); } }}
+        title="Click to edit qty"
+        style={{
+          display: "inline-block",
+          fontFamily: "monospace",
+          fontSize: 13,
+          color: err ? PAL.red : PAL.text,
+          fontWeight: 600,
+          cursor: (busy || saving) ? "wait" : "pointer",
+          padding: "2px 6px",
+          borderRadius: 4,
+          opacity: (busy || saving) ? 0.5 : 1,
+          minWidth: 60,
+          textAlign: "right" as const,
+        }}
+      >{value.toLocaleString()}</span>
+    );
+  }
+
+  return (
+    <input
+      autoFocus
+      type="text"
+      inputMode="numeric"
+      value={str}
+      onChange={(e) => { setStr(e.target.value); setErr(false); }}
+      onBlur={(e) => void commit(e.target.value)}
+      onFocus={(e) => e.target.select()}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        else if (e.key === "Escape") { setStr(String(value)); setEditing(false); }
+      }}
+      style={{
+        width: 80,
+        background: PAL.panel,
+        color: err ? PAL.red : PAL.text,
+        border: `1px solid ${err ? PAL.red : PAL.accent}`,
+        borderRadius: 4,
+        padding: "2px 4px",
+        fontFamily: "monospace",
+        fontSize: 13,
+        textAlign: "right",
+        outline: "none",
+        opacity: saving ? 0.5 : 1,
+      }}
+    />
   );
 }
