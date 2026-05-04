@@ -174,28 +174,26 @@ export const GridTable: React.FC<GridTableProps> = ({
   const TotalsCell: React.FC<TotalsCellProps> = ({ qty, cost, sale, qtyColor, qtyPrefix }) => {
     const margin = sale > 0 ? ((sale - cost) / sale) * 100 : 0;
     const marginColor = !sale ? "#475569" : margin >= 30 ? "#10B981" : margin >= 10 ? "#F59E0B" : "#F87171";
+    // Two-column grid so the colons line up vertically: left column =
+    // labels (right-aligned), right column = values (right-aligned).
+    // The whole grid is pushed to the right edge of the cell via
+    // justifyContent: "end".
+    const labelStyle: React.CSSProperties = { color: "#6B7280", fontSize: 10, textAlign: "right" };
+    const valueStyle: React.CSSProperties = { textAlign: "right", fontFamily: "monospace" };
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 1, alignItems: "flex-end", fontFamily: "monospace", lineHeight: 1.2 }}>
-        <div>
-          <span style={{ color: "#6B7280", fontSize: 10, marginRight: 4 }}>Qty:</span>
-          <span style={{ color: qtyColor, fontWeight: 700, fontSize: 12 }}>
-            {qty === 0 ? "—" : `${qtyPrefix ?? ""}${qty.toLocaleString()}`}
-          </span>
-        </div>
-        <div>
-          <span style={{ color: "#6B7280", fontSize: 10, marginRight: 4 }}>Cost:</span>
-          <span style={{ color: "#94A3B8", fontWeight: 600, fontSize: 11 }}>{fmtUSD(cost)}</span>
-        </div>
-        <div>
-          <span style={{ color: "#6B7280", fontSize: 10, marginRight: 4 }}>Sale:</span>
-          <span style={{ color: "#3B82F6", fontWeight: 600, fontSize: 11 }}>{fmtUSD(sale)}</span>
-        </div>
-        <div>
-          <span style={{ color: "#6B7280", fontSize: 10, marginRight: 4 }}>Mrgn:</span>
-          <span style={{ color: marginColor, fontWeight: 600, fontSize: 11 }}>
-            {sale > 0 ? `${margin.toFixed(1)}%` : "—"}
-          </span>
-        </div>
+      <div style={{ display: "grid", gridTemplateColumns: "auto auto", columnGap: 4, rowGap: 1, justifyContent: "end", alignItems: "baseline", fontFamily: "monospace", lineHeight: 1.2 }}>
+        <span style={labelStyle}>Qty:</span>
+        <span style={{ ...valueStyle, color: qtyColor, fontWeight: 700, fontSize: 12 }}>
+          {qty === 0 ? "—" : `${qtyPrefix ?? ""}${qty.toLocaleString()}`}
+        </span>
+        <span style={labelStyle}>Cost:</span>
+        <span style={{ ...valueStyle, color: "#94A3B8", fontWeight: 600, fontSize: 11 }}>{fmtUSD(cost)}</span>
+        <span style={labelStyle}>Sale:</span>
+        <span style={{ ...valueStyle, color: "#3B82F6", fontWeight: 600, fontSize: 11 }}>{fmtUSD(sale)}</span>
+        <span style={labelStyle}>Mrgn:</span>
+        <span style={{ ...valueStyle, color: marginColor, fontWeight: 600, fontSize: 11 }}>
+          {sale > 0 ? `${margin.toFixed(1)}%` : "—"}
+        </span>
       </div>
     );
   };
