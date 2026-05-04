@@ -664,18 +664,35 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   // sourced from sku_style; rows without a style fall back to sku_code
   // so prepacks (which use the full item number as their style) still
   // show up under their own line.
+  //
+  // Includes:
+  //   • Master styles already in the run (regular forecast rows).
+  //   • Planner-added NEW styles (TBD rows whose sku_style was renamed
+  //     to a master-unknown code) — these appear as soon as the row
+  //     carries them, before any rebuild widens the master.
+  //   • The literal "TBD" placeholder (catch-all stock-buy slot) so
+  //     the planner can scope the grid to unrenamed stock-buy rows.
+  // Master styles that have no rows in the current run (item exists
+  // but no demand pair) are also surfaced via masterStyles so the
+  // planner can pre-filter ahead of the next build.
   const styles = useMemo(() => {
     const s = new Set<string>();
-    // Walks every row including TBD so planner-renamed new styles
-    // appear in the filter as soon as the row reflects them. The
-    // literal "TBD" placeholder is excluded — it isn't a meaningful
-    // filter target (every uninitialised stock-buy row matches).
+    let hasTbd = false;
     for (const r of rows) {
       const style = r.sku_style ?? r.sku_code;
-      if (style && style.toUpperCase() !== "TBD") s.add(style);
+      if (!style) continue;
+      if (style.toUpperCase() === "TBD") { hasTbd = true; continue; }
+      s.add(style);
     }
-    return Array.from(s).sort();
-  }, [rows]);
+    if (masterStyles) {
+      for (const m of masterStyles) {
+        if (m.style_code && m.style_code.toUpperCase() !== "TBD") s.add(m.style_code);
+      }
+    }
+    const out = Array.from(s).sort();
+    if (hasTbd) out.unshift("TBD");
+    return out;
+  }, [rows, masterStyles]);
 
   // Colors filter — distinct sku_color values across rows that match
   // the current category + sub-cat selection. When neither cat nor
