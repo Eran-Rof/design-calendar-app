@@ -337,37 +337,43 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <span style={{ color: showTotalsRow ? "#93C5FD" : "#9CA3AF", fontSize: 12, fontWeight: showTotalsRow ? 700 : 400 }}>TOTALS</span>
     </label>
 
-    {/* General margin % — fills in Sale / Cost when SOs / avg cost / PO cost are missing */}
-    <label
-      title="Target gross margin % used as fallback in the totals row when a SKU has no SO sale prices or no cost basis. SKUs with no SO, no avg cost, AND no PO cost are skipped (* shown next to Mrgn)."
-      style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 8, border: "1px solid #334155", background: "transparent", userSelect: "none", whiteSpace: "nowrap" }}
-    >
-      <span style={{ color: "#9CA3AF", fontSize: 12, fontWeight: 600 }}>MARGIN</span>
-      <input
-        type="text"
-        inputMode="decimal"
-        value={String(generalMarginPct)}
-        onChange={e => {
-          // Allow only digits + an optional decimal point. Strip
-          // anything else so the user can type or paste freely.
-          const raw = e.target.value.replace(/[^0-9.]/g, "");
-          if (raw === "") { setGeneralMarginPct(0); return; }
-          const n = parseFloat(raw);
-          if (Number.isFinite(n)) setGeneralMarginPct(Math.max(0, Math.min(99, n)));
-        }}
-        style={{ width: 44, background: "#0F172A", border: "1px solid #334155", borderRadius: 4, color: "#F1F5F9", padding: "2px 6px", fontSize: 12, textAlign: "right", fontFamily: "monospace" }}
-      />
-      <span style={{ color: "#6B7280", fontSize: 12 }}>%</span>
-    </label>
+    {/* General margin % — fills in Sale / Cost when SOs / avg cost / PO cost are missing.
+       Once the user changes the value off the default (21), the
+       input lights up light-blue to make it obvious the totals are
+       being driven by a custom assumption. */}
+    {(() => {
+      const touched = generalMarginPct !== 21;
+      return (
+        <label
+          title="Target gross margin % used as fallback in the totals row when a SKU has no SO sale prices or no cost basis. SKUs with no SO, no avg cost, AND no PO cost are skipped (* shown next to Mrgn)."
+          style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 8, border: `1px solid ${touched ? "#3B82F6" : "#334155"}`, background: touched ? "rgba(59,130,246,0.12)" : "transparent", userSelect: "none", whiteSpace: "nowrap" }}
+        >
+          <span style={{ color: touched ? "#93C5FD" : "#9CA3AF", fontSize: 12, fontWeight: touched ? 700 : 600 }}>MARGIN</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={String(generalMarginPct)}
+            onChange={e => {
+              const raw = e.target.value.replace(/[^0-9.]/g, "");
+              if (raw === "") { setGeneralMarginPct(0); return; }
+              const n = parseFloat(raw);
+              if (Number.isFinite(n)) setGeneralMarginPct(Math.max(0, Math.min(99, n)));
+            }}
+            style={{ width: 44, background: "#0F172A", border: `1px solid ${touched ? "#3B82F6" : "#334155"}`, borderRadius: 4, color: touched ? "#93C5FD" : "#F1F5F9", padding: "2px 6px", fontSize: 12, textAlign: "right", fontFamily: "monospace" }}
+          />
+          <span style={{ color: touched ? "#93C5FD" : "#6B7280", fontSize: 12 }}>%</span>
+        </label>
+      );
+    })()}
 
     {/* Download styles the totals row had to skip (no SO, no avg cost, no PO cost) */}
     <button
       type="button"
       onClick={onDownloadIncompleteSkus}
-      title="Download styles with no open SOs, no avg cost, and no PO unit cost — these are the SKUs the Mrgn:* asterisk refers to"
-      style={{ background: "transparent", border: "1px solid #334155", color: "#94A3B8", borderRadius: 8, padding: "4px 10px", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" }}
+      title="Download styles with no open SOs, no avg cost, and no PO unit cost — these are the SKUs the red Mrgn:* asterisk refers to"
+      style={{ background: "transparent", border: "1px solid #EF4444", color: "#FCA5A5", borderRadius: 8, padding: "4px 10px", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap", fontWeight: 600 }}
     >
-      Mrgn:* xls
+      NO Mrgn Data
     </button>
 
     <div style={{ color: "#6B7280", fontSize: 12, whiteSpace: "nowrap" }}>
