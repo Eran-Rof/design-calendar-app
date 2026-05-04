@@ -1231,36 +1231,10 @@ export default function WholesalePlanningWorkbench() {
   // then the line continues to render on the grid as is_tbd.
   async function saveTbdCustomer(row: IpPlanningGridRow, customerId: string, customerName: string) {
     if (!selectedRun) return;
-    // Quick-fill convention (mirrors saveTbdColor): assigning back
-    // to "(Supply Only)" on a sibling-period row of an existing
-    // new-style copies the customer from the first sibling-period
-    // row that already has a real customer. Lets the planner sync
-    // a freshly-cloned period to the parent row without re-picking.
-    let resolvedCustomerId = customerId;
-    let resolvedCustomerName = customerName;
-    let copiedFromSibling = false;
-    if (customerName === "(Supply Only)") {
-      const styleLower = (row.sku_style ?? "").toLowerCase();
-      if (styleLower && styleLower !== "tbd") {
-        const firstAssigned = rows.find((r) =>
-          r.is_tbd
-          && r.tbd_id
-          && r.forecast_id !== row.forecast_id
-          && (r.sku_style ?? "").toLowerCase() === styleLower
-          && r.customer_id
-          && r.customer_name !== "(Supply Only)",
-        );
-        if (firstAssigned && firstAssigned.customer_id) {
-          resolvedCustomerId = firstAssigned.customer_id;
-          resolvedCustomerName = firstAssigned.customer_name;
-          copiedFromSibling = true;
-        }
-      }
-    }
-    const dup = findTbdDuplicate(row.sku_style ?? "", row.sku_color ?? "", resolvedCustomerId, row.period_code, row.forecast_id);
+    const dup = findTbdDuplicate(row.sku_style ?? "", row.sku_color ?? "", customerId, row.period_code, row.forecast_id);
     if (dup) {
       setToast({
-        text: `Already have a ${row.sku_style ?? "TBD"} / ${row.sku_color ?? "TBD"} row for ${resolvedCustomerName} in ${row.period_code}. Pick a different customer.`,
+        text: `Already have a ${row.sku_style ?? "TBD"} / ${row.sku_color ?? "TBD"} row for ${customerName} in ${row.period_code}. Pick a different customer.`,
         kind: "error",
       });
       return;
@@ -1270,7 +1244,7 @@ export default function WholesalePlanningWorkbench() {
     // distinct customers per period of the same NEW style.
     const fid = row.forecast_id;
     setRows((prev) => prev.map((r) =>
-      r.forecast_id === fid ? { ...r, customer_id: resolvedCustomerId, customer_name: resolvedCustomerName } : r,
+      r.forecast_id === fid ? { ...r, customer_id: customerId, customer_name: customerName } : r,
     ));
     setLastAddedTbdMarker((prev) => {
       if (!prev) return prev;
@@ -1278,14 +1252,12 @@ export default function WholesalePlanningWorkbench() {
       if (prev.color !== (row.sku_color ?? "")) return prev;
       if (prev.customer_id !== row.customer_id) return prev;
       if (prev.period_code !== row.period_code) return prev;
-      return { ...prev, customer_id: resolvedCustomerId };
+      return { ...prev, customer_id: customerId };
     });
     try {
-      await saveTbdField(row, { customer_id: resolvedCustomerId });
+      await saveTbdField(row, { customer_id: customerId });
       setToast({
-        text: copiedFromSibling
-          ? `Reassigned to ${resolvedCustomerName} (copied from sibling period)`
-          : `Reassigned to ${resolvedCustomerName}`,
+        text: `Reassigned to ${customerName}`,
         kind: "success",
       });
       const seq = ++rebuildSeq.current;
@@ -1440,34 +1412,10 @@ export default function WholesalePlanningWorkbench() {
 
   async function saveTbdColor(row: IpPlanningGridRow, color: string, isNewColor: boolean) {
     if (!selectedRun) return;
-    // Quick-fill convention: picking "TBD" on a row of an existing
-    // new-style copies the color from the first sibling-period row
-    // that already has a real color. Saves the planner from re-typing
-    // the same color on every period when they want all four periods
-    // of a new style to share the same colorway.
-    let resolvedColor = color;
-    let resolvedIsNew = isNewColor;
-    if (color.trim().toUpperCase() === "TBD") {
-      const styleLower = (row.sku_style ?? "").toLowerCase();
-      if (styleLower && styleLower !== "tbd") {
-        const firstColored = rows.find((r) =>
-          r.is_tbd
-          && r.tbd_id
-          && r.forecast_id !== row.forecast_id
-          && (r.sku_style ?? "").toLowerCase() === styleLower
-          && (r.sku_color ?? "").trim() !== ""
-          && (r.sku_color ?? "").trim().toUpperCase() !== "TBD",
-        );
-        if (firstColored) {
-          resolvedColor = firstColored.sku_color ?? color;
-          resolvedIsNew = !!firstColored.is_new_color;
-        }
-      }
-    }
-    const dup = findTbdDuplicate(row.sku_style ?? "", resolvedColor, row.customer_id, row.period_code, row.forecast_id);
+    const dup = findTbdDuplicate(row.sku_style ?? "", color, row.customer_id, row.period_code, row.forecast_id);
     if (dup) {
       setToast({
-        text: `Already have a ${row.sku_style ?? "TBD"} / ${resolvedColor} row for ${dup.customer_name} in ${row.period_code}. Pick a different color.`,
+        text: `Already have a ${row.sku_style ?? "TBD"} / ${color} row for ${dup.customer_name} in ${row.period_code}. Pick a different color.`,
         kind: "error",
       });
       return;
@@ -1479,23 +1427,21 @@ export default function WholesalePlanningWorkbench() {
     // colors). Propagation here was creating duplicate-looking
     // rows in sibling periods. Single-row update only.
     const fid = row.forecast_id;
-    setRows((prev) => prev.map((r) => r.forecast_id === fid ? { ...r, sku_color: resolvedColor, is_new_color: resolvedIsNew } : r));
+    setRows((prev) => prev.map((r) => r.forecast_id === fid ? { ...r, sku_color: color, is_new_color: isNewColor } : r));
     setLastAddedTbdMarker((prev) => {
       if (!prev) return prev;
       if (prev.style_code !== (row.sku_style ?? "")) return prev;
       if (prev.color !== (row.sku_color ?? "")) return prev;
       if (prev.customer_id !== row.customer_id) return prev;
       if (prev.period_code !== row.period_code) return prev;
-      return { ...prev, color: resolvedColor };
+      return { ...prev, color };
     });
     try {
-      await saveTbdField(row, { color: resolvedColor, is_new_color: resolvedIsNew });
+      await saveTbdField(row, { color, is_new_color: isNewColor });
       setToast({
-        text: resolvedColor !== color
-          ? `Set color to "${resolvedColor}" (copied from sibling period)`
-          : (resolvedIsNew
-            ? `Set color to "${resolvedColor}" (NEW — not in master yet)`
-            : `Set color to "${resolvedColor}"`),
+        text: isNewColor
+          ? `Set color to "${color}" (NEW — not in master yet)`
+          : `Set color to "${color}"`,
         kind: "success",
       });
       const seq = ++rebuildSeq.current;
