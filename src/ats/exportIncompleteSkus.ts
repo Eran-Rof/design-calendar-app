@@ -34,15 +34,22 @@ export function exportIncompleteSkus(
     }
   }
 
-  // Pick rows where every signal is missing. Dedupe on SKU so a SKU
-  // appearing in multiple stores is only listed once (worst-case the
-  // store column shows the first one).
+  // Pre-aggregate avgCost across all store rows for each SKU. A SKU's
+  // ROF row may carry a real avgCost while its ROF ECOM row carries 0;
+  // checking only the first row encountered would falsely flag the
+  // SKU as missing cost data.
+  const hasAvgCost = new Set<string>();
+  for (const r of filtered) {
+    if (r.avgCost && r.avgCost > 0) hasAvgCost.add(r.sku);
+  }
+
+  // Pick SKUs where every signal is missing. Dedupe on SKU so each
+  // appears once even when present across multiple stores.
   const seen = new Set<string>();
   const incomplete: ATSRow[] = [];
   for (const r of filtered) {
     if (seen.has(r.sku)) continue;
-    const ac = r.avgCost && r.avgCost > 0;
-    if (!ac && !hasSO.has(r.sku) && !hasPOCost.has(r.sku)) {
+    if (!hasAvgCost.has(r.sku) && !hasSO.has(r.sku) && !hasPOCost.has(r.sku)) {
       seen.add(r.sku);
       incomplete.push(r);
     }

@@ -344,11 +344,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <label
           title="Click to edit. Target gross margin % used as fallback in the totals row when a SKU has no SO sale prices or no cost basis. SKUs with no SO, no avg cost, AND no PO cost are skipped (* shown next to Mrgn)."
           onClick={(e) => {
-            // Click anywhere on the bubble (label or % suffix) focuses
-            // and selects the value so the planner can type to
-            // overwrite immediately. The wrapping <label> already
-            // forwards bare clicks, but on the input itself we want
-            // to call select() not just focus.
+            // Tap the label/value/% surround to focus + select. If
+            // the click landed on the input itself, leave caret
+            // placement to the browser so the user can position
+            // mid-edit without losing their click target.
+            if (e.target instanceof HTMLInputElement) return;
             const input = (e.currentTarget as HTMLLabelElement).querySelector("input");
             if (input) { input.focus(); input.select(); }
           }}
