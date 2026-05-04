@@ -315,6 +315,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [filterPeriod, setFilterPeriod] = useState<string[]>(() => loadFilter("period"));
   const [filterStyle, setFilterStyle] = useState<string[]>(() => loadFilter("style"));
+  const [filterColor, setFilterColor] = useState<string[]>(() => loadFilter("color"));
 
   // Mirror filter state back to localStorage on every change so the
   // selections survive reloads and follow-up builds. Storing each
@@ -330,6 +331,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   useEffect(() => { try { localStorage.setItem("ws_planning_filter_method", JSON.stringify(filterMethod)); } catch { /* ignore */ } }, [filterMethod]);
   useEffect(() => { try { localStorage.setItem("ws_planning_filter_period", JSON.stringify(filterPeriod)); } catch { /* ignore */ } }, [filterPeriod]);
   useEffect(() => { try { localStorage.setItem("ws_planning_filter_style", JSON.stringify(filterStyle)); } catch { /* ignore */ } }, [filterStyle]);
+  useEffect(() => { try { localStorage.setItem("ws_planning_filter_color", JSON.stringify(filterColor)); } catch { /* ignore */ } }, [filterColor]);
   // Inline "+ Add row" form state. Closed by default; opens above
   // the table to the planner's chosen cat/sub-cat/customer + first
   // period of the run. Style + color default to "TBD". Persists
@@ -474,7 +476,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   };
   // Reset to first page whenever filters/sort change so the user doesn't
   // wonder why an empty page is showing.
-  useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterAction, filterConfidence, filterMethod, sortKey, sortDir, pageSize, collapse, systemSuggestionsOn]);
+  useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, sortKey, sortDir, pageSize, collapse, systemSuggestionsOn]);
 
   // Report active build-relevant filters up to the workbench so the
   // PlanningRunControls' Build button can scope itself to this subset.
@@ -500,6 +502,10 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
 
   const customers = useMemo(() => {
     const s = new Map<string, string>();
+    // Pull from rows so any planner-added customer that has been
+    // assigned to a TBD line shows up in the filter dropdown — the
+    // memo intentionally walks every row (TBD + non-TBD) so freshly
+    // created customers don't have to wait for a build to surface.
     for (const r of rows) s.set(r.customer_id, r.customer_name);
     return Array.from(s, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   }, [rows]);
@@ -629,12 +635,47 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   // show up under their own line.
   const styles = useMemo(() => {
     const s = new Set<string>();
+    // Walks every row including TBD so planner-renamed new styles
+    // appear in the filter as soon as the row reflects them. The
+    // literal "TBD" placeholder is excluded — it isn't a meaningful
+    // filter target (every uninitialised stock-buy row matches).
     for (const r of rows) {
       const style = r.sku_style ?? r.sku_code;
-      if (style) s.add(style);
+      if (style && style.toUpperCase() !== "TBD") s.add(style);
     }
     return Array.from(s).sort();
   }, [rows]);
+
+  // Colors filter — distinct sku_color values across rows that match
+  // the current category + sub-cat selection. When neither cat nor
+  // sub-cat is filtered, every color in the run is offered. Walks both
+  // TBD and non-TBD rows so planner-added new colors are immediately
+  // selectable. Literal "TBD" is excluded since it's the placeholder
+  // value, not a real color.
+  const colorOptions = useMemo(() => {
+    const setCategory = filterCategory.length > 0 ? new Set(filterCategory) : null;
+    const setSubCat = filterSubCat.length > 0 ? new Set(filterSubCat) : null;
+    const s = new Set<string>();
+    for (const r of rows) {
+      if (setCategory && !setCategory.has(r.group_name ?? "—")) continue;
+      if (setSubCat && !setSubCat.has(r.sub_category_name ?? "—")) continue;
+      const color = (r.sku_color ?? "").trim();
+      if (!color) continue;
+      if (color.toUpperCase() === "TBD") continue;
+      s.add(color);
+    }
+    return Array.from(s).sort();
+  }, [rows, filterCategory, filterSubCat]);
+
+  // Drop any selected colors that no longer exist under the current
+  // cat/sub-cat scope so the planner doesn't see an empty grid because
+  // of a stale filter (mirrors the subCategoryNames effect above).
+  useEffect(() => {
+    if (filterColor.length > 0) {
+      const stillValid = filterColor.filter((c) => colorOptions.includes(c));
+      if (stillValid.length !== filterColor.length) setFilterColor(stillValid);
+    }
+  }, [colorOptions, filterColor]);
 
   // Map of category (group_name) → set of "known" colors for the TBD
   // color picker. Sourced from non-TBD rows so the picker offers every
@@ -738,6 +779,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     const setGender = filterGender.length > 0 ? new Set(filterGender) : null;
     const setPeriod = filterPeriod.length > 0 ? new Set(filterPeriod) : null;
     const setStyle = filterStyle.length > 0 ? new Set(filterStyle) : null;
+    const setColor = filterColor.length > 0 ? new Set(filterColor) : null;
     const setAction = filterAction.length > 0 ? new Set(filterAction) : null;
     const setConfidence = filterConfidence.length > 0 ? new Set(filterConfidence) : null;
     const setMethod = filterMethod.length > 0 ? new Set(filterMethod) : null;
@@ -757,6 +799,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       }
       if (setPeriod && !setPeriod.has(r.period_code)) return false;
       if (setStyle && !setStyle.has(r.sku_style ?? r.sku_code)) return false;
+      if (setColor && !setColor.has((r.sku_color ?? "").trim())) return false;
       if (setAction && !setAction.has(r.recommended_action)) return false;
       if (setConfidence && !setConfidence.has(r.confidence_level)) return false;
       if (setMethod && !setMethod.has(r.forecast_method)) return false;
@@ -810,7 +853,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       system_forecast_qty: 0,
       final_forecast_qty: Math.max(0, 0 + r.buyer_request_qty + r.override_qty),
     }));
-  }, [rows, search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterAction, filterConfidence, filterMethod, systemSuggestionsOn]);
+  }, [rows, search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, systemSuggestionsOn]);
 
   // Notify the workbench when the visible (filter+mute) row set changes
   // so MonthlyTotalsCards uses the same subset (drives the top FINAL
@@ -1695,6 +1738,15 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         />
         <MultiSelectDropdown
           compact
+          selected={filterColor}
+          onChange={setFilterColor}
+          allLabel="All colors"
+          placeholder="Search colors…"
+          options={colorOptions.map((c) => ({ value: c, label: c }))}
+          title="Color filter — scoped to the selected category + sub-cat. Includes planner-added NEW colors."
+        />
+        <MultiSelectDropdown
+          compact
           selected={filterGender}
           onChange={setFilterGender}
           allLabel="All genders"
@@ -1736,7 +1788,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
         />
         <button style={{ ...S.btnSecondary, padding: "5px 10px", fontSize: 12 }} onClick={() => {
           setSearch("");
-          setFilterCustomer([]); setFilterCategory([]); setFilterSubCat([]); setFilterGender([]); setFilterPeriod([]); setFilterStyle([]);
+          setFilterCustomer([]); setFilterCategory([]); setFilterSubCat([]); setFilterGender([]); setFilterPeriod([]); setFilterStyle([]); setFilterColor([]);
           setFilterAction([]); setFilterConfidence([]); setFilterMethod([]);
         }}>Clear</button>
         <ColumnsButton
