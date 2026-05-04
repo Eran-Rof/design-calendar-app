@@ -112,25 +112,31 @@ export const GridTable: React.FC<GridTableProps> = ({
     <div style={S.tableWrap} ref={tableRef}>
       <table style={S.table}>
         <thead>
-          {/* Totals row — sticky top: 0, sums across the filtered set */}
+          {/* Totals row — sticky top: 0, sums across the filtered set.
+             Column geometry MUST mirror the column-header row below
+             (lefts [0, 110, 220, 320, 500, 630, 710, 790], widths
+             [110, 110, 100, 180, 130, 80, 80, 80]). */}
           <tr>
-            {/* Empty SKU + Description cells (sticky to match column widths) */}
-            <th style={{ ...totalsThBase, ...S.stickyCol, left: 0, minWidth: 130, zIndex: 4 }} />
-            <th style={{ ...totalsThBase, ...S.stickyCol, left: 130, minWidth: 200, zIndex: 4 }} />
+            {/* Empty Category | Sub Cat | Style | Description | Color (sticky to keep alignment) */}
+            <th style={{ ...totalsThBase, ...S.stickyCol, left:   0, minWidth: 110, zIndex: 4 }} />
+            <th style={{ ...totalsThBase, ...S.stickyCol, left: 110, minWidth: 110, zIndex: 4 }} />
+            <th style={{ ...totalsThBase, ...S.stickyCol, left: 220, minWidth: 100, zIndex: 4 }} />
+            <th style={{ ...totalsThBase, ...S.stickyCol, left: 320, minWidth: 180, zIndex: 4 }} />
+            <th style={{ ...totalsThBase, ...S.stickyCol, left: 500, minWidth: 130, zIndex: 4 }} />
             {/* On Hand sum */}
-            <th style={{ ...totalsThBase, ...S.stickyCol, left: 330, minWidth: 80, zIndex: 4, textAlign: "center" }}>
+            <th style={{ ...totalsThBase, ...S.stickyCol, left: 630, minWidth: 80, zIndex: 4, textAlign: "center" }}>
               <span style={{ color: "#F1F5F9", fontWeight: 700, fontFamily: "monospace" }}>
                 {sums.onHand.toLocaleString()}
               </span>
             </th>
             {/* On Order sum */}
-            <th style={{ ...totalsThBase, ...S.stickyCol, left: 410, minWidth: 80, zIndex: 4, textAlign: "center" }}>
+            <th style={{ ...totalsThBase, ...S.stickyCol, left: 710, minWidth: 80, zIndex: 4, textAlign: "center" }}>
               <span style={{ color: "#F59E0B", fontWeight: 700, fontFamily: "monospace" }}>
                 {sums.onOrder > 0 ? sums.onOrder.toLocaleString() : "—"}
               </span>
             </th>
             {/* On PO sum */}
-            <th style={{ ...totalsThBase, ...S.stickyCol, left: 490, minWidth: 80, zIndex: 4, textAlign: "center" }}>
+            <th style={{ ...totalsThBase, ...S.stickyCol, left: 790, minWidth: 80, zIndex: 4, textAlign: "center" }}>
               <span style={{ color: "#10B981", fontWeight: 700, fontFamily: "monospace" }}>
                 {sums.onPO > 0 ? `+${sums.onPO.toLocaleString()}` : "—"}
               </span>
