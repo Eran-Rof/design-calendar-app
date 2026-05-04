@@ -4,8 +4,17 @@ import { getQtyColor, getQtyBg, displayColor } from "../helpers";
 import type { ATSRow, ATSPoEvent, ATSSoEvent, CtxMenu } from "../types";
 
 // Height of the totals row at the top of the table. Used to push the
-// regular sticky header down so the two stack without overlap.
-const TOTALS_ROW_HEIGHT = 34;
+// regular sticky header down so the two stack without overlap. Tall
+// enough to fit three stacked lines (Qty / Cost / Sale).
+const TOTALS_ROW_HEIGHT = 66;
+
+// Format dollars for the totals header. Whole-dollar precision keeps
+// the rows scannable when totals run into millions.
+function fmtUSD(v: number): string {
+  if (!v) return "—";
+  const sign = v < 0 ? "-" : "";
+  return `${sign}$${Math.abs(Math.round(v)).toLocaleString()}`;
+}
 
 interface Period {
   key: string;
@@ -67,24 +76,65 @@ export const GridTable: React.FC<GridTableProps> = ({
   // sums whichever value the cell would render — freeMap when atShip
   // is on, otherwise dates — so the header total matches what's
   // visible below.
+  //
+  // Cost and Sale are derived from each row's avgCost and a per-SKU
+  // average sale price computed from the SO events in eventIndex
+  // (sum of SO totalPrice / sum of SO qty). The same Qty × Cost and
+  // Qty × Sale formulas apply to every column so On Hand / On Order /
+  // On PO and every ATS period stay consistent.
   const sums = useMemo(() => {
-    let onHand = 0, onOrder = 0, onPO = 0;
-    for (const r of filtered) {
-      onHand  += r.onHand  || 0;
-      onOrder += r.onOrder || 0;
-      onPO    += r.onPO    || 0;
+    // Per-SKU avg sale price from SO events. eventIndex is keyed
+    // SKU → date → { pos, sos }; sum across all dates per SKU.
+    const salePriceBySku = new Map<string, number>();
+    if (eventIndex) {
+      for (const sku of Object.keys(eventIndex)) {
+        let qty = 0, value = 0;
+        for (const buckets of Object.values(eventIndex[sku])) {
+          for (const so of buckets.sos) {
+            const v = so.totalPrice || (so.unitPrice * so.qty) || 0;
+            if (so.qty > 0 && v > 0) { qty += so.qty; value += v; }
+          }
+        }
+        if (qty > 0) salePriceBySku.set(sku, value / qty);
+      }
     }
-    const periodSums: Record<string, number> = {};
+    const salePriceFor = (r: ATSRow): number => salePriceBySku.get(r.sku) ?? 0;
+
+    let onHandQty  = 0, onHandCost  = 0, onHandSale  = 0;
+    let onOrderQty = 0, onOrderCost = 0, onOrderSale = 0;
+    let onPOQty    = 0, onPOCost    = 0, onPOSale    = 0;
+    for (const r of filtered) {
+      const cost = r.avgCost ?? 0;
+      const sale = salePriceFor(r);
+      onHandQty  += r.onHand  || 0;  onHandCost  += (r.onHand  || 0) * cost; onHandSale  += (r.onHand  || 0) * sale;
+      onOrderQty += r.onOrder || 0;  onOrderCost += (r.onOrder || 0) * cost; onOrderSale += (r.onOrder || 0) * sale;
+      onPOQty    += r.onPO    || 0;  onPOCost    += (r.onPO    || 0) * cost; onPOSale    += (r.onPO    || 0) * sale;
+    }
+    const periodQty:  Record<string, number> = {};
+    const periodCost: Record<string, number> = {};
+    const periodSale: Record<string, number> = {};
     for (const p of displayPeriods) {
-      let s = 0;
+      let q = 0, c = 0, s = 0;
       for (const r of filtered) {
         const v = atShip ? (r.freeMap?.[p.endDate] ?? r.dates[p.endDate]) : r.dates[p.endDate];
-        if (v != null) s += v;
+        if (v == null) continue;
+        const cost = r.avgCost ?? 0;
+        const sale = salePriceFor(r);
+        q += v;
+        c += v * cost;
+        s += v * sale;
       }
-      periodSums[p.key] = s;
+      periodQty[p.key]  = q;
+      periodCost[p.key] = c;
+      periodSale[p.key] = s;
     }
-    return { onHand, onOrder, onPO, periodSums };
-  }, [filtered, displayPeriods, atShip]);
+    return {
+      onHand:  { qty: onHandQty,  cost: onHandCost,  sale: onHandSale  },
+      onOrder: { qty: onOrderQty, cost: onOrderCost, sale: onOrderSale },
+      onPO:    { qty: onPOQty,    cost: onPOCost,    sale: onPOSale    },
+      periodQty, periodCost, periodSale,
+    };
+  }, [filtered, displayPeriods, atShip, eventIndex]);
 
   if (loading) return <div style={S.loadingState}>Loading ATS data…</div>;
   if (filtered.length === 0) return (
@@ -95,18 +145,50 @@ export const GridTable: React.FC<GridTableProps> = ({
   );
 
   // Style helper for cells in the totals row. Totals row sits at top: 0;
-  // the regular header row below uses top: TOTALS_ROW_HEIGHT.
+  // the regular header row below uses top: TOTALS_ROW_HEIGHT. Background
+  // matches the main header (#1E293B) per design.
   const totalsThBase: React.CSSProperties = {
     ...S.th,
     top: 0,
     height: TOTALS_ROW_HEIGHT,
     padding: "6px 10px",
-    background: "#0b1220",
+    background: "#1E293B",
     borderBottom: "1px solid #334155",
     fontSize: 12,
     textTransform: "none",
     letterSpacing: 0,
+    verticalAlign: "middle",
   };
+
+  // Renders a single totals cell with three stacked lines: Qty / Cost /
+  // Sale. Each line is "Label: value". Color matches the column's value
+  // accent. Pass undefined for cost/sale to omit those lines (e.g. on
+  // ATS period columns where you only want qty).
+  type TotalsCellProps = {
+    qty: number;
+    cost: number;
+    sale: number;
+    qtyColor: string;
+    qtyPrefix?: string; // for "+" on On PO
+  };
+  const TotalsCell: React.FC<TotalsCellProps> = ({ qty, cost, sale, qtyColor, qtyPrefix }) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: "flex-end", fontFamily: "monospace", lineHeight: 1.25 }}>
+      <div>
+        <span style={{ color: "#6B7280", fontSize: 10, marginRight: 4 }}>Qty:</span>
+        <span style={{ color: qtyColor, fontWeight: 700, fontSize: 12 }}>
+          {qty === 0 ? "—" : `${qtyPrefix ?? ""}${qty.toLocaleString()}`}
+        </span>
+      </div>
+      <div>
+        <span style={{ color: "#6B7280", fontSize: 10, marginRight: 4 }}>Cost:</span>
+        <span style={{ color: "#94A3B8", fontWeight: 600, fontSize: 11 }}>{fmtUSD(cost)}</span>
+      </div>
+      <div>
+        <span style={{ color: "#6B7280", fontSize: 10, marginRight: 4 }}>Sale:</span>
+        <span style={{ color: "#3B82F6", fontWeight: 600, fontSize: 11 }}>{fmtUSD(sale)}</span>
+      </div>
+    </div>
+  );
 
   return (
     <div style={S.tableWrap} ref={tableRef}>
@@ -124,48 +206,34 @@ export const GridTable: React.FC<GridTableProps> = ({
             <th style={{ ...totalsThBase, ...S.stickyCol, left: 320, minWidth: 180, zIndex: 4 }} />
             <th style={{ ...totalsThBase, ...S.stickyCol, left: 500, minWidth: 130, zIndex: 4 }} />
             {/* On Hand sum */}
-            <th style={{ ...totalsThBase, ...S.stickyCol, left: 630, minWidth: 80, zIndex: 4, textAlign: "center" }}>
-              <span style={{ color: "#F1F5F9", fontWeight: 700, fontFamily: "monospace" }}>
-                {sums.onHand.toLocaleString()}
-              </span>
+            <th style={{ ...totalsThBase, ...S.stickyCol, left: 630, minWidth: 80, zIndex: 4 }}>
+              <TotalsCell qty={sums.onHand.qty} cost={sums.onHand.cost} sale={sums.onHand.sale} qtyColor="#F1F5F9" />
             </th>
             {/* On Order sum */}
-            <th style={{ ...totalsThBase, ...S.stickyCol, left: 710, minWidth: 80, zIndex: 4, textAlign: "center" }}>
-              <span style={{ color: "#F59E0B", fontWeight: 700, fontFamily: "monospace" }}>
-                {sums.onOrder > 0 ? sums.onOrder.toLocaleString() : "—"}
-              </span>
+            <th style={{ ...totalsThBase, ...S.stickyCol, left: 710, minWidth: 80, zIndex: 4 }}>
+              <TotalsCell qty={sums.onOrder.qty} cost={sums.onOrder.cost} sale={sums.onOrder.sale} qtyColor="#F59E0B" />
             </th>
             {/* On PO sum */}
-            <th style={{ ...totalsThBase, ...S.stickyCol, left: 790, minWidth: 80, zIndex: 4, textAlign: "center" }}>
-              <span style={{ color: "#10B981", fontWeight: 700, fontFamily: "monospace" }}>
-                {sums.onPO > 0 ? `+${sums.onPO.toLocaleString()}` : "—"}
-              </span>
+            <th style={{ ...totalsThBase, ...S.stickyCol, left: 790, minWidth: 80, zIndex: 4 }}>
+              <TotalsCell qty={sums.onPO.qty} cost={sums.onPO.cost} sale={sums.onPO.sale} qtyColor="#10B981" qtyPrefix="+" />
             </th>
             {/* Period sums */}
             {displayPeriods.map(p => {
-              const v = sums.periodSums[p.key] ?? 0;
-              const isNeg = v < 0;
+              const q = sums.periodQty[p.key]  ?? 0;
+              const c = sums.periodCost[p.key] ?? 0;
+              const s = sums.periodSale[p.key] ?? 0;
+              const isNeg = q < 0;
+              const qtyColor = isNeg ? "#F87171" : (q === 0 ? "#475569" : getQtyColor(q));
               return (
                 <th
                   key={`tot-${p.key}`}
                   style={{
                     ...totalsThBase,
                     minWidth: rangeUnit === "days" ? 68 : rangeUnit === "weeks" ? 120 : 100,
-                    textAlign: "center",
-                    background: p.isToday ? "#0d1f17" : p.isWeekend ? "#0a1422" : "#0b1220",
+                    background: p.isToday ? "#1a2a1e" : p.isWeekend ? "#141e2e" : "#1E293B",
                   }}
                 >
-                  {v === 0 ? (
-                    <span style={{ color: "#334155", fontSize: 11 }}>—</span>
-                  ) : (
-                    <span style={{
-                      fontFamily: "monospace",
-                      fontWeight: 700,
-                      color: isNeg ? "#F87171" : getQtyColor(v),
-                    }}>
-                      {isNeg ? v.toLocaleString() : v.toLocaleString()}
-                    </span>
-                  )}
+                  <TotalsCell qty={q} cost={c} sale={s} qtyColor={qtyColor} />
                 </th>
               );
             })}
