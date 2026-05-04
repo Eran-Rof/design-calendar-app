@@ -303,13 +303,20 @@ export function buildRollingWholesaleSupply(
 //
 // totalStartingPool is computed by the caller as the sum of unique-sku
 // on_hands across the visible (filtered) row set. on_so_qty is customer-
-// scoped so it depletes the pool every row. receipts/buy are SKU-scoped
-// — the caller passes a dedupeKey (typically `${sku_id}:${period_start}`)
-// and we only contribute receipts/buy on the FIRST occurrence of that key.
+// scoped so it depletes the pool every row.
 //
-// Without dedupe, a SKU with 5 customers in scope would contribute its
-// receipts 5× to the pool, growing ATS unboundedly. At 30k rows that
-// produced excess totals in the billions — the math here is the fix.
+// Receipts are SKU-scoped facts stamped on every customer row (a single
+// PO landing in P1 shows on every customer's row of that SKU). The
+// dedupeKey gates receipts so a SKU with 5 customers doesn't contribute
+// receipts 5× to the pool — that's the bug fix that brought ATS down
+// from billions.
+//
+// Buy is planner intent saved to a SPECIFIC (customer, sku, period)
+// row via saveBucketBuy / saveBuy. It is NOT deduped by grain — each
+// row's planned_buy_qty applies to that row's ATS only. Deduping buy
+// by (sku, period) silently dropped contributions whenever the planner
+// edited buy on a row that wasn't the first-seen for the grain, so
+// "type buy → ATS doesn't grow on that row".
 export interface RollingPoolFacts {
   on_so_qty: number;
   receipts_due_qty: number;
@@ -320,8 +327,9 @@ export interface RollingPoolFacts {
   // the pool only sheds on_so (small) and absorbs receipts (large)
   // and grows unboundedly across many rows.
   final_forecast_qty?: number;
-  // Optional. When set, receipts/buy contribute to the pool only on the
-  // first row sharing this key. on_so / demand always count per row.
+  // Optional. When set, RECEIPTS contribute to the pool only on the
+  // first row sharing this key. Buy is NEVER deduped — it applies
+  // per-row regardless. on_so / demand always count per row.
   dedupeKey?: string;
 }
 export interface RollingPoolResult {
@@ -338,12 +346,14 @@ export function applyRollingPool<T extends RollingPoolFacts>(
   for (const r of rows) {
     const on_hand_qty = pool;
     let receipts = 0;
-    let buy = 0;
     if (!r.dedupeKey || !seen.has(r.dedupeKey)) {
       receipts = r.receipts_due_qty;
-      buy = r.planned_buy_qty;
       if (r.dedupeKey) seen.add(r.dedupeKey);
     }
+    // Buy applies per-row — planner enters it on a specific
+    // (customer, sku, period) line, so adding it to that row's ATS
+    // is what they expect.
+    const buy = r.planned_buy_qty;
     // Displayed ATS — what the planner sees on this row. Doesn't
     // subtract demand (demand is shown separately as Final).
     const ats = Math.max(0, on_hand_qty - r.on_so_qty + receipts + buy);

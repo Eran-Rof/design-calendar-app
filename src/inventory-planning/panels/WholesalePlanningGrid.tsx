@@ -1314,13 +1314,22 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
       const periods = Array.from(perPeriod.entries()).sort((a, b) => a[0].localeCompare(b[0]));
       let pool = skuOnHand.get(skuId) ?? 0;
       for (const [periodStart, agg] of periods) {
-        const onHand = pool;                                  // beginning balance
-        const ats = pool + agg.receipts + agg.buy;            // available to sell
+        const onHand = pool;                                                 // beginning balance
+        // Available-to-sell against forecast demand. on_so is committed
+        // demand already netted out of supply, so it must subtract from
+        // ATS for the shortage / excess calc to match the displayed
+        // ATS column (which subtracts on_so per row in applyRollingPool).
+        // Without this, a period with a big committed SO would show
+        // ATS - on_so on the row but compute shortage from a larger
+        // ATS — inconsistent numbers across the same row.
+        const ats = Math.max(0, pool + agg.receipts + agg.buy - agg.onSo);
         const demand = agg.demand;
         const excess = ats > demand ? ats - demand : 0;
         const shortage = demand > ats ? demand - ats : 0;
         out.set(`${skuId}:${periodStart}`, { onHand, ats, excess, shortage });
-        pool = Math.max(0, ats - demand - agg.onSo);
+        // Roll-forward: don't double-subtract on_so (already taken out
+        // of ats above).
+        pool = Math.max(0, ats - demand);
       }
     }
     return out;
