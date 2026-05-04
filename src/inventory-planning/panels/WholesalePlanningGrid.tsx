@@ -1688,15 +1688,24 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           background: ${PAL.yellow};
           color: #000;
         }
-        /* Aggregate-row underline. Native <input> elements don't render
-           text-decoration on their value (replaced element), so we paint
-           a border-bottom in currentColor to match. Cells with plain
-           text get text-decoration-color recomputed per-element so each
-           cell's underline matches its own color (currentColor resolves
-           late at the cell, not at the row's computed value). */
-        tr[data-agg="1"] td,
+        /* Aggregate-row underline. Re-asserted PER-CELL (td) instead of
+           inherited from the row, so currentColor resolves at the cell
+           and the underline matches whatever color the cell's text is
+           rendered in (green for Final, red for Short, etc.). Without
+           this, currentColor computed once at the row level (textDim)
+           and every cell inherited that fixed gray.
+           Native <input> elements don't render CSS text-decoration on
+           their value (replaced element), so we paint a matching
+           border-bottom: 1px solid currentColor to fake the underline. */
+        tr[data-agg="1"] td {
+          text-decoration: underline currentColor 1px !important;
+          text-underline-offset: 2px;
+          font-size: 13px;
+          line-height: 1.4;
+        }
         tr[data-agg="1"] td * {
           text-decoration-color: currentColor !important;
+          font-size: inherit;
         }
         tr[data-agg="1"] input {
           border-bottom: 1px solid currentColor !important;
@@ -2873,33 +2882,37 @@ function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState(false);
   const focused = useRef(false);
+  const [isFocused, setIsFocused] = useState(false);
 
   useEffect(() => {
     if (!focused.current) setStr(value != null ? String(value) : "");
   }, [value]);
 
   async function commit(raw: string) {
-    const trimmed = raw.trim();
+    const trimmed = raw.trim().replace(/,/g, "");
     const qty = trimmed === "" ? null : Number(trimmed);
-    if (qty !== null && (!Number.isFinite(qty) || !Number.isInteger(qty))) { setErr(true); focused.current = false; return; }
-    if (qty === value || (qty == null && value == null)) { focused.current = false; return; }
+    if (qty !== null && (!Number.isFinite(qty) || !Number.isInteger(qty))) { setErr(true); focused.current = false; setIsFocused(false); return; }
+    if (qty === value || (qty == null && value == null)) { focused.current = false; setIsFocused(false); return; }
     setErr(false);
     setSaving(true);
-    try { await onSave(qty); } catch { setErr(true); } finally { setSaving(false); focused.current = false; }
+    try { await onSave(qty); } catch { setErr(true); } finally { setSaving(false); focused.current = false; setIsFocused(false); }
   }
 
+  // Display "10,000" when idle; raw "10000" while editing so commas
+  // don't interfere with parsing.
+  const renderValue = isFocused ? str : (value != null ? value.toLocaleString() : "");
   return (
     <input
       data-buycell="1"
       type="text"
       inputMode="numeric"
-      value={str}
+      value={renderValue}
       onChange={(e) => { setStr(e.target.value); setErr(false); }}
       onBlur={(e) => void commit(e.target.value)}
       onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
       placeholder="—"
       style={{
-        width: 64,
+        width: 72,
         background: "transparent",
         color: err ? PAL.red : str ? PAL.green : PAL.textDim,
         border: `1px solid ${err ? PAL.red : "transparent"}`,
@@ -2914,7 +2927,14 @@ function BuyCell({ value, onSave }: { value: number | null; onSave: (qty: number
         textDecoration: "inherit",
         fontWeight: "inherit",
       }}
-      onFocus={(e) => { focused.current = true; e.target.select(); e.target.style.borderColor = err ? PAL.red : PAL.green; e.target.style.background = PAL.panel; }}
+      onFocus={(e) => {
+        focused.current = true; setIsFocused(true);
+        // Seed editable state with raw integer (no commas).
+        setStr(value != null ? String(value) : "");
+        setTimeout(() => e.target.select(), 0);
+        e.target.style.borderColor = err ? PAL.red : PAL.green;
+        e.target.style.background = PAL.panel;
+      }}
       onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
     />
   );
@@ -2933,35 +2953,46 @@ function IntCell({ value, accent, allowNegative, onSave }: {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState(false);
   const focused = useRef(false);
+  const [isFocused, setIsFocused] = useState(false);
 
   useEffect(() => {
     if (!focused.current) setStr(value === 0 ? "" : (allowNegative && value > 0 ? "+" : "") + String(value));
   }, [value, allowNegative]);
 
   async function commit(raw: string) {
-    const trimmed = raw.trim().replace(/^\+/, "");
+    const trimmed = raw.trim().replace(/[+,]/g, "");
     const qty = trimmed === "" ? 0 : Number(trimmed);
     if (!Number.isFinite(qty) || !Number.isInteger(qty) || (!allowNegative && qty < 0)) {
-      setErr(true); focused.current = false; return;
+      setErr(true); focused.current = false; setIsFocused(false); return;
     }
-    if (qty === value) { focused.current = false; return; }
+    if (qty === value) { focused.current = false; setIsFocused(false); return; }
     setErr(false);
     setSaving(true);
-    try { await onSave(qty); } catch { setErr(true); } finally { setSaving(false); focused.current = false; }
+    try { await onSave(qty); } catch { setErr(true); } finally { setSaving(false); focused.current = false; setIsFocused(false); }
   }
 
   const color = err ? PAL.red : value !== 0 ? accent : PAL.textMuted;
+  // Display value: comma-formatted "5,000" when idle, raw "5000" while
+  // editing so the planner doesn't wrestle commas during keystrokes.
+  // Sign prefix (+/−) preserved when allowNegative.
+  const displayValue = isFocused
+    ? str
+    : (value === 0 ? "" : (allowNegative && value > 0 ? "+" : "") + Math.abs(value).toLocaleString() + (allowNegative && value < 0 ? "" : "")).replace(/(-)(\d)/, "$1$2");
+  const renderValue = isFocused ? str : (value === 0 ? "" : (allowNegative && value > 0 ? "+" : "") + value.toLocaleString());
+  // Suppress TypeScript unused warning — displayValue retained for
+  // readability clarity but renderValue is the canonical form.
+  void displayValue;
   return (
     <input
       type="text"
       inputMode={allowNegative ? "text" : "numeric"}
-      value={str}
+      value={renderValue}
       onChange={(e) => { setStr(e.target.value); setErr(false); }}
       onBlur={(e) => void commit(e.target.value)}
       onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
       placeholder="—"
       style={{
-        width: 64,
+        width: 72,
         background: "transparent",
         color,
         border: `1px solid ${err ? PAL.red : "transparent"}`,
@@ -2979,7 +3010,17 @@ function IntCell({ value, accent, allowNegative, onSave }: {
         textDecoration: "inherit",
         fontWeight: "inherit",
       }}
-      onFocus={(e) => { focused.current = true; e.target.select(); e.target.style.borderColor = err ? PAL.red : accent; e.target.style.background = PAL.panel; }}
+      onFocus={(e) => {
+        focused.current = true; setIsFocused(true);
+        // Seed the editable string from the current value (raw, no commas).
+        const seed = value === 0 ? "" : (allowNegative && value > 0 ? "+" : "") + String(value);
+        setStr(seed);
+        // Defer .select() so React's value swap from formatted to raw
+        // applies before the selection range is set.
+        setTimeout(() => e.target.select(), 0);
+        e.target.style.borderColor = err ? PAL.red : accent;
+        e.target.style.background = PAL.panel;
+      }}
       onBlurCapture={(e) => { e.target.style.borderColor = err ? PAL.red : "transparent"; e.target.style.background = "transparent"; }}
     />
   );
