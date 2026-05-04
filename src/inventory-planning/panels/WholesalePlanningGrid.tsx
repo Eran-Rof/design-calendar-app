@@ -1688,6 +1688,20 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           background: ${PAL.yellow};
           color: #000;
         }
+        /* Aggregate-row underline. Native <input> elements don't render
+           text-decoration on their value (replaced element), so we paint
+           a border-bottom in currentColor to match. Cells with plain
+           text get text-decoration-color recomputed per-element so each
+           cell's underline matches its own color (currentColor resolves
+           late at the cell, not at the row's computed value). */
+        tr[data-agg="1"] td,
+        tr[data-agg="1"] td * {
+          text-decoration-color: currentColor !important;
+        }
+        tr[data-agg="1"] input {
+          border-bottom: 1px solid currentColor !important;
+          padding-bottom: 1px !important;
+        }
       `}</style>
       {pendingConfirm && (
         <div
@@ -2335,6 +2349,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               return (
               <tr
                 key={rowKey}
+                data-agg={r.is_aggregate ? "1" : undefined}
                 onContextMenu={(e) => { e.preventDefault(); if (!r.is_aggregate) onSelectRow(r); }}
                 title={
                   r.is_user_added ? "Planner-added TBD row — click ✕ at the row tail to delete"
