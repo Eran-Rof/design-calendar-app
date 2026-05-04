@@ -701,12 +701,13 @@ export default function WholesalePlanningWorkbench() {
     style_code: string;
     color: string;
     is_new_color: boolean;
-    customer_id: string;
-    group_name: string | null;
-    sub_category_name: string | null;
-    // One row per period_code in this list. Empty array → fall back to
+    // One row per (customer × period) combination. Empty customer
+    // list is rejected up front; empty period list falls back to
     // every period in the run (the previous "always all periods"
     // behavior, now opt-in via clearing the form's period selection).
+    customer_ids: string[];
+    group_name: string | null;
+    sub_category_name: string | null;
     period_codes: string[];
     notes?: string | null;
   };
@@ -751,8 +752,12 @@ export default function WholesalePlanningWorkbench() {
 
   async function addTbdRow(args: AddTbdRowArgs) {
     if (!selectedRun) return;
+    if (args.customer_ids.length === 0) {
+      setToast({ text: "Pick at least one customer.", kind: "error" });
+      return;
+    }
     // Resolve which periods to create rows in. Empty list → fall back
-    // to every period in the run (the previous always-all behavior).
+    // to every period in the run.
     const allRunPeriods = Array.from(new Set(rows.map((r) => r.period_code)));
     const targetPeriods = args.period_codes.length > 0 ? args.period_codes : allRunPeriods;
     if (targetPeriods.length === 0) {
@@ -772,36 +777,47 @@ export default function WholesalePlanningWorkbench() {
       setToast({ text: "Couldn't resolve any of the chosen periods.", kind: "error" });
       return;
     }
-    // Per-period dup check (skip when the planner is using the
-    // placeholder TBD/TBD grain).
+    // Per-(customer, period) dup check (skip when the planner is using
+    // the placeholder TBD/TBD grain).
     const isPlaceholderAdd = args.style_code === "TBD" && args.color === "TBD";
     if (!isPlaceholderAdd) {
-      for (const p of periodSamples) {
-        const dup = findTbdDuplicate(args.style_code, args.color, args.customer_id, p.period_code);
-        if (dup) {
-          setToast({
-            text: `Already have a ${args.style_code} / ${args.color} row for ${dup.customer_name} in ${p.period_code}. Edit that row instead.`,
-            kind: "error",
-          });
-          return;
+      for (const customer_id of args.customer_ids) {
+        for (const p of periodSamples) {
+          const dup = findTbdDuplicate(args.style_code, args.color, customer_id, p.period_code);
+          if (dup) {
+            setToast({
+              text: `Already have a ${args.style_code} / ${args.color} row for ${dup.customer_name} in ${p.period_code}. Edit that row instead.`,
+              kind: "error",
+            });
+            return;
+          }
         }
       }
     }
     try {
-      // One row per chosen period — no automatic sibling-period
-      // cloning anymore. The planner explicitly picks which periods
-      // to populate via the form's multi-select Periods field.
-      const cust = customers.find((c) => c.id === args.customer_id);
+      // One row per (customer × period). No automatic sibling-period
+      // cloning anymore — the planner explicitly picks which customers
+      // and periods via the form's multi-selects.
       const localId = `addrow:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
-      // Build optimistic rows so the grid shows every chosen period
-      // instantly. Each carries a synthetic forecast_id keyed by
-      // localId+period — the network insert resolver below stamps
-      // the real tbd_id once each INSERT settles.
-      const optimisticRows: IpPlanningGridRow[] = periodSamples.map((p) => ({
-        forecast_id: `tbd:optimistic:${localId}:${p.period_code}`,
+      type Combo = { customer_id: string; customer_name: string; period: { period_code: string; period_start: IpIsoDate; period_end: IpIsoDate } };
+      const combos: Combo[] = [];
+      for (const customer_id of args.customer_ids) {
+        const cust = customers.find((c) => c.id === customer_id);
+        const customer_name = cust?.name ?? "(unknown customer)";
+        for (const p of periodSamples) {
+          combos.push({ customer_id, customer_name, period: p });
+        }
+      }
+      // Build optimistic rows so the grid shows every chosen combo
+      // instantly. Synthetic forecast_id keyed by localId + customer +
+      // period — the network insert resolver below stamps the real
+      // tbd_id once each INSERT settles.
+      const synthFidFor = (cid: string, pc: string) => `tbd:optimistic:${localId}:${cid}:${pc}`;
+      const optimisticRows: IpPlanningGridRow[] = combos.map((c) => ({
+        forecast_id: synthFidFor(c.customer_id, c.period.period_code),
         planning_run_id: selectedRun.id,
-        customer_id: args.customer_id,
-        customer_name: cust?.name ?? "(unknown customer)",
+        customer_id: c.customer_id,
+        customer_name: c.customer_name,
         category_id: null,
         category_name: null,
         group_name: args.group_name,
@@ -819,9 +835,9 @@ export default function WholesalePlanningWorkbench() {
         is_user_added: true,
         tbd_id: undefined,
         sku_size: null,
-        period_code: p.period_code,
-        period_start: p.period_start,
-        period_end: p.period_end,
+        period_code: c.period.period_code,
+        period_start: c.period.period_start,
+        period_end: c.period.period_end,
         historical_trailing_qty: 0,
         system_forecast_qty: 0,
         system_forecast_qty_original: 0,
@@ -853,30 +869,30 @@ export default function WholesalePlanningWorkbench() {
         notes: null,
       }));
       setRows((prev) => [...prev, ...optimisticRows]);
-      // Pin the freshly-added "first" row (earliest period) to the
-      // top of the grid so the planner sees the new style immediately.
-      const sortedSamples = [...periodSamples].sort((a, b) => a.period_start.localeCompare(b.period_start));
-      const primary = sortedSamples[0];
+      // Pin the freshly-added "first" row (earliest period × first
+      // customer) to the top so the planner sees the new style.
+      const sortedCombos = [...combos].sort((a, b) => a.period.period_start.localeCompare(b.period.period_start));
+      const primary = sortedCombos[0];
       setLastAddedTbdMarker({
         style_code: args.style_code,
         color: args.color,
-        customer_id: args.customer_id,
-        period_code: primary.period_code,
+        customer_id: primary.customer_id,
+        period_code: primary.period.period_code,
       });
       // Fire all inserts in parallel; stamp tbd_id + reconcile drift
       // (planner edits during flight) when each settles.
-      for (const p of periodSamples) {
-        const synthFid = `tbd:optimistic:${localId}:${p.period_code}`;
+      for (const c of combos) {
+        const synthFid = synthFidFor(c.customer_id, c.period.period_code);
         void wholesaleRepo.insertTbdRow(selectedRun.id, {
           style_code: args.style_code,
           color: args.color,
           is_new_color: args.is_new_color,
-          customer_id: args.customer_id,
+          customer_id: c.customer_id,
           group_name: args.group_name,
           sub_category_name: args.sub_category_name,
-          period_start: p.period_start,
-          period_end: p.period_end,
-          period_code: p.period_code,
+          period_start: c.period.period_start,
+          period_end: c.period.period_end,
+          period_code: c.period.period_code,
           notes: args.notes ?? null,
         })
           .then((r) => {
@@ -893,7 +909,7 @@ export default function WholesalePlanningWorkbench() {
               patch.color = drifty.sku_color ?? "TBD";
               patch.is_new_color = !!drifty.is_new_color;
             }
-            if (drifty.customer_id !== args.customer_id) {
+            if (drifty.customer_id !== c.customer_id) {
               patch.customer_id = drifty.customer_id;
             }
             const drifyDesc = drifty.sku_description?.trim() || null;
@@ -903,11 +919,11 @@ export default function WholesalePlanningWorkbench() {
             }
             if (Object.keys(patch).length > 0) {
               void wholesaleRepo.patchTbdRow(r.id, patch)
-                .catch((e) => console.warn(`[planning] add-row reconcile ${p.period_code} failed`, e));
+                .catch((e) => console.warn(`[planning] add-row reconcile ${c.period.period_code} failed`, e));
             }
           })
           .catch((e) => {
-            console.warn(`[planning] add-row insert ${p.period_code} failed`, e);
+            console.warn(`[planning] add-row insert ${c.customer_name}/${c.period.period_code} failed`, e);
             // Drop the optimistic row so the planner sees the failure
             // (instead of a phantom row that will never persist).
             setRows((prev) => prev.filter((row) => row.forecast_id !== synthFid));
@@ -923,7 +939,7 @@ export default function WholesalePlanningWorkbench() {
       // gender / action / confidence / method, which the new row
       // doesn't carry meaningful values for.
       const mismatches: string[] = [];
-      if (buildFilter?.customer_id && buildFilter.customer_id !== args.customer_id) mismatches.push("customer");
+      if (buildFilter?.customer_id && !args.customer_ids.includes(buildFilter.customer_id)) mismatches.push("customer");
       if (buildFilter?.style_code && buildFilter.style_code !== args.style_code) mismatches.push("style");
       if (buildFilter?.group_name && buildFilter.group_name !== (args.group_name ?? null)) mismatches.push("category");
       if (buildFilter?.sub_category_name && buildFilter.sub_category_name !== (args.sub_category_name ?? null)) mismatches.push("sub cat");
@@ -931,7 +947,7 @@ export default function WholesalePlanningWorkbench() {
       if (buildFilter?.recommended_action && buildFilter.recommended_action !== "monitor") mismatches.push("action");
       if (buildFilter?.confidence_level && buildFilter.confidence_level !== "estimate") mismatches.push("confidence");
       if (buildFilter?.forecast_method && buildFilter.forecast_method !== "zero_floor") mismatches.push("method");
-      const rowCount = periodSamples.length;
+      const rowCount = combos.length;
       const rowLabel = `${rowCount} TBD row${rowCount === 1 ? "" : "s"}`;
       if (mismatches.length > 0) {
         setToast({ text: `Added ${rowLabel} — pinned to top. Filters don't match (${mismatches.join(", ")}); clear to see them.`, kind: "info" });

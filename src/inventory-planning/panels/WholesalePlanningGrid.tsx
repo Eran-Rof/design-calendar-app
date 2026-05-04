@@ -82,7 +82,7 @@ export interface WholesalePlanningGridProps {
     style_code: string;
     color: string;
     is_new_color: boolean;
-    customer_id: string;
+    customer_ids: string[];
     group_name: string | null;
     sub_category_name: string | null;
     period_codes: string[];
@@ -345,7 +345,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   const [colorEditBlocked, setColorEditBlocked] = useState(false);
   const [addRowOpen, setAddRowOpen] = useState(false);
   const [addRowDraft, setAddRowDraft] = useState<{
-    customer_id: string;
+    customer_ids: string[];
     group_name: string | null;
     sub_category_name: string | null;
     period_codes: string[];
@@ -354,7 +354,7 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     is_new_color: boolean;
     description: string;
   }>({
-    customer_id: "",
+    customer_ids: [],
     group_name: null,
     sub_category_name: null,
     period_codes: [],
@@ -1925,7 +1925,9 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 // under the synthetic placeholder customer.
                 const supplyOnly = customers.find((c) => c.name === "(Supply Only)");
                 setAddRowDraft({
-                  customer_id: filterCustomer[0] ?? supplyOnly?.id ?? "",
+                  customer_ids: filterCustomer.length > 0
+                    ? filterCustomer
+                    : (supplyOnly ? [supplyOnly.id] : []),
                   group_name: filterCategory[0] ?? null,
                   sub_category_name: filterSubCat[0] ?? null,
                   // Default to every period in the run when no period
@@ -1988,6 +1990,42 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               fontSize: 12,
             }}>
               <span style={{ fontWeight: 600, color: PAL.accent }}>+ New TBD row</span>
+              {/* Copy from top row — pulls dimensions from displayRows[0]
+                  so the planner can quickly clone the topmost visible
+                  row's setup (style, color, customer, description,
+                  category, sub-cat) into the form. The grid's sort +
+                  filters drive what "top" means; planners typically
+                  search/sort to expose the row they want to copy. */}
+              <button
+                type="button"
+                onClick={() => {
+                  const top = displayRows[0];
+                  if (!top) return;
+                  setAddRowDraft((d) => ({
+                    ...d,
+                    style_code: top.sku_style ?? "TBD",
+                    color: top.sku_color ?? "TBD",
+                    is_new_color: !!top.is_new_color,
+                    description: top.sku_description ?? "",
+                    customer_ids: top.customer_id ? [top.customer_id] : d.customer_ids,
+                    group_name: top.group_name ?? d.group_name,
+                    sub_category_name: top.sub_category_name ?? d.sub_category_name,
+                  }));
+                }}
+                disabled={displayRows.length === 0}
+                title={displayRows.length === 0
+                  ? "No row visible to copy from."
+                  : `Copy style / color / customer / description / category / sub-cat from the top row (${displayRows[0]?.sku_style ?? "TBD"} / ${displayRows[0]?.sku_color ?? "TBD"} / ${displayRows[0]?.customer_name ?? ""}).`}
+                style={{
+                  ...S.btnSecondary,
+                  padding: "4px 10px",
+                  fontSize: 11,
+                  opacity: displayRows.length === 0 ? 0.5 : 1,
+                  cursor: displayRows.length === 0 ? "not-allowed" : "pointer",
+                }}
+              >
+                ⎘ Copy top row
+              </button>
               <MultiSelectDropdown
                 compact
                 singleSelect
@@ -2096,14 +2134,19 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 style={{ ...S.input, minWidth: 160, fontSize: 12, padding: "4px 8px" }}
                 title="Optional. Shows in the Description column with a NEW badge until the master gets one."
               />
+              {/* Customers — multi-select. Each selected customer
+                  combined with each selected period yields one new
+                  row, so picking 3 customers × 4 periods creates 12
+                  rows. The save handler shows a confirm modal before
+                  going through. */}
               <MultiSelectDropdown
                 compact
-                singleSelect
-                selected={addRowDraft.customer_id ? [addRowDraft.customer_id] : []}
-                onChange={(next) => setAddRowDraft((d) => ({ ...d, customer_id: next[0] ?? "" }))}
+                selected={addRowDraft.customer_ids}
+                onChange={(next) => setAddRowDraft((d) => ({ ...d, customer_ids: next }))}
                 allLabel="Customer"
                 placeholder="Search customers…"
                 options={customers.map((c) => ({ value: c.id, label: c.name }))}
+                title="Pick one or more customers. Each customer × period combo creates a row."
               />
               {/* Periods — multi-select. Empty selection = every
                   period in the run (default). Pick a subset to limit
@@ -2120,16 +2163,38 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
               />
               <button
                 type="button"
-                disabled={addRowSaving || !addRowDraft.customer_id}
+                disabled={addRowSaving || addRowDraft.customer_ids.length === 0}
                 onClick={async () => {
                   if (!onAddTbdRow) return;
+                  // Resolve effective period count for the confirm
+                  // message. Empty period_codes means "all periods".
+                  const periodCount = addRowDraft.period_codes.length > 0
+                    ? addRowDraft.period_codes.length
+                    : periods.length;
+                  const customerCount = addRowDraft.customer_ids.length;
+                  const totalRows = customerCount * periodCount;
+                  const customerNames = addRowDraft.customer_ids
+                    .map((id) => customers.find((c) => c.id === id)?.name ?? id)
+                    .slice(0, 3);
+                  const customerSummary = addRowDraft.customer_ids.length > 3
+                    ? `${customerNames.join(", ")} +${addRowDraft.customer_ids.length - 3} more`
+                    : customerNames.join(", ");
+                  const periodSummary = addRowDraft.period_codes.length > 0
+                    ? addRowDraft.period_codes.map(formatPeriodCode).join(", ")
+                    : "every period in the run";
+                  const ok = await askConfirm(
+                    `Create ${totalRows} TBD row${totalRows === 1 ? "" : "s"}?`,
+                    `${totalRows} row${totalRows === 1 ? "" : "s"} will be created — ${customerCount} customer${customerCount === 1 ? "" : "s"} (${customerSummary}) × ${periodCount} period${periodCount === 1 ? "" : "s"} (${periodSummary}).\n\nStyle: ${addRowDraft.style_code || "TBD"} · Color: ${addRowDraft.color || "TBD"}${addRowDraft.description.trim() ? ` · Description: ${addRowDraft.description.trim()}` : ""}`,
+                    "Create rows",
+                  );
+                  if (!ok) return;
                   setAddRowSaving(true);
                   try {
                     await onAddTbdRow({
                       style_code: addRowDraft.style_code || "TBD",
                       color: addRowDraft.color || "TBD",
                       is_new_color: addRowDraft.is_new_color,
-                      customer_id: addRowDraft.customer_id,
+                      customer_ids: addRowDraft.customer_ids,
                       group_name: addRowDraft.group_name,
                       sub_category_name: addRowDraft.sub_category_name,
                       period_codes: addRowDraft.period_codes,
@@ -2148,8 +2213,8 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                   ...S.btnPrimary,
                   padding: "5px 14px",
                   fontSize: 12,
-                  opacity: addRowSaving || !addRowDraft.customer_id ? 0.5 : 1,
-                  cursor: addRowSaving || !addRowDraft.customer_id ? "not-allowed" : "pointer",
+                  opacity: addRowSaving || addRowDraft.customer_ids.length === 0 ? 0.5 : 1,
+                  cursor: addRowSaving || addRowDraft.customer_ids.length === 0 ? "not-allowed" : "pointer",
                 }}
               >
                 {addRowSaving ? "Saving…" : "Save"}
