@@ -1105,7 +1105,37 @@ export default function WholesalePlanningWorkbench() {
       return;
     }
     try {
-      await wholesaleRepo.patchTbdRow(row.tbd_id, { style_code: styleCode });
+      // Look for any existing planner-added row already on this
+      // NEW style — its description (and color if the planner
+      // hasn't picked one yet) gets copied onto the row being
+      // renamed so a second/third/etc row for RYB9999 picks up
+      // the same description automatically. Avoids the "I added
+      // a description on row 1, why's row 2 blank?" report.
+      const existingNewStyleRow = (() => {
+        const masterStyleSet0 = new Set(masterStyles.map((m) => m.style_code.toLowerCase()));
+        if (masterStyleSet0.has(styleCode.toLowerCase())) return null;
+        return rows.find((r) =>
+          r.is_tbd && r.is_user_added && r.tbd_id && r.tbd_id !== row.tbd_id
+          && (r.sku_style ?? "").toLowerCase() === styleCode.toLowerCase()
+          && (r.sku_description?.trim() || r.sku_color !== "TBD"),
+        ) ?? null;
+      })();
+      const inheritedDescription = existingNewStyleRow?.sku_description?.trim() || null;
+      // Patch the main row with the new style + inherited
+      // description (when this row has none of its own).
+      const stylePatch: Record<string, unknown> = { style_code: styleCode };
+      if (inheritedDescription && !row.sku_description?.trim()) {
+        stylePatch.notes = inheritedDescription;
+      }
+      await wholesaleRepo.patchTbdRow(row.tbd_id, stylePatch);
+      if (inheritedDescription && !row.sku_description?.trim()) {
+        // Reflect the inherited description in local state so the
+        // grid shows it before the rebuild lands.
+        const fid2 = row.forecast_id;
+        setRows((prev) => prev.map((r) => r.forecast_id === fid2
+          ? { ...r, sku_description: inheritedDescription, is_new_description: true }
+          : r));
+      }
       // Sibling-period propagation for brand-new styles: if the
       // planner just renamed a row to a style not in the master,
       // also create matching TBD rows for every OTHER period that
@@ -1350,11 +1380,24 @@ export default function WholesalePlanningWorkbench() {
     try {
       const created = await wholesaleRepo.insertCustomer(trimmed);
       // Append the new customer to local state so all dropdowns
-      // know about them right away.
+      // know about them right away. The minimal IpCustomer shape
+      // is enough for the picker (id + name) but we stamp
+      // external_refs.planning_added too so the NEW-badge logic in
+      // the cell + other dropdowns matches what the DB returned.
       setCustomers((prev) => {
         if (prev.some((c) => c.id === created.id)) return prev;
-        return [...prev, { id: created.id, name: created.name } as IpCustomer]
-          .sort((a, b) => a.name.localeCompare(b.name));
+        const newRow: IpCustomer = {
+          id: created.id,
+          customer_code: "",
+          name: created.name,
+          parent_customer_id: null,
+          customer_tier: null,
+          country: null,
+          channel_id: null,
+          active: true,
+          external_refs: { planning_added: "1" },
+        };
+        return [...prev, newRow].sort((a, b) => a.name.localeCompare(b.name));
       });
       // Flag the customer as NEW for this session so the customer
       // cell badges them. Cleared on page refresh.
@@ -1381,26 +1424,14 @@ export default function WholesalePlanningWorkbench() {
       });
       return;
     }
-    const colorSiblings = siblingTbdRowsForNewStyle(row);
-    const hadColor = (row.sku_color ?? "TBD") !== "TBD";
-    if (hadColor && colorSiblings.length > 0) {
-      const ok = await askConfirm(
-        `Update color across ${colorSiblings.length + 1} periods?`,
-        `Style ${row.sku_style ?? ""} color will change from "${row.sku_color ?? "TBD"}" to "${color}" on this row AND on every other period in the build.`,
-        "Update all",
-      );
-      if (!ok) return;
-    }
-    // Optimistic sibling update so cells repopulate immediately
-    // — the buildGridRows rebuild runs in the background but the
-    // planner shouldn't have to wait for it to see the change.
-    const colorSiblingFids = new Set(colorSiblings.map((s) => s.forecast_id));
+    // Color is a per-row attribute — it identifies WHICH variant of
+    // the style the row stands for. Changing color on one row
+    // shouldn't ripple to other periods (which represent the SAME
+    // style+color combo planned across periods, not different
+    // colors). Propagation here was creating duplicate-looking
+    // rows in sibling periods. Single-row update only.
     const fid = row.forecast_id;
-    setRows((prev) => prev.map((r) => {
-      if (r.forecast_id === fid) return { ...r, sku_color: color, is_new_color: isNewColor };
-      if (colorSiblingFids.has(r.forecast_id)) return { ...r, sku_color: color, is_new_color: isNewColor };
-      return r;
-    }));
+    setRows((prev) => prev.map((r) => r.forecast_id === fid ? { ...r, sku_color: color, is_new_color: isNewColor } : r));
     setLastAddedTbdMarker((prev) => {
       if (!prev) return prev;
       if (prev.style_code !== (row.sku_style ?? "")) return prev;
@@ -1411,15 +1442,10 @@ export default function WholesalePlanningWorkbench() {
     });
     try {
       await saveTbdField(row, { color, is_new_color: isNewColor });
-      if (colorSiblings.length > 0) {
-        await Promise.all(colorSiblings.map((s) => wholesaleRepo.patchTbdRow(s.tbd_id!, { color, is_new_color: isNewColor })
-          .catch((e) => console.warn(`[planning] color propagate ${s.period_code} failed`, e))));
-      }
-      const cloneSuffix = colorSiblings.length > 0 ? ` · cloned to ${colorSiblings.length} sibling period${colorSiblings.length === 1 ? "" : "s"}` : "";
       setToast({
         text: isNewColor
-          ? `Set color to "${color}" (NEW — not in master yet)${cloneSuffix}`
-          : `Set color to "${color}"${cloneSuffix}`,
+          ? `Set color to "${color}" (NEW — not in master yet)`
+          : `Set color to "${color}"`,
         kind: "success",
       });
       const seq = ++rebuildSeq.current;

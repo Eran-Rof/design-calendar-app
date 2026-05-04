@@ -3001,7 +3001,11 @@ function TbdDescriptionCell({
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
-  useEffect(() => { if (!open) setQuery(""); }, [open]);
+  // Prefill the search box with the current value when opening so
+  // re-editing an existing description works inline. A blank prefill
+  // looked like the description had vanished as soon as the picker
+  // opened — the planner had to retype the whole string.
+  useEffect(() => { if (open) setQuery(value); else setQuery(""); }, [open, value]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -3009,7 +3013,9 @@ function TbdDescriptionCell({
     return knownDescriptions.filter((d) => d.toLowerCase().includes(q));
   }, [query, knownDescriptions]);
   const queryTrim = query.trim();
+  const queryMatchesValue = queryTrim.toLowerCase() === value.trim().toLowerCase();
   const queryIsNew = queryTrim.length > 0
+    && !queryMatchesValue
     && !knownDescriptions.some((d) => d.toLowerCase() === queryTrim.toLowerCase());
 
   async function commit(description: string) {
