@@ -832,21 +832,38 @@ export default function WholesalePlanningWorkbench() {
         }
         const toClone = Array.from(siblingPeriods.values()).filter((p) => !alreadyHave.has(p.period_code));
         if (toClone.length > 0) {
-          // Fire-and-forget — the optimistic rows below show up
-          // instantly and the rebuild reconciles real ids when the
-          // network inserts settle.
-          void Promise.all(toClone.map((p) => wholesaleRepo.insertTbdRow(selectedRun.id, {
-            style_code: args.style_code,
-            color: args.color,
-            is_new_color: args.is_new_color,
-            customer_id: args.customer_id,
-            group_name: args.group_name,
-            sub_category_name: args.sub_category_name,
-            period_start: p.period_start,
-            period_end: p.period_end,
-            period_code: p.period_code,
-            notes: args.notes ?? null,
-          }).catch((e) => console.warn(`[planning] sibling clone for ${args.style_code} ${p.period_code} failed`, e))));
+          // Kick off each insert in the background. As each settles,
+          // stamp the real tbd_id onto the matching optimistic row in
+          // local state — this is what lets saveTbdColor /
+          // saveTbdCustomer / saveTbdDescription's
+          // siblingTbdRowsForNewStyle helper find the siblings (it
+          // filters on r.tbd_id). Without the stamp, the helper
+          // skipped the optimistic siblings, so the planner's first
+          // edit on row 1 looked like a single-row update instead of
+          // backfilling all the just-cloned periods.
+          for (const p of toClone) {
+            const synthFid = `tbd:optimistic:${newTbdId}:${p.period_code}`;
+            void wholesaleRepo.insertTbdRow(selectedRun.id, {
+              style_code: args.style_code,
+              color: args.color,
+              is_new_color: args.is_new_color,
+              customer_id: args.customer_id,
+              group_name: args.group_name,
+              sub_category_name: args.sub_category_name,
+              period_start: p.period_start,
+              period_end: p.period_end,
+              period_code: p.period_code,
+              notes: args.notes ?? null,
+            })
+              .then((r) => {
+                setRows((prev) => prev.map((row) =>
+                  row.forecast_id === synthFid
+                    ? { ...row, forecast_id: `tbd:${r.id}`, tbd_id: r.id }
+                    : row,
+                ));
+              })
+              .catch((e) => console.warn(`[planning] sibling clone for ${args.style_code} ${p.period_code} failed`, e));
+          }
           clonedSiblings.push(...toClone);
         }
       }

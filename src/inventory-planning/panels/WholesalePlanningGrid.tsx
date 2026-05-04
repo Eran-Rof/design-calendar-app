@@ -682,6 +682,24 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
     }
   }, [colorOptions, filterColor]);
 
+  // Style → description map used by the + Add row form to auto-fill
+  // the Description field when the planner picks a style. Both master
+  // styles (which carry master description on every forecast row) and
+  // planner-added NEW styles (description stored on the TBD row's
+  // notes column, surfaced as sku_description) get covered. First
+  // non-empty description wins per style; ties don't matter since
+  // every row of a style should agree on description anyway.
+  const descriptionByStyle = useMemo(() => {
+    const out = new Map<string, string>();
+    for (const r of rows) {
+      const style = r.sku_style ?? r.sku_code;
+      if (!style || out.has(style)) continue;
+      const desc = r.sku_description?.trim();
+      if (desc) out.set(style, desc);
+    }
+    return out;
+  }, [rows]);
+
   // Map of category (group_name) → set of "known" colors for the TBD
   // color picker. Sourced from non-TBD rows so the picker offers every
   // color any style in the same category carries — useful when the
@@ -1941,7 +1959,21 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 compact
                 singleSelect
                 selected={addRowDraft.style_code && addRowDraft.style_code !== "TBD" ? [addRowDraft.style_code] : []}
-                onChange={(next) => setAddRowDraft((d) => ({ ...d, style_code: next[0] ?? "TBD" }))}
+                onChange={(next) => {
+                  const picked = next[0] ?? "TBD";
+                  // Auto-fill the Description field from the picked
+                  // style's existing description (master or planner-
+                  // typed). Don't overwrite if the planner already
+                  // typed one — only fill when the field is empty.
+                  setAddRowDraft((d) => {
+                    const inherited = picked !== "TBD" ? descriptionByStyle.get(picked) ?? "" : "";
+                    return {
+                      ...d,
+                      style_code: picked,
+                      description: d.description.trim() ? d.description : inherited,
+                    };
+                  });
+                }}
                 allLabel="Style: TBD"
                 placeholder="Pick existing style…"
                 options={styles.map((s) => ({ value: s, label: s }))}
@@ -1950,9 +1982,19 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
                 type="text"
                 placeholder="…or new style"
                 value={addRowDraft.style_code === "TBD" ? "" : addRowDraft.style_code}
-                onChange={(e) => setAddRowDraft((d) => ({ ...d, style_code: e.target.value.trim() || "TBD" }))}
+                onChange={(e) => {
+                  const typed = e.target.value.trim() || "TBD";
+                  setAddRowDraft((d) => {
+                    const inherited = typed !== "TBD" ? descriptionByStyle.get(typed) ?? "" : "";
+                    return {
+                      ...d,
+                      style_code: typed,
+                      description: d.description.trim() ? d.description : inherited,
+                    };
+                  });
+                }}
                 style={{ ...S.input, minWidth: 120, fontSize: 12, padding: "4px 8px" }}
-                title="Type a brand-new style code. Flagged NEW until the master catches up."
+                title="Type a brand-new style code, or one already in the run. Description auto-fills when the typed style is recognised."
               />
               <input
                 type="text"
