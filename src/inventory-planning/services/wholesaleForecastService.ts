@@ -390,7 +390,14 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
     horizon,
   );
   const asOf = new Date().toISOString().slice(0, 10);
-  const recs = generateWholesaleRecommendations(relevantPersisted, supplyBySkuPeriod, asOf);
+  // Per-SKU MOQ from the item master — drives MOQ rounding on the
+  // recommended_qty so the suggestion matches what the planner can
+  // actually order in case packs.
+  const moqBySku = new Map<string, number>();
+  for (const i of items) {
+    if (i.moq_units && i.moq_units > 1) moqBySku.set(i.id, i.moq_units);
+  }
+  const recs = generateWholesaleRecommendations(relevantPersisted, supplyBySkuPeriod, asOf, undefined, moqBySku);
   checkAbort(signal);
   onProgress?.({ phase: "writing_recs", label: `Writing recommendations`, current: 0, total: recs.length });
   await wholesaleRepo.replaceRecommendations(run.id, recs, {

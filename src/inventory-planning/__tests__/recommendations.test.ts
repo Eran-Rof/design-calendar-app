@@ -68,4 +68,57 @@ describe("recommendForRow", () => {
     // 6 units shortage > 5% of 100 → buy
     expect(r.recommended_action).toBe("buy");
   });
+
+  describe("MOQ rounding", () => {
+    it("rounds shortage up to the nearest MOQ multiple", () => {
+      // shortage = 87, MOQ = 144 → rec_qty = 144
+      const r = recommendForRow(
+        row({ final_forecast_qty: 100 }),
+        supply({ available_supply_qty: 13 }),
+        FAR_ASOF,
+        DEFAULT_THRESHOLDS,
+        144,
+      );
+      expect(r.recommended_action).toBe("buy");
+      expect(r.recommended_qty).toBe(144);
+      expect(r.projected_shortage_qty).toBe(87); // gap stays unrounded
+      expect(r.action_reason).toContain("MOQ 144");
+    });
+
+    it("leaves recommended_qty unchanged when shortage is already a clean MOQ multiple", () => {
+      // shortage = 144 (exactly), MOQ = 144 → rec_qty = 144, no MOQ note
+      const r = recommendForRow(
+        row({ final_forecast_qty: 200 }),
+        supply({ available_supply_qty: 56 }),
+        FAR_ASOF,
+        DEFAULT_THRESHOLDS,
+        144,
+      );
+      expect(r.recommended_qty).toBe(144);
+      expect(r.action_reason).not.toContain("MOQ");
+    });
+
+    it("ignores MOQ ≤ 1 (no constraint)", () => {
+      const r = recommendForRow(
+        row({ final_forecast_qty: 100 }),
+        supply({ available_supply_qty: 13 }),
+        FAR_ASOF,
+        DEFAULT_THRESHOLDS,
+        1,
+      );
+      expect(r.recommended_qty).toBe(87);
+    });
+
+    it("rounds expedite shortages to MOQ as well", () => {
+      const r = recommendForRow(
+        row({}),
+        supply({ available_supply_qty: 70 }),
+        "2026-05-15",
+        DEFAULT_THRESHOLDS,
+        50,
+      );
+      expect(r.recommended_action).toBe("expedite");
+      expect(r.recommended_qty).toBe(50); // shortage 30 rounded to 50
+    });
+  });
 });
