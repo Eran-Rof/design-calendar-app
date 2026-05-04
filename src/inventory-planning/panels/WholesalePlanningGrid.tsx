@@ -1688,26 +1688,30 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
           background: ${PAL.yellow};
           color: #000;
         }
-        /* Aggregate-row underline. Re-asserted PER-CELL (td) instead of
-           inherited from the row, so currentColor resolves at the cell
-           and the underline matches whatever color the cell's text is
-           rendered in (green for Final, red for Short, etc.). Without
-           this, currentColor computed once at the row level (textDim)
-           and every cell inherited that fixed gray.
-           Native <input> elements don't render CSS text-decoration on
-           their value (replaced element), so we paint a matching
-           border-bottom: 1px solid currentColor to fake the underline. */
+        /* Aggregate-row underline. Each level of element draws its own
+           underline so currentColor resolves at THAT element's color
+           (greens green-underlined, reds red-underlined, etc.).
+           Inline-block children (spans like the editable Unit Cost
+           display) create a boundary that the parent td's underline
+           can't visually cross — without their own text-decoration
+           they appear un-underlined.
+           Inputs are replaced elements: CSS text-decoration doesn't
+           paint on their value. We swap for a matching border-bottom
+           and explicitly clear text-decoration to avoid stacking the
+           parent's underline on top of the border. */
         tr[data-agg="1"] td {
           text-decoration: underline currentColor 1px !important;
           text-underline-offset: 2px;
           font-size: 13px;
           line-height: 1.4;
         }
-        tr[data-agg="1"] td * {
+        tr[data-agg="1"] td *:not(input) {
+          text-decoration: underline currentColor 1px !important;
           text-decoration-color: currentColor !important;
           font-size: inherit;
         }
         tr[data-agg="1"] input {
+          text-decoration: none !important;
           border-bottom: 1px solid currentColor !important;
           padding-bottom: 1px !important;
         }
