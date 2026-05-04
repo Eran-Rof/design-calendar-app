@@ -901,7 +901,7 @@ export default function WholesalePlanningWorkbench() {
           const refreshed = await buildGridRows(selectedRun);
           if (seq !== rebuildSeq.current) return;
           setRows(refreshed);
-        } catch { /* swallow — next user action will refresh */ }
+        } catch (e) { console.warn("[ip rebuild]", e); }
       })();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -949,7 +949,7 @@ export default function WholesalePlanningWorkbench() {
           const refreshed = await buildGridRows(selectedRun);
           if (seq !== rebuildSeq.current) return;
           setRows(refreshed);
-        } catch { /* swallow */ }
+        } catch (e) { console.warn("[ip rebuild]", e); }
       })();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1077,7 +1077,7 @@ export default function WholesalePlanningWorkbench() {
           const refreshed = await buildGridRows(selectedRun);
           if (seq !== rebuildSeq.current) return;
           setRows(refreshed);
-        } catch { /* swallow — next user action will refresh */ }
+        } catch (e) { console.warn("[ip rebuild]", e); }
       })();
     };
     if (!row.tbd_id) {
@@ -1348,7 +1348,7 @@ export default function WholesalePlanningWorkbench() {
           const refreshed = await buildGridRows(selectedRun);
           if (seq !== rebuildSeq.current) return;
           setRows(refreshed);
-        } catch { /* swallow */ }
+        } catch (e) { console.warn("[ip rebuild]", e); }
       })();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1436,7 +1436,7 @@ export default function WholesalePlanningWorkbench() {
           const refreshed = await buildGridRows(selectedRun);
           if (seq !== rebuildSeq.current) return;
           setRows(refreshed);
-        } catch { /* swallow */ }
+        } catch (e) { console.warn("[ip rebuild]", e); }
       })();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1547,7 +1547,7 @@ export default function WholesalePlanningWorkbench() {
           const refreshed = await buildGridRows(selectedRun);
           if (seq !== rebuildSeq.current) return;
           setRows(refreshed);
-        } catch { /* swallow */ }
+        } catch (e) { console.warn("[ip rebuild]", e); }
       })();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1677,7 +1677,7 @@ export default function WholesalePlanningWorkbench() {
           if (seq !== rebuildSeq.current) return;
           setRows(refreshed);
           setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
-        } catch { /* swallow — next user action will refresh */ }
+        } catch (e) { console.warn("[ip rebuild]", e); }
       })();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1688,7 +1688,7 @@ export default function WholesalePlanningWorkbench() {
         if (seq !== rebuildSeq.current) return;
         setRows(refreshed);
         setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
-      } catch { /* swallow */ }
+      } catch (e) { console.warn("[ip rebuild]", e); }
     }
   }
 
@@ -1718,7 +1718,7 @@ export default function WholesalePlanningWorkbench() {
           if (seq !== rebuildSeq.current) return;
           setRows(refreshed);
           setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
-        } catch { /* swallow */ }
+        } catch (e) { console.warn("[ip rebuild]", e); }
       })();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1728,7 +1728,7 @@ export default function WholesalePlanningWorkbench() {
         const refreshed = await buildGridRows(run);
         if (seq !== rebuildSeq.current) return;
         setRows(refreshed);
-      } catch { /* swallow */ }
+      } catch (e) { console.warn("[ip rebuild]", e); }
     }
   }
 
@@ -1756,7 +1756,7 @@ export default function WholesalePlanningWorkbench() {
           if (seq !== rebuildSeq.current) return;
           setRows(refreshed);
           setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
-        } catch { /* swallow */ }
+        } catch (e) { console.warn("[ip rebuild]", e); }
       })();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1766,7 +1766,7 @@ export default function WholesalePlanningWorkbench() {
         const refreshed = await buildGridRows(run);
         if (seq !== rebuildSeq.current) return;
         setRows(refreshed);
-      } catch { /* swallow */ }
+      } catch (e) { console.warn("[ip rebuild]", e); }
     }
   }
 
@@ -1872,7 +1872,7 @@ export default function WholesalePlanningWorkbench() {
           const refreshed = await buildGridRows(run);
           if (seq !== rebuildSeq.current) return;
           setRows(refreshed);
-        } catch { /* swallow */ }
+        } catch (e) { console.warn("[ip rebuild]", e); }
       })();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1882,7 +1882,7 @@ export default function WholesalePlanningWorkbench() {
         const refreshed = await buildGridRows(run);
         if (seq !== rebuildSeq.current) return;
         setRows(refreshed);
-      } catch { /* swallow */ }
+      } catch (e) { console.warn("[ip rebuild]", e); }
     }
   }
 
@@ -1919,7 +1919,7 @@ export default function WholesalePlanningWorkbench() {
         if (seq !== rebuildSeq.current) return;
         setRows(refreshed);
         setSelectedRow((p) => p ? (refreshed.find((r) => r.forecast_id === p.forecast_id) ?? p) : null);
-      } catch { /* swallow */ }
+      } catch (e) { console.warn("[ip rebuild]", e); }
     }
   }
 
