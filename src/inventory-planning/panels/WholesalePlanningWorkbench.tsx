@@ -993,7 +993,16 @@ export default function WholesalePlanningWorkbench() {
           const refreshed = await buildGridRows(selectedRun);
           if (seq !== rebuildSeq.current) return;
           setRows(refreshed);
-        } catch { /* swallow */ }
+        } catch (e) {
+          // Surface the rebuild failure so the planner doesn't see an
+          // empty grid and assume the delete wiped everything. The
+          // optimistic local state already has every row except the
+          // deleted one — the rebuild would have reconciled it, but if
+          // it failed (typically Supabase 57014 timeouts on listItems),
+          // the local state is still authoritative.
+          const msg = e instanceof Error ? e.message : String(e);
+          setToast({ text: `Row deleted, but couldn't refresh grid — ${msg}. Reload to reconcile.`, kind: "error" });
+        }
       })();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
