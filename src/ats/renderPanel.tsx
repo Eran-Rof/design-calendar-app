@@ -15,6 +15,7 @@ import { Toolbar } from "./panels/Toolbar";
 import { GridTable } from "./panels/GridTable";
 import { GridErrorBoundary } from "./panels/GridErrorBoundary";
 import { UnmatchedBanner } from "./panels/UnmatchedBanner";
+import { exportIncompleteSkus } from "./exportIncompleteSkus";
 import type { ATSState } from "./state/atsTypes";
 import type { ATSRow, ExcelData, ATSPoEvent, ATSSoEvent, UploadWarning } from "./types";
 import type { NormChange } from "./normalize";
@@ -199,7 +200,8 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           collapseLevel={collapseLevel} setCollapseLevel={setCollapseLevel!}
           atShip={atShip} setAtShip={setAtShip}
           showTotalsRow={showTotalsRow} setShowTotalsRow={setShowTotalsRow!}
-          generalMarginPct={generalMarginPct} setGeneralMarginPct={setGeneralMarginPct!}
+          generalMarginPct={generalMarginPct ?? 50} setGeneralMarginPct={setGeneralMarginPct!}
+          onDownloadIncompleteSkus={() => exportIncompleteSkus(filtered, eventIndex)}
           filteredCount={filtered.length} lastSync={lastSync}
         />
 
