@@ -46,6 +46,16 @@ function daysBetween(fromIso: string, toIso: string): number {
   return Math.round(ms / 86_400_000);
 }
 
+// Round a "what we need to buy" quantity up to the nearest MOQ
+// multiple so the recommendation matches what the planner can
+// actually order. Returns the original qty when moq isn't set or
+// is ≤ 1 (no constraint).
+function roundUpToMoq(qty: number, moq?: number): number {
+  if (qty <= 0) return qty;
+  if (!moq || moq <= 1) return qty;
+  return Math.ceil(qty / moq) * moq;
+}
+
 export function recommendForRow(
   forecast: Pick<
     IpWholesaleForecast,
@@ -54,6 +64,7 @@ export function recommendForRow(
   supply: PeriodSupply,
   asOfIso: string,
   thresholds: RecommendationThresholds = DEFAULT_THRESHOLDS,
+  moq?: number,
 ): RecommendationResult {
   const final = forecast.final_forecast_qty;
   const avail = supply.available_supply_qty;
@@ -99,14 +110,18 @@ export function recommendForRow(
         action_reason: `Forecast ${final} below monitor floor (${thresholds.monitorFloorQty}); watch, don't chase.`,
       };
     }
+    const buyQty = roundUpToMoq(shortage, moq);
+    const moqNote = (moq && moq > 1 && buyQty !== shortage)
+      ? ` Rounded up to MOQ ${moq} (shortage ${shortage}).`
+      : "";
     if (daysToPeriodStart >= 0 && daysToPeriodStart < thresholds.expediteWithinDays) {
       return {
         available_supply_qty: avail,
         projected_shortage_qty: shortage,
         projected_excess_qty: 0,
         recommended_action: "expedite",
-        recommended_qty: shortage,
-        action_reason: `Shortage of ${shortage} units ≤ ${thresholds.expediteWithinDays} days from period start.`,
+        recommended_qty: buyQty,
+        action_reason: `Shortage of ${shortage} units ≤ ${thresholds.expediteWithinDays} days from period start.${moqNote}`,
       };
     }
     return {
@@ -114,8 +129,8 @@ export function recommendForRow(
       projected_shortage_qty: shortage,
       projected_excess_qty: 0,
       recommended_action: "buy",
-      recommended_qty: shortage,
-      action_reason: `Shortage of ${shortage} units vs forecast ${final}.`,
+      recommended_qty: buyQty,
+      action_reason: `Shortage of ${shortage} units vs forecast ${final}.${moqNote}`,
     };
   }
 
@@ -148,8 +163,9 @@ export function buildRecommendationRow(
   supply: PeriodSupply,
   asOfIso: string,
   thresholds?: RecommendationThresholds,
+  moq?: number,
 ): Omit<IpWholesaleRecommendation, "id" | "created_at"> {
-  const r = recommendForRow(f, supply, asOfIso, thresholds);
+  const r = recommendForRow(f, supply, asOfIso, thresholds, moq);
   return {
     planning_run_id: f.planning_run_id,
     customer_id: f.customer_id,
@@ -172,6 +188,10 @@ export function generateWholesaleRecommendations(
   supplyBySkuPeriod: Map<string, PeriodSupply>,
   asOfIso: string,
   thresholds?: RecommendationThresholds,
+  // Per-SKU minimum order quantity (case pack / vendor MOQ). When set,
+  // recommended_qty is rounded UP to the nearest MOQ multiple so the
+  // suggestion matches what the planner can actually order.
+  moqBySku?: Map<string, number>,
 ): Array<Omit<IpWholesaleRecommendation, "id" | "created_at">> {
   return forecasts.map((f) => {
     const key = `${f.sku_id}:${f.period_start}`;
@@ -181,7 +201,7 @@ export function generateWholesaleRecommendations(
       receipts_due_qty: 0,
       available_supply_qty: 0,
     };
-    return buildRecommendationRow(f, supply, asOfIso, thresholds);
+    return buildRecommendationRow(f, supply, asOfIso, thresholds, moqBySku?.get(f.sku_id));
   });
 }
 
