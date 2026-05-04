@@ -1106,11 +1106,11 @@ export default function WholesalePlanningWorkbench() {
     }
     try {
       // Look for any existing planner-added row already on this
-      // NEW style — its description (and color if the planner
-      // hasn't picked one yet) gets copied onto the row being
-      // renamed so a second/third/etc row for RYB9999 picks up
-      // the same description automatically. Avoids the "I added
-      // a description on row 1, why's row 2 blank?" report.
+      // NEW style — it's "row one" that established this NEW style
+      // first. Cloned sibling-period rows + the row being renamed
+      // (when it has placeholder values) inherit color, customer,
+      // and description from row one so the planner doesn't have
+      // to re-enter them per period.
       const existingNewStyleRow = (() => {
         const masterStyleSet0 = new Set(masterStyles.map((m) => m.style_code.toLowerCase()));
         if (masterStyleSet0.has(styleCode.toLowerCase())) return null;
@@ -1120,22 +1120,67 @@ export default function WholesalePlanningWorkbench() {
           && (r.sku_description?.trim() || r.sku_color !== "TBD"),
         ) ?? null;
       })();
-      const inheritedDescription = existingNewStyleRow?.sku_description?.trim() || null;
-      // Patch the main row with the new style + inherited
-      // description (when this row has none of its own).
+      // Source values — "row one" is existingNewStyleRow when it
+      // exists; otherwise it's the row being saved (the planner's
+      // current line is the originator). Used both to fill the
+      // row being saved (when its values are placeholders) AND to
+      // seed every cloned sibling row.
+      const sourceColor = (existingNewStyleRow?.sku_color && existingNewStyleRow.sku_color !== "TBD")
+        ? existingNewStyleRow.sku_color
+        : (row.sku_color ?? "TBD");
+      const sourceIsNewColor = (existingNewStyleRow?.sku_color && existingNewStyleRow.sku_color !== "TBD")
+        ? !!existingNewStyleRow.is_new_color
+        : !!row.is_new_color;
+      const sourceCustomerId = (existingNewStyleRow && existingNewStyleRow.customer_name !== "(Supply Only)")
+        ? existingNewStyleRow.customer_id
+        : row.customer_id;
+      const sourceCustomerName = (existingNewStyleRow && existingNewStyleRow.customer_name !== "(Supply Only)")
+        ? existingNewStyleRow.customer_name
+        : row.customer_name;
+      const sourceDescription = existingNewStyleRow?.sku_description?.trim()
+        || row.sku_description?.trim()
+        || null;
+      // Patch the main row with the new style + any inherited
+      // values for fields the planner left as placeholder.
+      const rowColorEmpty = !row.sku_color || row.sku_color === "TBD";
+      const rowCustomerEmpty = row.customer_name === "(Supply Only)";
+      const rowDescriptionEmpty = !row.sku_description?.trim();
       const stylePatch: Record<string, unknown> = { style_code: styleCode };
-      if (inheritedDescription && !row.sku_description?.trim()) {
-        stylePatch.notes = inheritedDescription;
+      if (existingNewStyleRow) {
+        if (rowColorEmpty && existingNewStyleRow.sku_color && existingNewStyleRow.sku_color !== "TBD") {
+          stylePatch.color = existingNewStyleRow.sku_color;
+          stylePatch.is_new_color = !!existingNewStyleRow.is_new_color;
+        }
+        if (rowCustomerEmpty && existingNewStyleRow.customer_name !== "(Supply Only)") {
+          stylePatch.customer_id = existingNewStyleRow.customer_id;
+        }
+        if (rowDescriptionEmpty && existingNewStyleRow.sku_description?.trim()) {
+          stylePatch.notes = existingNewStyleRow.sku_description.trim();
+        }
       }
       await wholesaleRepo.patchTbdRow(row.tbd_id, stylePatch);
-      if (inheritedDescription && !row.sku_description?.trim()) {
-        // Reflect the inherited description in local state so the
-        // grid shows it before the rebuild lands.
-        const fid2 = row.forecast_id;
-        setRows((prev) => prev.map((r) => r.forecast_id === fid2
-          ? { ...r, sku_description: inheritedDescription, is_new_description: true }
-          : r));
-      }
+      // Reflect inherited values on the row being saved so the grid
+      // shows them before the rebuild lands.
+      const fid2 = row.forecast_id;
+      setRows((prev) => prev.map((r) => {
+        if (r.forecast_id !== fid2) return r;
+        const next = { ...r };
+        if (existingNewStyleRow) {
+          if (rowColorEmpty && existingNewStyleRow.sku_color && existingNewStyleRow.sku_color !== "TBD") {
+            next.sku_color = existingNewStyleRow.sku_color;
+            next.is_new_color = !!existingNewStyleRow.is_new_color;
+          }
+          if (rowCustomerEmpty && existingNewStyleRow.customer_name !== "(Supply Only)") {
+            next.customer_id = existingNewStyleRow.customer_id;
+            next.customer_name = existingNewStyleRow.customer_name;
+          }
+          if (rowDescriptionEmpty && existingNewStyleRow.sku_description?.trim()) {
+            next.sku_description = existingNewStyleRow.sku_description.trim();
+            next.is_new_description = true;
+          }
+        }
+        return next;
+      }));
       // Sibling-period propagation for brand-new styles: if the
       // planner just renamed a row to a style not in the master,
       // also create matching TBD rows for every OTHER period that
@@ -1164,39 +1209,64 @@ export default function WholesalePlanningWorkbench() {
             });
           }
         }
-        // Skip periods where a TBD row at this (style, color,
-        // customer) already exists — avoid double-creating after
-        // a planner re-applies the same NEW style.
+        // Skip periods where a TBD row of this NEW style already
+        // exists (any color / customer) — those were created in a
+        // prior save and the user said "leave previously created
+        // rows alone". Without this widened guard a planner who
+        // changes color on row 1 then re-saves the same style would
+        // create dup rows alongside the existing TBD lines.
         const alreadyHave = new Set<string>();
         for (const r of rows) {
           if (!r.is_tbd) continue;
           if ((r.sku_style ?? "") !== styleCode) continue;
-          if ((r.sku_color ?? "") !== (row.sku_color ?? "")) continue;
-          if (r.customer_id !== row.customer_id) continue;
           alreadyHave.add(r.period_code);
         }
         const toClone = Array.from(siblingPeriods.values()).filter((p) => !alreadyHave.has(p.period_code));
-        // Description to seed onto every cloned sibling row — prefer
-        // any description the planner already typed on the existing
-        // matching new-style row, else the description on the row
-        // being renamed (its `notes` if no inheritance source). Without
-        // this seed each cloned period would render blank and the
-        // planner would have to re-enter the description per period.
-        const cloneDescription = inheritedDescription
-          ?? row.sku_description?.trim()
-          ?? null;
         if (toClone.length > 0) {
-          await Promise.all(toClone.map((p) => wholesaleRepo.insertTbdRow(selectedRun.id, {
+          // Optimistic insertion — synthesize sibling rows in local
+          // state so they appear on the grid INSTANTLY instead of
+          // waiting ~20s for the buildGridRows network rebuild
+          // (Supabase pos/items endpoints frequently 57014 and
+          // retry, compounding the delay). The synthetic rows clone
+          // the source row's shape with the period swapped + qtys
+          // zeroed; the rebuild later replaces them with persisted
+          // counterparts.
+          const optimisticRows = toClone.map((p) => ({
+            ...row,
+            forecast_id: `tbd:optimistic:${row.tbd_id}:${p.period_code}`,
+            tbd_id: undefined as string | undefined,
+            sku_style: styleCode,
+            sku_color: sourceColor,
+            is_new_color: sourceIsNewColor,
+            customer_id: sourceCustomerId,
+            customer_name: sourceCustomerName,
+            sku_description: sourceDescription,
+            is_new_description: !!sourceDescription,
+            period_code: p.period_code,
+            period_start: p.period_start,
+            period_end: p.period_end,
+            buyer_request_qty: 0,
+            override_qty: 0,
+            final_forecast_qty: 0,
+            historical_trailing_qty: 0,
+            ly_reference_qty: null,
+            system_forecast_qty: 0,
+            system_forecast_qty_original: 0,
+          }));
+          setRows((prev) => [...prev, ...optimisticRows]);
+          // Fire the network inserts in parallel — DON'T await,
+          // so the toast + UI feel instant. Rebuild reconciles.
+          void Promise.all(toClone.map((p) => wholesaleRepo.insertTbdRow(selectedRun.id, {
             style_code: styleCode,
-            color: row.sku_color ?? "TBD",
-            is_new_color: row.is_new_color ?? false,
-            customer_id: row.customer_id,
+            color: sourceColor,
+            is_new_color: sourceIsNewColor,
+            customer_id: sourceCustomerId,
             group_name: row.group_name ?? null,
             sub_category_name: row.sub_category_name ?? null,
             period_start: p.period_start,
             period_end: p.period_end,
             period_code: p.period_code,
-            notes: cloneDescription,
+            notes: sourceDescription,
           }).catch((e) => {
             // Surface but don't block the main save — the planner
             // can retry or add manually.
@@ -1239,13 +1309,20 @@ export default function WholesalePlanningWorkbench() {
       });
       return;
     }
-    // Customer is per-row (same as color). The previous propagate-
-    // to-siblings logic was creating noise when the planner wanted
-    // distinct customers per period of the same NEW style.
+    // Customer is per-row, with one exception that mirrors saveTbdColor:
+    // sibling rows on the same NEW style still showing the "(Supply
+    // Only)" placeholder are backfilled. Rows where the planner has
+    // already set a real customer stay untouched.
     const fid = row.forecast_id;
-    setRows((prev) => prev.map((r) =>
-      r.forecast_id === fid ? { ...r, customer_id: customerId, customer_name: customerName } : r,
-    ));
+    const placeholderSiblings = siblingTbdRowsForNewStyle(row).filter((s) =>
+      s.customer_name === "(Supply Only)",
+    );
+    const placeholderSiblingFids = new Set(placeholderSiblings.map((s) => s.forecast_id));
+    setRows((prev) => prev.map((r) => {
+      if (r.forecast_id === fid) return { ...r, customer_id: customerId, customer_name: customerName };
+      if (placeholderSiblingFids.has(r.forecast_id)) return { ...r, customer_id: customerId, customer_name: customerName };
+      return r;
+    }));
     setLastAddedTbdMarker((prev) => {
       if (!prev) return prev;
       if (prev.style_code !== (row.sku_style ?? "")) return prev;
@@ -1256,8 +1333,15 @@ export default function WholesalePlanningWorkbench() {
     });
     try {
       await saveTbdField(row, { customer_id: customerId });
+      if (placeholderSiblings.length > 0) {
+        void Promise.all(placeholderSiblings.map((s) => wholesaleRepo.patchTbdRow(s.tbd_id!, {
+          customer_id: customerId,
+        }).catch((e) => console.warn(`[planning] customer backfill ${s.period_code} failed`, e))));
+      }
       setToast({
-        text: `Reassigned to ${customerName}`,
+        text: placeholderSiblings.length > 0
+          ? `Reassigned to ${customerName} · backfilled ${placeholderSiblings.length} sibling period${placeholderSiblings.length === 1 ? "" : "s"}`
+          : `Reassigned to ${customerName}`,
         kind: "success",
       });
       const seq = ++rebuildSeq.current;
@@ -1420,14 +1504,22 @@ export default function WholesalePlanningWorkbench() {
       });
       return;
     }
-    // Color is a per-row attribute — it identifies WHICH variant of
-    // the style the row stands for. Changing color on one row
-    // shouldn't ripple to other periods (which represent the SAME
-    // style+color combo planned across periods, not different
-    // colors). Propagation here was creating duplicate-looking
-    // rows in sibling periods. Single-row update only.
+    // Color is a per-row attribute. The edited row is the only one
+    // overwritten unconditionally — for sibling rows on the same NEW
+    // style we ONLY backfill periods still showing the placeholder
+    // ("TBD"). This matches "populate the newly created rows, leave
+    // the previously created rows alone": rows where the planner has
+    // already set a real color stay untouched.
     const fid = row.forecast_id;
-    setRows((prev) => prev.map((r) => r.forecast_id === fid ? { ...r, sku_color: color, is_new_color: isNewColor } : r));
+    const placeholderSiblings = siblingTbdRowsForNewStyle(row).filter((s) =>
+      !s.sku_color || s.sku_color === "TBD",
+    );
+    const placeholderSiblingFids = new Set(placeholderSiblings.map((s) => s.forecast_id));
+    setRows((prev) => prev.map((r) => {
+      if (r.forecast_id === fid) return { ...r, sku_color: color, is_new_color: isNewColor };
+      if (placeholderSiblingFids.has(r.forecast_id)) return { ...r, sku_color: color, is_new_color: isNewColor };
+      return r;
+    }));
     setLastAddedTbdMarker((prev) => {
       if (!prev) return prev;
       if (prev.style_code !== (row.sku_style ?? "")) return prev;
@@ -1438,10 +1530,17 @@ export default function WholesalePlanningWorkbench() {
     });
     try {
       await saveTbdField(row, { color, is_new_color: isNewColor });
+      if (placeholderSiblings.length > 0) {
+        void Promise.all(placeholderSiblings.map((s) => wholesaleRepo.patchTbdRow(s.tbd_id!, {
+          color, is_new_color: isNewColor,
+        }).catch((e) => console.warn(`[planning] color backfill ${s.period_code} failed`, e))));
+      }
       setToast({
-        text: isNewColor
-          ? `Set color to "${color}" (NEW — not in master yet)`
-          : `Set color to "${color}"`,
+        text: placeholderSiblings.length > 0
+          ? `Set color to "${color}" · backfilled ${placeholderSiblings.length} sibling period${placeholderSiblings.length === 1 ? "" : "s"}`
+          : (isNewColor
+            ? `Set color to "${color}" (NEW — not in master yet)`
+            : `Set color to "${color}"`),
         kind: "success",
       });
       const seq = ++rebuildSeq.current;
