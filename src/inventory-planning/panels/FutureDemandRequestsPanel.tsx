@@ -18,7 +18,7 @@ import { S, PAL, formatQty, formatPeriodCode } from "../components/styles";
 import { MultiSelectDropdown } from "../components/MultiSelectDropdown";
 import { QtyCell } from "../components/QtyCell";
 import { SinglePickFilter } from "../components/SinglePickFilter";
-import { TbdColorCell } from "./WholesalePlanningGrid";
+import { TbdColorCell } from "../components/cells/TbdColorCell";
 import { buildRequestNote, parseRequestNote } from "../services/requestNoteMarker";
 import { buildMasterPools } from "../services/masterPickerScope";
 import { readGroupName, readSubCategoryName } from "../types/itemAttributes";
