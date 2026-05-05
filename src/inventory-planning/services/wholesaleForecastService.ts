@@ -955,16 +955,15 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     // exist iff a planner explicitly added it — the per-row loop
     // below emits those.
     //
-    // This also kills the leftover "phantom" rows for non-TBD
-    // styles whose backing DB row got is_user_added=false from the
-    // earlier mergeBucket-leakage bug (planner clicked TbdStyleCell
-    // on what looked like an aggregate header and patched the auto
-    // catch-all to a custom style code). Those rows should not
-    // render — they're stranded auto rows with the wrong style.
-    const isTbdCatchAll = sp.style_code === "TBD";
-    const hasForecast = forecastStylePeriods.has(key);
+    // Per the planner's spec change: don't auto-emit a "(Supply Only)
+    // TBD" row for every (style, period) combo. The earlier behavior
+    // was to surface a TBD catch-all per style+period AND a supply-
+    // only synthetic per supply-only sku — both are now suppressed.
+    // Only persisted TBD rows that the planner explicitly added (via
+    // the + Add row form or a TbdStyleCell rename) reach the grid;
+    // they ride the second push loop below, not this synthetic one.
     const supplyTbdIsRealAdd = !!supplyTbd?.is_user_added;
-    const skipSynthetic = !isTbdCatchAll && !supplyTbdIsRealAdd && !hasForecast;
+    const skipSynthetic = !supplyTbdIsRealAdd;
     if (!skipSynthetic) {
     // Synthetic (Supply Only) TBD line — always rendered; overlays
     // persisted qty/cost when supplyTbd exists.
