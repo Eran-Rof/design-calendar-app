@@ -2522,14 +2522,56 @@ function BootstrapStatusBar({ phase, onCancel }: { phase: "masters" | "run-data"
     "run-data": "Loading forecast and inventory…",
     "ready": "",
   };
-  const pct = phase === "masters" ? 25 : phase === "run-data" ? 75 : 100;
+  // Asymptotic easing per phase. Each phase has a [low, high] band and
+  // a tau (seconds): pct rises from low toward high as
+  // 1 − exp(−elapsed/tau), which feels fast at first then slows as it
+  // nears the cap. This keeps the bar moving through the slow
+  // run-data step (~10s of buildGridRows reads) instead of snapping to
+  // 75% and freezing. Estimated durations are based on observed timing:
+  // masters resolves in ~1.5s, run-data in ~8–12s.
+  const PHASE_BAND: Record<string, { low: number; high: number; tau: number }> = {
+    "masters":  { low: 0,  high: 28, tau: 0.7 },
+    "run-data": { low: 28, high: 94, tau: 4.5 },
+    "ready":    { low: 100, high: 100, tau: 0.1 },
+  };
+  const [pct, setPct] = useState(0);
+  const phaseStartRef = useRef<{ phase: string; t0: number; basePct: number }>({ phase, t0: performance.now(), basePct: 0 });
+
+  // On phase change, anchor the easing curve at the current pct so the
+  // bar continues smoothly from where it was instead of snapping back.
+  useEffect(() => {
+    phaseStartRef.current = { phase, t0: performance.now(), basePct: pct };
+    if (phase === "ready") setPct(100);
+    // Intentionally exclude `pct` — anchor only when phase flips.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
+
+  useEffect(() => {
+    if (phase === "ready") return;
+    let raf = 0;
+    const tick = () => {
+      const { t0, basePct } = phaseStartRef.current;
+      const band = PHASE_BAND[phase];
+      const elapsedSec = (performance.now() - t0) / 1000;
+      // Eased target within this phase's band.
+      const eased = band.low + (band.high - band.low) * (1 - Math.exp(-elapsedSec / band.tau));
+      // Never go backwards, never exceed band.high − tiny gap so we
+      // visibly hand off to the next phase rather than touch the cap.
+      const next = Math.min(band.high - 0.5, Math.max(basePct, eased));
+      setPct(next);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [phase]);
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ background: PAL.panel, borderRadius: 14, padding: "28px 32px", width: 380, maxWidth: "92vw", border: `1px solid ${PAL.border}`, boxSizing: "border-box", boxShadow: "0 8px 24px rgba(0,0,0,0.18)" }}>
         <div style={{ fontWeight: 700, fontSize: 16, color: PAL.text, marginBottom: 8 }}>Loading…</div>
         <div style={{ fontSize: 13, color: PAL.textMuted, marginBottom: 20 }}>{PHASE_LABELS[phase]}</div>
         <div style={{ background: PAL.panelAlt, borderRadius: 8, height: 10, overflow: "hidden", marginBottom: 20, border: `1px solid ${PAL.borderFaint}` }}>
-          <div style={{ height: "100%", borderRadius: 8, background: `linear-gradient(90deg,${PAL.green},${PAL.accent})`, width: `${pct}%`, transition: "width 0.4s ease" }} />
+          <div style={{ height: "100%", borderRadius: 8, background: `linear-gradient(90deg,${PAL.green},${PAL.accent})`, width: `${pct}%`, transition: "width 0.15s linear" }} />
         </div>
         <button
           style={{ background: "none", border: `1px solid ${PAL.red}`, color: PAL.red, borderRadius: 6, padding: "7px 18px", fontSize: 13, cursor: "pointer", width: "100%" }}
