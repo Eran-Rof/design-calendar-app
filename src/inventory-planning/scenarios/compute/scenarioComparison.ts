@@ -5,6 +5,7 @@
 import type { IpProjectedInventory } from "../../supply/types/supply";
 import type { IpInventoryRecommendation } from "../../supply/types/supply";
 import type { IpItem, IpCategory } from "../../types/entities";
+import type { IpWholesaleForecast } from "../../types/wholesale";
 import type {
   ScenarioComparisonRow,
   ScenarioComparisonTotals,
@@ -17,6 +18,10 @@ export interface ComparisonInput {
   scenarioRecs: IpInventoryRecommendation[];
   items: IpItem[];
   categories: IpCategory[];
+  // Phase 4 spec: surface planner-typed Buy qty in the comparison.
+  // Optional so existing tests don't need to construct fixtures.
+  baseWholesaleForecast?: IpWholesaleForecast[];
+  scenarioWholesaleForecast?: IpWholesaleForecast[];
 }
 
 export function compareScenarioToBase(input: ComparisonInput): {
@@ -27,6 +32,11 @@ export function compareScenarioToBase(input: ComparisonInput): {
   const catById = new Map(input.categories.map((c) => [c.id, c]));
   const baseRecTop = topRecByGrain(input.baseRecs);
   const scenRecTop = topRecByGrain(input.scenarioRecs);
+  // (sku, period) → planner-typed planned_buy_qty, summed across
+  // customers. Each forecast row is per-customer; the comparison is
+  // per-(sku, period), so we sum here.
+  const basePlannedBuy = sumPlannedBuyByGrain(input.baseWholesaleForecast);
+  const scenPlannedBuy = sumPlannedBuyByGrain(input.scenarioWholesaleForecast);
 
   const keys = new Set<string>();
   const baseByKey = new Map<string, IpProjectedInventory>();
@@ -42,6 +52,8 @@ export function compareScenarioToBase(input: ComparisonInput): {
 
   const rows: ScenarioComparisonRow[] = [];
   let demand_delta_sum = 0, supply_delta_sum = 0, shortage_delta_sum = 0, excess_delta_sum = 0;
+  let buy_delta_sum = 0;
+  let service_risk_added = 0, service_risk_removed = 0;
   let stockouts_added = 0, stockouts_removed = 0, recs_changed = 0;
 
   for (const k of keys) {
@@ -56,15 +68,34 @@ export function compareScenarioToBase(input: ComparisonInput): {
 
     const baseTop = baseRecTop.get(k) ?? null;
     const scenTop = scenRecTop.get(k) ?? null;
-    if ((baseTop ?? null) !== (scenTop ?? null)) recs_changed++;
+    if ((baseTop?.recommendation_type ?? null) !== (scenTop?.recommendation_type ?? null)) recs_changed++;
 
     if (!base.projected_stockout_flag && scen.projected_stockout_flag) stockouts_added++;
     if (base.projected_stockout_flag && !scen.projected_stockout_flag) stockouts_removed++;
+
+    // Service-risk flag tracking: a recommendation is "at risk" when
+    // its service_risk_flag is true (typically buy/expedite recs
+    // facing a shortage that breaches the SHORTAGE_PCT_TRIGGER).
+    const baseRisk = !!baseTop?.service_risk_flag;
+    const scenRisk = !!scenTop?.service_risk_flag;
+    if (!baseRisk && scenRisk) service_risk_added++;
+    if (baseRisk && !scenRisk) service_risk_removed++;
+
+    // Buy figures — planner-typed planned_buy_qty (their plan) AND
+    // the engine's recommended_qty (the verdict). Surfacing both
+    // lets a planner see "I planned X, the engine says I should
+    // buy Y" at a glance.
+    const basePlanned = basePlannedBuy.get(k) ?? 0;
+    const scenPlanned = scenPlannedBuy.get(k) ?? 0;
+    const baseRecQty = isBuyAction(baseTop?.recommendation_type) ? (baseTop?.recommendation_qty ?? 0) : 0;
+    const scenRecQty = isBuyAction(scenTop?.recommendation_type) ? (scenTop?.recommendation_qty ?? 0) : 0;
+    const buyDelta = (scenPlanned - basePlanned);
 
     demand_delta_sum  += (scenDem - baseDem);
     supply_delta_sum  += (scen.total_available_supply_qty - base.total_available_supply_qty);
     shortage_delta_sum += (scen.shortage_qty - base.shortage_qty);
     excess_delta_sum  += (scen.excess_qty - base.excess_qty);
+    buy_delta_sum    += buyDelta;
 
     rows.push({
       sku_id: base.sku_id || scen.sku_id,
@@ -91,14 +122,25 @@ export function compareScenarioToBase(input: ComparisonInput): {
       excess_delta: scen.excess_qty - base.excess_qty,
       base_stockout: base.projected_stockout_flag,
       scenario_stockout: scen.projected_stockout_flag,
-      base_top_rec: baseTop,
-      scenario_top_rec: scenTop,
+      base_top_rec: baseTop?.recommendation_type ?? null,
+      scenario_top_rec: scenTop?.recommendation_type ?? null,
+      base_planned_buy_qty: basePlanned,
+      scenario_planned_buy_qty: scenPlanned,
+      base_recommended_buy_qty: baseRecQty,
+      scenario_recommended_buy_qty: scenRecQty,
+      buy_delta: buyDelta,
+      base_service_risk: baseRisk,
+      scenario_service_risk: scenRisk,
     });
   }
 
   rows.sort((a, b) => {
-    const impactA = Math.abs(a.demand_delta) + Math.abs(a.shortage_delta);
-    const impactB = Math.abs(b.demand_delta) + Math.abs(b.shortage_delta);
+    // Buy delta now factors into impact ranking — a row whose buy
+    // qty changes by 1,000 deserves attention even if its demand
+    // delta is small (e.g., a reserve rule changed how much was
+    // committed).
+    const impactA = Math.abs(a.demand_delta) + Math.abs(a.shortage_delta) + Math.abs(a.buy_delta);
+    const impactB = Math.abs(b.demand_delta) + Math.abs(b.shortage_delta) + Math.abs(b.buy_delta);
     return impactB - impactA;
   });
 
@@ -111,6 +153,9 @@ export function compareScenarioToBase(input: ComparisonInput): {
       supply_delta_sum,
       shortage_delta_sum,
       excess_delta_sum,
+      buy_delta_sum,
+      service_risk_added,
+      service_risk_removed,
       stockouts_added,
       stockouts_removed,
       recs_changed,
@@ -118,7 +163,26 @@ export function compareScenarioToBase(input: ComparisonInput): {
   };
 }
 
-function topRecByGrain(recs: IpInventoryRecommendation[]): Map<string, string> {
+function sumPlannedBuyByGrain(rows: IpWholesaleForecast[] | undefined): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!rows) return out;
+  for (const f of rows) {
+    const buy = f.planned_buy_qty ?? 0;
+    if (buy === 0) continue;
+    const k = `${f.sku_id}:${f.period_start}`;
+    out.set(k, (out.get(k) ?? 0) + buy);
+  }
+  return out;
+}
+
+function isBuyAction(t: string | null | undefined): boolean {
+  return t === "buy" || t === "expedite";
+}
+
+// Returns the highest-priority recommendation per (sku, period_start)
+// grain. Now exposes the full row (not just the type) so the
+// comparison can read service_risk_flag and recommendation_qty.
+function topRecByGrain(recs: IpInventoryRecommendation[]): Map<string, IpInventoryRecommendation> {
   const rank = { critical: 0, high: 1, medium: 2, low: 3 } as const;
   const byKey = new Map<string, IpInventoryRecommendation>();
   for (const r of recs) {
@@ -126,9 +190,7 @@ function topRecByGrain(recs: IpInventoryRecommendation[]): Map<string, string> {
     const prev = byKey.get(k);
     if (!prev || rank[r.priority_level] < rank[prev.priority_level]) byKey.set(k, r);
   }
-  const out = new Map<string, string>();
-  for (const [k, r] of byKey) out.set(k, r.recommendation_type);
-  return out;
+  return byKey;
 }
 
 function zeroRow(ref: IpProjectedInventory): IpProjectedInventory {

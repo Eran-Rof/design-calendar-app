@@ -17,7 +17,7 @@ import type {
 } from "../../supply/types/supply";
 import type { IpItem, IpCategory } from "../../types/entities";
 import type { IpPlanningRun } from "../../types/wholesale";
-import type { IpExportJob, IpExportType, ScenarioComparisonRow, ScenarioComparisonTotals } from "../types/scenarios";
+import type { IpExportJob, IpExportType, IpScenarioAssumption, ScenarioComparisonRow, ScenarioComparisonTotals } from "../types/scenarios";
 import { wholesaleRepo } from "../../services/wholesalePlanningRepository";
 import { supplyRepo } from "../../supply/services/supplyReconciliationRepo";
 import { scenarioRepo } from "./scenarioRepo";
@@ -282,6 +282,246 @@ export async function exportScenarioComparison(
 }
 
 function today(): string { return new Date().toISOString().slice(0, 10); }
+
+// ── Row-builders (extracted so the consolidated workbook can reuse
+//    the exact same shapes the per-type exports emit) ───────────────────
+
+function buildWholesaleBuyPlanRows(recs: IpInventoryRecommendation[], items: IpItem[]): Record<string, unknown>[] {
+  const itemById = new Map(items.map((i) => [i.id, i]));
+  return recs
+    .filter((r) => r.recommendation_type === "buy" || r.recommendation_type === "expedite")
+    .map((r) => ({
+      sku_code: itemById.get(r.sku_id)?.sku_code ?? r.sku_id.slice(0, 8),
+      description: itemById.get(r.sku_id)?.description ?? "",
+      period: r.period_code,
+      action: r.recommendation_type,
+      qty: r.recommendation_qty ?? 0,
+      priority: r.priority_level,
+      service_risk: r.service_risk_flag,
+      reason: r.action_reason ?? "",
+    }));
+}
+
+function buildEcomBuyPlanRows(recs: IpInventoryRecommendation[], items: IpItem[]): Record<string, unknown>[] {
+  const itemById = new Map(items.map((i) => [i.id, i]));
+  return recs
+    .filter((r) => r.recommendation_type === "buy" || r.recommendation_type === "expedite" || r.recommendation_type === "protect_inventory")
+    .map((r) => ({
+      sku_code: itemById.get(r.sku_id)?.sku_code ?? r.sku_id.slice(0, 8),
+      description: itemById.get(r.sku_id)?.description ?? "",
+      period: r.period_code,
+      action: r.recommendation_type,
+      qty: r.recommendation_qty ?? 0,
+      priority: r.priority_level,
+      reason: r.action_reason ?? "",
+    }));
+}
+
+function buildShortageRows(projected: IpProjectedInventory[], items: IpItem[]): Record<string, unknown>[] {
+  const itemById = new Map(items.map((i) => [i.id, i]));
+  return projected
+    .filter((p) => p.shortage_qty > 0)
+    .sort((a, b) => b.shortage_qty - a.shortage_qty)
+    .map((p) => ({
+      sku_code: itemById.get(p.sku_id)?.sku_code ?? p.sku_id.slice(0, 8),
+      period: p.period_code,
+      demand: p.wholesale_demand_qty + p.ecom_demand_qty,
+      supply: p.total_available_supply_qty,
+      shortage: p.shortage_qty,
+      stockout: p.projected_stockout_flag,
+    }));
+}
+
+function buildExcessRows(projected: IpProjectedInventory[], items: IpItem[]): Record<string, unknown>[] {
+  const itemById = new Map(items.map((i) => [i.id, i]));
+  return projected
+    .filter((p) => p.excess_qty > 0)
+    .sort((a, b) => b.excess_qty - a.excess_qty)
+    .map((p) => ({
+      sku_code: itemById.get(p.sku_id)?.sku_code ?? p.sku_id.slice(0, 8),
+      period: p.period_code,
+      demand: p.wholesale_demand_qty + p.ecom_demand_qty,
+      supply: p.total_available_supply_qty,
+      excess: p.excess_qty,
+    }));
+}
+
+function buildRecommendationRows(recs: IpInventoryRecommendation[], items: IpItem[]): Record<string, unknown>[] {
+  const itemById = new Map(items.map((i) => [i.id, i]));
+  return recs.map((r) => ({
+    sku_code: itemById.get(r.sku_id)?.sku_code ?? r.sku_id.slice(0, 8),
+    period: r.period_code,
+    action: r.recommendation_type,
+    qty: r.recommendation_qty ?? 0,
+    priority: r.priority_level,
+    shortage: r.shortage_qty ?? 0,
+    excess: r.excess_qty ?? 0,
+    service_risk: r.service_risk_flag,
+    reason: r.action_reason ?? "",
+  }));
+}
+
+function buildComparisonGridRows(rows: ScenarioComparisonRow[]): Record<string, unknown>[] {
+  return rows.map((r) => ({
+    sku_code: r.sku_code,
+    category: r.category_name ?? "",
+    period: r.period_code,
+    base_demand: r.base_demand,
+    scenario_demand: r.scenario_demand,
+    demand_delta: r.demand_delta,
+    base_supply: r.base_supply,
+    scenario_supply: r.scenario_supply,
+    supply_delta: r.supply_delta,
+    base_planned_buy: r.base_planned_buy_qty,
+    scenario_planned_buy: r.scenario_planned_buy_qty,
+    buy_delta: r.buy_delta,
+    base_ending: r.base_ending,
+    scenario_ending: r.scenario_ending,
+    ending_delta: r.ending_delta,
+    base_shortage: r.base_shortage,
+    scenario_shortage: r.scenario_shortage,
+    shortage_delta: r.shortage_delta,
+    base_excess: r.base_excess,
+    scenario_excess: r.scenario_excess,
+    excess_delta: r.excess_delta,
+    base_stockout: r.base_stockout,
+    scenario_stockout: r.scenario_stockout,
+    base_top_rec: r.base_top_rec ?? "",
+    scenario_top_rec: r.scenario_top_rec ?? "",
+    base_service_risk: r.base_service_risk,
+    scenario_service_risk: r.scenario_service_risk,
+  }));
+}
+
+function buildComparisonTotalsRows(totals: ScenarioComparisonTotals): Record<string, unknown>[] {
+  return [
+    { metric: "base_row_count", value: totals.base_row_count },
+    { metric: "scenario_row_count", value: totals.scenario_row_count },
+    { metric: "demand_delta_sum", value: totals.demand_delta_sum },
+    { metric: "supply_delta_sum", value: totals.supply_delta_sum },
+    { metric: "shortage_delta_sum", value: totals.shortage_delta_sum },
+    { metric: "excess_delta_sum", value: totals.excess_delta_sum },
+    { metric: "buy_delta_sum", value: totals.buy_delta_sum },
+    { metric: "service_risk_added", value: totals.service_risk_added },
+    { metric: "service_risk_removed", value: totals.service_risk_removed },
+    { metric: "stockouts_added", value: totals.stockouts_added },
+    { metric: "stockouts_removed", value: totals.stockouts_removed },
+    { metric: "recs_changed", value: totals.recs_changed },
+  ];
+}
+
+// Build the human-readable Summary tab — KPIs the planner cares about
+// at a glance without needing to scan the per-row tabs.
+function buildSummaryRows(
+  recs: IpInventoryRecommendation[],
+  projected: IpProjectedInventory[],
+): Record<string, unknown>[] {
+  const totals = projected.reduce((acc, p) => {
+    acc.demand += p.wholesale_demand_qty + p.ecom_demand_qty;
+    acc.supply += p.total_available_supply_qty;
+    acc.shortage += p.shortage_qty;
+    acc.excess += p.excess_qty;
+    if (p.projected_stockout_flag) acc.stockouts++;
+    return acc;
+  }, { demand: 0, supply: 0, shortage: 0, excess: 0, stockouts: 0 });
+  const recsByType = new Map<string, number>();
+  let serviceRiskCount = 0;
+  for (const r of recs) {
+    recsByType.set(r.recommendation_type, (recsByType.get(r.recommendation_type) ?? 0) + 1);
+    if (r.service_risk_flag) serviceRiskCount++;
+  }
+  const out: Record<string, unknown>[] = [
+    { metric: "Total demand", value: totals.demand },
+    { metric: "Total supply", value: totals.supply },
+    { metric: "Total shortage", value: totals.shortage },
+    { metric: "Total excess", value: totals.excess },
+    { metric: "Projected stockouts (rows)", value: totals.stockouts },
+    { metric: "Service-risk recommendations", value: serviceRiskCount },
+    { metric: "Total recommendations", value: recs.length },
+  ];
+  for (const [type, count] of Array.from(recsByType).sort()) {
+    out.push({ metric: `Recs · ${type}`, value: count });
+  }
+  return out;
+}
+
+function buildAssumptionsRows(
+  assumptions: IpScenarioAssumption[],
+  items: IpItem[],
+  categories: IpCategory[],
+): Record<string, unknown>[] {
+  const itemById = new Map(items.map((i) => [i.id, i]));
+  const catById = new Map(categories.map((c) => [c.id, c]));
+  return assumptions.map((a) => ({
+    type: a.assumption_type,
+    customer_id: a.applies_to_customer_id ?? "",
+    channel_id: a.applies_to_channel_id ?? "",
+    category: a.applies_to_category_id ? (catById.get(a.applies_to_category_id)?.name ?? a.applies_to_category_id) : "",
+    sku: a.applies_to_sku_id ? (itemById.get(a.applies_to_sku_id)?.sku_code ?? a.applies_to_sku_id) : "",
+    period: a.period_start ?? "",
+    value: a.assumption_value ?? "",
+    unit: a.assumption_unit ?? "",
+    note: a.note ?? "",
+    created_at: a.created_at,
+  }));
+}
+
+// ── Consolidated workbook — Phase 4 spec recommendation ──────────────────
+// One Excel workbook with all planner-facing tabs in the same file:
+//   Metadata · Summary · Wholesale Buy Plan · Ecom Buy Plan · Shortages
+//   · Excess · Recommendations · Scenario Comparison (when comparison
+//   passed) · Assumptions (when scenarioId set).
+//
+// Replaces the "download 6 files and merge them yourself" workflow.
+export interface ConsolidatedExportOpts {
+  // Optional scenario-comparison payload — if provided, two extra
+  // tabs are appended (totals + by-row). The caller computes the
+  // comparison with loadScenarioComparison.
+  comparison?: { rows: ScenarioComparisonRow[]; totals: ScenarioComparisonTotals };
+}
+
+export async function exportConsolidatedWorkbook(
+  ctx: ExportContext,
+  opts: ConsolidatedExportOpts = {},
+): Promise<IpExportJob> {
+  // Load everything once. Assumptions only when this export ties to
+  // a scenario; otherwise the tab is omitted.
+  const [recs, projected, assumptions] = await Promise.all([
+    supplyRepo.listRecommendations(ctx.run.id),
+    supplyRepo.listProjected(ctx.run.id),
+    ctx.scenarioId ? scenarioRepo.listAssumptions(ctx.scenarioId) : Promise.resolve([]),
+  ]);
+
+  const wb = XLSXStyle.utils.book_new();
+
+  XLSXStyle.utils.book_append_sheet(wb, metaSheet({
+    run: ctx.run,
+    exportType: "consolidated_plan",
+    rowCount: projected.length,
+    notes: ctx.scenarioId ? [`Scenario id: ${ctx.scenarioId}`] : undefined,
+  }), "Metadata");
+
+  XLSXStyle.utils.book_append_sheet(wb, sheet(buildSummaryRows(recs, projected)), "Summary");
+  XLSXStyle.utils.book_append_sheet(wb, sheet(buildWholesaleBuyPlanRows(recs, ctx.items)), "Wholesale Buy Plan");
+  XLSXStyle.utils.book_append_sheet(wb, sheet(buildEcomBuyPlanRows(recs, ctx.items)), "Ecom Buy Plan");
+  XLSXStyle.utils.book_append_sheet(wb, sheet(buildShortageRows(projected, ctx.items)), "Shortages");
+  XLSXStyle.utils.book_append_sheet(wb, sheet(buildExcessRows(projected, ctx.items)), "Excess");
+  XLSXStyle.utils.book_append_sheet(wb, sheet(buildRecommendationRows(recs, ctx.items)), "Recommendations");
+
+  if (opts.comparison) {
+    XLSXStyle.utils.book_append_sheet(wb, sheet(buildComparisonTotalsRows(opts.comparison.totals)), "Comparison Totals");
+    XLSXStyle.utils.book_append_sheet(wb, sheet(buildComparisonGridRows(opts.comparison.rows)), "Scenario Comparison");
+  }
+  if (ctx.scenarioId && assumptions.length > 0) {
+    XLSXStyle.utils.book_append_sheet(wb, sheet(buildAssumptionsRows(assumptions, ctx.items, ctx.categories)), "Assumptions");
+  }
+
+  const fileName = `consolidated_plan_${slug(ctx.run.name)}_${today()}.xlsx`;
+  download(wb, fileName);
+  // row_count tracks projected rows (the "biggest" tab) — gives a
+  // useful magnitude in the export-jobs log.
+  return recordExport(ctx, "consolidated_plan", fileName, projected.length);
+}
 
 // ── Isolated interface for future ERP writeback ───────────────────────────
 // Phase 4 explicitly does NOT write back to the ERP. This is the seam

@@ -27,7 +27,14 @@ export default function ScenarioComparisonView({ rows, totals, loading }: Scenar
     return rows.filter((r) => {
       if (filterCategory !== "all" && r.category_id !== filterCategory) return false;
       if (q && !r.sku_code.includes(q)) return false;
-      if (onlyChanged && r.demand_delta === 0 && r.supply_delta === 0 && r.shortage_delta === 0 && r.excess_delta === 0 && r.base_top_rec === r.scenario_top_rec) return false;
+      if (onlyChanged
+          && r.demand_delta === 0
+          && r.supply_delta === 0
+          && r.shortage_delta === 0
+          && r.excess_delta === 0
+          && r.buy_delta === 0
+          && r.base_top_rec === r.scenario_top_rec
+          && r.base_service_risk === r.scenario_service_risk) return false;
       return true;
     });
   }, [rows, search, filterCategory, onlyChanged]);
@@ -37,10 +44,14 @@ export default function ScenarioComparisonView({ rows, totals, loading }: Scenar
       <div style={S.statsRow}>
         <StatCell label="Δ demand" value={signed(totals.demand_delta_sum)} accent={totals.demand_delta_sum > 0 ? PAL.accent : totals.demand_delta_sum < 0 ? PAL.yellow : PAL.textMuted} />
         <StatCell label="Δ supply" value={signed(totals.supply_delta_sum)} accent={totals.supply_delta_sum > 0 ? PAL.green : totals.supply_delta_sum < 0 ? PAL.red : PAL.textMuted} />
+        <StatCell label="Δ buy" value={signed(totals.buy_delta_sum)} accent={totals.buy_delta_sum > 0 ? PAL.accent : totals.buy_delta_sum < 0 ? PAL.green : PAL.textMuted} />
         <StatCell label="Δ shortage" value={signed(totals.shortage_delta_sum)} accent={totals.shortage_delta_sum > 0 ? PAL.red : totals.shortage_delta_sum < 0 ? PAL.green : PAL.textMuted} />
         <StatCell label="Δ excess" value={signed(totals.excess_delta_sum)} accent={totals.excess_delta_sum > 0 ? PAL.yellow : totals.excess_delta_sum < 0 ? PAL.green : PAL.textMuted} />
+        <StatCell label="Service risk ±"
+                  value={`+${totals.service_risk_added} / −${totals.service_risk_removed}`}
+                  accent={totals.service_risk_added > totals.service_risk_removed ? PAL.red : PAL.text} />
         <StatCell label="Stockouts ± / Recs Δ"
-                  value={`${totals.stockouts_added} / −${totals.stockouts_removed} · ${totals.recs_changed}`}
+                  value={`+${totals.stockouts_added} / −${totals.stockouts_removed} · ${totals.recs_changed}`}
                   accent={PAL.text} />
       </div>
 
@@ -77,8 +88,12 @@ export default function ScenarioComparisonView({ rows, totals, loading }: Scenar
               <th style={{ ...S.th, textAlign: "right" }}>Scn end</th>
               <th style={{ ...S.th, textAlign: "right" }}>Δ short</th>
               <th style={{ ...S.th, textAlign: "right" }}>Δ excess</th>
+              <th style={{ ...S.th, textAlign: "right" }} title="Planner-typed planned_buy_qty (base)">Base buy</th>
+              <th style={{ ...S.th, textAlign: "right" }} title="Planner-typed planned_buy_qty (scenario)">Scn buy</th>
+              <th style={{ ...S.th, textAlign: "right" }} title="Scenario buy − Base buy">Δ buy</th>
               <th style={S.th}>Base rec</th>
               <th style={S.th}>Scn rec</th>
+              <th style={S.th} title="Service risk flag from the top recommendation">Risk</th>
             </tr>
           </thead>
           <tbody>
@@ -101,21 +116,44 @@ export default function ScenarioComparisonView({ rows, totals, loading }: Scenar
                 <td style={{ ...S.tdNum, color: r.excess_delta > 0 ? PAL.yellow : r.excess_delta < 0 ? PAL.green : PAL.textMuted, fontWeight: 700 }}>
                   {signed(r.excess_delta)}
                 </td>
+                <td style={{ ...S.tdNum, color: r.base_planned_buy_qty > 0 ? PAL.text : PAL.textMuted }}>
+                  {formatQty(r.base_planned_buy_qty)}
+                </td>
+                <td style={{ ...S.tdNum, color: r.scenario_planned_buy_qty > 0 ? PAL.text : PAL.textMuted }}>
+                  {formatQty(r.scenario_planned_buy_qty)}
+                </td>
+                <td style={{ ...S.tdNum, color: r.buy_delta > 0 ? PAL.accent : r.buy_delta < 0 ? PAL.green : PAL.textMuted, fontWeight: 700 }}>
+                  {signed(r.buy_delta)}
+                </td>
                 <td style={{ ...S.td, color: PAL.textDim, fontSize: 11 }}>{r.base_top_rec ?? "–"}</td>
                 <td style={{ ...S.td, color: r.base_top_rec !== r.scenario_top_rec ? PAL.accent : PAL.textDim, fontSize: 11 }}>
                   {r.scenario_top_rec ?? "–"}
                 </td>
+                <td style={S.td}>
+                  {/* Risk badge — green when newly de-risked, red
+                      when newly at risk, yellow when risky in both
+                      base + scenario, dim otherwise. */}
+                  {r.scenario_service_risk
+                    ? (
+                      <span style={{ ...S.chip, background: (r.base_service_risk ? PAL.yellow : PAL.red) + "33", color: r.base_service_risk ? PAL.yellow : PAL.red }}>
+                        {r.base_service_risk ? "risk" : "+ risk"}
+                      </span>
+                    )
+                    : r.base_service_risk
+                      ? <span style={{ ...S.chip, background: PAL.green + "33", color: PAL.green }}>− risk</span>
+                      : <span style={{ color: PAL.textMuted, fontSize: 11 }}>–</span>}
+                </td>
               </tr>
             ))}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={15} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={19} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No comparison rows — run the scenario's apply + recompute first."
                   : "No rows match filters."}
               </td></tr>
             )}
             {loading && (
-              <tr><td colSpan={15} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={19} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 Loading…
               </td></tr>
             )}

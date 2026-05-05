@@ -10,13 +10,22 @@ export async function loadScenarioComparison(scenario: IpScenario) {
   if (!scenario.base_run_reference_id) {
     throw new Error("Scenario has no base run — can't compare.");
   }
-  const [baseProj, scenarioProj, baseRecs, scenarioRecs, items, categories] = await Promise.all([
+  // Pull base + scenario wholesale forecasts so the comparison can
+  // surface planner-typed `planned_buy_qty` per (sku, period). The
+  // forecast reads sum across customers — fine here, since the
+  // comparison row is already (sku, period) grain.
+  const [
+    baseProj, scenarioProj, baseRecs, scenarioRecs, items, categories,
+    baseWholesale, scenarioWholesale,
+  ] = await Promise.all([
     supplyRepo.listProjected(scenario.base_run_reference_id),
     supplyRepo.listProjected(scenario.planning_run_id),
     supplyRepo.listRecommendations(scenario.base_run_reference_id),
     supplyRepo.listRecommendations(scenario.planning_run_id),
     wholesaleRepo.listItems(),
     wholesaleRepo.listCategories(),
+    wholesaleRepo.listForecast(scenario.base_run_reference_id),
+    wholesaleRepo.listForecast(scenario.planning_run_id),
   ]);
   return compareScenarioToBase({
     base: baseProj,
@@ -25,5 +34,7 @@ export async function loadScenarioComparison(scenario: IpScenario) {
     scenarioRecs,
     items,
     categories,
+    baseWholesaleForecast: baseWholesale,
+    scenarioWholesaleForecast: scenarioWholesale,
   });
 }

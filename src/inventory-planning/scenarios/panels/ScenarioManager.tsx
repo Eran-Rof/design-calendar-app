@@ -35,6 +35,7 @@ import {
   exportExcessReport,
   exportRecommendationsReport,
   exportScenarioComparison,
+  exportConsolidatedWorkbook,
 } from "../services";
 import { S, PAL, formatDate, formatDateTime } from "../../components/styles";
 import Toast, { type ToastMessage } from "../../components/Toast";
@@ -209,7 +210,7 @@ export default function ScenarioManager() {
     }
   }
 
-  async function doExport(kind: "wholesale" | "ecom" | "shortage" | "excess" | "recs" | "comparison") {
+  async function doExport(kind: "wholesale" | "ecom" | "shortage" | "excess" | "recs" | "comparison" | "consolidated") {
     if (!selected) return;
     const run = runs.find((r) => r.id === selected.planning_run_id);
     if (!run) { setToast({ text: "Run not found", kind: "error" }); return; }
@@ -223,6 +224,16 @@ export default function ScenarioManager() {
       if (kind === "comparison") {
         const c = comparison ?? await loadScenarioComparison(selected);
         await exportScenarioComparison(ctx, c);
+      }
+      if (kind === "consolidated") {
+        // Try to bundle the comparison sheet too — but only when the
+        // scenario has a base run to diff against. Falls back to the
+        // base tabs when no comparison is available.
+        let comp: { rows: ScenarioComparisonRow[]; totals: ScenarioComparisonTotals } | undefined;
+        if (selected.base_run_reference_id) {
+          comp = comparison ?? await loadScenarioComparison(selected);
+        }
+        await exportConsolidatedWorkbook(ctx, { comparison: comp });
       }
       setToast({ text: "Export ready", kind: "success" });
       await loadSelected();
@@ -341,7 +352,16 @@ export default function ScenarioManager() {
         {tab === "exports" && selected && (
           <div style={S.card}>
             <h3 style={S.cardTitle}>Exports for this scenario</h3>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
+              {/* Phase 4 spec: ONE workbook with all the planner-facing
+                  tabs. Highlighted as the primary action since it's
+                  what most planners actually want for a stakeholder
+                  review. The individual exports stay below for
+                  one-tab downloads. */}
+              <button style={S.btnPrimary} onClick={() => doExport("consolidated")} title="One workbook with Metadata, Summary, Buy Plans, Shortages, Excess, Recommendations, Comparison, Assumptions">
+                Export full plan → xlsx
+              </button>
+              <span style={{ color: PAL.textMuted, fontSize: 12 }}>or single sheet:</span>
               <button style={S.btnSecondary} onClick={() => doExport("wholesale")}>Wholesale buy plan</button>
               <button style={S.btnSecondary} onClick={() => doExport("ecom")}>Ecom buy plan</button>
               <button style={S.btnSecondary} onClick={() => doExport("shortage")}>Shortage report</button>

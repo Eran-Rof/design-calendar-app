@@ -86,7 +86,12 @@ export type IpExportType =
   | "shortage_report"
   | "excess_report"
   | "recommendations_report"
-  | "scenario_comparison";
+  | "scenario_comparison"
+  // Phase 4 spec: ONE workbook with all the planner-facing tabs
+  // (Metadata, Summary, Wholesale Buy Plan, Ecom Buy Plan, Shortages,
+  // Excess, Recommendations, Scenario Comparison, Assumptions). Stored
+  // distinctly so the export-job log keeps the type intent.
+  | "consolidated_plan";
 
 export interface IpExportJob {
   id: string;
@@ -129,6 +134,19 @@ export interface ScenarioComparisonRow {
   scenario_stockout: boolean;
   base_top_rec: string | null;
   scenario_top_rec: string | null;
+  // Phase 4 spec: planner-typed Buy plan + the engine's recommended
+  // buy qty per (sku, period). `buy_delta` is scenario − base, so a
+  // positive value means "the scenario needs more units bought."
+  // Service-risk flag comes from the top recommendation; it surfaces
+  // separately because the planner cares about "is this row at risk"
+  // even when the recommendation hasn't changed.
+  base_planned_buy_qty: number;
+  scenario_planned_buy_qty: number;
+  base_recommended_buy_qty: number;
+  scenario_recommended_buy_qty: number;
+  buy_delta: number;
+  base_service_risk: boolean;
+  scenario_service_risk: boolean;
 }
 
 export interface ScenarioComparisonTotals {
@@ -138,6 +156,12 @@ export interface ScenarioComparisonTotals {
   supply_delta_sum: number;
   shortage_delta_sum: number;
   excess_delta_sum: number;
+  // Sum of buy_delta across rows. Direct read of "how much more
+  // does this scenario need bought."
+  buy_delta_sum: number;
+  // Service-risk count flips: how many rows became risky vs were de-risked.
+  service_risk_added: number;
+  service_risk_removed: number;
   stockouts_added: number;
   stockouts_removed: number;
   recs_changed: number;
