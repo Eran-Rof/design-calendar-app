@@ -26,14 +26,21 @@ export default async function handler(req, res) {
   const warehouse = url.searchParams.get("warehouse") || "";
   const asOf = url.searchParams.get("as_of") || new Date().toISOString().slice(0, 10);
   const fetchAll = url.searchParams.get("fetch_all") !== "false";
+  // Chunked sync: caller can step through the catalog ?page_start=1,11,21,…
+  // when the full ~20k-row inventory blows past Vercel's 300s budget in one
+  // shot. Same pattern as xoro-items-missing-sync. max_pages caps the walk
+  // per invocation; module picks which API key bundle to use.
+  const pageStart = Math.max(parseInt(url.searchParams.get("page_start") || "1", 10), 1);
+  const maxPages = Math.min(parseInt(url.searchParams.get("max_pages") || "50", 10), 200);
+  const module = url.searchParams.get("module") || undefined;
 
   const params = { per_page: "500" };
   if (warehouse) params.warehouse = warehouse;
   if (asOf) params.as_of = asOf;
 
   const r = fetchAll
-    ? await fetchXoroAll({ path, params })
-    : await fetchXoro({ path, params });
+    ? await fetchXoroAll({ path, params, pageStart, maxPages, module })
+    : await fetchXoro({ path, params, module });
   if (!r.ok || !r.body?.Result) {
     return res.status(200).json({
       ok: false,
@@ -45,7 +52,7 @@ export default async function handler(req, res) {
 
   const raw = await insertRawXoro(admin, {
     endpoint: "inventory-snapshot",
-    params: { ...params, path },
+    params: { ...params, path, page_start: pageStart, max_pages: maxPages },
     payload: { data },
     periodStart: asOf,
     periodEnd: asOf,
@@ -60,6 +67,8 @@ export default async function handler(req, res) {
     deduped: raw.deduped,
     record_count: data.length,
     as_of: asOf,
+    page_start: pageStart,
+    max_pages: maxPages,
     sample: data.slice(0, 3),
   });
 }

@@ -44,6 +44,10 @@ export default async function handler(req, res) {
   const customer = url.searchParams.get("customer") || "";
   const txnType = (url.searchParams.get("txn_type") || "invoice").toLowerCase();
   const fetchAll = url.searchParams.get("fetch_all") !== "false";
+  // Chunked sync (see inventory-snapshot for rationale).
+  const pageStart = Math.max(parseInt(url.searchParams.get("page_start") || "1", 10), 1);
+  const maxPages = Math.min(parseInt(url.searchParams.get("max_pages") || "50", 10), 200);
+  const module = url.searchParams.get("module") || undefined;
 
   const params = { per_page: "200" };
   if (dateFrom) params.date_from = dateFrom;
@@ -51,8 +55,8 @@ export default async function handler(req, res) {
   if (customer) params.customer = customer;
 
   const r = fetchAll
-    ? await fetchXoroAll({ path, params })
-    : await fetchXoro({ path, params });
+    ? await fetchXoroAll({ path, params, pageStart, maxPages, module })
+    : await fetchXoro({ path, params, module });
   if (!r.ok || !r.body?.Result) {
     return res.status(200).json({
       ok: false,
@@ -64,7 +68,7 @@ export default async function handler(req, res) {
 
   const raw = await insertRawXoro(admin, {
     endpoint: "sales-history",
-    params: { ...params, txn_type: txnType, path },
+    params: { ...params, txn_type: txnType, path, page_start: pageStart, max_pages: maxPages },
     payload: { data },
     periodStart: dateFrom || null,
     periodEnd: dateTo || null,
@@ -79,6 +83,8 @@ export default async function handler(req, res) {
     deduped: raw.deduped,
     record_count: data.length,
     txn_type: txnType,
+    page_start: pageStart,
+    max_pages: maxPages,
     // Client-side preview of the first few rows. Normalization happens in
     // a separate pass (Phase 1); we keep this handler focused on ingest.
     sample: data.slice(0, 3),
