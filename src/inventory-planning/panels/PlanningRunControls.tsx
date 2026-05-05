@@ -37,6 +37,8 @@ export default function PlanningRunControls({
   const [building, setBuilding] = useState(false);
   const [progress, setProgress] = useState<BuildProgress | null>(null);
   const [pendingRebuildConfirm, setPendingRebuildConfirm] = useState(false);
+  const [wipeStage, setWipeStage] = useState<"choice" | "confirm">("choice");
+  const [wipeTyped, setWipeTyped] = useState("");
   const abortRef = useRef<AbortController | null>(null);
 
   const selected = runs.find((r) => r.id === selectedRunId) ?? null;
@@ -66,13 +68,21 @@ export default function PlanningRunControls({
     void buildForecast();
   }
 
-  async function buildForecast() {
+  async function buildForecast(opts: { wipeFirst?: boolean } = {}) {
     if (!selected) { onToast({ text: "Pick a run first", kind: "error" }); return; }
     const controller = new AbortController();
     abortRef.current = controller;
     setBuilding(true);
-    setProgress({ phase: "loading", label: "Starting build…" });
+    setProgress({ phase: "loading", label: opts.wipeFirst ? "Wiping prior build…" : "Starting build…" });
     try {
+      if (opts.wipeFirst) {
+        const wiped = await wholesaleRepo.wipePlanningRunData(selected.id);
+        onToast({
+          text: `Wiped ${wiped.forecast.toLocaleString()} forecast · ${wiped.recs.toLocaleString()} recs · ${wiped.tbd.toLocaleString()} TBD · ${wiped.buckets.toLocaleString()} bucket buys · ${wiped.overrides.toLocaleString()} overrides — rebuilding from scratch.`,
+          kind: "info",
+        });
+        setProgress({ phase: "loading", label: "Wiped — starting fresh build…" });
+      }
       const result = await runForecastPass(selected, {
         filter: filterActive ? buildFilter ?? undefined : undefined,
         signal: controller.signal,
@@ -242,31 +252,103 @@ export default function PlanningRunControls({
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
             display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
           }}
-          onClick={(e) => { if (e.target === e.currentTarget) setPendingRebuildConfirm(false); }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setPendingRebuildConfirm(false);
+              setWipeStage("choice");
+              setWipeTyped("");
+            }
+          }}
         >
           <div style={{
-            background: PAL.panel, border: `1px solid ${PAL.border}`, borderRadius: 10,
-            padding: 18, minWidth: 360, maxWidth: 480, boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+            background: PAL.panel, border: `1px solid ${wipeStage === "confirm" ? PAL.red : PAL.border}`, borderRadius: 10,
+            padding: 18, minWidth: 440, maxWidth: 540, boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <span style={{ background: PAL.yellow, color: "#000", borderRadius: 3, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>WARNING</span>
-              <strong style={{ color: PAL.text, fontSize: 14 }}>Rebuild this run?</strong>
-            </div>
-            <div style={{ color: PAL.textDim, fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>
-              <strong style={{ color: PAL.text }}>{selected.name}</strong> already has a forecast built (last updated {formatDate(selected.updated_at)}). Re-building will overwrite every system-computed forecast row in the run.
-              <div style={{ marginTop: 8, color: PAL.textMuted, fontSize: 12 }}>
-                Planner overrides (Buyer / Override) and TBD stock-buy rows are preserved.
+            {wipeStage === "choice" && (<>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span style={{ background: PAL.yellow, color: "#000", borderRadius: 3, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>WARNING</span>
+                <strong style={{ color: PAL.text, fontSize: 14 }}>Rebuild this run?</strong>
               </div>
-            </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <button style={S.btnSecondary} onClick={() => setPendingRebuildConfirm(false)}>Cancel</button>
-              <button
-                style={{ ...S.btnPrimary, background: PAL.yellow, color: "#111" }}
-                onClick={() => { setPendingRebuildConfirm(false); void buildForecast(); }}
-              >
-                Rebuild anyway
-              </button>
-            </div>
+              <div style={{ color: PAL.textDim, fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>
+                <strong style={{ color: PAL.text }}>{selected.name}</strong> already has a forecast built (last updated {formatDate(selected.updated_at)}). Two rebuild paths:
+                <div style={{ marginTop: 10, padding: "8px 10px", background: `${PAL.yellow}11`, border: `1px solid ${PAL.yellow}55`, borderRadius: 6 }}>
+                  <div style={{ color: PAL.yellow, fontWeight: 700, fontSize: 12, marginBottom: 4 }}>Rebuild (preserve edits)</div>
+                  <div style={{ color: PAL.textDim, fontSize: 12 }}>
+                    Upserts forecast rows in the current build scope. Out-of-scope rows from prior builds stay. Planner overrides (Buyer / Override / Buy / Unit Cost) and TBD stock-buy rows are preserved on rows that get re-upserted.
+                  </div>
+                </div>
+                <div style={{ marginTop: 8, padding: "8px 10px", background: `${PAL.red}11`, border: `1px solid ${PAL.red}55`, borderRadius: 6 }}>
+                  <div style={{ color: PAL.red, fontWeight: 700, fontSize: 12, marginBottom: 4 }}>⚠ Wipe + rebuild (destructive)</div>
+                  <div style={{ color: PAL.textDim, fontSize: 12 }}>
+                    Deletes <strong>every row tied to this run</strong> before rebuilding: forecast, recommendations, <strong>TBD stock-buy rows</strong>, <strong>bucket buys</strong>, and the override audit log. <strong>Planner edits — Buyer / Override / Buy / Unit Cost — are wiped</strong>. There is no undo.
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+                <button style={S.btnSecondary} onClick={() => { setPendingRebuildConfirm(false); setWipeStage("choice"); setWipeTyped(""); }}>Cancel</button>
+                <button
+                  style={{ ...S.btnPrimary, background: PAL.yellow, color: "#111" }}
+                  onClick={() => { setPendingRebuildConfirm(false); setWipeStage("choice"); setWipeTyped(""); void buildForecast(); }}
+                >
+                  Rebuild (preserve edits)
+                </button>
+                <button
+                  style={{ ...S.btnPrimary, background: PAL.red, color: "#fff" }}
+                  onClick={() => { setWipeStage("confirm"); setWipeTyped(""); }}
+                  title="Opens a final-confirmation step before deleting every row in this run."
+                >
+                  Wipe + rebuild
+                </button>
+              </div>
+            </>)}
+            {wipeStage === "confirm" && (<>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span style={{ background: PAL.red, color: "#fff", borderRadius: 3, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>FINAL CONFIRMATION</span>
+                <strong style={{ color: PAL.text, fontSize: 14 }}>Wipe + rebuild — irreversible</strong>
+              </div>
+              <div style={{ color: PAL.textDim, fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>
+                You are about to permanently delete every row attached to <strong style={{ color: PAL.text }}>{selected.name}</strong>:
+                <ul style={{ margin: "8px 0 0 16px", padding: 0, color: PAL.textDim, fontSize: 12, lineHeight: 1.6 }}>
+                  <li>Forecast rows (system computed)</li>
+                  <li>Buyer / Override / Buy / Unit Cost edits on those rows</li>
+                  <li>Recommendations</li>
+                  <li>TBD stock-buy rows (planner-added rows + new styles you've created)</li>
+                  <li>Bucket-level buy aggregates</li>
+                  <li>Override audit log</li>
+                </ul>
+                <div style={{ marginTop: 10, padding: "8px 10px", background: `${PAL.red}11`, border: `1px solid ${PAL.red}55`, borderRadius: 6, color: PAL.red, fontSize: 12, fontWeight: 600 }}>
+                  This cannot be undone. Type the run name <span style={{ fontFamily: "monospace", color: PAL.text }}>{selected.name}</span> below to enable the button.
+                </div>
+              </div>
+              <input
+                autoFocus
+                type="text"
+                value={wipeTyped}
+                onChange={(e) => setWipeTyped(e.target.value)}
+                placeholder={selected.name}
+                style={{
+                  ...S.input, width: "100%", marginBottom: 12,
+                  fontFamily: "monospace",
+                  borderColor: wipeTyped === selected.name ? PAL.red : PAL.border,
+                }}
+              />
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+                <button style={S.btnSecondary} onClick={() => { setWipeStage("choice"); setWipeTyped(""); }}>Back</button>
+                <button
+                  style={{
+                    ...S.btnPrimary,
+                    background: wipeTyped === selected.name ? PAL.red : PAL.border,
+                    color: "#fff",
+                    cursor: wipeTyped === selected.name ? "pointer" : "not-allowed",
+                    opacity: wipeTyped === selected.name ? 1 : 0.5,
+                  }}
+                  disabled={wipeTyped !== selected.name}
+                  onClick={() => { setPendingRebuildConfirm(false); setWipeStage("choice"); setWipeTyped(""); void buildForecast({ wipeFirst: true }); }}
+                >
+                  Wipe everything + rebuild
+                </button>
+              </div>
+            </>)}
           </div>
         </div>
       )}

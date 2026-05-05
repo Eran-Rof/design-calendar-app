@@ -792,6 +792,37 @@ export const wholesaleRepo = {
     return created;
   },
 
+  // Wipe EVERY row tied to a planning run — system-computed forecast,
+  // recommendations, planner-authored TBD stock-buy rows, and
+  // aggregate bucket buys. Used by the "Wipe + rebuild" path in
+  // PlanningRunControls when the planner wants a clean slate.
+  // ip_planner_overrides (the audit log of system-qty overrides) is
+  // also dropped so the next build starts from raw history.
+  // Chunked the same way replaceRecommendations is — single DELETE
+  // WHERE planning_run_id=X over 16k rows reliably 57014's. Read ids,
+  // delete in id-in-list batches.
+  async wipePlanningRunData(planningRunId: string): Promise<{ forecast: number; recs: number; tbd: number; buckets: number; overrides: number }> {
+    let forecast = 0, recs = 0, tbd = 0, buckets = 0, overrides = 0;
+    const DELETE_CHUNK = 500;
+    const wipeTable = async (table: string): Promise<number> => {
+      const rows = await sbGetAll<{ id: string }>(
+        `${table}?select=id&planning_run_id=eq.${planningRunId}&order=id.asc`,
+      );
+      for (let i = 0; i < rows.length; i += DELETE_CHUNK) {
+        const ids = rows.slice(i, i + DELETE_CHUNK).map((r) => r.id);
+        const inList = ids.map((id) => `"${id}"`).join(",");
+        await sbDelete(`${table}?planning_run_id=eq.${planningRunId}&id=in.(${inList})`);
+      }
+      return rows.length;
+    };
+    forecast  = await wipeTable("ip_wholesale_forecast");
+    recs      = await wipeTable("ip_wholesale_recommendations");
+    tbd       = await wipeTable("ip_wholesale_forecast_tbd");
+    buckets   = await wipeTable("ip_planner_bucket_buys");
+    overrides = await wipeTable("ip_planner_overrides");
+    return { forecast, recs, tbd, buckets, overrides };
+  },
+
   // ── Recommendations ──────────────────────────────────────────────────────
   async listRecommendations(planningRunId: string): Promise<IpWholesaleRecommendation[]> {
     // Paginate — limit=200000 hits Supabase's 8s statement timeout
