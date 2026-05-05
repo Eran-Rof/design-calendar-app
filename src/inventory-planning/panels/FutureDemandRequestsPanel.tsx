@@ -17,6 +17,7 @@ import { monthOf } from "../compute/periods";
 import { S, PAL, formatQty, formatPeriodCode } from "../components/styles";
 import { MultiSelectDropdown } from "../components/MultiSelectDropdown";
 import { TbdColorCell } from "./WholesalePlanningGrid";
+import { buildRequestNote, parseRequestNote } from "../services/requestNoteMarker";
 import type { ToastMessage } from "../components/Toast";
 
 const REQUEST_TYPES: IpRequestType[] = [
@@ -349,42 +350,19 @@ export default function FutureDemandRequestsPanel({
             {visible.map((r) => {
               const customer = customerById.get(r.customer_id);
               const item = itemById.get(r.sku_id);
-              // Parse the structured note marker the form writes on
-              // save. Format: [REQ key1=val1|key2=val2|…] user note
-              // (TBD prefix is the same shape with a different tag).
-              // When present, prefer the planner's picks over what the
-              // resolved sku_id's item row carries — works for both
-              // TBD requests (where sku_id is a fallback) AND non-TBD
-              // requests (where the item often lacks group_name /
-              // category_name).
-              const meta: Record<string, string> = {};
-              let isTbd = false;
-              let cleanNote = r.note ?? "";
-              const m = cleanNote.match(/^\[(TBD|REQ)\s+([^\]]+)\]\s*(.*)$/);
-              if (m) {
-                isTbd = m[1] === "TBD";
-                for (const pair of m[2].split("|")) {
-                  const eq = pair.indexOf("=");
-                  if (eq < 0) continue;
-                  meta[pair.slice(0, eq)] = pair.slice(eq + 1);
-                }
-                cleanNote = m[3] ?? "";
-              } else {
-                // Legacy support — pre-marker TBD format from earlier
-                // commits used "TBD <style>/<color>" plain text.
-                const old = cleanNote.match(/^\[TBD style=([^ ]+) color=([^ ]+) desc=([^\]]+)\]\s*(.*)$/);
-                if (old) {
-                  isTbd = true;
-                  meta.style = old[1]; meta.color = old[2]; meta.desc = old[3];
-                  cleanNote = old[4] ?? "";
-                }
-              }
+              // Prefer planner's structured picks over the resolved
+              // sku_id's master row — works for both TBD and non-TBD
+              // requests since the item often lacks group_name /
+              // category_name attributes.
+              const parsed = parseRequestNote(r.note);
+              const meta = parsed.meta;
+              const isTbd = parsed.tag === "TBD";
               const styleDisp = meta.style ?? item?.style_code ?? item?.sku_code ?? r.sku_id.slice(0, 8);
               const colorDisp = meta.color ?? item?.color ?? "–";
               const descDisp  = meta.desc  ?? item?.description ?? "–";
               const catDisp   = meta.cat   ?? readGroupName(item) ?? "–";
               const subCatDisp = meta.subcat ?? readSubCategoryName(item) ?? "–";
-              const noteDisp  = cleanNote;
+              const noteDisp  = parsed.body;
               return (
                 <tr key={r.id}>
                   <td style={S.td}>{formatPeriodCode(monthOf(r.target_period_start).period_code)}</td>
@@ -415,28 +393,14 @@ export default function FutureDemandRequestsPanel({
                           allKnownColorsLower={masterColorsLower}
                           masterColorsLower={masterColorsLower}
                           onSave={async (nextColor) => {
-                            // Rewrite the request's note marker so meta.color
-                            // reflects the new pick. Flip tag to TBD when
-                            // the new color is the placeholder, else REQ.
-                            const nextColorTrim = nextColor.trim();
-                            const isTbdColor = nextColorTrim.toUpperCase() === "TBD";
-                            const styleVal = meta.style ?? "";
-                            const isTbdNote = isTbdColor || styleVal.toUpperCase() === "TBD";
-                            const nextMeta: string[] = [];
-                            if (meta.cat) nextMeta.push(`cat=${meta.cat}`);
-                            if (meta.subcat) nextMeta.push(`subcat=${meta.subcat}`);
-                            if (styleVal) nextMeta.push(`style=${styleVal}`);
-                            nextMeta.push(`color=${nextColorTrim}`);
-                            if (meta.desc) nextMeta.push(`desc=${meta.desc}`);
-                            const tag = isTbdNote ? "TBD" : "REQ";
-                            const head = `[${tag} ${nextMeta.join("|")}]`;
-                            const body = noteDisp.trim();
-                            const nextNote = body ? `${head} ${body}` : head;
+                            // Swap meta.color, let the codec handle tag
+                            // selection (TBD when style or color is TBD).
+                            const nextNote = buildRequestNote({ ...meta, color: nextColor.trim() }, noteDisp);
                             setBusyId(r.id);
                             try {
                               await wholesaleRepo.updateRequest(r.id, { note: nextNote });
                               await onChange();
-                              onToast({ text: `Color updated to ${nextColorTrim}`, kind: "success" });
+                              onToast({ text: `Color updated to ${nextColor.trim()}`, kind: "success" });
                             } catch (e) {
                               onToast({ text: `Update failed — ${e instanceof Error ? e.message : String(e)}`, kind: "error" });
                             } finally {
@@ -716,26 +680,13 @@ function RequestForm({
       for (const c of combos) {
         const period = monthOf(`${c.period}-01`);
         const item = items.find((i) => i.id === c.skuId);
-        // Encode every planner-picked dimension into a structured note
-        // marker so the table can render the planner's actual choices,
-        // not whatever the resolved sku_id's master row happens to
-        // carry. Non-TBD requests need this for Cat / Sub Cat (the
-        // master item often lacks group_name / category_name in
-        // attributes) AND TBD requests need it because the sku_id
-        // points to an arbitrary fallback row. Fields with no value
-        // are omitted; the renderer falls back to the item lookup
-        // for missing fields.
-        const meta: string[] = [];
-        if (groupName) meta.push(`cat=${groupName}`);
-        if (subCatName) meta.push(`subcat=${subCatName}`);
-        meta.push(`style=${styleCode}`);
-        meta.push(`color=${c.color}`);
-        if (description) meta.push(`desc=${description}`);
-        const isTbd = styleCode.toUpperCase() === "TBD" || c.color.toUpperCase() === "TBD";
-        const tag = isTbd ? "TBD" : "REQ";
-        const noteParts: string[] = [`[${tag} ${meta.join("|")}]`];
-        if (note.trim()) noteParts.push(note.trim());
-        const noteOut = noteParts.join(" ");
+        // Encode every planner-picked dimension into the structured
+        // note marker so the table can render the planner's actual
+        // choices regardless of which sku_id we pinned for the FK.
+        const noteOut = buildRequestNote(
+          { cat: groupName, subcat: subCatName, style: styleCode, color: c.color, desc: description },
+          note,
+        );
         await wholesaleRepo.createRequest({
           customer_id: customerId,
           category_id: item?.category_id ?? null,

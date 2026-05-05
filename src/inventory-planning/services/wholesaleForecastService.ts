@@ -33,6 +33,7 @@ import {
 } from "../compute";
 import { wholesaleRepo, BuildCancelledError } from "./wholesalePlanningRepository";
 import { resolveVariantColorWithProvenance } from "./resolveVariantColor";
+import { parseRequestNote } from "./requestNoteMarker";
 
 export { BuildCancelledError };
 
@@ -210,20 +211,11 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
       qty: s.qty,
     }));
 
-  // Parse a request's note marker once. Form encodes the planner's
-  // actual (cat, subcat, style, color, desc) selection here because
-  // the FK on ip_future_demand_requests forced an arbitrary sku_id
-  // pin when either dim was TBD.
-  const parseRequestMeta = (r: IpFutureDemandRequest): Record<string, string> => {
-    const m = r.note?.match(/^\[(?:TBD|REQ)\s+([^\]]+)\]/);
-    if (!m) return {};
-    const meta: Record<string, string> = {};
-    for (const pair of m[1].split("|")) {
-      const eq = pair.indexOf("=");
-      if (eq > 0) meta[pair.slice(0, eq)] = pair.slice(eq + 1);
-    }
-    return meta;
-  };
+  // Parse a request's note marker once. The form encodes the
+  // planner's actual (cat, subcat, style, color, desc) intent there
+  // because the FK on ip_future_demand_requests forced an arbitrary
+  // sku_id pin when either dim was TBD.
+  const parseRequestMeta = (r: IpFutureDemandRequest) => parseRequestNote(r.note).meta;
 
   // Resolve the request's stored sku_id to a real master variant
   // matching the planner's intended style + color. Strategy mirrors
