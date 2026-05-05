@@ -98,6 +98,11 @@ export interface RunForecastPassResult {
   run_id: string;
   forecast_rows_written: number;
   recommendations_written: number;
+  // Open future-demand requests this build folded into the forecast.
+  // Their status is flipped from "open" → "applied" at the end of the
+  // build so the planner can see at a glance which requests are
+  // already accounted for vs still pending.
+  requests_applied: number;
   pairs_considered: number;
   // Count of (customer, sku) pairs skipped because they had no demand
   // signal (no T3 history, no LY reference) AND no inventory presence
@@ -268,6 +273,18 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
   for (const p of pos) {
     onPoBySku.set(p.sku_id, (onPoBySku.get(p.sku_id) ?? 0) + (p.qty_open ?? 0));
   }
+  // Pairs that carry an OPEN future-demand request must survive the
+  // dead-SKU prune even when they have no T3 / LY / inventory signal.
+  // Without this, a request for a brand-new (customer, sku) — exactly
+  // the case the request feature was designed for — gets pruned out,
+  // never reaches applyBuyerRequests, and never appears in the grid.
+  // The user reported 5 open requests built into a fresh run with no
+  // matching forecast rows; root cause was this prune.
+  const pairsWithOpenRequest = new Set<string>();
+  for (const r of requests) {
+    pairsWithOpenRequest.add(`${r.customer_id}:${r.sku_id}`);
+  }
+
   const beforePrune = pairs.length;
   pairs = pairs.filter((p) => {
     // Don't prune supply-only synthetic pairs — they exist precisely
@@ -276,6 +293,7 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
     // suspenders: keep them regardless.
     if (p.customer_id === supplyPlaceholder) return true;
     const k = `${p.customer_id}:${p.sku_id}`;
+    if (pairsWithOpenRequest.has(k)) return true;
     const t3 = trailingT3BySkuCust.get(k) ?? 0;
     const ly = lyBySkuCust.get(k) ?? 0;
     const onH = onHandBySku.get(p.sku_id) ?? 0;
@@ -413,6 +431,27 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
       onProgress?.({ phase: "writing_recs", label: `Writing recommendations`, current: rowsDone, total: totalRows });
     },
   });
+
+  // Mark every open future-demand request the build actually consumed
+  // as applied. A request is "consumed" when its (customer, sku,
+  // target month) landed in the persisted forecast — without this
+  // bulk PATCH the requests sat at status="open" forever even after
+  // the build folded their qty into the system forecast.
+  const persistedKeys = new Set(
+    forecastRows.map((f) => `${f.customer_id}:${f.sku_id}:${f.period_start}`),
+  );
+  const appliedRequestIds: string[] = [];
+  for (const r of requests) {
+    const periodStart = monthOf(r.target_period_start).period_start;
+    if (persistedKeys.has(`${r.customer_id}:${r.sku_id}:${periodStart}`)) {
+      appliedRequestIds.push(r.id);
+    }
+  }
+  if (appliedRequestIds.length > 0) {
+    onProgress?.({ phase: "writing_recs", label: `Marking ${appliedRequestIds.length} request${appliedRequestIds.length === 1 ? "" : "s"} applied` });
+    await wholesaleRepo.markRequestsApplied(appliedRequestIds);
+  }
+
   onProgress?.({ phase: "done", label: "Done" });
 
   const methods: Record<IpForecastMethod, number> = {
@@ -430,6 +469,7 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
     run_id: run.id,
     forecast_rows_written: forecastRows.length,
     recommendations_written: recs.length,
+    requests_applied: appliedRequestIds.length,
     pairs_considered: pairs.length,
     pairs_pruned_dead: prunedDeadCount,
     pairs_pruned_filter: prunedFilterCount,

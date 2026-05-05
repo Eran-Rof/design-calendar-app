@@ -92,8 +92,11 @@ export default function PlanningRunControls({
       const lyNote = lyCount > 0 ? ` · ${lyCount} Same Period LY` : "";
       const filterNote = filterActive ? ` · filter excluded ${result.pairs_pruned_filter}` : "";
       const deadNote = result.pairs_pruned_dead > 0 ? ` · pruned ${result.pairs_pruned_dead} dead SKUs` : "";
+      const appliedNote = result.requests_applied > 0
+        ? ` · ${result.requests_applied} request${result.requests_applied === 1 ? "" : "s"} marked applied`
+        : "";
       onToast({
-        text: `Forecast built — ${result.forecast_rows_written} rows, ${result.recommendations_written} recs${lyNote}${deadNote}${filterNote}`,
+        text: `Forecast built — ${result.forecast_rows_written} rows, ${result.recommendations_written} recs${appliedNote}${lyNote}${deadNote}${filterNote}`,
         kind: "success",
       });
       await onChange();

@@ -764,6 +764,20 @@ export const wholesaleRepo = {
   },
 
   // ── Future demand requests ───────────────────────────────────────────────
+  // Bulk-mark requests as applied — fires after the forecast pipeline
+  // has consumed them. Caller passes the ids of every open request
+  // whose (customer_id, sku_id, period_start) ended up in the
+  // persisted forecast, so the planner can see at a glance which
+  // requests are folded in vs still pending.
+  async markRequestsApplied(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    const CHUNK = 500;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const slice = ids.slice(i, i + CHUNK);
+      const inList = slice.map((id) => `"${id}"`).join(",");
+      await sbPatch(`ip_future_demand_requests?id=in.(${inList})`, { request_status: "applied" });
+    }
+  },
   async listOpenRequests(): Promise<IpFutureDemandRequest[]> {
     return sbGet<IpFutureDemandRequest>(
       "ip_future_demand_requests?select=*&request_status=eq.open&order=target_period_start.asc&limit=10000",
