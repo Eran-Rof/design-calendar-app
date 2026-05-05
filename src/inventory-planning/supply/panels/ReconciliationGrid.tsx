@@ -415,31 +415,31 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
                   }}
                   onClick={() => { if (!r._agg) onSelectRow(r); }}>
                 <td style={{ ...S.td, fontFamily: "monospace", color: r._agg ? PAL.text : PAL.accent }}>{r.sku_code}</td>
-                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.textDim }}>{r.sku_style ?? "–"}</td>
-                <td style={{ ...S.td, color: PAL.textDim }}>{r.group_name ?? r.category_name ?? "–"}</td>
-                <td style={{ ...S.td, color: PAL.textDim }}>{r.sub_category_name ?? "–"}</td>
-                <td style={S.td}>{r.period_code ? formatPeriodCode(r.period_code) : "–"}</td>
-                <td style={S.tdNum}>{formatQty(r.beginning_on_hand_qty)}</td>
-                <td style={{ ...S.tdNum, color: PAL.textDim }}>{formatQty(r.ats_qty)}</td>
-                <td style={S.tdNum}>{formatQty(r.inbound_po_qty)}</td>
-                <td style={{ ...S.tdNum, color: r.inbound_planned_buy_qty > 0 ? PAL.green : PAL.textMuted }}>
+                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.textDim, ...colHide("style") }}>{r.sku_style ?? "–"}</td>
+                <td style={{ ...S.td, color: PAL.textDim, ...colHide("category") }}>{r.group_name ?? r.category_name ?? "–"}</td>
+                <td style={{ ...S.td, color: PAL.textDim, ...colHide("subCat") }}>{r.sub_category_name ?? "–"}</td>
+                <td style={{ ...S.td, ...colHide("period") }}>{r.period_code ? formatPeriodCode(r.period_code) : "–"}</td>
+                <td style={{ ...S.tdNum, ...colHide("onHand") }}>{formatQty(r.beginning_on_hand_qty)}</td>
+                <td style={{ ...S.tdNum, color: PAL.textDim, ...colHide("ats") }}>{formatQty(r.ats_qty)}</td>
+                <td style={{ ...S.tdNum, ...colHide("inboundPo") }}>{formatQty(r.inbound_po_qty)}</td>
+                <td style={{ ...S.tdNum, color: r.inbound_planned_buy_qty > 0 ? PAL.green : PAL.textMuted, ...colHide("plannedBuy") }}>
                   {formatQty(r.inbound_planned_buy_qty)}
                 </td>
-                <td style={S.tdNum}>{formatQty(r.inbound_receipts_qty)}</td>
-                <td style={{ ...S.tdNum, color: PAL.textMuted }}>{formatQty(r.wip_qty)}</td>
-                <td style={{ ...S.tdNum, color: PAL.accent, fontWeight: 700 }}>{formatQty(r.total_available_supply_qty)}</td>
-                <td style={S.tdNum}>{formatQty(r.wholesale_demand_qty)}</td>
-                <td style={S.tdNum}>{formatQty(r.ecom_demand_qty)}</td>
-                <td style={{ ...S.tdNum, color: PAL.green }}>{formatQty(r.protected_ecom_qty)}</td>
-                <td style={{ ...S.tdNum, color: PAL.yellow }}>{formatQty(r.reserved_wholesale_qty)}</td>
-                <td style={{ ...S.tdNum, color: PAL.text, fontWeight: 600 }}>{formatQty(r.allocated_total_qty)}</td>
-                <td style={{ ...S.tdNum, color: r.ending_inventory_qty > 0 ? PAL.textDim : PAL.textMuted }}>
+                <td style={{ ...S.tdNum, ...colHide("receipts") }}>{formatQty(r.inbound_receipts_qty)}</td>
+                <td style={{ ...S.tdNum, color: PAL.textMuted, ...colHide("wip") }}>{formatQty(r.wip_qty)}</td>
+                <td style={{ ...S.tdNum, color: PAL.accent, fontWeight: 700, ...colHide("supply") }}>{formatQty(r.total_available_supply_qty)}</td>
+                <td style={{ ...S.tdNum, ...colHide("wsDemand") }}>{formatQty(r.wholesale_demand_qty)}</td>
+                <td style={{ ...S.tdNum, ...colHide("ecomDemand") }}>{formatQty(r.ecom_demand_qty)}</td>
+                <td style={{ ...S.tdNum, color: PAL.green, ...colHide("protected") }}>{formatQty(r.protected_ecom_qty)}</td>
+                <td style={{ ...S.tdNum, color: PAL.yellow, ...colHide("reserved") }}>{formatQty(r.reserved_wholesale_qty)}</td>
+                <td style={{ ...S.tdNum, color: PAL.text, fontWeight: 600, ...colHide("allocated") }}>{formatQty(r.allocated_total_qty)}</td>
+                <td style={{ ...S.tdNum, color: r.ending_inventory_qty > 0 ? PAL.textDim : PAL.textMuted, ...colHide("ending") }}>
                   {formatQty(r.ending_inventory_qty)}
                 </td>
-                <td style={{ ...S.tdNum, color: r.shortage_qty > 0 ? PAL.red : PAL.textMuted }}>
+                <td style={{ ...S.tdNum, color: r.shortage_qty > 0 ? PAL.red : PAL.textMuted, ...colHide("shortage") }}>
                   {formatQty(r.shortage_qty)}
                 </td>
-                <td style={{ ...S.tdNum, color: r.excess_qty > 0 ? PAL.yellow : PAL.textMuted }}>
+                <td style={{ ...S.tdNum, color: r.excess_qty > 0 ? PAL.yellow : PAL.textMuted, ...colHide("excess") }}>
                   {formatQty(r.excess_qty)}
                 </td>
                 <td style={S.td}>
