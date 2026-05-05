@@ -161,13 +161,18 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
 
   onProgress?.({ phase: "loading", label: "Loading sales, inventory, POs…" });
   checkAbort(signal);
-  const [items, sales, requests, overrides, inv, pos, receipts, supplyPlaceholder] = await Promise.all([
+  const [items, sales, requests, overrides, inv, pos, openSos, receipts, supplyPlaceholder] = await Promise.all([
     wholesaleRepo.listItems(),
     wholesaleRepo.listWholesaleSales(lookbackFrom),
     wholesaleRepo.listOpenRequests(),
     wholesaleRepo.listOverrides(run.id),
     wholesaleRepo.listInventorySnapshots(),
     wholesaleRepo.listOpenPos(),
+    // Load openSos so buildRollingWholesaleSupply can deduct SO
+    // commitments in their ship-month (Phase 2 SO-by-month accuracy
+    // fix). Without this, the rolling supply call on line 390 below
+    // ReferenceError'd "openSos is not defined".
+    wholesaleRepo.listOpenSos(),
     wholesaleRepo.listReceipts(lookbackFrom),
     wholesaleRepo.ensureSupplyPlaceholderCustomer(),
   ]);
