@@ -30,3 +30,11 @@ COMMENT ON COLUMN ip_planning_runs.recon_include_planned_buys IS
   'Phase 3: when true, runReconciliationPass adds planned_buy_qty (from the linked wholesale source run''s ip_wholesale_forecast) to total_available_supply_qty.';
 COMMENT ON COLUMN ip_projected_inventory.inbound_planned_buy_qty IS
   'Phase 3: bucket-summed planned_buy_qty for (sku, period). Always populated; only counted toward total_available_supply_qty when ip_planning_runs.recon_include_planned_buys is true.';
+
+-- Tell PostgREST to reload its schema cache immediately so the new
+-- columns are visible without a service restart. Without this the
+-- first POST after the migration returns PGRST204 "Could not find
+-- the column of <table> in the schema cache" because PostgREST
+-- caches the schema on startup and only auto-refreshes on a small
+-- set of events.
+NOTIFY pgrst, 'reload schema';
