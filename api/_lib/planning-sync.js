@@ -259,16 +259,28 @@ export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit =
       if (!sku) continue;
       const skuId = itemMap.get(sku);
       if (!skuId) continue;
+      // Persist undated SOs with ship_date=null instead of dropping
+      // them. Reason: ATS exports often contain backorders / suspended
+      // orders / freshly-created lines without a scheduled ship date.
+      // Dropping them at sync time meant the planning grid's SO column
+      // was zero everywhere — the bug Eran reported. The bucketing
+      // step in wholesaleForecastService still excludes undated SOs
+      // from per-period display (correct — they can't be bucketed),
+      // but the qty is now captured in the DB so a future "undated
+      // SO total" banner can surface them.
       const shipDate = so.date ? String(so.date).slice(0, 10) : null;
-      if (!shipDate) continue;
       const custName = String(so.customerName ?? "").trim();
       const customerId = custName
         ? (customerByName.get(custName.toUpperCase()) ?? supplyOnlyId)
         : supplyOnlyId;
       const orderNumber = String(so.orderNumber ?? "").trim() || null;
+      // Use "no-date" as the dedup suffix when shipDate is null so two
+      // different SOs for the same (order, sku) don't collapse just
+      // because both lack a date.
+      const dateKey = shipDate ?? "no-date";
       const lineKey = orderNumber
-        ? `ats:${orderNumber}:${sku}:${shipDate}`
-        : `ats:${customerId}:${sku}:${shipDate}`;
+        ? `ats:${orderNumber}:${sku}:${dateKey}`
+        : `ats:${customerId}:${sku}:${dateKey}`;
       const qty = Number(so.qty) || 0;
       const unitPrice = Number(so.unitPrice) || null;
       const prev = soAgg.get(lineKey);
