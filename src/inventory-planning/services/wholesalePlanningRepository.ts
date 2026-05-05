@@ -783,6 +783,15 @@ export const wholesaleRepo = {
       "ip_future_demand_requests?select=*&request_status=eq.open&order=target_period_start.asc&limit=10000",
     );
   },
+  // Every request regardless of status. Used by the FutureDemandRequestsPanel
+  // so the planner can filter to "applied" / "archived" client-side
+  // (listOpenRequests only returns open and would yield zero rows when
+  // filtering by another status).
+  async listAllRequests(): Promise<IpFutureDemandRequest[]> {
+    return sbGet<IpFutureDemandRequest>(
+      "ip_future_demand_requests?select=*&order=target_period_start.asc&limit=10000",
+    );
+  },
   async createRequest(row: Omit<IpFutureDemandRequest, "id" | "created_at" | "updated_at">): Promise<IpFutureDemandRequest> {
     const [created] = await sbPost<IpFutureDemandRequest>("ip_future_demand_requests", [row]);
     return created;

@@ -177,7 +177,10 @@ export default function WholesalePlanningWorkbench() {
       wholesaleRepo.listCustomers(),
       wholesaleRepo.listCategories(),
       wholesaleRepo.listItems(),
-      wholesaleRepo.listOpenRequests(),
+      // listAllRequests instead of listOpenRequests so the panel can
+      // filter to "applied" / "archived" client-side. The build pass
+      // still uses listOpenRequests directly for its own pull.
+      wholesaleRepo.listAllRequests(),
       wholesaleRepo.listPlanningRuns("wholesale"),
       wholesaleRepo.listMasterColorsLower(),
       wholesaleRepo.listMasterStyles(),
