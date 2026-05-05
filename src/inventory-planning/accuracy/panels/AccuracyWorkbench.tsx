@@ -14,7 +14,7 @@ import type {
 import type { IpAiSuggestion, IpPlanningAnomaly } from "../../intelligence/types/intelligence";
 import { wholesaleRepo } from "../../services/wholesalePlanningRepository";
 import { ecomRepo } from "../../ecom/services/ecomForecastRepo";
-import { accuracyRepo, runAccuracyAndIntelligencePass } from "../services";
+import { accuracyRepo, runAccuracyAndIntelligencePass, applyAcceptedSuggestion } from "../services";
 import { S, PAL, formatDate } from "../../components/styles";
 import { TabButton } from "../../components/TabButton";
 import Toast, { type ToastMessage } from "../../components/Toast";
@@ -152,10 +152,25 @@ export default function AccuracyWorkbench() {
   }
 
   async function acceptSuggestion(id: string) {
+    // Phase 5 spec: accepting a suggestion now writes through to the
+    // underlying forecast row when the type maps to a planner action
+    // (increase/decrease forecast → system override; reduce_buy →
+    // planned_buy_qty). Other types still mark accepted but don't
+    // auto-write — applyAcceptedSuggestion returns reason="No
+    // auto-write defined…" for those, surfaced in the toast so the
+    // planner knows.
+    const target = suggestions.find((s) => s.id === id);
+    if (!target) {
+      setToast({ text: "Suggestion not found in current view — refresh and retry", kind: "error" });
+      return;
+    }
     try {
-      await accuracyRepo.markSuggestion(id, true);
+      const r = await applyAcceptedSuggestion(target);
       await loadRunData();
-      setToast({ text: "Suggestion accepted", kind: "success" });
+      setToast({
+        text: r.applied ? `Suggestion accepted — ${r.reason}` : `Suggestion accepted (${r.reason})`,
+        kind: "success",
+      });
     } catch (e) {
       setToast({ text: "Couldn't accept — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
     }

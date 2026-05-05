@@ -10,6 +10,9 @@ import type {
 } from "../types/wholesale";
 import { S, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, PAL, formatQty, formatDate, formatDateTime, formatPeriodCode } from "./styles";
 import { MiniCell } from "./MiniCell";
+import { accuracyRepo } from "../accuracy/services/accuracyRepo";
+import type { IpForecastAccuracy, IpForecastActual } from "../accuracy/types/accuracy";
+import type { IpAiSuggestion, IpPlanningAnomaly } from "../intelligence/types/intelligence";
 
 const REASON_CODES: IpOverrideReasonCode[] = [
   "buyer_request",
@@ -44,6 +47,15 @@ export default function ForecastDetailDrawer({
   const [buyingSaving, setBuyingSaving] = useState(false);
   const [buyError, setBuyError] = useState<string | null>(null);
 
+  // Phase 5 (gap #3): pull forecast vs actual / accuracy / anomaly /
+  // suggestion data for the selected (sku, period) on demand. Sections
+  // hide when there's no data, so legacy runs without a Phase 5 pass
+  // see no clutter.
+  const [actuals, setActuals] = useState<IpForecastActual[]>([]);
+  const [accuracyRows, setAccuracyRows] = useState<IpForecastAccuracy[]>([]);
+  const [anomalies, setAnomalies] = useState<IpPlanningAnomaly[]>([]);
+  const [suggestions, setSuggestions] = useState<IpAiSuggestion[]>([]);
+
   useEffect(() => {
     setQtyStr(row ? String(row.override_qty ?? 0) : "");
     setReason("planner_estimate");
@@ -52,6 +64,41 @@ export default function ForecastDetailDrawer({
     setBuyStr(row?.planned_buy_qty != null ? String(row.planned_buy_qty) : "");
     setBuyError(null);
   }, [row?.forecast_id]);
+
+  useEffect(() => {
+    if (!row) {
+      setActuals([]); setAccuracyRows([]); setAnomalies([]); setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      // listActuals filters by `since` (no sku-level filter), so pull
+      // back the period start and filter client-side. Other lists
+      // already accept run + sku scope or are filtered after fetch.
+      try {
+        const [allActuals, allAccuracy, allAnoms, allSuggestions] = await Promise.all([
+          accuracyRepo.listActuals(row.period_start),
+          accuracyRepo.listAccuracy({ planning_run_id: row.planning_run_id }),
+          accuracyRepo.listAnomalies({ planning_run_id: row.planning_run_id }),
+          accuracyRepo.listSuggestions({ planning_run_id: row.planning_run_id }),
+        ]);
+        if (cancelled) return;
+        const matchesGrain = (sku: string, period: string) =>
+          sku === row.sku_id && period === row.period_start;
+        setActuals(allActuals.filter((a) => matchesGrain(a.sku_id, a.period_start)));
+        setAccuracyRows(allAccuracy.filter((a) => matchesGrain(a.sku_id, a.period_start)));
+        setAnomalies(allAnoms.filter((a) => matchesGrain(a.sku_id, a.period_start)));
+        setSuggestions(allSuggestions.filter((a) => matchesGrain(a.sku_id, a.period_start)));
+      } catch (e) {
+        // Phase 5 data is optional — failure to load shouldn't break
+        // the drawer's primary purpose (override trail / save).
+        console.warn("[ForecastDetailDrawer] Phase 5 fetch failed", e);
+        if (cancelled) return;
+        setActuals([]); setAccuracyRows([]); setAnomalies([]); setSuggestions([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [row?.sku_id, row?.period_start, row?.planning_run_id]);
 
   if (!row) return null;
 
@@ -279,6 +326,114 @@ export default function ForecastDetailDrawer({
               </div>
             </>
           )}
+
+          {/* ── Phase 5 sections ───────────────────────────────────────
+              Forecast vs actual, accuracy metrics, anomalies, AI
+              suggestion history. All four sections render only when
+              their respective table has rows for this (sku, period).
+              Lets legacy runs (no Phase 5 pass) skip the empty noise. */}
+          {actuals.length > 0 && (
+            <>
+              <SectionLabel>Forecast vs actual</SectionLabel>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}>
+                {actuals.map((a) => (
+                  <MiniCell
+                    key={a.id}
+                    label={`Actual${a.forecast_type ? ` (${a.forecast_type})` : ""}`}
+                    value={formatQty(a.actual_qty)}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+
+          {accuracyRows.length > 0 && (
+            <>
+              <SectionLabel>Accuracy metrics</SectionLabel>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {accuracyRows.map((a) => (
+                  <div key={a.id} style={{ ...S.infoCell, padding: "10px 12px" }}>
+                    <div style={{ fontSize: 11, color: PAL.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                      {a.forecast_type}
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, fontSize: 12 }}>
+                      <div>
+                        <div style={{ color: PAL.textMuted, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>System abs err</div>
+                        <div style={{ fontFamily: "monospace", color: PAL.text }}>{formatQty(a.abs_error_system)}</div>
+                      </div>
+                      <div>
+                        <div style={{ color: PAL.textMuted, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>Final abs err</div>
+                        <div style={{ fontFamily: "monospace", color: PAL.text }}>
+                          {formatQty(a.abs_error_final)}
+                          {a.abs_error_final < a.abs_error_system && <span style={{ color: PAL.green, marginLeft: 6 }}>↓ override helped</span>}
+                          {a.abs_error_final > a.abs_error_system && <span style={{ color: PAL.red, marginLeft: 6 }}>↑ override hurt</span>}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ color: PAL.textMuted, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>System bias</div>
+                        <div style={{ fontFamily: "monospace", color: a.bias_system > 0 ? PAL.yellow : a.bias_system < 0 ? PAL.red : PAL.textMuted }}>
+                          {a.bias_system > 0 ? "+" : ""}{formatQty(a.bias_system)}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ color: PAL.textMuted, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>Final bias</div>
+                        <div style={{ fontFamily: "monospace", color: a.bias_final > 0 ? PAL.yellow : a.bias_final < 0 ? PAL.red : PAL.textMuted }}>
+                          {a.bias_final > 0 ? "+" : ""}{formatQty(a.bias_final)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {anomalies.length > 0 && (
+            <>
+              <SectionLabel>Anomalies</SectionLabel>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {anomalies.map((a) => (
+                  <div key={a.id} style={{ ...S.infoCell, padding: "10px 12px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                      <span style={{ fontWeight: 600, fontSize: 12 }}>
+                        {a.anomaly_type.replace(/_/g, " ")}
+                      </span>
+                      <span style={{ ...S.chip, background: severityColor(a.severity) + "33", color: severityColor(a.severity) }}>
+                        {a.severity}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 12, color: PAL.textDim, marginTop: 4 }}>{a.message}</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {suggestions.length > 0 && (
+            <>
+              <SectionLabel>AI suggestions</SectionLabel>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {suggestions.map((s) => (
+                  <div key={s.id} style={{ ...S.infoCell, padding: "10px 12px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                      <span style={{ fontWeight: 600, fontSize: 12 }}>
+                        {s.suggestion_type.replace(/_/g, " ")}
+                        {s.suggested_qty_delta != null && (
+                          <span style={{ fontFamily: "monospace", color: s.suggested_qty_delta >= 0 ? PAL.green : PAL.yellow, marginLeft: 6 }}>
+                            {s.suggested_qty_delta >= 0 ? "+" : ""}{formatQty(s.suggested_qty_delta)}
+                          </span>
+                        )}
+                      </span>
+                      <span style={{ ...S.chip, background: (s.accepted_flag === true ? PAL.green : s.accepted_flag === false ? PAL.textMuted : PAL.accent) + "33", color: s.accepted_flag === true ? PAL.green : s.accepted_flag === false ? PAL.textMuted : PAL.accent }}>
+                        {s.accepted_flag === true ? "accepted" : s.accepted_flag === false ? "ignored" : "open"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 12, color: PAL.textDim, marginTop: 4 }}>{s.rationale}</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -291,6 +446,15 @@ function SectionLabel({ children }: { children: string }) {
       {children}
     </div>
   );
+}
+
+function severityColor(s: string): string {
+  switch (s) {
+    case "critical": return "#EF4444";
+    case "high":     return "#F59E0B";
+    case "medium":   return "#3B82F6";
+    default:         return "#94A3B8";
+  }
 }
 
 

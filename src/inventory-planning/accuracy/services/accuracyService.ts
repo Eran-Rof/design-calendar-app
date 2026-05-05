@@ -413,6 +413,98 @@ export async function runAccuracyAndIntelligencePass(run: IpPlanningRun): Promis
   };
 }
 
+// ── Suggestion accept side effect ─────────────────────────────────────────
+// Spec: "If accepted, update override or planning input appropriately."
+// Phase 5 originally only flipped accepted_flag. This applies the
+// suggested value to the underlying forecast row when the suggestion
+// type maps cleanly to a planner write, then flips the flag.
+//
+// Type → action map (kept conservative; types without a clear-cut
+// auto-write are still marked accepted but don't push):
+//
+//   increase_forecast / decrease_forecast
+//     → patchForecastSystemOverride to suggested_final_qty (wholesale only)
+//   reduce_buy_recommendation
+//     → patchForecastBuyQty to suggested_final_qty
+//   review_buyer_request / inspect_return_rate / increase_confidence
+//   / lower_confidence / protect_more_inventory
+//     → no auto-write (planner needs to decide). Mark accepted only.
+//
+// Ecom suggestions: no auto-write yet — ecom override write path lives
+// in a separate repo (ecomRepo) and the surface is smaller. Marking
+// accepted records the planner's intent; they apply manually.
+
+export interface ApplySuggestionResult {
+  applied: boolean;          // true when a forecast row was patched
+  forecast_id_patched?: string | null;
+  type: IpAiSuggestion["suggestion_type"];
+  reason: string;            // human-readable: "patched override on row X" / "no auto-write for type Y"
+}
+
+export async function applyAcceptedSuggestion(
+  suggestion: IpAiSuggestion,
+  acceptedBy: string | null = null,
+): Promise<ApplySuggestionResult> {
+  // Branch by suggestion type. Each branch is self-contained so the
+  // caller doesn't need to know which suggestions are actionable.
+  const type = suggestion.suggestion_type;
+
+  // Wholesale forecast system-override path. Both increase and
+  // decrease use the same write; the suggested_final_qty already
+  // carries the signed result.
+  const writesSystem = type === "increase_forecast" || type === "decrease_forecast";
+  const writesBuy = type === "reduce_buy_recommendation";
+
+  let applied = false;
+  let forecastIdPatched: string | null = null;
+  let reason = `No auto-write defined for ${type}; suggestion marked accepted only.`;
+
+  if ((writesSystem || writesBuy) && suggestion.forecast_type === "wholesale" && suggestion.planning_run_id) {
+    const targetQty = suggestion.suggested_final_qty;
+    if (targetQty == null) {
+      reason = `Suggestion has no suggested_final_qty; nothing to apply.`;
+    } else {
+      // Find the matching forecast row by (run, sku, period_start,
+      // optional customer). Multiple rows for the same sku+period can
+      // exist (one per customer); apply to whichever matches when
+      // customer_id is set, else the first.
+      const forecasts = await wholesaleRepo.listForecast(suggestion.planning_run_id);
+      const candidates = forecasts.filter((f) =>
+        f.sku_id === suggestion.sku_id
+        && f.period_start === suggestion.period_start
+        && (!suggestion.customer_id || f.customer_id === suggestion.customer_id),
+      );
+      if (candidates.length === 0) {
+        reason = `No forecast row found for sku ${suggestion.sku_id} period ${suggestion.period_start} on run ${suggestion.planning_run_id}.`;
+      } else {
+        // Pick the highest-final row when multiple match (most likely
+        // the row the suggestion was generated against).
+        const target = candidates.sort((a, b) => b.final_forecast_qty - a.final_forecast_qty)[0];
+        forecastIdPatched = target.id;
+        if (writesSystem) {
+          // System override fully replaces the system_forecast_qty
+          // when set (see patchForecastSystemOverride contract).
+          // final = override + buyer_request + override_qty.
+          const newFinal = Math.max(0, targetQty + target.buyer_request_qty + target.override_qty);
+          await wholesaleRepo.patchForecastSystemOverride(target.id, Math.round(targetQty), newFinal, acceptedBy);
+          applied = true;
+          reason = `Applied system override = ${Math.round(targetQty)} on forecast row ${target.id.slice(0, 8)}; final recomputed to ${newFinal}.`;
+        } else if (writesBuy) {
+          await wholesaleRepo.patchForecastBuyQty(target.id, Math.max(0, Math.round(targetQty)));
+          applied = true;
+          reason = `Applied planned buy = ${Math.max(0, Math.round(targetQty))} on forecast row ${target.id.slice(0, 8)}.`;
+        }
+      }
+    }
+  }
+
+  // Mark accepted regardless (intent is recorded even when no
+  // auto-write applied).
+  await accuracyRepo.markSuggestion(suggestion.id, true, acceptedBy);
+
+  return { applied, forecast_id_patched: forecastIdPatched, type, reason };
+}
+
 // ── misc ───────────────────────────────────────────────────────────────────
 async function fetchProjectedForRun(runId: string): Promise<Array<{ sku_id: string; projected_stockout_flag: boolean }>> {
   if (!SB_URL) return [];
