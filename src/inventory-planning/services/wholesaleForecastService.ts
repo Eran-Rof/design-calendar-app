@@ -543,6 +543,10 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
         period_end: period.period_end,
         period_code: period.period_code,
         buyer_request_qty: r.requested_qty,
+        // Final = system + buyer + override. System is always 0 on a
+        // TBD row, override starts at 0, so final must be primed to
+        // requested_qty here or the grid's Final column reads as 0.
+        final_forecast_qty: r.requested_qty,
         notes,
       });
     } catch (e) {
@@ -919,6 +923,16 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     };
   });
 
+  // Strip the `[fromRequest:<uuid>]` marker that the build pipeline
+  // stamps onto request-derived TBD rows so it never shows up in the
+  // grid's Description column. The marker stays in the persisted
+  // notes column so deleteRequestDerivedTbdRows can find it via
+  // notes=like on the next rebuild.
+  const stripRequestMarker = (s: string | null | undefined): string | null => {
+    if (!s) return null;
+    return s.replace(/^\[fromRequest:[^\]]+\]\s*/, "").trim() || null;
+  };
+
   // ── TBD synthetic stock-buy rows ─────────────────────────────────────────
   // One row per (style_code, period) — surfaced in the grid as a
   // "(Supply Only) TBD" line. Aggregate Buyer / Override / Buy edits
@@ -1056,7 +1070,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     // as the description override — gives a working description on
     // brand-new styles whose master row hasn't been created yet.
     // Falls back to the master's description when notes is empty.
-    const description = supplyTbd?.notes?.trim() || styleFb?.description || null;
+    const description = stripRequestMarker(supplyTbd?.notes) || styleFb?.description || null;
     const groupName = readGroupName(styleFb) ?? null;
     const subCategoryName = readSubCategoryName(styleFb) ?? null;
     let gender = readGender(styleFb) ?? null;
@@ -1119,7 +1133,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       // matching description, the override is effectively redundant
       // and the badge clears.
       is_new_description: (() => {
-        const planner = supplyTbd?.notes?.trim() ?? "";
+        const planner = stripRequestMarker(supplyTbd?.notes) ?? "";
         if (!planner) return false;
         const master = (styleFb?.description ?? "").trim();
         return planner.toLowerCase() !== master.toLowerCase();
@@ -1158,7 +1172,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       recommended_action: "monitor",
       recommended_qty: null,
       action_reason: null,
-      notes: supplyTbd?.notes ?? null,
+      notes: stripRequestMarker(supplyTbd?.notes),
     });
     }
     // Any other persisted TBD rows for this (style, period) (e.g.
@@ -1179,7 +1193,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
         gender,
         sku_id: `tbd:${sp.style_code}`,
         sku_code: `${sp.style_code}-TBD`,
-        sku_description: t.notes?.trim() || description,
+        sku_description: stripRequestMarker(t.notes) || description,
         sku_style: sp.style_code,
         sku_color: t.color,
         sku_color_inferred: false,
@@ -1187,7 +1201,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
         is_new_color: t.is_new_color && !isKnownColor(sp.style_code, t.color),
         is_user_added: t.is_user_added,
         is_new_description: (() => {
-          const planner = t.notes?.trim() ?? "";
+          const planner = stripRequestMarker(t.notes) ?? "";
           if (!planner) return false;
           const master = (styleFb?.description ?? "").trim();
           return planner.toLowerCase() !== master.toLowerCase();
@@ -1226,7 +1240,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
         recommended_action: "monitor",
         recommended_qty: null,
         action_reason: null,
-        notes: t.notes,
+        notes: stripRequestMarker(t.notes),
       });
     }
   }
