@@ -15,6 +15,7 @@ import type {
 import { computeAllocation } from "../compute/allocationEngine";
 import { activeRulesForSku } from "../compute/supplyReconciliation";
 import { S, PAL, formatDate, formatQty, formatPeriodCode } from "../../components/styles";
+import { MiniCell } from "../../components/MiniCell";
 
 export interface AllocationDetailDrawerProps {
   row: IpReconciliationGridRow | null;
@@ -206,14 +207,6 @@ function SectionLabel({ children }: { children: string }) {
   );
 }
 
-function MiniCell({ label, value, accent }: { label: string; value: string; accent?: string }) {
-  return (
-    <div style={{ ...S.infoCell, padding: "10px 12px" }}>
-      <div style={S.infoLabel}>{label}</div>
-      <div style={{ ...S.infoValue, fontFamily: "monospace", color: accent ?? PAL.text }}>{value}</div>
-    </div>
-  );
-}
 
 function priorityColor(p: string): string {
   switch (p) {

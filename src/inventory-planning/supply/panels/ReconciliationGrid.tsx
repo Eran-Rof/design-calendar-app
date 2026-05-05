@@ -4,6 +4,7 @@
 import { useMemo, useState } from "react";
 import type { IpReconciliationGridRow } from "../types/supply";
 import { S, PAL, formatQty, formatPeriodCode } from "../../components/styles";
+import { StatCell } from "../../components/StatCell";
 
 export interface ReconciliationGridProps {
   rows: IpReconciliationGridRow[];
@@ -238,14 +239,6 @@ function Th({ label, k, sortKey, sortDir, onSort, numeric }: {
   );
 }
 
-function StatCell({ label, value, accent }: { label: string; value: string; accent?: string }) {
-  return (
-    <div style={S.statCard}>
-      <div style={{ fontSize: 11, color: PAL.textMuted }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, color: accent ?? PAL.text, fontFamily: "monospace" }}>{value}</div>
-    </div>
-  );
-}
 
 function cmp(a: IpReconciliationGridRow, b: IpReconciliationGridRow, k: SortKey, d: "asc" | "desc"): number {
   const sign = d === "asc" ? 1 : -1;

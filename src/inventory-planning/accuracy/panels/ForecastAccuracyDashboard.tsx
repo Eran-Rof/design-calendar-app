@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import type { IpForecastAccuracy } from "../types/accuracy";
 import { aggregateAccuracy } from "../compute/accuracyMetrics";
 import { S, PAL, METHOD_LABEL, formatQty, formatPeriodCode } from "../../components/styles";
+import { StatCell } from "../../components/StatCell";
 
 export interface ForecastAccuracyDashboardProps {
   rows: IpForecastAccuracy[];
@@ -133,14 +134,6 @@ export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryN
   );
 }
 
-function StatCell({ label, value, accent }: { label: string; value: string; accent?: string }) {
-  return (
-    <div style={S.statCard}>
-      <div style={{ fontSize: 11, color: PAL.textMuted }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, color: accent ?? PAL.text, fontFamily: "monospace" }}>{value}</div>
-    </div>
-  );
-}
 
 function pct(n: number): string {
   if (!Number.isFinite(n)) return "–";

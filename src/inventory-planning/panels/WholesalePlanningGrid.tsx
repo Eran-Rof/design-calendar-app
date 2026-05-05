@@ -7,6 +7,8 @@ import { createPortal } from "react-dom";
 import type { IpPlanningGridRow } from "../types/wholesale";
 import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, formatQty, formatPeriodCode } from "../components/styles";
 import { MultiSelectDropdown } from "../components/MultiSelectDropdown";
+import { StatCell } from "../components/StatCell";
+import { usePersistedString, usePersistedStringArray } from "../hooks/usePersistedFilter";
 import { aggregateRows, type CollapseModes as ExtractedCollapseModes } from "./aggregateGridRows";
 import { bucketKeyFor, type BucketKeyFilters } from "./bucketBuyKey";
 import { recommendForRow } from "../compute/recommendations";
@@ -288,59 +290,28 @@ function distributeAcrossChildren(
 }
 
 export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onUndoLastAdd, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
-  // Persisted filter state — survives reloads + builds. Stored under
-  // ws_planning_filter_<key> in localStorage so the planner doesn't
-  // re-pick what they had narrowed to. Lazy useState initializer
-  // pulls the saved value on mount; a useEffect below mirrors any
-  // change back to localStorage.
-  const loadFilter = (key: string): string[] => {
-    try {
-      const raw = localStorage.getItem(`ws_planning_filter_${key}`);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
-    } catch { return []; }
-  };
-  const loadString = (key: string): string => {
-    try { return localStorage.getItem(`ws_planning_filter_${key}`) ?? ""; }
-    catch { return ""; }
-  };
-
-  const [search, setSearch] = useState<string>(() => loadString("search"));
+  // Persisted filter state — survives reloads + builds. Each slot is
+  // mirrored to ws_planning_filter_<key> in localStorage so the
+  // planner doesn't re-pick after a reload or rebuild.
+  const [search, setSearch] = usePersistedString("search");
   // Multi-select filters — empty array = no filter (all rows pass).
   // Each non-empty array narrows to rows whose value is in the set.
-  const [filterCustomer, setFilterCustomer] = useState<string[]>(() => loadFilter("customer"));
-  const [filterCategory, setFilterCategory] = useState<string[]>(() => loadFilter("category"));
-  const [filterSubCat, setFilterSubCat] = useState<string[]>(() => loadFilter("subCat"));
-  const [filterGender, setFilterGender] = useState<string[]>(() => loadFilter("gender"));
-  const [filterAction, setFilterAction] = useState<string[]>(() => loadFilter("action"));
-  const [filterConfidence, setFilterConfidence] = useState<string[]>(() => loadFilter("confidence"));
+  const [filterCustomer, setFilterCustomer] = usePersistedStringArray("customer");
+  const [filterCategory, setFilterCategory] = usePersistedStringArray("category");
+  const [filterSubCat, setFilterSubCat] = usePersistedStringArray("subCat");
+  const [filterGender, setFilterGender] = usePersistedStringArray("gender");
+  const [filterAction, setFilterAction] = usePersistedStringArray("action");
+  const [filterConfidence, setFilterConfidence] = usePersistedStringArray("confidence");
   // Master toggle — owned by the workbench. When OFF, system forecast
   // suggestions are blanked out so the planner drives demand purely
   // through Buyer / Override edits.
   const setSystemSuggestionsOnPersistent = onSystemSuggestionsChange;
-  const [filterMethod, setFilterMethod] = useState<string[]>(() => loadFilter("method"));
+  const [filterMethod, setFilterMethod] = usePersistedStringArray("method");
   const [sortKey, setSortKey] = useState<SortKey>("period");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const [filterPeriod, setFilterPeriod] = useState<string[]>(() => loadFilter("period"));
-  const [filterStyle, setFilterStyle] = useState<string[]>(() => loadFilter("style"));
-  const [filterColor, setFilterColor] = useState<string[]>(() => loadFilter("color"));
-
-  // Mirror filter state back to localStorage on every change so the
-  // selections survive reloads and follow-up builds. Storing each
-  // filter under its own key keeps writes cheap (only the changed
-  // filter touches localStorage).
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_search", search); } catch { /* ignore */ } }, [search]);
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_customer", JSON.stringify(filterCustomer)); } catch { /* ignore */ } }, [filterCustomer]);
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_category", JSON.stringify(filterCategory)); } catch { /* ignore */ } }, [filterCategory]);
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_subCat", JSON.stringify(filterSubCat)); } catch { /* ignore */ } }, [filterSubCat]);
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_gender", JSON.stringify(filterGender)); } catch { /* ignore */ } }, [filterGender]);
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_action", JSON.stringify(filterAction)); } catch { /* ignore */ } }, [filterAction]);
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_confidence", JSON.stringify(filterConfidence)); } catch { /* ignore */ } }, [filterConfidence]);
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_method", JSON.stringify(filterMethod)); } catch { /* ignore */ } }, [filterMethod]);
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_period", JSON.stringify(filterPeriod)); } catch { /* ignore */ } }, [filterPeriod]);
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_style", JSON.stringify(filterStyle)); } catch { /* ignore */ } }, [filterStyle]);
-  useEffect(() => { try { localStorage.setItem("ws_planning_filter_color", JSON.stringify(filterColor)); } catch { /* ignore */ } }, [filterColor]);
+  const [filterPeriod, setFilterPeriod] = usePersistedStringArray("period");
+  const [filterStyle, setFilterStyle] = usePersistedStringArray("style");
+  const [filterColor, setFilterColor] = usePersistedStringArray("color");
   // Inline "+ Add row" form state. Closed by default; opens above
   // the table to the planner's chosen cat/sub-cat/customer + first
   // period of the run. Style + color default to "TBD". Persists
@@ -3161,15 +3132,6 @@ function UnitCostCell({ value, overridden, onSave }: {
         textDecoration: "inherit",
       }}
     />
-  );
-}
-
-function StatCell({ label, value, accent }: { label: string; value: string; accent?: string }) {
-  return (
-    <div style={S.statCard}>
-      <div style={{ fontSize: 11, color: PAL.textMuted }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, color: accent ?? PAL.text, fontFamily: "monospace" }}>{value}</div>
-    </div>
   );
 }
 

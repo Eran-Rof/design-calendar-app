@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { IpEcomGridRow, IpEcomOverrideEvent, IpEcomOverrideReason } from "../types/ecom";
 import { S, PAL, formatDate, formatDateTime, formatQty } from "../../components/styles";
+import { MiniCell } from "../../components/MiniCell";
 
 const REASON_CODES: IpEcomOverrideReason[] = [
   "promotion", "campaign", "content_push", "influencer",
@@ -240,14 +241,6 @@ function SectionLabel({ children }: { children: string }) {
   );
 }
 
-function MiniCell({ label, value, accent }: { label: string; value: string; accent?: string }) {
-  return (
-    <div style={{ ...S.infoCell, padding: "10px 12px" }}>
-      <div style={S.infoLabel}>{label}</div>
-      <div style={{ ...S.infoValue, fontFamily: "monospace", color: accent ?? PAL.text }}>{value}</div>
-    </div>
-  );
-}
 
 function FlagToggle({ label, value, onChange, color }: {
   label: string; value: boolean; onChange: (v: boolean) => void; color: string;

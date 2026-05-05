@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { IpEcomGridRow } from "../types/ecom";
 import { S, PAL, formatQty, formatPeriodCode } from "../../components/styles";
+import { StatCell } from "../../components/StatCell";
 
 export interface EcomPlanningGridProps {
   rows: IpEcomGridRow[];
@@ -237,14 +238,6 @@ function Th({ label, k, sortKey, sortDir, onSort, numeric }: {
   );
 }
 
-function StatCell({ label, value, accent }: { label: string; value: string; accent?: string }) {
-  return (
-    <div style={S.statCard}>
-      <div style={{ fontSize: 11, color: PAL.textMuted }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, color: accent ?? PAL.text, fontFamily: "monospace" }}>{value}</div>
-    </div>
-  );
-}
 
 function trendColor(pct: number | null): string {
   if (pct == null) return PAL.textMuted;

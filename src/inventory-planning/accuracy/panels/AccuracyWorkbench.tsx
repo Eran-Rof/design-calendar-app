@@ -16,6 +16,7 @@ import { wholesaleRepo } from "../../services/wholesalePlanningRepository";
 import { ecomRepo } from "../../ecom/services/ecomForecastRepo";
 import { accuracyRepo, runAccuracyAndIntelligencePass } from "../services";
 import { S, PAL, formatDate } from "../../components/styles";
+import { TabButton } from "../../components/TabButton";
 import Toast, { type ToastMessage } from "../../components/Toast";
 import ForecastAccuracyDashboard from "./ForecastAccuracyDashboard";
 import OverrideEffectivenessPanel from "./OverrideEffectivenessPanel";
@@ -257,20 +258,3 @@ export default function AccuracyWorkbench() {
   );
 }
 
-function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick}
-            style={{
-              background: active ? PAL.panel : "transparent",
-              border: `1px solid ${active ? PAL.accent : PAL.border}`,
-              color: active ? PAL.text : PAL.textDim,
-              borderRadius: 8,
-              padding: "8px 14px",
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}>
-      {children}
-    </button>
-  );
-}

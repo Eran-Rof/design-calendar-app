@@ -26,6 +26,7 @@ import { applyOverride, buildGridRows } from "../services/wholesaleForecastServi
 import { ingestXoroSales, syncAtsSupply, syncMissingItems, syncTandaPos } from "../services/xoroSalesIngestService";
 import { ingestSalesExcel, ingestItemMasterExcel, type ExcelIngestResult } from "../services/excelIngestService";
 import { S, PAL, formatPeriodCode } from "../components/styles";
+import { TabButton } from "../components/TabButton";
 import { SB_HEADERS, SB_URL } from "../../utils/supabase";
 import PlanningRunControls from "./PlanningRunControls";
 import WholesalePlanningGrid from "./WholesalePlanningGrid";
@@ -2581,24 +2582,6 @@ function BootstrapStatusBar({ phase, onCancel }: { phase: "masters" | "run-data"
         </button>
       </div>
     </div>
-  );
-}
-
-function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick}
-            style={{
-              background: active ? PAL.panel : "transparent",
-              border: `1px solid ${active ? PAL.accent : PAL.border}`,
-              color: active ? PAL.text : PAL.textDim,
-              borderRadius: 8,
-              padding: "8px 14px",
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}>
-      {children}
-    </button>
   );
 }
 

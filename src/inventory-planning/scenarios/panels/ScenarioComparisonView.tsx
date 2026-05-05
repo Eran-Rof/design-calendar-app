@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { ScenarioComparisonRow, ScenarioComparisonTotals } from "../types/scenarios";
 import { S, PAL, formatQty, formatPeriodCode } from "../../components/styles";
+import { StatCell } from "../../components/StatCell";
 
 export interface ScenarioComparisonViewProps {
   rows: ScenarioComparisonRow[];
@@ -125,14 +126,6 @@ export default function ScenarioComparisonView({ rows, totals, loading }: Scenar
   );
 }
 
-function StatCell({ label, value, accent }: { label: string; value: string; accent?: string }) {
-  return (
-    <div style={S.statCard}>
-      <div style={{ fontSize: 11, color: PAL.textMuted }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, color: accent ?? PAL.text, fontFamily: "monospace" }}>{value}</div>
-    </div>
-  );
-}
 
 function signed(n: number): string {
   if (!Number.isFinite(n)) return "–";

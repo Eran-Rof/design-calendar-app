@@ -21,6 +21,7 @@ import { ecomRepo, applyEcomOverride, buildEcomGridRows, runEcomForecastPass } f
 import { ingestShopifyOrders, ingestShopifyProducts } from "../services/shopifyIngestService";
 import { SB_HEADERS, SB_URL } from "../../../utils/supabase";
 import { S, PAL } from "../../components/styles";
+import { TabButton } from "../../components/TabButton";
 import PlanningRunControls from "../../panels/PlanningRunControls";
 import Toast, { type ToastMessage } from "../../components/Toast";
 import StaleDataBanner from "../../shared/components/StaleDataBanner";
@@ -263,20 +264,3 @@ export default function EcomPlanningWorkbench() {
   );
 }
 
-function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick}
-            style={{
-              background: active ? PAL.panel : "transparent",
-              border: `1px solid ${active ? PAL.accent : PAL.border}`,
-              color: active ? PAL.text : PAL.textDim,
-              borderRadius: 8,
-              padding: "8px 14px",
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}>
-      {children}
-    </button>
-  );
-}

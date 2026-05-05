@@ -9,6 +9,7 @@ import type {
   IpPlanningGridRow,
 } from "../types/wholesale";
 import { S, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, PAL, formatQty, formatDate, formatDateTime, formatPeriodCode } from "./styles";
+import { MiniCell } from "./MiniCell";
 
 const REASON_CODES: IpOverrideReasonCode[] = [
   "buyer_request",
@@ -293,12 +294,4 @@ function SectionLabel({ children }: { children: string }) {
 }
 
 
-function MiniCell({ label, value, accent }: { label: string; value: string; accent?: string }) {
-  return (
-    <div style={{ ...S.infoCell, padding: "10px 12px" }}>
-      <div style={S.infoLabel}>{label}</div>
-      <div style={{ ...S.infoValue, fontFamily: "monospace", color: accent ?? PAL.text }}>{value}</div>
-    </div>
-  );
-}
 

@@ -22,6 +22,7 @@ import {
 } from "../services";
 import { validateActions, hasBlockingErrors } from "../utils/validation";
 import { S, PAL, formatQty, formatDate } from "../../components/styles";
+import { StatCell } from "../../components/StatCell";
 import type { ToastMessage } from "../../components/Toast";
 import { useCurrentUser } from "../../shared/hooks/useCurrentUser";
 import { can } from "../../governance/services/permissionService";
@@ -394,11 +395,3 @@ export default function ExecutionBatchDetail({
   );
 }
 
-function StatCell({ label, value, accent }: { label: string; value: string; accent?: string }) {
-  return (
-    <div style={S.statCard}>
-      <div style={{ fontSize: 11, color: PAL.textMuted }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, color: accent ?? PAL.text, fontFamily: "monospace" }}>{value}</div>
-    </div>
-  );
-}
