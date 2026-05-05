@@ -24,7 +24,7 @@ export interface ReconciliationGridProps {
 // desc (largest first) since planners triage by magnitude; string
 // columns default to asc (alphabetical).
 type SortKey =
-  | "sku" | "style" | "category" | "subCat" | "period"
+  | "style" | "color" | "category" | "subCat" | "period"
   | "onHand" | "ats" | "inboundPo" | "plannedBuy" | "receipts" | "wip"
   | "supply"
   | "wsDemand" | "ecomDemand" | "protected" | "reserved" | "allocated" | "ending"
@@ -99,7 +99,7 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
   // SKU and Action are not in the toggleable list — they're always
   // visible (primary identifier + verdict).
   const TOGGLEABLE_COLUMNS: Array<{ key: string; label: string }> = [
-    { key: "style",      label: "Style" },
+    { key: "color",      label: "Color" },
     { key: "category",   label: "Category" },
     { key: "subCat",     label: "Sub Cat" },
     { key: "period",     label: "Period" },
@@ -380,8 +380,8 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
         <table style={S.table}>
           <thead>
             <tr>
-              <Th label="SKU"        k="sku"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <Th label="Style"      k="style"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("style")} />
+              <Th label="Style"      k="style"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Th label="Color"      k="color"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("color")} />
               <Th label="Category"   k="category"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("category")} />
               <Th label="Sub Cat"    k="subCat"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("subCat")} />
               <Th label="Period"     k="period"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("period")} />
@@ -414,8 +414,8 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
                     fontWeight: r._agg ? 600 : undefined,
                   }}
                   onClick={() => { if (!r._agg) onSelectRow(r); }}>
-                <td style={{ ...S.td, fontFamily: "monospace", color: r._agg ? PAL.text : PAL.accent }}>{r.sku_code}</td>
-                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.textDim, ...colHide("style") }}>{r.sku_style ?? "–"}</td>
+                <td style={{ ...S.td, fontFamily: "monospace", color: r._agg ? PAL.text : PAL.accent }}>{r.sku_style ?? r.sku_code}</td>
+                <td style={{ ...S.td, color: PAL.textDim, ...colHide("color") }}>{r.sku_color ?? "–"}</td>
                 <td style={{ ...S.td, color: PAL.textDim, ...colHide("category") }}>{r.group_name ?? r.category_name ?? "–"}</td>
                 <td style={{ ...S.td, color: PAL.textDim, ...colHide("subCat") }}>{r.sub_category_name ?? "–"}</td>
                 <td style={{ ...S.td, ...colHide("period") }}>{r.period_code ? formatPeriodCode(r.period_code) : "–"}</td>
@@ -532,8 +532,8 @@ function cmp(a: IpReconciliationGridRow, b: IpReconciliationGridRow, k: SortKey,
   const sign = d === "asc" ? 1 : -1;
   const pRank = (p: string | null) => (p === "critical" ? 0 : p === "high" ? 1 : p === "medium" ? 2 : p === "low" ? 3 : 4);
   switch (k) {
-    case "sku":        return a.sku_code.localeCompare(b.sku_code) * sign;
-    case "style":      return (a.sku_style ?? "").localeCompare(b.sku_style ?? "") * sign;
+    case "style":      return (a.sku_style ?? a.sku_code).localeCompare(b.sku_style ?? b.sku_code) * sign;
+    case "color":      return (a.sku_color ?? "").localeCompare(b.sku_color ?? "") * sign;
     case "category":   return (a.group_name ?? a.category_name ?? "").localeCompare(b.group_name ?? b.category_name ?? "") * sign;
     case "subCat":     return (a.sub_category_name ?? "").localeCompare(b.sub_category_name ?? "") * sign;
     case "period":     return a.period_start.localeCompare(b.period_start) * sign;

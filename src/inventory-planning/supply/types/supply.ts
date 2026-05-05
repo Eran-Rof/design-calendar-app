@@ -209,6 +209,7 @@ export interface IpReconciliationGridRow {
   // — same source the wholesale grid filters on. category_name from
   // the ip_category_master FK is sparse, hence the parallel field.
   sku_style: string | null;
+  sku_color: string | null;
   group_name: string | null;
   sub_category_name: string | null;
   gender: string | null;

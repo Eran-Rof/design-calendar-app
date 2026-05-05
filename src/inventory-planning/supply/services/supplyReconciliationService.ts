@@ -76,6 +76,7 @@ export async function runReconciliationPass(run: IpPlanningRun): Promise<RunReco
     receipts,
     rules,
     wholesaleForecast,
+    wholesaleTbd,
     ecomForecast,
     vendorTiming,
   ] = await Promise.all([
@@ -86,6 +87,12 @@ export async function runReconciliationPass(run: IpPlanningRun): Promise<RunReco
     wholesaleRepo.listReceipts(earlierIso(run.source_snapshot_date, 24)),
     supplyRepo.listActiveRules(),
     wholesaleSrc ? wholesaleRepo.listForecast(wholesaleSrc) : Promise.resolve([]),
+    // Phase 1 TBD rows carry planner-typed buys at the (Supply Only)
+    // aggregate level — they don't live on ip_wholesale_forecast, so
+    // pulling only `wholesaleForecast` was missing them. listTbdRows
+    // returns rows with style_code + planned_buy_qty per (style,
+    // customer, period) which we resolve to a sku_id below.
+    wholesaleSrc ? wholesaleRepo.listTbdRows(wholesaleSrc) : Promise.resolve([]),
     ecomSrc      ? ecomRepo.listForecast(ecomSrc)           : Promise.resolve([]),
     supplyRepo.listVendorTiming(),
   ]);
@@ -123,13 +130,48 @@ export async function runReconciliationPass(run: IpPlanningRun): Promise<RunReco
   const inboundPoByGrain = new Map<string, number>();
   const receiptsByGrain = new Map<string, number>();
   // Phase 1 planned_buy_qty (the planner's typed buys), bucketed by
-  // (sku, period). Always populated; the run flag controls whether
-  // they count toward total_available_supply_qty downstream.
+  // (sku, period). Pulled from BOTH:
+  //   • ip_wholesale_forecast.planned_buy_qty — per-(customer, sku,
+  //     period) buys typed at the row level
+  //   • ip_wholesale_forecast_tbd.planned_buy_qty — aggregate-level
+  //     buys typed at a (style, color, customer, period) grain
+  //     (often the (Supply Only) catch-all, where planners enter
+  //     stock-buy intent at the style level rather than per customer).
+  // Both sources contribute. The run flag controls whether they
+  // count toward total_available_supply_qty downstream.
   const plannedBuysByGrain = new Map<string, number>();
   for (const f of wholesaleForecast) {
     const buy = f.planned_buy_qty ?? 0;
     if (buy <= 0) continue;
     const k = `${f.sku_id}:${f.period_start}`;
+    plannedBuysByGrain.set(k, (plannedBuysByGrain.get(k) ?? 0) + buy);
+  }
+  // TBD rows carry style_code (not sku_id). Resolve to a real
+  // master variant: prefer (style + color) exact match; fall back
+  // to any variant of the style. Skip when style is the literal
+  // "TBD" placeholder — those rows have no sku_id to attach buys
+  // to in the recon grid.
+  const itemByStyleColor = new Map<string, string>();
+  const itemByStyle = new Map<string, string>();
+  for (const i of items) {
+    const style = i.style_code ?? i.sku_code;
+    if (!style || style.toUpperCase() === "TBD") continue;
+    if (i.color) {
+      const k = `${style}|${i.color}`.toLowerCase();
+      if (!itemByStyleColor.has(k)) itemByStyleColor.set(k, i.id);
+    }
+    if (!itemByStyle.has(style)) itemByStyle.set(style, i.id);
+  }
+  for (const t of wholesaleTbd) {
+    const buy = t.planned_buy_qty ?? 0;
+    if (buy <= 0) continue;
+    if (!t.style_code || t.style_code.toUpperCase() === "TBD") continue;
+    const colorKey = t.color && t.color.toUpperCase() !== "TBD"
+      ? `${t.style_code}|${t.color}`.toLowerCase()
+      : null;
+    const skuId = (colorKey && itemByStyleColor.get(colorKey)) ?? itemByStyle.get(t.style_code);
+    if (!skuId) continue;
+    const k = `${skuId}:${t.period_start}`;
     plannedBuysByGrain.set(k, (plannedBuysByGrain.get(k) ?? 0) + buy);
   }
   const poDetailByGrain = new Map<string, Array<{ po_number: string; expected_date: string | null; qty_open: number }>>();
@@ -178,15 +220,34 @@ export async function runReconciliationPass(run: IpPlanningRun): Promise<RunReco
   }
 
   // ── iterate (sku, month), rolling on-hand forward ────────────────
-  // Union of SKUs appearing anywhere in demand or inbound.
+  // SKU set strategy: when a wholesale source run is linked, the
+  // recon scope mirrors that run's forecast — the planner who built
+  // a filtered run (e.g. "Joggers only") expects the recon to stay
+  // scoped to the same SKUs. Open-PO/receipt-only "supply only"
+  // SKUs are ONLY included when no wholesale source is set (free-
+  // form recon over everything).
+  //
+  // Same logic applies to ecom: when ecomSrc is set, only the SKUs
+  // it touched are eligible. Both linked → union (sku appears in
+  // either demand source).
   const skuSet = new Set<string>();
-  for (const k of wholesaleDemand.keys()) skuSet.add(k.split(":")[0]);
-  for (const k of ecomDemand.keys())      skuSet.add(k.split(":")[0]);
-  for (const k of inboundPoByGrain.keys())skuSet.add(k.split(":")[0]);
-  for (const k of receiptsByGrain.keys()) skuSet.add(k.split(":")[0]);
-  // Planned buys can introduce a SKU into the projection that has no
-  // demand yet (rare, but a planner could buy a brand-new SKU).
-  for (const k of plannedBuysByGrain.keys()) skuSet.add(k.split(":")[0]);
+  const sourceScopedSkus = new Set<string>();
+  for (const k of wholesaleDemand.keys()) sourceScopedSkus.add(k.split(":")[0]);
+  for (const k of ecomDemand.keys())      sourceScopedSkus.add(k.split(":")[0]);
+  // Planned buys (Phase 1) belong to the wholesale source run, so
+  // their SKUs are always in scope.
+  for (const k of plannedBuysByGrain.keys()) sourceScopedSkus.add(k.split(":")[0]);
+
+  if (wholesaleSrc || ecomSrc) {
+    // Source-linked recon — restrict to SKUs in the source run(s).
+    for (const sku of sourceScopedSkus) skuSet.add(sku);
+  } else {
+    // Free-form recon — include every SKU with any inventory or demand
+    // signal. Old behavior preserved for un-linked recons.
+    for (const sku of sourceScopedSkus)        skuSet.add(sku);
+    for (const k of inboundPoByGrain.keys())   skuSet.add(k.split(":")[0]);
+    for (const k of receiptsByGrain.keys())    skuSet.add(k.split(":")[0]);
+  }
 
   const projectedRows: Array<Omit<IpProjectedInventory, "id" | "created_at">> = [];
   const protectedShortfall = new Map<string, number>();
@@ -324,6 +385,7 @@ export async function buildReconciliationGrid(run: IpPlanningRun) {
       // ip_category_master FK isn't set on the projected_inventory
       // row.
       sku_style: item?.style_code ?? null,
+      sku_color: item?.color ?? null,
       group_name: readGroupName(item),
       sub_category_name: readSubCategoryName(item),
       gender: readGender(item),
