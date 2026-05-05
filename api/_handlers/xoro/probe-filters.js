@@ -29,7 +29,7 @@
 // Each Xoro call uses per_page=1 to keep the probe cheap; the only
 // signal we want is Result, Message, TotalPages, and first record shape.
 
-import { fetchXoro } from "../../_lib/xoro-client.js";
+import { fetchXoro, fetchXoroAll } from "../../_lib/xoro-client.js";
 
 export const config = { maxDuration: 300 };
 
@@ -101,11 +101,13 @@ function salesOrderFilterMatrix({ dateFrom, dateTo, modifiedSince }) {
 
 async function probeOne({ path, params, module }) {
   const t0 = Date.now();
-  // per_page=50: Xoro returned 500 "An error has occurred" on per_page=1
-  // even for paths the team confirms work (item/getitem). Bumping to 50
-  // keeps the probe cheap without triggering whatever input-validation
-  // path Xoro takes for tiny page sizes.
-  const r = await fetchXoro({ path, params: { ...params, per_page: "50" }, module });
+  // Use fetchXoroAll with maxPages=1 so the probe inherits the same
+  // 0/800/2000/4000ms retry chain that production syncs rely on. Xoro
+  // 500s intermittently — without retries every probe looked broken
+  // even on paths xoro-items-missing-sync.js calls successfully every day.
+  // per_page=500 matches the working production callers (xoro/items.js,
+  // xoro-items-missing-sync.js).
+  const r = await fetchXoroAll({ path, params: { ...params, per_page: "500" }, maxPages: 1, module });
   const elapsedMs = Date.now() - t0;
   const body = r.body ?? {};
   const data = Array.isArray(body.Data) ? body.Data : [];
@@ -118,6 +120,7 @@ async function probeOne({ path, params, module }) {
     data_count: data.length,
     total_pages: body.TotalPages ?? null,
     first_record_keys: first && typeof first === "object" ? Object.keys(first).slice(0, 60) : null,
+    page_notes: body._pageCounts ?? null,
     elapsed_ms: elapsedMs,
   };
 }
@@ -176,9 +179,10 @@ export default async function handler(req, res) {
     };
     if (itemProbe.winning_module) {
       out.summary.paths_responding.push(`items:item/getitem[module=${itemProbe.winning_module}]`);
-      // Re-fetch the same path with the winning module to capture the full
-      // record body (probeOne only kept the keys list).
-      const full = await fetchXoro({ path: "item/getitem", params: { per_page: "50" }, module: itemProbe.winning_module });
+      // Re-fetch with the winning module to capture the full record body
+      // (probeOne only kept the keys list). Use fetchXoroAll for the same
+      // retry behaviour.
+      const full = await fetchXoroAll({ path: "item/getitem", params: { per_page: "500" }, maxPages: 1, module: itemProbe.winning_module });
       const firstRec = Array.isArray(full.body?.Data) ? full.body.Data[0] : null;
       out.items_field_dump.first_record_full = firstRec;
       out.summary.total_probes++;
