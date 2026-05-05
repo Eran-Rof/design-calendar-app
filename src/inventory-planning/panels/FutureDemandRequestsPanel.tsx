@@ -183,6 +183,12 @@ export default function FutureDemandRequestsPanel({
           onSaved={async (count) => {
             await onChange();
             setShowForm(false);
+            // Snap the status filter back to "open" so the planner
+            // immediately sees the request(s) they just created. If
+            // they were viewing applied / archived / all, the new
+            // open rows would otherwise be invisible until they
+            // manually re-pick.
+            setFilterStatus("open");
             onToast({
               text: count === 1 ? "Request created" : `${count} requests created`,
               kind: "success",

@@ -209,25 +209,27 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
       qty: s.qty,
     }));
 
-  // Re-resolve the request's sku_id from its note marker before
-  // feeding the compute layer. The form encodes the planner's actual
-  // (style, color) selection in the note as
-  //   [REQ|TBD style=X color=Y desc=Z cat=… subcat=…]
-  // because the FK on ip_future_demand_requests forced an arbitrary
-  // sku_id pin when either dim was TBD. Without this re-resolution
-  // the buyer_request_qty / customer / confidence land under the
-  // arbitrary (items[0]) sku and the planner can't find them under
-  // their real-style filter. Strategy mirrors the form's
-  // resolveSkuId: exact match first, then any variant of the real
-  // style, then any sku of the real color, then keep the stored id.
-  const resolveRequestSku = (r: IpFutureDemandRequest): string => {
+  // Parse a request's note marker once. Form encodes the planner's
+  // actual (cat, subcat, style, color, desc) selection here because
+  // the FK on ip_future_demand_requests forced an arbitrary sku_id
+  // pin when either dim was TBD.
+  const parseRequestMeta = (r: IpFutureDemandRequest): Record<string, string> => {
     const m = r.note?.match(/^\[(?:TBD|REQ)\s+([^\]]+)\]/);
-    if (!m) return r.sku_id;
+    if (!m) return {};
     const meta: Record<string, string> = {};
     for (const pair of m[1].split("|")) {
       const eq = pair.indexOf("=");
       if (eq > 0) meta[pair.slice(0, eq)] = pair.slice(eq + 1);
     }
+    return meta;
+  };
+
+  // Resolve the request's stored sku_id to a real master variant
+  // matching the planner's intended style + color. Strategy mirrors
+  // the form's resolveSkuId: exact match → any variant of the real
+  // style → keep stored.
+  const resolveRequestSku = (r: IpFutureDemandRequest): string => {
+    const meta = parseRequestMeta(r);
     const style = meta.style;
     const color = meta.color;
     if (!style || style.toUpperCase() === "TBD") return r.sku_id;
@@ -242,7 +244,25 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
     return r.sku_id;
   };
 
-  const requestInput: IpForecastComputeInput["requests"] = requests.map((r) => {
+  // Split requests by color intent. TBD-color requests don't fit
+  // the regular forecast flow (the resolved sku has a real master
+  // color, so the planning grid would render them under that
+  // color instead of as TBD stock-buy lines). Route them to
+  // ip_wholesale_forecast_tbd instead — same table the planner-added
+  // TBD rows live in, so they render as proper TBD lines with
+  // color="TBD" in the planning grid.
+  const tbdColorRequests: IpFutureDemandRequest[] = [];
+  const regularRequests: IpFutureDemandRequest[] = [];
+  for (const r of requests) {
+    const meta = parseRequestMeta(r);
+    if (meta.color && meta.color.toUpperCase() === "TBD") {
+      tbdColorRequests.push(r);
+    } else {
+      regularRequests.push(r);
+    }
+  }
+
+  const requestInput: IpForecastComputeInput["requests"] = regularRequests.map((r) => {
     const period = monthOf(r.target_period_start);
     return {
       customer_id: r.customer_id,
@@ -488,13 +508,48 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
     },
   });
 
+  // TBD-color requests → write to ip_wholesale_forecast_tbd as
+  // planner-added stock-buy rows. The planning grid picks them up
+  // via the existing buildGridRows TBD overlay logic and renders
+  // them with color="TBD" instead of forcing a real master color.
+  // Each request's qty rides as buyer_request_qty on the TBD row.
+  for (const r of tbdColorRequests) {
+    const meta = parseRequestMeta(r);
+    const style = meta.style && meta.style.toUpperCase() !== "TBD" ? meta.style : "TBD";
+    const period = monthOf(r.target_period_start);
+    try {
+      await wholesaleRepo.upsertTbdRow(run.id, {
+        style_code: style,
+        color: "TBD",
+        is_new_color: false,
+        is_user_added: false,
+        customer_id: r.customer_id,
+        group_name: meta.cat || null,
+        sub_category_name: meta.subcat || null,
+        period_start: period.period_start,
+        period_end: period.period_end,
+        period_code: period.period_code,
+        buyer_request_qty: r.requested_qty,
+        notes: meta.desc || null,
+      });
+    } catch (e) {
+      // Don't block the rest of the build on a single TBD upsert
+      // failure — surface in console so the planner can investigate.
+      console.warn(`[planning] TBD-color request upsert failed for ${r.id}`, e);
+    }
+  }
+
   // Flip OPEN requests to "applied" once their (customer, sku, period)
-  // grain has landed in the persisted forecast. Already-applied rows
-  // stay applied (they're still feeding subsequent builds — see
-  // listActiveRequestsForBuild). archived rows are excluded by the
-  // fetch above, so they never reach this path.
+  // grain has landed in the persisted forecast OR the TBD table.
+  // Already-applied rows stay applied (they're still feeding
+  // subsequent builds — see listActiveRequestsForBuild). archived
+  // rows are excluded by the fetch above, so they never reach this
+  // path.
   const persistedKeys = new Set(
     forecastRows.map((f) => `${f.customer_id}:${f.sku_id}:${f.period_start}`),
+  );
+  const tbdAppliedKeys = new Set(
+    tbdColorRequests.map((r) => `${r.customer_id}:${monthOf(r.target_period_start).period_start}`),
   );
   const appliedRequestIds: string[] = [];
   for (const r of requests) {
@@ -505,6 +560,10 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
     // (which may be the arbitrary FK fallback).
     const resolvedSku = resolveRequestSku(r);
     if (persistedKeys.has(`${r.customer_id}:${resolvedSku}:${periodStart}`)) {
+      appliedRequestIds.push(r.id);
+      continue;
+    }
+    if (tbdAppliedKeys.has(`${r.customer_id}:${periodStart}`)) {
       appliedRequestIds.push(r.id);
     }
   }
