@@ -51,21 +51,7 @@ function checkAbort(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw new BuildCancelledError();
 }
 
-// Item-master attributes JSONB pulls — keep null-safe so the grid never
-// breaks when an item was created by a sync stub before the Excel master
-// upload populated these.
-function readGroupName(item: { attributes?: Record<string, unknown> | null } | null | undefined): string | null {
-  const v = item?.attributes && (item.attributes as Record<string, unknown>).group_name;
-  return typeof v === "string" && v.trim() ? v.trim() : null;
-}
-function readSubCategoryName(item: { attributes?: Record<string, unknown> | null } | null | undefined): string | null {
-  const v = item?.attributes && (item.attributes as Record<string, unknown>).category_name;
-  return typeof v === "string" && v.trim() ? v.trim() : null;
-}
-function readGender(item: { attributes?: Record<string, unknown> | null } | null | undefined): string | null {
-  const v = item?.attributes && (item.attributes as Record<string, unknown>).gender;
-  return typeof v === "string" && v.trim() ? v.trim() : null;
-}
+import { readGender, readGroupName, readSubCategoryName } from "../types/itemAttributes";
 
 // Trim history to the forecast lookback window (default: 12 months before
 // the snapshot date). Keeps the compute payload small.
