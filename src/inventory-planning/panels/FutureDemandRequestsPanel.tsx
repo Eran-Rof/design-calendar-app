@@ -477,24 +477,42 @@ function RequestForm({
     }
     return [{ value: "TBD", label: "TBD" }, ...Array.from(set).sort().map((s) => ({ value: s, label: s }))];
   }, [items, groupName, subCatName]);
+  // Colors scoped to the Cat / Sub Cat selection — NOT narrowed by
+  // style. The planner sizing a request wants every color the
+  // category carries, not just the colors that happen to exist for
+  // one specific style. Falls back to all master colors when neither
+  // Cat nor Sub Cat is picked. Free-text "new color" input below
+  // covers anything not yet in the master.
   const colorOptions = useMemo(() => {
     const set = new Set<string>();
     for (const i of items) {
-      // Scope cascade: prefer style narrowing when picked, else
-      // sub-cat, else cat, else every color in the master. Without
-      // this fallback the picker collapsed to "TBD + one color"
-      // whenever a style without a clear color set was chosen.
-      if (styleCode && styleCode !== "TBD") {
-        if ((i.style_code ?? i.sku_code) !== styleCode) continue;
-      } else if (subCatName) {
-        if (readSubCategoryName(i) !== subCatName) continue;
-      } else if (groupName) {
-        if (readGroupName(i) !== groupName) continue;
-      }
+      if (subCatName && readSubCategoryName(i) !== subCatName) continue;
+      else if (groupName && readGroupName(i) !== groupName) continue;
       if (i.color && i.color.toUpperCase() !== "TBD") set.add(i.color);
     }
     return [{ value: "TBD", label: "TBD" }, ...Array.from(set).sort().map((c) => ({ value: c, label: c }))];
-  }, [items, styleCode, subCatName, groupName]);
+  }, [items, subCatName, groupName]);
+  // Master color set (lowercased) — drives the orange NEW badge on
+  // selected color chips for any planner-typed color that isn't yet
+  // in the master. Same convention the main grid's TbdColorCell uses.
+  const masterColorsLower = useMemo(() => {
+    const set = new Set<string>();
+    for (const i of items) {
+      if (i.color) set.add(i.color.trim().toLowerCase());
+    }
+    return set;
+  }, [items]);
+  // Free-text new-color input. Submits a typed value as a NEW chip
+  // in colorCodes. Lets the planner request a color that isn't yet
+  // in the master (typical for new-introduction styles).
+  const [newColorTyped, setNewColorTyped] = useState("");
+  function addNewColor() {
+    const v = newColorTyped.trim();
+    if (!v) return;
+    if (colorCodes.includes(v)) { setNewColorTyped(""); return; }
+    setColorCodes([...colorCodes, v]);
+    setNewColorTyped("");
+  }
   const descriptionOptions = useMemo(() => {
     const set = new Set<string>();
     for (const i of items) {
@@ -737,6 +755,62 @@ function RequestForm({
         options={colorOptions}
         title="Pick one or more colors. Each color × period combo creates a row. TBD multiplies — see TBD rows control."
       />
+      <input
+        type="text"
+        value={newColorTyped}
+        onChange={(e) => setNewColorTyped(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); addNewColor(); }
+        }}
+        placeholder="or type new color…"
+        style={{ ...S.input, width: 130, fontSize: 12, padding: "4px 8px" }}
+        title="Type a color not in the master (Enter to add). Useful for brand-new colorways."
+      />
+      {newColorTyped.trim() && (
+        <button
+          type="button"
+          onClick={addNewColor}
+          style={{ ...S.btnSecondary, padding: "4px 10px", fontSize: 11, borderColor: PAL.yellow, color: PAL.yellow }}
+        >+ Add NEW</button>
+      )}
+      {/* Picked-colors chip strip — each selected color renders with
+          the orange NEW badge when it isn't in the master, matching
+          the main grid's TbdColorCell convention. Click × to remove. */}
+      {colorCodes.length > 0 && (
+        <div style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
+          {colorCodes.map((c) => {
+            const isTbd = c.toUpperCase() === "TBD";
+            const isNew = !isTbd && !masterColorsLower.has(c.trim().toLowerCase());
+            return (
+              <span
+                key={c}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                  fontSize: 11,
+                  background: isNew ? `${PAL.yellow}22` : (isTbd ? `${PAL.textMuted}22` : `${PAL.accent}22`),
+                  border: `1px solid ${isNew ? PAL.yellow : (isTbd ? PAL.textMuted : PAL.accent)}`,
+                  color: isNew ? PAL.yellow : (isTbd ? PAL.textMuted : PAL.text),
+                }}
+              >
+                {c}
+                {isNew && (
+                  <span style={{ background: PAL.yellow, color: "#000", borderRadius: 2, padding: "0 4px", fontSize: 9, fontWeight: 700 }}>NEW</span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setColorCodes(colorCodes.filter((x) => x !== c))}
+                  style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer", padding: 0, fontSize: 12, lineHeight: 1 }}
+                  title={`Remove ${c}`}
+                >×</button>
+              </span>
+            );
+          })}
+        </div>
+      )}
       {tbdSelected && (
         <>
           <span style={{ color: PAL.yellow, fontSize: 11 }}>TBD rows:</span>

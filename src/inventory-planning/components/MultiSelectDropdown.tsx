@@ -72,9 +72,13 @@ export function MultiSelectDropdown({
       const GAP = 4;
       const ABS_MAX_H = 380;
       const MIN_USABLE_H = 180;
-      const popMinW = Math.max(r.width, 260);
       const vw = window.innerWidth;
       const vh = window.innerHeight;
+      // Cap min-width to fit the viewport so a small/zoomed-out
+      // browser can't push the popover off-screen horizontally.
+      // Without the cap the popover stayed at 260px even on a 240px
+      // viewport and silently extended past the right edge.
+      const popMinW = Math.min(Math.max(r.width, 260), vw - 2 * PAD);
 
       // Horizontal: prefer left-aligned with trigger; shift left when
       // the popover would overflow the right edge. Floor at PAD so it
@@ -202,6 +206,11 @@ export function MultiSelectDropdown({
             border: `1px solid ${PAL.border}`,
             borderRadius: 8,
             minWidth: anchor.minWidth,
+            // Cap to (viewport − margin) so option labels with long
+            // text can't push the popover off the right edge on a
+            // smaller viewport. Combined with the left-shift in the
+            // position effect, the popover is always fully visible.
+            maxWidth: `calc(100vw - 16px)`,
             // Driven by the viewport-clamping in the position effect
             // so the popover always fits on-screen, flipping above
             // the trigger when there's not enough room below.
