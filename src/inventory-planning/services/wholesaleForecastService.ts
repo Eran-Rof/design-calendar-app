@@ -132,8 +132,10 @@ export interface BuildFilter {
   // Period scoping is post-compute: forecast rows for non-matching
   // periods are dropped before upsert. The build still walks the
   // full horizon for rolling supply continuity, then trims at the
-  // edge.
+  // edge. Multi-period builds pass period_codes (an array); the
+  // single-string period_code stays for legacy callers.
   period_code?: string | null;
+  period_codes?: string[] | null;
   // Output-derived filters — included in the type so the planner's
   // grid can pass every dropdown through without the build call site
   // having to choose. Action / confidence / method are *outputs* of
@@ -374,12 +376,22 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
   onProgress?.({ phase: "computing", label: `Computing forecast for ${pairs.length.toLocaleString()} pairs`, current: 0, total: pairs.length });
   let forecastRows = buildFinalWholesaleForecast(computeInput);
 
-  // Period-scoped build — drop rows whose period_code doesn't match.
-  // Done post-compute so rolling supply still walks the full horizon
-  // even if only one period's rows persist.
-  if (filter?.period_code) {
+  // Period-scoped build — drop rows whose period_code isn't in the
+  // selected set. Done post-compute so rolling supply still walks the
+  // full horizon even if only some periods persist. Accepts both the
+  // multi-select period_codes array AND the legacy single period_code
+  // string; either restricts the write to the matching periods.
+  const periodScope = (() => {
+    const set = new Set<string>();
+    if (filter?.period_codes && filter.period_codes.length > 0) {
+      for (const p of filter.period_codes) if (p) set.add(p);
+    }
+    if (filter?.period_code) set.add(filter.period_code);
+    return set;
+  })();
+  if (periodScope.size > 0) {
     const before = forecastRows.length;
-    forecastRows = forecastRows.filter((f) => f.period_code === filter.period_code);
+    forecastRows = forecastRows.filter((f) => periodScope.has(f.period_code));
     prunedFilterCount += before - forecastRows.length;
   }
 

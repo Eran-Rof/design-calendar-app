@@ -524,14 +524,18 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   useEffect(() => {
     if (!onFiltersChange) return;
     onFiltersChange({
-      // Build flow supports a single value per dim. When the planner
-      // has multi-selected, send the first (or null when none).
+      // Most build dims still take a single value; we send the first
+      // selection. Period is the exception — the planner can pick
+      // multiple periods to build, and the build pass honors the
+      // entire array. period_code stays as the first selection too
+      // for legacy callsites that only check the single value.
       customer_id: filterCustomer[0] ?? null,
       style_code: filterStyle[0] ?? null,
       group_name: filterCategory[0] ?? null,
       sub_category_name: filterSubCat[0] ?? null,
       gender: filterGender[0] ?? null,
       period_code: filterPeriod[0] ?? null,
+      period_codes: filterPeriod.length > 0 ? filterPeriod : null,
       recommended_action: filterAction[0] ?? null,
       confidence_level: filterConfidence[0] ?? null,
       forecast_method: filterMethod[0] ?? null,

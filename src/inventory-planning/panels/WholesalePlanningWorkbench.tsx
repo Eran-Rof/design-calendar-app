@@ -118,6 +118,7 @@ export default function WholesalePlanningWorkbench() {
     sub_category_name: string | null;
     gender: string | null;
     period_code: string | null;
+    period_codes: string[] | null;
     recommended_action: string | null;
     confidence_level: string | null;
     forecast_method: string | null;
