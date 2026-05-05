@@ -1,10 +1,15 @@
 // Phase 3 reconciliation grid. One row per (sku, month).
-// Columns per spec — kept wide so planners can scan end-to-end.
+// Filter + collapse + pagination ported from the wholesale planning
+// grid (same MultiSelectDropdown filter strip, same search-with-
+// inline-× pattern, same paginator). Recon-specific: skips the
+// customer/sub-cat/color/gender/confidence/method filters that don't
+// map to a per-(sku, period) grain. Adds Period and Priority.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { IpReconciliationGridRow } from "../types/supply";
 import { S, PAL, formatQty, formatPeriodCode } from "../../components/styles";
 import { StatCell } from "../../components/StatCell";
+import { MultiSelectDropdown } from "../../components/MultiSelectDropdown";
 
 export interface ReconciliationGridProps {
   rows: IpReconciliationGridRow[];
@@ -33,45 +38,81 @@ const ACTION_COLOR: Record<string, string> = {
   protect_inventory: "#10B981",
 };
 
-const PAGE_SIZE = 500;
+// Collapse modes — recon-specific. Each rolls the per-(sku, period)
+// rows up to the chosen dimension, summing the qty columns. Multiple
+// modes can be active at once (e.g. "by category" + "by period" =
+// one row per (category, period)).
+type CollapseMode = "category" | "sku" | "period";
+const COLLAPSE_OPTIONS: Array<{ value: CollapseMode; label: string }> = [
+  { value: "category", label: "By category" },
+  { value: "sku",      label: "By SKU (collapse periods)" },
+  { value: "period",   label: "By period (collapse SKUs)" },
+];
+
+// Synthetic row used for aggregate rendering — same shape as a real
+// grid row but with sku_id / category prefixed by `agg:` so React
+// keys stay unique and the click handler can distinguish.
+type GridRow = IpReconciliationGridRow & { _agg?: boolean; _aggKey?: string };
 
 export default function ReconciliationGrid({ rows, loading, onSelectRow }: ReconciliationGridProps) {
   const [search, setSearch] = useState("");
-  const [filterCategory, setFilterCategory] = useState("all");
-  const [filterPriority, setFilterPriority] = useState<string>("all");
-  const [filterAction, setFilterAction] = useState<string>("all");
+  const [filterCategory, setFilterCategory] = useState<string[]>([]);
+  const [filterPriority, setFilterPriority] = useState<string[]>([]);
+  const [filterAction, setFilterAction] = useState<string[]>([]);
+  const [filterPeriod, setFilterPeriod] = useState<string[]>([]);
   const [filterStockout, setFilterStockout] = useState<"all" | "stockout" | "ok">("all");
+  const [collapse, setCollapse] = useState<CollapseMode[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>("priority");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(500);
 
+  // Reset to page 0 when any filter / sort / page-size shifts so the
+  // planner doesn't end up on a now-empty page after narrowing the
+  // view. Same reset behavior as wholesale grid.
+  useEffect(() => { setPage(0); }, [search, filterCategory, filterPriority, filterAction, filterPeriod, filterStockout, collapse, sortKey, sortDir, pageSize]);
+
+  // ── Option pools — derived from the row set so picker shows only
+  //    values present in the data.
   const categories = useMemo(() => {
     const m = new Map<string, string>();
     for (const r of rows) if (r.category_id) m.set(r.category_id, r.category_name ?? r.category_id);
     return Array.from(m, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   }, [rows]);
+  const periods = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows) if (r.period_code) set.add(r.period_code);
+    return Array.from(set).sort();
+  }, [rows]);
+  const actions = useMemo(() => Object.keys(ACTION_COLOR), []);
+  const priorities = useMemo(() => ["critical", "high", "medium", "low"], []);
 
-  // Two-step memo: first the full filtered+sorted set, then the page-cap
-  // slice. The pre-cap count drives the "showing first N of M" indicator —
-  // collapsing them lost that signal because filtered.length was already
-  // capped at PAGE_SIZE.
+  // ── Filter pass — same shape as wholesale grid: every dim is a
+  //    multi-select; empty array = no filter on that dim.
   const filteredAll = useMemo(() => {
     const q = search.trim().toUpperCase();
     const out = rows.filter((r) => {
-      if (filterCategory !== "all" && r.category_id !== filterCategory) return false;
-      if (filterPriority !== "all" && r.top_recommendation_priority !== filterPriority) return false;
-      if (filterAction !== "all" && r.top_recommendation !== filterAction) return false;
+      if (filterCategory.length > 0 && (!r.category_id || !filterCategory.includes(r.category_id))) return false;
+      if (filterPriority.length > 0 && (!r.top_recommendation_priority || !filterPriority.includes(r.top_recommendation_priority))) return false;
+      if (filterAction.length > 0 && (!r.top_recommendation || !filterAction.includes(r.top_recommendation))) return false;
+      if (filterPeriod.length > 0 && !filterPeriod.includes(r.period_code)) return false;
       if (filterStockout === "stockout" && !r.projected_stockout_flag) return false;
       if (filterStockout === "ok" && r.projected_stockout_flag) return false;
-      if (q && !(r.sku_code.includes(q) || (r.sku_description ?? "").toUpperCase().includes(q))) return false;
+      if (q && !(r.sku_code.toUpperCase().includes(q) || (r.sku_description ?? "").toUpperCase().includes(q) || (r.category_name ?? "").toUpperCase().includes(q))) return false;
       return true;
     });
     return out.sort((a, b) => cmp(a, b, sortKey, sortDir));
-  }, [rows, search, filterCategory, filterPriority, filterAction, filterStockout, sortKey, sortDir]);
-  const filtered = useMemo(() => filteredAll.slice(0, PAGE_SIZE), [filteredAll]);
+  }, [rows, search, filterCategory, filterPriority, filterAction, filterPeriod, filterStockout, sortKey, sortDir]);
+
+  // ── Collapse — aggregate filtered rows to whichever dim(s) are on.
+  const displayRows = useMemo<GridRow[]>(() => {
+    if (collapse.length === 0) return filteredAll;
+    return aggregateByDims(filteredAll, collapse);
+  }, [filteredAll, collapse]);
 
   const totals = useMemo(() => {
     const t = { supply: 0, demand: 0, shortage: 0, excess: 0, stockouts: 0, critical: 0 };
-    for (const r of filtered) {
+    for (const r of filteredAll) {
       t.supply += r.total_available_supply_qty;
       t.demand += r.wholesale_demand_qty + r.ecom_demand_qty;
       t.shortage += r.shortage_qty;
@@ -80,7 +121,7 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
       if (r.top_recommendation_priority === "critical") t.critical++;
     }
     return t;
-  }, [filtered]);
+  }, [filteredAll]);
 
   function toggleSort(k: SortKey) {
     if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -90,40 +131,118 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
   return (
     <div>
       <div style={S.statsRow}>
-        <StatCell label="Rows" value={filteredAll.length > PAGE_SIZE ? `${PAGE_SIZE.toLocaleString()} / ${filteredAll.length.toLocaleString()}` : filteredAll.length.toLocaleString()} accent={filteredAll.length > PAGE_SIZE ? PAL.yellow : undefined} />
+        <StatCell label="Rows" value={displayRows.length.toLocaleString()} />
         <StatCell label="Σ Supply" value={formatQty(totals.supply)} accent={PAL.accent} />
         <StatCell label="Σ Demand" value={formatQty(totals.demand)} accent={PAL.text} />
         <StatCell label="Σ Shortage" value={formatQty(totals.shortage)} accent={PAL.red} />
         <StatCell label="Stockouts / Critical" value={`${totals.stockouts} / ${totals.critical}`} accent={PAL.red} />
       </div>
 
+      {/* ── Filter strip — same shape as the wholesale grid: search
+          with inline × clear, then multi-select dropdowns, then the
+          Clear-all button. The inline × replaces the previous
+          standalone "Clear" button on this grid (search clear was
+          the same work). */}
       <div style={S.toolbar}>
-        <input style={{ ...S.input, width: 240 }} placeholder="Search SKU or description"
-               value={search} onChange={(e) => setSearch(e.target.value)} />
-        <select style={S.select} value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
-          <option value="all">All categories</option>
-          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-        <select style={S.select} value={filterPriority} onChange={(e) => setFilterPriority(e.target.value)}>
-          <option value="all">All priorities</option>
-          <option value="critical">Critical only</option>
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
-        </select>
-        <select style={S.select} value={filterAction} onChange={(e) => setFilterAction(e.target.value)}>
-          <option value="all">All actions</option>
-          {Object.keys(ACTION_COLOR).map((a) => <option key={a} value={a}>{a.replace(/_/g, " ")}</option>)}
-        </select>
+        <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+          <input
+            className="ip-search-input"
+            style={{ ...S.input, width: 220, padding: "6px 32px 6px 12px", fontSize: 12 }}
+            placeholder="Search SKU / description / category"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onFocus={(e) => {
+              if (e.currentTarget.value) {
+                const el = e.currentTarget;
+                setTimeout(() => el.select(), 0);
+              }
+            }}
+          />
+          {search && (
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); setSearch(""); }}
+              title="Clear search"
+              aria-label="Clear search"
+              style={{
+                position: "absolute",
+                right: 6,
+                top: "50%",
+                transform: "translateY(-50%)",
+                width: 22, height: 22, padding: 0,
+                border: `1px solid ${PAL.border}`,
+                background: PAL.bg,
+                color: PAL.text,
+                cursor: "pointer",
+                fontSize: 13, fontWeight: 700, lineHeight: 1,
+                borderRadius: 4,
+              }}
+            >×</button>
+          )}
+        </div>
+        <MultiSelectDropdown
+          compact
+          selected={filterCategory}
+          onChange={setFilterCategory}
+          allLabel="All categories"
+          placeholder="Search categories…"
+          options={categories.map((c) => ({ value: c.id, label: c.name }))}
+        />
+        <MultiSelectDropdown
+          compact
+          selected={filterPeriod}
+          onChange={setFilterPeriod}
+          allLabel="All periods"
+          placeholder="Search periods…"
+          options={periods.map((p) => ({ value: p, label: formatPeriodCode(p) }))}
+        />
+        <MultiSelectDropdown
+          compact
+          selected={filterAction}
+          onChange={setFilterAction}
+          allLabel="All actions"
+          placeholder="Search actions…"
+          options={actions.map((a) => ({ value: a, label: a.replace(/_/g, " ") }))}
+        />
+        <MultiSelectDropdown
+          compact
+          selected={filterPriority}
+          onChange={setFilterPriority}
+          allLabel="All priorities"
+          placeholder="Search priorities…"
+          options={priorities.map((p) => ({ value: p, label: p }))}
+        />
         <select style={S.select} value={filterStockout} onChange={(e) => setFilterStockout(e.target.value as "all" | "stockout" | "ok")}>
           <option value="all">Stockout: any</option>
           <option value="stockout">Projected stockouts</option>
           <option value="ok">Covered</option>
         </select>
-        <button style={S.btnSecondary} onClick={() => {
-          setSearch(""); setFilterCategory("all"); setFilterPriority("all");
-          setFilterAction("all"); setFilterStockout("all");
+        <button style={{ ...S.btnSecondary, padding: "5px 10px", fontSize: 12 }} onClick={() => {
+          setSearch("");
+          setFilterCategory([]); setFilterPriority([]); setFilterAction([]); setFilterPeriod([]);
+          setFilterStockout("all"); setCollapse([]);
         }}>Clear</button>
+      </div>
+
+      {/* Collapse strip — porting the wholesale grid's pattern. The
+          recon grain is (sku, period) so the collapse modes here
+          are dim-rollups instead of customer/style hierarchies. */}
+      <div style={{ ...S.toolbar, marginTop: -4, paddingTop: 0, gap: 10, fontSize: 12, color: PAL.textDim }}>
+        <span style={{ fontWeight: 600 }}>Collapse:</span>
+        <MultiSelectDropdown
+          compact
+          closeOnMouseLeave
+          selected={collapse}
+          onChange={(next) => setCollapse(next as CollapseMode[])}
+          allLabel="None"
+          placeholder="Search collapse modes…"
+          options={COLLAPSE_OPTIONS}
+          minWidth={210}
+        />
+        {collapse.length > 0 && (
+          <button style={{ ...S.btnSecondary, fontSize: 11, padding: "2px 8px" }}
+                  onClick={() => setCollapse([])}>Reset collapse</button>
+        )}
       </div>
 
       <div style={S.tableWrap}>
@@ -152,13 +271,19 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r) => (
-              <tr key={r.projected_id}
-                  style={{ cursor: "pointer", background: r.projected_stockout_flag ? "#3f1d1d22" : undefined }}
-                  onClick={() => onSelectRow(r)}>
-                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>{r.sku_code}</td>
+            {displayRows.slice(page * pageSize, (page + 1) * pageSize).map((r) => (
+              <tr key={r._aggKey ?? r.projected_id}
+                  style={{
+                    cursor: r._agg ? "default" : "pointer",
+                    background: r._agg
+                      ? `${PAL.accent2}1F`
+                      : (r.projected_stockout_flag ? "#3f1d1d22" : undefined),
+                    fontWeight: r._agg ? 600 : undefined,
+                  }}
+                  onClick={() => { if (!r._agg) onSelectRow(r); }}>
+                <td style={{ ...S.td, fontFamily: "monospace", color: r._agg ? PAL.text : PAL.accent }}>{r.sku_code}</td>
                 <td style={{ ...S.td, color: PAL.textDim }}>{r.category_name ?? "–"}</td>
-                <td style={S.td}>{formatPeriodCode(r.period_code)}</td>
+                <td style={S.td}>{r.period_code ? formatPeriodCode(r.period_code) : "–"}</td>
                 <td style={S.tdNum}>{formatQty(r.beginning_on_hand_qty)}</td>
                 <td style={{ ...S.tdNum, color: PAL.textDim }}>{formatQty(r.ats_qty)}</td>
                 <td style={S.tdNum}>{formatQty(r.inbound_po_qty)}</td>
@@ -205,7 +330,7 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
                 </td>
               </tr>
             ))}
-            {!loading && filtered.length === 0 && (
+            {!loading && displayRows.length === 0 && (
               <tr><td colSpan={19} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No reconciled rows yet. Run the reconciliation pass above to populate the grid."
@@ -219,13 +344,28 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
             )}
           </tbody>
         </table>
+        {/* Paginator — identical to the wholesale grid's, including
+            the pageSize options [100, 250, 500, 1000, 2000]. Scales
+            cleanly to 9 000+ rows. */}
+        {displayRows.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderTop: `1px solid ${PAL.border}`, color: PAL.textDim, fontSize: 12 }}>
+            <span>
+              {(page * pageSize + 1).toLocaleString()}–{Math.min((page + 1) * pageSize, displayRows.length).toLocaleString()} of {displayRows.length.toLocaleString()}
+            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span>Rows per page:</span>
+              <select style={S.select} value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}>
+                {[100, 250, 500, 1000, 2000].map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+              <button style={S.btnSecondary} disabled={page === 0} onClick={() => setPage(0)}>« First</button>
+              <button style={S.btnSecondary} disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>‹ Prev</button>
+              <span>Page {page + 1} / {Math.max(1, Math.ceil(displayRows.length / pageSize))}</span>
+              <button style={S.btnSecondary} disabled={(page + 1) * pageSize >= displayRows.length} onClick={() => setPage((p) => p + 1)}>Next ›</button>
+              <button style={S.btnSecondary} disabled={(page + 1) * pageSize >= displayRows.length} onClick={() => setPage(Math.max(0, Math.ceil(displayRows.length / pageSize) - 1))}>Last »</button>
+            </div>
+          </div>
+        )}
       </div>
-
-      {filteredAll.length > PAGE_SIZE && (
-        <div style={{ padding: 8, color: PAL.textMuted, fontSize: 12, textAlign: "right" }}>
-          Showing first {PAGE_SIZE.toLocaleString()} of {filteredAll.length.toLocaleString()} — use filters to narrow.
-        </div>
-      )}
     </div>
   );
 }
@@ -243,7 +383,6 @@ function Th({ label, k, sortKey, sortDir, onSort, numeric }: {
   );
 }
 
-
 function cmp(a: IpReconciliationGridRow, b: IpReconciliationGridRow, k: SortKey, d: "asc" | "desc"): number {
   const sign = d === "asc" ? 1 : -1;
   const pRank = (p: string | null) => (p === "critical" ? 0 : p === "high" ? 1 : p === "medium" ? 2 : p === "low" ? 3 : 4);
@@ -256,4 +395,85 @@ function cmp(a: IpReconciliationGridRow, b: IpReconciliationGridRow, k: SortKey,
     case "excess":   return (a.excess_qty - b.excess_qty) * sign;
     case "priority": return (pRank(a.top_recommendation_priority) - pRank(b.top_recommendation_priority)) * sign;
   }
+}
+
+// ── Aggregation: group rows by the chosen dim(s) and sum the qty
+//    columns. Rendered with a tinted background + bold weight (same
+//    visual treatment as wholesale grid aggregate rows).
+function aggregateByDims(rows: IpReconciliationGridRow[], dims: CollapseMode[]): GridRow[] {
+  // Build the group key from whichever dims are active. When all
+  // three are selected the grouping degenerates to per-(sku, period,
+  // category) which is identical to the un-collapsed view, so we
+  // can safely fall through to the dedup-by-key path below.
+  const keyOf = (r: IpReconciliationGridRow): string => {
+    const parts: string[] = [];
+    if (dims.includes("category")) parts.push(r.category_id ?? "—");
+    if (dims.includes("sku"))      parts.push(r.sku_id);
+    if (dims.includes("period"))   parts.push(r.period_start);
+    return parts.join("|");
+  };
+  const groups = new Map<string, IpReconciliationGridRow[]>();
+  for (const r of rows) {
+    const k = keyOf(r);
+    let bucket = groups.get(k);
+    if (!bucket) { bucket = []; groups.set(k, bucket); }
+    bucket.push(r);
+  }
+  const out: GridRow[] = [];
+  for (const [k, bucket] of groups) {
+    const first = bucket[0];
+    const aggLabelParts: string[] = [];
+    if (dims.includes("category")) aggLabelParts.push(first.category_name ?? "(no category)");
+    if (dims.includes("sku"))      aggLabelParts.push(first.sku_code);
+    if (dims.includes("period"))   aggLabelParts.push(first.period_code);
+    const sums = bucket.reduce((a, r) => {
+      a.beginning_on_hand_qty += r.beginning_on_hand_qty;
+      a.ats_qty += r.ats_qty;
+      a.inbound_po_qty += r.inbound_po_qty;
+      a.inbound_planned_buy_qty += r.inbound_planned_buy_qty;
+      a.inbound_receipts_qty += r.inbound_receipts_qty;
+      a.wip_qty += r.wip_qty;
+      a.total_available_supply_qty += r.total_available_supply_qty;
+      a.wholesale_demand_qty += r.wholesale_demand_qty;
+      a.ecom_demand_qty += r.ecom_demand_qty;
+      a.protected_ecom_qty += r.protected_ecom_qty;
+      a.reserved_wholesale_qty += r.reserved_wholesale_qty;
+      a.allocated_total_qty += r.allocated_total_qty;
+      a.ending_inventory_qty += r.ending_inventory_qty;
+      a.shortage_qty += r.shortage_qty;
+      a.excess_qty += r.excess_qty;
+      if (r.projected_stockout_flag) a.projected_stockout_flag = true;
+      return a;
+    }, {
+      beginning_on_hand_qty: 0, ats_qty: 0, inbound_po_qty: 0, inbound_planned_buy_qty: 0,
+      inbound_receipts_qty: 0, wip_qty: 0, total_available_supply_qty: 0,
+      wholesale_demand_qty: 0, ecom_demand_qty: 0, protected_ecom_qty: 0,
+      reserved_wholesale_qty: 0, allocated_total_qty: 0, ending_inventory_qty: 0,
+      shortage_qty: 0, excess_qty: 0, projected_stockout_flag: false,
+    });
+    // Pick the highest-priority recommendation in the bucket as the
+    // representative top_rec for the aggregate row.
+    const pRank = (p: string | null) => (p === "critical" ? 0 : p === "high" ? 1 : p === "medium" ? 2 : p === "low" ? 3 : 4);
+    const top = [...bucket].sort((a, b) => pRank(a.top_recommendation_priority) - pRank(b.top_recommendation_priority))[0];
+    out.push({
+      ...first,
+      ...sums,
+      // Aggregate display: show dims joined; clear fields that don't
+      // make sense at the rolled-up grain.
+      sku_code: dims.includes("sku") ? first.sku_code : aggLabelParts.join(" · "),
+      sku_description: null,
+      period_code: dims.includes("period") ? first.period_code : "",
+      category_name: dims.includes("category") ? first.category_name : null,
+      top_recommendation: top.top_recommendation,
+      top_recommendation_priority: top.top_recommendation_priority,
+      top_recommendation_qty: null,
+      top_recommendation_reason: null,
+      service_risk_flag: bucket.some((r) => r.service_risk_flag),
+      _agg: true,
+      _aggKey: `agg:${k}`,
+    });
+  }
+  // Sort alphabetically by the aggregate label so the rolled-up view
+  // is stable. (The page paginator runs on top of this.)
+  return out.sort((a, b) => (a.sku_code ?? "").localeCompare(b.sku_code ?? ""));
 }
