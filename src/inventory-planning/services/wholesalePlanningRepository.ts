@@ -610,8 +610,15 @@ export const wholesaleRepo = {
     created_at: string;
     updated_at: string;
   }>> {
+    // order=created_at.asc,id.asc keeps row order stable across
+    // rebuilds. Without it Postgres returns whatever heap order
+    // happens to be — and an updated row can shift its slot after
+    // a patch, so a buy-qty save triggered the visible row to swap
+    // positions with its neighbor on the next fetch. The forecast_id
+    // (React key) is stable so the cell content followed the right
+    // row, but visually the qty appeared to migrate.
     return sbGet(
-      `ip_wholesale_forecast_tbd?planning_run_id=eq.${planningRunId}&select=*&limit=20000`,
+      `ip_wholesale_forecast_tbd?planning_run_id=eq.${planningRunId}&select=*&order=created_at.asc,id.asc&limit=20000`,
     );
   },
   // Plain INSERT for planner-added TBD rows. Each call creates a
