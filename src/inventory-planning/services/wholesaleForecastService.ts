@@ -245,18 +245,35 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
     return r.sku_id;
   };
 
-  // Split requests by color intent. TBD-color requests don't fit
-  // the regular forecast flow (the resolved sku has a real master
-  // color, so the planning grid would render them under that
-  // color instead of as TBD stock-buy lines). Route them to
-  // ip_wholesale_forecast_tbd instead — same table the planner-added
-  // TBD rows live in, so they render as proper TBD lines with
-  // color="TBD" in the planning grid.
+  // Split requests by color intent. A request gets routed to the
+  // ip_wholesale_forecast_tbd table (instead of folding into the
+  // regular forecast) when ANY of:
+  //   • meta.color is literally "TBD" (planner deferred the colorway)
+  //   • meta.color is a real color but the picked style doesn't have
+  //     a matching master variant — folding it into the resolved sku
+  //     (any variant of the style) would surface the qty under the
+  //     wrong master color in the grid. The TBD path renders it
+  //     correctly under the planner's intended (style, color).
+  // The remaining regularRequests have an exact master variant and
+  // can fold into the forecast at the resolved sku grain.
+  const masterColorsByStyle = new Map<string, Set<string>>();
+  for (const i of items) {
+    const s = i.style_code ?? i.sku_code;
+    if (!s || !i.color) continue;
+    let bucket = masterColorsByStyle.get(s);
+    if (!bucket) { bucket = new Set(); masterColorsByStyle.set(s, bucket); }
+    bucket.add(i.color);
+  }
+  const allMasterColors = new Set<string>();
+  for (const i of items) if (i.color) allMasterColors.add(i.color);
   const tbdColorRequests: IpFutureDemandRequest[] = [];
   const regularRequests: IpFutureDemandRequest[] = [];
   for (const r of requests) {
     const meta = parseRequestMeta(r);
-    if (meta.color && meta.color.toUpperCase() === "TBD") {
+    const colorIsTbd = !!meta.color && meta.color.toUpperCase() === "TBD";
+    const styleColors = meta.style ? masterColorsByStyle.get(meta.style) : null;
+    const newToStyle = !!meta.color && !colorIsTbd && !styleColors?.has(meta.color);
+    if (colorIsTbd || newToStyle) {
       tbdColorRequests.push(r);
     } else {
       regularRequests.push(r);
@@ -528,14 +545,26 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
   for (const r of tbdColorRequests) {
     const meta = parseRequestMeta(r);
     const style = meta.style && meta.style.toUpperCase() !== "TBD" ? meta.style : "TBD";
+    // Preserve the planner's intended color when it's a real value
+    // that's just new to this style. Only fall back to literal "TBD"
+    // when the planner truly deferred the colorway.
+    const metaColor = meta.color ?? "";
+    const colorIsTbd = !metaColor || metaColor.toUpperCase() === "TBD";
+    const color = colorIsTbd ? "TBD" : metaColor;
+    // is_new_color drives the orange NEW badge in the grid. Set it
+    // only when the color isn't in the master at all (brand-new
+    // colorway). For "exists in master, just new on this style",
+    // leave it false — the row still renders as a TBD line under
+    // (style, color) but without the new-color badge.
+    const isNewColor = !colorIsTbd && !allMasterColors.has(metaColor);
     const period = monthOf(r.target_period_start);
     const desc = meta.desc?.trim() ?? "";
     const notes = desc ? `[fromRequest:${r.id}] ${desc}` : `[fromRequest:${r.id}]`;
     try {
       await wholesaleRepo.insertTbdRow(run.id, {
         style_code: style,
-        color: "TBD",
-        is_new_color: false,
+        color,
+        is_new_color: isNewColor,
         customer_id: r.customer_id,
         group_name: meta.cat || null,
         sub_category_name: meta.subcat || null,

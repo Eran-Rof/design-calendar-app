@@ -508,6 +508,21 @@ function RequestForm({
     }
     return set;
   }, [items]);
+  // Per-style color set (lowercased) — drives the GREEN NEW badge for
+  // colors that exist in the master overall but not yet on the picked
+  // style. ORANGE NEW stays for colors that aren't in the master at
+  // all. No badge for exact (style, color) matches.
+  const masterColorsByStyleLower = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const i of items) {
+      const s = i.style_code ?? i.sku_code;
+      if (!s || !i.color) continue;
+      let bucket = m.get(s);
+      if (!bucket) { bucket = new Set(); m.set(s, bucket); }
+      bucket.add(i.color.trim().toLowerCase());
+    }
+    return m;
+  }, [items]);
   // Free-text new-color input. Submits a typed value as a NEW chip
   // in colorCodes. Lets the planner request a color that isn't yet
   // in the master (typical for new-introduction styles).
@@ -571,10 +586,19 @@ function RequestForm({
       }
       return items[0]?.id ?? null;
     }
-    // Both real — exact match on (style, color).
+    // Both real — exact match on (style, color) wins.
     for (const i of items) {
       if ((i.style_code ?? i.sku_code) !== style) continue;
       if (i.color === color) return i.id;
+    }
+    // No exact variant — accept the request anyway and pin it to
+    // any sku of the picked style. The note marker preserves the
+    // planner's actual color so the build pipeline can route it to
+    // the TBD table (so the planning grid renders a new TBD row
+    // for the (style, new-on-style color) instead of folding the
+    // qty into a master variant with the wrong color).
+    for (const i of items) {
+      if ((i.style_code ?? i.sku_code) === style) return i.id;
     }
     return null;
   }
@@ -796,14 +820,25 @@ function RequestForm({
           style={{ ...S.btnSecondary, padding: "4px 10px", fontSize: 11, borderColor: PAL.yellow, color: PAL.yellow }}
         >+ Add NEW</button>
       )}
-      {/* Picked-colors chip strip — each selected color renders with
-          the orange NEW badge when it isn't in the master, matching
-          the main grid's TbdColorCell convention. Click × to remove. */}
+      {/* Picked-colors chip strip — three badge tiers:
+          • no badge: color exists on the picked style in the master
+          • GREEN NEW: color exists in master overall but NOT on the
+            picked style (new for this style)
+          • ORANGE NEW: color isn't in master at all (brand-new color)
+          Click × to remove. */}
       {colorCodes.length > 0 && (
         <div style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
           {colorCodes.map((c) => {
             const isTbd = c.toUpperCase() === "TBD";
-            const isNew = !isTbd && !masterColorsLower.has(c.trim().toLowerCase());
+            const cLower = c.trim().toLowerCase();
+            const inMaster = masterColorsLower.has(cLower);
+            const styleColors = styleCode && styleCode !== "TBD"
+              ? masterColorsByStyleLower.get(styleCode)
+              : null;
+            const onThisStyle = !!styleColors?.has(cLower);
+            const newToStyle = !isTbd && inMaster && !onThisStyle;
+            const brandNew = !isTbd && !inMaster;
+            const badgeColor = brandNew ? PAL.yellow : newToStyle ? PAL.green : null;
             return (
               <span
                 key={c}
@@ -814,14 +849,14 @@ function RequestForm({
                   padding: "2px 6px",
                   borderRadius: 4,
                   fontSize: 11,
-                  background: isNew ? `${PAL.yellow}22` : (isTbd ? `${PAL.textMuted}22` : `${PAL.accent}22`),
-                  border: `1px solid ${isNew ? PAL.yellow : (isTbd ? PAL.textMuted : PAL.accent)}`,
-                  color: isNew ? PAL.yellow : (isTbd ? PAL.textMuted : PAL.text),
+                  background: badgeColor ? `${badgeColor}22` : (isTbd ? `${PAL.textMuted}22` : `${PAL.accent}22`),
+                  border: `1px solid ${badgeColor ?? (isTbd ? PAL.textMuted : PAL.accent)}`,
+                  color: badgeColor ?? (isTbd ? PAL.textMuted : PAL.text),
                 }}
               >
                 {c}
-                {isNew && (
-                  <span style={{ background: PAL.yellow, color: "#000", borderRadius: 2, padding: "0 4px", fontSize: 9, fontWeight: 700 }}>NEW</span>
+                {badgeColor && (
+                  <span style={{ background: badgeColor, color: "#000", borderRadius: 2, padding: "0 4px", fontSize: 9, fontWeight: 700 }}>NEW</span>
                 )}
                 <button
                   type="button"
