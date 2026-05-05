@@ -14,6 +14,14 @@ import { applyRollingPool } from "../compute/supply";
 
 export interface WholesalePlanningGridProps {
   rows: IpPlanningGridRow[];
+  // Active planning run's horizon. Used to seed the Period filter
+  // dropdown with every month in the run, not just months that
+  // currently have forecast rows — without this the filter collapses
+  // to whatever the most recent (possibly filtered) build wrote, so a
+  // planner running an Apr→Dec run who built only May sees only May
+  // as a period option and can't pre-scope a build for the other
+  // months.
+  runHorizon?: { start: string; end: string } | null;
   onSelectRow: (row: IpPlanningGridRow) => void;
   onUpdateBuyQty: (forecastId: string, qty: number | null) => Promise<void>;
   // TBD-row mutations: rename color (with is_new_color flag), reassign
@@ -279,7 +287,7 @@ function distributeAcrossChildren(
   return out;
 }
 
-export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onUndoLastAdd, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onUndoLastAdd, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   // Persisted filter state — survives reloads + builds. Stored under
   // ws_planning_filter_<key> in localStorage so the planner doesn't
   // re-pick what they had narrowed to. Lazy useState initializer
@@ -657,8 +665,22 @@ export default function WholesalePlanningGrid({ rows, onSelectRow, onUpdateBuyQt
   const periods = useMemo(() => {
     const s = new Set<string>();
     for (const r of rows) s.add(r.period_code);
+    // Merge run-horizon months so the dropdown lists every period the
+    // run COULD cover, not just periods that already have forecast
+    // rows. Lets the planner pre-scope a build to a not-yet-built
+    // month (e.g. Aug on an Apr-Dec run that's only built May so far).
+    if (runHorizon?.start && runHorizon?.end) {
+      const [sy, sm] = runHorizon.start.split("-").map(Number);
+      const [ey, em] = runHorizon.end.split("-").map(Number);
+      let y = sy, m = sm;
+      while (y < ey || (y === ey && m <= em)) {
+        s.add(`${y.toString().padStart(4, "0")}-${m.toString().padStart(2, "0")}`);
+        m += 1;
+        if (m > 12) { m = 1; y += 1; }
+      }
+    }
     return Array.from(s).sort();
-  }, [rows]);
+  }, [rows, runHorizon]);
 
   // Distinct styles for the by-Style filter dropdown. Styles are
   // sourced from sku_style; rows without a style fall back to sku_code

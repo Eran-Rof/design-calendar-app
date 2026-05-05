@@ -2203,6 +2203,9 @@ export default function WholesalePlanningWorkbench() {
               )}
             </div>
             <WholesalePlanningGrid
+              runHorizon={selectedRun?.horizon_start && selectedRun?.horizon_end
+                ? { start: selectedRun.horizon_start, end: selectedRun.horizon_end }
+                : null}
               headerSlot={
                 <>
                   {/* Build card sits directly above the search/filter
