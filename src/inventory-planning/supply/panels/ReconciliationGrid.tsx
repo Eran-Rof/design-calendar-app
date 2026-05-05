@@ -17,7 +17,22 @@ export interface ReconciliationGridProps {
   onSelectRow: (row: IpReconciliationGridRow) => void;
 }
 
-type SortKey = "sku" | "period" | "supply" | "demand" | "shortage" | "excess" | "priority";
+// Every column on the grid is sortable. The header `<Th>` toggles
+// asc → desc → asc on repeated click. Numeric columns default to
+// desc (largest first) since planners triage by magnitude; string
+// columns default to asc (alphabetical).
+type SortKey =
+  | "sku" | "category" | "period"
+  | "onHand" | "ats" | "inboundPo" | "plannedBuy" | "receipts" | "wip"
+  | "supply"
+  | "wsDemand" | "ecomDemand" | "protected" | "reserved" | "allocated" | "ending"
+  | "shortage" | "excess" | "priority";
+
+const NUMERIC_DESC_FIRST: ReadonlySet<SortKey> = new Set([
+  "onHand", "ats", "inboundPo", "plannedBuy", "receipts", "wip", "supply",
+  "wsDemand", "ecomDemand", "protected", "reserved", "allocated", "ending",
+  "shortage", "excess",
+]);
 
 const PRIORITY_COLOR: Record<string, string> = {
   critical: "#EF4444",
@@ -125,7 +140,7 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
 
   function toggleSort(k: SortKey) {
     if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else { setSortKey(k); setSortDir(k === "shortage" || k === "excess" ? "desc" : "asc"); }
+    else { setSortKey(k); setSortDir(NUMERIC_DESC_FIRST.has(k) ? "desc" : "asc"); }
   }
 
   return (
@@ -249,25 +264,25 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
         <table style={S.table}>
           <thead>
             <tr>
-              <Th label="SKU" k="sku" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <th style={S.th}>Category</th>
-              <Th label="Period" k="period" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <th style={{ ...S.th, textAlign: "right" }}>On hand</th>
-              <th style={{ ...S.th, textAlign: "right" }}>ATS</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Inbound PO</th>
-              <th style={{ ...S.th, textAlign: "right" }} title="Phase 1 planned_buy_qty bucketed to (sku, period). Counted toward Supply only when the run flag is on.">Planned Buy</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Receipts</th>
-              <th style={{ ...S.th, textAlign: "right" }}>WIP</th>
-              <Th label="Supply" k="supply" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <th style={{ ...S.th, textAlign: "right" }}>W/s dmd</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Ecom dmd</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Protected</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Reserved</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Allocated</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Ending</th>
-              <Th label="Shortage" k="shortage" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Excess" k="excess" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Action" k="priority" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Th label="SKU"        k="sku"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Th label="Category"   k="category"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Th label="Period"     k="period"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Th label="On hand"    k="onHand"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="ATS"        k="ats"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Inbound PO" k="inboundPo"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Planned Buy" k="plannedBuy" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric title="Phase 1 planned_buy_qty bucketed to (sku, period). Counted toward Supply only when the run flag is on." />
+              <Th label="Receipts"   k="receipts"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="WIP"        k="wip"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Supply"     k="supply"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="W/s dmd"    k="wsDemand"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Ecom dmd"   k="ecomDemand" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Protected"  k="protected"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Reserved"   k="reserved"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Allocated"  k="allocated"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Ending"     k="ending"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Shortage"   k="shortage"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Excess"     k="excess"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Action"     k="priority"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             </tr>
           </thead>
           <tbody>
@@ -370,14 +385,23 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
   );
 }
 
-function Th({ label, k, sortKey, sortDir, onSort, numeric }: {
+function Th({ label, k, sortKey, sortDir, onSort, numeric, title }: {
   label: string; k: SortKey; sortKey: SortKey; sortDir: "asc" | "desc";
-  onSort: (k: SortKey) => void; numeric?: boolean;
+  onSort: (k: SortKey) => void; numeric?: boolean; title?: string;
 }) {
   const active = sortKey === k;
   return (
-    <th style={{ ...S.th, cursor: "pointer", textAlign: numeric ? "right" : "left", color: active ? PAL.text : PAL.textMuted }}
-        onClick={() => onSort(k)}>
+    <th
+      style={{
+        ...S.th,
+        cursor: "pointer",
+        textAlign: numeric ? "right" : "left",
+        color: active ? PAL.text : PAL.textMuted,
+        userSelect: "none",
+      }}
+      onClick={() => onSort(k)}
+      title={title}
+    >
       {label}{active ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
     </th>
   );
@@ -387,13 +411,25 @@ function cmp(a: IpReconciliationGridRow, b: IpReconciliationGridRow, k: SortKey,
   const sign = d === "asc" ? 1 : -1;
   const pRank = (p: string | null) => (p === "critical" ? 0 : p === "high" ? 1 : p === "medium" ? 2 : p === "low" ? 3 : 4);
   switch (k) {
-    case "sku":      return a.sku_code.localeCompare(b.sku_code) * sign;
-    case "period":   return a.period_start.localeCompare(b.period_start) * sign;
-    case "supply":   return (a.total_available_supply_qty - b.total_available_supply_qty) * sign;
-    case "demand":   return ((a.wholesale_demand_qty + a.ecom_demand_qty) - (b.wholesale_demand_qty + b.ecom_demand_qty)) * sign;
-    case "shortage": return (a.shortage_qty - b.shortage_qty) * sign;
-    case "excess":   return (a.excess_qty - b.excess_qty) * sign;
-    case "priority": return (pRank(a.top_recommendation_priority) - pRank(b.top_recommendation_priority)) * sign;
+    case "sku":        return a.sku_code.localeCompare(b.sku_code) * sign;
+    case "category":   return (a.category_name ?? "").localeCompare(b.category_name ?? "") * sign;
+    case "period":     return a.period_start.localeCompare(b.period_start) * sign;
+    case "onHand":     return (a.beginning_on_hand_qty - b.beginning_on_hand_qty) * sign;
+    case "ats":        return (a.ats_qty - b.ats_qty) * sign;
+    case "inboundPo":  return (a.inbound_po_qty - b.inbound_po_qty) * sign;
+    case "plannedBuy": return (a.inbound_planned_buy_qty - b.inbound_planned_buy_qty) * sign;
+    case "receipts":   return (a.inbound_receipts_qty - b.inbound_receipts_qty) * sign;
+    case "wip":        return (a.wip_qty - b.wip_qty) * sign;
+    case "supply":     return (a.total_available_supply_qty - b.total_available_supply_qty) * sign;
+    case "wsDemand":   return (a.wholesale_demand_qty - b.wholesale_demand_qty) * sign;
+    case "ecomDemand": return (a.ecom_demand_qty - b.ecom_demand_qty) * sign;
+    case "protected":  return (a.protected_ecom_qty - b.protected_ecom_qty) * sign;
+    case "reserved":   return (a.reserved_wholesale_qty - b.reserved_wholesale_qty) * sign;
+    case "allocated":  return (a.allocated_total_qty - b.allocated_total_qty) * sign;
+    case "ending":     return (a.ending_inventory_qty - b.ending_inventory_qty) * sign;
+    case "shortage":   return (a.shortage_qty - b.shortage_qty) * sign;
+    case "excess":     return (a.excess_qty - b.excess_qty) * sign;
+    case "priority":   return (pRank(a.top_recommendation_priority) - pRank(b.top_recommendation_priority)) * sign;
   }
 }
 
