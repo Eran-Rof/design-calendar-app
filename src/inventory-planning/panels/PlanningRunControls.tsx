@@ -178,10 +178,7 @@ export default function PlanningRunControls({
           <>
             {showBuild && (
               <button
-                style={{
-                  ...S.btnPrimary,
-                  ...(filterActive ? { background: PAL.yellow, color: "#111" } : {}),
-                }}
+                style={{ ...S.btnPrimary }}
                 onClick={onBuildClick}
                 disabled={building}
                 title={filterActive
