@@ -516,17 +516,38 @@ function RequestForm({
     return out;
   }, []);
 
-  // Resolve a (style, color) pair to the FIRST matching sku_id from
-  // the master. Same convention the wholesale grid uses to map a NEW
-  // style → variant id when persisting TBD rows.
-  // When style or color is TBD, fall back to the first item in the
-  // master (any sku_id satisfies the FK) and prepend a TBD marker to
-  // the note so the request is still persistable while clearly tagged
-  // as awaiting a real variant.
+  // Resolve a (style, color) pair to the best-matching sku_id in the
+  // master. Strategy:
+  //   1. Exact match on (style_code, color) → that variant.
+  //   2. Real style + TBD color → ANY sku with that style. Keeps the
+  //      build pipeline finding the row under the planner's intended
+  //      style filter, instead of pinning to items[0] (which sat under
+  //      a random style and was invisible behind their filters).
+  //   3. TBD style + real color → first sku with that color.
+  //   4. Both TBD → items[0] as a generic placeholder.
+  // The note marker preserves the planner's actual intent so the
+  // table renders the right Cat / Sub Cat / Style / Color regardless
+  // of which sku_id we pinned to satisfy the FK.
   function resolveSkuId(style: string, color: string): string | null {
-    if (style.toUpperCase() === "TBD" || color.toUpperCase() === "TBD") {
+    const styleTbd = style.toUpperCase() === "TBD";
+    const colorTbd = color.toUpperCase() === "TBD";
+    if (styleTbd && colorTbd) {
       return items[0]?.id ?? null;
     }
+    if (!styleTbd && colorTbd) {
+      // Find any variant of the real style.
+      for (const i of items) {
+        if ((i.style_code ?? i.sku_code) === style) return i.id;
+      }
+      return items[0]?.id ?? null;
+    }
+    if (styleTbd && !colorTbd) {
+      for (const i of items) {
+        if (i.color === color) return i.id;
+      }
+      return items[0]?.id ?? null;
+    }
+    // Both real — exact match on (style, color).
     for (const i of items) {
       if ((i.style_code ?? i.sku_code) !== style) continue;
       if (i.color === color) return i.id;

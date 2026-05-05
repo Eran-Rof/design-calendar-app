@@ -209,11 +209,44 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
       qty: s.qty,
     }));
 
+  // Re-resolve the request's sku_id from its note marker before
+  // feeding the compute layer. The form encodes the planner's actual
+  // (style, color) selection in the note as
+  //   [REQ|TBD style=X color=Y desc=Z cat=… subcat=…]
+  // because the FK on ip_future_demand_requests forced an arbitrary
+  // sku_id pin when either dim was TBD. Without this re-resolution
+  // the buyer_request_qty / customer / confidence land under the
+  // arbitrary (items[0]) sku and the planner can't find them under
+  // their real-style filter. Strategy mirrors the form's
+  // resolveSkuId: exact match first, then any variant of the real
+  // style, then any sku of the real color, then keep the stored id.
+  const resolveRequestSku = (r: IpFutureDemandRequest): string => {
+    const m = r.note?.match(/^\[(?:TBD|REQ)\s+([^\]]+)\]/);
+    if (!m) return r.sku_id;
+    const meta: Record<string, string> = {};
+    for (const pair of m[1].split("|")) {
+      const eq = pair.indexOf("=");
+      if (eq > 0) meta[pair.slice(0, eq)] = pair.slice(eq + 1);
+    }
+    const style = meta.style;
+    const color = meta.color;
+    if (!style || style.toUpperCase() === "TBD") return r.sku_id;
+    if (color && color.toUpperCase() !== "TBD") {
+      for (const i of items) {
+        if ((i.style_code ?? i.sku_code) === style && i.color === color) return i.id;
+      }
+    }
+    for (const i of items) {
+      if ((i.style_code ?? i.sku_code) === style) return i.id;
+    }
+    return r.sku_id;
+  };
+
   const requestInput: IpForecastComputeInput["requests"] = requests.map((r) => {
     const period = monthOf(r.target_period_start);
     return {
       customer_id: r.customer_id,
-      sku_id: r.sku_id,
+      sku_id: resolveRequestSku(r),
       period_code: period.period_code,
       period_start: period.period_start,
       period_end: period.period_end,
@@ -467,7 +500,11 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
   for (const r of requests) {
     if (r.request_status !== "open") continue;
     const periodStart = monthOf(r.target_period_start).period_start;
-    if (persistedKeys.has(`${r.customer_id}:${r.sku_id}:${periodStart}`)) {
+    // Use the resolved sku to match — the persisted forecast row
+    // lands under the resolved sku, not the request's stored sku_id
+    // (which may be the arbitrary FK fallback).
+    const resolvedSku = resolveRequestSku(r);
+    if (persistedKeys.has(`${r.customer_id}:${resolvedSku}:${periodStart}`)) {
       appliedRequestIds.push(r.id);
     }
   }
