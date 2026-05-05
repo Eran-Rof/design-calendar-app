@@ -1,23 +1,22 @@
-// api/xoro-receipts-sync.js — Vercel Node.js Serverless Function
+// api/_handlers/xoro-receipts-sync.js — Vercel Node.js Serverless Function
 //
-// Phase 2.3 finisher — pulls item receipts from Xoro and upserts into
-// receipts + receipt_line_items.
+// Pulls Item Receipts from Xoro and upserts into receipts +
+// receipt_line_items. Used for 3-way matching (PO ↔ Receipt ↔ Vendor
+// Invoice) in the AP / vendor-portal flow.
 //
-// STATUS: path TBD. The Xoro "Item Receipt" endpoint path is not
-// discoverable by trial; probed 27 candidates, all returned 500
-// "An error has occurred" or timed out. Need the exact URL from
-// Xoro support / their in-app API docs / network tab on the Item
-// Receipts screen. Once known, set RECEIPT_PATH and this endpoint
-// works.
+// Path: bill/getitemreceipt — confirmed by Xoro support 2026-05-05. The
+// Item Receipt resource lives nested under the `bill` module because it
+// shares the "Bill & Item Receipt Management" Private App scope.
 //
-// Override at call time with ?path=xerp/module/action to try a specific
-// path without redeploying.
+// Auth: VITE_XORO_BILL_API_KEY/SECRET via module="bill". The ATS App and
+// Sales History keys do NOT have receipt scope and will return 500.
 
 import { createClient } from "@supabase/supabase-js";
+import { fetchXoroAll } from "../_lib/xoro-client.js";
 
-export const config = { maxDuration: 120 };
+export const config = { maxDuration: 300 };
 
-const RECEIPT_PATH = "itemreceipt/getitemreceipt"; // TODO replace with real path
+const RECEIPT_PATH = "bill/getitemreceipt";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -27,13 +26,8 @@ export default async function handler(req, res) {
 
   const SB_URL = process.env.VITE_SUPABASE_URL;
   const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const XORO_KEY = process.env.VITE_XORO_API_KEY;
-  const XORO_SECRET = process.env.VITE_XORO_API_SECRET;
-  if (!SB_URL || !SERVICE_KEY || !XORO_KEY || !XORO_SECRET) {
-    return res.status(500).json({
-      error: "Server not configured",
-      supabase: !!SB_URL, serviceKey: !!SERVICE_KEY, xoro: !!(XORO_KEY && XORO_SECRET),
-    });
+  if (!SB_URL || !SERVICE_KEY) {
+    return res.status(500).json({ error: "Server not configured", supabase: !!SB_URL, serviceKey: !!SERVICE_KEY });
   }
   const admin = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
@@ -42,46 +36,32 @@ export default async function handler(req, res) {
   const dateFrom = url.searchParams.get("date_from") || "";
   const dateTo = url.searchParams.get("date_to") || "";
   const poNumber = url.searchParams.get("po_number") || "";
+  const pageStart = Math.max(parseInt(url.searchParams.get("page_start") || "1", 10), 1);
+  const maxPages = Math.min(parseInt(url.searchParams.get("max_pages") || "50", 10), 200);
+  const module = url.searchParams.get("module") || "bill";
 
-  const xoroParams = new URLSearchParams();
-  xoroParams.set("per_page", "200");
-  if (dateFrom) xoroParams.set("created_at_min", new Date(dateFrom).toISOString());
-  if (dateTo)   xoroParams.set("created_at_max", new Date(dateTo + "T23:59:59").toISOString());
-  if (poNumber) xoroParams.set("po_number", poNumber);
+  const params = { per_page: "200" };
+  // Param names are best-guess until the receipt response shape is in
+  // hand — Xoro hadn't yet confirmed which date filters are honored.
+  if (dateFrom) params.created_at_min = new Date(dateFrom).toISOString();
+  if (dateTo)   params.created_at_max = new Date(dateTo + "T23:59:59").toISOString();
+  if (poNumber) params.po_number = poNumber;
 
-  const creds = Buffer.from(`${XORO_KEY}:${XORO_SECRET}`).toString("base64");
-  const xoroUrl = `https://res.xorosoft.io/api/xerp/${path}?${xoroParams.toString()}`;
-
-  let xoroBody = null;
-  let xoroStatus = 0;
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 30_000);
-    const r = await fetch(xoroUrl, {
-      headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/json" },
-      signal: ctrl.signal,
-    });
-    clearTimeout(timer);
-    xoroStatus = r.status;
-    const text = await r.text();
-    try { xoroBody = JSON.parse(text); } catch { xoroBody = { raw: text.slice(0, 500) }; }
-  } catch (err) {
-    return res.status(500).json({ error: "Xoro fetch failed: " + (err?.message || err), path });
-  }
-
-  if (xoroStatus < 200 || xoroStatus >= 300 || !xoroBody?.Result) {
+  const xoro = await fetchXoroAll({ path, params, pageStart, maxPages, module });
+  if (!xoro.ok || !xoro.body?.Result) {
     return res.status(200).json({
-      error: "Xoro returned an error — probably the wrong path or missing required params",
-      xoro_status: xoroStatus,
-      xoro_message: xoroBody?.Message || null,
+      error: "Xoro returned an error — check VITE_XORO_BILL_API_KEY/SECRET and path",
+      xoro_message: xoro.body?.Message ?? null,
       path,
-      debug: xoroBody,
+      debug: xoro.body,
     });
   }
 
-  const receipts = Array.isArray(xoroBody.Data) ? xoroBody.Data : [];
+  const receipts = Array.isArray(xoro.body.Data) ? xoro.body.Data : [];
   const result = {
     path,
+    page_start: pageStart,
+    max_pages: maxPages,
     xoro_receipts_fetched: receipts.length,
     upserted: 0,
     skipped_no_po_match: 0,
@@ -91,6 +71,8 @@ export default async function handler(req, res) {
 
   for (const rc of receipts) {
     try {
+      // Normalize across possible Xoro field-name spellings — same
+      // defensive pattern used in xoro-items-missing-sync.
       const xoroReceiptId = String(rc.Id ?? rc.TxnId ?? rc.ReceiptId ?? rc.ReceiptNumber ?? "");
       const receiptNumber = rc.ReceiptNumber || rc.Number || xoroReceiptId;
       const rcPoNumber = rc.PoNumber || rc.PurchaseOrderNumber || rc.POReference;
