@@ -17,6 +17,7 @@ import { monthOf } from "../compute/periods";
 import { S, PAL, formatQty, formatPeriodCode } from "../components/styles";
 import { MultiSelectDropdown } from "../components/MultiSelectDropdown";
 import { QtyCell } from "../components/QtyCell";
+import { SinglePickFilter } from "../components/SinglePickFilter";
 import { TbdColorCell } from "./WholesalePlanningGrid";
 import { buildRequestNote, parseRequestNote } from "../services/requestNoteMarker";
 import { readGroupName, readSubCategoryName } from "../types/itemAttributes";
@@ -230,65 +231,65 @@ export default function FutureDemandRequestsPanel({
           as the form is closed (Save success or Cancel). */}
       {!showForm && (
       <div style={{ ...S.toolbar, flexWrap: "wrap" }}>
-        <MultiSelectDropdown
+        <SinglePickFilter
           compact
-          singleSelect
-          selected={filterStatus === "all" ? [] : [filterStatus]}
-          onChange={(next) => setFilterStatus(((next[0] as IpRequestStatus) ?? "all") as IpRequestStatus | "all")}
+          emptyValue="all"
+          value={filterStatus}
+          onChange={(next) => setFilterStatus(next as IpRequestStatus | "all")}
           allLabel="All statuses"
           placeholder="Search statuses…"
           options={STATUSES.map((s) => ({ value: s, label: s }))}
         />
-        <MultiSelectDropdown
+        <SinglePickFilter
           compact
-          singleSelect
-          selected={filterCustomer === "all" ? [] : [filterCustomer]}
-          onChange={(next) => setFilterCustomer(next[0] ?? "all")}
+          emptyValue="all"
+          value={filterCustomer}
+          onChange={setFilterCustomer}
           allLabel="All customers"
           placeholder="Search customers…"
           options={customers.map((c) => ({ value: c.id, label: c.name }))}
         />
-        <MultiSelectDropdown
+        <SinglePickFilter
           compact
-          singleSelect
-          selected={filterCategory === "all" ? [] : [filterCategory]}
-          onChange={(next) => { setFilterCategory(next[0] ?? "all"); setFilterSubCat("all"); setFilterStyle("all"); }}
+          emptyValue="all"
+          value={filterCategory}
+          onChange={(next) => { setFilterCategory(next); setFilterSubCat("all"); setFilterStyle("all"); }}
           allLabel="All categories"
           placeholder="Search categories…"
           options={groupNames.map((g) => ({ value: g, label: g }))}
         />
-        <MultiSelectDropdown
+        <SinglePickFilter
           compact
-          singleSelect
-          selected={filterSubCat === "all" ? [] : [filterSubCat]}
-          onChange={(next) => { setFilterSubCat(next[0] ?? "all"); setFilterStyle("all"); }}
+          emptyValue="all"
+          value={filterSubCat}
+          onChange={(next) => { setFilterSubCat(next); setFilterStyle("all"); }}
           allLabel="All sub cats"
           placeholder="Search sub cats…"
           options={subCatNames.map((s) => ({ value: s, label: s }))}
         />
-        <MultiSelectDropdown
+        <SinglePickFilter
           compact
-          singleSelect
-          selected={filterStyle === "all" ? [] : [filterStyle]}
-          onChange={(next) => { setFilterStyle(next[0] ?? "all"); setFilterColor("all"); setFilterDescription("all"); }}
+          emptyValue="all"
+          value={filterStyle}
+          onChange={(next) => { setFilterStyle(next); setFilterColor("all"); setFilterDescription("all"); }}
           allLabel="All styles"
           placeholder="Search styles…"
           options={styleNames.map((s) => ({ value: s, label: s }))}
         />
-        <MultiSelectDropdown
+        <SinglePickFilter
           compact
-          singleSelect
-          selected={filterColor === "all" ? [] : [filterColor]}
-          onChange={(next) => setFilterColor(next[0] ?? "all")}
+          emptyValue="all"
+          value={filterColor}
+          onChange={setFilterColor}
           allLabel="All colors"
           placeholder="Search colors…"
           options={colorNames.map((c) => ({ value: c, label: c }))}
         />
-        <MultiSelectDropdown
+        <SinglePickFilter
           compact
-          singleSelect
-          selected={filterDescription === "all" ? [] : [filterDescription]}
-          onChange={(next) => setFilterDescription(next[0] ?? "all")}
+          emptyValue="all"
+          value={filterDescription}
+          onChange={setFilterDescription}
           allLabel="All descriptions"
           placeholder="Search descriptions…"
           options={descriptionNames.map((d) => ({ value: d, label: d }))}
@@ -725,42 +726,37 @@ function RequestForm({
     }}>
       <span style={{ fontWeight: 600, color: PAL.accent }}>+ New request</span>
       <span style={{ color: PAL.textMuted, fontSize: 11 }}>Customer:</span>
-      <MultiSelectDropdown
+      <SinglePickFilter
         compact
-        singleSelect
-        selected={customerId ? [customerId] : []}
-        onChange={(next) => setCustomerId(next[0] ?? "")}
+        value={customerId}
+        onChange={setCustomerId}
         allLabel="— pick —"
         placeholder="Search customers…"
         options={customers.map((c) => ({ value: c.id, label: c.name }))}
       />
       <span style={{ color: PAL.textMuted, fontSize: 11 }}>Cat:</span>
-      <MultiSelectDropdown
+      <SinglePickFilter
         compact
-        singleSelect
-        selected={groupName ? [groupName] : []}
-        onChange={(next) => { setGroupName(next[0] ?? ""); setSubCatName(""); setStyleCode(""); setColorCodes([]); setDescription(""); }}
+        value={groupName}
+        onChange={(next) => { setGroupName(next); setSubCatName(""); setStyleCode(""); setColorCodes([]); setDescription(""); }}
         allLabel="All cats"
         placeholder="Search categories…"
         options={groupOptions}
       />
       <span style={{ color: PAL.textMuted, fontSize: 11 }}>Sub Cat:</span>
-      <MultiSelectDropdown
+      <SinglePickFilter
         compact
-        singleSelect
-        selected={subCatName ? [subCatName] : []}
-        onChange={(next) => { setSubCatName(next[0] ?? ""); setStyleCode(""); setColorCodes([]); setDescription(""); }}
+        value={subCatName}
+        onChange={(next) => { setSubCatName(next); setStyleCode(""); setColorCodes([]); setDescription(""); }}
         allLabel="All sub cats"
         placeholder="Search sub cats…"
         options={subCatOptions}
       />
       <span style={{ color: PAL.textMuted, fontSize: 11 }}>Style:</span>
-      <MultiSelectDropdown
+      <SinglePickFilter
         compact
-        singleSelect
-        selected={styleCode ? [styleCode] : []}
-        onChange={(next) => {
-          const picked = next[0] ?? "";
+        value={styleCode}
+        onChange={(picked) => {
           setStyleCode(picked);
           if (picked === "TBD") {
             // TBD style → auto-fill variant pickers to TBD too. The
@@ -802,11 +798,10 @@ function RequestForm({
         options={styleOptions}
       />
       <span style={{ color: PAL.textMuted, fontSize: 11 }}>Description:</span>
-      <MultiSelectDropdown
+      <SinglePickFilter
         compact
-        singleSelect
-        selected={description ? [description] : []}
-        onChange={(next) => setDescription(next[0] ?? "")}
+        value={description}
+        onChange={setDescription}
         allLabel="(optional)"
         placeholder="Search descriptions…"
         options={descriptionOptions}
@@ -916,21 +911,19 @@ function RequestForm({
         title="Pick one or more months. Each color × period combo creates a row."
       />
       <span style={{ color: PAL.textMuted, fontSize: 11 }}>Type:</span>
-      <MultiSelectDropdown
+      <SinglePickFilter
         compact
-        singleSelect
-        selected={[type]}
-        onChange={(next) => setType((next[0] as IpRequestType) ?? "buyer_request")}
+        value={type}
+        onChange={(next) => setType((next as IpRequestType) || "buyer_request")}
         allLabel="Type"
         placeholder="Search types…"
         options={REQUEST_TYPES.map((t) => ({ value: t, label: t.replace(/_/g, " ") }))}
       />
       <span style={{ color: PAL.textMuted, fontSize: 11 }}>Confidence:</span>
-      <MultiSelectDropdown
+      <SinglePickFilter
         compact
-        singleSelect
-        selected={[confidence]}
-        onChange={(next) => setConfidence((next[0] as IpConfidenceLevel) ?? "possible")}
+        value={confidence}
+        onChange={(next) => setConfidence((next as IpConfidenceLevel) || "possible")}
         allLabel="Confidence"
         placeholder="Search confidence…"
         options={CONFIDENCE_LEVELS.map((c) => ({ value: c, label: c }))}
