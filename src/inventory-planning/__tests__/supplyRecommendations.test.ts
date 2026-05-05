@@ -12,7 +12,7 @@ function proj(partial: Partial<Omit<IpProjectedInventory, "id" | "created_at">>)
     period_end: "2026-05-31",
     period_code: "2026-05",
     beginning_on_hand_qty: 0, ats_qty: 0,
-    inbound_receipts_qty: 0, inbound_po_qty: 0, wip_qty: 0,
+    inbound_receipts_qty: 0, inbound_po_qty: 0, inbound_planned_buy_qty: 0, wip_qty: 0,
     total_available_supply_qty: 0,
     wholesale_demand_qty: 0, ecom_demand_qty: 0,
     protected_ecom_qty: 0, reserved_wholesale_qty: 0,

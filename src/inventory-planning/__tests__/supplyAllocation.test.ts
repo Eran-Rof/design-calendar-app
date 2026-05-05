@@ -15,7 +15,7 @@ function supply(partial: Partial<SupplyInputsForSku> = {}): SupplyInputsForSku {
   return {
     sku_id: SKU,
     beginning_on_hand_qty: 0, ats_qty: 0,
-    inbound_receipts_qty: 0, inbound_po_qty: 0, wip_qty: 0,
+    inbound_receipts_qty: 0, inbound_po_qty: 0, inbound_planned_buy_qty: 0, wip_qty: 0,
     ...partial,
   };
 }
@@ -63,6 +63,12 @@ describe("totalAvailableSupply", () => {
   });
   it("clamps negatives", () => {
     expect(totalAvailableSupply(supply({ beginning_on_hand_qty: -5, inbound_po_qty: 10 }))).toBe(10);
+  });
+  it("ignores inbound_planned_buy_qty by default — opt-in via count_planned_buys", () => {
+    const s = supply({ beginning_on_hand_qty: 100, inbound_planned_buy_qty: 50 });
+    expect(totalAvailableSupply(s)).toBe(100);
+    expect(totalAvailableSupply(s, { count_planned_buys: false })).toBe(100);
+    expect(totalAvailableSupply(s, { count_planned_buys: true })).toBe(150);
   });
 });
 

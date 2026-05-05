@@ -45,6 +45,11 @@ export interface IpProjectedInventory {
   ats_qty: number;
   inbound_receipts_qty: number;
   inbound_po_qty: number;
+  // Phase 3 enhancement: bucket-summed Phase 1 planned_buy_qty for
+  // (sku, period). Always populated for visibility; only counted
+  // into total_available_supply_qty when the run's
+  // recon_include_planned_buys flag is true.
+  inbound_planned_buy_qty: number;
   wip_qty: number;
   total_available_supply_qty: number;
   wholesale_demand_qty: number;
@@ -131,6 +136,11 @@ export interface SupplyInputsForSku {
   ats_qty: number;
   inbound_receipts_qty: number;
   inbound_po_qty: number;
+  // Phase 3 enhancement: planned_buy_qty bucketed from Phase 1.
+  // Counted toward totalAvailableSupply only when the orchestrator
+  // sets `count_planned_buys` on the ReconciliationInput (driven by
+  // the run's recon_include_planned_buys flag).
+  inbound_planned_buy_qty: number;
   wip_qty: number;
 }
 
@@ -162,6 +172,10 @@ export interface ReconciliationInput {
   // Optional — used by the late-PO exception check.
   po_detail?: Array<{ vendor_id: string | null; expected_date: IpIsoDate | null; qty: number }>;
   vendor_timing?: IpVendorTimingSignal[];
+  // Phase 3 enhancement: when true, supply.inbound_planned_buy_qty is
+  // added into totalAvailableSupply. Defaults to false so existing
+  // call sites stay unchanged.
+  count_planned_buys?: boolean;
 }
 
 export interface AllocationBreakdown {
@@ -194,6 +208,7 @@ export interface IpReconciliationGridRow {
   beginning_on_hand_qty: number;
   ats_qty: number;
   inbound_po_qty: number;
+  inbound_planned_buy_qty: number;
   inbound_receipts_qty: number;
   wip_qty: number;
   total_available_supply_qty: number;

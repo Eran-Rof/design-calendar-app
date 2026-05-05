@@ -118,9 +118,19 @@ export async function runReconciliationPass(run: IpPlanningRun): Promise<RunReco
     onHandBySku.set(s.sku_id, entry);
   }
 
-  // ── inbound POs + receipts, bucketed to month ────────────────────
+  // ── inbound POs + receipts + planned buys, bucketed to month ─────
   const inboundPoByGrain = new Map<string, number>();
   const receiptsByGrain = new Map<string, number>();
+  // Phase 1 planned_buy_qty (the planner's typed buys), bucketed by
+  // (sku, period). Always populated; the run flag controls whether
+  // they count toward total_available_supply_qty downstream.
+  const plannedBuysByGrain = new Map<string, number>();
+  for (const f of wholesaleForecast) {
+    const buy = f.planned_buy_qty ?? 0;
+    if (buy <= 0) continue;
+    const k = `${f.sku_id}:${f.period_start}`;
+    plannedBuysByGrain.set(k, (plannedBuysByGrain.get(k) ?? 0) + buy);
+  }
   const poDetailByGrain = new Map<string, Array<{ po_number: string; expected_date: string | null; qty_open: number }>>();
   for (const po of openPos) {
     if (!po.expected_date) continue;
@@ -173,6 +183,9 @@ export async function runReconciliationPass(run: IpPlanningRun): Promise<RunReco
   for (const k of ecomDemand.keys())      skuSet.add(k.split(":")[0]);
   for (const k of inboundPoByGrain.keys())skuSet.add(k.split(":")[0]);
   for (const k of receiptsByGrain.keys()) skuSet.add(k.split(":")[0]);
+  // Planned buys can introduce a SKU into the projection that has no
+  // demand yet (rare, but a planner could buy a brand-new SKU).
+  for (const k of plannedBuysByGrain.keys()) skuSet.add(k.split(":")[0]);
 
   const projectedRows: Array<Omit<IpProjectedInventory, "id" | "created_at">> = [];
   const protectedShortfall = new Map<string, number>();
@@ -193,6 +206,7 @@ export async function runReconciliationPass(run: IpPlanningRun): Promise<RunReco
         ats_qty: beginning === (onHandBySku.get(skuId)?.qty ?? 0) ? ats : 0,
         inbound_receipts_qty: receiptsByGrain.get(grainKey) ?? 0,
         inbound_po_qty: inboundPoByGrain.get(grainKey) ?? 0,
+        inbound_planned_buy_qty: plannedBuysByGrain.get(grainKey) ?? 0,
         wip_qty: 0, // Phase 3 MVP: WIP feed not wired. Exposed for Phase 4.
       };
 
@@ -223,6 +237,7 @@ export async function runReconciliationPass(run: IpPlanningRun): Promise<RunReco
         rules: applicableRules,
         po_detail: poDetailByGrain.get(grainKey),
         vendor_timing: vendorTiming,
+        count_planned_buys: !!run.recon_include_planned_buys,
       };
 
       const row = buildProjectedInventory(input);
@@ -309,6 +324,7 @@ export async function buildReconciliationGrid(run: IpPlanningRun) {
       beginning_on_hand_qty: p.beginning_on_hand_qty,
       ats_qty: p.ats_qty,
       inbound_po_qty: p.inbound_po_qty,
+      inbound_planned_buy_qty: p.inbound_planned_buy_qty,
       inbound_receipts_qty: p.inbound_receipts_qty,
       wip_qty: p.wip_qty,
       total_available_supply_qty: p.total_available_supply_qty,

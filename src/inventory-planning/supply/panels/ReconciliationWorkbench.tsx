@@ -142,6 +142,28 @@ export default function ReconciliationWorkbench() {
     }
   }
 
+  // Inline toggle for the planned-buys flag — kept here on the
+  // header card (not buried inside a modal) so the planner can flip
+  // it on an existing run and re-reconcile without spinning up a
+  // new run. Persists via wholesaleRepo.updatePlanningRun.
+  async function toggleIncludePlannedBuys(next: boolean) {
+    if (!selectedRun) return;
+    try {
+      const updated = await wholesaleRepo.updatePlanningRun(selectedRun.id, {
+        recon_include_planned_buys: next,
+      });
+      setRuns((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+      setToast({
+        text: next
+          ? "Planned buys will now count as inbound supply on the next recon."
+          : "Planned buys will be excluded from supply on the next recon.",
+        kind: "success",
+      });
+    } catch (e) {
+      setToast({ text: "Toggle failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    }
+  }
+
   const demandForSelected = useMemo(() => {
     // Without re-running compute we don't have the fine-grained demand
     // breakdown available in the grid row. The drawer will just show
@@ -191,11 +213,28 @@ export default function ReconciliationWorkbench() {
             </button>
           </div>
           {selectedRun && (
-            <div style={{ color: PAL.textMuted, fontSize: 12 }}>
-              Snapshot {formatDate(selectedRun.source_snapshot_date)} ·
-              wholesale source {selectedRun.wholesale_source_run_id ? selectedRun.wholesale_source_run_id.slice(0, 8) : "—"} ·
-              ecom source {selectedRun.ecom_source_run_id ? selectedRun.ecom_source_run_id.slice(0, 8) : "—"}
-            </div>
+            <>
+              <div style={{ color: PAL.textMuted, fontSize: 12 }}>
+                Snapshot {formatDate(selectedRun.source_snapshot_date)} ·
+                wholesale source {selectedRun.wholesale_source_run_id ? selectedRun.wholesale_source_run_id.slice(0, 8) : "—"} ·
+                ecom source {selectedRun.ecom_source_run_id ? selectedRun.ecom_source_run_id.slice(0, 8) : "—"}
+              </div>
+              {/* Inline toggle: count Phase 1 planned_buy_qty as
+                  inbound supply on the next recon. Editable here on the
+                  active run instead of a separate dialog so the planner
+                  can flip + re-reconcile in two clicks. */}
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: 12, color: PAL.text, cursor: "pointer", userSelect: "none" }}>
+                <input
+                  type="checkbox"
+                  checked={!!selectedRun.recon_include_planned_buys}
+                  onChange={(e) => void toggleIncludePlannedBuys(e.target.checked)}
+                />
+                <span>Count planned wholesale buys as inbound supply</span>
+                <span style={{ color: PAL.textMuted, fontSize: 11 }}>
+                  (treats Phase 1 typed Buy qty as committed for this run; re-run reconciliation to apply)
+                </span>
+              </label>
+            </>
           )}
         </div>
 
@@ -287,6 +326,9 @@ function NewReconciliationRunModal({
         forecast_method_preference: "ly_sales",
         wholesale_source_run_id: wholesaleId || null,
         ecom_source_run_id: ecomId || null,
+        // Default off; planner can flip the inline toggle on the
+        // workbench header before running reconciliation.
+        recon_include_planned_buys: false,
         note: note.trim() || null,
         created_by: null,
       });

@@ -62,6 +62,10 @@ export interface IpPlanningRun {
   // Phase 3 cross-scope pointers (non-null on "all"-scope runs).
   wholesale_source_run_id: string | null;
   ecom_source_run_id: string | null;
+  // Phase 3: when true, runReconciliationPass treats Phase 1
+  // planned_buy_qty (per sku, per period) as committed inbound supply.
+  // Persistent on the run so the recon is reproducible.
+  recon_include_planned_buys: boolean;
   note: string | null;
   created_by: string | null;
   created_at: IpIsoDateTime;

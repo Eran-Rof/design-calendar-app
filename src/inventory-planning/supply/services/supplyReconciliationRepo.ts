@@ -113,8 +113,13 @@ export const supplyRepo = {
 
   // ── Recommendations ──────────────────────────────────────────────────────
   async listRecommendations(runId: string): Promise<IpInventoryRecommendation[]> {
+    // Stable ORDER BY so the row sequence doesn't shuffle between
+    // recon passes (the table is replace-mode, so heap order can
+    // change after a rebuild). Same pattern as listExceptions /
+    // listProjected. Priority drives the visible "what to do first"
+    // order; created_at + id break ties deterministically.
     return sbGet<IpInventoryRecommendation>(
-      `ip_inventory_recommendations?select=*&planning_run_id=eq.${runId}&limit=200000`,
+      `ip_inventory_recommendations?select=*&planning_run_id=eq.${runId}&order=priority_level.asc,created_at.asc,id.asc&limit=200000`,
     );
   },
   async replaceRecommendations(

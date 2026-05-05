@@ -136,6 +136,7 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
               <th style={{ ...S.th, textAlign: "right" }}>On hand</th>
               <th style={{ ...S.th, textAlign: "right" }}>ATS</th>
               <th style={{ ...S.th, textAlign: "right" }}>Inbound PO</th>
+              <th style={{ ...S.th, textAlign: "right" }} title="Phase 1 planned_buy_qty bucketed to (sku, period). Counted toward Supply only when the run flag is on.">Planned Buy</th>
               <th style={{ ...S.th, textAlign: "right" }}>Receipts</th>
               <th style={{ ...S.th, textAlign: "right" }}>WIP</th>
               <Th label="Supply" k="supply" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
@@ -161,6 +162,9 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
                 <td style={S.tdNum}>{formatQty(r.beginning_on_hand_qty)}</td>
                 <td style={{ ...S.tdNum, color: PAL.textDim }}>{formatQty(r.ats_qty)}</td>
                 <td style={S.tdNum}>{formatQty(r.inbound_po_qty)}</td>
+                <td style={{ ...S.tdNum, color: r.inbound_planned_buy_qty > 0 ? PAL.green : PAL.textMuted }}>
+                  {formatQty(r.inbound_planned_buy_qty)}
+                </td>
                 <td style={S.tdNum}>{formatQty(r.inbound_receipts_qty)}</td>
                 <td style={{ ...S.tdNum, color: PAL.textMuted }}>{formatQty(r.wip_qty)}</td>
                 <td style={{ ...S.tdNum, color: PAL.accent, fontWeight: 700 }}>{formatQty(r.total_available_supply_qty)}</td>
@@ -202,14 +206,14 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
               </tr>
             ))}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={18} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={19} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No reconciled rows yet. Run the reconciliation pass above to populate the grid."
                   : "No rows match your filters."}
               </td></tr>
             )}
             {loading && (
-              <tr><td colSpan={18} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={19} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 Loading…
               </td></tr>
             )}

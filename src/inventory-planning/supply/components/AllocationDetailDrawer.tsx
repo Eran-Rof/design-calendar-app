@@ -45,6 +45,7 @@ export default function AllocationDetailDrawer({
       ats_qty: row.ats_qty,
       inbound_receipts_qty: row.inbound_receipts_qty,
       inbound_po_qty: row.inbound_po_qty,
+      inbound_planned_buy_qty: row.inbound_planned_buy_qty,
       wip_qty: row.wip_qty,
     };
     const dem: DemandInputsForSku = demand ?? {
@@ -89,6 +90,11 @@ export default function AllocationDetailDrawer({
             <MiniCell label="On hand" value={formatQty(row.beginning_on_hand_qty)} />
             <MiniCell label="ATS" value={formatQty(row.ats_qty)} />
             <MiniCell label="Inbound PO" value={formatQty(row.inbound_po_qty)} />
+            <MiniCell
+              label="Planned Buy"
+              value={formatQty(row.inbound_planned_buy_qty)}
+              accent={row.inbound_planned_buy_qty > 0 ? PAL.green : undefined}
+            />
             <MiniCell label="Receipts" value={formatQty(row.inbound_receipts_qty)} />
             <MiniCell label="WIP" value={formatQty(row.wip_qty)} />
             <MiniCell label="Total supply" value={formatQty(row.total_available_supply_qty)} accent={PAL.accent} />

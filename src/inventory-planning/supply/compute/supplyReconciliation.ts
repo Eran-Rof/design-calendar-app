@@ -5,6 +5,7 @@
 //
 //   total_available_supply_qty =
 //     available_qty + inbound_receipts_qty + inbound_po_qty + wip_qty
+//     + (count_planned_buys ? inbound_planned_buy_qty : 0)
 //
 //   where available_qty =
 //     ats_qty  (month 1 — snapshot value, net of existing SO commitments)
@@ -12,6 +13,11 @@
 //
 //   Using ATS rather than raw on_hand ensures inventory already committed to
 //   existing SOs is not double-counted against new forecasted demand.
+//
+//   inbound_planned_buy_qty is the bucket-summed Phase 1 planned_buy_qty
+//   for this (sku, period). It's always populated on the projected_inventory
+//   row for visibility, but only counted into the total when the run flag
+//   recon_include_planned_buys is true (passed in via count_planned_buys).
 //
 // The allocation waterfall is handled by allocationEngine.ts; this
 // module just supplies the inputs and computes derived fields.
@@ -25,16 +31,21 @@ import type {
 } from "../types/supply";
 import { computeAllocation } from "./allocationEngine";
 
-export function totalAvailableSupply(s: SupplyInputsForSku): number {
+export function totalAvailableSupply(
+  s: SupplyInputsForSku,
+  opts: { count_planned_buys?: boolean } = {},
+): number {
   const safe = (n: number) => (Number.isFinite(n) && n > 0 ? n : 0);
   // Month 1: ats_qty is set from the Xoro snapshot (net of existing SO commitments).
   // Months 2+: ats_qty is 0 and beginning_on_hand_qty is the rolled ending balance,
   // which is already net. Either way we pick the right available figure.
   const onHand = s.ats_qty > 0 ? safe(s.ats_qty) : safe(s.beginning_on_hand_qty);
+  const plannedBuys = opts.count_planned_buys ? safe(s.inbound_planned_buy_qty) : 0;
   return (
     onHand +
     safe(s.inbound_receipts_qty) +
     safe(s.inbound_po_qty) +
+    plannedBuys +
     safe(s.wip_qty)
   );
 }
@@ -49,7 +60,7 @@ export function buildProjectedInventory(
 ): Omit<IpProjectedInventory, "id" | "created_at"> {
   const supply = input.supply;
   const demand = input.demand;
-  const totalSupply = totalAvailableSupply(supply);
+  const totalSupply = totalAvailableSupply(supply, { count_planned_buys: input.count_planned_buys });
   const alloc = computeAllocation(totalSupply, demand, input.rules);
   return {
     planning_run_id: input.planning_run_id,
@@ -62,6 +73,7 @@ export function buildProjectedInventory(
     ats_qty: Math.max(0, supply.ats_qty),
     inbound_receipts_qty: Math.max(0, supply.inbound_receipts_qty),
     inbound_po_qty: Math.max(0, supply.inbound_po_qty),
+    inbound_planned_buy_qty: Math.max(0, supply.inbound_planned_buy_qty),
     wip_qty: Math.max(0, supply.wip_qty),
     total_available_supply_qty: totalSupply,
     wholesale_demand_qty: Math.max(0, demand.wholesale_demand_qty),
@@ -87,6 +99,7 @@ export function mergeSupply(a: SupplyInputsForSku, b: SupplyInputsForSku): Suppl
     ats_qty: a.ats_qty + b.ats_qty,
     inbound_receipts_qty: a.inbound_receipts_qty + b.inbound_receipts_qty,
     inbound_po_qty: a.inbound_po_qty + b.inbound_po_qty,
+    inbound_planned_buy_qty: a.inbound_planned_buy_qty + b.inbound_planned_buy_qty,
     wip_qty: a.wip_qty + b.wip_qty,
   };
 }
