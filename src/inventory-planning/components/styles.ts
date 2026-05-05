@@ -59,10 +59,17 @@ export const S: Record<string, React.CSSProperties> = {
   td:         { padding: "7px 10px", borderBottom: `1px solid ${PAL.borderFaint}`, borderRight: `1px solid ${PAL.borderFaint}`, whiteSpace: "nowrap" as const, verticalAlign: "middle" as const },
   tdNum:      { padding: "7px 10px", borderBottom: `1px solid ${PAL.borderFaint}`, borderRight: `1px solid ${PAL.borderFaint}`, whiteSpace: "nowrap" as const, textAlign: "right" as const, fontFamily: "monospace" },
   chip:       { display: "inline-block", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600 },
-  drawerOverlay:{ position: "fixed" as const, inset: 0, background: "rgba(0,0,0,.6)", zIndex: 200, display: "flex", justifyContent: "flex-end" },
-  drawer:     { background: PAL.panel, width: 520, maxWidth: "90vw", height: "100%", overflowY: "auto" as const, display: "flex", flexDirection: "column" as const, borderLeft: `1px solid ${PAL.border}` },
-  drawerHeader:{ padding: "16px 20px", borderBottom: `1px solid ${PAL.border}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start", background: PAL.bg },
-  drawerBody: { padding: 20, flex: 1 },
+  // The "drawer" keys used to render a fixed side-overlay drawer.
+  // Repurposed in-place as a normal-flow inline card so every panel
+  // that imports them now renders inline (no overlay) — matches the
+  // request panel's no-drawer convention and keeps grid/page context
+  // visible while viewing detail. Names kept (`drawerOverlay`,
+  // `drawer`, `drawerHeader`, `drawerBody`) so the 8 existing call
+  // sites don't need per-file edits.
+  drawerOverlay:{ display: "block" },
+  drawer:     { background: PAL.panel, borderRadius: 10, border: `1px solid ${PAL.border}`, overflow: "hidden" as const, marginTop: 12, display: "flex", flexDirection: "column" as const, maxHeight: "calc(100vh - 200px)" },
+  drawerHeader:{ padding: "12px 16px", borderBottom: `1px solid ${PAL.border}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start", background: PAL.bg, position: "sticky" as const, top: 0, zIndex: 1 },
+  drawerBody: { padding: 16, flex: 1, overflowY: "auto" as const },
   infoCell:   { background: PAL.bg, borderRadius: 8, padding: 12 },
   infoLabel:  { color: PAL.textMuted, fontSize: 11, textTransform: "uppercase" as const, letterSpacing: 1, marginBottom: 4 },
   infoValue:  { color: PAL.text, fontSize: 14, fontWeight: 600 },

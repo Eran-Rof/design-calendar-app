@@ -2296,19 +2296,23 @@ export default function WholesalePlanningWorkbench() {
             onToast={(t) => setToast(t)}
           />
         )}
+        {/* Inline detail panel — used to be a side drawer overlay.
+            Now flows below the grid so the planner keeps page
+            context visible. Same component; the drawer styles
+            were redefined as inline-card styles centrally. */}
+        {selectedRow && (
+          <ForecastDetailDrawer
+            row={selectedRow}
+            overrides={overridesForRow}
+            onClose={() => setSelectedRow(null)}
+            onSaveOverride={saveOverride}
+            onUpdateBuyQty={saveBuyQty}
+          />
+        )}
         </>
         )}
       </div>
 
-      {selectedRow && (
-        <ForecastDetailDrawer
-          row={selectedRow}
-          overrides={overridesForRow}
-          onClose={() => setSelectedRow(null)}
-          onSaveOverride={saveOverride}
-          onUpdateBuyQty={saveBuyQty}
-        />
-      )}
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
       {pendingConfirm && (

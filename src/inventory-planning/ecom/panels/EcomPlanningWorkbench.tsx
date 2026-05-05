@@ -241,23 +241,25 @@ export default function EcomPlanningWorkbench() {
         </div>
 
         {tab === "grid" && (
-          <EcomPlanningGrid rows={rows} loading={loading} onSelectRow={setSelectedRow} onUpdateBuyQty={saveBuyQty} />
+          <>
+            <EcomPlanningGrid rows={rows} loading={loading} onSelectRow={setSelectedRow} onUpdateBuyQty={saveBuyQty} />
+            {/* Inline detail panel (formerly side drawer). */}
+            {selectedRow && (
+              <EcomOverrideDrawer
+                row={selectedRow}
+                overrides={overridesForRow}
+                onClose={() => setSelectedRow(null)}
+                onSaveOverride={saveOverride}
+                onToggleFlag={toggleFlag}
+                onUpdateBuyQty={saveBuyQty}
+              />
+            )}
+          </>
         )}
         {tab === "chart" && (
           <EcomForecastChart run={selectedRun} row={selectedRow} />
         )}
       </div>
-
-      {selectedRow && tab === "grid" && (
-        <EcomOverrideDrawer
-          row={selectedRow}
-          overrides={overridesForRow}
-          onClose={() => setSelectedRow(null)}
-          onSaveOverride={saveOverride}
-          onToggleFlag={toggleFlag}
-          onUpdateBuyQty={saveBuyQty}
-        />
-      )}
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
     </div>
