@@ -169,7 +169,11 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
   const [items, sales, requests, overrides, inv, pos, openSos, receipts, supplyPlaceholder] = await Promise.all([
     wholesaleRepo.listItems(),
     wholesaleRepo.listWholesaleSales(lookbackFrom),
-    wholesaleRepo.listOpenRequests(),
+    // listActiveRequestsForBuild = open + applied. Build needs both
+    // so that already-applied requests stay folded into the forecast
+    // on every rebuild instead of silently dropping out after the
+    // first build flipped their status.
+    wholesaleRepo.listActiveRequestsForBuild(),
     wholesaleRepo.listOverrides(run.id),
     wholesaleRepo.listInventorySnapshots(),
     wholesaleRepo.listOpenPos(),
@@ -318,6 +322,13 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
       // Always keep the (Supply Only) synthetic — filtering it out by
       // customer_id would lose visibility on incoming inventory.
       if (p.customer_id === supplyPlaceholder) return true;
+      // Always keep pairs carrying an open future-demand request — a
+      // request the planner explicitly entered should always make it
+      // into the build regardless of the grid's current filter scope.
+      // Without this exemption, a filtered build silently drops the
+      // request's qty + customer + confidence from the forecast.
+      const k = `${p.customer_id}:${p.sku_id}`;
+      if (pairsWithOpenRequest.has(k)) return true;
       if (filter!.customer_id && p.customer_id !== filter!.customer_id) return false;
       const item = itemBySku.get(p.sku_id);
       if (filter!.style_code) {
@@ -432,16 +443,17 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
     },
   });
 
-  // Mark every open future-demand request the build actually consumed
-  // as applied. A request is "consumed" when its (customer, sku,
-  // target month) landed in the persisted forecast — without this
-  // bulk PATCH the requests sat at status="open" forever even after
-  // the build folded their qty into the system forecast.
+  // Flip OPEN requests to "applied" once their (customer, sku, period)
+  // grain has landed in the persisted forecast. Already-applied rows
+  // stay applied (they're still feeding subsequent builds — see
+  // listActiveRequestsForBuild). archived rows are excluded by the
+  // fetch above, so they never reach this path.
   const persistedKeys = new Set(
     forecastRows.map((f) => `${f.customer_id}:${f.sku_id}:${f.period_start}`),
   );
   const appliedRequestIds: string[] = [];
   for (const r of requests) {
+    if (r.request_status !== "open") continue;
     const periodStart = monthOf(r.target_period_start).period_start;
     if (persistedKeys.has(`${r.customer_id}:${r.sku_id}:${periodStart}`)) {
       appliedRequestIds.push(r.id);

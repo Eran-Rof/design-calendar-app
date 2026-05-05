@@ -783,6 +783,15 @@ export const wholesaleRepo = {
       "ip_future_demand_requests?select=*&request_status=eq.open&order=target_period_start.asc&limit=10000",
     );
   },
+  // Active requests for the build pipeline = open + applied (archived
+  // excluded). Without including applied, a rebuild after the first
+  // pass dropped every applied request's qty / customer / confidence
+  // out of the forecast — the planner's edits silently vanished.
+  async listActiveRequestsForBuild(): Promise<IpFutureDemandRequest[]> {
+    return sbGet<IpFutureDemandRequest>(
+      "ip_future_demand_requests?select=*&request_status=in.(open,applied)&order=target_period_start.asc&limit=10000",
+    );
+  },
   // Every request regardless of status. Used by the FutureDemandRequestsPanel
   // so the planner can filter to "applied" / "archived" client-side
   // (listOpenRequests only returns open and would yield zero rows when
