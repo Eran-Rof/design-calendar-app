@@ -16,6 +16,7 @@ import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { monthOf } from "../compute/periods";
 import { S, PAL, formatQty, formatPeriodCode } from "../components/styles";
 import { MultiSelectDropdown } from "../components/MultiSelectDropdown";
+import { TbdColorCell } from "./WholesalePlanningGrid";
 import type { ToastMessage } from "../components/Toast";
 
 const REQUEST_TYPES: IpRequestType[] = [
@@ -63,6 +64,46 @@ export default function FutureDemandRequestsPanel({
 
   const customerById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
   const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+
+  // Master color sets used by the inline TbdColorCell editor in the
+  // table rows. Same shape the wholesale grid passes — a global
+  // master-colors-lowercased set + a (style → colors) lookup so the
+  // cell can flag NEW (orange = not in master at all) vs NEW
+  // (green = in master but not on this style).
+  const masterColorsLower = useMemo(() => {
+    const set = new Set<string>();
+    for (const i of items) if (i.color) set.add(i.color.trim().toLowerCase());
+    return set;
+  }, [items]);
+  const masterColorsByStyleLower = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const i of items) {
+      const s = i.style_code ?? i.sku_code;
+      if (!s || !i.color) continue;
+      let bucket = m.get(s);
+      if (!bucket) { bucket = new Set(); m.set(s, bucket); }
+      bucket.add(i.color.trim().toLowerCase());
+    }
+    return m;
+  }, [items]);
+  // Per-row known-color picker scope — colors any item-master row
+  // carries within the row's (category, sub-category). Falls back to
+  // the global master color set when the row has no category meta.
+  const colorsByCatSubcat = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    const allColors = new Set<string>();
+    for (const i of items) {
+      if (!i.color || i.color.toUpperCase() === "TBD") continue;
+      allColors.add(i.color);
+      const cat = readGroupName(i) ?? "";
+      const sub = readSubCategoryName(i) ?? "";
+      const key = `${cat}|${sub}`;
+      let bucket = m.get(key);
+      if (!bucket) { bucket = new Set(); m.set(key, bucket); }
+      bucket.add(i.color);
+    }
+    return { byKey: m, all: allColors };
+  }, [items]);
 
   // ── Master-derived option pools ────────────────────────────────────
   // Categories / sub-cats / styles / colors / descriptions extracted
@@ -351,7 +392,61 @@ export default function FutureDemandRequestsPanel({
                   <td style={{ ...S.td, color: PAL.textDim }}>{catDisp}</td>
                   <td style={{ ...S.td, color: PAL.textDim }}>{subCatDisp}</td>
                   <td style={{ ...S.td, fontFamily: "monospace", color: isTbd ? PAL.yellow : PAL.accent }}>{styleDisp}</td>
-                  <td style={{ ...S.td, color: PAL.textDim }}>{colorDisp}</td>
+                  <td style={S.td} onClick={(e) => e.stopPropagation()}>
+                    {(() => {
+                      const styleForLookup = meta.style ?? item?.style_code ?? item?.sku_code ?? "";
+                      const colorLower = colorDisp.trim().toLowerCase();
+                      const inMaster = masterColorsLower.has(colorLower);
+                      const onStyle = styleForLookup
+                        ? !!masterColorsByStyleLower.get(styleForLookup)?.has(colorLower)
+                        : false;
+                      const isPlaceholder = colorDisp.toUpperCase() === "TBD" || colorDisp === "–";
+                      const isNewColor = !isPlaceholder && !inMaster;
+                      const isNewForStyle = !isPlaceholder && inMaster && !onStyle;
+                      const catKey = `${meta.cat ?? readGroupName(item) ?? ""}|${meta.subcat ?? readSubCategoryName(item) ?? ""}`;
+                      const scoped = colorsByCatSubcat.byKey.get(catKey);
+                      const knownColors = Array.from(scoped ?? colorsByCatSubcat.all).sort();
+                      return (
+                        <TbdColorCell
+                          value={isPlaceholder ? "TBD" : colorDisp}
+                          isNewColor={isNewColor}
+                          isNewForStyle={isNewForStyle}
+                          knownColors={knownColors}
+                          allKnownColorsLower={masterColorsLower}
+                          masterColorsLower={masterColorsLower}
+                          onSave={async (nextColor) => {
+                            // Rewrite the request's note marker so meta.color
+                            // reflects the new pick. Flip tag to TBD when
+                            // the new color is the placeholder, else REQ.
+                            const nextColorTrim = nextColor.trim();
+                            const isTbdColor = nextColorTrim.toUpperCase() === "TBD";
+                            const styleVal = meta.style ?? "";
+                            const isTbdNote = isTbdColor || styleVal.toUpperCase() === "TBD";
+                            const nextMeta: string[] = [];
+                            if (meta.cat) nextMeta.push(`cat=${meta.cat}`);
+                            if (meta.subcat) nextMeta.push(`subcat=${meta.subcat}`);
+                            if (styleVal) nextMeta.push(`style=${styleVal}`);
+                            nextMeta.push(`color=${nextColorTrim}`);
+                            if (meta.desc) nextMeta.push(`desc=${meta.desc}`);
+                            const tag = isTbdNote ? "TBD" : "REQ";
+                            const head = `[${tag} ${nextMeta.join("|")}]`;
+                            const body = noteDisp.trim();
+                            const nextNote = body ? `${head} ${body}` : head;
+                            setBusyId(r.id);
+                            try {
+                              await wholesaleRepo.updateRequest(r.id, { note: nextNote });
+                              await onChange();
+                              onToast({ text: `Color updated to ${nextColorTrim}`, kind: "success" });
+                            } catch (e) {
+                              onToast({ text: `Update failed — ${e instanceof Error ? e.message : String(e)}`, kind: "error" });
+                            } finally {
+                              setBusyId(null);
+                            }
+                          }}
+                        />
+                      );
+                    })()}
+                  </td>
                   <td style={{ ...S.td, color: PAL.textDim, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={descDisp}>
                     {descDisp}
                   </td>

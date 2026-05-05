@@ -3960,7 +3960,7 @@ function TbdCustomerCell({
 // the flag immediately. Picking a string nothing else uses sets the
 // flag, surfaces an orange "NEW" badge, and stays until the master
 // catches up.
-function TbdColorCell({
+export function TbdColorCell({
   value, isNewColor, isNewForStyle, knownColors, allKnownColorsLower, masterColorsLower, onSave,
   blocked, onBlocked,
 }: {
