@@ -36,7 +36,7 @@ export function MultiSelectDropdown({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [anchor, setAnchor] = useState<{ top: number; left: number; minWidth: number } | null>(null);
+  const [anchor, setAnchor] = useState<{ top: number; left: number; minWidth: number; maxHeight: number } | null>(null);
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
@@ -56,13 +56,46 @@ export function MultiSelectDropdown({
 
   // Position the popover relative to the trigger when it opens, and
   // refresh on scroll / resize so it tracks if the page moves.
+  // Clamps the position so the popover always fits inside the
+  // viewport: shifts left when it would overflow the right edge,
+  // flips above the trigger when it would overflow the bottom (and
+  // there's more room above), and caps maxHeight to the available
+  // space so the search input + first few options stay reachable
+  // even when the trigger is near a corner.
   useEffect(() => {
     if (!open) { setAnchor(null); return; }
     const update = () => {
       const t = triggerRef.current;
       if (!t) return;
       const r = t.getBoundingClientRect();
-      setAnchor({ top: r.bottom + 4, left: r.left, minWidth: Math.max(r.width, 260) });
+      const PAD = 8;
+      const GAP = 4;
+      const ABS_MAX_H = 380;
+      const MIN_USABLE_H = 180;
+      const popMinW = Math.max(r.width, 260);
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+
+      // Horizontal: prefer left-aligned with trigger; shift left when
+      // the popover would overflow the right edge. Floor at PAD so it
+      // doesn't disappear off the left edge on tiny viewports.
+      let left = r.left;
+      if (left + popMinW > vw - PAD) left = Math.max(PAD, vw - popMinW - PAD);
+
+      // Vertical: prefer below; flip above when below has less room
+      // than what's needed (ABS_MAX_H or MIN_USABLE_H minimum).
+      const spaceBelow = vh - r.bottom - GAP - PAD;
+      const spaceAbove = r.top - GAP - PAD;
+      let top: number;
+      let maxHeight: number;
+      if (spaceBelow >= MIN_USABLE_H || spaceBelow >= spaceAbove) {
+        top = r.bottom + GAP;
+        maxHeight = Math.max(MIN_USABLE_H, Math.min(ABS_MAX_H, spaceBelow));
+      } else {
+        maxHeight = Math.max(MIN_USABLE_H, Math.min(ABS_MAX_H, spaceAbove));
+        top = Math.max(PAD, r.top - GAP - maxHeight);
+      }
+      setAnchor({ top, left, minWidth: popMinW, maxHeight });
     };
     update();
     window.addEventListener("scroll", update, true);
@@ -169,7 +202,10 @@ export function MultiSelectDropdown({
             border: `1px solid ${PAL.border}`,
             borderRadius: 8,
             minWidth: anchor.minWidth,
-            maxHeight: 380,
+            // Driven by the viewport-clamping in the position effect
+            // so the popover always fits on-screen, flipping above
+            // the trigger when there's not enough room below.
+            maxHeight: anchor.maxHeight,
             display: "flex",
             flexDirection: "column",
             boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
