@@ -218,25 +218,26 @@ import h212 from "./shopify/orders.js";
 import h213 from "./vendor/banking.js";
 import h214 from "./internal/rfqs/index.js";
 import h215 from "./xoro/open-pos.js";
-import h216 from "./xoro/receipts.js";
-import h217 from "./edi/inbound/index.js";
-import h218 from "./vendor/bulk/index.js";
-import h219 from "./vendor/rfqs/index.js";
-import h220 from "./ats/upload.js";
-import h221 from "./vendor/erp.js";
-import h222 from "./xoro/items.js";
-import h223 from "./xoro-items-missing-sync.js";
-import h224 from "./xoro-receipts-sync.js";
-import h225 from "./send-notification.js";
-import h226 from "./ats-supply-sync.js";
-import h227 from "./xoro-sales-sync.js";
-import h228 from "./searates-proxy.js";
-import h229 from "./tanda-pos-sync.js";
-import h230 from "./dropbox-proxy.js";
-import h231 from "./vendor-invite.js";
-import h232 from "./xoro-ap-sync.js";
-import h233 from "./parse-excel.js";
-import h234 from "./xoro-proxy.js";
+import h216 from "./xoro/open-sos.js";
+import h217 from "./xoro/receipts.js";
+import h218 from "./edi/inbound/index.js";
+import h219 from "./vendor/bulk/index.js";
+import h220 from "./vendor/rfqs/index.js";
+import h221 from "./ats/upload.js";
+import h222 from "./vendor/erp.js";
+import h223 from "./xoro/items.js";
+import h224 from "./xoro-items-missing-sync.js";
+import h225 from "./xoro-receipts-sync.js";
+import h226 from "./send-notification.js";
+import h227 from "./ats-supply-sync.js";
+import h228 from "./xoro-sales-sync.js";
+import h229 from "./searates-proxy.js";
+import h230 from "./tanda-pos-sync.js";
+import h231 from "./dropbox-proxy.js";
+import h232 from "./vendor-invite.js";
+import h233 from "./xoro-ap-sync.js";
+import h234 from "./parse-excel.js";
+import h235 from "./xoro-proxy.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -455,25 +456,26 @@ export const ROUTES = [
   { pattern: "/api/vendor/banking", handler: h213 },
   { pattern: "/api/internal/rfqs", handler: h214 },
   { pattern: "/api/xoro/open-pos", handler: h215 },
-  { pattern: "/api/xoro/receipts", handler: h216 },
-  { pattern: "/api/edi/inbound", handler: h217 },
-  { pattern: "/api/vendor/bulk", handler: h218 },
-  { pattern: "/api/vendor/rfqs", handler: h219 },
-  { pattern: "/api/ats/upload", handler: h220 },
-  { pattern: "/api/vendor/erp", handler: h221 },
-  { pattern: "/api/xoro/items", handler: h222 },
-  { pattern: "/api/xoro-items-missing-sync", handler: h223 },
-  { pattern: "/api/xoro-receipts-sync", handler: h224 },
-  { pattern: "/api/send-notification", handler: h225 },
-  { pattern: "/api/ats-supply-sync", handler: h226 },
-  { pattern: "/api/xoro-sales-sync", handler: h227 },
-  { pattern: "/api/searates-proxy", handler: h228 },
-  { pattern: "/api/tanda-pos-sync", handler: h229 },
-  { pattern: "/api/dropbox-proxy", handler: h230 },
-  { pattern: "/api/vendor-invite", handler: h231 },
-  { pattern: "/api/xoro-ap-sync", handler: h232 },
-  { pattern: "/api/parse-excel", handler: h233 },
-  { pattern: "/api/xoro-proxy", handler: h234 },
+  { pattern: "/api/xoro/open-sos", handler: h216 },
+  { pattern: "/api/xoro/receipts", handler: h217 },
+  { pattern: "/api/edi/inbound", handler: h218 },
+  { pattern: "/api/vendor/bulk", handler: h219 },
+  { pattern: "/api/vendor/rfqs", handler: h220 },
+  { pattern: "/api/ats/upload", handler: h221 },
+  { pattern: "/api/vendor/erp", handler: h222 },
+  { pattern: "/api/xoro/items", handler: h223 },
+  { pattern: "/api/xoro-items-missing-sync", handler: h224 },
+  { pattern: "/api/xoro-receipts-sync", handler: h225 },
+  { pattern: "/api/send-notification", handler: h226 },
+  { pattern: "/api/ats-supply-sync", handler: h227 },
+  { pattern: "/api/xoro-sales-sync", handler: h228 },
+  { pattern: "/api/searates-proxy", handler: h229 },
+  { pattern: "/api/tanda-pos-sync", handler: h230 },
+  { pattern: "/api/dropbox-proxy", handler: h231 },
+  { pattern: "/api/vendor-invite", handler: h232 },
+  { pattern: "/api/xoro-ap-sync", handler: h233 },
+  { pattern: "/api/parse-excel", handler: h234 },
+  { pattern: "/api/xoro-proxy", handler: h235 },
 ];
 
 export function compileRoutes(routes) {
