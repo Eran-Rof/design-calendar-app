@@ -740,6 +740,24 @@ export const wholesaleRepo = {
   async deleteTbdRow(id: string): Promise<void> {
     await withRetryOn57014("deleteTbdRow", () => sbDelete(`ip_wholesale_forecast_tbd?id=eq.${id}`));
   },
+  // Bulk-delete every TBD row tied to a planning run whose notes are
+  // tagged with the [fromRequest:…] marker. Used at the start of each
+  // build so multiple TBD-color requests for the same (style, customer,
+  // period) grain can each persist as their own row without accumulating
+  // duplicates across rebuilds. Plain INSERT path on each request would
+  // otherwise compound the row count every build.
+  async deleteRequestDerivedTbdRows(planningRunId: string): Promise<number> {
+    const ids = await sbGetAll<{ id: string }>(
+      `ip_wholesale_forecast_tbd?select=id,notes&planning_run_id=eq.${planningRunId}&notes=like.${encodeURIComponent("[fromRequest:%")}`,
+    );
+    const CHUNK = 500;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const slice = ids.slice(i, i + CHUNK);
+      const inList = slice.map((r) => `"${r.id}"`).join(",");
+      await sbDelete(`ip_wholesale_forecast_tbd?planning_run_id=eq.${planningRunId}&id=in.(${inList})`);
+    }
+    return ids.length;
+  },
 
   // System-qty override: planner directly edits the System forecast.
   // Stored alongside the original system_forecast_qty so the grid can

@@ -12,6 +12,7 @@ import type { IpIsoDate } from "../types/entities";
 import type {
   IpForecastComputeInput,
   IpForecastMethod,
+  IpFutureDemandRequest,
   IpOverrideReasonCode,
   IpPlanningGridRow,
   IpPlanningRun,
@@ -509,20 +510,32 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
   });
 
   // TBD-color requests → write to ip_wholesale_forecast_tbd as
-  // planner-added stock-buy rows. The planning grid picks them up
-  // via the existing buildGridRows TBD overlay logic and renders
-  // them with color="TBD" instead of forcing a real master color.
-  // Each request's qty rides as buyer_request_qty on the TBD row.
+  // planner-added stock-buy rows. Each request becomes its own row
+  // (plain INSERT, is_user_added=true) so multiple requests sharing
+  // the same (style, color, customer, period) grain don't collapse
+  // into one — the partial unique index on the table only constrains
+  // is_user_added=false rows. Each row's notes is prefixed with
+  // [fromRequest:<request_id>] so we can find and wipe them at the
+  // start of the next build before re-inserting; otherwise rows
+  // would compound on every rebuild.
+  if (tbdColorRequests.length > 0) {
+    try {
+      await wholesaleRepo.deleteRequestDerivedTbdRows(run.id);
+    } catch (e) {
+      console.warn(`[planning] failed to clear prior request-derived TBD rows`, e);
+    }
+  }
   for (const r of tbdColorRequests) {
     const meta = parseRequestMeta(r);
     const style = meta.style && meta.style.toUpperCase() !== "TBD" ? meta.style : "TBD";
     const period = monthOf(r.target_period_start);
+    const desc = meta.desc?.trim() ?? "";
+    const notes = desc ? `[fromRequest:${r.id}] ${desc}` : `[fromRequest:${r.id}]`;
     try {
-      await wholesaleRepo.upsertTbdRow(run.id, {
+      await wholesaleRepo.insertTbdRow(run.id, {
         style_code: style,
         color: "TBD",
         is_new_color: false,
-        is_user_added: false,
         customer_id: r.customer_id,
         group_name: meta.cat || null,
         sub_category_name: meta.subcat || null,
@@ -530,12 +543,12 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
         period_end: period.period_end,
         period_code: period.period_code,
         buyer_request_qty: r.requested_qty,
-        notes: meta.desc || null,
+        notes,
       });
     } catch (e) {
-      // Don't block the rest of the build on a single TBD upsert
+      // Don't block the rest of the build on a single TBD insert
       // failure — surface in console so the planner can investigate.
-      console.warn(`[planning] TBD-color request upsert failed for ${r.id}`, e);
+      console.warn(`[planning] TBD-color request insert failed for ${r.id}`, e);
     }
   }
 
