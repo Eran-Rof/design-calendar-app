@@ -7,9 +7,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { IpReconciliationGridRow } from "../types/supply";
+import type { CSSProperties } from "react";
 import { S, PAL, formatQty, formatPeriodCode } from "../../components/styles";
 import { StatCell } from "../../components/StatCell";
 import { MultiSelectDropdown } from "../../components/MultiSelectDropdown";
+import { ColumnsButton } from "../../components/cells/ColumnsButton";
 
 export interface ReconciliationGridProps {
   rows: IpReconciliationGridRow[];
@@ -89,6 +91,57 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
   // planner doesn't end up on a now-empty page after narrowing the
   // view. Same reset behavior as wholesale grid.
   useEffect(() => { setPage(0); }, [search, filterCategory, filterSubCat, filterStyle, filterGender, filterPriority, filterAction, filterPeriod, filterStockout, collapse, sortKey, sortDir, pageSize]);
+
+  // ── Column visibility — same pattern as the wholesale grid:
+  //    a Set of hidden column keys, persisted to localStorage so
+  //    the planner's choice survives reloads. Applied via colHide()
+  //    on every <td> + the `hidden` prop on each Th.
+  // SKU and Action are not in the toggleable list — they're always
+  // visible (primary identifier + verdict).
+  const TOGGLEABLE_COLUMNS: Array<{ key: string; label: string }> = [
+    { key: "style",      label: "Style" },
+    { key: "category",   label: "Category" },
+    { key: "subCat",     label: "Sub Cat" },
+    { key: "period",     label: "Period" },
+    { key: "onHand",     label: "On hand" },
+    { key: "ats",        label: "ATS" },
+    { key: "inboundPo",  label: "Inbound PO" },
+    { key: "plannedBuy", label: "Planned Buy" },
+    { key: "receipts",   label: "Receipts" },
+    { key: "wip",        label: "WIP" },
+    { key: "supply",     label: "Supply" },
+    { key: "wsDemand",   label: "W/s dmd" },
+    { key: "ecomDemand", label: "Ecom dmd" },
+    { key: "protected",  label: "Protected" },
+    { key: "reserved",   label: "Reserved" },
+    { key: "allocated",  label: "Allocated" },
+    { key: "ending",     label: "Ending" },
+    { key: "shortage",   label: "Shortage" },
+    { key: "excess",     label: "Excess" },
+  ];
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem("ip_recon_hidden_columns");
+      if (!raw) return new Set();
+      const arr = JSON.parse(raw);
+      return new Set(Array.isArray(arr) ? arr : []);
+    } catch { return new Set(); }
+  });
+  function toggleColumn(key: string) {
+    setHiddenColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      try { localStorage.setItem("ip_recon_hidden_columns", JSON.stringify(Array.from(next))); }
+      catch { /* ignore quota */ }
+      return next;
+    });
+  }
+  function resetColumns() {
+    setHiddenColumns(new Set());
+    try { localStorage.removeItem("ip_recon_hidden_columns"); } catch { /* ignore */ }
+  }
+  const colHide = (key: string): CSSProperties | undefined =>
+    hiddenColumns.has(key) ? { display: "none" } : undefined;
 
   // ── Option pools — derived from the row set so picker shows only
   //    values present in the data.
@@ -194,7 +247,7 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
           <input
             className="ip-search-input"
             style={{ ...S.input, width: 220, padding: "6px 32px 6px 12px", fontSize: 12 }}
-            placeholder="Search SKU / description / category"
+            placeholder="Search SKU / style / category"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onFocus={(e) => {
@@ -294,6 +347,12 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
           setFilterPriority([]); setFilterAction([]); setFilterPeriod([]);
           setFilterStockout("all"); setCollapse([]);
         }}>Clear</button>
+        <ColumnsButton
+          columns={TOGGLEABLE_COLUMNS}
+          hidden={hiddenColumns}
+          onToggle={toggleColumn}
+          onReset={resetColumns}
+        />
       </div>
 
       {/* Collapse strip — porting the wholesale grid's pattern. The
@@ -322,25 +381,25 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
           <thead>
             <tr>
               <Th label="SKU"        k="sku"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <Th label="Style"      k="style"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <Th label="Category"   k="category"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <Th label="Sub Cat"    k="subCat"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <Th label="Period"     k="period"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <Th label="On hand"    k="onHand"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="ATS"        k="ats"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Inbound PO" k="inboundPo"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Planned Buy" k="plannedBuy" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric title="Phase 1 planned_buy_qty bucketed to (sku, period). Counted toward Supply only when the run flag is on." />
-              <Th label="Receipts"   k="receipts"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="WIP"        k="wip"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Supply"     k="supply"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="W/s dmd"    k="wsDemand"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Ecom dmd"   k="ecomDemand" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Protected"  k="protected"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Reserved"   k="reserved"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Allocated"  k="allocated"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Ending"     k="ending"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Shortage"   k="shortage"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <Th label="Excess"     k="excess"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
+              <Th label="Style"      k="style"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("style")} />
+              <Th label="Category"   k="category"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("category")} />
+              <Th label="Sub Cat"    k="subCat"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("subCat")} />
+              <Th label="Period"     k="period"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("period")} />
+              <Th label="On hand"    k="onHand"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("onHand")} />
+              <Th label="ATS"        k="ats"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("ats")} />
+              <Th label="Inbound PO" k="inboundPo"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("inboundPo")} />
+              <Th label="Planned Buy" k="plannedBuy" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric title="Phase 1 planned_buy_qty bucketed to (sku, period). Counted toward Supply only when the run flag is on." hidden={hiddenColumns.has("plannedBuy")} />
+              <Th label="Receipts"   k="receipts"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("receipts")} />
+              <Th label="WIP"        k="wip"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("wip")} />
+              <Th label="Supply"     k="supply"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("supply")} />
+              <Th label="W/s dmd"    k="wsDemand"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("wsDemand")} />
+              <Th label="Ecom dmd"   k="ecomDemand" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("ecomDemand")} />
+              <Th label="Protected"  k="protected"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("protected")} />
+              <Th label="Reserved"   k="reserved"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("reserved")} />
+              <Th label="Allocated"  k="allocated"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("allocated")} />
+              <Th label="Ending"     k="ending"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("ending")} />
+              <Th label="Shortage"   k="shortage"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("shortage")} />
+              <Th label="Excess"     k="excess"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("excess")} />
               <Th label="Action"     k="priority"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             </tr>
           </thead>
@@ -446,9 +505,9 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
   );
 }
 
-function Th({ label, k, sortKey, sortDir, onSort, numeric, title }: {
+function Th({ label, k, sortKey, sortDir, onSort, numeric, title, hidden }: {
   label: string; k: SortKey; sortKey: SortKey; sortDir: "asc" | "desc";
-  onSort: (k: SortKey) => void; numeric?: boolean; title?: string;
+  onSort: (k: SortKey) => void; numeric?: boolean; title?: string; hidden?: boolean;
 }) {
   const active = sortKey === k;
   return (
@@ -459,6 +518,7 @@ function Th({ label, k, sortKey, sortDir, onSort, numeric, title }: {
         textAlign: numeric ? "right" : "left",
         color: active ? PAL.text : PAL.textMuted,
         userSelect: "none",
+        ...(hidden ? { display: "none" as const } : null),
       }}
       onClick={() => onSort(k)}
       title={title}
