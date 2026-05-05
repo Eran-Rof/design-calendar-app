@@ -15,7 +15,6 @@ import type {
 import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { monthOf } from "../compute/periods";
 import { S, PAL, formatQty, formatPeriodCode } from "../components/styles";
-import ConfirmModal from "../components/ConfirmModal";
 import { MultiSelectDropdown } from "../components/MultiSelectDropdown";
 import type { ToastMessage } from "../components/Toast";
 
@@ -61,7 +60,6 @@ export default function FutureDemandRequestsPanel({
   const [filterDescription, setFilterDescription] = useState<string>("all");
   const [showForm, setShowForm] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<IpFutureDemandRequest | null>(null);
 
   const customerById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
   const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
@@ -147,13 +145,10 @@ export default function FutureDemandRequestsPanel({
     }
   }
 
-  async function confirmDelete() {
-    const target = deleteTarget;
-    if (!target) return;
-    setDeleteTarget(null);
-    setBusyId(target.id);
+  async function deleteRow(id: string) {
+    setBusyId(id);
     try {
-      await wholesaleRepo.deleteRequest(target.id);
+      await wholesaleRepo.deleteRequest(id);
       await onChange();
       onToast({ text: "Request deleted", kind: "success" });
     } catch (e) {
@@ -389,7 +384,7 @@ export default function FutureDemandRequestsPanel({
                         Archive
                       </button>
                     )}
-                    <button style={{ ...S.btnGhost, color: PAL.red }} onClick={() => setDeleteTarget(r)} disabled={busyId === r.id}>
+                    <button style={{ ...S.btnGhost, color: PAL.red }} onClick={() => deleteRow(r.id)} disabled={busyId === r.id}>
                       Delete
                     </button>
                   </td>
@@ -407,17 +402,6 @@ export default function FutureDemandRequestsPanel({
         </table>
       </div>
 
-      {deleteTarget && (
-        <ConfirmModal
-          icon="🗑"
-          title="Delete request?"
-          message="This removes the request entirely. Archive it instead if you want to keep the record."
-          confirmText="Delete"
-          confirmColor={PAL.red}
-          onConfirm={confirmDelete}
-          onCancel={() => setDeleteTarget(null)}
-        />
-      )}
     </div>
   );
 }
