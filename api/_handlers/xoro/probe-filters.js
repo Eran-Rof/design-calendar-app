@@ -138,10 +138,36 @@ export default async function handler(req, res) {
   const out = {
     module,
     inputs: { warehouse, modifiedSince, dateFrom, dateTo },
+    items_field_dump: null,
     inventory: null,
     sales_orders: null,
     summary: { total_probes: 0, paths_responding: [], filters_that_changed_total_pages: [] },
   };
+
+  // ITEMS FIELD DUMP ──────────────────────────────────────────────────────
+  // The items endpoint already works. Pull a single item with every field
+  // expanded so we can see if Xoro embeds inventory data (QtyOnHand,
+  // QtyAvailable, WarehouseInventory[]) directly on the item record. If
+  // it does, we don't need a separate inventory endpoint at all.
+  if (which === "all" || which === "items" || which === "inventory") {
+    const itemProbe = await probeOne({ path: "item/getitem", params: { per_page: "1" }, module });
+    out.summary.total_probes++;
+    out.items_field_dump = {
+      probe: itemProbe,
+      // Surface the full first record so we can see embedded inventory
+      // arrays/fields by name and value type.
+      first_record_full: null,
+    };
+    if (itemProbe.ok && itemProbe.result === true) {
+      out.summary.paths_responding.push("items:item/getitem");
+      // Re-fetch with per_page=1 to capture the full record body — the
+      // existing probe only returned key names, not values.
+      const full = await fetchXoro({ path: "item/getitem", params: { per_page: "1" }, module });
+      const firstRec = Array.isArray(full.body?.Data) ? full.body.Data[0] : null;
+      out.items_field_dump.first_record_full = firstRec;
+      out.summary.total_probes++;
+    }
+  }
 
   // INVENTORY ─────────────────────────────────────────────────────────────
   if (which === "all" || which === "inventory") {
