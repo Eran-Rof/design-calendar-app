@@ -22,7 +22,7 @@ export interface ReconciliationGridProps {
 // desc (largest first) since planners triage by magnitude; string
 // columns default to asc (alphabetical).
 type SortKey =
-  | "sku" | "category" | "period"
+  | "sku" | "style" | "category" | "subCat" | "period"
   | "onHand" | "ats" | "inboundPo" | "plannedBuy" | "receipts" | "wip"
   | "supply"
   | "wsDemand" | "ecomDemand" | "protected" | "reserved" | "allocated" | "ending"
@@ -72,6 +72,9 @@ type GridRow = IpReconciliationGridRow & { _agg?: boolean; _aggKey?: string };
 export default function ReconciliationGrid({ rows, loading, onSelectRow }: ReconciliationGridProps) {
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<string[]>([]);
+  const [filterSubCat, setFilterSubCat] = useState<string[]>([]);
+  const [filterStyle, setFilterStyle] = useState<string[]>([]);
+  const [filterGender, setFilterGender] = useState<string[]>([]);
   const [filterPriority, setFilterPriority] = useState<string[]>([]);
   const [filterAction, setFilterAction] = useState<string[]>([]);
   const [filterPeriod, setFilterPeriod] = useState<string[]>([]);
@@ -85,18 +88,37 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
   // Reset to page 0 when any filter / sort / page-size shifts so the
   // planner doesn't end up on a now-empty page after narrowing the
   // view. Same reset behavior as wholesale grid.
-  useEffect(() => { setPage(0); }, [search, filterCategory, filterPriority, filterAction, filterPeriod, filterStockout, collapse, sortKey, sortDir, pageSize]);
+  useEffect(() => { setPage(0); }, [search, filterCategory, filterSubCat, filterStyle, filterGender, filterPriority, filterAction, filterPeriod, filterStockout, collapse, sortKey, sortDir, pageSize]);
 
   // ── Option pools — derived from the row set so picker shows only
   //    values present in the data.
-  const categories = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const r of rows) if (r.category_id) m.set(r.category_id, r.category_name ?? r.category_id);
-    return Array.from(m, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  // Cat filter uses group_name (item.attributes.group_name) — same
+  // source the wholesale grid uses. ip_projected_inventory.category_id
+  // is sparse so the FK-derived category_name was producing a blank
+  // dropdown.
+  const groupNames = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows) if (r.group_name) set.add(r.group_name);
+    return Array.from(set).sort();
   }, [rows]);
   const periods = useMemo(() => {
     const set = new Set<string>();
     for (const r of rows) if (r.period_code) set.add(r.period_code);
+    return Array.from(set).sort();
+  }, [rows]);
+  const subCats = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows) if (r.sub_category_name) set.add(r.sub_category_name);
+    return Array.from(set).sort();
+  }, [rows]);
+  const styles = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows) if (r.sku_style) set.add(r.sku_style);
+    return Array.from(set).sort();
+  }, [rows]);
+  const genders = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows) if (r.gender) set.add(r.gender);
     return Array.from(set).sort();
   }, [rows]);
   const actions = useMemo(() => Object.keys(ACTION_COLOR), []);
@@ -107,13 +129,22 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
   const filteredAll = useMemo(() => {
     const q = search.trim().toUpperCase();
     const out = rows.filter((r) => {
-      if (filterCategory.length > 0 && (!r.category_id || !filterCategory.includes(r.category_id))) return false;
+      if (filterCategory.length > 0 && (!r.group_name || !filterCategory.includes(r.group_name))) return false;
+      if (filterSubCat.length > 0 && (!r.sub_category_name || !filterSubCat.includes(r.sub_category_name))) return false;
+      if (filterStyle.length > 0 && (!r.sku_style || !filterStyle.includes(r.sku_style))) return false;
+      if (filterGender.length > 0 && (!r.gender || !filterGender.includes(r.gender))) return false;
       if (filterPriority.length > 0 && (!r.top_recommendation_priority || !filterPriority.includes(r.top_recommendation_priority))) return false;
       if (filterAction.length > 0 && (!r.top_recommendation || !filterAction.includes(r.top_recommendation))) return false;
       if (filterPeriod.length > 0 && !filterPeriod.includes(r.period_code)) return false;
       if (filterStockout === "stockout" && !r.projected_stockout_flag) return false;
       if (filterStockout === "ok" && r.projected_stockout_flag) return false;
-      if (q && !(r.sku_code.toUpperCase().includes(q) || (r.sku_description ?? "").toUpperCase().includes(q) || (r.category_name ?? "").toUpperCase().includes(q))) return false;
+      if (q && !(
+        r.sku_code.toUpperCase().includes(q)
+        || (r.sku_description ?? "").toUpperCase().includes(q)
+        || (r.group_name ?? "").toUpperCase().includes(q)
+        || (r.sub_category_name ?? "").toUpperCase().includes(q)
+        || (r.sku_style ?? "").toUpperCase().includes(q)
+      )) return false;
       return true;
     });
     return out.sort((a, b) => cmp(a, b, sortKey, sortDir));
@@ -201,7 +232,32 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
           onChange={setFilterCategory}
           allLabel="All categories"
           placeholder="Search categories…"
-          options={categories.map((c) => ({ value: c.id, label: c.name }))}
+          options={groupNames.map((g) => ({ value: g, label: g }))}
+        />
+        <MultiSelectDropdown
+          compact
+          selected={filterSubCat}
+          onChange={setFilterSubCat}
+          allLabel="All sub cats"
+          placeholder="Search sub cats…"
+          options={subCats.map((s) => ({ value: s, label: s }))}
+        />
+        <MultiSelectDropdown
+          compact
+          selected={filterStyle}
+          onChange={setFilterStyle}
+          allLabel="All styles"
+          placeholder="Search styles…"
+          options={styles.map((s) => ({ value: s, label: s }))}
+        />
+        <MultiSelectDropdown
+          compact
+          selected={filterGender}
+          onChange={setFilterGender}
+          allLabel="All genders"
+          placeholder="Search genders…"
+          options={genders.map((g) => ({ value: g, label: g }))}
+          title="Gender filter — sourced from item-master GenderCode."
         />
         <MultiSelectDropdown
           compact
@@ -234,7 +290,8 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
         </select>
         <button style={{ ...S.btnSecondary, padding: "5px 10px", fontSize: 12 }} onClick={() => {
           setSearch("");
-          setFilterCategory([]); setFilterPriority([]); setFilterAction([]); setFilterPeriod([]);
+          setFilterCategory([]); setFilterSubCat([]); setFilterStyle([]); setFilterGender([]);
+          setFilterPriority([]); setFilterAction([]); setFilterPeriod([]);
           setFilterStockout("all"); setCollapse([]);
         }}>Clear</button>
       </div>
@@ -265,7 +322,9 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
           <thead>
             <tr>
               <Th label="SKU"        k="sku"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Th label="Style"      k="style"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <Th label="Category"   k="category"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <Th label="Sub Cat"    k="subCat"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <Th label="Period"     k="period"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <Th label="On hand"    k="onHand"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
               <Th label="ATS"        k="ats"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
@@ -297,7 +356,9 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
                   }}
                   onClick={() => { if (!r._agg) onSelectRow(r); }}>
                 <td style={{ ...S.td, fontFamily: "monospace", color: r._agg ? PAL.text : PAL.accent }}>{r.sku_code}</td>
-                <td style={{ ...S.td, color: PAL.textDim }}>{r.category_name ?? "–"}</td>
+                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.textDim }}>{r.sku_style ?? "–"}</td>
+                <td style={{ ...S.td, color: PAL.textDim }}>{r.group_name ?? r.category_name ?? "–"}</td>
+                <td style={{ ...S.td, color: PAL.textDim }}>{r.sub_category_name ?? "–"}</td>
                 <td style={S.td}>{r.period_code ? formatPeriodCode(r.period_code) : "–"}</td>
                 <td style={S.tdNum}>{formatQty(r.beginning_on_hand_qty)}</td>
                 <td style={{ ...S.tdNum, color: PAL.textDim }}>{formatQty(r.ats_qty)}</td>
@@ -346,14 +407,14 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
               </tr>
             ))}
             {!loading && displayRows.length === 0 && (
-              <tr><td colSpan={19} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={21} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No reconciled rows yet. Run the reconciliation pass above to populate the grid."
                   : "No rows match your filters."}
               </td></tr>
             )}
             {loading && (
-              <tr><td colSpan={19} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={21} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 Loading…
               </td></tr>
             )}
@@ -412,7 +473,9 @@ function cmp(a: IpReconciliationGridRow, b: IpReconciliationGridRow, k: SortKey,
   const pRank = (p: string | null) => (p === "critical" ? 0 : p === "high" ? 1 : p === "medium" ? 2 : p === "low" ? 3 : 4);
   switch (k) {
     case "sku":        return a.sku_code.localeCompare(b.sku_code) * sign;
-    case "category":   return (a.category_name ?? "").localeCompare(b.category_name ?? "") * sign;
+    case "style":      return (a.sku_style ?? "").localeCompare(b.sku_style ?? "") * sign;
+    case "category":   return (a.group_name ?? a.category_name ?? "").localeCompare(b.group_name ?? b.category_name ?? "") * sign;
+    case "subCat":     return (a.sub_category_name ?? "").localeCompare(b.sub_category_name ?? "") * sign;
     case "period":     return a.period_start.localeCompare(b.period_start) * sign;
     case "onHand":     return (a.beginning_on_hand_qty - b.beginning_on_hand_qty) * sign;
     case "ats":        return (a.ats_qty - b.ats_qty) * sign;

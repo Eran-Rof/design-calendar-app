@@ -28,6 +28,7 @@ import { monthOf, monthsBetween } from "../../compute/periods";
 import { wholesaleRepo } from "../../services/wholesalePlanningRepository";
 import { ecomRepo } from "../../ecom/services/ecomForecastRepo";
 import { supplyRepo } from "./supplyReconciliationRepo";
+import { readGender, readGroupName, readSubCategoryName } from "../../types/itemAttributes";
 import type {
   DemandInputsForSku,
   IpProjectedInventory,
@@ -316,6 +317,16 @@ export async function buildReconciliationGrid(run: IpPlanningRun) {
       sku_id: p.sku_id,
       sku_code: item?.sku_code ?? "(unknown sku)",
       sku_description: item?.description ?? null,
+      // Phase 3 grid filter dims sourced from item master. Same
+      // attribute keys the wholesale grid uses (group_name = Cat,
+      // category_name = Sub Cat, gender). Pulled per-row so the
+      // workbench filter strip has populated options even when the
+      // ip_category_master FK isn't set on the projected_inventory
+      // row.
+      sku_style: item?.style_code ?? null,
+      group_name: readGroupName(item),
+      sub_category_name: readSubCategoryName(item),
+      gender: readGender(item),
       category_id: p.category_id,
       category_name: cat?.name ?? null,
       period_code: p.period_code,

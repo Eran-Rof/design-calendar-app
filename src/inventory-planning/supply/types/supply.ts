@@ -200,6 +200,18 @@ export interface IpReconciliationGridRow {
   sku_id: string;
   sku_code: string;
   sku_description: string | null;
+  // Phase 3 grid filter dims pulled from item master so the
+  // workbench can scope by Style / Sub Cat / Gender / Cat just like
+  // the wholesale grid does. Nullable because not every sku has
+  // these attributes set.
+  //
+  // group_name is the planner's "Cat" field (item.attributes.group_name)
+  // — same source the wholesale grid filters on. category_name from
+  // the ip_category_master FK is sparse, hence the parallel field.
+  sku_style: string | null;
+  group_name: string | null;
+  sub_category_name: string | null;
+  gender: string | null;
   category_id: string | null;
   category_name: string | null;
   period_code: string;

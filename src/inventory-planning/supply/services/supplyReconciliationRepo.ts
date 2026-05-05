@@ -21,6 +21,29 @@ async function sbGet<T>(path: string): Promise<T[]> {
   if (!r.ok) throw new Error(`Supabase GET ${path} failed: ${r.status} ${await r.text()}`);
   return r.json();
 }
+
+// Paginated GET. PostgREST caps single-fetch responses at
+// db_role.max_rows (default 1000) regardless of the &limit= value
+// you ask for. Walks through the table in 1000-row pages using
+// offset. Same pattern as wholesalePlanningRepository.sbGetAll.
+async function sbGetAll<T>(pathWithoutLimit: string): Promise<T[]> {
+  assertSupabase();
+  const out: T[] = [];
+  const PAGE = 1000;
+  for (let offset = 0; ; offset += PAGE) {
+    const sep = pathWithoutLimit.includes("?") ? "&" : "?";
+    const url = `${SB_URL}/rest/v1/${pathWithoutLimit}${sep}limit=${PAGE}&offset=${offset}`;
+    const r = await fetch(url, { headers: SB_HEADERS });
+    if (!r.ok) throw new Error(`Supabase GET ${url} failed: ${r.status} ${await r.text()}`);
+    const chunk = (await r.json()) as T[];
+    out.push(...chunk);
+    if (chunk.length < PAGE) break;
+    // Safety circuit: never walk past 1M rows even if the page-size
+    // contract changes underneath us.
+    if (offset > 1_000_000) break;
+  }
+  return out;
+}
 async function sbPost<T>(path: string, body: unknown, prefer = "return=representation"): Promise<T[]> {
   assertSupabase();
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, {
@@ -98,8 +121,11 @@ export const supplyRepo = {
 
   // ── Projected inventory ──────────────────────────────────────────────────
   async listProjected(runId: string): Promise<IpProjectedInventory[]> {
-    return sbGet<IpProjectedInventory>(
-      `ip_projected_inventory?select=*&planning_run_id=eq.${runId}&order=period_start.asc,sku_id.asc&limit=200000`,
+    // Paginated — PostgREST max-rows caps a single fetch at 1000,
+    // which silently truncated multi-month projections (e.g. a
+    // May→Sept run only ever showed May). sbGetAll walks pages.
+    return sbGetAll<IpProjectedInventory>(
+      `ip_projected_inventory?select=*&planning_run_id=eq.${runId}&order=period_start.asc,sku_id.asc`,
     );
   },
   async replaceProjected(
@@ -118,8 +144,8 @@ export const supplyRepo = {
     // change after a rebuild). Same pattern as listExceptions /
     // listProjected. Priority drives the visible "what to do first"
     // order; created_at + id break ties deterministically.
-    return sbGet<IpInventoryRecommendation>(
-      `ip_inventory_recommendations?select=*&planning_run_id=eq.${runId}&order=priority_level.asc,created_at.asc,id.asc&limit=200000`,
+    return sbGetAll<IpInventoryRecommendation>(
+      `ip_inventory_recommendations?select=*&planning_run_id=eq.${runId}&order=priority_level.asc,created_at.asc,id.asc`,
     );
   },
   async replaceRecommendations(
@@ -133,8 +159,8 @@ export const supplyRepo = {
 
   // ── Exceptions ───────────────────────────────────────────────────────────
   async listExceptions(runId: string): Promise<IpSupplyException[]> {
-    return sbGet<IpSupplyException>(
-      `ip_supply_exceptions?select=*&planning_run_id=eq.${runId}&order=severity.asc,created_at.desc&limit=200000`,
+    return sbGetAll<IpSupplyException>(
+      `ip_supply_exceptions?select=*&planning_run_id=eq.${runId}&order=severity.asc,created_at.desc`,
     );
   },
   async replaceExceptions(
