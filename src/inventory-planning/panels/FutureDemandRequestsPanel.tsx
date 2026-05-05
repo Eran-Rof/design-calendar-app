@@ -732,6 +732,23 @@ function RequestForm({
             const masterDesc = items.find((i) => (i.style_code ?? i.sku_code) === picked && i.description)?.description ?? "";
             setColorCodes([]);
             setDescription(masterDesc);
+            // Auto-fill Category / Sub Cat from the master if the planner
+            // skipped them and picked a style first. Only writes when the
+            // field is currently empty so we don't clobber an explicit
+            // earlier choice. Pulls from the first master row carrying
+            // this style that has the attribute set.
+            if (!groupName) {
+              const masterCat = items
+                .map((i) => ((i.style_code ?? i.sku_code) === picked ? readGroupName(i) : null))
+                .find((v) => !!v) ?? null;
+              if (masterCat) setGroupName(masterCat);
+            }
+            if (!subCatName) {
+              const masterSub = items
+                .map((i) => ((i.style_code ?? i.sku_code) === picked ? readSubCategoryName(i) : null))
+                .find((v) => !!v) ?? null;
+              if (masterSub) setSubCatName(masterSub);
+            }
           } else {
             setColorCodes([]);
             setDescription("");
