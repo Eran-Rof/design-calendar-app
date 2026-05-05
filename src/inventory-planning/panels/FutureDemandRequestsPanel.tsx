@@ -20,6 +20,7 @@ import { QtyCell } from "../components/QtyCell";
 import { SinglePickFilter } from "../components/SinglePickFilter";
 import { TbdColorCell } from "./WholesalePlanningGrid";
 import { buildRequestNote, parseRequestNote } from "../services/requestNoteMarker";
+import { buildMasterPools } from "../services/masterPickerScope";
 import { readGroupName, readSubCategoryName } from "../types/itemAttributes";
 import type { ToastMessage } from "../components/Toast";
 
@@ -97,56 +98,19 @@ export default function FutureDemandRequestsPanel({
   }, [items]);
 
   // ── Master-derived option pools ────────────────────────────────────
-  // Categories / sub-cats / styles / colors / descriptions extracted
-  // from the item master once. These power both the filter row above
-  // the table AND the new-request form's pickers.
-  const groupNames = useMemo(() => {
-    const set = new Set<string>();
-    for (const i of items) { const g = readGroupName(i); if (g) set.add(g); }
-    return Array.from(set).sort();
-  }, [items]);
-  const subCatNames = useMemo(() => {
-    const set = new Set<string>();
-    for (const i of items) {
-      const sc = readSubCategoryName(i);
-      if (!sc) continue;
-      // Scope sub-cat list to the active category filter so the planner
-      // sees only relevant options.
-      if (filterCategory !== "all" && readGroupName(i) !== filterCategory) continue;
-      set.add(sc);
-    }
-    return Array.from(set).sort();
-  }, [items, filterCategory]);
   // TBD always rides at the top of style / color / description option
   // lists — same convention the wholesale grid's pickers use for the
   // catch-all stock-buy slot. Lets the planner record a request even
   // when the variant hasn't been added to the master yet.
-  const styleNames = useMemo(() => {
-    const set = new Set<string>();
-    for (const i of items) {
-      if (filterCategory !== "all" && readGroupName(i) !== filterCategory) continue;
-      if (filterSubCat !== "all" && readSubCategoryName(i) !== filterSubCat) continue;
-      const v = i.style_code ?? i.sku_code;
-      if (v && v.toUpperCase() !== "TBD") set.add(v);
-    }
-    return ["TBD", ...Array.from(set).sort()];
-  }, [items, filterCategory, filterSubCat]);
-  const colorNames = useMemo(() => {
-    const set = new Set<string>();
-    for (const i of items) {
-      if (filterStyle !== "all" && filterStyle !== "TBD" && (i.style_code ?? i.sku_code) !== filterStyle) continue;
-      if (i.color && i.color.toUpperCase() !== "TBD") set.add(i.color);
-    }
-    return ["TBD", ...Array.from(set).sort()];
-  }, [items, filterStyle]);
-  const descriptionNames = useMemo(() => {
-    const set = new Set<string>();
-    for (const i of items) {
-      if (filterStyle !== "all" && filterStyle !== "TBD" && (i.style_code ?? i.sku_code) !== filterStyle) continue;
-      if (i.description && i.description.toUpperCase() !== "TBD") set.add(i.description);
-    }
-    return ["TBD", ...Array.from(set).sort()];
-  }, [items, filterStyle]);
+  const filterPools = useMemo(
+    () => buildMasterPools(items, { category: filterCategory, subCategory: filterSubCat, style: filterStyle }),
+    [items, filterCategory, filterSubCat, filterStyle],
+  );
+  const groupNames = filterPools.groups;
+  const subCatNames = filterPools.subCategories;
+  const styleNames = ["TBD", ...filterPools.styles];
+  const colorNames = ["TBD", ...filterPools.colorsByStyle];
+  const descriptionNames = ["TBD", ...filterPools.descriptions];
 
   // ── Filter pass ────────────────────────────────────────────────────
   const visible = useMemo(() => {
@@ -486,51 +450,22 @@ function RequestForm({
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Cascading option pools — each picker scopes the next.
-  const groupOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const i of items) { const g = readGroupName(i); if (g) set.add(g); }
-    return Array.from(set).sort().map((g) => ({ value: g, label: g }));
-  }, [items]);
-  const subCatOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const i of items) {
-      if (groupName && readGroupName(i) !== groupName) continue;
-      const sc = readSubCategoryName(i);
-      if (sc) set.add(sc);
-    }
-    return Array.from(set).sort().map((s) => ({ value: s, label: s }));
-  }, [items, groupName]);
-  // TBD pinned to the top of every variant-level picker so the planner
-  // can place a request even before the master has the SKU. Picking
-  // TBD on Style auto-fills Color + Description to TBD too (handled in
-  // the picker's onChange below) since TBD style implies an unknown
-  // variant.
-  const styleOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const i of items) {
-      if (groupName && readGroupName(i) !== groupName) continue;
-      if (subCatName && readSubCategoryName(i) !== subCatName) continue;
-      const v = i.style_code ?? i.sku_code;
-      if (v && v.toUpperCase() !== "TBD") set.add(v);
-    }
-    return [{ value: "TBD", label: "TBD" }, ...Array.from(set).sort().map((s) => ({ value: s, label: s }))];
-  }, [items, groupName, subCatName]);
-  // Colors scoped to the Cat / Sub Cat selection — NOT narrowed by
-  // style. The planner sizing a request wants every color the
-  // category carries, not just the colors that happen to exist for
-  // one specific style. Falls back to all master colors when neither
-  // Cat nor Sub Cat is picked. Free-text "new color" input below
-  // covers anything not yet in the master.
-  const colorOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const i of items) {
-      if (subCatName && readSubCategoryName(i) !== subCatName) continue;
-      else if (groupName && readGroupName(i) !== groupName) continue;
-      if (i.color && i.color.toUpperCase() !== "TBD") set.add(i.color);
-    }
-    return [{ value: "TBD", label: "TBD" }, ...Array.from(set).sort().map((c) => ({ value: c, label: c }))];
-  }, [items, subCatName, groupName]);
+  // Cascading option pools — TBD pinned to the top of every
+  // variant-level picker (style / color / description) so the planner
+  // can record a request even when the master doesn't have the SKU.
+  // Picking TBD on Style auto-fills Color + Description to TBD too
+  // (handled in the picker's onChange below).
+  const formPools = useMemo(
+    () => buildMasterPools(items, { category: groupName, subCategory: subCatName, style: styleCode }),
+    [items, groupName, subCatName, styleCode],
+  );
+  const groupOptions = formPools.groups.map((g) => ({ value: g, label: g }));
+  const subCatOptions = formPools.subCategories.map((s) => ({ value: s, label: s }));
+  const styleOptions = [{ value: "TBD", label: "TBD" }, ...formPools.styles.map((s) => ({ value: s, label: s }))];
+  // Colors scoped to Cat / Sub Cat — NOT narrowed by style. The
+  // planner sizing a request wants every color the category carries,
+  // not just colors that already exist on one style.
+  const colorOptions = [{ value: "TBD", label: "TBD" }, ...formPools.colorsByCategory.map((c) => ({ value: c, label: c }))];
   // Master color set (lowercased) — drives the orange NEW badge on
   // selected color chips for any planner-typed color that isn't yet
   // in the master. Same convention the main grid's TbdColorCell uses.
@@ -567,14 +502,10 @@ function RequestForm({
     setColorCodes([...colorCodes, v]);
     setNewColorTyped("");
   }
-  const descriptionOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const i of items) {
-      if (styleCode && styleCode !== "TBD" && (i.style_code ?? i.sku_code) !== styleCode) continue;
-      if (i.description && i.description.toUpperCase() !== "TBD") set.add(i.description);
-    }
-    return [{ value: "TBD", label: "TBD" }, ...Array.from(set).sort().map((d) => ({ value: d, label: d }))];
-  }, [items, styleCode]);
+  const descriptionOptions = [
+    { value: "TBD", label: "TBD" },
+    ...formPools.descriptions.map((d) => ({ value: d, label: d })),
+  ];
   // Period options — next 12 months from today. The planner picks one
   // or more YYYY-MM codes; each creates a separate request row.
   const periodOptions = useMemo(() => {
