@@ -320,34 +320,49 @@ export default function PlanningRunControls({
                   This cannot be undone. Type the run name <span style={{ fontFamily: "monospace", color: PAL.text }}>{selected.name}</span> below to enable the button.
                 </div>
               </div>
-              <input
-                autoFocus
-                type="text"
-                value={wipeTyped}
-                onChange={(e) => setWipeTyped(e.target.value)}
-                placeholder={selected.name}
-                style={{
-                  ...S.input, width: "100%", marginBottom: 12,
-                  fontFamily: "monospace",
-                  borderColor: wipeTyped === selected.name ? PAL.red : PAL.border,
-                }}
-              />
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
-                <button style={S.btnSecondary} onClick={() => { setWipeStage("choice"); setWipeTyped(""); }}>Back</button>
-                <button
-                  style={{
-                    ...S.btnPrimary,
-                    background: wipeTyped === selected.name ? PAL.red : PAL.border,
-                    color: "#fff",
-                    cursor: wipeTyped === selected.name ? "pointer" : "not-allowed",
-                    opacity: wipeTyped === selected.name ? 1 : 0.5,
-                  }}
-                  disabled={wipeTyped !== selected.name}
-                  onClick={() => { setPendingRebuildConfirm(false); setWipeStage("choice"); setWipeTyped(""); void buildForecast({ wipeFirst: true }); }}
-                >
-                  Wipe everything + rebuild
-                </button>
-              </div>
+              {/* Lenient name compare — strict equality fails on
+                  em-dash vs hyphen vs en-dash, on extra whitespace,
+                  and on case differences when the planner types the
+                  name from memory. Normalize both sides: lowercase,
+                  trim, collapse whitespace, fold dashes to hyphen. */}
+              {(() => {
+                const normalize = (s: string) => s
+                  .toLowerCase()
+                  .trim()
+                  .replace(/\s+/g, " ")
+                  .replace(/[–—―−]/g, "-");
+                const matches = normalize(wipeTyped) === normalize(selected.name);
+                return (<>
+                  <input
+                    autoFocus
+                    type="text"
+                    value={wipeTyped}
+                    onChange={(e) => setWipeTyped(e.target.value)}
+                    placeholder={selected.name}
+                    style={{
+                      ...S.input, width: "100%", marginBottom: 12,
+                      fontFamily: "monospace",
+                      borderColor: matches ? PAL.red : PAL.border,
+                    }}
+                  />
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+                    <button style={S.btnSecondary} onClick={() => { setWipeStage("choice"); setWipeTyped(""); }}>Back</button>
+                    <button
+                      style={{
+                        ...S.btnPrimary,
+                        background: matches ? PAL.red : PAL.border,
+                        color: "#fff",
+                        cursor: matches ? "pointer" : "not-allowed",
+                        opacity: matches ? 1 : 0.5,
+                      }}
+                      disabled={!matches}
+                      onClick={() => { setPendingRebuildConfirm(false); setWipeStage("choice"); setWipeTyped(""); void buildForecast({ wipeFirst: true }); }}
+                    >
+                      Wipe everything + rebuild
+                    </button>
+                  </div>
+                </>);
+              })()}
             </>)}
           </div>
         </div>
