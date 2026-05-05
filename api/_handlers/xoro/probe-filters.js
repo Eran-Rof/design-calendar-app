@@ -101,9 +101,11 @@ function salesOrderFilterMatrix({ dateFrom, dateTo, modifiedSince }) {
 
 async function probeOne({ path, params, module }) {
   const t0 = Date.now();
-  // per_page=1 is the cheapest probe; we only care about Result, Message,
-  // TotalPages, and the first record's shape.
-  const r = await fetchXoro({ path, params: { ...params, per_page: "1" }, module });
+  // per_page=50: Xoro returned 500 "An error has occurred" on per_page=1
+  // even for paths the team confirms work (item/getitem). Bumping to 50
+  // keeps the probe cheap without triggering whatever input-validation
+  // path Xoro takes for tiny page sizes.
+  const r = await fetchXoro({ path, params: { ...params, per_page: "50" }, module });
   const elapsedMs = Date.now() - t0;
   const body = r.body ?? {};
   const data = Array.isArray(body.Data) ? body.Data : [];
@@ -118,6 +120,20 @@ async function probeOne({ path, params, module }) {
     first_record_keys: first && typeof first === "object" ? Object.keys(first).slice(0, 60) : null,
     elapsed_ms: elapsedMs,
   };
+}
+
+// Try the same path under each available API-key module so we know which
+// credential bundle has access to it. Returns the first success; if all
+// fail returns the last attempt for the error message.
+async function probeAcrossModules({ path, params, modules }) {
+  const attempts = [];
+  for (const m of modules) {
+    const r = await probeOne({ path, params, module: m });
+    attempts.push({ module: m, ...r });
+    if (r.ok && r.result === true) return { winning_module: m, attempts, ...r };
+  }
+  const last = attempts[attempts.length - 1];
+  return { winning_module: null, attempts, ...last };
 }
 
 export default async function handler(req, res) {
@@ -145,24 +161,24 @@ export default async function handler(req, res) {
   };
 
   // ITEMS FIELD DUMP ──────────────────────────────────────────────────────
-  // The items endpoint already works. Pull a single item with every field
-  // expanded so we can see if Xoro embeds inventory data (QtyOnHand,
-  // QtyAvailable, WarehouseInventory[]) directly on the item record. If
-  // it does, we don't need a separate inventory endpoint at all.
+  // The items endpoint already works in xoro-items-missing-sync. Pull a
+  // single item with every field expanded so we can see if Xoro embeds
+  // inventory data (QtyOnHand, QtyAvailable, WarehouseInventory[]) on the
+  // item record itself — if it does, we don't need a separate endpoint.
+  // Tries each API-key module to find which credential has read access.
+  const MODULES_TO_TRY = ["items", "default", "sales"];
   if (which === "all" || which === "items" || which === "inventory") {
-    const itemProbe = await probeOne({ path: "item/getitem", params: { per_page: "1" }, module });
-    out.summary.total_probes++;
+    const itemProbe = await probeAcrossModules({ path: "item/getitem", params: {}, modules: MODULES_TO_TRY });
+    out.summary.total_probes += itemProbe.attempts.length;
     out.items_field_dump = {
       probe: itemProbe,
-      // Surface the full first record so we can see embedded inventory
-      // arrays/fields by name and value type.
       first_record_full: null,
     };
-    if (itemProbe.ok && itemProbe.result === true) {
-      out.summary.paths_responding.push("items:item/getitem");
-      // Re-fetch with per_page=1 to capture the full record body — the
-      // existing probe only returned key names, not values.
-      const full = await fetchXoro({ path: "item/getitem", params: { per_page: "1" }, module });
+    if (itemProbe.winning_module) {
+      out.summary.paths_responding.push(`items:item/getitem[module=${itemProbe.winning_module}]`);
+      // Re-fetch the same path with the winning module to capture the full
+      // record body (probeOne only kept the keys list).
+      const full = await fetchXoro({ path: "item/getitem", params: { per_page: "50" }, module: itemProbe.winning_module });
       const firstRec = Array.isArray(full.body?.Data) ? full.body.Data[0] : null;
       out.items_field_dump.first_record_full = firstRec;
       out.summary.total_probes++;
