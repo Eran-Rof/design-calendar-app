@@ -43,6 +43,7 @@ import ApprovalBar from "../components/ApprovalBar";
 import ChangeAuditDrawer from "../components/ChangeAuditDrawer";
 import ScenarioAssumptionsPanel from "./ScenarioAssumptionsPanel";
 import ScenarioComparisonView from "./ScenarioComparisonView";
+import SystemHealthBanner from "../../shared/components/SystemHealthBanner";
 
 type TabKey = "list" | "assumptions" | "comparison" | "exports";
 
@@ -263,6 +264,7 @@ export default function ScenarioManager() {
       </div>
 
       <div style={S.content}>
+        <SystemHealthBanner />
         {/* Scenario header card */}
         <div style={{ ...S.card, marginBottom: 12 }}>
           <div style={S.toolbar}>

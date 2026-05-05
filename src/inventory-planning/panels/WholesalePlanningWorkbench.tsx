@@ -34,6 +34,7 @@ import FutureDemandRequestsPanel from "./FutureDemandRequestsPanel";
 import ForecastDetailDrawer from "../components/ForecastDetailDrawer";
 import Toast, { type ToastMessage } from "../components/Toast";
 import StaleDataBanner from "../shared/components/StaleDataBanner";
+import SystemHealthBanner from "../shared/components/SystemHealthBanner";
 
 async function fetchForecast(id: string): Promise<IpWholesaleForecast | null> {
   if (!SB_URL) return null;
@@ -2115,6 +2116,7 @@ export default function WholesalePlanningWorkbench() {
           <BootstrapStatusBar phase={bootstrapPhase} onCancel={() => setBootstrapPhase("ready")} />
         ) : (
         <>
+        <SystemHealthBanner />
         <StaleDataBanner
           watch={["xoro_sales_history", "xoro_inventory", "wholesale_forecast"]}
           dismissKey="wholesale_workbench"

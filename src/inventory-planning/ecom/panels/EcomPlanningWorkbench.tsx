@@ -25,6 +25,7 @@ import { TabButton } from "../../components/TabButton";
 import PlanningRunControls from "../../panels/PlanningRunControls";
 import Toast, { type ToastMessage } from "../../components/Toast";
 import StaleDataBanner from "../../shared/components/StaleDataBanner";
+import SystemHealthBanner from "../../shared/components/SystemHealthBanner";
 import EcomPlanningGrid from "./EcomPlanningGrid";
 import EcomForecastChart from "./EcomForecastChart";
 import EcomOverrideDrawer from "../components/EcomOverrideDrawer";
@@ -208,6 +209,7 @@ export default function EcomPlanningWorkbench() {
       </div>
 
       <div style={S.content}>
+        <SystemHealthBanner />
         <StaleDataBanner
           watch={["shopify_orders", "shopify_products", "ecom_forecast"]}
           dismissKey="ecom_workbench"

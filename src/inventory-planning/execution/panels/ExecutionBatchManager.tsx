@@ -19,6 +19,7 @@ import { S, PAL, formatDate } from "../../components/styles";
 import Toast, { type ToastMessage } from "../../components/Toast";
 import ExecutionBatchDetail from "./ExecutionBatchDetail";
 import ExecutionAuditPanel from "./ExecutionAuditPanel";
+import SystemHealthBanner from "../../shared/components/SystemHealthBanner";
 
 const BATCH_STATUS_COLOR: Record<string, string> = {
   draft:              "#94A3B8",
@@ -113,6 +114,7 @@ export default function ExecutionBatchManager() {
       </div>
 
       <div style={S.content}>
+        <SystemHealthBanner />
         <div style={{ ...S.card, marginBottom: 12 }}>
           <div style={S.toolbar}>
             <strong style={{ color: PAL.text, fontSize: 14 }}>Execution batch</strong>

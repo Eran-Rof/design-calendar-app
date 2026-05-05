@@ -24,6 +24,7 @@ import { S, PAL, formatDate } from "../../components/styles";
 import { TabButton } from "../../components/TabButton";
 import Toast, { type ToastMessage } from "../../components/Toast";
 import StaleDataBanner from "../../shared/components/StaleDataBanner";
+import SystemHealthBanner from "../../shared/components/SystemHealthBanner";
 import ReconciliationGrid from "./ReconciliationGrid";
 import SupplyExceptionPanel from "./SupplyExceptionPanel";
 import AllocationDetailPanel from "../components/AllocationDetailPanel";
@@ -192,6 +193,7 @@ export default function ReconciliationWorkbench() {
       </div>
 
       <div style={S.content}>
+        <SystemHealthBanner />
         <StaleDataBanner
           watch={["xoro_inventory", "xoro_open_pos", "planning_run", "wholesale_forecast", "ecom_forecast"]}
           dismissKey="supply_workbench"

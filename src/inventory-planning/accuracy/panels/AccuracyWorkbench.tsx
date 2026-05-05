@@ -23,6 +23,7 @@ import OverrideEffectivenessPanel from "./OverrideEffectivenessPanel";
 import AnomalyQueue from "../../intelligence/panels/AnomalyQueue";
 import AISuggestionPanel from "../../intelligence/panels/AISuggestionPanel";
 import AIDemandPanel from "../../intelligence/panels/AIDemandPanel";
+import SystemHealthBanner from "../../shared/components/SystemHealthBanner";
 
 type TabKey = "accuracy" | "overrides" | "anomalies" | "suggestions" | "ai_demand";
 
@@ -205,6 +206,7 @@ export default function AccuracyWorkbench() {
       </div>
 
       <div style={S.content}>
+        <SystemHealthBanner />
         <div style={{ ...S.card, marginBottom: 12 }}>
           <div style={S.toolbar}>
             <strong style={{ color: PAL.text, fontSize: 14 }}>Planning run</strong>
