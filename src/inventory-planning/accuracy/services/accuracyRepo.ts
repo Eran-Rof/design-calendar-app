@@ -82,7 +82,9 @@ export const accuracyRepo = {
   // actuals
   async listActuals(sinceIso?: string): Promise<IpForecastActual[]> {
     const filter = sinceIso ? `&period_start=gte.${sinceIso}` : "";
-    return sbGet<IpForecastActual>(`ip_forecast_actuals?select=*${filter}&limit=200000`);
+    // Stable order so the dashboard's per-row UI doesn't shuffle
+    // after a rebuild (replace-mode table; heap order can change).
+    return sbGet<IpForecastActual>(`ip_forecast_actuals?select=*${filter}&order=period_start.asc,sku_id.asc,id.asc&limit=200000`);
   },
   async upsertActuals(rows: Array<Omit<IpForecastActual, "id" | "created_at">>): Promise<void> {
     await chunkedInsertWithRetry(
@@ -98,6 +100,7 @@ export const accuracyRepo = {
     if (filter?.planning_run_id) params.push(`planning_run_id=eq.${filter.planning_run_id}`);
     if (filter?.forecast_type)   params.push(`forecast_type=eq.${filter.forecast_type}`);
     if (filter?.since)           params.push(`period_start=gte.${filter.since}`);
+    params.push("order=period_start.asc,sku_id.asc,id.asc");
     params.push("limit=200000");
     return sbGet<IpForecastAccuracy>(`ip_forecast_accuracy?${params.join("&")}`);
   },
@@ -112,7 +115,7 @@ export const accuracyRepo = {
   // override effectiveness
   async listOverrideEffectiveness(filter?: { planning_run_id?: string }): Promise<IpOverrideEffectiveness[]> {
     const f = filter?.planning_run_id ? `&planning_run_id=eq.${filter.planning_run_id}` : "";
-    return sbGet<IpOverrideEffectiveness>(`ip_override_effectiveness?select=*${f}&limit=200000`);
+    return sbGet<IpOverrideEffectiveness>(`ip_override_effectiveness?select=*${f}&order=created_at.asc,id.asc&limit=200000`);
   },
   async replaceOverrideEffectiveness(
     planning_run_id: string | null,
