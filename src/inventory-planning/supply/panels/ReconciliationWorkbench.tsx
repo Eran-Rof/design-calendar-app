@@ -26,7 +26,7 @@ import Toast, { type ToastMessage } from "../../components/Toast";
 import StaleDataBanner from "../../shared/components/StaleDataBanner";
 import ReconciliationGrid from "./ReconciliationGrid";
 import SupplyExceptionPanel from "./SupplyExceptionPanel";
-import AllocationDetailDrawer from "../components/AllocationDetailDrawer";
+import AllocationDetailPanel from "../components/AllocationDetailPanel";
 
 type TabKey = "grid" | "exceptions";
 
@@ -207,11 +207,29 @@ export default function ReconciliationWorkbench() {
                 </option>
               ))}
             </select>
-            <button style={S.btnSecondary} onClick={() => setShowNewRun(true)}>+ New reconciliation run</button>
+            <button style={S.btnSecondary} onClick={() => setShowNewRun((v) => !v)}>
+              {showNewRun ? "Cancel new run" : "+ New reconciliation run"}
+            </button>
             <button style={S.btnPrimary} onClick={runPass} disabled={building || !selectedRun}>
               {building ? "Reconciling…" : "Run reconciliation"}
             </button>
           </div>
+          {/* Inline create-run form. Same place the request panel
+              opens its "+ New request" form — no overlay/drawer. */}
+          {showNewRun && (
+            <NewReconciliationRunForm
+              wholesaleRuns={wholesaleRuns}
+              ecomRuns={ecomRuns}
+              onCancel={() => setShowNewRun(false)}
+              onCreated={async (id) => {
+                setShowNewRun(false);
+                setSelectedRunId(id);
+                setToast({ text: "Reconciliation run created", kind: "success" });
+                await refresh();
+              }}
+              onToast={(t) => setToast(t)}
+            />
+          )}
           {selectedRun && (
             <>
               <div style={{ color: PAL.textMuted, fontSize: 12 }}>
@@ -246,37 +264,28 @@ export default function ReconciliationWorkbench() {
         </div>
 
         {tab === "grid" && (
-          <ReconciliationGrid rows={rows} loading={loading} onSelectRow={setSelectedRow} />
+          <>
+            <ReconciliationGrid rows={rows} loading={loading} onSelectRow={setSelectedRow} />
+            {/* Inline detail panel — renders below the grid when a
+                row is selected. Replaces the previous side drawer
+                so the planner keeps grid context visible while
+                reading the breakdown (matches the request panel's
+                no-drawer convention). */}
+            {selectedRow && (
+              <AllocationDetailPanel
+                row={selectedRow}
+                rules={rules}
+                recommendations={recs}
+                demand={demandForSelected}
+                onClose={() => setSelectedRow(null)}
+              />
+            )}
+          </>
         )}
         {tab === "exceptions" && (
           <SupplyExceptionPanel exceptions={exceptions} skuCodeById={skuCodeById} />
         )}
       </div>
-
-      {selectedRow && (
-        <AllocationDetailDrawer
-          row={selectedRow}
-          rules={rules}
-          recommendations={recs}
-          demand={demandForSelected}
-          onClose={() => setSelectedRow(null)}
-        />
-      )}
-
-      {showNewRun && (
-        <NewReconciliationRunModal
-          wholesaleRuns={wholesaleRuns}
-          ecomRuns={ecomRuns}
-          onClose={() => setShowNewRun(false)}
-          onCreated={async (id) => {
-            setShowNewRun(false);
-            setSelectedRunId(id);
-            setToast({ text: "Reconciliation run created", kind: "success" });
-            await refresh();
-          }}
-          onToast={(t) => setToast(t)}
-        />
-      )}
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
     </div>
@@ -284,14 +293,16 @@ export default function ReconciliationWorkbench() {
 }
 
 
-// ── New reconciliation run modal ───────────────────────────────────────────
+// ── Inline new-reconciliation-run form ─────────────────────────────────────
+// Inline-form layout, matching the request panel's "+ New request"
+// pattern. Renders inside the run-picker card; no overlay or drawer.
 
-function NewReconciliationRunModal({
-  wholesaleRuns, ecomRuns, onClose, onCreated, onToast,
+function NewReconciliationRunForm({
+  wholesaleRuns, ecomRuns, onCancel, onCreated, onToast,
 }: {
   wholesaleRuns: IpPlanningRun[];
   ecomRuns: IpPlanningRun[];
-  onClose: () => void;
+  onCancel: () => void;
   onCreated: (id: string) => Promise<void>;
   onToast: (t: ToastMessage) => void;
 }) {
@@ -341,66 +352,74 @@ function NewReconciliationRunModal({
   }
 
   return (
-    <div style={S.drawerOverlay} onClick={onClose}>
-      <div style={S.drawer} onClick={(e) => e.stopPropagation()}>
-        <div style={S.drawerHeader}>
-          <h3 style={{ margin: 0, fontSize: 16 }}>New reconciliation run</h3>
-          <button style={S.btnGhost} onClick={onClose}>✕</button>
-        </div>
-        <div style={S.drawerBody}>
-          <div style={{ display: "grid", gap: 10 }}>
-            <div>
-              <label style={S.label}>Name</label>
-              <input style={{ ...S.input, width: "100%" }} value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div>
-              <label style={S.label}>Wholesale source run</label>
-              <select style={{ ...S.select, width: "100%" }} value={wholesaleId} onChange={(e) => setWholesaleId(e.target.value)}>
-                <option value="">— none —</option>
-                {wholesaleRuns.map((r) => (
-                  <option key={r.id} value={r.id}>{r.name} · {r.status}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label style={S.label}>Ecom source run</label>
-              <select style={{ ...S.select, width: "100%" }} value={ecomId} onChange={(e) => setEcomId(e.target.value)}>
-                <option value="">— none —</option>
-                {ecomRuns.map((r) => (
-                  <option key={r.id} value={r.id}>{r.name} · {r.status}</option>
-                ))}
-              </select>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <div>
-                <label style={S.label}>Horizon start</label>
-                <input type="date" style={{ ...S.input, width: "100%" }} value={horizonStart}
-                       onChange={(e) => setHorizonStart(e.target.value)} />
-              </div>
-              <div>
-                <label style={S.label}>Horizon end</label>
-                <input type="date" style={{ ...S.input, width: "100%" }} value={horizonEnd}
-                       onChange={(e) => setHorizonEnd(e.target.value)} />
-              </div>
-              <div>
-                <label style={S.label}>Snapshot date</label>
-                <input type="date" style={{ ...S.input, width: "100%" }} value={snapshot}
-                       onChange={(e) => setSnapshot(e.target.value)} />
-              </div>
-            </div>
-            <div>
-              <label style={S.label}>Note</label>
-              <input style={{ ...S.input, width: "100%" }} value={note} onChange={(e) => setNote(e.target.value)} />
-            </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
-              <button style={S.btnSecondary} onClick={onClose}>Cancel</button>
-              <button style={S.btnPrimary} onClick={save} disabled={saving}>
-                {saving ? "Creating…" : "Create run"}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+    <div style={{
+      marginTop: 12,
+      padding: 12,
+      background: PAL.panelAlt ?? PAL.panel,
+      border: `1px solid ${PAL.accent}`,
+      borderRadius: 8,
+      display: "flex",
+      flexWrap: "wrap" as const,
+      alignItems: "center",
+      gap: 10,
+      fontSize: 12,
+    }}>
+      <span style={{ fontWeight: 600, color: PAL.accent }}>+ New run</span>
+
+      <span style={{ color: PAL.textMuted, fontSize: 11 }}>Name:</span>
+      <input style={{ ...S.input, width: 220, fontSize: 12, padding: "4px 8px" }}
+             value={name} onChange={(e) => setName(e.target.value)} />
+
+      <span style={{ color: PAL.textMuted, fontSize: 11 }}>Wholesale source:</span>
+      <select style={{ ...S.select, fontSize: 12, padding: "4px 8px" }}
+              value={wholesaleId} onChange={(e) => setWholesaleId(e.target.value)}>
+        <option value="">— none —</option>
+        {wholesaleRuns.map((r) => (
+          <option key={r.id} value={r.id}>{r.name} · {r.status}</option>
+        ))}
+      </select>
+
+      <span style={{ color: PAL.textMuted, fontSize: 11 }}>Ecom source:</span>
+      <select style={{ ...S.select, fontSize: 12, padding: "4px 8px" }}
+              value={ecomId} onChange={(e) => setEcomId(e.target.value)}>
+        <option value="">— none —</option>
+        {ecomRuns.map((r) => (
+          <option key={r.id} value={r.id}>{r.name} · {r.status}</option>
+        ))}
+      </select>
+
+      <span style={{ color: PAL.textMuted, fontSize: 11 }}>Horizon:</span>
+      <input type="date" style={{ ...S.input, width: 130, fontSize: 12, padding: "4px 8px" }}
+             value={horizonStart} onChange={(e) => setHorizonStart(e.target.value)} />
+      <span style={{ color: PAL.textMuted, fontSize: 11 }}>→</span>
+      <input type="date" style={{ ...S.input, width: 130, fontSize: 12, padding: "4px 8px" }}
+             value={horizonEnd} onChange={(e) => setHorizonEnd(e.target.value)} />
+
+      <span style={{ color: PAL.textMuted, fontSize: 11 }}>Snapshot:</span>
+      <input type="date" style={{ ...S.input, width: 130, fontSize: 12, padding: "4px 8px" }}
+             value={snapshot} onChange={(e) => setSnapshot(e.target.value)} />
+
+      <input style={{ ...S.input, minWidth: 160, fontSize: 12, padding: "4px 8px" }}
+             value={note} placeholder="Note (optional)"
+             onChange={(e) => setNote(e.target.value)} />
+
+      <button
+        type="button"
+        onClick={save}
+        disabled={saving}
+        style={{
+          ...S.btnPrimary,
+          padding: "5px 14px",
+          fontSize: 12,
+          opacity: saving ? 0.5 : 1,
+          cursor: saving ? "not-allowed" : "pointer",
+        }}
+      >
+        {saving ? "Creating…" : "Create run"}
+      </button>
+      <button type="button" onClick={onCancel} style={{ ...S.btnSecondary, padding: "5px 10px", fontSize: 12 }}>
+        Cancel
+      </button>
     </div>
   );
 }
