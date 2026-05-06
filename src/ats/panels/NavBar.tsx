@@ -4,53 +4,58 @@ import type { ATSRow, ATSSoEvent, ExcelData } from "../types";
 import { XoroSyncOverlay, type XoroSyncProgress } from "./StatusOverlays";
 import { normalizeXoroSos, type XoroSoRecord } from "../normalizeXoroSos";
 
-// Page-by-page walk of /api/xoro/open-sos. Calls the endpoint with
-// max_pages=1 once per page so the client can render true page-by-page
-// progress instead of a single 50s spinner. Why one page at a time:
-// Vercel's response is fully buffered, so a single 26-page server call
-// would only update the UI once. Per-page calls trade a few seconds of
-// HTTP overhead for granular progress that matches the rest of the app's
-// sync UX (UploadProgressOverlay et al.).
+// Sync architecture (rewritten 2026-05-06 after discovering Xoro's
+// pagination overlaps — same SOs appear on multiple pages, and the
+// reported `TotalPages` truncates the walk before all unique SOs have
+// been seen). The Xoro Excel export said 2,449 unique Released SOs;
+// the original page-bounded walk got only 1,600 unique (65%).
 //
-// We drive the progress bar off pagesDone/totalPages (reliable) rather
-// than records/expected (unreliable — Xoro caps actual page sizes
-// below per_page so a totalPages × per_page estimate over-states by
-// ~2x).
+// New approach — saturation-based walk per status:
+//   1. For each requested status, walk pages 1..N until either Xoro
+//      returns an empty page OR we've seen N consecutive pages with
+//      ZERO new unique OrderNumbers (= the dataset has been fully
+//      sampled despite pagination shuffle).
+//   2. Dedupe across all statuses by OrderNumber — a SO that flips
+//      from Released → Partially Shipped mid-walk is counted once.
+//   3. Failed pages within a status are retried in passes 2..5 like
+//      before.
+//
+// Why "consecutive pages with zero new" instead of trusting empty
+// pages alone: Xoro's pagination skips and repeats records (we saw
+// 1,200 duplicates across 2,800 fetched headers). An empty page
+// might just mean "this slice is all duplicates" rather than "end
+// of dataset", but extending the saturation threshold to N=3 makes
+// the heuristic robust enough.
+
+const STATUSES_TO_SYNC = ["Released", "Open", "Partially Shipped"];
+// Stop walking a status after this many consecutive pages added zero
+// new unique SOs. Gives Xoro's overlapping pagination room to deliver
+// late-arriving unique records before declaring the status saturated.
+const SATURATION_THRESHOLD = 3;
+// Hard ceiling on pages walked per status so a pathological dataset
+// can't grind forever. ~2,500 SOs / ~100 per page × 2x duplication
+// margin = ~50 pages typical; 100 leaves room for outliers.
+const MAX_PAGES_PER_STATUS = 100;
 
 interface SyncResult {
   ok: boolean;
-  downloaded: number;
-  pages: number;
+  downloaded: number;             // unique SOs across all statuses
+  pages: number;                  // total pages walked across all statuses
   message: string;
-  // Raw Xoro records accumulated across the walk. Returned on every
-  // exit path (clean success, partial sync, cancel) so the caller can
-  // always normalize what it has.
   records: XoroSoRecord[];
-  // Pages that failed after retries. Empty on a clean walk; populated
-  // when skip-and-continue salvaged a sync past one or more bad pages.
-  failedPages: number[];
+  failedPages: number[];          // (status:page) IDs that never succeeded
 }
 
-// Max retry passes after the initial walk. User explicitly cares about
-// 100% completion (this is the daily SO sync, not a one-off backfill),
-// so we keep retrying failed pages between passes until they succeed
-// or we've made 5 attempts total. With ~30s per page on a slow retry
-// and typically 1-3 pages failing per walk, the worst-case retry tail
-// adds a few minutes — acceptable for an unattended nightly cron and
-// tolerable interactively.
 const MAX_PASSES = 5;
-// Pause between passes so Xoro's load gets a chance to settle —
-// retrying the same flaky page back-to-back tends to fail again.
-// Lengths are tuned to match what we've seen recover Xoro service.
 const PASS_DELAYS_MS = [0, 5_000, 15_000, 30_000, 60_000];
 
-// Fetch a single page with the existing per-page handler. Returns the
-// records on success, null on failure. Pulled out as a helper so both
-// the first-pass walk and the retry passes use the same code path.
-async function fetchOnePage(pageNum: number): Promise<XoroSoRecord[] | null> {
+// Fetch a single page for a specific status. Returns the records on
+// success, null on failure. Pass status through so the server-side
+// handler hits Xoro with the right filter.
+async function fetchOnePage(status: string, pageNum: number): Promise<XoroSoRecord[] | null> {
   let resp: Response;
   try {
-    resp = await fetch(`/api/xoro/open-sos?page_start=${pageNum}&max_pages=1`, { method: "GET" });
+    resp = await fetch(`/api/xoro/open-sos?status=${encodeURIComponent(status)}&page_start=${pageNum}&max_pages=1`, { method: "GET" });
   } catch {
     return null;
   }
@@ -61,115 +66,173 @@ async function fetchOnePage(pageNum: number): Promise<XoroSoRecord[] | null> {
   return Array.isArray(block?.records) ? block.records : [];
 }
 
+// Walk one Xoro status until saturated. Returns the unique records
+// collected for this status plus any pages that failed (tagged with
+// the status so the retry pass can re-fetch them with the right filter).
+async function walkStatusToSaturation(
+  status: string,
+  seenOrderNumbers: Set<string>,
+  records: XoroSoRecord[],
+  onProgress: (p: XoroSyncProgress) => void,
+  cancelRef: React.MutableRefObject<boolean>,
+  totalUniqueSoFar: () => number,
+  totalPagesSoFar: () => number,
+): Promise<{ failedPages: Array<{ status: string; page: number }>; pagesWalked: number; saturatedAt: number | null; }> {
+  const failedPages: Array<{ status: string; page: number }> = [];
+  let consecutiveZeroNew = 0;
+  let pagesWalked = 0;
+  let duplicates = 0;
+  let saturatedAt: number | null = null;
+
+  for (let page = 1; page <= MAX_PAGES_PER_STATUS; page++) {
+    if (cancelRef.current) break;
+    if (page > 1) await new Promise((r) => setTimeout(r, 250));
+
+    onProgress({
+      step: `Walking ${status} — page ${page}…`,
+      pct: 0, // indeterminate until we know how many we'll walk
+      downloaded: totalUniqueSoFar(),
+      pagesDone: totalPagesSoFar() + page,
+      totalPages: 0,
+      pass: 1, maxPasses: MAX_PASSES,
+      duplicatesSeen: duplicates,
+    });
+
+    const pageRecords = await fetchOnePage(status, page);
+    pagesWalked++;
+    if (pageRecords === null) {
+      failedPages.push({ status, page });
+      continue;
+    }
+    if (pageRecords.length === 0) {
+      // Genuinely empty page = end of this status's dataset.
+      saturatedAt = page;
+      break;
+    }
+
+    // Count new unique OrderNumbers added by this page.
+    let newOrders = 0;
+    for (const rec of pageRecords) {
+      const orderNum = rec?.SoEstimateHeader?.OrderNumber;
+      if (orderNum && !seenOrderNumbers.has(orderNum)) {
+        seenOrderNumbers.add(orderNum);
+        records.push(rec);
+        newOrders++;
+      } else if (orderNum) {
+        duplicates++;
+      }
+    }
+
+    if (newOrders === 0) {
+      consecutiveZeroNew++;
+      if (consecutiveZeroNew >= SATURATION_THRESHOLD) {
+        saturatedAt = page;
+        break;
+      }
+    } else {
+      consecutiveZeroNew = 0;
+    }
+  }
+
+  return { failedPages, pagesWalked, saturatedAt };
+}
+
 async function runOpenSosSync(
   onProgress: (p: XoroSyncProgress) => void,
   cancelRef: React.MutableRefObject<boolean>,
 ): Promise<SyncResult> {
-  let page = 1;
-  let totalPages = 0;
-  let downloaded = 0;
+  // Single source of truth: a Set of OrderNumbers we've already seen,
+  // and the deduped records array. Both updated by walkStatusToSaturation
+  // as it processes each page. Cross-status dedup falls out for free —
+  // a SO whose status flips during the walk is counted once.
+  const seenOrderNumbers = new Set<string>();
   const records: XoroSoRecord[] = [];
-  const failedPages: number[] = [];
+  const allFailedPages: Array<{ status: string; page: number }> = [];
+  let totalPagesWalked = 0;
 
-  // Probe page 1 to learn TotalPages. Page 1 is the only page where
-  // failure is fatal — without TotalPages we don't know how many pages
-  // to walk, so we don't skip-and-continue past a page-1 failure.
-  onProgress({ step: "Probing Xoro for total pages…", pct: 0, downloaded: 0, pagesDone: 0, totalPages: 0, pass: 1, maxPasses: MAX_PASSES });
-  let resp: Response;
-  try {
-    resp = await fetch(`/api/xoro/open-sos?page_start=1&max_pages=1`, { method: "GET" });
-  } catch (e: any) {
-    return { ok: false, downloaded: 0, pages: 0, message: `Network error: ${e?.message || String(e)}`, records: [], failedPages: [1] };
-  }
-  let body: any;
-  try { body = await resp.json(); } catch { return { ok: false, downloaded: 0, pages: 0, message: "Xoro returned non-JSON", records: [], failedPages: [1] }; }
-  if (!body?.ok) {
-    const err = body?.first_error?.Message || body?.first_error?.error || "Xoro returned no data";
-    return { ok: false, downloaded: 0, pages: 0, message: `Xoro error: ${err}`, records: [], failedPages: [1] };
-  }
-  const firstStatusBlock = (body.per_status ?? [])[0];
-  totalPages = firstStatusBlock?.total_pages ?? 1;
-  downloaded = body.total_records ?? 0;
-  if (Array.isArray(firstStatusBlock?.records)) records.push(...firstStatusBlock.records);
-  onProgress({ step: `Walking ${totalPages} pages…`, pct: Math.round((1 / totalPages) * 100), downloaded, pagesDone: 1, totalPages, pass: 1, maxPasses: MAX_PASSES });
+  onProgress({
+    step: "Starting…", pct: 0, downloaded: 0,
+    pagesDone: 0, totalPages: 0, pass: 1, maxPasses: MAX_PASSES,
+  });
 
-  // ── Pass 1: walk pages 2..totalPages with skip-and-continue ──────────
-  // Failed pages are deferred to the retry passes below.
-  for (page = 2; page <= totalPages; page++) {
+  // ── Pass 1: walk each status to saturation ──────────────────────────
+  for (const status of STATUSES_TO_SYNC) {
     if (cancelRef.current) {
-      return { ok: false, downloaded, pages: page - 1, message: "Cancelled by user", records, failedPages };
+      return {
+        ok: false, downloaded: seenOrderNumbers.size, pages: totalPagesWalked,
+        message: "Cancelled by user", records,
+        failedPages: allFailedPages.map((f) => f.page),
+      };
     }
-    await new Promise((r) => setTimeout(r, 250));
-
-    const pageRecords = await fetchOnePage(page);
-    if (pageRecords === null) {
-      failedPages.push(page);
-      onProgress({ step: `Page ${page} deferred to retry pass…`, pct: Math.round((page / totalPages) * 100), downloaded, pagesDone: page, totalPages, pass: 1, maxPasses: MAX_PASSES });
-      continue;
-    }
-    records.push(...pageRecords);
-    downloaded += pageRecords.length;
-    onProgress({ step: `Walking ${totalPages} pages…`, pct: Math.round((page / totalPages) * 100), downloaded, pagesDone: page, totalPages, pass: 1, maxPasses: MAX_PASSES });
-    // Empty page on a clean response = end of dataset earlier than
-    // TotalPages declared. Stop walking.
-    if (pageRecords.length === 0) break;
+    const result = await walkStatusToSaturation(
+      status, seenOrderNumbers, records,
+      onProgress, cancelRef,
+      () => seenOrderNumbers.size,
+      () => totalPagesWalked,
+    );
+    totalPagesWalked += result.pagesWalked;
+    allFailedPages.push(...result.failedPages);
   }
 
-  // ── Pass 2..MAX_PASSES: retry just the pages that failed ──────────────
-  // Each pass starts with a pause to let Xoro recover from whatever
-  // load condition tripped the timeout. Successfully retried pages are
-  // removed from failedPages; remaining failures roll into the next
-  // pass. We exit early as soon as failedPages is empty.
+  // ── Pass 2..MAX_PASSES: retry pages that failed in pass 1 ───────────
+  // Per-page, per-status: each failed page is retried with the same
+  // status filter. Successful retries go through the same dedup path
+  // so we don't double-count.
   for (let pass = 2; pass <= MAX_PASSES; pass++) {
-    if (failedPages.length === 0) break;
-    if (cancelRef.current) {
-      return { ok: false, downloaded, pages: totalPages, message: "Cancelled by user", records, failedPages };
-    }
+    if (allFailedPages.length === 0) break;
+    if (cancelRef.current) break;
+
     const delay = PASS_DELAYS_MS[pass - 1] ?? 60_000;
     if (delay > 0) {
       onProgress({
         step: `Pausing ${Math.round(delay / 1000)}s before retry pass…`,
-        pct: 100, downloaded, pagesDone: totalPages, totalPages,
-        pass, maxPasses: MAX_PASSES, retryingCount: failedPages.length,
+        pct: 100, downloaded: seenOrderNumbers.size, pagesDone: totalPagesWalked, totalPages: 0,
+        pass, maxPasses: MAX_PASSES, retryingCount: allFailedPages.length,
       });
       await new Promise((r) => setTimeout(r, delay));
     }
 
-    const stillFailing: number[] = [];
-    const toRetry = [...failedPages];
-    for (let i = 0; i < toRetry.length; i++) {
-      const pn = toRetry[i];
+    const stillFailing: Array<{ status: string; page: number }> = [];
+    for (let i = 0; i < allFailedPages.length; i++) {
+      const fp = allFailedPages[i];
       if (cancelRef.current) {
-        // Carry over the rest of toRetry as still-failing so the
-        // caller can decide what to do with the partial result.
-        stillFailing.push(...toRetry.slice(i));
+        stillFailing.push(...allFailedPages.slice(i));
         break;
       }
       onProgress({
-        step: `Retrying page ${pn}…`,
-        pct: Math.round((i / toRetry.length) * 100),
-        downloaded, pagesDone: totalPages, totalPages,
-        pass, maxPasses: MAX_PASSES, retryingCount: toRetry.length - i,
+        step: `Retrying ${fp.status} page ${fp.page}…`,
+        pct: Math.round((i / allFailedPages.length) * 100),
+        downloaded: seenOrderNumbers.size, pagesDone: totalPagesWalked, totalPages: 0,
+        pass, maxPasses: MAX_PASSES, retryingCount: allFailedPages.length - i,
       });
       await new Promise((r) => setTimeout(r, 250));
-      const recs = await fetchOnePage(pn);
+      const recs = await fetchOnePage(fp.status, fp.page);
       if (recs === null) {
-        stillFailing.push(pn);
+        stillFailing.push(fp);
         continue;
       }
-      records.push(...recs);
-      downloaded += recs.length;
+      for (const rec of recs) {
+        const orderNum = rec?.SoEstimateHeader?.OrderNumber;
+        if (orderNum && !seenOrderNumbers.has(orderNum)) {
+          seenOrderNumbers.add(orderNum);
+          records.push(rec);
+        }
+      }
     }
-    // Replace failedPages with whatever's still broken after this pass.
-    failedPages.length = 0;
-    failedPages.push(...stillFailing);
+    allFailedPages.length = 0;
+    allFailedPages.push(...stillFailing);
   }
 
-  const ok = failedPages.length === 0;
+  const downloaded = seenOrderNumbers.size;
+  const ok = allFailedPages.length === 0;
+  const failedPageNumbers = allFailedPages.map((f) => `${f.status}:${f.page}`);
   const message = ok
-    ? `Synced ${downloaded.toLocaleString()} Released SOs from Xoro`
-    : `Synced ${downloaded.toLocaleString()} SOs — ${failedPages.length} page${failedPages.length > 1 ? "s" : ""} (${failedPages.join(", ")}) failed all ${MAX_PASSES} retry passes`;
-  return { ok, downloaded, pages: totalPages, message, records, failedPages };
+    ? `Synced ${downloaded.toLocaleString()} unique SOs across ${STATUSES_TO_SYNC.join(" + ")}`
+    : `Synced ${downloaded.toLocaleString()} SOs — ${allFailedPages.length} page${allFailedPages.length > 1 ? "s" : ""} (${failedPageNumbers.join(", ")}) failed all ${MAX_PASSES} passes`;
+  return {
+    ok, downloaded, pages: totalPagesWalked, message, records,
+    failedPages: allFailedPages.map((f) => f.page),
+  };
 }
 
 interface NavBarProps {

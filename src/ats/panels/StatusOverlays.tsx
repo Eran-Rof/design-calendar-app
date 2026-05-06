@@ -14,18 +14,21 @@ import S from "../styles";
 // totalPages × per_page over-states the true row count.
 export interface XoroSyncProgress {
   step: string;
-  pct: number;            // pages walked / totalPages (across the current pass)
-  downloaded: number;     // records actually returned so far (across all passes)
-  pagesDone: number;
-  totalPages: number;     // 0 until we've probed page 1
+  pct: number;            // 0-100, indeterminate until saturation detected
+  downloaded: number;     // unique SOs accumulated so far
+  pagesDone: number;      // pages actually walked (independent of Xoro's TotalPages)
+  totalPages: number;     // 0 = unknown (we no longer trust Xoro's TotalPages)
   // Multi-pass state. pass=1 is the initial walk; pass>1 means we're
-  // retrying just the pages that failed in earlier passes. The user
-  // sees "Pass 2 of 5 — retrying 3 pages…" so they understand a
-  // longer-than-normal sync is the system working toward 100%, not
-  // a stall.
+  // retrying just the pages that failed in earlier passes.
   pass?: number;
   maxPasses?: number;
   retryingCount?: number;
+  // Saturation-walk metrics. duplicatesSeen = SOs we re-encountered
+  // (Xoro's pagination overlaps so we routinely re-fetch SOs we've
+  // already got). Surfacing it makes the long sync feel less stalled
+  // — the user can see "we just walked page 32 and got 0 new SOs,
+  // sync is converging".
+  duplicatesSeen?: number;
 }
 
 interface XoroSyncOverlayProps {
@@ -35,11 +38,15 @@ interface XoroSyncOverlayProps {
 
 export const XoroSyncOverlay: React.FC<XoroSyncOverlayProps> = ({ progress, onCancel }) => {
   if (!progress) return null;
+  // Saturation-walk display: we no longer know totalPages reliably, so
+  // we show pages-walked and (where useful) duplicates skipped, which
+  // tells the user the walk is converging toward 100% rather than just
+  // grinding away aimlessly.
   const pageLabel = progress.totalPages > 0
     ? `Page ${progress.pagesDone} of ${progress.totalPages}`
-    : "Probing page count…";
-  // Show pass header only on retry passes so the initial walk reads
-  // identically to before.
+    : progress.pagesDone > 0
+      ? `${progress.pagesDone} page${progress.pagesDone === 1 ? "" : "s"} walked${progress.duplicatesSeen ? ` · ${progress.duplicatesSeen.toLocaleString()} duplicates skipped` : ""}`
+      : "Walking…";
   const showPassHeader = (progress.pass ?? 1) > 1;
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
