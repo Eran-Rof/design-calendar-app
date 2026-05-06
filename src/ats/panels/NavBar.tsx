@@ -5,17 +5,17 @@ import { XoroSyncOverlay, type XoroSyncProgress } from "./StatusOverlays";
 import { normalizeXoroSos, type XoroSoRecord } from "../normalizeXoroSos";
 
 // Page-by-page walk of /api/xoro/open-sos. Calls the endpoint with
-// max_pages=1 once per page so the client can render true "X of Y"
+// max_pages=1 once per page so the client can render true page-by-page
 // progress instead of a single 50s spinner. Why one page at a time:
 // Vercel's response is fully buffered, so a single 26-page server call
 // would only update the UI once. Per-page calls trade a few seconds of
 // HTTP overhead for granular progress that matches the rest of the app's
 // sync UX (UploadProgressOverlay et al.).
 //
-// The first call also returns Xoro's TotalPages so we can show the
-// denominator. If Xoro doesn't return TotalPages on a given response,
-// we fall back to "of ?" until the walk terminates.
-const PER_PAGE = 200;
+// We drive the progress bar off pagesDone/totalPages (reliable) rather
+// than records/expected (unreliable — Xoro caps actual page sizes
+// below per_page so a totalPages × per_page estimate over-states by
+// ~2x).
 
 interface SyncResult {
   ok: boolean;
@@ -38,7 +38,7 @@ async function runOpenSosSync(
 
   // Probe page 1 to learn TotalPages. Use max_pages=1 so the response
   // contains exactly the first page's records and TotalPages metadata.
-  onProgress({ step: "Probing Xoro for total pages…", pct: 0, downloaded: 0, total: 0 });
+  onProgress({ step: "Probing Xoro for total pages…", pct: 0, downloaded: 0, pagesDone: 0, totalPages: 0 });
   let resp: Response;
   try {
     resp = await fetch(`/api/xoro/open-sos?page_start=1&max_pages=1`, { method: "GET" });
@@ -55,8 +55,7 @@ async function runOpenSosSync(
   totalPages = firstStatusBlock?.total_pages ?? 1;
   downloaded = body.total_records ?? 0;
   if (Array.isArray(firstStatusBlock?.records)) records.push(...firstStatusBlock.records);
-  const total = totalPages * PER_PAGE;
-  onProgress({ step: `Page 1 of ${totalPages}`, pct: Math.round((1 / totalPages) * 100), downloaded, total });
+  onProgress({ step: `Walking ${totalPages} pages…`, pct: Math.round((1 / totalPages) * 100), downloaded, pagesDone: 1, totalPages });
 
   // Walk remaining pages 2..totalPages. Bail out cleanly if the user
   // hits Cancel — cancelRef flips to true and we abandon the loop
@@ -84,7 +83,7 @@ async function runOpenSosSync(
     const pageStatusBlock = (pageBody.per_status ?? [])[0];
     if (Array.isArray(pageStatusBlock?.records)) records.push(...pageStatusBlock.records);
     downloaded += pageBody.total_records ?? 0;
-    onProgress({ step: `Page ${page} of ${totalPages}`, pct: Math.round((page / totalPages) * 100), downloaded, total });
+    onProgress({ step: `Walking ${totalPages} pages…`, pct: Math.round((page / totalPages) * 100), downloaded, pagesDone: page, totalPages });
     // Empty page = end of dataset before declared TotalPages (rare but
     // possible if Xoro's pagination shifts mid-walk). Stop early.
     if ((pageBody.total_records ?? 0) === 0) break;
@@ -146,7 +145,7 @@ export const NavBar: React.FC<NavBarProps> = ({
     if (syncing) return;
     cancelRef.current = false;
     setSyncSosToast(null);
-    setSyncProgress({ step: "Starting…", pct: 0, downloaded: 0, total: 0 });
+    setSyncProgress({ step: "Starting…", pct: 0, downloaded: 0, pagesDone: 0, totalPages: 0 });
     const result = await runOpenSosSync((p) => setSyncProgress(p), cancelRef);
 
     // On success: normalize the accumulated Xoro records to ATSSoEvent

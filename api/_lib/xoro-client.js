@@ -43,7 +43,11 @@ async function xoroFetchPage({ path, params, page, authHeader }) {
   p.set("page", String(page));
   const url = `https://res.xorosoft.io/api/xerp/${path}?${p.toString()}`;
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 50_000);
+  // 15s per attempt: with the 0+0.8+2+4s retry backoff chain, total
+  // worst-case per page = 15+0.8+15+2+15+4+15 ≈ 52s — recoverable
+  // and visible. The previous 50s timeout meant a flaky page could
+  // freeze the UI for ~3.5 minutes before the retry loop gave up.
+  const t = setTimeout(() => ctrl.abort(), 15_000);
   try {
     const r = await fetch(url, {
       method: "GET",
