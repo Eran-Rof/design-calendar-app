@@ -1,5 +1,5 @@
 import type { ATSRow } from "./types";
-import { resolveStyle } from "./itemMasterLookup";
+import { resolveStyle, isItemMasterLoaded } from "./itemMasterLookup";
 
 export interface EnrichmentSummary {
   total: number;
@@ -57,7 +57,15 @@ export function enrichRowsWithItemMaster(rows: ATSRow[]): { rows: ATSRow[]; summ
   const unmatched = total - matched;
   const summary: EnrichmentSummary = { total, matched, bySku, byStyle, unmatched };
 
-  if (unmatched === 0) {
+  // Suppress the warn/unmatched dump when the master cache hasn't
+  // loaded yet — first render computes rows before loadItemMasterCache()
+  // resolves, so every row comes back unmatched and the log was a
+  // misleading false positive. Once the master arrives, ATS recomputes
+  // and this same function runs again with a populated cache, producing
+  // the real coverage line.
+  if (!isItemMasterLoaded()) {
+    console.info(`[ats master] item master not loaded yet — coverage check deferred (${total} rows)`);
+  } else if (unmatched === 0) {
     console.info(`[ats master] coverage 100% (${matched}/${total} matched: ${bySku} by sku, ${byStyle} by style)`);
   } else {
     const pct = ((matched / total) * 100).toFixed(1);

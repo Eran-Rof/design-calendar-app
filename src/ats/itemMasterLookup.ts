@@ -213,6 +213,14 @@ export function resolveStyle(sku: string, stylePart?: string | null): ResolvedSt
   return { ...NULL_RESULT };
 }
 
+/** True once the master cache has been built (regardless of whether
+ *  any rows were loaded). Lets callers distinguish "cache empty
+ *  because it hasn't loaded yet" from "cache empty because the table
+ *  is genuinely empty" so they can defer noisy warnings. */
+export function isItemMasterLoaded(): boolean {
+  return bySkuCode !== null && byStyleCode !== null;
+}
+
 /** Visible for tests + cache invalidation after the user adds new
  *  master rows in the planning app. Next `loadItemMasterCache()` call
  *  refetches. */
