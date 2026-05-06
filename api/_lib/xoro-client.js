@@ -43,13 +43,12 @@ async function xoroFetchPage({ path, params, page, authHeader }) {
   p.set("page", String(page));
   const url = `https://res.xorosoft.io/api/xerp/${path}?${p.toString()}`;
   const ctrl = new AbortController();
-  // 60s per attempt: production data showed Xoro pages ingesting at
-  // ~32s intervals (Xoro response + payload trim + Supabase insert),
-  // which means the actual Xoro response sometimes pushes past 30s.
-  // The previous 30s ceiling was clipping the slow tail of pages.
-  // 60s leaves Xoro 2x headroom over its observed median (~20s).
-  // Worst-case per flaky page = 60 + 0.8 + 60 + 2 + 60 ≈ 183s.
-  const t = setTimeout(() => ctrl.abort(), 60_000);
+  // 90s per attempt: page 17 in production timed out at 60s — the SOs
+  // on that page were Macy's-sized (hundreds of line items), pushing
+  // Xoro's response past 60s. With per_page=100 and a 90s ceiling we
+  // cover the heavy-tail pages without exceeding Vercel's 300s
+  // function cap on the retry chain (90 + 0.8 + 90 + 2 + 90 = ~273s).
+  const t = setTimeout(() => ctrl.abort(), 90_000);
   try {
     const r = await fetch(url, {
       method: "GET",

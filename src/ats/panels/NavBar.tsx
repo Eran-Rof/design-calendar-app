@@ -31,6 +31,36 @@ interface SyncResult {
   failedPages: number[];
 }
 
+// Max retry passes after the initial walk. User explicitly cares about
+// 100% completion (this is the daily SO sync, not a one-off backfill),
+// so we keep retrying failed pages between passes until they succeed
+// or we've made 5 attempts total. With ~30s per page on a slow retry
+// and typically 1-3 pages failing per walk, the worst-case retry tail
+// adds a few minutes — acceptable for an unattended nightly cron and
+// tolerable interactively.
+const MAX_PASSES = 5;
+// Pause between passes so Xoro's load gets a chance to settle —
+// retrying the same flaky page back-to-back tends to fail again.
+// Lengths are tuned to match what we've seen recover Xoro service.
+const PASS_DELAYS_MS = [0, 5_000, 15_000, 30_000, 60_000];
+
+// Fetch a single page with the existing per-page handler. Returns the
+// records on success, null on failure. Pulled out as a helper so both
+// the first-pass walk and the retry passes use the same code path.
+async function fetchOnePage(pageNum: number): Promise<XoroSoRecord[] | null> {
+  let resp: Response;
+  try {
+    resp = await fetch(`/api/xoro/open-sos?page_start=${pageNum}&max_pages=1`, { method: "GET" });
+  } catch {
+    return null;
+  }
+  let body: any;
+  try { body = await resp.json(); } catch { return null; }
+  if (!body?.ok) return null;
+  const block = (body.per_status ?? [])[0];
+  return Array.isArray(block?.records) ? block.records : [];
+}
+
 async function runOpenSosSync(
   onProgress: (p: XoroSyncProgress) => void,
   cancelRef: React.MutableRefObject<boolean>,
@@ -44,7 +74,7 @@ async function runOpenSosSync(
   // Probe page 1 to learn TotalPages. Page 1 is the only page where
   // failure is fatal — without TotalPages we don't know how many pages
   // to walk, so we don't skip-and-continue past a page-1 failure.
-  onProgress({ step: "Probing Xoro for total pages…", pct: 0, downloaded: 0, pagesDone: 0, totalPages: 0 });
+  onProgress({ step: "Probing Xoro for total pages…", pct: 0, downloaded: 0, pagesDone: 0, totalPages: 0, pass: 1, maxPasses: MAX_PASSES });
   let resp: Response;
   try {
     resp = await fetch(`/api/xoro/open-sos?page_start=1&max_pages=1`, { method: "GET" });
@@ -61,58 +91,84 @@ async function runOpenSosSync(
   totalPages = firstStatusBlock?.total_pages ?? 1;
   downloaded = body.total_records ?? 0;
   if (Array.isArray(firstStatusBlock?.records)) records.push(...firstStatusBlock.records);
-  onProgress({ step: `Walking ${totalPages} pages…`, pct: Math.round((1 / totalPages) * 100), downloaded, pagesDone: 1, totalPages });
+  onProgress({ step: `Walking ${totalPages} pages…`, pct: Math.round((1 / totalPages) * 100), downloaded, pagesDone: 1, totalPages, pass: 1, maxPasses: MAX_PASSES });
 
-  // Walk remaining pages 2..totalPages with skip-and-continue.
-  //
-  // Why skip rather than abort: production data shows pages with huge
-  // SOs (e.g. Macy's, which can have hundreds of line items) take well
-  // past the 60s timeout. If we abort the entire 26-page walk on one
-  // slow page, we lose 25 pages of valid data. Skip-and-continue
-  // banks each successful page and reports failed pages back to the
-  // user; re-syncing dedupes against raw_xoro_payloads so the retry is
-  // cheap server-side.
+  // ── Pass 1: walk pages 2..totalPages with skip-and-continue ──────────
+  // Failed pages are deferred to the retry passes below.
   for (page = 2; page <= totalPages; page++) {
     if (cancelRef.current) {
       return { ok: false, downloaded, pages: page - 1, message: "Cancelled by user", records, failedPages };
     }
-    // 250ms gap between pages — Xoro 500s under load and the server-
-    // side retry chain handles transient blips, but pacing reduces
-    // how often we trip them in the first place.
     await new Promise((r) => setTimeout(r, 250));
 
-    let pageResp: Response | null = null;
-    try {
-      pageResp = await fetch(`/api/xoro/open-sos?page_start=${page}&max_pages=1`, { method: "GET" });
-    } catch {
+    const pageRecords = await fetchOnePage(page);
+    if (pageRecords === null) {
       failedPages.push(page);
-      onProgress({ step: `Page ${page} failed, continuing…`, pct: Math.round((page / totalPages) * 100), downloaded, pagesDone: page, totalPages });
+      onProgress({ step: `Page ${page} deferred to retry pass…`, pct: Math.round((page / totalPages) * 100), downloaded, pagesDone: page, totalPages, pass: 1, maxPasses: MAX_PASSES });
       continue;
     }
-    let pageBody: any = null;
-    try { pageBody = await pageResp.json(); } catch {
-      failedPages.push(page);
-      onProgress({ step: `Page ${page} failed, continuing…`, pct: Math.round((page / totalPages) * 100), downloaded, pagesDone: page, totalPages });
-      continue;
+    records.push(...pageRecords);
+    downloaded += pageRecords.length;
+    onProgress({ step: `Walking ${totalPages} pages…`, pct: Math.round((page / totalPages) * 100), downloaded, pagesDone: page, totalPages, pass: 1, maxPasses: MAX_PASSES });
+    // Empty page on a clean response = end of dataset earlier than
+    // TotalPages declared. Stop walking.
+    if (pageRecords.length === 0) break;
+  }
+
+  // ── Pass 2..MAX_PASSES: retry just the pages that failed ──────────────
+  // Each pass starts with a pause to let Xoro recover from whatever
+  // load condition tripped the timeout. Successfully retried pages are
+  // removed from failedPages; remaining failures roll into the next
+  // pass. We exit early as soon as failedPages is empty.
+  for (let pass = 2; pass <= MAX_PASSES; pass++) {
+    if (failedPages.length === 0) break;
+    if (cancelRef.current) {
+      return { ok: false, downloaded, pages: totalPages, message: "Cancelled by user", records, failedPages };
     }
-    if (!pageBody?.ok) {
-      failedPages.push(page);
-      onProgress({ step: `Page ${page} failed, continuing…`, pct: Math.round((page / totalPages) * 100), downloaded, pagesDone: page, totalPages });
-      continue;
+    const delay = PASS_DELAYS_MS[pass - 1] ?? 60_000;
+    if (delay > 0) {
+      onProgress({
+        step: `Pausing ${Math.round(delay / 1000)}s before retry pass…`,
+        pct: 100, downloaded, pagesDone: totalPages, totalPages,
+        pass, maxPasses: MAX_PASSES, retryingCount: failedPages.length,
+      });
+      await new Promise((r) => setTimeout(r, delay));
     }
-    const pageStatusBlock = (pageBody.per_status ?? [])[0];
-    if (Array.isArray(pageStatusBlock?.records)) records.push(...pageStatusBlock.records);
-    downloaded += pageBody.total_records ?? 0;
-    onProgress({ step: `Walking ${totalPages} pages…`, pct: Math.round((page / totalPages) * 100), downloaded, pagesDone: page, totalPages });
-    // Empty page = end of dataset before declared TotalPages (rare but
-    // possible if Xoro's pagination shifts mid-walk). Stop early.
-    if ((pageBody.total_records ?? 0) === 0) break;
+
+    const stillFailing: number[] = [];
+    const toRetry = [...failedPages];
+    for (let i = 0; i < toRetry.length; i++) {
+      const pn = toRetry[i];
+      if (cancelRef.current) {
+        // Carry over the rest of toRetry as still-failing so the
+        // caller can decide what to do with the partial result.
+        stillFailing.push(...toRetry.slice(i));
+        break;
+      }
+      onProgress({
+        step: `Retrying page ${pn}…`,
+        pct: Math.round((i / toRetry.length) * 100),
+        downloaded, pagesDone: totalPages, totalPages,
+        pass, maxPasses: MAX_PASSES, retryingCount: toRetry.length - i,
+      });
+      await new Promise((r) => setTimeout(r, 250));
+      const recs = await fetchOnePage(pn);
+      if (recs === null) {
+        stillFailing.push(pn);
+        continue;
+      }
+      records.push(...recs);
+      downloaded += recs.length;
+    }
+    // Replace failedPages with whatever's still broken after this pass.
+    failedPages.length = 0;
+    failedPages.push(...stillFailing);
   }
 
   const ok = failedPages.length === 0;
   const message = ok
     ? `Synced ${downloaded.toLocaleString()} Released SOs from Xoro`
-    : `Synced ${downloaded.toLocaleString()} SOs — page${failedPages.length > 1 ? "s" : ""} ${failedPages.join(", ")} timed out (re-sync to retry just those)`;
+    : `Synced ${downloaded.toLocaleString()} SOs — ${failedPages.length} page${failedPages.length > 1 ? "s" : ""} (${failedPages.join(", ")}) failed all ${MAX_PASSES} retry passes`;
   return { ok, downloaded, pages: totalPages, message, records, failedPages };
 }
 
@@ -169,7 +225,7 @@ export const NavBar: React.FC<NavBarProps> = ({
     if (syncing) return;
     cancelRef.current = false;
     setSyncSosToast(null);
-    setSyncProgress({ step: "Starting…", pct: 0, downloaded: 0, pagesDone: 0, totalPages: 0 });
+    setSyncProgress({ step: "Starting…", pct: 0, downloaded: 0, pagesDone: 0, totalPages: 0, pass: 1, maxPasses: MAX_PASSES });
     const result = await runOpenSosSync((p) => setSyncProgress(p), cancelRef);
 
     // Normalize whatever records made it back — even a partial walk

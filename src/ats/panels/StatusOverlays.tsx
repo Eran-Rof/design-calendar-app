@@ -14,10 +14,18 @@ import S from "../styles";
 // totalPages × per_page over-states the true row count.
 export interface XoroSyncProgress {
   step: string;
-  pct: number;            // pages walked / totalPages
-  downloaded: number;     // records actually returned so far
+  pct: number;            // pages walked / totalPages (across the current pass)
+  downloaded: number;     // records actually returned so far (across all passes)
   pagesDone: number;
   totalPages: number;     // 0 until we've probed page 1
+  // Multi-pass state. pass=1 is the initial walk; pass>1 means we're
+  // retrying just the pages that failed in earlier passes. The user
+  // sees "Pass 2 of 5 — retrying 3 pages…" so they understand a
+  // longer-than-normal sync is the system working toward 100%, not
+  // a stall.
+  pass?: number;
+  maxPasses?: number;
+  retryingCount?: number;
 }
 
 interface XoroSyncOverlayProps {
@@ -30,10 +38,18 @@ export const XoroSyncOverlay: React.FC<XoroSyncOverlayProps> = ({ progress, onCa
   const pageLabel = progress.totalPages > 0
     ? `Page ${progress.pagesDone} of ${progress.totalPages}`
     : "Probing page count…";
+  // Show pass header only on retry passes so the initial walk reads
+  // identically to before.
+  const showPassHeader = (progress.pass ?? 1) > 1;
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ background: "#1E293B", borderRadius: 14, padding: "28px 32px", width: 420, border: "1px solid #334155" }}>
         <div style={{ fontWeight: 700, fontSize: 16, color: "#F1F5F9", marginBottom: 8 }}>Syncing Open SOs from Xoro…</div>
+        {showPassHeader && (
+          <div style={{ fontSize: 12, color: "#FBBF24", fontWeight: 600, marginBottom: 6 }}>
+            Pass {progress.pass} of {progress.maxPasses} — retrying {progress.retryingCount} page{progress.retryingCount === 1 ? "" : "s"}
+          </div>
+        )}
         <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 20 }}>{progress.step}</div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
           <span style={{ fontFamily: "monospace", fontSize: 18, fontWeight: 700, color: "#60A5FA" }}>
