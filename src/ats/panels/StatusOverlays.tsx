@@ -5,6 +5,52 @@ import S from "../styles";
 // conditionally and share no state. Grouped here rather than one file each
 // because each is tiny and the grouping is stable.
 
+// Centered progress overlay for the live Xoro Open-SOs sync. Mirrors the
+// UploadProgressOverlay format intentionally — same modal frame, same
+// 10px gradient bar, same width — so the sync states across the app
+// read as one consistent pattern. Drives off the same { step, pct }
+// shape; we add `downloaded`/`total` so the bar can show "1,200 of 5,200"
+// instead of just a percentage.
+export interface XoroSyncProgress {
+  step: string;
+  pct: number;
+  downloaded: number;
+  total: number; // 0 until we've probed page 1 and learned TotalPages
+}
+
+interface XoroSyncOverlayProps {
+  progress: XoroSyncProgress | null;
+  onCancel: () => void;
+}
+
+export const XoroSyncOverlay: React.FC<XoroSyncOverlayProps> = ({ progress, onCancel }) => {
+  if (!progress) return null;
+  const totalLabel = progress.total > 0 ? progress.total.toLocaleString() : "?";
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ background: "#1E293B", borderRadius: 14, padding: "28px 32px", width: 420, border: "1px solid #334155" }}>
+        <div style={{ fontWeight: 700, fontSize: 16, color: "#F1F5F9", marginBottom: 8 }}>Syncing Open SOs from Xoro…</div>
+        <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 20 }}>{progress.step}</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+          <span style={{ fontFamily: "monospace", fontSize: 18, fontWeight: 700, color: "#60A5FA" }}>
+            {progress.downloaded.toLocaleString()} <span style={{ color: "#64748B", fontSize: 14, fontWeight: 500 }}>of {totalLabel}</span>
+          </span>
+          <span style={{ fontFamily: "monospace", fontSize: 14, fontWeight: 700, color: "#94A3B8" }}>{progress.pct}%</span>
+        </div>
+        <div style={{ background: "#0F172A", borderRadius: 8, height: 10, overflow: "hidden", marginBottom: 20 }}>
+          <div style={{ height: "100%", borderRadius: 8, background: "linear-gradient(90deg,#0EA5E9,#3B82F6)", width: `${progress.pct}%`, transition: "width 0.3s ease" }} />
+        </div>
+        <button
+          style={{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 6, padding: "7px 18px", fontSize: 13, cursor: "pointer", width: "100%" }}
+          onClick={onCancel}
+        >
+          Cancel Sync
+        </button>
+      </div>
+    </div>
+  );
+};
+
 interface UploadProgressOverlayProps {
   uploadProgress: { step: string; pct: number } | null;
   cancelUpload: () => void;

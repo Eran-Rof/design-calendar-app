@@ -1,26 +1,79 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import S from "../styles";
 import type { ATSRow } from "../types";
+import { XoroSyncOverlay, type XoroSyncProgress } from "./StatusOverlays";
 
-// Hits /api/xoro/open-sos which pulls Released SOs from Xoro and writes
-// the raw payload into raw_xoro_payloads. Returns a one-line summary
-// suitable for a toast — total record count plus any error message Xoro
-// returned. Kept inline (not a hook) because this is a single-fire
-// operation with no shared state.
-async function runOpenSosSync(): Promise<{ ok: boolean; message: string }> {
+// Page-by-page walk of /api/xoro/open-sos. Calls the endpoint with
+// max_pages=1 once per page so the client can render true "X of Y"
+// progress instead of a single 50s spinner. Why one page at a time:
+// Vercel's response is fully buffered, so a single 26-page server call
+// would only update the UI once. Per-page calls trade a few seconds of
+// HTTP overhead for granular progress that matches the rest of the app's
+// sync UX (UploadProgressOverlay et al.).
+//
+// The first call also returns Xoro's TotalPages so we can show the
+// denominator. If Xoro doesn't return TotalPages on a given response,
+// we fall back to "of ?" until the walk terminates.
+const PER_PAGE = 200;
+
+interface SyncResult { ok: boolean; downloaded: number; pages: number; message: string; }
+
+async function runOpenSosSync(
+  onProgress: (p: XoroSyncProgress) => void,
+  cancelRef: React.MutableRefObject<boolean>,
+): Promise<SyncResult> {
+  let page = 1;
+  let totalPages = 0;
+  let downloaded = 0;
+
+  // Probe page 1 to learn TotalPages. Use max_pages=1 so the response
+  // contains exactly the first page's records and TotalPages metadata.
+  onProgress({ step: "Probing Xoro for total pages…", pct: 0, downloaded: 0, total: 0 });
+  let resp: Response;
   try {
-    const r = await fetch("/api/xoro/open-sos", { method: "GET" });
-    const body = await r.json();
-    if (body?.ok) {
-      const total = body.total_records ?? 0;
-      const statuses = (body.statuses_walked ?? []).join(", ");
-      return { ok: true, message: `Synced ${total} ${statuses} SOs from Xoro` };
-    }
-    const err = body?.first_error?.Message || body?.first_error?.error || "Xoro returned no data";
-    return { ok: false, message: `Sync failed: ${err}` };
+    resp = await fetch(`/api/xoro/open-sos?page_start=1&max_pages=1`, { method: "GET" });
   } catch (e: any) {
-    return { ok: false, message: `Sync failed: ${e?.message || String(e)}` };
+    return { ok: false, downloaded: 0, pages: 0, message: `Network error: ${e?.message || String(e)}` };
   }
+  let body: any;
+  try { body = await resp.json(); } catch { return { ok: false, downloaded: 0, pages: 0, message: "Xoro returned non-JSON" }; }
+  if (!body?.ok) {
+    const err = body?.first_error?.Message || body?.first_error?.error || "Xoro returned no data";
+    return { ok: false, downloaded: 0, pages: 0, message: `Xoro error: ${err}` };
+  }
+  const firstStatusBlock = (body.per_status ?? [])[0];
+  totalPages = firstStatusBlock?.total_pages ?? 1;
+  downloaded = body.total_records ?? 0;
+  const total = totalPages * PER_PAGE;
+  onProgress({ step: `Page 1 of ${totalPages}`, pct: Math.round((1 / totalPages) * 100), downloaded, total });
+
+  // Walk remaining pages 2..totalPages. Bail out cleanly if the user
+  // hits Cancel — cancelRef flips to true and we abandon the loop
+  // without dispatching another fetch.
+  for (page = 2; page <= totalPages; page++) {
+    if (cancelRef.current) {
+      return { ok: false, downloaded, pages: page - 1, message: "Cancelled by user" };
+    }
+    let pageResp: Response;
+    try {
+      pageResp = await fetch(`/api/xoro/open-sos?page_start=${page}&max_pages=1`, { method: "GET" });
+    } catch (e: any) {
+      return { ok: false, downloaded, pages: page - 1, message: `Network error on page ${page}: ${e?.message || String(e)}` };
+    }
+    let pageBody: any;
+    try { pageBody = await pageResp.json(); } catch { return { ok: false, downloaded, pages: page - 1, message: `Non-JSON on page ${page}` }; }
+    if (!pageBody?.ok) {
+      const err = pageBody?.first_error?.Message || pageBody?.first_error?.error || "Xoro error";
+      return { ok: false, downloaded, pages: page - 1, message: `Failed on page ${page}: ${err}` };
+    }
+    downloaded += pageBody.total_records ?? 0;
+    onProgress({ step: `Page ${page} of ${totalPages}`, pct: Math.round((page / totalPages) * 100), downloaded, total });
+    // Empty page = end of dataset before declared TotalPages (rare but
+    // possible if Xoro's pagination shifts mid-walk). Stop early.
+    if ((pageBody.total_records ?? 0) === 0) break;
+  }
+
+  return { ok: true, downloaded, pages: totalPages, message: `Synced ${downloaded.toLocaleString()} Released SOs from Xoro` };
 }
 
 interface NavBarProps {
@@ -59,20 +112,24 @@ export const NavBar: React.FC<NavBarProps> = ({
   const [agedCategory, setAgedCategory] = useState(filterCategory);
   const [agedEmpty, setAgedEmpty] = useState(false);
 
-  // Open-SOs sync state. The toast message stays visible for ~5s (or
-  // until user clicks it) so the operator sees what happened without
-  // needing to open the browser console.
-  const [syncingSos, setSyncingSos] = useState(false);
+  // Open-SOs sync state. The centered overlay is the primary UX while
+  // the sync runs; the success/error toast appears briefly afterward.
+  const [syncProgress, setSyncProgress] = useState<XoroSyncProgress | null>(null);
   const [syncSosToast, setSyncSosToast] = useState<{ ok: boolean; message: string } | null>(null);
+  const cancelRef = useRef<boolean>(false);
+  const syncing = syncProgress !== null;
+
   const handleSyncOpenSos = async () => {
-    if (syncingSos) return;
-    setSyncingSos(true);
+    if (syncing) return;
+    cancelRef.current = false;
     setSyncSosToast(null);
-    const result = await runOpenSosSync();
-    setSyncingSos(false);
-    setSyncSosToast(result);
+    setSyncProgress({ step: "Starting…", pct: 0, downloaded: 0, total: 0 });
+    const result = await runOpenSosSync((p) => setSyncProgress(p), cancelRef);
+    setSyncProgress(null);
+    setSyncSosToast({ ok: result.ok, message: result.message });
     setTimeout(() => setSyncSosToast(null), 5000);
   };
+  const handleCancelSync = () => { cancelRef.current = true; };
 
   return (
   <nav style={S.nav}>
@@ -102,20 +159,20 @@ export const NavBar: React.FC<NavBarProps> = ({
       <button
         style={{
           ...S.navBtn,
-          background: syncingSos ? "#1E293B" : "#0EA5E9",
-          border: `1px solid ${syncingSos ? "#334155" : "#0284C7"}`,
+          background: syncing ? "#1E293B" : "#0EA5E9",
+          border: `1px solid ${syncing ? "#334155" : "#0284C7"}`,
           color: "#fff",
           fontWeight: 600,
           display: "inline-flex",
           alignItems: "center",
           gap: 6,
-          opacity: syncingSos ? 0.7 : 1,
+          opacity: syncing ? 0.7 : 1,
         }}
         onClick={handleSyncOpenSos}
-        disabled={syncingSos}
+        disabled={syncing}
         title="Pull all Released sales orders from Xoro into raw_xoro_payloads. ~50s for the full set (~5,200 SOs)."
       >
-        {syncingSos ? "⟳ Syncing…" : "↓ Sync Open SOs"}
+        {syncing ? "⟳ Syncing…" : "↓ Sync Open SOs"}
       </button>
       <button
         style={{ ...S.navBtn, background: "#1D6F42", border: "1px solid #155734", color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 7px" }}
@@ -194,6 +251,9 @@ export const NavBar: React.FC<NavBarProps> = ({
       </button>
       <button style={{ ...S.navBtn, cursor: "pointer" }} onClick={onNavigateHome}>← PLM Home</button>
     </div>
+
+    {/* Sync Open SOs centered progress modal — matches UploadProgressOverlay format */}
+    <XoroSyncOverlay progress={syncProgress} onCancel={handleCancelSync} />
 
     {/* Sync Open SOs toast — auto-dismisses after 5s, click to dismiss sooner */}
     {syncSosToast && (
