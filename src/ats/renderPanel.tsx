@@ -164,6 +164,8 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         unreadNotifs={unreadNotifs}
         showingNotifications={showingNotifications}
         onToggleNotifications={onToggleNotifications}
+        excelData={excelData}
+        setExcelData={setExcelData}
       />
       <SyncProgressBanner syncProgress={syncProgress} />
       <UnmatchedBanner unmatchedRows={unmatchedRows} />

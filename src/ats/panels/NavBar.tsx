@@ -1,7 +1,8 @@
 import React, { useRef, useState } from "react";
 import S from "../styles";
-import type { ATSRow } from "../types";
+import type { ATSRow, ATSSoEvent, ExcelData } from "../types";
 import { XoroSyncOverlay, type XoroSyncProgress } from "./StatusOverlays";
+import { normalizeXoroSos, type XoroSoRecord } from "../normalizeXoroSos";
 
 // Page-by-page walk of /api/xoro/open-sos. Calls the endpoint with
 // max_pages=1 once per page so the client can render true "X of Y"
@@ -16,7 +17,15 @@ import { XoroSyncOverlay, type XoroSyncProgress } from "./StatusOverlays";
 // we fall back to "of ?" until the walk terminates.
 const PER_PAGE = 200;
 
-interface SyncResult { ok: boolean; downloaded: number; pages: number; message: string; }
+interface SyncResult {
+  ok: boolean;
+  downloaded: number;
+  pages: number;
+  message: string;
+  // Raw Xoro records accumulated across the walk. Empty array on
+  // failure/cancel so the caller can safely call .length without checks.
+  records: XoroSoRecord[];
+}
 
 async function runOpenSosSync(
   onProgress: (p: XoroSyncProgress) => void,
@@ -25,6 +34,7 @@ async function runOpenSosSync(
   let page = 1;
   let totalPages = 0;
   let downloaded = 0;
+  const records: XoroSoRecord[] = [];
 
   // Probe page 1 to learn TotalPages. Use max_pages=1 so the response
   // contains exactly the first page's records and TotalPages metadata.
@@ -33,17 +43,18 @@ async function runOpenSosSync(
   try {
     resp = await fetch(`/api/xoro/open-sos?page_start=1&max_pages=1`, { method: "GET" });
   } catch (e: any) {
-    return { ok: false, downloaded: 0, pages: 0, message: `Network error: ${e?.message || String(e)}` };
+    return { ok: false, downloaded: 0, pages: 0, message: `Network error: ${e?.message || String(e)}`, records: [] };
   }
   let body: any;
-  try { body = await resp.json(); } catch { return { ok: false, downloaded: 0, pages: 0, message: "Xoro returned non-JSON" }; }
+  try { body = await resp.json(); } catch { return { ok: false, downloaded: 0, pages: 0, message: "Xoro returned non-JSON", records: [] }; }
   if (!body?.ok) {
     const err = body?.first_error?.Message || body?.first_error?.error || "Xoro returned no data";
-    return { ok: false, downloaded: 0, pages: 0, message: `Xoro error: ${err}` };
+    return { ok: false, downloaded: 0, pages: 0, message: `Xoro error: ${err}`, records: [] };
   }
   const firstStatusBlock = (body.per_status ?? [])[0];
   totalPages = firstStatusBlock?.total_pages ?? 1;
   downloaded = body.total_records ?? 0;
+  if (Array.isArray(firstStatusBlock?.records)) records.push(...firstStatusBlock.records);
   const total = totalPages * PER_PAGE;
   onProgress({ step: `Page 1 of ${totalPages}`, pct: Math.round((1 / totalPages) * 100), downloaded, total });
 
@@ -52,20 +63,22 @@ async function runOpenSosSync(
   // without dispatching another fetch.
   for (page = 2; page <= totalPages; page++) {
     if (cancelRef.current) {
-      return { ok: false, downloaded, pages: page - 1, message: "Cancelled by user" };
+      return { ok: false, downloaded, pages: page - 1, message: "Cancelled by user", records: [] };
     }
     let pageResp: Response;
     try {
       pageResp = await fetch(`/api/xoro/open-sos?page_start=${page}&max_pages=1`, { method: "GET" });
     } catch (e: any) {
-      return { ok: false, downloaded, pages: page - 1, message: `Network error on page ${page}: ${e?.message || String(e)}` };
+      return { ok: false, downloaded, pages: page - 1, message: `Network error on page ${page}: ${e?.message || String(e)}`, records: [] };
     }
     let pageBody: any;
-    try { pageBody = await pageResp.json(); } catch { return { ok: false, downloaded, pages: page - 1, message: `Non-JSON on page ${page}` }; }
+    try { pageBody = await pageResp.json(); } catch { return { ok: false, downloaded, pages: page - 1, message: `Non-JSON on page ${page}`, records: [] }; }
     if (!pageBody?.ok) {
       const err = pageBody?.first_error?.Message || pageBody?.first_error?.error || "Xoro error";
-      return { ok: false, downloaded, pages: page - 1, message: `Failed on page ${page}: ${err}` };
+      return { ok: false, downloaded, pages: page - 1, message: `Failed on page ${page}: ${err}`, records: [] };
     }
+    const pageStatusBlock = (pageBody.per_status ?? [])[0];
+    if (Array.isArray(pageStatusBlock?.records)) records.push(...pageStatusBlock.records);
     downloaded += pageBody.total_records ?? 0;
     onProgress({ step: `Page ${page} of ${totalPages}`, pct: Math.round((page / totalPages) * 100), downloaded, total });
     // Empty page = end of dataset before declared TotalPages (rare but
@@ -73,7 +86,7 @@ async function runOpenSosSync(
     if ((pageBody.total_records ?? 0) === 0) break;
   }
 
-  return { ok: true, downloaded, pages: totalPages, message: `Synced ${downloaded.toLocaleString()} Released SOs from Xoro` };
+  return { ok: true, downloaded, pages: totalPages, message: `Synced ${downloaded.toLocaleString()} Released SOs from Xoro`, records };
 }
 
 interface NavBarProps {
@@ -98,6 +111,11 @@ interface NavBarProps {
   unreadNotifs: number;
   showingNotifications: boolean;
   onToggleNotifications: () => void;
+  // For the Open-SOs Xoro sync. After a successful walk we replace
+  // excelData.sos with the API-derived events, keeping skus/pos
+  // intact (Excel is still the source for those until we have endpoints).
+  excelData: ExcelData | null;
+  setExcelData: (v: ExcelData | null | ((prev: ExcelData | null) => ExcelData | null)) => void;
 }
 
 export const NavBar: React.FC<NavBarProps> = ({
@@ -106,6 +124,7 @@ export const NavBar: React.FC<NavBarProps> = ({
   exportToExcel, filtered, displayPeriods, atShip, onNegInven, onAgedInven, onDownloadIncompleteSkus, onDownloadStockVsSo,
   categories, filterCategory,
   unreadNotifs, showingNotifications, onToggleNotifications,
+  excelData, setExcelData,
 }) => {
   const [agedOpen, setAgedOpen] = useState(false);
   const [agedDays, setAgedDays] = useState("365");
@@ -125,6 +144,36 @@ export const NavBar: React.FC<NavBarProps> = ({
     setSyncSosToast(null);
     setSyncProgress({ step: "Starting…", pct: 0, downloaded: 0, total: 0 });
     const result = await runOpenSosSync((p) => setSyncProgress(p), cancelRef);
+
+    // On success: normalize the accumulated Xoro records to ATSSoEvent
+    // shape and replace excelData.sos. Per user direction: replace
+    // wholesale (no merge), and keep skus/pos coming from Excel until
+    // we have inventory + PO endpoints from Xoro.
+    if (result.ok && result.records.length > 0) {
+      const { events, skipped } = normalizeXoroSos(result.records);
+      const skipNote = (skipped.noSku + skipped.noDate + skipped.zeroQty) > 0
+        ? ` (skipped ${skipped.noSku} no-SKU, ${skipped.noDate} no-date, ${skipped.zeroQty} zero-qty)`
+        : "";
+
+      setExcelData((prev) => {
+        const nowIso = new Date().toISOString();
+        // Excel already in place: replace SOs only, keep skus/pos.
+        if (prev) return { ...prev, sos: events, syncedAt: nowIso };
+        // Fresh state with no Excel: surface clearly that the user
+        // needs to upload first. Returning null keeps the grid empty
+        // rather than showing SOs against missing inventory.
+        return null;
+      });
+
+      const replacedNote = excelData
+        ? `${events.length.toLocaleString()} SOs now driving the grid${skipNote}`
+        : `${events.length.toLocaleString()} SOs synced — upload Excel to seed inventory + POs`;
+      setSyncProgress(null);
+      setSyncSosToast({ ok: true, message: replacedNote });
+      setTimeout(() => setSyncSosToast(null), 6000);
+      return;
+    }
+
     setSyncProgress(null);
     setSyncSosToast({ ok: result.ok, message: result.message });
     setTimeout(() => setSyncSosToast(null), 5000);

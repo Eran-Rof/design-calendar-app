@@ -97,7 +97,12 @@ export default async function handler(req, res) {
       deduped: raw.deduped,
       record_count: data.length,
       total_pages: r.body.TotalPages ?? null,
-      sample: data.slice(0, 1),
+      // Return the full page payload so the client can normalize it
+      // (Xoro → ATSSoEvent[]) without a second round-trip. Each Released
+      // SO is ~5KB; at per_page=200 that's ~1MB per page response, which
+      // is well within fetch limits. The raw payload is also persisted
+      // to raw_xoro_payloads for archival / future reprocessing.
+      records: data,
     });
   }
 
