@@ -72,13 +72,13 @@ async function runOpenSosSync(
     try {
       pageResp = await fetch(`/api/xoro/open-sos?page_start=${page}&max_pages=1`, { method: "GET" });
     } catch (e: any) {
-      return { ok: false, downloaded, pages: page - 1, message: `Network error on page ${page}: ${e?.message || String(e)}`, records: [] };
+      return { ok: false, downloaded, pages: page - 1, message: `Network error on page ${page}: ${e?.message || String(e)}`, records };
     }
     let pageBody: any;
-    try { pageBody = await pageResp.json(); } catch { return { ok: false, downloaded, pages: page - 1, message: `Non-JSON on page ${page}`, records: [] }; }
+    try { pageBody = await pageResp.json(); } catch { return { ok: false, downloaded, pages: page - 1, message: `Non-JSON on page ${page}`, records }; }
     if (!pageBody?.ok) {
       const err = pageBody?.first_error?.Message || pageBody?.first_error?.error || "Xoro error";
-      return { ok: false, downloaded, pages: page - 1, message: `Failed on page ${page}: ${err}`, records: [] };
+      return { ok: false, downloaded, pages: page - 1, message: `Failed on page ${page}: ${err}`, records };
     }
     const pageStatusBlock = (pageBody.per_status ?? [])[0];
     if (Array.isArray(pageStatusBlock?.records)) records.push(...pageStatusBlock.records);
@@ -148,11 +148,11 @@ export const NavBar: React.FC<NavBarProps> = ({
     setSyncProgress({ step: "Starting…", pct: 0, downloaded: 0, pagesDone: 0, totalPages: 0 });
     const result = await runOpenSosSync((p) => setSyncProgress(p), cancelRef);
 
-    // On success: normalize the accumulated Xoro records to ATSSoEvent
-    // shape and replace excelData.sos. Per user direction: replace
-    // wholesale (no merge), and keep skus/pos coming from Excel until
-    // we have inventory + PO endpoints from Xoro.
-    if (result.ok && result.records.length > 0) {
+    // Normalize whatever records made it back — even a partial walk
+    // (e.g. failed at page 19 of 26) still gives us most of the data.
+    // Per user direction: replace excelData.sos wholesale, keep
+    // skus/pos from the Excel upload.
+    if (result.records.length > 0) {
       const { events, skipped } = normalizeXoroSos(result.records);
       const skipNote = (skipped.noSku + skipped.noDate + skipped.zeroQty) > 0
         ? ` (skipped ${skipped.noSku} no-SKU, ${skipped.noDate} no-date, ${skipped.zeroQty} zero-qty)`
@@ -160,26 +160,29 @@ export const NavBar: React.FC<NavBarProps> = ({
 
       setExcelData((prev) => {
         const nowIso = new Date().toISOString();
-        // Excel already in place: replace SOs only, keep skus/pos.
         if (prev) return { ...prev, sos: events, syncedAt: nowIso };
-        // Fresh state with no Excel: surface clearly that the user
-        // needs to upload first. Returning null keeps the grid empty
-        // rather than showing SOs against missing inventory.
         return null;
       });
 
-      const replacedNote = excelData
+      // Toast wording depends on whether the walk completed cleanly
+      // or died partway through. Stay visible 8s so the user has time
+      // to read the partial-failure context (vs 5s for a clean run).
+      const baseMsg = excelData
         ? `${events.length.toLocaleString()} SOs now driving the grid${skipNote}`
         : `${events.length.toLocaleString()} SOs synced — upload Excel to seed inventory + POs`;
+      const finalMsg = result.ok
+        ? baseMsg
+        : `Partial sync: ${baseMsg}. ${result.message}`;
       setSyncProgress(null);
-      setSyncSosToast({ ok: true, message: replacedNote });
-      setTimeout(() => setSyncSosToast(null), 6000);
+      setSyncSosToast({ ok: result.ok, message: finalMsg });
+      setTimeout(() => setSyncSosToast(null), result.ok ? 6000 : 12000);
       return;
     }
 
+    // Total failure — no records made it back at all.
     setSyncProgress(null);
-    setSyncSosToast({ ok: result.ok, message: result.message });
-    setTimeout(() => setSyncSosToast(null), 5000);
+    setSyncSosToast({ ok: false, message: result.message });
+    setTimeout(() => setSyncSosToast(null), 10000);
   };
   const handleCancelSync = () => { cancelRef.current = true; };
 
