@@ -281,7 +281,7 @@ export const GridTable: React.FC<GridTableProps> = ({
   };
 
   return (
-    <div style={S.tableWrap} ref={tableRef}>
+    <div className="ats-table-wrap" style={S.tableWrap} ref={tableRef}>
       <table style={S.table}>
         <thead>
           {/* Totals row — sticky top: 0, sums across the filtered set.

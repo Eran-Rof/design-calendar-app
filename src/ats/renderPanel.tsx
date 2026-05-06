@@ -141,6 +141,16 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           border-left: 1px solid #334155;
         }
         input[type=number]::-webkit-inner-spin-button:hover { opacity: 1; }
+
+        /* Force the grid's horizontal scrollbar to always render so the
+           operator can see scroll affordance even when the content fits.
+           Matches overflowX: "scroll" in styles.ts; also overrides macOS
+           overlay-scrollbar behaviour which hides the bar by default. */
+        .ats-table-wrap::-webkit-scrollbar { -webkit-appearance: none; height: 12px; width: 12px; }
+        .ats-table-wrap::-webkit-scrollbar-track { background: #0F172A; }
+        .ats-table-wrap::-webkit-scrollbar-thumb { background: #475569; border-radius: 6px; border: 2px solid #0F172A; }
+        .ats-table-wrap::-webkit-scrollbar-thumb:hover { background: #64748B; }
+        .ats-table-wrap { scrollbar-width: thin; scrollbar-color: #475569 #0F172A; }
       `}</style>
       <NavBar
         mergeHistory={mergeHistory}

@@ -22,7 +22,10 @@ const S: Record<string, React.CSSProperties> = {
   dateInput:   { background: "#1E293B", border: "1px solid #334155", borderRadius: 8, padding: "7px 10px", color: "#F1F5F9", fontSize: 13, outline: "none" },
   legend:      { display: "flex", gap: 16, marginBottom: 10, alignItems: "center", flexWrap: "wrap" as const },
   legendItem:  { display: "flex", alignItems: "center", gap: 5 },
-  tableWrap:   { overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 300px)", borderRadius: 10, border: "1px solid #334155", background: "#0F172A" },
+  // overflowX: "scroll" (not "auto") forces the horizontal scrollbar to
+  // be drawn even when the content fits — operator wants it always
+  // visible so a narrow filtered set doesn't hide the scroll affordance.
+  tableWrap:   { overflowX: "scroll" as const, overflowY: "auto" as const, maxHeight: "calc(100vh - 300px)", borderRadius: 10, border: "1px solid #334155", background: "#0F172A" },
   table:       { borderCollapse: "separate" as const, borderSpacing: 0, width: "100%", fontSize: 13 },
   th:          { background: "#1E293B", color: "#6B7280", fontWeight: 600, fontSize: 11, textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "10px 12px", borderBottom: "1px solid #334155", borderRight: "1px solid #2D3748", whiteSpace: "nowrap" as const, position: "sticky" as const, top: 0, zIndex: 2 },
   td:          { padding: "7px 10px", borderBottom: "1px solid #334155", borderRight: "1px solid #64748B", whiteSpace: "nowrap" as const, verticalAlign: "middle" as const },
