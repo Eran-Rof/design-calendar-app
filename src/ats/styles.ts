@@ -1,7 +1,13 @@
 import type React from "react";
 
 const S: Record<string, React.CSSProperties> = {
-  app:         { minHeight: "100vh", background: "#0F172A", color: "#F1F5F9", fontFamily: "'DM Sans','Segoe UI',sans-serif" },
+  // Viewport-locked column layout. Without this, the page scrolls
+  // independently of the table, which pushes the table's horizontal
+  // scrollbar (rendered at the bottom of the table's own scroll area)
+  // below the viewport until the user manually scrolls down. With the
+  // app locked to 100vh and the table flexing into the remaining
+  // space, the horizontal bar is always visible at the page bottom.
+  app:         { height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" as const, background: "#0F172A", color: "#F1F5F9", fontFamily: "'DM Sans','Segoe UI',sans-serif" },
   nav:         { background: "#1E293B", borderBottom: "1px solid #334155", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56, position: "sticky", top: 0, zIndex: 100 },
   navLeft:     { display: "flex", alignItems: "center", gap: 12 },
   navLogo:     { width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg,#10B981,#3B82F6)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 12, letterSpacing: "-0.5px" },
@@ -11,10 +17,14 @@ const S: Record<string, React.CSSProperties> = {
   navBtn:      { background: "none", border: "1px solid #334155", color: "#94A3B8", borderRadius: 6, padding: "5px 12px", fontSize: 13, cursor: "pointer", textDecoration: "none", display: "inline-flex", alignItems: "center" },
   navBtnPrimary: { background: "linear-gradient(135deg,#10B981,#3B82F6)", border: "none", color: "#fff", borderRadius: 6, padding: "5px 14px", fontSize: 13, cursor: "pointer", fontWeight: 600 },
   demoBanner:  { background: "#78350F", color: "#FCD34D", padding: "8px 24px", fontSize: 13 },
-  content:     { maxWidth: 1600, margin: "0 auto", padding: "20px" },
-  statsRow:    { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 },
+  // flex:1 inside the viewport-locked S.app makes content fill the
+  // remaining space below the navbar/banners. minHeight:0 is the
+  // standard flex-child override that lets the inner table actually
+  // shrink + scroll instead of forcing the parent to grow.
+  content:     { maxWidth: 1600, margin: "0 auto", padding: "20px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" as const, width: "100%", boxSizing: "border-box" as const },
+  statsRow:    { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16, flexShrink: 0 },
   statCard:    { background: "#1E293B", borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 4 },
-  toolbar:     { display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap" },
+  toolbar:     { display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap", flexShrink: 0 },
   searchInput: { background: "#1E293B", border: "1px solid #334155", borderRadius: 8, padding: "8px 14px", color: "#F1F5F9", fontSize: 13, outline: "none", width: 240, boxSizing: "border-box" as const },
   select:      { background: "#1E293B", border: "1px solid #334155", borderRadius: 8, padding: "8px 10px", color: "#F1F5F9", fontSize: 13, outline: "none", cursor: "pointer" },
   datePicker:  { display: "flex", alignItems: "center", gap: 6 },
@@ -23,9 +33,11 @@ const S: Record<string, React.CSSProperties> = {
   legend:      { display: "flex", gap: 16, marginBottom: 10, alignItems: "center", flexWrap: "wrap" as const },
   legendItem:  { display: "flex", alignItems: "center", gap: 5 },
   // overflowX: "scroll" (not "auto") forces the horizontal scrollbar to
-  // be drawn even when the content fits — operator wants it always
-  // visible so a narrow filtered set doesn't hide the scroll affordance.
-  tableWrap:   { overflowX: "scroll" as const, overflowY: "auto" as const, maxHeight: "calc(100vh - 300px)", borderRadius: 10, border: "1px solid #334155", background: "#0F172A" },
+  // be drawn even when the content fits. flex:1 + minHeight:0 lets the
+  // wrapper grow into the remaining viewport space below the toolbar
+  // — combined with S.app's viewport lock, the horizontal bar is
+  // pinned to the bottom of the visible area.
+  tableWrap:   { overflowX: "scroll" as const, overflowY: "auto" as const, flex: 1, minHeight: 0, borderRadius: 10, border: "1px solid #334155", background: "#0F172A" },
   table:       { borderCollapse: "separate" as const, borderSpacing: 0, width: "100%", fontSize: 13 },
   th:          { background: "#1E293B", color: "#6B7280", fontWeight: 600, fontSize: 11, textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "10px 12px", borderBottom: "1px solid #334155", borderRight: "1px solid #2D3748", whiteSpace: "nowrap" as const, position: "sticky" as const, top: 0, zIndex: 2 },
   td:          { padding: "7px 10px", borderBottom: "1px solid #334155", borderRight: "1px solid #64748B", whiteSpace: "nowrap" as const, verticalAlign: "middle" as const },

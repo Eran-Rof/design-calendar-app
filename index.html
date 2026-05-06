@@ -10,6 +10,11 @@
          everywhere else in the suite (panels at #1E293B, borders at
          #334155, deep bg at #0F172A). Applies to all scrollable
          elements: page, modals, the ATS grid, etc. */
+      html, body { margin: 0; padding: 0; height: 100%; }
+      /* Body scroll stays available for app-level scroll on small
+         screens; the ATS grid uses its own height-locked scroll
+         container (S.tableWrap) so its horizontal bar lives at the
+         bottom of the viewport, not at the bottom of all data. */
       ::-webkit-scrollbar { width: 12px; height: 12px; }
       ::-webkit-scrollbar-track { background: #0F172A; }
       ::-webkit-scrollbar-thumb {
