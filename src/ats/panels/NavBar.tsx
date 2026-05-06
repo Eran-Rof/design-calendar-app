@@ -357,20 +357,20 @@ export const NavBar: React.FC<NavBarProps> = ({
       <button
         style={{
           ...S.navBtn,
-          background: syncing ? "#1E293B" : "#0EA5E9",
-          border: `1px solid ${syncing ? "#334155" : "#0284C7"}`,
-          color: "#fff",
+          background: "#1E293B",
+          border: "1px solid #334155",
+          color: "#64748B",
           fontWeight: 600,
           display: "inline-flex",
           alignItems: "center",
           gap: 6,
-          opacity: syncing ? 0.7 : 1,
+          opacity: 0.55,
+          cursor: "not-allowed",
         }}
-        onClick={handleSyncOpenSos}
-        disabled={syncing}
-        title="Pull all Released sales orders from Xoro into raw_xoro_payloads. ~50s for the full set (~5,200 SOs)."
+        disabled={true}
+        title="Disabled — Xoro's salesorder API caps at ~65% coverage of Released SOs. Use the daily Excel upload (All Orders Report) for 100% data. Re-enable when Xoro support provides a bulk endpoint."
       >
-        {syncing ? "⟳ Syncing…" : "↓ Sync Open SOs"}
+        ↓ Sync Open SOs (disabled)
       </button>
       <button
         style={{ ...S.navBtn, background: "#1D6F42", border: "1px solid #155734", color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 7px" }}
