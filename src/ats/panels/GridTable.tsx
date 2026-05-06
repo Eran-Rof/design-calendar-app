@@ -1,7 +1,45 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import S from "../styles";
 import { getQtyColor, getQtyBg, displayColor } from "../helpers";
 import type { ATSRow, ATSPoEvent, ATSSoEvent, CtxMenu } from "../types";
+
+// Per-press scroll distance in px. Roughly one row vertically and one
+// medium-width column horizontally. Holding the key produces native key-
+// repeat which gives smooth continuous scroll.
+const ARROW_SCROLL_PX = 60;
+
+// Scroll the table on arrow keys when no text input has focus. Listens
+// at the window level so the operator doesn't need to click the table
+// first — they can scan the grid as soon as they release the search box.
+function useArrowKeyScroll(tableRef: React.RefObject<HTMLDivElement>) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Don't hijack arrows from typing surfaces.
+      const t = e.target as HTMLElement | null;
+      const tag = (t?.tagName || "").toUpperCase();
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (t && t.isContentEditable) return;
+      // Don't fight modifier-arrow shortcuts (Ctrl+Arrow word skip etc.).
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+
+      const el = tableRef.current;
+      if (!el) return;
+
+      switch (e.key) {
+        case "ArrowLeft":  el.scrollLeft -= ARROW_SCROLL_PX; e.preventDefault(); break;
+        case "ArrowRight": el.scrollLeft += ARROW_SCROLL_PX; e.preventDefault(); break;
+        case "ArrowUp":    el.scrollTop  -= ARROW_SCROLL_PX; e.preventDefault(); break;
+        case "ArrowDown":  el.scrollTop  += ARROW_SCROLL_PX; e.preventDefault(); break;
+        case "PageUp":     el.scrollTop  -= el.clientHeight; e.preventDefault(); break;
+        case "PageDown":   el.scrollTop  += el.clientHeight; e.preventDefault(); break;
+        case "Home":       if (e.shiftKey) { el.scrollLeft = 0; e.preventDefault(); } break;
+        case "End":        if (e.shiftKey) { el.scrollLeft = el.scrollWidth; e.preventDefault(); } break;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tableRef]);
+}
 
 // Height of the totals row at the top of the table. Used to push the
 // regular sticky header down so the two stack without overlap. Tall
@@ -77,6 +115,10 @@ export const GridTable: React.FC<GridTableProps> = ({
   ctxMenu, setCtxMenu, setSummaryCtx,
   openSummaryCtx, handleSkuDrop, toggleExpandGroup, expandedGroupSet,
 }) => {
+  // Wire arrow / pgup-pgdn / shift-home/end to scroll the grid when
+  // no input has focus. See useArrowKeyScroll above.
+  useArrowKeyScroll(tableRef);
+
   // Totals across the filtered set (not just the current page).
   //
   // Per-SKU resolution chain (drives Cost and Sale):
