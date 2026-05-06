@@ -58,7 +58,9 @@ export interface ATSState {
   mergeHistory: Array<{ fromSku: string; toSku: string }>;
   atShip: boolean;
   // Toggles the totals row above the column headers (Qty / Cost / Sale
-  // / Mrgn% summed across the filtered set). Defaults on.
+  // / Mrgn% summed across the filtered set). Defaults off — operator
+  // turns it on when they need the summary; otherwise the totals row
+  // adds noise to the typical SKU-lookup workflow.
   showTotalsRow: boolean;
   // Target gross margin % (0-100). Used in the totals row as a
   // fallback when a SKU is missing SO sale prices or cost basis,
@@ -140,7 +142,7 @@ export function createInitialState(startDate: string): ATSState {
     sortDir: "asc",
     mergeHistory: [],
     atShip: false,
-    showTotalsRow: true,
+    showTotalsRow: false,
     generalMarginPct: 21,
     collapseLevel: "none",
     expandedGroups: [],
