@@ -62,6 +62,10 @@ export interface ATSState {
   // turns it on when they need the summary; otherwise the totals row
   // adds noise to the typical SKU-lookup workflow.
   showTotalsRow: boolean;
+  // Toggles the stat cards row at the top of the page (Low Stock,
+  // Zero Stock, Neg ATS, etc.). Defaults on. Operator hides them to
+  // gain vertical room for the grid.
+  showStatsCards: boolean;
   // Target gross margin % (0-100). Used in the totals row as a
   // fallback when a SKU is missing SO sale prices or cost basis,
   // so the header still produces a meaningful Sale / Cost / Mrgn.
@@ -145,6 +149,7 @@ export function createInitialState(startDate: string): ATSState {
     mergeHistory: [],
     atShip: false,
     showTotalsRow: false,
+    showStatsCards: true,
     generalMarginPct: 21,
     collapseLevel: "none",
     expandedGroups: [],

@@ -3,6 +3,18 @@ import type { ATSRow } from "./types";
 import { fmtDate } from "./helpers";
 
 export function exportToExcel(rows: ATSRow[], periods: Array<{ endDate: string; label: string }>, atShip = false) {
+  // Skip rows whose availability is zero across every visible period —
+  // they contribute nothing to a planning conversation. Negatives are
+  // KEPT (shortages matter); positives are kept (visible stock).
+  // Uses the same atShip-aware value lookup the grid does.
+  const hasAnyAvailability = (r: ATSRow): boolean => {
+    for (const p of periods) {
+      const v = atShip ? (r.freeMap?.[p.endDate] ?? r.dates[p.endDate]) : r.dates[p.endDate];
+      if (v !== 0 && v != null) return true;
+    }
+    return false;
+  };
+  rows = rows.filter(hasAnyAvailability);
   // ── Styles ──────────────────────────────────────────────────────────────
   const HDR: any = {
     font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },

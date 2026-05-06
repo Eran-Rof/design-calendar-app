@@ -122,6 +122,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
   mergeHistory, undoLastMerge, clearMergeAndNavigate,
   atShip, setAtShip, onNegInven, onAgedInven,
   showTotalsRow, setShowTotalsRow,
+  showStatsCards, setShowStatsCards,
   generalMarginPct, setGeneralMarginPct,
   collapseLevel, setCollapseLevel, expandedGroups, expandedGroupSet, toggleExpandGroup,
   unreadNotifs, showingNotifications, onToggleNotifications, notificationsView } = ctx;
@@ -181,14 +182,16 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         </div>
       ) : (
       <div style={S.content}>
-        {/* STAT CARDS */}
-        <StatsRow
-          lowStock={lowStock} zeroStock={zeroStock} negATSCount={negATSCount} totalSKUs={totalSKUs}
-          totalSoQty={totalSoQty} totalSoValue={totalSoValue}
-          totalPoQty={totalPoQty} totalPoValue={totalPoValue}
-          marginDollars={marginDollars} marginPct={marginPct}
-          activeSort={activeSort} setActiveSort={setActiveSort}
-        />
+        {/* STAT CARDS — toggleable via the Toolbar's green triangle. */}
+        {showStatsCards && (
+          <StatsRow
+            lowStock={lowStock} zeroStock={zeroStock} negATSCount={negATSCount} totalSKUs={totalSKUs}
+            totalSoQty={totalSoQty} totalSoValue={totalSoValue}
+            totalPoQty={totalPoQty} totalPoValue={totalPoValue}
+            marginDollars={marginDollars} marginPct={marginPct}
+            activeSort={activeSort} setActiveSort={setActiveSort}
+          />
+        )}
 
         {/* TOOLBAR */}
         <Toolbar
@@ -210,6 +213,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           collapseLevel={collapseLevel} setCollapseLevel={setCollapseLevel!}
           atShip={atShip} setAtShip={setAtShip}
           showTotalsRow={showTotalsRow} setShowTotalsRow={setShowTotalsRow!}
+          showStatsCards={showStatsCards ?? true} setShowStatsCards={setShowStatsCards!}
           generalMarginPct={generalMarginPct ?? 21} setGeneralMarginPct={setGeneralMarginPct!}
           filteredCount={filtered.length} lastSync={lastSync}
         />
