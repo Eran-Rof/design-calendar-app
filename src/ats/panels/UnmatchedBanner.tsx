@@ -9,8 +9,13 @@ export const UnmatchedBanner: React.FC<UnmatchedBannerProps> = ({ unmatchedRows 
   const [open, setOpen] = useState(false);
   const [copiedAll, setCopiedAll] = useState(false);
   const [copiedSku, setCopiedSku] = useState<string | null>(null);
+  // Local dismiss flag — banner stays gone for the rest of the session
+  // but reappears on the next ATS load (= next upload, refresh, etc.).
+  // Persisting the dismissal would risk hiding new unmatched SKUs that
+  // appear on later uploads.
+  const [dismissed, setDismissed] = useState(false);
 
-  if (unmatchedRows.length === 0) return null;
+  if (unmatchedRows.length === 0 || dismissed) return null;
 
   const count = unmatchedRows.length;
   const styleWord = count === 1 ? "style" : "styles";
@@ -56,6 +61,29 @@ export const UnmatchedBanner: React.FC<UnmatchedBannerProps> = ({ unmatchedRows 
             }}
           >
             {open ? "Hide list ▲" : "View list ▼"}
+          </button>
+          <button
+            onClick={() => setDismissed(true)}
+            title="Dismiss this warning (will reappear on next upload)"
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(245,158,11,0.12)"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+            style={{
+              width: 26,
+              height: 26,
+              border: "1px solid rgba(245,158,11,0.5)",
+              color: "#F59E0B",
+              background: "transparent",
+              fontSize: 14,
+              lineHeight: 1,
+              cursor: "pointer",
+              borderRadius: 4,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 0,
+            }}
+          >
+            ✕
           </button>
         </div>
 
