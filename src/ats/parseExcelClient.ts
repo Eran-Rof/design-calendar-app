@@ -241,7 +241,15 @@ export async function parseExcelFiles(
     if (!base) continue;
     ordParsed++;
     const sku = color ? `${base} - ${color}` : base;
-    const qty = toNum(r["Total Sum of Qty Ordered"]);
+    // Qty priority: "Qty Remaining to Ship" first — that's the
+    // open-commitment qty (drops to zero as lines ship), which is
+    // what ATS's "On SO" math wants. Falls back to the older Xoro
+    // export column names so previous Excel files still work.
+    const qty = toNum(
+      r["Qty Remaining to Ship"]
+        || r["Total Sum of Qty Ordered"]
+        || r["Qty Ordered"]
+    );
     const soBrand = str(r["Brand"] || r["Brand Name"] || "");
     const saleStore = str(r["Sale Store"] || r["Store"] || r["Channel"] || "");
     const orderNumber = str(r["Order Number"] || r["Order #"] || r["SO Number"] || r["SO #"] || r["Sales Order"] || r["Order No"]);
@@ -270,11 +278,17 @@ export async function parseExcelFiles(
         r["Average of Unit Price"] || r["Sum of Unit Price"] ||
         r["Total Average of Unit Cost"] || r["Item Price"] || r["Item Cost"] || 0
       ).replace(/[^0-9.-]/g, "")) || 0;
+      // Total-price priority: "Total Remaining to Ship" first — pairs
+      // with "Qty Remaining to Ship" above and represents the dollar
+      // value of the open commitment. Falls back to the older totals
+      // and finally to unitPrice × qty if no totals column exists at
+      // all (some report variants only emit unit price).
       const totalPrice = parseFloat(String(
-        r["Total Sum of Total Price"] || r["Total Price"] || r["Extended Price"] ||
+        r["Total Remaining to Ship"] || r["Total Sum of Total Price"] ||
+        r["Total Price"] || r["Extended Price"] ||
         r["Sum of Total Price"] || r["Total Sum of Amount"] ||
         r["Total Sum of Amount Home Currency"] || r["Amount"] || 0
-      ).replace(/[^0-9.-]/g, "")) || 0;
+      ).replace(/[^0-9.-]/g, "")) || (unitPrice * qty);
       if (!date) { soNoDate++; soNoDateItems.push({ sku, qty, orderNumber: orderNumber || undefined, customerName: customerName || undefined }); }
       if (!orderNumber) soNoOrderNum++;
       if (!customerName) soNoCustName++;
