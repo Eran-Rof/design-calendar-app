@@ -105,7 +105,9 @@ export function createInitialState(startDate: string): ATSState {
     filterGender: "All",
     filterStatus: "All",
     minATS: "",
-    storeFilter: ["All"],
+    // Default to ROF only — the bulk of the inventory + SO volume.
+    // PT and ROF ECOM are minor and operators flip them on as needed.
+    storeFilter: ["ROF"],
     poDropOpen: false,
     soDropOpen: false,
     rows: [],
