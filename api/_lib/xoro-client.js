@@ -85,8 +85,18 @@ export async function fetchXoroAll({ path, params = {}, maxPages = 50, module, p
       if (d) await new Promise((r) => setTimeout(r, d));
       attempt = await xoroFetchPage({ path, params, page, authHeader: creds.authHeader });
       const dataLen = Array.isArray(attempt.body?.Data) ? attempt.body.Data.length : -1;
+      // Success: got data on this page → done retrying.
       if (dataLen > 0) break;
-      if (attempt.body?.Result !== false) break;
+      // 4xx (auth/path/permission): retrying won't help, bail immediately.
+      if (attempt.status >= 400 && attempt.status < 500) break;
+      // Empty page on a clean 200 with Result:true is a legitimate
+      // "no more rows" — done retrying. Used as the page-walk
+      // termination signal further down.
+      if (attempt.body?.Result === true) break;
+      // Otherwise (HTTP 5xx with `{Message:"An error has occurred."}`
+      // and no Result, or explicit Result:false) keep retrying. Xoro
+      // 500s intermittently and we'd rather pay 0+0.8+2+4 = ~7s extra
+      // on a flaky page than crash the whole walk.
     }
     const dataLen = Array.isArray(attempt.body?.Data) ? attempt.body.Data.length : -1;
     pageNotes.push({ page, result: attempt.body?.Result, dataLen, totalPages: attempt.body?.TotalPages });

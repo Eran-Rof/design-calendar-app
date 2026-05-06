@@ -65,6 +65,10 @@ async function runOpenSosSync(
     if (cancelRef.current) {
       return { ok: false, downloaded, pages: page - 1, message: "Cancelled by user", records: [] };
     }
+    // 250ms gap between pages — Xoro 500s under load and the server-
+    // side retry chain handles transient blips, but pacing reduces
+    // how often we trip them in the first place.
+    await new Promise((r) => setTimeout(r, 250));
     let pageResp: Response;
     try {
       pageResp = await fetch(`/api/xoro/open-sos?page_start=${page}&max_pages=1`, { method: "GET" });
