@@ -36,6 +36,36 @@ export const config = { maxDuration: 300 };
 
 const SO_PATH = "salesorder/getsalesorder";
 
+// Xoro SO records are huge (100+ fields per header alone, 12.5MB at
+// per_page=200). The client only needs a handful for normalizing into
+// ATSSoEvent. Strip on the server to cut per-page response size by ~25x
+// and drop transfer time correspondingly. raw_xoro_payloads still gets
+// the full payload for archival/reprocessing; only the response back
+// to the client is trimmed.
+function trimSoRecord(rec) {
+  const h = rec?.SoEstimateHeader ?? {};
+  const lines = Array.isArray(rec?.SoEstimateItemLineArr) ? rec.SoEstimateItemLineArr : [];
+  return {
+    SoEstimateHeader: {
+      OrderNumber: h.OrderNumber ?? null,
+      CustomerFullName: h.CustomerFullName ?? null,
+      CustomerName: h.CustomerName ?? null,
+      StoreName: h.StoreName ?? null,
+      SaleStoreName: h.SaleStoreName ?? null,
+      DateToBeShipped: h.DateToBeShipped ?? null,
+    },
+    SoEstimateItemLineArr: lines.map((l) => ({
+      ItemNumber: l?.ItemNumber ?? null,
+      QtyRemainingToShip: l?.QtyRemainingToShip ?? null,
+      QtyOrdered: l?.QtyOrdered ?? null,
+      Qty: l?.Qty ?? null,
+      UnitPrice: l?.UnitPrice ?? null,
+      LineAmount: l?.LineAmount ?? null,
+      DateToBeShipped: l?.DateToBeShipped ?? null,
+    })),
+  };
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
@@ -97,12 +127,11 @@ export default async function handler(req, res) {
       deduped: raw.deduped,
       record_count: data.length,
       total_pages: r.body.TotalPages ?? null,
-      // Return the full page payload so the client can normalize it
-      // (Xoro → ATSSoEvent[]) without a second round-trip. Each Released
-      // SO is ~5KB; at per_page=200 that's ~1MB per page response, which
-      // is well within fetch limits. The raw payload is also persisted
-      // to raw_xoro_payloads for archival / future reprocessing.
-      records: data,
+      // Trimmed records — only the fields the client needs to normalize
+      // into ATSSoEvent. Cuts response size from ~12.5MB to ~500KB per
+      // page. raw_xoro_payloads still has the full payload (above) for
+      // archival / future reprocessing if more fields are needed.
+      records: data.map(trimSoRecord),
     });
   }
 

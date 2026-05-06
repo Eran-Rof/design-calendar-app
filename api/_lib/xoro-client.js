@@ -43,11 +43,12 @@ async function xoroFetchPage({ path, params, page, authHeader }) {
   p.set("page", String(page));
   const url = `https://res.xorosoft.io/api/xerp/${path}?${p.toString()}`;
   const ctrl = new AbortController();
-  // 15s per attempt: with the 0+0.8+2+4s retry backoff chain, total
-  // worst-case per page = 15+0.8+15+2+15+4+15 ≈ 52s — recoverable
-  // and visible. The previous 50s timeout meant a flaky page could
-  // freeze the UI for ~3.5 minutes before the retry loop gave up.
-  const t = setTimeout(() => ctrl.abort(), 15_000);
+  // 30s per attempt: status=Released SO pages return ~12.5MB of JSON
+  // and Xoro takes ~20s to respond — 15s was too aggressive. 30s gives
+  // a 50% margin over the observed response time. With the trimmed
+  // 0+800+2000ms backoff chain (2 retries instead of 4), worst-case
+  // per page = 30+0.8+30+2+30 ≈ 93s — still recoverable.
+  const t = setTimeout(() => ctrl.abort(), 30_000);
   try {
     const r = await fetch(url, {
       method: "GET",
@@ -74,7 +75,10 @@ export async function fetchXoroAll({ path, params = {}, maxPages = 50, module, p
   const creds = xoroCredsFromEnv(module);
   if (!creds.ok) return { ok: false, status: 500, body: { error: creds.error } };
 
-  const delays = [0, 800, 2000, 4000];
+  // 2 retries (3 total attempts) instead of 4 — at 30s per attempt, the
+  // longer chain would compound to ~3 minutes per flaky page. Most
+  // Xoro 5xx blips are transient and the first retry fixes them.
+  const delays = [0, 800, 2000];
   let all = [];
   let totalPages = 1;
   const pageNotes = [];
