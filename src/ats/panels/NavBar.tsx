@@ -22,9 +22,13 @@ interface SyncResult {
   downloaded: number;
   pages: number;
   message: string;
-  // Raw Xoro records accumulated across the walk. Empty array on
-  // failure/cancel so the caller can safely call .length without checks.
+  // Raw Xoro records accumulated across the walk. Returned on every
+  // exit path (clean success, partial sync, cancel) so the caller can
+  // always normalize what it has.
   records: XoroSoRecord[];
+  // Pages that failed after retries. Empty on a clean walk; populated
+  // when skip-and-continue salvaged a sync past one or more bad pages.
+  failedPages: number[];
 }
 
 async function runOpenSosSync(
@@ -35,21 +39,23 @@ async function runOpenSosSync(
   let totalPages = 0;
   let downloaded = 0;
   const records: XoroSoRecord[] = [];
+  const failedPages: number[] = [];
 
-  // Probe page 1 to learn TotalPages. Use max_pages=1 so the response
-  // contains exactly the first page's records and TotalPages metadata.
+  // Probe page 1 to learn TotalPages. Page 1 is the only page where
+  // failure is fatal — without TotalPages we don't know how many pages
+  // to walk, so we don't skip-and-continue past a page-1 failure.
   onProgress({ step: "Probing Xoro for total pages…", pct: 0, downloaded: 0, pagesDone: 0, totalPages: 0 });
   let resp: Response;
   try {
     resp = await fetch(`/api/xoro/open-sos?page_start=1&max_pages=1`, { method: "GET" });
   } catch (e: any) {
-    return { ok: false, downloaded: 0, pages: 0, message: `Network error: ${e?.message || String(e)}`, records: [] };
+    return { ok: false, downloaded: 0, pages: 0, message: `Network error: ${e?.message || String(e)}`, records: [], failedPages: [1] };
   }
   let body: any;
-  try { body = await resp.json(); } catch { return { ok: false, downloaded: 0, pages: 0, message: "Xoro returned non-JSON", records: [] }; }
+  try { body = await resp.json(); } catch { return { ok: false, downloaded: 0, pages: 0, message: "Xoro returned non-JSON", records: [], failedPages: [1] }; }
   if (!body?.ok) {
     const err = body?.first_error?.Message || body?.first_error?.error || "Xoro returned no data";
-    return { ok: false, downloaded: 0, pages: 0, message: `Xoro error: ${err}`, records: [] };
+    return { ok: false, downloaded: 0, pages: 0, message: `Xoro error: ${err}`, records: [], failedPages: [1] };
   }
   const firstStatusBlock = (body.per_status ?? [])[0];
   totalPages = firstStatusBlock?.total_pages ?? 1;
@@ -57,28 +63,42 @@ async function runOpenSosSync(
   if (Array.isArray(firstStatusBlock?.records)) records.push(...firstStatusBlock.records);
   onProgress({ step: `Walking ${totalPages} pages…`, pct: Math.round((1 / totalPages) * 100), downloaded, pagesDone: 1, totalPages });
 
-  // Walk remaining pages 2..totalPages. Bail out cleanly if the user
-  // hits Cancel — cancelRef flips to true and we abandon the loop
-  // without dispatching another fetch.
+  // Walk remaining pages 2..totalPages with skip-and-continue.
+  //
+  // Why skip rather than abort: production data shows pages with huge
+  // SOs (e.g. Macy's, which can have hundreds of line items) take well
+  // past the 60s timeout. If we abort the entire 26-page walk on one
+  // slow page, we lose 25 pages of valid data. Skip-and-continue
+  // banks each successful page and reports failed pages back to the
+  // user; re-syncing dedupes against raw_xoro_payloads so the retry is
+  // cheap server-side.
   for (page = 2; page <= totalPages; page++) {
     if (cancelRef.current) {
-      return { ok: false, downloaded, pages: page - 1, message: "Cancelled by user", records: [] };
+      return { ok: false, downloaded, pages: page - 1, message: "Cancelled by user", records, failedPages };
     }
     // 250ms gap between pages — Xoro 500s under load and the server-
     // side retry chain handles transient blips, but pacing reduces
     // how often we trip them in the first place.
     await new Promise((r) => setTimeout(r, 250));
-    let pageResp: Response;
+
+    let pageResp: Response | null = null;
     try {
       pageResp = await fetch(`/api/xoro/open-sos?page_start=${page}&max_pages=1`, { method: "GET" });
-    } catch (e: any) {
-      return { ok: false, downloaded, pages: page - 1, message: `Network error on page ${page}: ${e?.message || String(e)}`, records };
+    } catch {
+      failedPages.push(page);
+      onProgress({ step: `Page ${page} failed, continuing…`, pct: Math.round((page / totalPages) * 100), downloaded, pagesDone: page, totalPages });
+      continue;
     }
-    let pageBody: any;
-    try { pageBody = await pageResp.json(); } catch { return { ok: false, downloaded, pages: page - 1, message: `Non-JSON on page ${page}`, records }; }
+    let pageBody: any = null;
+    try { pageBody = await pageResp.json(); } catch {
+      failedPages.push(page);
+      onProgress({ step: `Page ${page} failed, continuing…`, pct: Math.round((page / totalPages) * 100), downloaded, pagesDone: page, totalPages });
+      continue;
+    }
     if (!pageBody?.ok) {
-      const err = pageBody?.first_error?.Message || pageBody?.first_error?.error || "Xoro error";
-      return { ok: false, downloaded, pages: page - 1, message: `Failed on page ${page}: ${err}`, records };
+      failedPages.push(page);
+      onProgress({ step: `Page ${page} failed, continuing…`, pct: Math.round((page / totalPages) * 100), downloaded, pagesDone: page, totalPages });
+      continue;
     }
     const pageStatusBlock = (pageBody.per_status ?? [])[0];
     if (Array.isArray(pageStatusBlock?.records)) records.push(...pageStatusBlock.records);
@@ -89,7 +109,11 @@ async function runOpenSosSync(
     if ((pageBody.total_records ?? 0) === 0) break;
   }
 
-  return { ok: true, downloaded, pages: totalPages, message: `Synced ${downloaded.toLocaleString()} Released SOs from Xoro`, records };
+  const ok = failedPages.length === 0;
+  const message = ok
+    ? `Synced ${downloaded.toLocaleString()} Released SOs from Xoro`
+    : `Synced ${downloaded.toLocaleString()} SOs — page${failedPages.length > 1 ? "s" : ""} ${failedPages.join(", ")} timed out (re-sync to retry just those)`;
+  return { ok, downloaded, pages: totalPages, message, records, failedPages };
 }
 
 interface NavBarProps {

@@ -93,7 +93,11 @@ export default async function handler(req, res) {
   // Walk one status at a time so a failure on one (e.g. Xoro chokes on
   // "Partially Shipped" with the space encoded) doesn't lose the others.
   for (const status of statusList) {
-    const params = { per_page: "200", status };
+    // per_page=100 (down from 200) so a single large SO (e.g. Macy's
+    // with hundreds of line items) doesn't bloat one page past the
+    // 60s response timeout. More pages overall but each finishes
+    // faster — better matched to Xoro's actual response variance.
+    const params = { per_page: "100", status };
     if (dateFrom) params.date_from = dateFrom;
     if (dateTo) params.date_to = dateTo;
 
