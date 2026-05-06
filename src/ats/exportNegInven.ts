@@ -1,5 +1,5 @@
 import XLSXStyle from "xlsx-js-style";
-import type { ATSRow } from "./types";
+import type { ATSRow, ATSPoEvent, ATSSoEvent } from "./types";
 import { fmtDate } from "./helpers";
 
 // ── Palette ───────────────────────────────────────────────────────────────────
@@ -13,6 +13,9 @@ const MUTED   = "5F5E5A";
 const NEG_RED = "C0392B";
 const NEG_BG  = "FDECEA";
 const GRY_BRD = "D9DCE3";
+// PO supply line — matches the app's emerald accent. Bright enough on
+// the alt-row LGRAY backgrounds to read at a glance.
+const PO_GREEN = "059669";
 
 const fl = (rgb: string) => ({ patternType: "solid" as const, fgColor: { rgb } });
 const ft = (bold: boolean, sz: number, rgb: string) =>
@@ -20,10 +23,32 @@ const ft = (bold: boolean, sz: number, rgb: string) =>
 const MED  = (rgb: string) => ({ style: "medium" as const, color: { rgb } });
 const THIN = (rgb: string) => ({ style: "thin"   as const, color: { rgb } });
 
+// Per-period PO arrival qty for one SKU. Walks the eventIndex's
+// per-date PO buckets and sums anything whose receive date falls in
+// (periodStart, endDate]. Returns 0 when the index has no data for
+// the SKU (e.g. row not yet sliced or pre-cache state).
+function poQtyInPeriod(
+  eventIndex: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null,
+  sku: string,
+  periodStart: string,
+  endDate: string,
+): number {
+  const skuBuckets = eventIndex?.[sku];
+  if (!skuBuckets) return 0;
+  let total = 0;
+  for (const [date, bucket] of Object.entries(skuBuckets)) {
+    if (date >= periodStart && date <= endDate) {
+      for (const po of bucket.pos) total += po.qty || 0;
+    }
+  }
+  return total;
+}
+
 export function exportNegInven(
   rows: ATSRow[],
-  displayPeriods: Array<{ endDate: string; label: string }>,
+  displayPeriods: Array<{ periodStart: string; endDate: string; label: string }>,
   atShip: boolean,
+  eventIndex: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null = null,
 ) {
   const today = new Date();
   const todayStr = `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
@@ -124,7 +149,14 @@ export function exportNegInven(
     })),
   ]);
 
-  // Data rows
+  // Track which AOA-row indexes are PO sub-rows so the merge / border
+  // logic below can color the row's first columns as a "+ PO" label
+  // span instead of inheriting the SKU border treatment.
+  const poSubRowIndexes: number[] = [];
+
+  // Data rows. Each SKU produces its main row, plus an optional "+ PO"
+  // sub-row showing incoming PO qty per period in green — supply that
+  // may cover the negs in adjacent or later periods.
   processed.forEach(({ row, periodVals }, ri) => {
     const rf = ri % 2 === 0 ? WHITE : LGRAY;
     aoa.push([
@@ -147,6 +179,37 @@ export function exportNegInven(
         };
       }),
     ]);
+
+    // PO sub-row — only emit when at least one live period has incoming
+    // supply for this SKU. Green "+N" cells make it instantly readable
+    // against the red neg cells above.
+    const poByPeriod = livePeriodIdxs.map(pi =>
+      poQtyInPeriod(eventIndex, row.sku, displayPeriods[pi].periodStart, displayPeriods[pi].endDate)
+    );
+    if (poByPeriod.some(q => q > 0)) {
+      poSubRowIndexes.push(aoa.length);
+      aoa.push([
+        { v: "+ PO", t: "s", s: { font: ft(true, 8, PO_GREEN), fill: fl(rf), alignment: { horizontal: "right", vertical: "center" } } },
+        { v: "",     t: "s", s: { fill: fl(rf) } },
+        { v: "",     t: "s", s: { fill: fl(rf) } },
+        { v: "",     t: "s", s: { fill: fl(rf) } },
+        { v: "",     t: "s", s: { fill: fl(rf) } },
+        { v: "",     t: "s", s: { fill: fl(rf) } },
+        { v: "",     t: "s", s: { fill: fl(rf) } },
+        ...poByPeriod.map(q => ({
+          v: q > 0 ? q : "",
+          t: q > 0 ? "n" as const : "s" as const,
+          s: {
+            font: ft(true, 9, PO_GREEN),
+            fill: fl(rf),
+            alignment: { horizontal: "right", vertical: "center" },
+            // "+#,##0" prefixes positive numbers with a literal +,
+            // ";;" silences zeros and negatives.
+            numFmt: '"+"#,##0;;',
+          },
+        })),
+      ]);
+    }
   });
 
   const ws: any = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
@@ -168,7 +231,9 @@ export function exportNegInven(
   const getGroup = (c: number): [number, number] =>
     GROUPS.find(([g0, g1]) => g0 <= c && c <= g1) ?? [c, c];
 
-  const LAST_R = 2 + processed.length; // 0-indexed last row
+  // 0-indexed last row — accounts for header (3 rows) + each SKU's
+  // main row + its optional PO sub-row.
+  const LAST_R = aoa.length - 1;
 
   for (let r = 1; r <= LAST_R; r++) {
     for (let c = 0; c < TC; c++) {
@@ -197,7 +262,9 @@ export function exportNegInven(
   ];
   ws["!rows"] = [
     { hpt: 24 }, { hpt: 16 }, { hpt: 16 },
-    ...processed.map(() => ({ hpt: 15 })),
+    ...Array(aoa.length - 3).fill(null).map((_, i) =>
+      poSubRowIndexes.includes(i + 3) ? { hpt: 13 } : { hpt: 15 }
+    ),
   ];
 
   ws["!freeze"] = { xSplit: 0, ySplit: 3 };

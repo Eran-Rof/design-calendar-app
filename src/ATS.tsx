@@ -664,8 +664,8 @@ function ATSReport() {
 
   const onNegInven = useCallback(() => {
     setActiveSort("negATS");
-    exportNegInven(rows, displayPeriods, atShip);
-  }, [rows, displayPeriods, atShip]);
+    exportNegInven(rows, displayPeriods, atShip, eventIndex);
+  }, [rows, displayPeriods, atShip, eventIndex]);
 
   const onAgedInven = useCallback((days: number, category: string): "ok" | "empty" => {
     return exportAgedInven(rows, days, category);
