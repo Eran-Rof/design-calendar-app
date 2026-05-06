@@ -2,6 +2,27 @@ import React, { useState } from "react";
 import S from "../styles";
 import type { ATSRow } from "../types";
 
+// Hits /api/xoro/open-sos which pulls Released SOs from Xoro and writes
+// the raw payload into raw_xoro_payloads. Returns a one-line summary
+// suitable for a toast — total record count plus any error message Xoro
+// returned. Kept inline (not a hook) because this is a single-fire
+// operation with no shared state.
+async function runOpenSosSync(): Promise<{ ok: boolean; message: string }> {
+  try {
+    const r = await fetch("/api/xoro/open-sos", { method: "GET" });
+    const body = await r.json();
+    if (body?.ok) {
+      const total = body.total_records ?? 0;
+      const statuses = (body.statuses_walked ?? []).join(", ");
+      return { ok: true, message: `Synced ${total} ${statuses} SOs from Xoro` };
+    }
+    const err = body?.first_error?.Message || body?.first_error?.error || "Xoro returned no data";
+    return { ok: false, message: `Sync failed: ${err}` };
+  } catch (e: any) {
+    return { ok: false, message: `Sync failed: ${e?.message || String(e)}` };
+  }
+}
+
 interface NavBarProps {
   mergeHistory: Array<{ fromSku: string; toSku: string }>;
   undoLastMerge: () => void;
@@ -38,6 +59,21 @@ export const NavBar: React.FC<NavBarProps> = ({
   const [agedCategory, setAgedCategory] = useState(filterCategory);
   const [agedEmpty, setAgedEmpty] = useState(false);
 
+  // Open-SOs sync state. The toast message stays visible for ~5s (or
+  // until user clicks it) so the operator sees what happened without
+  // needing to open the browser console.
+  const [syncingSos, setSyncingSos] = useState(false);
+  const [syncSosToast, setSyncSosToast] = useState<{ ok: boolean; message: string } | null>(null);
+  const handleSyncOpenSos = async () => {
+    if (syncingSos) return;
+    setSyncingSos(true);
+    setSyncSosToast(null);
+    const result = await runOpenSosSync();
+    setSyncingSos(false);
+    setSyncSosToast(result);
+    setTimeout(() => setSyncSosToast(null), 5000);
+  };
+
   return (
   <nav style={S.nav}>
     <div style={S.navLeft}>
@@ -62,6 +98,24 @@ export const NavBar: React.FC<NavBarProps> = ({
             {[invFile, ordFile].filter(Boolean).length}/2{purFile ? "+PO" : ""}
           </span>
         )}
+      </button>
+      <button
+        style={{
+          ...S.navBtn,
+          background: syncingSos ? "#1E293B" : "#0EA5E9",
+          border: `1px solid ${syncingSos ? "#334155" : "#0284C7"}`,
+          color: "#fff",
+          fontWeight: 600,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          opacity: syncingSos ? 0.7 : 1,
+        }}
+        onClick={handleSyncOpenSos}
+        disabled={syncingSos}
+        title="Pull all Released sales orders from Xoro into raw_xoro_payloads. ~50s for the full set (~5,200 SOs)."
+      >
+        {syncingSos ? "⟳ Syncing…" : "↓ Sync Open SOs"}
       </button>
       <button
         style={{ ...S.navBtn, background: "#1D6F42", border: "1px solid #155734", color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 7px" }}
@@ -140,6 +194,32 @@ export const NavBar: React.FC<NavBarProps> = ({
       </button>
       <button style={{ ...S.navBtn, cursor: "pointer" }} onClick={onNavigateHome}>← PLM Home</button>
     </div>
+
+    {/* Sync Open SOs toast — auto-dismisses after 5s, click to dismiss sooner */}
+    {syncSosToast && (
+      <div
+        onClick={() => setSyncSosToast(null)}
+        style={{
+          position: "fixed",
+          top: 70,
+          right: 24,
+          zIndex: 400,
+          minWidth: 280,
+          maxWidth: 420,
+          padding: "10px 16px",
+          borderRadius: 8,
+          background: syncSosToast.ok ? "rgba(16,185,129,0.95)" : "rgba(239,68,68,0.95)",
+          color: "#fff",
+          fontSize: 13,
+          fontWeight: 600,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+          cursor: "pointer",
+          border: `1px solid ${syncSosToast.ok ? "#047857" : "#991B1B"}`,
+        }}
+      >
+        {syncSosToast.ok ? "✓ " : "✕ "}{syncSosToast.message}
+      </div>
+    )}
 
     {/* Aged Inventory days modal */}
     {agedOpen && (
