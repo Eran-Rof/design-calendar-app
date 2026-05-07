@@ -381,11 +381,23 @@ export const GridTable: React.FC<GridTableProps> = ({
     return w;
   }, [filtered, showTotalsRow, sums]);
 
-  if (loading) return <div style={S.loadingState}>Loading ATS data…</div>;
+  // Slim status bar instead of the centered "no SKUs" card. The card
+  // dominated the page on initial load (when data hadn't streamed in
+  // yet) and looked like an error rather than a transient state.
+  // The bar reads as a notification, leaves the rest of the page
+  // visible (filters / toolbar still usable), and unobtrusively
+  // disappears once rows arrive.
+  if (loading) return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "#1E293B", border: "1px solid #334155", borderRadius: 8, color: "#94A3B8", fontSize: 13 }}>
+      <span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 6, border: "2px solid #334155", borderTopColor: "#10B981", animation: "ats-spin 0.8s linear infinite" }} />
+      <span>Loading ATS data…</span>
+      <style>{`@keyframes ats-spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
   if (filtered.length === 0) return (
-    <div style={S.emptyState}>
-      <div style={{ fontSize: 32, marginBottom: 12 }}>▦</div>
-      <p style={{ color: "#9CA3AF", margin: 0 }}>No SKUs match your filters.</p>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "#1E293B", border: "1px solid #334155", borderRadius: 8, color: "#94A3B8", fontSize: 13 }}>
+      <span style={{ fontSize: 14, lineHeight: 1 }}>▦</span>
+      <span>No SKUs match your filters.</span>
     </div>
   );
 
