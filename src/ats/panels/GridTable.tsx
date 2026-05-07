@@ -48,6 +48,34 @@ function useArrowKeyScroll(tableRef: React.RefObject<HTMLDivElement>) {
 // previous value per operator request.
 const TOTALS_ROW_HEIGHT = 76;
 
+// Sticky-left column definitions. Order matters — drives both the
+// header rendering and the data-row cell order. Width is in px.
+const STICKY_COLS = [
+  { key: "category",    width: 110 },
+  { key: "subCategory", width: 110 },
+  { key: "style",       width: 100 },
+  { key: "description", width: 180 },
+  { key: "color",       width: 130 },
+  { key: "onHand",      width:  80 },
+  { key: "onOrder",     width:  80 },
+  { key: "onPO",        width:  80 },
+] as const;
+type StickyKey = typeof STICKY_COLS[number]["key"];
+
+// Compute left offset for a given column given the current hidden set.
+// Returns null when the column itself is hidden so the caller can drop
+// the cell entirely. Sibling columns reflow because hidden widths drop
+// out of the running sum.
+function colLeft(key: StickyKey, hidden: Set<string>): number | null {
+  if (hidden.has(key)) return null;
+  let left = 0;
+  for (const c of STICKY_COLS) {
+    if (c.key === key) return left;
+    if (!hidden.has(c.key)) left += c.width;
+  }
+  return null;
+}
+
 // Format dollars for the totals header. Whole-dollar precision keeps
 // the rows scannable when totals run into millions.
 function fmtUSD(v: number): string {
@@ -92,6 +120,9 @@ interface GridTableProps {
   todayKey: string;
   atShip: boolean;
   showTotalsRow: boolean;
+  // Per-column hide list for the sticky-left columns. Operator toggles
+  // these via the Toolbar's "Columns" dropdown.
+  hiddenColumns: string[];
   // Target gross margin % used as a fallback in the totals row when a
   // SKU is missing SO sale prices or cost basis. SKUs with NO SOs, NO
   // avg cost, AND NO PO cost are excluded — the Mrgn label gets a *
@@ -113,13 +144,18 @@ export const GridTable: React.FC<GridTableProps> = ({
   sortCol, sortDir, handleThClick, rangeUnit,
   pinnedSku, setPinnedSku, dragSku, setDragSku, dragOverSku, setDragOverSku,
   hoveredCell, setHoveredCell,
-  todayKey, atShip, showTotalsRow, generalMarginPct, eventIndex, getEventsInPeriod,
+  todayKey, atShip, showTotalsRow, hiddenColumns, generalMarginPct, eventIndex, getEventsInPeriod,
   ctxMenu, setCtxMenu, setSummaryCtx,
   openSummaryCtx, handleSkuDrop, toggleExpandGroup, expandedGroupSet,
 }) => {
   // Wire arrow / pgup-pgdn / shift-home/end to scroll the grid when
   // no input has focus. See useArrowKeyScroll above.
   useArrowKeyScroll(tableRef);
+
+  // Convert hiddenColumns to a Set for O(1) lookups in colLeft + the
+  // per-cell render guards below.
+  const hidden = useMemo(() => new Set(hiddenColumns), [hiddenColumns]);
+  const isHidden = (key: StickyKey) => hidden.has(key);
 
   // Totals across the filtered set (not just the current page).
   //
@@ -332,30 +368,36 @@ export const GridTable: React.FC<GridTableProps> = ({
       <table style={S.table}>
         <thead>
           {/* Totals row — sticky top: 0, sums across the filtered set.
-             Column geometry MUST mirror the column-header row below
-             (lefts [0, 110, 220, 320, 500, 630, 710, 790], widths
-             [110, 110, 100, 180, 130, 80, 80, 80]). Hidden when the
-             user has toggled the totals off. */}
+             Column geometry mirrors the column-header row below; both
+             use STICKY_COLS + colLeft so hidden columns drop out and
+             siblings reflow consistently. */}
           {showTotalsRow && (
           <tr>
-            {/* Empty Category | Sub Cat | Style | Description | Color (sticky to keep alignment) */}
-            <th style={{ ...totalsThBase, ...S.stickyCol, left:   0, minWidth: 110, zIndex: 4 }} />
-            <th style={{ ...totalsThBase, ...S.stickyCol, left: 110, minWidth: 110, zIndex: 4 }} />
-            <th style={{ ...totalsThBase, ...S.stickyCol, left: 220, minWidth: 100, zIndex: 4 }} />
-            <th style={{ ...totalsThBase, ...S.stickyCol, left: 320, minWidth: 180, zIndex: 4 }} />
-            <th style={{ ...totalsThBase, ...S.stickyCol, left: 500, minWidth: 130, zIndex: 4 }} />
+            {/* Empty placeholders for the four ID columns + Color */}
+            {(["category","subCategory","style","description","color"] as const).map(k => {
+              if (isHidden(k)) return null;
+              const left = colLeft(k, hidden) ?? 0;
+              const width = STICKY_COLS.find(c => c.key === k)!.width;
+              return <th key={k} style={{ ...totalsThBase, ...S.stickyCol, left, minWidth: width, zIndex: 4 }} />;
+            })}
             {/* On Hand sum */}
-            <th style={{ ...totalsThBase, ...S.stickyCol, left: 630, minWidth: 80, zIndex: 4 }}>
-              <TotalsCell qty={sums.onHand.qty} cost={sums.onHand.cost} sale={sums.onHand.sale} skipped={sums.onHand.skipped} qtyColor="#F1F5F9" />
-            </th>
+            {!isHidden("onHand") && (
+              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeft("onHand", hidden) ?? 0, minWidth: 80, zIndex: 4 }}>
+                <TotalsCell qty={sums.onHand.qty} cost={sums.onHand.cost} sale={sums.onHand.sale} skipped={sums.onHand.skipped} qtyColor="#F1F5F9" />
+              </th>
+            )}
             {/* On Order sum */}
-            <th style={{ ...totalsThBase, ...S.stickyCol, left: 710, minWidth: 80, zIndex: 4 }}>
-              <TotalsCell qty={sums.onOrder.qty} cost={sums.onOrder.cost} sale={sums.onOrder.sale} skipped={sums.onOrder.skipped} qtyColor="#F59E0B" />
-            </th>
+            {!isHidden("onOrder") && (
+              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeft("onOrder", hidden) ?? 0, minWidth: 80, zIndex: 4 }}>
+                <TotalsCell qty={sums.onOrder.qty} cost={sums.onOrder.cost} sale={sums.onOrder.sale} skipped={sums.onOrder.skipped} qtyColor="#F59E0B" />
+              </th>
+            )}
             {/* On PO sum */}
-            <th style={{ ...totalsThBase, ...S.stickyCol, left: 790, minWidth: 80, zIndex: 4 }}>
-              <TotalsCell qty={sums.onPO.qty} cost={sums.onPO.cost} sale={sums.onPO.sale} skipped={sums.onPO.skipped} qtyColor="#10B981" qtyPrefix="+" />
-            </th>
+            {!isHidden("onPO") && (
+              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeft("onPO", hidden) ?? 0, minWidth: 80, zIndex: 4 }}>
+                <TotalsCell qty={sums.onPO.qty} cost={sums.onPO.cost} sale={sums.onPO.sale} skipped={sums.onPO.skipped} qtyColor="#10B981" qtyPrefix="+" />
+              </th>
+            )}
             {/* Period sums */}
             {displayPeriods.map(p => {
               const q = sums.periodQty[p.key]     ?? 0;
@@ -381,28 +423,30 @@ export const GridTable: React.FC<GridTableProps> = ({
           )}
           {/* Column headers — pushed below the totals row */}
           <tr>
-            {/* Sticky left columns: Category | Sub Cat | Style | Color | On Hand | On Order | On PO.
-               Master is truth for the four ID columns; numeric columns unchanged. */}
-            {(["category","subCategory","style","description","color","onHand","onOrder","onPO"] as const).map((col, ci) => {
+            {/* Sticky left columns. Hidden columns (operator-toggled
+                via the Toolbar's "Columns" dropdown) are dropped here
+                and their widths fall out of the cumulative `left`
+                offset, so visible siblings shift left to fill the gap. */}
+            {STICKY_COLS.map((c, ci) => {
+              if (isHidden(c.key)) return null;
               const labels: Record<string, string> = { category: "Category", subCategory: "Sub Cat", style: "Style", description: "Description", color: "Color", onHand: "On Hand", onOrder: "On Order", onPO: "On PO" };
-              const lefts  = [0, 110, 220, 320, 500, 630, 710, 790];
-              const widths = [110, 110, 100, 180, 130,  80,  80,  80];
-              const isActive = sortCol === col;
+              const left = colLeft(c.key, hidden) ?? 0;
+              const isActive = sortCol === c.key;
               return (
                 <th
-                  key={col}
+                  key={c.key}
                   style={{
                     ...S.th, ...S.stickyCol,
                     top: showTotalsRow ? TOTALS_ROW_HEIGHT : 0,
-                    left: lefts[ci], minWidth: widths[ci], zIndex: 3,
+                    left, minWidth: c.width, zIndex: 3,
                     textAlign: ci >= 5 ? "center" : "left",
                     cursor: "pointer",
                     color: isActive ? "#F1F5F9" : "#6B7280",
                     background: isActive ? "#243048" : "#1E293B",
                   }}
-                  onClick={() => handleThClick(col)}
+                  onClick={() => handleThClick(c.key)}
                 >
-                  {labels[col]}{isActive ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+                  {labels[c.key]}{isActive ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
                 </th>
               );
             })}
@@ -495,8 +539,9 @@ export const GridTable: React.FC<GridTableProps> = ({
                 }}
               >
                 {/* Category */}
+                {!isHidden("category") && (
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: 0, background: stickyBg, color: "#9CA3AF", fontSize: 12 }}
+                  style={{ ...S.td, ...S.stickyCol, left: colLeft("category", hidden) ?? 0, background: stickyBg, color: "#9CA3AF", fontSize: 12 }}
                   onClick={() => { if (!isAggregate) setPinnedSku(isPinned ? null : row.sku); }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -514,8 +559,10 @@ export const GridTable: React.FC<GridTableProps> = ({
                     <span style={{ color: isAggregate ? "#F1F5F9" : "#9CA3AF" }}>{row.master_category ?? "—"}</span>
                   </div>
                 </td>
+                )}
                 {/* Sub Cat */}
-                <td style={{ ...S.td, ...S.stickyCol, left: 110, background: stickyBg, color: "#9CA3AF", fontSize: 12 }}>
+                {!isHidden("subCategory") && (
+                <td style={{ ...S.td, ...S.stickyCol, left: colLeft("subCategory", hidden) ?? 0, background: stickyBg, color: "#9CA3AF", fontSize: 12 }}>
                   {aggLevel === "category" ? "" : (
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       {aggLevel === "subCategory" && (
@@ -531,10 +578,12 @@ export const GridTable: React.FC<GridTableProps> = ({
                     </div>
                   )}
                 </td>
+                )}
                 {/* Style — primary identifier; raw SKU on hover for traceability;
                    store badge stays here */}
+                {!isHidden("style") && (
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: 220, background: stickyBg }}
+                  style={{ ...S.td, ...S.stickyCol, left: colLeft("style", hidden) ?? 0, background: stickyBg }}
                   title={isAggregate ? undefined : row.sku}
                 >
                   {(aggLevel === "category" || aggLevel === "subCategory") ? "" : (
@@ -559,41 +608,52 @@ export const GridTable: React.FC<GridTableProps> = ({
                     </div>
                   )}
                 </td>
+                )}
                 {/* Description */}
-                <td style={{ ...S.td, ...S.stickyCol, left: 320, background: stickyBg, color: isAggregate ? "#94A3B8" : "#D1D5DB", fontSize: 13, fontStyle: isAggregate ? "italic" : "normal" }}>
+                {!isHidden("description") && (
+                <td style={{ ...S.td, ...S.stickyCol, left: colLeft("description", hidden) ?? 0, background: stickyBg, color: isAggregate ? "#94A3B8" : "#D1D5DB", fontSize: 13, fontStyle: isAggregate ? "italic" : "normal" }}>
                   {row.description}
                 </td>
+                )}
                 {/* Color */}
-                <td style={{ ...S.td, ...S.stickyCol, left: 500, background: stickyBg, color: "#D1D5DB", fontSize: 12 }}>
+                {!isHidden("color") && (
+                <td style={{ ...S.td, ...S.stickyCol, left: colLeft("color", hidden) ?? 0, background: stickyBg, color: "#D1D5DB", fontSize: 12 }}>
                   {isAggregate ? "" : (displayColor(row) || "—")}
                 </td>
+                )}
                 {/* On Hand */}
+                {!isHidden("onHand") && (
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: 630, background: stickyBg, textAlign: "center", cursor: "context-menu" }}
+                  style={{ ...S.td, ...S.stickyCol, left: colLeft("onHand", hidden) ?? 0, background: stickyBg, textAlign: "center", cursor: "context-menu" }}
                   onContextMenu={e => openSummaryCtx(e, "onHand", row)}
                 >
                   <span style={{ color: "#F1F5F9", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
                     {row.onHand.toLocaleString()}
                   </span>
                 </td>
+                )}
                 {/* On Order (committed SOs) */}
+                {!isHidden("onOrder") && (
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: 710, background: stickyBg, textAlign: "center", cursor: row.onOrder > 0 ? "context-menu" : "default" }}
+                  style={{ ...S.td, ...S.stickyCol, left: colLeft("onOrder", hidden) ?? 0, background: stickyBg, textAlign: "center", cursor: row.onOrder > 0 ? "context-menu" : "default" }}
                   onContextMenu={e => { if (row.onOrder > 0) openSummaryCtx(e, "onOrder", row); }}
                 >
                   <span style={{ color: "#F59E0B", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
                     {row.onOrder > 0 ? row.onOrder.toLocaleString() : "—"}
                   </span>
                 </td>
+                )}
                 {/* On PO (open purchase orders) */}
+                {!isHidden("onPO") && (
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: 790, background: stickyBg, textAlign: "center", cursor: row.onPO > 0 ? "context-menu" : "default" }}
+                  style={{ ...S.td, ...S.stickyCol, left: colLeft("onPO", hidden) ?? 0, background: stickyBg, textAlign: "center", cursor: row.onPO > 0 ? "context-menu" : "default" }}
                   onContextMenu={e => { if (row.onPO > 0) openSummaryCtx(e, "onPO", row); }}
                 >
                   <span style={{ color: "#10B981", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
                     {row.onPO > 0 ? `+${row.onPO.toLocaleString()}` : "—"}
                   </span>
                 </td>
+                )}
                 {/* Period cells */}
                 {displayPeriods.map(p => {
                   const fullQty = row.dates[p.endDate];

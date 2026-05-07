@@ -66,6 +66,12 @@ export interface ATSState {
   // Zero Stock, Neg ATS, etc.). Defaults on. Operator hides them to
   // gain vertical room for the grid.
   showStatsCards: boolean;
+  // Per-column hide list for the grid's left fixed columns. Keys
+  // map to the 8 sticky columns (category | subCategory | style |
+  // description | color | onHand | onOrder | onPO). Defaults to []
+  // (everything visible). Hiding a column shrinks the table's
+  // sticky-left area horizontally — sibling columns reflow.
+  hiddenColumns: string[];
   // Target gross margin % (0-100). Used in the totals row as a
   // fallback when a SKU is missing SO sale prices or cost basis,
   // so the header still produces a meaningful Sale / Cost / Mrgn.
@@ -150,6 +156,7 @@ export function createInitialState(startDate: string): ATSState {
     atShip: false,
     showTotalsRow: false,
     showStatsCards: true,
+    hiddenColumns: [],
     generalMarginPct: 21,
     collapseLevel: "none",
     expandedGroups: [],

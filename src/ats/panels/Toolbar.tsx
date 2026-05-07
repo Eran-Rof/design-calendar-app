@@ -127,6 +127,9 @@ interface ToolbarProps {
   // Sale / Mrgn% summed across the filtered set)
   showTotalsRow: boolean;
   setShowTotalsRow: (v: boolean) => void;
+  // Per-column hide list for the grid's left sticky columns.
+  hiddenColumns: string[];
+  setHiddenColumns: (v: string[]) => void;
   // Target gross margin % used as fallback when a SKU is missing SO
   // sale prices or cost basis. 0-100, drives the totals row only.
   generalMarginPct: number;
@@ -148,6 +151,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   collapseLevel, setCollapseLevel,
   atShip, setAtShip,
   showTotalsRow, setShowTotalsRow,
+  hiddenColumns, setHiddenColumns,
   generalMarginPct, setGeneralMarginPct,
   filteredCount, lastSync,
 }) => {
@@ -164,6 +168,37 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     setCustomerFilter("");
     setCollapseLevel("none");
     setAtShip(false);
+  };
+
+  // Column visibility dropdown state. Anchored ref + open flag follow
+  // the same pattern as the Cust/Vend dropdown a few rows below. Click-
+  // outside-to-close handled by useEffect.
+  const colDropRef = useRef<HTMLDivElement>(null);
+  const [colDropOpen, setColDropOpen] = useState(false);
+  useEffect(() => {
+    if (!colDropOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (colDropRef.current && !colDropRef.current.contains(e.target as Node)) setColDropOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [colDropOpen]);
+  const COLUMN_OPTIONS: Array<{ key: string; label: string }> = [
+    { key: "category",    label: "Category" },
+    { key: "subCategory", label: "Sub Cat" },
+    { key: "style",       label: "Style" },
+    { key: "description", label: "Description" },
+    { key: "color",       label: "Color" },
+    { key: "onHand",      label: "On Hand" },
+    { key: "onOrder",     label: "On Order" },
+    { key: "onPO",        label: "On PO" },
+  ];
+  const toggleCol = (key: string) => {
+    if (hiddenColumns.includes(key)) {
+      setHiddenColumns(hiddenColumns.filter(k => k !== key));
+    } else {
+      setHiddenColumns([...hiddenColumns, key]);
+    }
   };
 
   return (
@@ -354,6 +389,53 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <input type="checkbox" checked={showTotalsRow} onChange={e => setShowTotalsRow(e.target.checked)} style={{ accentColor: "#3B82F6", cursor: "pointer", width: 14, height: 14 }} />
       <span style={{ color: showTotalsRow ? "#93C5FD" : "#9CA3AF", fontSize: 12, fontWeight: showTotalsRow ? 700 : 400 }}>TOTALS</span>
     </label>
+
+    {/* Columns visibility dropdown — toggle individual sticky-left
+        columns on/off (Category through On PO). Hidden count appears
+        as a badge so the operator knows when the grid is narrowed. */}
+    <div ref={colDropRef} style={{ position: "relative" }}>
+      <button
+        onClick={() => setColDropOpen(o => !o)}
+        title="Show / hide grid columns"
+        style={{ ...S.select, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", whiteSpace: "nowrap" }}
+      >
+        <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600 }}>Columns</span>
+        {hiddenColumns.length > 0 && (
+          <span style={{ background: "#0EA5E9", color: "#fff", borderRadius: 8, padding: "0 6px", fontSize: 10, fontWeight: 700 }}>
+            {hiddenColumns.length} hidden
+          </span>
+        )}
+        <span style={{ fontSize: 9, color: "#6B7280" }}>▼</span>
+      </button>
+      {colDropOpen && (
+        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200, background: "#1E293B", border: "1px solid #334155", borderRadius: 8, minWidth: 180, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", padding: "6px 0" }}>
+          {COLUMN_OPTIONS.map(c => {
+            const visible = !hiddenColumns.includes(c.key);
+            return (
+              <label
+                key={c.key}
+                style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", cursor: "pointer", background: visible ? "rgba(16,185,129,0.06)" : "transparent" }}
+                onMouseEnter={e => (e.currentTarget.style.background = "rgba(16,185,129,0.12)")}
+                onMouseLeave={e => (e.currentTarget.style.background = visible ? "rgba(16,185,129,0.06)" : "transparent")}
+              >
+                <input type="checkbox" checked={visible} onChange={() => toggleCol(c.key)} style={{ accentColor: "#10B981", cursor: "pointer" }} />
+                <span style={{ color: visible ? "#6EE7B7" : "#9CA3AF", fontSize: 13 }}>{c.label}</span>
+              </label>
+            );
+          })}
+          {hiddenColumns.length > 0 && (
+            <div style={{ borderTop: "1px solid #334155", padding: "6px 14px" }}>
+              <button
+                onClick={() => setHiddenColumns([])}
+                style={{ background: "none", border: "none", color: "#60A5FA", cursor: "pointer", fontSize: 11, padding: 0 }}
+              >
+                Show all columns
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
 
     {/* General margin % — fills in Sale / Cost when SOs / avg cost / PO cost are missing.
        Only relevant when the totals header is showing, so the

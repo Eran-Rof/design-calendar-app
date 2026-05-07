@@ -237,6 +237,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           collapseLevel={collapseLevel} setCollapseLevel={setCollapseLevel!}
           atShip={atShip} setAtShip={setAtShip}
           showTotalsRow={showTotalsRow} setShowTotalsRow={setShowTotalsRow!}
+          hiddenColumns={hiddenColumns ?? []} setHiddenColumns={setHiddenColumns!}
           generalMarginPct={generalMarginPct ?? 21} setGeneralMarginPct={setGeneralMarginPct!}
           filteredCount={filtered.length} lastSync={lastSync}
         />
@@ -268,6 +269,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
             hoveredCell={hoveredCell} setHoveredCell={setHoveredCell}
             todayKey={todayKey} atShip={atShip}
             showTotalsRow={showTotalsRow}
+            hiddenColumns={hiddenColumns ?? []}
             generalMarginPct={generalMarginPct ?? 21}
             eventIndex={eventIndex} getEventsInPeriod={getEventsInPeriod}
             ctxMenu={ctxMenu} setCtxMenu={setCtxMenu} setSummaryCtx={setSummaryCtx}
