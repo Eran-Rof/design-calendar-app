@@ -423,10 +423,50 @@ export function GridView({
 
   const ensureAttemptedRef = useRef<Set<string>>(new Set());
 
+  // ── Sort ────────────────────────────────────────────────────────────────
+  // Click a header to set the sort key; click again to flip direction; third
+  // click clears. localStorage-persisted so the planner's preference survives
+  // page reloads. Six sortable header columns: PO#, Vendor, Buyer, Buyer PO,
+  // DDP, Days from DDP.
+  type SortKey = "poNum" | "vendor" | "buyer" | "buyerPo" | "ddp" | "daysFromDdp";
+  const [sortKey, setSortKey] = useState<SortKey | null>(() => {
+    try { return (localStorage.getItem("gv_sort_key") as SortKey | null) || null; } catch { return null; }
+  });
+  const [sortDir, setSortDir] = useState<"asc" | "desc">(() => {
+    try { return (localStorage.getItem("gv_sort_dir") as "asc" | "desc") || "asc"; } catch { return "asc"; }
+  });
+  useEffect(() => {
+    try {
+      if (sortKey) localStorage.setItem("gv_sort_key", sortKey);
+      else localStorage.removeItem("gv_sort_key");
+      localStorage.setItem("gv_sort_dir", sortDir);
+    } catch { /* ignore */ }
+  }, [sortKey, sortDir]);
+  const onHeaderClick = (k: SortKey) => {
+    if (sortKey !== k) { setSortKey(k); setSortDir("asc"); return; }
+    if (sortDir === "asc") { setSortDir("desc"); return; }
+    setSortKey(null); setSortDir("asc"); // third click clears
+  };
+
+  // Today's ISO date for the Days-from-DDP computation. Recomputed on
+  // mount; intentional that it doesn't tick — the grid doesn't re-mount
+  // mid-day and a stale offset of a few hours doesn't change planning
+  // decisions.
+  const todayIso = useMemo(() => todayLocalIso(), []);
+  const daysFromDdp = useCallback((ddpIso: string | null | undefined): number | null => {
+    if (!ddpIso) return null;
+    const d = normDateISO(ddpIso);
+    if (!d) return null;
+    const t = new Date(todayIso + "T00:00:00").getTime();
+    const dt = new Date(d + "T00:00:00").getTime();
+    if (isNaN(dt) || isNaN(t)) return null;
+    return Math.round((dt - t) / 86400000);
+  }, [todayIso]);
+
   // ── Rows ────────────────────────────────────────────────────────────────
   const rows = useMemo(() => {
     const s = search.toLowerCase();
-    return pos.filter(p => {
+    const filtered = pos.filter(p => {
       if (filterVendor !== "All" && (p.VendorName ?? "") !== filterVendor) return false;
       if (filterBuyer  !== "All" && (p.BuyerName  ?? "") !== filterBuyer)  return false;
       if (!s) return true;
@@ -437,9 +477,33 @@ export function GridView({
         (p.BuyerPo    ?? "").toLowerCase().includes(s)
       );
     });
-  }, [pos, search, filterVendor, filterBuyer]);
+    if (!sortKey) return filtered;
+    const dirMul = sortDir === "asc" ? 1 : -1;
+    const cmp = (av: any, bv: any) => {
+      // Nulls + empty strings sort to the END regardless of direction
+      // so the planner can scan blanks separately at the bottom.
+      const aEmpty = av == null || av === "";
+      const bEmpty = bv == null || bv === "";
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      if (typeof av === "number" && typeof bv === "number") return (av - bv) * dirMul;
+      return String(av).localeCompare(String(bv)) * dirMul;
+    };
+    const get = (p: XoroPO): any => {
+      switch (sortKey) {
+        case "poNum":       return p.PoNumber ?? "";
+        case "vendor":      return (p.VendorName ?? "").toLowerCase();
+        case "buyer":       return (p.BuyerName  ?? "").toLowerCase();
+        case "buyerPo":     return (p.BuyerPo    ?? "").toLowerCase();
+        case "ddp":         return p.DateExpectedDelivery ?? "";
+        case "daysFromDdp": return daysFromDdp(p.DateExpectedDelivery) ?? Number.POSITIVE_INFINITY;
+      }
+    };
+    return [...filtered].sort((a, b) => cmp(get(a), get(b)));
+  }, [pos, search, filterVendor, filterBuyer, sortKey, sortDir, daysFromDdp]);
 
-  useEffect(() => setPage(0), [search, filterVendor, filterBuyer]);
+  useEffect(() => setPage(0), [search, filterVendor, filterBuyer, sortKey, sortDir]);
 
   const totalPages = Math.ceil(rows.length / PAGE_SIZE);
   const pageRows   = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -1050,12 +1114,45 @@ export function GridView({
                 <div style={{ display: "grid", gridTemplateColumns: ct }}>
                   <span style={{ ...hdr1, ...firstCol }} />
                   <span style={{ ...hdr1 }} />
-                  <span style={{ ...hdr1 }}>PO #</span>
-                  <span style={{ ...hdr1 }}>Vendor</span>
-                  <span style={{ ...hdr1 }}>Buyer</span>
-                  <span style={{ ...hdr1, justifyContent: "center" }}>Buyer PO</span>
-                  <span style={{ ...hdr1, justifyContent: "center" }}>DDP</span>
-                  <span style={{ ...hdr1, justifyContent: "flex-end" }}>Days from DDP</span>
+                  {(() => {
+                    // Inline sort-header renderer. Returns a clickable
+                    // header that shows ▲/▼ when active and toggles
+                    // sort key + direction on click. Empty arrow when
+                    // inactive so the column stays the same width and
+                    // the row doesn't reflow when sort changes.
+                    const SortHdr = ({ k, label, justify }: { k: SortKey; label: string; justify?: "center" | "flex-end" }) => {
+                      const active = sortKey === k;
+                      const arrow = active ? (sortDir === "asc" ? "▲" : "▼") : "";
+                      return (
+                        <span
+                          onClick={() => onHeaderClick(k)}
+                          title="Click to sort — click again to flip direction; third click clears"
+                          style={{
+                            ...hdr1,
+                            ...(justify ? { justifyContent: justify } : {}),
+                            cursor: "pointer",
+                            userSelect: "none" as const,
+                            color: active ? "#C4B5FD" : undefined,
+                          }}
+                        >
+                          {label}
+                          <span style={{ marginLeft: 4, fontSize: 10, opacity: active ? 1 : 0.3 }}>
+                            {arrow || "↕"}
+                          </span>
+                        </span>
+                      );
+                    };
+                    return (
+                      <>
+                        <SortHdr k="poNum"       label="PO #" />
+                        <SortHdr k="vendor"      label="Vendor" />
+                        <SortHdr k="buyer"       label="Buyer" />
+                        <SortHdr k="buyerPo"     label="Buyer PO" justify="center" />
+                        <SortHdr k="ddp"         label="DDP" justify="center" />
+                        <SortHdr k="daysFromDdp" label="Days from DDP" justify="flex-end" />
+                      </>
+                    );
+                  })()}
                   {phases.map((p, i) => {
                     const isLastPhase = i === phases.length - 1;
                     return (
