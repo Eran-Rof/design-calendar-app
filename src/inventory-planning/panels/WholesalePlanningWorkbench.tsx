@@ -172,6 +172,7 @@ export default function WholesalePlanningWorkbench() {
     skipped_zero_qty: number;
     skipped_bad_cost: number;
     skipped_duplicate: number;
+    inserted_variants: number;
     errors: string[];
     warnings: string[];
     failedMessage?: string;  // when the whole upload threw
@@ -470,6 +471,7 @@ export default function WholesalePlanningWorkbench() {
         skipped_zero_qty: r.skipped_zero_qty ?? 0,
         skipped_bad_cost: r.skipped_bad_cost ?? 0,
         skipped_duplicate: r.skipped_duplicate ?? 0,
+        inserted_variants: r.inserted_variants ?? 0,
         errors: r.errors ?? [],
         warnings: r.warnings ?? [],
       });
@@ -481,7 +483,7 @@ export default function WholesalePlanningWorkbench() {
         fileName: file.name,
         parsed: 0, inserted: 0,
         skipped_no_sku: 0, skipped_no_date: 0, skipped_zero_qty: 0, skipped_bad_cost: 0,
-        skipped_duplicate: 0,
+        skipped_duplicate: 0, inserted_variants: 0,
         errors: [], warnings: [],
         failedMessage: msg,
       });
@@ -2441,9 +2443,15 @@ export default function WholesalePlanningWorkbench() {
                       <div style={{ ...S.infoValue, fontFamily: "monospace" }}>{u.parsed.toLocaleString()}</div>
                     </div>
                     <div style={S.infoCell}>
-                      <div style={S.infoLabel}>Rows saved</div>
+                      <div style={S.infoLabel}>Style+Color rows saved</div>
                       <div style={{ ...S.infoValue, fontFamily: "monospace", color: u.inserted > 0 ? PAL.green : PAL.textMuted }}>{u.inserted.toLocaleString()}</div>
                     </div>
+                    {u.kind === "master" && (
+                      <div style={S.infoCell} title="Full SKU rows (with size) — invisible to the planning grid; used by the future PO builder to assemble Xoro line items.">
+                        <div style={S.infoLabel}>Variant rows saved (with size)</div>
+                        <div style={{ ...S.infoValue, fontFamily: "monospace", color: u.inserted_variants > 0 ? PAL.green : PAL.textMuted }}>{u.inserted_variants.toLocaleString()}</div>
+                      </div>
+                    )}
                     <div style={S.infoCell}>
                       <div style={S.infoLabel}>Skipped</div>
                       <div style={{ ...S.infoValue, fontFamily: "monospace", color: skipped > 0 ? PAL.yellow : PAL.textMuted }}>{skipped.toLocaleString()}</div>
@@ -2459,7 +2467,9 @@ export default function WholesalePlanningWorkbench() {
                         {u.skipped_zero_qty > 0 && <div>· <strong>{u.skipped_zero_qty.toLocaleString()}</strong> rows with zero quantity</div>}
                         {u.skipped_bad_cost > 0 && <div>· <strong>{u.skipped_bad_cost.toLocaleString()}</strong> rows with unparseable cost</div>}
                         {u.skipped_duplicate > 0 && (
-                          <div>· <strong>{u.skipped_duplicate.toLocaleString()}</strong> duplicate {u.kind === "master" ? "styles (Excel had multiple variant rows per style — collapsed to one master row)" : "lines (same invoice + style+color + date — qty summed, prices weight-averaged)"}</div>
+                          <div>· <strong>{u.skipped_duplicate.toLocaleString()}</strong> duplicate {u.kind === "master"
+                            ? `(style, color) pairs — Excel had multiple sizes per (style, color), collapsed to one rolled-up row each. Size data preserved separately as ${u.inserted_variants.toLocaleString()} variant rows above (used by future PO builder).`
+                            : "lines (same invoice + style+color + date — qty summed, prices weight-averaged)"}</div>
                         )}
                       </div>
                     </div>

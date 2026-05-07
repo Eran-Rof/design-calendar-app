@@ -22,13 +22,19 @@ export interface ExcelIngestResult {
   skipped_zero_qty: number;
   skipped_bad_cost: number;
   // Rows collapsed because their identifying key was already seen
-  // earlier in the same upload. Master ingest dedupes on Style; Xoro
-  // exports typically have one row per Style+Color+Size variant, so
-  // the master upload routinely sees thousands of duplicate-style
-  // rows that collapse to a single style-level master row. Counting
-  // them here so the upload-summary modal accounts for every parsed
-  // row (rows_read = rows_saved + skipped_*).
+  // earlier in the same upload. Master ingest dedupes on (style,
+  // color); Xoro exports often have one row per (style, color, size)
+  // variant, so multiple sizes of the same color collapse here.
+  // Counting them so the upload-summary modal accounts for every
+  // parsed row (rows_read = rows_saved + skipped_*).
   skipped_duplicate: number;
+  // Number of variant-grain rows (one per unique style + color +
+  // size) written to ip_item_master alongside the rolled-up
+  // (style, color) rows. Variants live in the same table marked by
+  // size IS NOT NULL — invisible to the planning grid (forecasts
+  // only point at rolled-up sku_ids), used by the future PO builder
+  // to assemble Xoro-shape line items at the full SKU grain.
+  inserted_variants: number;
   errors: string[];
   // Data-quality warnings raised at ingest time. Variant rows missing
   // identifying dimensions (color/size) are flagged here so the planner
@@ -48,7 +54,7 @@ export interface ExcelIngestResult {
 const empty = (): ExcelIngestResult => ({
   parsed: 0, inserted: 0, skipped_no_sku: 0,
   skipped_no_date: 0, skipped_zero_qty: 0, skipped_bad_cost: 0,
-  skipped_duplicate: 0, errors: [],
+  skipped_duplicate: 0, inserted_variants: 0, errors: [],
   warnings: [],
 });
 
@@ -434,6 +440,13 @@ export async function ingestItemMasterExcel(
   if (rows.length === 0) return result;
 
   const itemPayload: Array<Record<string, unknown>> = [];
+  // Variant-grain payload — one row per unique (style, color, size)
+  // tuple from the Excel. Written to ip_item_master alongside the
+  // rolled-up rows so the master holds size data for future PO
+  // generation. Forecast/grid layers ignore these (size IS NOT NULL
+  // filter) — they're consulted only when assembling Xoro POs.
+  const variantPayload: Array<Record<string, unknown>> = [];
+  const seenVariantSkus = new Set<string>();
   const costPayload: Array<Record<string, unknown>> = [];
   const seenSkus = new Set<string>();
   // Quality counters — populated during the row loop, surfaced via
@@ -556,9 +569,44 @@ export async function ingestItemMasterExcel(
     } else {
       result.skipped_no_sku++; continue;
     }
-    if (!sku || seenSkus.has(sku)) {
-      if (!sku) result.skipped_no_sku++;
-      else result.skipped_duplicate++;
+    // Accumulate the variant-grain row BEFORE the rolled-up dedup,
+    // so a row that collapses at (style, color) — different size of
+    // an already-seen variant — still contributes its full SKU to
+    // ip_item_master. Variant key includes size; the rolled-up
+    // dedup key (sku) does not.
+    if (!sku) {
+      result.skipped_no_sku++;
+      continue;
+    }
+    {
+      // Build the variant SKU. For pre-packs the variant key is
+      // (sku, color) — pre-packs typically don't have a size column;
+      // their multi-size composition is what makes them a pre-pack.
+      // For non-pre-packs we want size in the key when present.
+      const sizePart = explicitSize ? `-${explicitSize}` : "";
+      const variantSku = isPrepack ? sku : (sizePart ? canon(sku + sizePart) : sku);
+      if (!seenVariantSkus.has(variantSku)) {
+        seenVariantSkus.add(variantSku);
+        const variantRow: Record<string, unknown> = {
+          sku_code: variantSku,
+          style_code: isPrepack ? (explicitSkuRaw ?? sku) : (explicitStyle ? canon(explicitStyle) : sku),
+          color: explicitColor || null,
+          size: explicitSize,
+          uom: "each",
+          active: true,
+        };
+        const desc = descRaw.includes("<")
+          ? descRaw.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim()
+          : descRaw;
+        if (desc) variantRow.description = desc;
+        const variantCost = toNum(pick(r, COST_ALIASES));
+        if (variantCost != null && variantCost >= 0) variantRow.unit_cost = variantCost;
+        variantPayload.push(variantRow);
+      }
+    }
+
+    if (seenSkus.has(sku)) {
+      result.skipped_duplicate++;
       continue;
     }
     seenSkus.add(sku);
@@ -716,6 +764,43 @@ export async function ingestItemMasterExcel(
         const msg = e instanceof Error ? e.message : String(e);
         result.errors.push(`item bucket ${bucketIdx} chunk ${i}: ${msg}`);
         log(`✗ item bucket ${bucketIdx} chunk ${i} failed: ${msg}`);
+      }
+    }
+  }
+
+  // ── Variant-grain upsert ──────────────────────────────────────────
+  // Writes one row per unique (style, color, size) tuple from the
+  // Excel. These rows live in ip_item_master alongside the rolled-up
+  // rows; downstream queries distinguish them with `size IS NOT NULL`.
+  // The grid never reads them (forecasts only point at rolled-up
+  // sku_ids); the future PO builder reads them to assemble Xoro
+  // line items at the full SKU grain.
+  if (variantPayload.length > 0) {
+    const variantBuckets = new Map<string, Array<Record<string, unknown>>>();
+    for (const v of variantPayload) {
+      const sig = Object.keys(v).sort().join(",");
+      let bucket = variantBuckets.get(sig);
+      if (!bucket) { bucket = []; variantBuckets.set(sig, bucket); }
+      bucket.push(v);
+    }
+    log(`Upserting ${variantPayload.length.toLocaleString()} variant rows (size IS NOT NULL) in ${variantBuckets.size} shape bucket(s)…`);
+    let vBucketIdx = 0;
+    for (const [sig, bucket] of variantBuckets) {
+      vBucketIdx++;
+      log(`  variant bucket ${vBucketIdx}/${variantBuckets.size} (${bucket.length.toLocaleString()} rows · keys=${sig})`);
+      for (let i = 0; i < bucket.length; i += 500) {
+        try {
+          await sbPost(
+            "ip_item_master?on_conflict=sku_code",
+            bucket.slice(i, i + 500),
+            "resolution=merge-duplicates,return=minimal",
+          );
+          result.inserted_variants += Math.min(500, bucket.length - i);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          result.errors.push(`variant bucket ${vBucketIdx} chunk ${i}: ${msg}`);
+          log(`✗ variant bucket ${vBucketIdx} chunk ${i} failed: ${msg}`);
+        }
       }
     }
   }
