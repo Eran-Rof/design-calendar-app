@@ -372,26 +372,12 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   const freezeIdxDom = freezeKey
     ? FREEZABLE_COLS.indexOf(freezeKey as FreezeKey) + 1
     : 0;
-  // Cumulative left offsets per DOM index. Re-measured when
-  // hiddenColumns / freezeKey changes (those are the only inputs
-  // that affect rendered widths within the freeze range — data
-  // changes don't because the leftmost columns are identifier
-  // text that doesn't change width across rows).
-  const [freezeOffsets, setFreezeOffsets] = useState<number[]>([]);
-  useEffect(() => {
-    if (freezeIdxDom <= 0) { setFreezeOffsets([]); return; }
-    const tableEl = tableWrapRef.current?.querySelector("table");
-    const ths = tableEl?.querySelectorAll(":scope > thead > tr > th");
-    if (!ths || ths.length < freezeIdxDom) { setFreezeOffsets([]); return; }
-    const offsets: number[] = [];
-    let acc = 0;
-    for (let i = 0; i < freezeIdxDom; i++) {
-      offsets.push(acc);
-      const w = (ths[i] as HTMLElement).getBoundingClientRect().width;
-      acc += w;
-    }
-    setFreezeOffsets(offsets);
-  }, [freezeKey, freezeIdxDom, hiddenColumns, /* re-run when any data tweak might shift widths */ rows.length]);
+  // freezeOffsets state + measurement effect lives further down
+  // after hiddenColumns is declared — see "Freeze offsets measurement"
+  // below. Couldn't sit here at the top because hiddenColumns (a
+  // useState declared in the second half of this component) is one
+  // of the effect's dep keys, and forward-referencing it triggers a
+  // temporal dead-zone error in the bundled output.
   // Inline "+ Add row" form state. Closed by default; opens above
   // the table to the planner's chosen cat/sub-cat/customer + first
   // period of the run. Style + color default to "TBD". Persists
@@ -720,6 +706,28 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   }
   const colHide = (key: string): React.CSSProperties | undefined =>
     hiddenColumns.has(key) ? { display: "none" } : undefined;
+
+  // ── Freeze offsets measurement ───────────────────────────────────
+  // Cumulative left offsets per DOM index for the freeze-through-
+  // column feature. Declared here (after hiddenColumns) so the
+  // effect's dep array can reference both freezeKey + hiddenColumns
+  // without forward-referencing a later useState declaration.
+  // Re-measures when freezeKey / hiddenColumns / row count changes.
+  const [freezeOffsets, setFreezeOffsets] = useState<number[]>([]);
+  useEffect(() => {
+    if (freezeIdxDom <= 0) { setFreezeOffsets([]); return; }
+    const tableEl = tableWrapRef.current?.querySelector("table");
+    const ths = tableEl?.querySelectorAll(":scope > thead > tr > th");
+    if (!ths || ths.length < freezeIdxDom) { setFreezeOffsets([]); return; }
+    const offsets: number[] = [];
+    let acc = 0;
+    for (let i = 0; i < freezeIdxDom; i++) {
+      offsets.push(acc);
+      const w = (ths[i] as HTMLElement).getBoundingClientRect().width;
+      acc += w;
+    }
+    setFreezeOffsets(offsets);
+  }, [freezeKey, freezeIdxDom, hiddenColumns, rows.length]);
 
   const periods = useMemo(() => {
     const s = new Set<string>();
