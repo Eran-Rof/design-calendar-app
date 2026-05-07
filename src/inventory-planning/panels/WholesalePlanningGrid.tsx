@@ -468,6 +468,38 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // in the bucket, not just TBD.
   const rowEditOrderRef = useRef<Map<string, number>>(new Map());
   const rowEditSeqRef = useRef<number>(0);
+  // Arrow-key scroll target. Wired to the tableWrap div below so the
+  // planner can navigate the grid without clicking it first; matches
+  // the ATS GridTable pattern (src/ats/panels/GridTable.tsx).
+  const tableWrapRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const ARROW_PX = 60;
+    const onKey = (e: KeyboardEvent) => {
+      // Don't hijack arrows from text-entry surfaces — typing in
+      // search / period filter / cell editor must keep working.
+      const t = e.target as HTMLElement | null;
+      const tag = (t?.tagName || "").toUpperCase();
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (t && t.isContentEditable) return;
+      // Don't fight modifier-arrow shortcuts (Ctrl+Arrow word-skip,
+      // Cmd+Arrow line-jump, etc.).
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+      const el = tableWrapRef.current;
+      if (!el) return;
+      switch (e.key) {
+        case "ArrowLeft":  el.scrollLeft -= ARROW_PX; e.preventDefault(); break;
+        case "ArrowRight": el.scrollLeft += ARROW_PX; e.preventDefault(); break;
+        case "ArrowUp":    el.scrollTop  -= ARROW_PX; e.preventDefault(); break;
+        case "ArrowDown":  el.scrollTop  += ARROW_PX; e.preventDefault(); break;
+        case "PageUp":     el.scrollTop  -= el.clientHeight; e.preventDefault(); break;
+        case "PageDown":   el.scrollTop  += el.clientHeight; e.preventDefault(); break;
+        case "Home":       if (e.shiftKey) { el.scrollLeft = 0; e.preventDefault(); } break;
+        case "End":        if (e.shiftKey) { el.scrollLeft = el.scrollWidth; e.preventDefault(); } break;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const bumpRowEditOrder = (forecastId: string | undefined): void => {
     if (!forecastId) return;
     rowEditSeqRef.current += 1;
@@ -2367,7 +2399,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
         .ip-grid-table-wrap::-webkit-scrollbar-thumb:hover { background: ${PAL.borderFaint}; }
         .ip-grid-table-wrap::-webkit-scrollbar-corner { background: ${PAL.bg}; }
       `}</style>
-      <div className="ip-grid-table-wrap" style={S.tableWrap}>
+      <div ref={tableWrapRef} className="ip-grid-table-wrap" style={S.tableWrap}>
         <table style={S.table}>
           <thead>
             <tr>
