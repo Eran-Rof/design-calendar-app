@@ -2353,7 +2353,21 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
         </div>
       )}
 
-      <div style={S.tableWrap}>
+      {/* Custom webkit scrollbar styling to match Firefox's
+          scrollbarColor / scrollbarWidth on tableWrap. Both
+          horizontal + vertical bars render with the same slate
+          track + border-color thumb so the always-visible
+          horizontal bar matches the vertical visually. Scoped to
+          the wholesale grid wrapper so it doesn't bleed into
+          other panels. */}
+      <style>{`
+        .ip-grid-table-wrap::-webkit-scrollbar { width: 12px; height: 12px; background: ${PAL.bg}; }
+        .ip-grid-table-wrap::-webkit-scrollbar-track { background: ${PAL.bg}; border-top: 1px solid ${PAL.border}; }
+        .ip-grid-table-wrap::-webkit-scrollbar-thumb { background: ${PAL.border}; border-radius: 6px; border: 2px solid ${PAL.bg}; }
+        .ip-grid-table-wrap::-webkit-scrollbar-thumb:hover { background: ${PAL.borderFaint}; }
+        .ip-grid-table-wrap::-webkit-scrollbar-corner { background: ${PAL.bg}; }
+      `}</style>
+      <div className="ip-grid-table-wrap" style={S.tableWrap}>
         <table style={S.table}>
           <thead>
             <tr>

@@ -20,6 +20,23 @@ function toNum(v) {
   return isNaN(n) ? 0 : n;
 }
 
+// Look up a sku_id in the item-master map, falling back to a
+// PPK-suffix-stripped form when the direct match misses. ATS / Xoro
+// sometimes report prepack SKUs with the size token baked in
+// ("RYG1842PPK-BLACK-PPK24") while master stores the bare
+// (style, color) form ("RYG1842PPK-BLACK"). Without this strip
+// fallback, prepack SOs / on-hand / receipt rows silently fail to
+// resolve and either get dropped (SOs) or produce ugly auto-created
+// master rows (on-hand). Mirrors the alias logic in
+// src/ats/itemMasterLookup.ts.
+function lookupSkuIdWithPpkFallback(itemMap, canonical) {
+  const direct = itemMap.get(canonical);
+  if (direct) return direct;
+  const stripped = canonical.replace(/-PPK[\s_-]*\d+(-[^-]*)?$/i, "");
+  if (stripped !== canonical) return itemMap.get(stripped);
+  return undefined;
+}
+
 function toIsoDate(raw) {
   if (!raw) return null;
   const d = new Date(raw);
@@ -111,10 +128,21 @@ export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit =
   const candidates = Array.from(aggMap.values());
 
   // Resolve only the SKUs in this batch — chunked to stay under URL limits.
+  // Also pre-fetch any candidates whose canonical sku looks like
+  // "STYLE-COLOR-PPKn" by stripping the suffix and looking up the
+  // bare (style, color) form too. Stops ATS prepack inventory from
+  // auto-creating shadow master rows when the real prepack row
+  // already exists at the canonical key.
   const itemMap = new Map();
   const candidateSkus = candidates.map((c) => c.sku);
-  for (let i = 0; i < candidateSkus.length; i += 200) {
-    const chunk = candidateSkus.slice(i, i + 200);
+  const ppkStrippedExtras = Array.from(new Set(
+    candidates
+      .map((c) => c.sku.replace(/-PPK[\s_-]*\d+(-[^-]*)?$/i, ""))
+      .filter((stripped, i) => stripped && stripped !== candidates[i].sku),
+  ));
+  const allLookupSkus = [...candidateSkus, ...ppkStrippedExtras];
+  for (let i = 0; i < allLookupSkus.length; i += 200) {
+    const chunk = allLookupSkus.slice(i, i + 200);
     const { data, error } = await admin
       .from("ip_item_master")
       .select("id, sku_code")
@@ -124,7 +152,17 @@ export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit =
   }
 
   // Stub-create any SKU not in master. NEVER write description / cost — the
-  // Item Master Excel is the SOLE source of those fields.
+  // Item Master Excel is the SOLE source of those fields. Resolve via
+  // the PPK-strip fallback first so a prepack inventory row whose SKU
+  // includes "-PPKn" reuses the existing bare (style, color) master
+  // row instead of creating a new shadow row.
+  for (const c of candidates) {
+    if (itemMap.has(c.sku)) continue;
+    const stripped = c.sku.replace(/-PPK[\s_-]*\d+(-[^-]*)?$/i, "");
+    if (stripped !== c.sku && itemMap.has(stripped)) {
+      itemMap.set(c.sku, itemMap.get(stripped));
+    }
+  }
   const preExistingSkus = new Set(itemMap.keys());
   const missingCandidates = candidates.filter((c) => !preExistingSkus.has(c.sku));
   if (missingCandidates.length > 0) {
@@ -257,7 +295,7 @@ export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit =
     for (const so of allSos) {
       const sku = canonStyleColor(so.sku);
       if (!sku) continue;
-      const skuId = itemMap.get(sku);
+      const skuId = lookupSkuIdWithPpkFallback(itemMap, sku);
       if (!skuId) continue;
       // Persist undated SOs with ship_date=null instead of dropping
       // them. Reason: ATS exports often contain backorders / suspended
@@ -504,8 +542,14 @@ export async function syncOpenPosFromTandaPos(admin) {
     const customerId = resolveCustomerId(buyerName);
 
     for (const ln of lines) {
-      const sku = canonStyleColor(ln.ItemNumber ?? ln.Sku ?? ln.ItemCode);
-      if (!sku) { result.skipped_no_sku++; continue; }
+      const rawSku = canonStyleColor(ln.ItemNumber ?? ln.Sku ?? ln.ItemCode);
+      if (!rawSku) { result.skipped_no_sku++; continue; }
+      // Resolve via PPK-strip fallback so prepack PO lines that
+      // bake the size token into the item number ("STYLE-COLOR-PPKn")
+      // attach to the existing canonical (style, color) master row
+      // instead of triggering a missing-SKU stub-create.
+      const stripped = rawSku.replace(/-PPK[\s_-]*\d+(-[^-]*)?$/i, "");
+      const sku = (stripped !== rawSku && itemMap.has(stripped)) ? stripped : rawSku;
 
       const qtyOrdered = toNum(ln.QtyOrder ?? ln.QtyOrdered ?? ln.Qty);
       const qtyReceived = toNum(ln.QtyReceived);

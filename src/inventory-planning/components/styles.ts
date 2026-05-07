@@ -53,7 +53,15 @@ export const S: Record<string, React.CSSProperties> = {
   input:      { background: PAL.panel, border: `1px solid ${PAL.border}`, borderRadius: 8, padding: "8px 14px", color: PAL.text, fontSize: 13, outline: "none", boxSizing: "border-box", colorScheme: "dark" },
   select:     { background: PAL.panel, border: `1px solid ${PAL.border}`, borderRadius: 8, padding: "8px 10px", color: PAL.text, fontSize: 13, outline: "none", colorScheme: "dark" },
   label:      { color: PAL.textDim, fontSize: 12, display: "block", marginBottom: 4 },
-  tableWrap:  { overflow: "auto", maxHeight: "calc(100vh - 260px)", borderRadius: 10, border: `1px solid ${PAL.border}`, background: PAL.bg },
+  // overflowX: "scroll" forces the horizontal scrollbar to render
+  // always — without it macOS / Chrome auto-hide the bar until the
+  // user actively scrolls and the planner can't see at-a-glance
+  // that there's more to the right. overflowY stays "auto" so the
+  // vertical bar still hides when content fits. Custom scrollbar
+  // colors are applied via a <style> block injected from the grid
+  // (see WholesalePlanningGrid.tsx) so both bars match — slate
+  // track, accent thumb on hover.
+  tableWrap:  { overflowX: "scroll" as const, overflowY: "auto" as const, maxHeight: "calc(100vh - 260px)", borderRadius: 10, border: `1px solid ${PAL.border}`, background: PAL.bg, scrollbarColor: `${PAL.border} ${PAL.bg}`, scrollbarWidth: "thin" as const },
   table:      { borderCollapse: "separate" as const, borderSpacing: 0, width: "100%", fontSize: 12 },
   th:         { background: PAL.panel, color: PAL.textMuted, fontWeight: 600, fontSize: 11, textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "10px 12px", borderBottom: `1px solid ${PAL.border}`, borderRight: `1px solid ${PAL.borderFaint}`, whiteSpace: "nowrap" as const, position: "sticky" as const, top: 0, zIndex: 2, textAlign: "left" as const },
   td:         { padding: "7px 10px", borderBottom: `1px solid ${PAL.borderFaint}`, borderRight: `1px solid ${PAL.borderFaint}`, whiteSpace: "nowrap" as const, verticalAlign: "middle" as const },
