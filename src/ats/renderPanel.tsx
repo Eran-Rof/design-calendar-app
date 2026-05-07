@@ -123,6 +123,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
   atShip, setAtShip, onNegInven, onAgedInven,
   showTotalsRow, setShowTotalsRow,
   showStatsCards, setShowStatsCards,
+  hiddenColumns, setHiddenColumns,
   generalMarginPct, setGeneralMarginPct,
   collapseLevel, setCollapseLevel, expandedGroups, expandedGroupSet, toggleExpandGroup,
   unreadNotifs, showingNotifications, onToggleNotifications, notificationsView } = ctx;
