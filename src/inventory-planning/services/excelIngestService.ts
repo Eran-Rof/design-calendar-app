@@ -47,6 +47,17 @@ export interface ExcelIngestResult {
   // populated. Surfaced as a copy-to-clipboard list in the upload
   // modal so the planner can fix the source spreadsheet.
   no_size_skus: string[];
+  // Groups of raw Excel rows that collided on the same canonical
+  // (style, color, size) variant key. Surfaced in the upload modal
+  // as a copy-as-TSV blob so the planner can paste into Excel and
+  // see exactly which fields differ between the supposedly-duplicate
+  // rows. Each group has the variant_key plus EVERY raw row that
+  // mapped to it (the kept first occurrence + all subsequent
+  // collisions). Only groups with rows.length > 1 are included.
+  duplicate_variant_groups: Array<{
+    variant_key: string;
+    rows: Array<Record<string, unknown>>;
+  }>;
   errors: string[];
   // Data-quality warnings raised at ingest time. Variant rows missing
   // identifying dimensions (color/size) are flagged here so the planner
@@ -68,6 +79,7 @@ const empty = (): ExcelIngestResult => ({
   skipped_no_date: 0, skipped_zero_qty: 0, skipped_bad_cost: 0,
   skipped_duplicate: 0, inserted_variants: 0,
   skipped_variant_duplicate: 0, no_size_skus: [],
+  duplicate_variant_groups: [],
   errors: [],
   warnings: [],
 });
@@ -142,20 +154,20 @@ async function parseWorkbook(
   onProgress?: (msg: string) => void,
 ): Promise<Record<string, unknown>[]> {
   const sizeMb = (file.size / 1024 / 1024).toFixed(1);
-  onProgress?.(`Loading ${sizeMb} MB into memory…`);
+  onProgress?.(`Opening file (${sizeMb} MB)…`);
   await yieldToBrowser();
   const buf = await file.arrayBuffer();
 
-  onProgress?.(`Decoding workbook (this may take a few seconds for large files)…`);
+  onProgress?.(`Reading the spreadsheet (this can take a few seconds for big files)…`);
   await yieldToBrowser();
   const wb = XLSX.read(buf, { type: "array", cellDates: true });
 
   const sheet = wb.Sheets[wb.SheetNames[0]];
-  onProgress?.(`Reading rows from sheet "${wb.SheetNames[0]}"…`);
+  onProgress?.(`Reading rows…`);
   await yieldToBrowser();
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
 
-  onProgress?.(`Parsed ${rows.length.toLocaleString()} rows`);
+  onProgress?.(`Found ${rows.length.toLocaleString()} rows`);
   return rows;
 }
 
@@ -206,20 +218,33 @@ export async function ingestSalesExcel(
   file: File,
   onProgress?: (msg: string) => void,
 ): Promise<ExcelIngestResult> {
-  const log = (m: string) => { console.log("[excel-sales]", m); onProgress?.(m); };
+  // Two-channel logger: console gets the full technical detail (kept
+  // for debugging via the [excel-sales] prefix); the status bar shown
+  // to the planner gets the friendly version. When `friendly` is
+  // omitted, both go to the technical line.
+  const log = (m: string, friendly?: string) => {
+    console.log("[excel-sales]", m);
+    onProgress?.(friendly ?? m);
+  };
   const result = empty();
-  log(`Parsing ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)…`);
+  log(
+    `Parsing ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)…`,
+    `Reading ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)…`,
+  );
   const rows = await parseWorkbook(file, onProgress);
   result.parsed = rows.length;
-  log(`Parsed ${rows.length.toLocaleString()} rows`);
+  log(`Parsed ${rows.length.toLocaleString()} rows`, `Found ${rows.length.toLocaleString()} rows in the file`);
   if (rows.length === 0) return result;
 
-  log("Loading item + customer masters…");
+  log("Loading item + customer masters…", "Looking up existing items and customers…");
   const [items, customers] = await Promise.all([
     wholesaleRepo.listItems(),
     wholesaleRepo.listCustomers(),
   ]);
-  log(`Masters loaded: ${items.length.toLocaleString()} items, ${customers.length.toLocaleString()} customers`);
+  log(
+    `Masters loaded: ${items.length.toLocaleString()} items, ${customers.length.toLocaleString()} customers`,
+    `Found ${items.length.toLocaleString()} existing items and ${customers.length.toLocaleString()} customers`,
+  );
   const skuToId = new Map(items.map((i) => [canon(i.sku_code), i.id]));
   const customerCodeToId = new Map(customers.map((c) => [canon(c.customer_code), c.id]));
   const customerNameToId = new Map(customers.map((c) => [canon(c.name), c.id]));
@@ -270,7 +295,10 @@ export async function ingestSalesExcel(
 
     candidates.push({ sku, skuSrc: r, customerName: customerKey, customerKey, txnDate, qty, unitPrice, invoice, order, saleStore: saleStore || null });
   }
-  log(`First-pass: ${candidates.length.toLocaleString()} candidates · ${missingSkus.size} new SKUs · ${missingCustomers.size} new customers`);
+  log(
+    `First-pass: ${candidates.length.toLocaleString()} candidates · ${missingSkus.size} new SKUs · ${missingCustomers.size} new customers`,
+    `Reviewed ${candidates.length.toLocaleString()} sales rows · ${missingSkus.size.toLocaleString()} new items · ${missingCustomers.size.toLocaleString()} new customers`,
+  );
 
   // Bulk-upsert ALL items at style+color grain — not just missing ones,
   // so existing items get their style_code / color updated with the
@@ -282,7 +310,10 @@ export async function ingestSalesExcel(
     if (!allSkuMap.has(c.sku)) allSkuMap.set(c.sku, c.skuSrc);
   }
   if (allSkuMap.size > 0) {
-    log(`Bulk-upserting ${allSkuMap.size.toLocaleString()} items (refreshing color/style on existing too)…`);
+    log(
+      `Bulk-upserting ${allSkuMap.size.toLocaleString()} items (refreshing color/style on existing too)…`,
+      `Saving ${allSkuMap.size.toLocaleString()} items (updating colors and styles)…`,
+    );
     const newItems = Array.from(allSkuMap.entries()).map(([sku, src]) => {
       const item = {
         sku_code: sku,
@@ -319,11 +350,11 @@ export async function ingestSalesExcel(
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           result.errors.push(`item bulk upsert chunk ${i}: ${msg}`);
-          log(`✗ item chunk ${i} failed: ${msg}`);
+          log(`✗ item chunk ${i} failed: ${msg}`, `Couldn't save some items: ${msg}`);
         }
       }
     }
-    log(`Re-fetching items to refresh id map…`);
+    log(`Re-fetching items to refresh id map…`, `Refreshing item list…`);
     const refreshed = await wholesaleRepo.listItems();
     skuToId.clear();
     for (const i of refreshed) skuToId.set(canon(i.sku_code), i.id);
@@ -331,7 +362,10 @@ export async function ingestSalesExcel(
 
   // Bulk-create missing customers (use name as customer_code so dedupe is stable)
   if (missingCustomers.size > 0) {
-    log(`Bulk-creating ${missingCustomers.size.toLocaleString()} new customers…`);
+    log(
+      `Bulk-creating ${missingCustomers.size.toLocaleString()} new customers…`,
+      `Adding ${missingCustomers.size.toLocaleString()} new customers…`,
+    );
     const newCusts = Array.from(missingCustomers.values()).map((name) => ({
       customer_code: `EXCEL:${canon(name)}`,
       name,
@@ -347,7 +381,7 @@ export async function ingestSalesExcel(
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         result.errors.push(`customer bulk create chunk ${i}: ${msg}`);
-        log(`✗ customer chunk ${i} failed: ${msg}`);
+        log(`✗ customer chunk ${i} failed: ${msg}`, `Couldn't save some customers: ${msg}`);
       }
     }
     const refreshedC = await wholesaleRepo.listCustomers();
@@ -360,7 +394,7 @@ export async function ingestSalesExcel(
   }
 
   // Second pass — build sales rows now that all ids exist
-  log("Building final sales rows…");
+  log("Building final sales rows…", "Preparing sales records…");
   const out: Array<Record<string, unknown>> = [];
   for (const c of candidates) {
     const skuId = skuToId.get(c.sku);
@@ -423,10 +457,16 @@ export async function ingestSalesExcel(
   }
   const aggregated = Array.from(merged.values());
   if (aggregated.length < out.length) {
-    log(`Aggregated ${out.length.toLocaleString()} → ${aggregated.length.toLocaleString()} rows (collapsed by style+color per invoice/date)`);
+    log(
+      `Aggregated ${out.length.toLocaleString()} → ${aggregated.length.toLocaleString()} rows (collapsed by style+color per invoice/date)`,
+      `Combined ${out.length.toLocaleString()} rows into ${aggregated.length.toLocaleString()} (same style+color on the same invoice were merged)`,
+    );
   }
 
-  log(`Upserting ${aggregated.length.toLocaleString()} sales rows in 500-row chunks…`);
+  log(
+    `Upserting ${aggregated.length.toLocaleString()} sales rows in 500-row chunks…`,
+    `Saving ${aggregated.length.toLocaleString()} sales records…`,
+  );
   for (let i = 0; i < aggregated.length; i += 500) {
     try {
       await sbPost(
@@ -438,11 +478,20 @@ export async function ingestSalesExcel(
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       result.errors.push(`sales chunk ${i}: ${msg}`);
-      log(`✗ sales chunk ${i} (rows ${i}-${i + 500}) failed: ${msg}`);
+      log(
+        `✗ sales chunk ${i} (rows ${i}-${i + 500}) failed: ${msg}`,
+        `Couldn't save sales records ${i.toLocaleString()}–${(i + 500).toLocaleString()}: ${msg}`,
+      );
     }
-    if ((i / 500) % 4 === 0) log(`  upsert progress ${i.toLocaleString()}/${aggregated.length.toLocaleString()}`);
+    if ((i / 500) % 4 === 0) log(
+      `  upsert progress ${i.toLocaleString()}/${aggregated.length.toLocaleString()}`,
+      `Saved ${i.toLocaleString()} of ${aggregated.length.toLocaleString()}…`,
+    );
   }
-  log(`✓ DONE — parsed ${result.parsed.toLocaleString()}, upserted ${result.inserted.toLocaleString()}, errors ${result.errors.length}`);
+  log(
+    `✓ DONE — parsed ${result.parsed.toLocaleString()}, upserted ${result.inserted.toLocaleString()}, errors ${result.errors.length}`,
+    `Done — read ${result.parsed.toLocaleString()} rows, saved ${result.inserted.toLocaleString()} sales records, ${result.errors.length} error(s)`,
+  );
   return result;
 }
 
@@ -468,12 +517,20 @@ export async function ingestItemMasterExcel(
   file: File,
   onProgress?: (msg: string) => void,
 ): Promise<ExcelIngestResult> {
-  const log = (m: string) => { console.log("[excel-master]", m); onProgress?.(m); };
+  // See ingestSalesExcel for the rationale: console gets the technical
+  // line, the planner-facing status bar gets the friendly version.
+  const log = (m: string, friendly?: string) => {
+    console.log("[excel-master]", m);
+    onProgress?.(friendly ?? m);
+  };
   const result = empty();
-  log(`Parsing ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)…`);
+  log(
+    `Parsing ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)…`,
+    `Reading ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)…`,
+  );
   const rows = await parseWorkbook(file, onProgress);
   result.parsed = rows.length;
-  log(`Parsed ${rows.length.toLocaleString()} rows`);
+  log(`Parsed ${rows.length.toLocaleString()} rows`, `Found ${rows.length.toLocaleString()} rows in the file`);
   if (rows.length === 0) return result;
 
   const itemPayload: Array<Record<string, unknown>> = [];
@@ -483,7 +540,13 @@ export async function ingestItemMasterExcel(
   // generation. Forecast/grid layers ignore these (size IS NOT NULL
   // filter) — they're consulted only when assembling Xoro POs.
   const variantPayload: Array<Record<string, unknown>> = [];
-  const seenVariantSkus = new Set<string>();
+  // Variant-key dedup tracker. Stores the actual raw Excel rows that
+  // mapped to each canonical (style, color, size) key so we can show
+  // the planner what's colliding when they ask "Xoro wouldn't allow
+  // duplicate item numbers — what are these?". After the loop, any
+  // entry with rows.length > 1 becomes a duplicate group surfaced in
+  // the upload modal.
+  const variantRowsByKey = new Map<string, Array<Record<string, unknown>>>();
   const costPayload: Array<Record<string, unknown>> = [];
   const seenSkus = new Set<string>();
   // Quality counters — populated during the row loop, surfaced via
@@ -628,8 +691,9 @@ export async function ingestItemMasterExcel(
       if (!isPrepack && !explicitSize) {
         result.no_size_skus.push(variantSku);
       }
-      if (!seenVariantSkus.has(variantSku)) {
-        seenVariantSkus.add(variantSku);
+      const existingRows = variantRowsByKey.get(variantSku);
+      if (!existingRows) {
+        variantRowsByKey.set(variantSku, [r]);
         const variantRow: Record<string, unknown> = {
           sku_code: variantSku,
           style_code: isPrepack ? (explicitSkuRaw ?? sku) : (explicitStyle ? canon(explicitStyle) : sku),
@@ -646,9 +710,14 @@ export async function ingestItemMasterExcel(
         if (variantCost != null && variantCost >= 0) variantRow.unit_cost = variantCost;
         variantPayload.push(variantRow);
       } else {
-        // True (style, color, size) duplicate — same physical SKU
-        // appeared earlier in the spreadsheet. Count separately so
-        // the planner can see exactly how many rows collapsed.
+        // Canonical (style, color, size) collision — same key as a
+        // row already seen this upload. Count it AND retain the raw
+        // row so the planner can inspect exactly what differs in
+        // the modal (Xoro wouldn't allow a true duplicate item
+        // number; usually the difference is in some column we're
+        // not including in the dedup key, like warehouse / price
+        // tier / category).
+        existingRows.push(r);
         result.skipped_variant_duplicate++;
       }
     }
@@ -745,6 +814,19 @@ export async function ingestItemMasterExcel(
     itemPayload.push(item);
   }
 
+  // Harvest variant-key collisions. Any key whose bucket has more
+  // than one raw row is a (style, color, size) duplicate from the
+  // planner's point of view. We keep the raw rows so the upload
+  // modal can show the full source data and let the planner spot
+  // which column actually differs (Xoro requires unique item
+  // numbers, so a "true" duplicate is unexpected — usually it's a
+  // multi-warehouse or multi-pricetier export collapsing).
+  for (const [variant_key, groupRows] of variantRowsByKey) {
+    if (groupRows.length > 1) {
+      result.duplicate_variant_groups.push({ variant_key, rows: groupRows });
+    }
+  }
+
   // Merge new attributes with existing JSONB. PostgREST upsert REPLACES
   // the attributes column on conflict (it doesn't deep-merge JSONB), so
   // a partial upload that only carries GroupName would wipe an existing
@@ -753,7 +835,10 @@ export async function ingestItemMasterExcel(
     .filter((it) => it.attributes && typeof it.attributes === "object")
     .map((it) => String(it.sku_code));
   if (skusWithAttrs.length > 0) {
-    log(`Pre-fetching attributes for ${skusWithAttrs.length.toLocaleString()} SKUs to preserve existing JSONB keys…`);
+    log(
+      `Pre-fetching attributes for ${skusWithAttrs.length.toLocaleString()} SKUs to preserve existing JSONB keys…`,
+      `Checking existing details for ${skusWithAttrs.length.toLocaleString()} items so nothing is overwritten…`,
+    );
     const existingAttrs = new Map<string, Record<string, unknown>>();
     for (let i = 0; i < skusWithAttrs.length; i += 500) {
       const chunk = skusWithAttrs.slice(i, i + 500);
@@ -795,11 +880,17 @@ export async function ingestItemMasterExcel(
     if (!bucket) { bucket = []; shapeBuckets.set(sig, bucket); }
     bucket.push(item);
   }
-  log(`Upserting ${itemPayload.length.toLocaleString()} item-master rows in ${shapeBuckets.size} shape bucket(s)…`);
+  log(
+    `Upserting ${itemPayload.length.toLocaleString()} item-master rows in ${shapeBuckets.size} shape bucket(s)…`,
+    `Saving ${itemPayload.length.toLocaleString()} items…`,
+  );
   let bucketIdx = 0;
   for (const [sig, bucket] of shapeBuckets) {
     bucketIdx++;
-    log(`  bucket ${bucketIdx}/${shapeBuckets.size} (${bucket.length.toLocaleString()} rows · keys=${sig})`);
+    log(
+      `  bucket ${bucketIdx}/${shapeBuckets.size} (${bucket.length.toLocaleString()} rows · keys=${sig})`,
+      `  group ${bucketIdx} of ${shapeBuckets.size} (${bucket.length.toLocaleString()} items)…`,
+    );
     for (let i = 0; i < bucket.length; i += 500) {
       try {
         await sbPost(
@@ -811,7 +902,10 @@ export async function ingestItemMasterExcel(
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         result.errors.push(`item bucket ${bucketIdx} chunk ${i}: ${msg}`);
-        log(`✗ item bucket ${bucketIdx} chunk ${i} failed: ${msg}`);
+        log(
+          `✗ item bucket ${bucketIdx} chunk ${i} failed: ${msg}`,
+          `Couldn't save some items in group ${bucketIdx}: ${msg}`,
+        );
       }
     }
   }
@@ -831,11 +925,17 @@ export async function ingestItemMasterExcel(
       if (!bucket) { bucket = []; variantBuckets.set(sig, bucket); }
       bucket.push(v);
     }
-    log(`Upserting ${variantPayload.length.toLocaleString()} variant rows (size IS NOT NULL) in ${variantBuckets.size} shape bucket(s)…`);
+    log(
+      `Upserting ${variantPayload.length.toLocaleString()} variant rows (size IS NOT NULL) in ${variantBuckets.size} shape bucket(s)…`,
+      `Saving ${variantPayload.length.toLocaleString()} size-level records (full style + color + size detail)…`,
+    );
     let vBucketIdx = 0;
     for (const [sig, bucket] of variantBuckets) {
       vBucketIdx++;
-      log(`  variant bucket ${vBucketIdx}/${variantBuckets.size} (${bucket.length.toLocaleString()} rows · keys=${sig})`);
+      log(
+        `  variant bucket ${vBucketIdx}/${variantBuckets.size} (${bucket.length.toLocaleString()} rows · keys=${sig})`,
+        `  size group ${vBucketIdx} of ${variantBuckets.size} (${bucket.length.toLocaleString()} items)…`,
+      );
       for (let i = 0; i < bucket.length; i += 500) {
         try {
           await sbPost(
@@ -847,14 +947,20 @@ export async function ingestItemMasterExcel(
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           result.errors.push(`variant bucket ${vBucketIdx} chunk ${i}: ${msg}`);
-          log(`✗ variant bucket ${vBucketIdx} chunk ${i} failed: ${msg}`);
+          log(
+            `✗ variant bucket ${vBucketIdx} chunk ${i} failed: ${msg}`,
+            `Couldn't save some size-level records in group ${vBucketIdx}: ${msg}`,
+          );
         }
       }
     }
   }
 
   if (costPayload.length > 0) {
-    log(`Upserting ${costPayload.length.toLocaleString()} avg-cost rows…`);
+    log(
+      `Upserting ${costPayload.length.toLocaleString()} avg-cost rows…`,
+      `Saving ${costPayload.length.toLocaleString()} cost records…`,
+    );
     for (let i = 0; i < costPayload.length; i += 500) {
       try {
         await sbPost(
@@ -897,9 +1003,15 @@ export async function ingestItemMasterExcel(
     result.warnings.push(`${dq.missing_size.toLocaleString()} variant row(s) had no Size set. Size-level grouping will be unreliable for those.`);
   }
   if (result.warnings.length > 0) {
-    log(`⚠ ${result.warnings.length} data-quality warning(s):`);
-    for (const w of result.warnings) log(`  - ${w}`);
+    log(
+      `⚠ ${result.warnings.length} data-quality warning(s):`,
+      `${result.warnings.length} warning(s) about your file:`,
+    );
+    for (const w of result.warnings) log(`  - ${w}`, `  • ${w}`);
   }
-  log(`✓ DONE — ${result.inserted.toLocaleString()} items, ${costPayload.length.toLocaleString()} avg costs, ${result.errors.length} errors`);
+  log(
+    `✓ DONE — ${result.inserted.toLocaleString()} items, ${costPayload.length.toLocaleString()} avg costs, ${result.errors.length} errors`,
+    `Done — saved ${result.inserted.toLocaleString()} items and ${costPayload.length.toLocaleString()} cost records, ${result.errors.length} error(s)`,
+  );
   return result;
 }

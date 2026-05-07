@@ -175,6 +175,10 @@ export default function WholesalePlanningWorkbench() {
     inserted_variants: number;
     skipped_variant_duplicate: number;
     no_size_skus: string[];
+    duplicate_variant_groups: Array<{
+      variant_key: string;
+      rows: Array<Record<string, unknown>>;
+    }>;
     errors: string[];
     warnings: string[];
     failedMessage?: string;  // when the whole upload threw
@@ -476,6 +480,7 @@ export default function WholesalePlanningWorkbench() {
         inserted_variants: r.inserted_variants ?? 0,
         skipped_variant_duplicate: r.skipped_variant_duplicate ?? 0,
         no_size_skus: r.no_size_skus ?? [],
+        duplicate_variant_groups: r.duplicate_variant_groups ?? [],
         errors: r.errors ?? [],
         warnings: r.warnings ?? [],
       });
@@ -489,6 +494,7 @@ export default function WholesalePlanningWorkbench() {
         skipped_no_sku: 0, skipped_no_date: 0, skipped_zero_qty: 0, skipped_bad_cost: 0,
         skipped_duplicate: 0, inserted_variants: 0,
         skipped_variant_duplicate: 0, no_size_skus: [],
+        duplicate_variant_groups: [],
         errors: [], warnings: [],
         failedMessage: msg,
       });
@@ -2477,8 +2483,82 @@ export default function WholesalePlanningWorkbench() {
                             : "lines (same invoice + style+color + date — qty summed, prices weight-averaged)"}</div>
                         )}
                         {u.skipped_variant_duplicate > 0 && u.kind === "master" && (
-                          <div>· <strong>{u.skipped_variant_duplicate.toLocaleString()}</strong> duplicate (style, color, size) variants — same physical SKU appeared more than once in the spreadsheet. Last occurrence kept; the rest collapsed.</div>
+                          <div>· <strong>{u.skipped_variant_duplicate.toLocaleString()}</strong> duplicate (style, color, size) variants — same physical SKU appeared more than once in the spreadsheet. First occurrence kept; the rest collapsed.</div>
                         )}
+                        {/* Full raw-row dump of every (style, color, size)
+                            collision so the planner can verify whether the
+                            "duplicates" are actually identical or whether
+                            our dedup key is missing a distinguishing column.
+                            TSV format pastes directly into Excel. */}
+                        {u.duplicate_variant_groups.length > 0 && u.kind === "master" && (() => {
+                          const groups = u.duplicate_variant_groups;
+                          const totalRows = groups.reduce((s, g) => s + g.rows.length, 0);
+                          // Union of every column header across all colliding
+                          // rows. Using a stable order: append in first-seen
+                          // order so columns near the front of the spreadsheet
+                          // stay near the front of the TSV.
+                          const colSet = new Set<string>();
+                          for (const g of groups) {
+                            for (const row of g.rows) {
+                              for (const k of Object.keys(row)) colSet.add(k);
+                            }
+                          }
+                          const cols = Array.from(colSet);
+                          const tsvHeader = ["variant_key", ...cols].join("\t");
+                          const cellToTsv = (v: unknown): string => {
+                            if (v == null) return "";
+                            if (v instanceof Date) return v.toISOString();
+                            const s = typeof v === "string" ? v : JSON.stringify(v);
+                            // Strip tabs/newlines so the row stays on one line.
+                            return s.replace(/\t/g, " ").replace(/\r?\n/g, " ");
+                          };
+                          const tsvBody = groups.flatMap((g) =>
+                            g.rows.map((row) => [g.variant_key, ...cols.map((c) => cellToTsv(row[c]))].join("\t"))
+                          );
+                          const tsv = [tsvHeader, ...tsvBody].join("\n");
+                          return (
+                            <details style={{ marginTop: 6 }}>
+                              <summary style={{ cursor: "pointer", fontSize: 12, color: PAL.textDim, fontWeight: 600 }}>
+                                ▸ View {groups.length.toLocaleString()} duplicate group{groups.length === 1 ? "" : "s"} ({totalRows.toLocaleString()} row{totalRows === 1 ? "" : "s"} total) as TSV
+                              </summary>
+                              <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+                                <div style={{ fontSize: 11, color: PAL.textMuted }}>
+                                  Paste into Excel to see every column side-by-side. If two rows look identical, your Excel may have a hidden column (warehouse, price tier, etc.) that's missing here — let me know and we'll add it to the dedup key.
+                                </div>
+                                <button
+                                  type="button"
+                                  style={{ ...S.btnSecondary, alignSelf: "flex-start", fontSize: 11, padding: "4px 10px" }}
+                                  onClick={async () => {
+                                    try {
+                                      await navigator.clipboard.writeText(tsv);
+                                      setToast({ text: `Copied ${totalRows.toLocaleString()} rows (TSV) to clipboard`, kind: "success" });
+                                    } catch {
+                                      setToast({ text: "Couldn't copy — your browser blocked clipboard access", kind: "error" });
+                                    }
+                                  }}
+                                >
+                                  Copy as TSV (paste into Excel)
+                                </button>
+                                <textarea
+                                  readOnly
+                                  value={tsv}
+                                  onFocus={(e) => e.currentTarget.select()}
+                                  style={{
+                                    ...S.input,
+                                    width: "100%",
+                                    maxHeight: 240,
+                                    minHeight: 100,
+                                    fontFamily: "monospace",
+                                    fontSize: 11,
+                                    resize: "vertical" as const,
+                                    background: PAL.bg,
+                                    whiteSpace: "pre" as const,
+                                  }}
+                                />
+                              </div>
+                            </details>
+                          );
+                        })()}
                       </div>
                     </div>
                   )}
