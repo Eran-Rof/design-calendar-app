@@ -536,9 +536,21 @@ export async function ingestItemMasterExcel(
     let sku: string;
     if (isPrepack && explicitSkuRaw) {
       // Use the full ItemNumber so pre-pack is its own product.
-      sku = explicitSkuRaw;
+      // Pre-packs with the SAME ItemNumber but different colors
+      // (e.g. RYO0822PPK in Black/Salsa AND in Black/Egret across
+      // different rows) are still distinguished here by appending
+      // the color to the dedup key.
+      sku = explicitColor ? canon(`${explicitSkuRaw}-${explicitColor}`) : explicitSkuRaw;
     } else if (explicitStyle) {
-      sku = canon(explicitStyle);
+      // When the Excel has both Style and Color populated, dedup by
+      // (style, color) so EACH variant becomes its own master row.
+      // The earlier style-only dedup collapsed e.g. 31 RYB0412 color
+      // variants into a single master row carrying just the first
+      // row's color. Falls back to style-only when Color is blank
+      // (style-level master upload — older Excel shape).
+      sku = explicitColor
+        ? canon(`${explicitStyle}-${explicitColor}`)
+        : canon(explicitStyle);
     } else if (explicitSkuRaw) {
       sku = stripSizeSuffix(explicitSkuRaw);
     } else {
@@ -551,10 +563,15 @@ export async function ingestItemMasterExcel(
     }
     seenSkus.add(sku);
 
-    // For pre-packs, style_code = sku_code so masterByStyle never
-    // collides them with the base. For everything else, style_code =
-    // BasePartNumber as before.
-    const style = isPrepack ? sku : (explicitStyle ? canon(explicitStyle) : sku);
+    // For pre-packs, style_code = the raw ItemNumber so masterByStyle
+    // groups multiple color variants of the same pre-pack together
+    // (e.g. RYO0822PPK in Black/Salsa AND in Black/Egret share style
+    // RYO0822PPK). For everything else, style_code = BasePartNumber.
+    // sku now carries the (style, color) pair when Color is set, so
+    // we can't use sku directly here — would mis-stamp the style.
+    const style = isPrepack
+      ? (explicitSkuRaw ?? sku)
+      : (explicitStyle ? canon(explicitStyle) : sku);
     const color = explicitColor;
     // Identifying-dimension validation. Skip pre-packs (sku == style by
     // design) and rows where sku == style_code (style-only master row,
