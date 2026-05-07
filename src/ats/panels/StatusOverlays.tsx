@@ -1,6 +1,7 @@
 import React from "react";
 import S from "../styles";
 import SharedToast from "../../shared/ui/Toast";
+import OpStatusOverlay from "../../shared/ui/OpStatusOverlay";
 
 // A collection of small notification/feedback overlays that all render
 // conditionally and share no state. Grouped here rather than one file each
@@ -50,32 +51,28 @@ export const XoroSyncOverlay: React.FC<XoroSyncOverlayProps> = ({ progress, onCa
       : "Walking…";
   const showPassHeader = (progress.pass ?? 1) > 1;
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ background: "#1E293B", borderRadius: 14, padding: "28px 32px", width: 420, border: "1px solid #334155" }}>
-        <div style={{ fontWeight: 700, fontSize: 16, color: "#F1F5F9", marginBottom: 8 }}>Syncing Open SOs from Xoro…</div>
-        {showPassHeader && (
-          <div style={{ fontSize: 12, color: "#FBBF24", fontWeight: 600, marginBottom: 6 }}>
-            Pass {progress.pass} of {progress.maxPasses} — retrying {progress.retryingCount} page{progress.retryingCount === 1 ? "" : "s"}
-          </div>
-        )}
-        <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 20 }}>{progress.step}</div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+    <OpStatusOverlay
+      label="Syncing Open SOs from Xoro…"
+      message={progress.step}
+      pct={progress.pct}
+      width={420}
+      onCancel={onCancel}
+      canCancel
+      cancelLabel="Cancel Sync"
+      topBanner={showPassHeader ? (
+        <div style={{ fontSize: 12, color: "#FBBF24", fontWeight: 600, marginBottom: 6 }}>
+          Pass {progress.pass} of {progress.maxPasses} — retrying {progress.retryingCount} page{progress.retryingCount === 1 ? "" : "s"}
+        </div>
+      ) : null}
+      caption={(
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
           <span style={{ fontFamily: "monospace", fontSize: 18, fontWeight: 700, color: "#60A5FA" }}>
             {progress.downloaded.toLocaleString()} <span style={{ color: "#64748B", fontSize: 13, fontWeight: 500 }}>SOs downloaded</span>
           </span>
           <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#94A3B8" }}>{pageLabel}</span>
         </div>
-        <div style={{ background: "#0F172A", borderRadius: 8, height: 10, overflow: "hidden", marginBottom: 20 }}>
-          <div style={{ height: "100%", borderRadius: 8, background: "linear-gradient(90deg,#0EA5E9,#3B82F6)", width: `${progress.pct}%`, transition: "width 0.3s ease" }} />
-        </div>
-        <button
-          style={{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 6, padding: "7px 18px", fontSize: 13, cursor: "pointer", width: "100%" }}
-          onClick={onCancel}
-        >
-          Cancel Sync
-        </button>
-      </div>
-    </div>
+      )}
+    />
   );
 };
 
@@ -87,21 +84,14 @@ interface UploadProgressOverlayProps {
 export const UploadProgressOverlay: React.FC<UploadProgressOverlayProps> = ({ uploadProgress, cancelUpload }) => {
   if (!uploadProgress) return null;
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ background: "#1E293B", borderRadius: 14, padding: "28px 32px", width: 380, border: "1px solid #334155" }}>
-        <div style={{ fontWeight: 700, fontSize: 16, color: "#F1F5F9", marginBottom: 8 }}>Uploading…</div>
-        <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 20 }}>{uploadProgress.step}</div>
-        <div style={{ background: "#0F172A", borderRadius: 8, height: 10, overflow: "hidden", marginBottom: 20 }}>
-          <div style={{ height: "100%", borderRadius: 8, background: "linear-gradient(90deg,#10B981,#3B82F6)", width: `${uploadProgress.pct}%`, transition: "width 0.4s ease" }} />
-        </div>
-        <button
-          style={{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 6, padding: "7px 18px", fontSize: 13, cursor: "pointer", width: "100%" }}
-          onClick={cancelUpload}
-        >
-          Cancel Upload
-        </button>
-      </div>
-    </div>
+    <OpStatusOverlay
+      label="Uploading…"
+      message={uploadProgress.step}
+      pct={uploadProgress.pct}
+      onCancel={cancelUpload}
+      canCancel
+      cancelLabel="Cancel Upload"
+    />
   );
 };
 

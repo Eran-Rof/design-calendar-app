@@ -33,6 +33,7 @@ import WholesalePlanningGrid from "./WholesalePlanningGrid";
 import FutureDemandRequestsPanel from "./FutureDemandRequestsPanel";
 import ForecastDetailDrawer from "../components/ForecastDetailDrawer";
 import Toast, { type ToastMessage } from "../components/Toast";
+import OpStatusOverlay from "../../shared/ui/OpStatusOverlay";
 import StaleDataBanner from "../shared/components/StaleDataBanner";
 import SystemHealthBanner from "../shared/components/SystemHealthBanner";
 
@@ -2820,6 +2821,11 @@ function SummaryCard({
   );
 }
 
+// Thin wrapper over the shared OpStatusOverlay — preserves the local
+// {label, message, canCancel, onCancel} call shape used throughout
+// this file so I didn't have to chase down every call site. The
+// shared overlay handles the modal frame, indeterminate animation,
+// gradient bar, and cancel-button styling.
 function OperationStatusBar({ label, message, canCancel, onCancel }: {
   label: string;
   message?: string;
@@ -2827,30 +2833,12 @@ function OperationStatusBar({ label, message, canCancel, onCancel }: {
   onCancel: () => void;
 }) {
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ background: PAL.panel, borderRadius: 14, padding: "28px 32px", width: 380, maxWidth: "92vw", border: `1px solid ${PAL.border}`, boxSizing: "border-box" }}>
-        <div style={{ fontWeight: 700, fontSize: 16, color: PAL.text, marginBottom: 8 }}>{label}</div>
-        <div style={{ fontSize: 13, color: PAL.textMuted, marginBottom: 20, minHeight: 18, wordBreak: "break-word" as const }}>
-          {message ?? "Working…"}
-        </div>
-        <div style={{ background: PAL.panelAlt, borderRadius: 8, height: 10, overflow: "hidden", marginBottom: 20, position: "relative", border: `1px solid ${PAL.borderFaint}` }}>
-          {/* Indeterminate progress — animates via translateX (a
-              compositor-only transform) so it keeps moving even while
-              the JS main thread is blocked by heavy work like a
-              30k-row XLSX parse. The previous animation used `left`
-              which is layout-bound and froze whenever JS was busy. */}
-          <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: "35%", borderRadius: 8, background: `linear-gradient(90deg,${PAL.green},${PAL.accent})`, animation: "ipOpPulse 1.4s ease-in-out infinite", willChange: "transform" }} />
-        </div>
-        <style>{`@keyframes ipOpPulse { 0% { transform: translateX(-100%); } 100% { transform: translateX(380%); } }`}</style>
-        <button
-          style={{ background: "none", border: `1px solid ${canCancel ? PAL.red : PAL.border}`, color: canCancel ? PAL.red : PAL.textMuted, borderRadius: 6, padding: "7px 18px", fontSize: 13, cursor: "pointer", width: "100%" }}
-          onClick={onCancel}
-          title={canCancel ? "Stop this and put things back the way they were" : "Hide this — work keeps going"}
-        >
-          {canCancel ? "Stop" : "Hide"}
-        </button>
-      </div>
-    </div>
+    <OpStatusOverlay
+      label={label}
+      message={message}
+      canCancel={canCancel}
+      onCancel={onCancel}
+    />
   );
 }
 
