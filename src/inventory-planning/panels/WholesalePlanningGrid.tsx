@@ -2444,9 +2444,21 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
           regular cells but stays below the top-sticky thead. */}
       {freezeIdxDom > 0 && freezeOffsets.length > 0 && (
         <style>{
-          freezeOffsets.map((left, i) => (
-            `.planning-grid-row > :nth-child(${i + 1}) { position: sticky; left: ${left}px; z-index: 2; background: ${PAL.panel}; }`
-          )).join("\n")
+          // Body frozen cells: low z-index (1) so they scroll UNDER
+          // the top-sticky header. Header frozen cells: high z-index
+          // (3) so the corner where freeze + sticky-header intersect
+          // stays on top of everything when scrolling both axes.
+          // Non-frozen header cells get S.th's default z-index of 2,
+          // sandwiched between the two so vertical scroll works
+          // correctly and the frozen body slides under the header.
+          [
+            ...freezeOffsets.map((left, i) => (
+              `tbody tr.planning-grid-row > :nth-child(${i + 1}) { position: sticky; left: ${left}px; z-index: 1; background: ${PAL.panel}; }`
+            )),
+            ...freezeOffsets.map((left, i) => (
+              `thead tr.planning-grid-row > :nth-child(${i + 1}) { position: sticky; left: ${left}px; z-index: 3; background: ${PAL.panel}; }`
+            )),
+          ].join("\n")
         }</style>
       )}
       <div ref={tableWrapRef} className="ip-grid-table-wrap" style={S.tableWrap}>
