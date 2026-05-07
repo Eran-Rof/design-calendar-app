@@ -160,15 +160,36 @@ async function parseWorkbook(
 
   onProgress?.(`Reading the spreadsheet (this can take a few seconds for big files)…`);
   await yieldToBrowser();
-  const wb = XLSX.read(buf, { type: "array", cellDates: true });
 
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  onProgress?.(`Reading rows…`);
-  await yieldToBrowser();
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+  // Run XLSX.read() + sheet_to_json() in a dedicated Web Worker.
+  // Without this, those two calls block the main thread for ~5–10s
+  // on a 32k-row file, which is long enough for Chrome to show the
+  // "Page Unresponsive" dialog. The buffer is transferred (zero
+  // copy) and the worker terminates as soon as it returns.
+  const worker = new Worker(
+    new URL("./excelParseWorker.ts", import.meta.url),
+    { type: "module" },
+  );
+  const result = await new Promise<{ sheetName: string; rows: Array<Record<string, unknown>> }>((resolve, reject) => {
+    worker.onmessage = (
+      e: MessageEvent<
+        | { ok: true; sheetName: string; rows: Array<Record<string, unknown>> }
+        | { ok: false; error: string }
+      >,
+    ) => {
+      if (e.data.ok) resolve({ sheetName: e.data.sheetName, rows: e.data.rows });
+      else reject(new Error(e.data.error));
+    };
+    worker.onerror = (err) => {
+      reject(new Error(err.message || "Excel parse worker crashed"));
+    };
+    // Transfer the ArrayBuffer to the worker so we don't pay the
+    // structured-clone cost for a 5MB+ payload.
+    worker.postMessage(buf, [buf]);
+  }).finally(() => worker.terminate());
 
-  onProgress?.(`Found ${rows.length.toLocaleString()} rows`);
-  return rows;
+  onProgress?.(`Found ${result.rows.length.toLocaleString()} rows`);
+  return result.rows;
 }
 
 async function sbPost(path: string, body: unknown[], prefer: string): Promise<void> {
