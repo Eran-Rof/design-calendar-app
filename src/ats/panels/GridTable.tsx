@@ -49,21 +49,21 @@ function useArrowKeyScroll(tableRef: React.RefObject<HTMLDivElement>) {
 const TOTALS_ROW_HEIGHT = 86;
 
 // Sticky-left column metadata. Order matters — drives both the
-// header rendering and the data-row cell order. Widths themselves are
-// computed per render from visible content (see useMemo below); the
-// per-column charType + minPx fields are static inputs to that calc.
-// charType drives the px-per-character estimate (mono cells are
-// slightly wider) and minPx is a floor so a thin/empty filter doesn't
-// collapse a column into nothing.
+// header rendering and the data-row cell order. autoFit:true columns
+// (onHand / onOrder / onPO) compute width per render from largest
+// visible content + the totals row; everything else uses a fixed
+// width since text cols (descriptions, color names) can be long and
+// auto-fitting them blows out the layout. Long text content is
+// allowed to truncate visually rather than push the grid wider.
 const STICKY_COL_META = [
-  { key: "category",    label: "Category",    charType: "text", minPx:  90 },
-  { key: "subCategory", label: "Sub Cat",     charType: "text", minPx:  80 },
-  { key: "style",       label: "Style",       charType: "mono", minPx:  80 },
-  { key: "description", label: "Description", charType: "text", minPx: 110 },
-  { key: "color",       label: "Color",       charType: "text", minPx:  80 },
-  { key: "onHand",      label: "On Hand",     charType: "mono", minPx:  80 },
-  { key: "onOrder",     label: "On Order",    charType: "mono", minPx:  80 },
-  { key: "onPO",        label: "On PO",       charType: "mono", minPx:  80 },
+  { key: "category",    label: "Category",    charType: "text", autoFit: false, minPx:  90, fixedPx:  90 },
+  { key: "subCategory", label: "Sub Cat",     charType: "text", autoFit: false, minPx: 100, fixedPx: 100 },
+  { key: "style",       label: "Style",       charType: "mono", autoFit: false, minPx:  90, fixedPx:  90 },
+  { key: "description", label: "Description", charType: "text", autoFit: false, minPx: 160, fixedPx: 160 },
+  { key: "color",       label: "Color",       charType: "text", autoFit: false, minPx: 110, fixedPx: 110 },
+  { key: "onHand",      label: "On Hand",     charType: "mono", autoFit: true,  minPx:  80, fixedPx:  80 },
+  { key: "onOrder",     label: "On Order",    charType: "mono", autoFit: true,  minPx:  80, fixedPx:  80 },
+  { key: "onPO",        label: "On PO",       charType: "mono", autoFit: true,  minPx:  80, fixedPx:  80 },
 ] as const;
 type StickyKey = typeof STICKY_COL_META[number]["key"];
 
@@ -299,34 +299,30 @@ export const GridTable: React.FC<GridTableProps> = ({
     };
   }, [filtered, displayPeriods, atShip, eventIndex, generalMarginPct]);
 
-  // Per-column widths computed from the filtered rows + (when visible)
-  // the totals row. Each column's width = max content char count + 2
-  // chars padding each side, multiplied by per-char px. Floored at the
-  // column's minPx so a thin filter doesn't collapse the column. Re-
-  // runs only when the inputs change.
+  // Per-column widths. Auto-fit columns (numeric: onHand/onOrder/onPO)
+  // compute width from the largest content + 2 char-widths padding on
+  // each side, including the 5 stacked totals lines when TOTALS is on.
+  // Fixed-width columns (text: category/subCategory/style/description/
+  // color) just use their fixedPx so long content truncates visually
+  // instead of blowing out the grid layout.
   const stickyWidths = useMemo(() => {
     const w: Record<StickyKey, number> = {} as Record<StickyKey, number>;
     for (const meta of STICKY_COL_META) {
+      if (!meta.autoFit) {
+        w[meta.key] = meta.fixedPx;
+        continue;
+      }
       let maxLen = meta.label.length;
-      // Per-row content
       for (const r of filtered) {
         let s = "";
         switch (meta.key) {
-          case "category":    s = String(r.master_category ?? "—"); break;
-          case "subCategory": s = String(r.master_sub_category ?? "—"); break;
-          case "style":       s = String(r.master_style ?? "—"); break;
-          case "description": s = String(r.description ?? ""); break;
-          case "color":       s = displayColor(r) || "—"; break;
-          case "onHand":      s = (r.onHand ?? 0).toLocaleString(); break;
-          case "onOrder":     s = r.onOrder > 0 ? r.onOrder.toLocaleString() : "—"; break;
-          case "onPO":        s = r.onPO > 0 ? `+${r.onPO.toLocaleString()}` : "—"; break;
+          case "onHand":  s = (r.onHand ?? 0).toLocaleString(); break;
+          case "onOrder": s = r.onOrder > 0 ? r.onOrder.toLocaleString() : "—"; break;
+          case "onPO":    s = r.onPO > 0 ? `+${r.onPO.toLocaleString()}` : "—"; break;
         }
         if (s.length > maxLen) maxLen = s.length;
       }
-      // Totals row content (numeric cols only — text cols are blank
-      // in the totals row, so they contribute nothing). Five stacked
-      // lines per cell; the longest of those drives the col width.
-      if (showTotalsRow && (meta.key === "onHand" || meta.key === "onOrder" || meta.key === "onPO")) {
+      if (showTotalsRow) {
         const slot = meta.key === "onHand" ? sums.onHand : meta.key === "onOrder" ? sums.onOrder : sums.onPO;
         const lines = [
           slot.qty.toLocaleString(),
