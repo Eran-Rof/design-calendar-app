@@ -3,6 +3,43 @@ import { dedupeSkuEntries } from "./merge";
 import { ppkMultiplier } from "../shared/prepack";
 import { resolveStyle } from "./itemMasterLookup";
 
+/** Apply the PPK pack→unit multiplier to a single ATSRow. Used by the
+ *  snapshot-path loader (loadFromSupabase fallback to ats_snapshots)
+ *  and by the master-ready recovery effect — both build rows without
+ *  going through computeRowsFromExcelData and so skip the multiplier
+ *  step normally embedded in compute. Idempotency note: this function
+ *  is NOT idempotent. Call exactly once on a row, only on rows that
+ *  have not already been multiplied. The Excel-upload path runs the
+ *  multiplier inside compute itself; never call this on rows from
+ *  that path. */
+export function applyPpkMultiplierToRow(row: ATSRow): ATSRow {
+  const masterHit = resolveStyle(row.sku, null);
+  const mult = ppkMultiplier(
+    null,
+    masterHit.size,
+    row.description,
+    masterHit.style ?? row.sku,
+    row.sku,
+  );
+  if (mult === 1) return row;
+  const newDates: Record<string, number> = {};
+  for (const [date, qty] of Object.entries(row.dates)) newDates[date] = qty * mult;
+  let newFreeMap: Record<string, number> | undefined;
+  if (row.freeMap) {
+    newFreeMap = {};
+    for (const [date, qty] of Object.entries(row.freeMap)) newFreeMap[date] = qty * mult;
+  }
+  return {
+    ...row,
+    onHand: row.onHand * mult,
+    onPO: row.onPO * mult,
+    onOrder: row.onOrder * mult,
+    dates: newDates,
+    freeMap: newFreeMap,
+    avgCost: row.avgCost != null ? row.avgCost / mult : row.avgCost,
+  };
+}
+
 export function computeRowsFromExcelData(data: ExcelData, dates: string[], poStores: string[] = ["All"], soStores: string[] = ["All"]): ATSRow[] {
   const allPo = poStores.includes("All");
   const allSo = soStores.includes("All");

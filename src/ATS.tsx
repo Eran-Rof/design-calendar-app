@@ -6,7 +6,7 @@ import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import type { ATSRow, ATSSnapshot, ATSSkuData, ATSPoEvent, ATSSoEvent, UploadWarning, ExcelData, CtxMenu, SummaryCtxMenu } from "./ats/types";
 import { addDays, fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, skuSimilarity } from "./ats/helpers";
-import { computeRowsFromExcelData } from "./ats/compute";
+import { computeRowsFromExcelData, applyPpkMultiplierToRow } from "./ats/compute";
 import { enrichRowsWithItemMaster } from "./ats/enrichWithItemMaster";
 import { loadItemMasterCache } from "./ats/itemMasterLookup";
 import { mergeExcelDataSkus, mergeRows, dedupeExcelData } from "./ats/merge";
@@ -458,15 +458,21 @@ function ATSReport() {
 
   // Snapshot-path safety net: if rows were populated by the legacy
   // ats_snapshots load before the master cache was ready, re-enrich them
-  // once the cache flips. Detect via match_source absence on the first row.
-  // No-op for the common excelData path because the chokepoint useEffect
-  // above already handles the masterReady transition.
+  // AND apply the PPK pack→unit multiplier once the cache flips. The
+  // chokepoint useEffect above (excelData path) gets the multiplier
+  // for free because computeRowsFromExcelData embeds it; the snapshot
+  // path builds rows directly with raw qty_on_hand from the snapshot
+  // table, so prepack rows would otherwise display in pack-grain
+  // forever. Detect via match_source absence on the first row, which
+  // is the canonical signal that we're still in the pre-master-loaded
+  // state on the snapshot path.
   useEffect(() => {
     if (!masterReady) return;
     if (excelData) return; // chokepoint handles excelData path
     if (rows.length === 0) return;
     if (rows[0].master_match_source !== null && rows[0].master_match_source !== undefined) return;
-    setRows(enrichRowsWithItemMaster(rows).rows);
+    const enriched = enrichRowsWithItemMaster(rows).rows;
+    setRows(enriched.map(applyPpkMultiplierToRow));
   }, [masterReady, excelData, rows]);
 
   // PO data comes from PO WIP (tanda_pos) — no separate Xoro sync needed
@@ -552,8 +558,13 @@ function ATSReport() {
         let computed = Object.values(map);
         for (const op of savedHistory) computed = mergeRows(computed, op.fromSku, op.toSku);
         // Legacy snapshot path bypasses the excelData useEffect, so enrich
-        // here directly. (Most production paths go through excelData.)
-        setRows(enrichRowsWithItemMaster(computed).rows);
+        // + apply the PPK multiplier here directly. The masterReady
+        // recovery useEffect catches the case where master loads AFTER
+        // this runs; this branch handles the case where master loaded
+        // FIRST (so match_source comes back populated and the recovery
+        // useEffect would early-return).
+        const enriched = enrichRowsWithItemMaster(computed).rows;
+        setRows(enriched.map(applyPpkMultiplierToRow));
         setMockMode(false);
       }
     } catch (e) {
