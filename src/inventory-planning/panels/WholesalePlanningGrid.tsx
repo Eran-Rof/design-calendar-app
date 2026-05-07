@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { ppkMultiplier } from "../../shared/prepack";
 import type { IpPlanningGridRow } from "../types/wholesale";
 import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, formatQty, formatPeriodCode } from "../components/styles";
 import { MultiSelectDropdown } from "../components/MultiSelectDropdown";
@@ -817,26 +818,8 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     return Array.from(map.values()).sort((a, b) => a.localeCompare(b));
   }, [rows]);
 
-  // Pre-pack multiplier — checks color first, then size, then
-  // description. The number after "PPK" (optionally separated by
-  // whitespace, underscore, or dash) is the units-per-pack count.
-  // Matches: "PPK24", "PPK 24", "PPK-24", "PPK_24", "PPK24-Black",
-  // "Tech Jogger PPK24 Special", etc.
-  function extractPpk(value: string | null | undefined): number | null {
-    if (!value) return null;
-    const m = value.match(/PPK[\s_-]*(\d+)/i);
-    if (!m) return null;
-    const n = parseInt(m[1], 10);
-    return Number.isFinite(n) && n > 0 ? n : null;
-  }
-  function ppkMultiplier(
-    color: string | null | undefined,
-    size: string | null | undefined,
-    description?: string | null,
-    style?: string | null,
-  ): number {
-    return extractPpk(color) ?? extractPpk(size) ?? extractPpk(description) ?? extractPpk(style) ?? 1;
-  }
+  // PPK multiplier comes from the shared module (src/shared/prepack)
+  // — same logic ATS uses, single source of truth.
 
   // Step 1: filter + mute (post-user-filters, post-system-suggestions toggle,
   // pre-aggregate, pre-roll). This is the canonical "rows in scope" set
