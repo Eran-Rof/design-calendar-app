@@ -2067,7 +2067,10 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
         {/* Freeze through column. Pins leftmost identifying columns
             (Category through Period) sticky-left when scrolling
             horizontally. Widths measured at runtime so the existing
-            auto-fit layout doesn't change — see freezeOffsets state. */}
+            auto-fit layout doesn't change — see freezeOffsets state.
+            Only visible columns appear as freeze targets — picking a
+            hidden one would freeze through a 0-width track and
+            confuse the planner about why nothing is sticking. */}
         <select
           value={freezeKey}
           onChange={(e) => setFreezeKey(e.target.value)}
@@ -2075,7 +2078,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
           style={{ ...S.select, fontSize: 12, padding: "2px 6px" }}
         >
           <option value="">No freeze</option>
-          {FREEZABLE_COLS.map(k => (
+          {FREEZABLE_COLS.filter(k => !hiddenColumns.has(k)).map(k => (
             <option key={k} value={k}>Freeze through {FREEZE_LABELS[k]}</option>
           ))}
         </select>
@@ -2444,19 +2447,27 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
           regular cells but stays below the top-sticky thead. */}
       {freezeIdxDom > 0 && freezeOffsets.length > 0 && (
         <style>{
-          // Body frozen cells: low z-index (1) so they scroll UNDER
-          // the top-sticky header. Header frozen cells: high z-index
-          // (3) so the corner where freeze + sticky-header intersect
-          // stays on top of everything when scrolling both axes.
-          // Non-frozen header cells get S.th's default z-index of 2,
-          // sandwiched between the two so vertical scroll works
-          // correctly and the frozen body slides under the header.
+          // Three z-index layers so freeze + top-sticky-header compose
+          // correctly on both scroll axes:
+          //   body frozen          → 1   (slides UNDER non-frozen header
+          //                              when scrolling vertically)
+          //   header non-frozen    → 2   (S.th default; scrolls right
+          //                              with non-frozen content)
+          //   header frozen corner → 5   (top-left intersection; on top
+          //                              of EVERYTHING so the header
+          //                              for frozen columns is always
+          //                              visible regardless of how the
+          //                              planner scrolls)
+          //
+          // !important on z-index keeps the frozen header above the
+          // S.th inline z-index of 2 even though my class rule has
+          // lower CSS specificity than the inline.
           [
             ...freezeOffsets.map((left, i) => (
               `tbody tr.planning-grid-row > :nth-child(${i + 1}) { position: sticky; left: ${left}px; z-index: 1; background: ${PAL.panel}; }`
             )),
             ...freezeOffsets.map((left, i) => (
-              `thead tr.planning-grid-row > :nth-child(${i + 1}) { position: sticky; left: ${left}px; z-index: 3; background: ${PAL.panel}; }`
+              `thead tr.planning-grid-row > :nth-child(${i + 1}) { position: sticky; left: ${left}px; z-index: 5 !important; background: ${PAL.panel}; }`
             )),
           ].join("\n")
         }</style>
