@@ -6,6 +6,8 @@ import {
 } from "../../utils/tandaTypes";
 import S from "../styles";
 import { MilestoneDateInput } from "../detail/MilestoneDateInput";
+import { useArrowKeyScroll } from "../../shared/grid/useArrowKeyScroll";
+import { GridScrollbarStyles } from "../../shared/grid/GridScrollbarStyles";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
 import { useTandaStore } from "../store/index";
 
@@ -365,22 +367,11 @@ export function GridView({
   user,
 }: GridViewProps) {
 
-  // Inject scrollbar CSS once — always-visible horizontal bar in dark-theme colors.
-  useEffect(() => {
-    const id = "gv-scrollbar-style";
-    if (document.getElementById(id)) return;
-    const el = document.createElement("style");
-    el.id = id;
-    el.textContent = `
-      .gv-scroll { overflow-x: scroll; overflow-y: auto; }
-      .gv-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
-      .gv-scroll::-webkit-scrollbar-track { background: #0F172A; border-top: 1px solid #1E293B; }
-      .gv-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-      .gv-scroll::-webkit-scrollbar-thumb:hover { background: #475569; }
-      .gv-scroll::-webkit-scrollbar-corner { background: #0F172A; }
-    `;
-    document.head.appendChild(el);
-  }, []);
+  // Arrow-key scroll target. Wired to the gv-scroll wrapper below
+  // so the operator can navigate the grid without clicking it
+  // first; same hook ATS + the wholesale planning grid use.
+  const tableWrapRef = useRef<HTMLDivElement | null>(null);
+  useArrowKeyScroll(tableWrapRef);
 
   const [search, setSearch]                     = useState("");
   const [filterVendor, setFilterVendor]         = useState("All");
@@ -924,6 +915,7 @@ export function GridView({
 
   return (
     <div style={{ maxWidth: "100%", margin: "0 auto", padding: "0 12px" }}>
+      <GridScrollbarStyles scope="gv-scroll" trackColor="#0F172A" thumbColor="#334155" thumbHoverColor="#475569" size={12} />
 
       {/* ── Toolbar ────────────────────────────────────────────────────── */}
       <div style={{ ...S.filters, flexWrap: "wrap" }}>
@@ -1048,7 +1040,7 @@ export function GridView({
         ) : phases.length === 0 ? (
           <div style={{ padding: 32, color: "#6B7280", fontSize: 13, textAlign: "center" }}>No milestones generated yet for the visible POs.</div>
         ) : (
-          <div className="gv-scroll" style={{ maxHeight: "calc(100vh - 240px)" }}>
+          <div ref={tableWrapRef} className="gv-scroll" style={{ overflowX: "scroll", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
             <div style={{ minWidth: "fit-content" }}>
 
               {/* ── Sticky two-row header ──────────────────────────────── */}
