@@ -848,16 +848,38 @@ export const GridTable: React.FC<GridTableProps> = ({
                         }}>
                           {qty!.toLocaleString()}
                         </span>
-                      ) : (
-                        <span style={{
-                          color: getQtyColor(qty!),
-                          fontSize: 12,
-                          fontFamily: "monospace",
-                          fontWeight: qty! <= 10 ? 700 : 500,
-                        }}>
-                          {qty!.toLocaleString()}
-                        </span>
-                      )}
+                      ) : (() => {
+                        // Period cells get the same EXPLODE PPK treatment as
+                        // the sticky On Hand / On Order / On PO columns.
+                        // Inline (not via renderQty helper) because the
+                        // negative-qty red-badge branch above lives in the
+                        // same ternary and the period palette differs (uses
+                        // getQtyColor and a weight-by-bucket rule).
+                        const mult = row.ppkMult ?? 1;
+                        const display = mult > 1 && !explodePpk ? qty! / mult : qty!;
+                        const hint = mult > 1
+                          ? (explodePpk
+                              ? `PPK${mult} × ${(qty! / mult).toLocaleString()}`
+                              : `PPK${mult} = ${qty!.toLocaleString()}`)
+                          : null;
+                        return (
+                          <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", lineHeight: 1.1 }}>
+                            <span style={{
+                              color: getQtyColor(qty!),
+                              fontSize: 12,
+                              fontFamily: "monospace",
+                              fontWeight: qty! <= 10 ? 700 : 500,
+                            }}>
+                              {display.toLocaleString()}
+                            </span>
+                            {hint && (
+                              <span style={{ color: "#6B7280", fontSize: 8, fontFamily: "monospace", opacity: 0.7, marginTop: 1 }}>
+                                {hint}
+                              </span>
+                            )}
+                          </span>
+                        );
+                      })()}
                     </td>
                   );
                 })}

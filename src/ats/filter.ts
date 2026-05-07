@@ -20,11 +20,23 @@ export function tokenizeSearch(search: string): string[] {
   return search.trim().toLowerCase().split(/\s+/).filter(t => t && t !== "-");
 }
 
+// Plain "ppk" was generating false positives — "BARTRAM ZpPkt Tech
+// Pant" lowercases to "bartram zppkt tech pant" and contains "ppk"
+// as a substring (the two adjacent p's after Z + P merge to "pp"
+// after toLowerCase). Same story for "wZipPkt". To search for
+// prepacks specifically, require the "PPKn" digit pattern that
+// real pack codes follow. All other tokens fall back to plain
+// substring search so existing search behavior is unchanged.
+const PPK_NUMERIC_RE = /ppk[\s_-]*\d+/i;
+
 export function rowMatchesSearch(row: ATSRow, tokens: string[]): boolean {
   if (tokens.length === 0) return true;
   const sku  = (row.sku         ?? "").toLowerCase();
   const desc = (row.description ?? "").toLowerCase();
-  return tokens.every(t => sku.includes(t) || desc.includes(t));
+  return tokens.every(t => {
+    if (t === "ppk") return PPK_NUMERIC_RE.test(sku) || PPK_NUMERIC_RE.test(desc);
+    return sku.includes(t) || desc.includes(t);
+  });
 }
 
 // Normalize a string for case-/whitespace-tolerant equality. Real upload
