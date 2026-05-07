@@ -553,12 +553,13 @@ export async function syncOpenPosFromTandaPos(admin) {
     const key = `tanda:${c.poNumber}:${c.sku}`;
     const prev = aggMap.get(key);
     if (!prev) {
-      // Channel from po_number prefix. PO numbers starting with
-      // "ecom" (case-insensitive) are tagged as ecom so the
-      // wholesale planning grid can filter them out (and the ecom
-      // planning grid filters TO them). Everything else defaults
-      // to wholesale.
-      const channel = /^ecom/i.test(c.poNumber ?? "") ? "ecom" : "wholesale";
+      // Channel from po_number prefix. The customer's convention
+      // is "ROF ECOM" / "ROF-ECOM" / "ROFECOM" at the start of the
+      // PO number for ecom-bound orders — anything else is wholesale.
+      // Regex tolerates whitespace / dash / underscore between ROF
+      // and ECOM since the PO entry side hasn't standardized on a
+      // separator. Case-insensitive.
+      const channel = /^rof[\s_-]*ecom/i.test(c.poNumber ?? "") ? "ecom" : "wholesale";
       aggMap.set(key, {
         sku_id: skuId,
         po_number: c.poNumber,

@@ -13,12 +13,13 @@
 ALTER TABLE ip_open_purchase_orders
   ADD COLUMN IF NOT EXISTS channel text NOT NULL DEFAULT 'wholesale';
 
--- Backfill: any existing PO whose number starts with 'ecom' (case-
--- insensitive) gets re-classified as ecom. Rows already correct
--- (default 'wholesale') stay put.
+-- Backfill: any existing PO whose number starts with "ROF ECOM"
+-- (case-insensitive, with optional whitespace / dash / underscore
+-- between ROF and ECOM) gets re-classified as ecom. Rows already
+-- correct (default 'wholesale') stay put.
 UPDATE ip_open_purchase_orders
 SET channel = 'ecom'
-WHERE po_number ILIKE 'ecom%';
+WHERE po_number ~* '^rof[ _-]*ecom';
 
 CREATE INDEX IF NOT EXISTS idx_ip_open_pos_channel
   ON ip_open_purchase_orders (channel, sku_id, expected_date);
