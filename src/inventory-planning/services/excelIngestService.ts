@@ -679,16 +679,38 @@ export async function ingestItemMasterExcel(
       continue;
     }
     {
-      // Build the variant SKU. For pre-packs the variant key is
-      // (sku, color) — pre-packs typically don't have a size column;
-      // their multi-size composition is what makes them a pre-pack.
-      // For non-pre-packs we want size in the key when present.
-      const sizePart = explicitSize ? `-${explicitSize}` : "";
-      const variantSku = isPrepack ? sku : (sizePart ? canon(sku + sizePart) : sku);
-      // Capture every Excel row that's a variant (non-prepack)
-      // missing a Size value, so the modal can surface the full
-      // list (not just samples) for the planner to copy + fix.
-      if (!isPrepack && !explicitSize) {
+      // Build the variant SKU.
+      //
+      // Priority: trust the explicit ItemNumber whenever it's set.
+      // ItemNumber IS Xoro's unique physical-SKU identifier — Xoro
+      // won't allow two distinct items to share one. Trusting it
+      // avoids spurious collisions on rows where Style+Color+Size
+      // is genuinely the same shape but the row represents a
+      // different physical item (e.g. TRIM/label/accessory items
+      // like FL00001-A, FL00001-B that share a BasePartNumber and
+      // have blank Color/Size, but each is its own distinct SKU).
+      //
+      // Fallback (no explicit ItemNumber): synthesize from
+      // Style+Color+Size as before. Pre-packs still composite with
+      // color because the same pre-pack ItemNumber can appear
+      // across multiple color combos.
+      let variantSku: string;
+      if (isPrepack) {
+        // Pre-pack key: ItemNumber-Color (already encoded in `sku`
+        // when explicitSkuRaw + explicitColor were set above).
+        variantSku = sku;
+      } else if (explicitSkuRaw) {
+        variantSku = canon(explicitSkuRaw);
+      } else {
+        const sizePart = explicitSize ? `-${explicitSize}` : "";
+        variantSku = sizePart ? canon(sku + sizePart) : sku;
+      }
+      // Surface non-prepack variant rows that have a Color set
+      // but no Size — those are real apparel variants where size
+      // is the missing axis. Skip rows without Color either, since
+      // those are typically TRIM/accessory items where size is
+      // genuinely not applicable (false positive otherwise).
+      if (!isPrepack && !explicitSize && explicitColor) {
         result.no_size_skus.push(variantSku);
       }
       const existingRows = variantRowsByKey.get(variantSku);
