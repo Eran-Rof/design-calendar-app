@@ -1,7 +1,40 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { itemQty, isLineClosed, lineDeliveryDate, normalizeSize, sizeSort, fmtCurrency, fmtDate } from "../../utils/tandaTypes";
+import { extractPpk } from "../../shared/prepack";
 import S from "../styles";
 import type { DetailPanelCtx } from "../detailPanel";
+
+// localStorage-persisted EXPLODE PPK toggle for the matrix tab.
+// When ON, the Total column for prepack rows shows units (qty ×
+// units-per-pack) with a small faded "PPKn × packs" hint
+// underneath. When OFF, the column shows the raw pack count
+// (legacy behavior). Persisted so the planner's preference
+// survives navigation between POs.
+const EXPLODE_KEY = "tanda_matrix_explode_ppk";
+
+function useExplodePpk(): [boolean, (next: boolean) => void] {
+  const [value, setValue] = useState<boolean>(() => {
+    try { return localStorage.getItem(EXPLODE_KEY) !== "false"; } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(EXPLODE_KEY, value ? "true" : "false"); } catch { /* ignore */ }
+  }, [value]);
+  return [value, setValue];
+}
+
+// Compute the unit-grain total for a matrix row's sizes map. For
+// each size, multiply the size's qty by the PPK multiplier embedded
+// in the size token (e.g. "PPK60" → 60). Non-PPK sizes contribute
+// qty × 1. Returns the same number as the legacy reduce() when no
+// size carries a PPK token.
+function rowExplodedTotal(sizes: Record<string, number>): number {
+  let total = 0;
+  for (const [sz, qty] of Object.entries(sizes)) {
+    const mult = extractPpk(sz) ?? 1;
+    total += (qty as number) * mult;
+  }
+  return total;
+}
 
 /**
  * PO / Item Matrix tab body. Renders nothing unless `detailMode` is "po"
@@ -13,6 +46,7 @@ export function PoMatrixTab({ ctx, total, totalQty }: { ctx: DetailPanelCtx; tot
     selected, detailMode, matrixCollapsed, setMatrixCollapsed,
     lineItemsCollapsed, setLineItemsCollapsed,
   } = ctx;
+  const [explodePpk, setExplodePpk] = useExplodePpk();
 
   if (!selected) return null;
   if (!(detailMode === "po" || detailMode === "all")) return null;
@@ -53,6 +87,16 @@ export function PoMatrixTab({ ctx, total, totalQty }: { ctx: DetailPanelCtx; tot
           <span style={{ color: "#6B7280", fontSize: 12 }}>{matrixCollapsed ? "▶" : "▼"}</span>
           <span style={{ color: "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Item Matrix</span>
           <span style={{ color: "#6B7280", fontSize: 11, marginLeft: "auto" }}>{bases.length} base parts · {sizeOrder.length} sizes</span>
+          {/* EXPLODE PPK toggle. Stop propagation so clicking the
+              chip doesn't also toggle the matrix collapsed state. */}
+          <label
+            onClick={(e) => e.stopPropagation()}
+            title={explodePpk ? "Showing prepack totals as units (packs × units-per-pack). Click to switch to pack counts." : "Showing prepack totals as packs. Click to switch to unit grain."}
+            style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "3px 8px", borderRadius: 6, border: `1px solid ${explodePpk ? "#A855F7" : "#334155"}`, background: explodePpk ? "rgba(168,85,247,0.12)" : "transparent", userSelect: "none", whiteSpace: "nowrap" }}
+          >
+            <input type="checkbox" checked={explodePpk} onChange={(e) => setExplodePpk(e.target.checked)} style={{ accentColor: "#A855F7", cursor: "pointer", width: 12, height: 12 }} />
+            <span style={{ color: explodePpk ? "#C4B5FD" : "#9CA3AF", fontSize: 10, fontWeight: explodePpk ? 700 : 400 }}>EXPLODE PPK</span>
+          </label>
         </div>
         {!matrixCollapsed && (
           <div style={{ overflowX: "auto", background: "#0F172A", borderRadius: "0 0 8px 8px" }}>
@@ -75,8 +119,18 @@ export function PoMatrixTab({ ctx, total, totalQty }: { ctx: DetailPanelCtx; tot
                 {bases.map((base, bi) => {
                   const rows = byBase[base];
                   return rows.map((row, ri) => {
-                    const rowTotal = Object.values(row.sizes).reduce((s: number, q: any) => s + q, 0);
-                    const rowCost = rowTotal * row.price;
+                    // Pack-grain total (legacy): sum of size qtys.
+                    // Unit-grain total (when EXPLODE PPK is on):
+                    // each size's qty × its PPKn multiplier (1 for
+                    // non-PPK sizes). rowCost stays driven by the
+                    // pack-grain total because UnitPrice in Xoro is
+                    // per-pack — multiplying both qty and price
+                    // would double-count.
+                    const rowTotalPacks = Object.values(row.sizes).reduce((s: number, q: any) => s + q, 0);
+                    const rowTotalUnits = rowExplodedTotal(row.sizes);
+                    const rowIsPrepack = rowTotalUnits !== rowTotalPacks;
+                    const rowTotalDisplay = explodePpk ? rowTotalUnits : rowTotalPacks;
+                    const rowCost = rowTotalPacks * row.price;
                     const isLast = ri === rows.length - 1;
                     const dim = row.closed ? { opacity: 0.55, textDecoration: "line-through" as const } : {};
                     return (
@@ -90,7 +144,18 @@ export function PoMatrixTab({ ctx, total, totalQty }: { ctx: DetailPanelCtx; tot
                         {sizeOrder.map(sz => (
                           <td key={sz} style={{ padding: "8px 14px", textAlign: "center", color: row.sizes[sz] ? "#E5E7EB" : "#334155", fontFamily: "monospace", ...dim }}>{row.sizes[sz] || "—"}</td>
                         ))}
-                        <td style={{ padding: "8px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 700, fontFamily: "monospace", ...dim }}>{rowTotal}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 700, fontFamily: "monospace", ...dim }}>
+                          <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", lineHeight: 1.15 }}>
+                            <span>{rowTotalDisplay.toLocaleString()}</span>
+                            {rowIsPrepack && (
+                              <span style={{ color: "#6B7280", fontSize: 9, fontFamily: "monospace", opacity: 0.75, marginTop: 1, fontWeight: 400 }}>
+                                {explodePpk
+                                  ? `${rowTotalPacks.toLocaleString()} packs`
+                                  : `= ${rowTotalUnits.toLocaleString()} units`}
+                              </span>
+                            )}
+                          </span>
+                        </td>
                         <td style={{ padding: "8px 14px", textAlign: "right", color: "#9CA3AF", fontFamily: "monospace", ...dim }}>{fmtCurrency(row.price, selected.CurrencyCode)}</td>
                         <td style={{ padding: "8px 14px", textAlign: "right", color: "#10B981", fontWeight: 600, fontFamily: "monospace", ...dim }}>{fmtCurrency(rowCost, selected.CurrencyCode)}</td>
                         <td style={{ padding: "8px 14px", textAlign: "center", color: "#60A5FA", fontFamily: "monospace", ...dim }}>{row.delivery ? fmtDate(row.delivery) : "—"}</td>
@@ -106,7 +171,33 @@ export function PoMatrixTab({ ctx, total, totalQty }: { ctx: DetailPanelCtx; tot
                     const colTotal = parsed.filter((p: any) => p.size === sz && !p.closed).reduce((s: number, p: any) => s + p.qty, 0);
                     return <td key={sz} style={{ padding: "12px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 700, fontFamily: "monospace" }}>{colTotal}</td>;
                   })}
-                  <td style={{ padding: "12px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 800, fontFamily: "monospace" }}>{totalQty}</td>
+                  {/* Grand total reflects the toggle. Recompute unit
+                      grain by walking parsed open lines and applying
+                      the size's PPKn multiplier — mirrors row-level
+                      rowExplodedTotal so the column footer matches
+                      the sum of the row totals above. */}
+                  {(() => {
+                    const totalPacks = totalQty;
+                    const totalUnits = parsed
+                      .filter((p: any) => !p.closed)
+                      .reduce((s: number, p: any) => s + (p.qty as number) * (extractPpk(p.size) ?? 1), 0);
+                    const isPrepack = totalUnits !== totalPacks;
+                    const display = explodePpk ? totalUnits : totalPacks;
+                    return (
+                      <td style={{ padding: "12px 14px", textAlign: "center", color: "#F59E0B", fontWeight: 800, fontFamily: "monospace" }}>
+                        <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", lineHeight: 1.15 }}>
+                          <span>{display.toLocaleString()}</span>
+                          {isPrepack && (
+                            <span style={{ color: "#6B7280", fontSize: 9, opacity: 0.75, marginTop: 1, fontWeight: 400 }}>
+                              {explodePpk
+                                ? `${totalPacks.toLocaleString()} packs`
+                                : `= ${totalUnits.toLocaleString()} units`}
+                            </span>
+                          )}
+                        </span>
+                      </td>
+                    );
+                  })()}
                   <td style={{ padding: "12px 14px" }} />
                   <td style={{ padding: "12px 14px", textAlign: "right", color: "#10B981", fontWeight: 800, fontFamily: "monospace" }}>{fmtCurrency(total, selected.CurrencyCode)}</td>
                   <td style={{ padding: "12px 14px" }} />
