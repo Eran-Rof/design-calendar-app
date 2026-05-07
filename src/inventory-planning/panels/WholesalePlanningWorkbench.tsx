@@ -2696,9 +2696,14 @@ function OperationStatusBar({ label, message, canCancel, onCancel }: {
           {message ?? "Working…"}
         </div>
         <div style={{ background: PAL.panelAlt, borderRadius: 8, height: 10, overflow: "hidden", marginBottom: 20, position: "relative", border: `1px solid ${PAL.borderFaint}` }}>
-          <div style={{ position: "absolute", top: 0, bottom: 0, borderRadius: 8, background: `linear-gradient(90deg,${PAL.green},${PAL.accent})`, width: "35%", animation: "ipOpPulse 1.4s ease-in-out infinite" }} />
+          {/* Indeterminate progress — animates via translateX (a
+              compositor-only transform) so it keeps moving even while
+              the JS main thread is blocked by heavy work like a
+              30k-row XLSX parse. The previous animation used `left`
+              which is layout-bound and froze whenever JS was busy. */}
+          <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: "35%", borderRadius: 8, background: `linear-gradient(90deg,${PAL.green},${PAL.accent})`, animation: "ipOpPulse 1.4s ease-in-out infinite", willChange: "transform" }} />
         </div>
-        <style>{`@keyframes ipOpPulse { 0% { left: -35%; } 100% { left: 100%; } }`}</style>
+        <style>{`@keyframes ipOpPulse { 0% { transform: translateX(-100%); } 100% { transform: translateX(380%); } }`}</style>
         <button
           style={{ background: "none", border: `1px solid ${canCancel ? PAL.red : PAL.border}`, color: canCancel ? PAL.red : PAL.textMuted, borderRadius: 6, padding: "7px 18px", fontSize: 13, cursor: "pointer", width: "100%" }}
           onClick={onCancel}

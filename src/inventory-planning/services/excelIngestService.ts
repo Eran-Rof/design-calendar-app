@@ -115,11 +115,34 @@ function pick(row: Record<string, unknown>, names: string[]): unknown {
   return null;
 }
 
-async function parseWorkbook(file: File): Promise<Record<string, unknown>[]> {
+// Yield to the event loop so the browser can paint between
+// JS-blocking phases. setTimeout(0) drops us to the back of the
+// task queue; rAF would coalesce with the next paint frame either
+// way. Without these yields, the upload modal's text + animation
+// stay frozen until parse completes — the planner sees a dead UI
+// for the whole 5–10s a 30k-row XLSX takes.
+const yieldToBrowser = () => new Promise<void>((res) => setTimeout(res, 0));
+
+async function parseWorkbook(
+  file: File,
+  onProgress?: (msg: string) => void,
+): Promise<Record<string, unknown>[]> {
+  const sizeMb = (file.size / 1024 / 1024).toFixed(1);
+  onProgress?.(`Loading ${sizeMb} MB into memory…`);
+  await yieldToBrowser();
   const buf = await file.arrayBuffer();
+
+  onProgress?.(`Decoding workbook (this may take a few seconds for large files)…`);
+  await yieldToBrowser();
   const wb = XLSX.read(buf, { type: "array", cellDates: true });
+
   const sheet = wb.Sheets[wb.SheetNames[0]];
-  return XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+  onProgress?.(`Reading rows from sheet "${wb.SheetNames[0]}"…`);
+  await yieldToBrowser();
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+
+  onProgress?.(`Parsed ${rows.length.toLocaleString()} rows`);
+  return rows;
 }
 
 async function sbPost(path: string, body: unknown[], prefer: string): Promise<void> {
@@ -172,7 +195,7 @@ export async function ingestSalesExcel(
   const log = (m: string) => { console.log("[excel-sales]", m); onProgress?.(m); };
   const result = empty();
   log(`Parsing ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)…`);
-  const rows = await parseWorkbook(file);
+  const rows = await parseWorkbook(file, onProgress);
   result.parsed = rows.length;
   log(`Parsed ${rows.length.toLocaleString()} rows`);
   if (rows.length === 0) return result;
@@ -434,7 +457,7 @@ export async function ingestItemMasterExcel(
   const log = (m: string) => { console.log("[excel-master]", m); onProgress?.(m); };
   const result = empty();
   log(`Parsing ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)…`);
-  const rows = await parseWorkbook(file);
+  const rows = await parseWorkbook(file, onProgress);
   result.parsed = rows.length;
   log(`Parsed ${rows.length.toLocaleString()} rows`);
   if (rows.length === 0) return result;
