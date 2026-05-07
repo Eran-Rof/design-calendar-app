@@ -14,6 +14,7 @@
 
 import { SB_HEADERS, SB_URL } from "../utils/supabase";
 import { normalizeSku } from "./helpers";
+import { canonSku } from "../inventory-planning/utils/skuCanon";
 
 export interface ItemMasterRecord {
   id: string;
@@ -78,7 +79,23 @@ function buildIndexes(records: ItemMasterRecord[]): void {
   const sku = new Map<string, ItemMasterRecord>();
   const style = new Map<string, ItemMasterRecord>();
   for (const rec of records) {
-    if (rec.sku_code) sku.set(rec.sku_code, rec);
+    if (rec.sku_code) {
+      // Index under both the raw sku_code and its canonical form
+      // (uppercase, no whitespace) so a lookup hits regardless of
+      // whether the ATS row's SKU was formatted with " - " separators
+      // (Xoro export style: "RYO0822PPK - Black/Salsa") or as the
+      // canonical key the master ingest writes ("RYO0822PPK-BLACK/SALSA").
+      // Without this aliasing, prepack SKUs were never matching by sku
+      // and falling through to the style fallback — which surfaced as
+      // the "N styles not in item master" banner because some prepack
+      // styles also miss the style index when the master has them
+      // stored only at the (style+color) variant grain.
+      sku.set(rec.sku_code, rec);
+      const canonical = canonSku(rec.sku_code);
+      if (canonical && canonical !== rec.sku_code && !sku.has(canonical)) {
+        sku.set(canonical, rec);
+      }
+    }
     if (rec.style_code) {
       // Case-insensitive style lookup: ATS SKUs sometimes carry the style
       // code in lowercase or mixed case, while master is canonically
@@ -171,8 +188,14 @@ export async function loadItemMasterCache(): Promise<void> {
 export function resolveStyle(sku: string, stylePart?: string | null): ResolvedStyle {
   if (!bySkuCode || !byStyleCode) return { ...NULL_RESULT };
 
+  // Try both forms: the master's canonical key (uppercase no-space)
+  // and the human-readable normalized form (kept as fallback for any
+  // legacy rows that didn't go through the canonSku ingest path).
+  // canonSku FIRST because the current master ingest writes canonical
+  // sku_codes — that's the path we expect to hit.
+  const canonicalSku = canonSku(sku);
   const normalizedSku = normalizeSku(sku);
-  const skuHit = bySkuCode.get(normalizedSku);
+  const skuHit = bySkuCode.get(canonicalSku) ?? bySkuCode.get(normalizedSku);
   if (skuHit) {
     return {
       category: skuHit.attributes?.group_name ?? null,

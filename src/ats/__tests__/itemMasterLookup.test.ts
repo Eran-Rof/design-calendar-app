@@ -220,15 +220,22 @@ describe("itemMasterLookup.resolveStyle", () => {
       }),
     ]);
 
-    // ATS has the space; master has none.
+    // ATS has the space; master has none. Master's sku_code is just
+    // "R7113ED2" (no color suffix) so the sku-level canonical alias
+    // can't help here — the lookup falls through to the style index
+    // which is whitespace-tolerant.
     const atsHasSpace = resolveStyle("R7113 ED2 - Lt Brown", "R7113 ED2");
     expect(atsHasSpace.match_source).toBe("style");
     expect(atsHasSpace.style).toBe("R7113ED2");
     expect(atsHasSpace.category).toBe("Tops");
 
-    // Inverse: master has the space; ATS dropped it.
+    // Inverse: master has the space inside the style portion of
+    // sku_code ("FOO BAR - Red"). canonSku strips whitespace so the
+    // canonical alias "FOOBAR-RED" matches the ATS query "FOOBAR - Red"
+    // → "FOOBAR-RED" — sku-level match (a stronger result than the
+    // style fallback).
     const atsDroppedSpace = resolveStyle("FOOBAR - Red", "FOOBAR");
-    expect(atsDroppedSpace.match_source).toBe("style");
+    expect(atsDroppedSpace.match_source).toBe("sku");
     expect(atsDroppedSpace.style).toBe("FOO BAR");
   });
 
