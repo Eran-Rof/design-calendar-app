@@ -340,6 +340,58 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // / planned_buy) are entered in selling units always and don't
   // multiply either way.
   const [explodePpk, setExplodePpk] = usePersistedBool("explodePpk", true);
+
+  // Freeze-through-column. Pin leftmost columns when the planner
+  // scrolls horizontally. Default null = no freeze (legacy behavior).
+  // The freezable column set is the leftmost identifying group:
+  // Category through Period. Right-of-period columns (forecast / buy
+  // / qty / cost) aren't freezable since freezing them would
+  // collapse the scrollable area below useful width.
+  const FREEZABLE_COLS = ["category", "subCat", "style", "description", "color", "customer", "period"] as const;
+  type FreezeKey = typeof FREEZABLE_COLS[number];
+  const FREEZE_LABELS: Record<FreezeKey, string> = {
+    category: "Category",
+    subCat: "Sub Cat",
+    style: "Style",
+    description: "Description",
+    color: "Color",
+    customer: "Customer",
+    period: "Period",
+  };
+  const [freezeKey, setFreezeKey] = usePersistedString("freezeKey");
+  // Freeze-column DOM positions of FREEZABLE_COLS map directly to
+  // the order of <Th> components in the header below: index 0 =
+  // Category (1st <th>), index 1 = Sub Cat, ..., index 6 = Period.
+  // Hidden columns still emit their <th> (display: none) so DOM
+  // index stays stable; their rendered width contributes 0 to
+  // cumulative offsets, which is what we want.
+  //
+  // freezeIdxDom is "render the first N children sticky" where N is
+  // the DOM position of the chosen freezeKey + 1. Null when no
+  // freeze, < 0 ignored (defensive).
+  const freezeIdxDom = freezeKey
+    ? FREEZABLE_COLS.indexOf(freezeKey as FreezeKey) + 1
+    : 0;
+  // Cumulative left offsets per DOM index. Re-measured when
+  // hiddenColumns / freezeKey changes (those are the only inputs
+  // that affect rendered widths within the freeze range — data
+  // changes don't because the leftmost columns are identifier
+  // text that doesn't change width across rows).
+  const [freezeOffsets, setFreezeOffsets] = useState<number[]>([]);
+  useEffect(() => {
+    if (freezeIdxDom <= 0) { setFreezeOffsets([]); return; }
+    const tableEl = tableWrapRef.current?.querySelector("table");
+    const ths = tableEl?.querySelectorAll(":scope > thead > tr > th");
+    if (!ths || ths.length < freezeIdxDom) { setFreezeOffsets([]); return; }
+    const offsets: number[] = [];
+    let acc = 0;
+    for (let i = 0; i < freezeIdxDom; i++) {
+      offsets.push(acc);
+      const w = (ths[i] as HTMLElement).getBoundingClientRect().width;
+      acc += w;
+    }
+    setFreezeOffsets(offsets);
+  }, [freezeKey, freezeIdxDom, hiddenColumns, /* re-run when any data tweak might shift widths */ rows.length]);
   // Inline "+ Add row" form state. Closed by default; opens above
   // the table to the planner's chosen cat/sub-cat/customer + first
   // period of the run. Style + color default to "TBD". Persists
@@ -2004,6 +2056,21 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
           active={!explodePpk}
           onToggle={() => setExplodePpk(!explodePpk)}
         />
+        {/* Freeze through column. Pins leftmost identifying columns
+            (Category through Period) sticky-left when scrolling
+            horizontally. Widths measured at runtime so the existing
+            auto-fit layout doesn't change — see freezeOffsets state. */}
+        <select
+          value={freezeKey}
+          onChange={(e) => setFreezeKey(e.target.value)}
+          title="Pin leftmost columns through the chosen one when scrolling horizontally"
+          style={{ ...S.select, fontSize: 12, padding: "2px 6px" }}
+        >
+          <option value="">No freeze</option>
+          {FREEZABLE_COLS.map(k => (
+            <option key={k} value={k}>Freeze through {FREEZE_LABELS[k]}</option>
+          ))}
+        </select>
       </div>
 
       <div style={{ ...S.toolbar, marginTop: -4, paddingTop: 0, gap: 10, fontSize: 12, color: PAL.textDim }}>
@@ -2360,10 +2427,24 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       )}
 
       <GridScrollbarStyles scope="ip-grid-table-wrap" trackColor={PAL.bg} thumbColor={PAL.border} thumbHoverColor={PAL.borderFaint} />
+      {/* Sticky-left CSS for the freeze-through-column feature.
+          Targets the header <th> + body <td>s in matching DOM
+          positions via nth-child against the planning-grid-row
+          class. Offsets are runtime-measured (see freezeOffsets
+          state) so columns can keep their auto-fit widths and the
+          freeze still positions accurately. zIndex wins over
+          regular cells but stays below the top-sticky thead. */}
+      {freezeIdxDom > 0 && freezeOffsets.length > 0 && (
+        <style>{
+          freezeOffsets.map((left, i) => (
+            `.planning-grid-row > :nth-child(${i + 1}) { position: sticky; left: ${left}px; z-index: 2; background: ${PAL.panel}; }`
+          )).join("\n")
+        }</style>
+      )}
       <div ref={tableWrapRef} className="ip-grid-table-wrap" style={S.tableWrap}>
         <table style={S.table}>
           <thead>
-            <tr>
+            <tr className="planning-grid-row">
               <Th label="Category"    k="category"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("category")} />
               <Th label="Sub Cat"     k="subCat"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("subCat")} />
               <Th label="Style"       k="style"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("style")} />
@@ -2415,6 +2496,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
               return (
               <tr
                 key={rowKey}
+                className="planning-grid-row"
                 data-agg={r.is_aggregate ? "1" : undefined}
                 onContextMenu={(e) => { e.preventDefault(); if (!r.is_aggregate) onSelectRow(r); }}
                 title={
