@@ -1,6 +1,6 @@
 import type { ATSRow, ExcelData } from "./types";
 import { dedupeSkuEntries } from "./merge";
-import { ppkMultiplier } from "./ppk";
+import { ppkMultiplier } from "../shared/prepack";
 import { resolveStyle } from "./itemMasterLookup";
 
 export function computeRowsFromExcelData(data: ExcelData, dates: string[], poStores: string[] = ["All"], soStores: string[] = ["All"]): ATSRow[] {
