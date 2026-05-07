@@ -23,18 +23,26 @@ export function tokenizeSearch(search: string): string[] {
 // Plain "ppk" was generating false positives — "BARTRAM ZpPkt Tech
 // Pant" lowercases to "bartram zppkt tech pant" and contains "ppk"
 // as a substring (the two adjacent p's after Z + P merge to "pp"
-// after toLowerCase). Same story for "wZipPkt". To search for
-// prepacks specifically, require the "PPKn" digit pattern that
-// real pack codes follow. All other tokens fall back to plain
-// substring search so existing search behavior is unchanged.
-const PPK_NUMERIC_RE = /ppk[\s_-]*\d+/i;
+// after toLowerCase). Same story for "wZipPkt".
+//
+// Distinguishing real prepack SKUs from those false positives:
+// real SKUs have "PPK" either at the end of a word (RYB059430PPK,
+// RYG1842PPK), or followed by digits (PPK24, PPK60). False
+// positives have "ppk" followed by an extra letter ("t" in both
+// cases). So the regex matches "ppk" NOT followed by a letter —
+// end-of-string, digits, dashes, or whitespace are all fine.
+//
+// Earlier version of this fix required digits after PPK
+// (/ppk[\s_-]*\d+/i) which mismatched the real-SKU shape and
+// returned zero results for "ppk" searches.
+const PPK_TOKEN_RE = /ppk(?![a-z])/i;
 
 export function rowMatchesSearch(row: ATSRow, tokens: string[]): boolean {
   if (tokens.length === 0) return true;
   const sku  = (row.sku         ?? "").toLowerCase();
   const desc = (row.description ?? "").toLowerCase();
   return tokens.every(t => {
-    if (t === "ppk") return PPK_NUMERIC_RE.test(sku) || PPK_NUMERIC_RE.test(desc);
+    if (t === "ppk") return PPK_TOKEN_RE.test(sku) || PPK_TOKEN_RE.test(desc);
     return sku.includes(t) || desc.includes(t);
   });
 }
