@@ -34,6 +34,7 @@ import FutureDemandRequestsPanel from "./FutureDemandRequestsPanel";
 import ForecastDetailDrawer from "../components/ForecastDetailDrawer";
 import Toast, { type ToastMessage } from "../components/Toast";
 import OpStatusOverlay from "../../shared/ui/OpStatusOverlay";
+import LastUploadStamp from "../../shared/ui/LastUploadStamp";
 import StaleDataBanner from "../shared/components/StaleDataBanner";
 import SystemHealthBanner from "../shared/components/SystemHealthBanner";
 
@@ -202,14 +203,6 @@ export default function WholesalePlanningWorkbench() {
     try { localStorage.setItem(LAST_UPLOAD_KEYS[kind], iso); } catch { /* ignore quota */ }
     if (kind === "sales") setLastUploadSales(iso);
     else setLastUploadMaster(iso);
-  }
-  // "yesterday at 3:14 PM" — short and parseable. Falls back to the
-  // raw ISO if Date.parse can't read it (shouldn't happen, but safe).
-  function formatLastUpload(iso: string | null): string | null {
-    if (!iso) return null;
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   }
   // When the user clicks Hide / Cancel, mark dismissed so the operation's
   // tail-end progress and completion messages don't briefly re-open the
@@ -2228,25 +2221,20 @@ export default function WholesalePlanningWorkbench() {
           <button style={S.btnSecondary} onClick={syncNewestSales} disabled={ingesting || autoWalking} title="Pulls only the LAST 10 Xoro pages (~1000 newest invoices). Use after the Excel bootstrap for daily/weekly updates.">
             {runningKind === "newest" ? "Working…" : "↻ Sync newest sales"}
           </button>
-          {/* Upload buttons. The "last upload" timestamp hangs below
-              each button via absolute positioning so the button itself
-              stays vertically aligned with the bare buttons in the
-              toolbar (the parent flex row uses alignItems: center,
-              which would otherwise push a column-wrapped button
-              downward whenever its caption was visible). Caption is
-              tinted to match the app's primary color — green for the
-              master/reference data, blue for sales/transactional. */}
+          {/* Upload buttons. The shared LastUploadStamp hangs the
+              "last upload: …" caption below each button via absolute
+              positioning, so the button itself stays vertically
+              aligned with the bare buttons in the toolbar (the parent
+              flex row uses alignItems: center). Caption is tinted to
+              match the app's primary color — green for the master /
+              reference data, blue for sales / transactional. */}
           <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
             <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }} title="Authoritative source of truth for SKU, Style, Color, Description, Avg Cost. New items are auto-stubbed by sales/PO/ATS sync; re-upload the master to refresh them.">
               {runningKind === "excel-master" ? "Working…" : "Upload item master (Excel)"}
               <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
                      onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("master", f); e.target.value = ""; } }} />
             </label>
-            {lastUploadMaster && (
-              <span style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 2, color: PAL.accent2, fontSize: 10, opacity: 0.7, textAlign: "center", whiteSpace: "nowrap", pointerEvents: "none" }}>
-                last upload: {formatLastUpload(lastUploadMaster)}
-              </span>
-            )}
+            <LastUploadStamp iso={lastUploadMaster} color={PAL.accent2} />
           </span>
           <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
             <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }}>
@@ -2254,11 +2242,7 @@ export default function WholesalePlanningWorkbench() {
               <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
                      onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("sales", f); e.target.value = ""; } }} />
             </label>
-            {lastUploadSales && (
-              <span style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 2, color: PAL.accent, fontSize: 10, opacity: 0.7, textAlign: "center", whiteSpace: "nowrap", pointerEvents: "none" }}>
-                last upload: {formatLastUpload(lastUploadSales)}
-              </span>
-            )}
+            <LastUploadStamp iso={lastUploadSales} color={PAL.accent} />
           </span>
           <button style={S.btnSecondary} onClick={() => void runMissingItemsSync()} disabled={ingesting || autoWalking} title="Pulls the Xoro item catalog and inserts only SKUs not already in the item master. Existing rows are never modified.">
             {runningKind === "missing-items" ? "Working…" : "+ Add new items (Xoro)"}
