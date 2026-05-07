@@ -874,17 +874,30 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
         || (r.group_name ?? "").toUpperCase().includes(q)
         || (r.sub_category_name ?? "").toUpperCase().includes(q)
       )) return false;
-      // Hide-zero-rows filter — drops rows where every actionable qty
-      // is 0 / null. Bypassed entirely when the toggle is on.
+      // Hide-zero-rows filter — drops rows where EVERY qty/value field
+      // across the whole row is 0 / null. Bypassed entirely when the
+      // toggle is on. Earlier this only checked 7 fields; the planner
+      // pointed out that rows with non-zero receipts / system_forecast
+      // / ly_reference / etc. were getting hidden, so the check now
+      // covers every numeric column the grid renders.
       if (!showZeroRows) {
         const hasAnyQty =
           (r.final_forecast_qty ?? 0) !== 0 ||
+          (r.system_forecast_qty ?? 0) !== 0 ||
           (r.planned_buy_qty ?? 0) !== 0 ||
           (r.on_hand_qty ?? 0) !== 0 ||
           (r.on_so_qty ?? 0) !== 0 ||
           (r.on_po_qty ?? 0) !== 0 ||
           (r.buyer_request_qty ?? 0) !== 0 ||
-          (r.override_qty ?? 0) !== 0;
+          (r.override_qty ?? 0) !== 0 ||
+          (r.receipts_due_qty ?? 0) !== 0 ||
+          (r.historical_receipts_qty ?? 0) !== 0 ||
+          (r.historical_trailing_qty ?? 0) !== 0 ||
+          (r.available_supply_qty ?? 0) !== 0 ||
+          (r.projected_shortage_qty ?? 0) !== 0 ||
+          (r.projected_excess_qty ?? 0) !== 0 ||
+          (r.ly_reference_qty ?? 0) !== 0 ||
+          (r.recommended_qty ?? 0) !== 0;
         if (!hasAnyQty) return false;
       }
       return true;
