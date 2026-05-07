@@ -29,7 +29,34 @@ function normDateISO(d?: string): string {
 }
 
 // Fixed column widths: expand | notes | PO# | Vendor | Buyer | BuyerPO | DDP | Days from DDP
-const FIXED_COLS = "32px 32px 130px 160px 140px 110px 90px 72px";
+// Per-column widths for the fixed (non-phase) columns in the PO WIP grid.
+// Keyed so the hide-columns UI can selectively zero out a width without
+// renumbering. The two leading 32px tracks (expand chevron + notes icon)
+// always render — they're functional UI, not data columns the planner
+// would hide.
+const HIDEABLE_COL_KEYS = ["poNum", "vendor", "buyer", "buyerPo", "ddp", "daysFromDdp"] as const;
+type HideableColKey = typeof HIDEABLE_COL_KEYS[number];
+const COL_WIDTHS: Record<HideableColKey, string> = {
+  poNum:       "130px",
+  vendor:      "160px",
+  buyer:       "140px",
+  buyerPo:     "110px",
+  ddp:         "90px",
+  daysFromDdp: "72px",
+};
+const COL_LABELS: Record<HideableColKey, string> = {
+  poNum:       "PO #",
+  vendor:      "Vendor",
+  buyer:       "Buyer",
+  buyerPo:     "Buyer PO",
+  ddp:         "DDP",
+  daysFromDdp: "Days from DDP",
+};
+function buildFixedColsTpl(hidden: Set<string>): string {
+  const parts = ["32px", "32px"]; // chevron + notes
+  for (const k of HIDEABLE_COL_KEYS) parts.push(hidden.has(k) ? "0px" : COL_WIDTHS[k]);
+  return parts.join(" ");
+}
 // Per-phase sub-columns sized to fit content + ~2-char breathing room:
 //   Due Date 88 | Status ("Not Started") 90 | Status Date 82 | Days ("365 late") 56 | Phase Notes 26
 const PHASE_SUB  = "88px 90px 82px 56px 26px";
@@ -71,10 +98,11 @@ const phaseDividerOverlayRight: React.CSSProperties = {
   zIndex: 3,
 };
 
-function buildColTpl(phaseCount: number) {
+function buildColTpl(phaseCount: number, hiddenCols: Set<string>) {
+  const fixed = buildFixedColsTpl(hiddenCols);
   return phaseCount > 0
-    ? `${FIXED_COLS} ${Array(phaseCount).fill(PHASE_SUB).join(" ")}`
-    : FIXED_COLS;
+    ? `${fixed} ${Array(phaseCount).fill(PHASE_SUB).join(" ")}`
+    : fixed;
 }
 
 // ── NotesModal ─────────────────────────────────────────────────────────────
@@ -372,6 +400,38 @@ export function GridView({
   // first; same hook ATS + the wholesale planning grid use.
   const tableWrapRef = useRef<HTMLDivElement | null>(null);
   useArrowKeyScroll(tableWrapRef);
+
+  // Hidden column state. Persisted under gv_hidden_cols so the
+  // planner's preference survives reloads. Closed-over by the
+  // gridTemplateColumns builder below so any change re-flows the
+  // grid without touching the per-row cell rendering.
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem("gv_hidden_cols");
+      if (!raw) return new Set();
+      return new Set(JSON.parse(raw) as string[]);
+    } catch { return new Set(); }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("gv_hidden_cols", JSON.stringify(Array.from(hiddenCols))); } catch { /* ignore */ }
+  }, [hiddenCols]);
+  const toggleCol = (k: string) => {
+    setHiddenCols((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      return next;
+    });
+  };
+  const [colDropOpen, setColDropOpen] = useState(false);
+  const colDropRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!colDropOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!colDropRef.current?.contains(e.target as Node)) setColDropOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [colDropOpen]);
 
   const [search, setSearch]                     = useState("");
   const [filterVendor, setFilterVendor]         = useState("All");
@@ -974,7 +1034,7 @@ export function GridView({
   // Left border on first column to close the outer frame.
   const firstCol: React.CSSProperties = { borderLeft: B_CELL };
 
-  const ct    = buildColTpl(phases.length);
+  const ct    = buildColTpl(phases.length, hiddenCols);
   const today = new Date(); today.setHours(0, 0, 0, 0);
 
   return (
@@ -998,6 +1058,44 @@ export function GridView({
           {buyerOptions.map(b => <option key={b} value={b}>{b}</option>)}
         </select>
         <button style={S.btnSecondary} onClick={() => { setSearch(""); setFilterVendor("All"); setFilterBuyer("All"); }}>Clear</button>
+
+        {/* Columns dropdown — toggle which fixed columns are shown.
+            Persisted to localStorage; matches the ATS / Planning
+            toolbar pattern. The chevron + notes columns aren't
+            listed because they're functional UI, not data. */}
+        <div ref={colDropRef} style={{ position: "relative" }}>
+          <button
+            onClick={() => setColDropOpen(o => !o)}
+            title="Show / hide grid columns"
+            style={{ ...S.btnSecondary, display: "flex", alignItems: "center", gap: 6 }}
+          >
+            Columns
+            {hiddenCols.size > 0 && (
+              <span style={{ background: "#0EA5E9", color: "#fff", borderRadius: 8, padding: "0 6px", fontSize: 10, fontWeight: 700 }}>
+                {hiddenCols.size}
+              </span>
+            )}
+            <span style={{ fontSize: 9, opacity: 0.6 }}>▾</span>
+          </button>
+          {colDropOpen && (
+            <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: 8, zIndex: 50, minWidth: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+              {HIDEABLE_COL_KEYS.map((k) => {
+                const visible = !hiddenCols.has(k);
+                return (
+                  <label key={k} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", cursor: "pointer", borderRadius: 6, color: visible ? "#E5E7EB" : "#6B7280", userSelect: "none" }}>
+                    <input type="checkbox" checked={visible} onChange={() => toggleCol(k)} style={{ accentColor: "#10B981", cursor: "pointer" }} />
+                    {COL_LABELS[k]}
+                  </label>
+                );
+              })}
+              {hiddenCols.size > 0 && (
+                <button onClick={() => setHiddenCols(new Set())} style={{ ...S.btnGhost, fontSize: 11, marginTop: 4, width: "100%", textAlign: "center" as const }}>
+                  Show all
+                </button>
+              )}
+            </div>
+          )}
+        </div>
 
         <button
           onClick={handleUndo}
