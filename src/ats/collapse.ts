@@ -54,6 +54,16 @@ function buildAggregate(level: Exclude<CollapseLevel, "none">, key: string, part
     onPO,
     onOrder,
     onHand,
+    // Aggregate rows can mix prepack + non-prepack children (a
+    // category collapse, for example, may roll up both styles).
+    // Don't claim a multiplier — the qtys we summed above are
+    // already in unit grain (compute.ts and applyPpkMultiplierToRow
+    // both produce unit-grain qtys). Setting ppkMult=1 means the
+    // EXPLODE PPK toggle treats the aggregate as already-exploded
+    // and renders the bare number with no pack hint, which is the
+    // right behavior — the hint only makes sense per-SKU since the
+    // multiplier varies across the aggregate's children.
+    ppkMult: 1,
     master_category: parts[0],
     master_sub_category: level === "subCategory" || level === "style" ? parts[1] : null,
     master_style: level === "style" ? parts[2] : null,

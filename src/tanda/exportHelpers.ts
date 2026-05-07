@@ -1,4 +1,15 @@
 import { type XoroPO, type Milestone, type LocalNote, itemQty, normalizeSize, sizeSort } from "../utils/tandaTypes";
+import { extractPpk } from "../shared/prepack";
+
+// Mirror of the EXPLODE PPK toggle in poMatrixTab — same localStorage
+// key. When ON (default), the matrix export's Total column shows
+// unit-grain (qty × PPKn for prepack rows). When OFF, it shows pack
+// counts (legacy behavior). Per-size cells stay in pack grain
+// regardless, matching what the UI displays per size column.
+function readExplodePpk(): boolean {
+  try { return localStorage.getItem("tanda_matrix_explode_ppk") !== "false"; }
+  catch { return true; }
+}
 
 export function printPODetail() {
   const content = document.getElementById("po-detail-content");
@@ -147,11 +158,22 @@ function _exportPOExcelInner(XLSX: any, po: XoroPO, items: any[], mode: string, 
       if (!row) { row = { color: p.color, desc: p.desc, sizes: {}, price: p.price }; byBase[p.base].push(row); }
       row.sizes[p.size] = (row.sizes[p.size] || 0) + p.qty;
     });
+    // Match the matrix tab's EXPLODE PPK toggle so the export shows
+    // the same Total column the planner is looking at on screen.
+    // When ON, multiply each size's qty by its PPKn factor (1 for
+    // non-PPK sizes) before summing into the row Total + Grand Total.
+    // PO Cost stays driven by the pack-grain total because UnitPrice
+    // is per-pack — matches the on-screen behavior.
+    const explode = readExplodePpk();
+    const rowTotal = (sizes: Record<string, number>): number => Object.entries(sizes)
+      .reduce((s, [sz, q]) => s + (q as number) * (explode ? (extractPpk(sz) ?? 1) : 1), 0);
     bases.forEach(base => { byBase[base].forEach(row => {
-      const rt = Object.values(row.sizes).reduce((s, q) => s + q, 0);
-      mxRows.push([base, row.desc, row.color, ...sizeOrder.map(sz => row.sizes[sz] || 0), rt, row.price, rt * row.price]);
+      const rtPacks = Object.values(row.sizes).reduce((s, q) => s + q, 0);
+      const rt = rowTotal(row.sizes);
+      mxRows.push([base, row.desc, row.color, ...sizeOrder.map(sz => row.sizes[sz] || 0), rt, row.price, rtPacks * row.price]);
     }); });
-    mxRows.push(["", "", "GRAND TOTAL", ...sizeOrder.map(sz => parsed.filter((p: any) => p.size === sz).reduce((s: number, p: any) => s + p.qty, 0)), items.reduce((s: number, i: any) => s + itemQty(i), 0), "", totalVal]);
+    const grandTotal = parsed.reduce((s: number, p: any) => s + p.qty * (explode ? (extractPpk(p.size) ?? 1) : 1), 0);
+    mxRows.push(["", "", "GRAND TOTAL", ...sizeOrder.map(sz => parsed.filter((p: any) => p.size === sz).reduce((s: number, p: any) => s + p.qty, 0)), grandTotal, "", totalVal]);
     const nSz = sizeOrder.length;
     const mxDollar = [3 + nSz + 1, 3 + nSz + 2];
     const mxQty = [...sizeOrder.map((_: any, i: number) => 3 + i), 3 + nSz];
