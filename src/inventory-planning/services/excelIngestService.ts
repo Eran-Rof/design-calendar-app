@@ -93,6 +93,33 @@ function stripSizeSuffix(s: string): string {
   return canonStyleColor(s);
 }
 
+// Derive the bare style code for a prepack row. Xoro CurrentProducts
+// exports often bake the pack-size suffix into ItemNumber
+// ("RYG1842PPK-BLACK-PPK60") even when BasePartNumber is the clean
+// style on its own. Composing the rolled-up sku from raw ItemNumber
+// then produced ugly keys like "RYG1842PPK-BLACK-PPK60" plus a
+// variant-pass row with the color appended a second time
+// ("RYG1842PPK-BLACK-PPK60-BLACK"), and ATS lookups missed them
+// because Xoro emits the bare (style, color) form for the actual
+// inventory row.
+//
+// Resolution order:
+//   1. explicit BasePartNumber/Style column — already the bare style.
+//   2. ItemNumber with the trailing "-PPKn" (and optional final
+//      "-COLOR" tail) stripped, then keep the first dash-segment as
+//      the style.
+//   3. ItemNumber as-is — last resort.
+//
+// canon-output (uppercase, no whitespace) so it composes cleanly with
+// canon(color) downstream.
+function barePrepackStyle(explicitStyle: string, explicitSkuRaw: string): string {
+  if (explicitStyle) return canon(explicitStyle);
+  if (!explicitSkuRaw) return "";
+  const stripped = explicitSkuRaw.replace(/-PPK[\s_-]*\d+(-[^-]*)?$/i, "");
+  const firstDash = stripped.indexOf("-");
+  return canon(firstDash > 0 ? stripped.slice(0, firstDash) : stripped);
+}
+
 function toIsoDate(v: unknown): string | null {
   if (v == null || v === "") return null;
   if (v instanceof Date) {
@@ -667,14 +694,24 @@ export async function ingestItemMasterExcel(
       /PPK/i.test(explicitSize ?? "") ||
       /PPK/i.test(descRaw) ||
       /PPK/i.test(explicitSkuRaw ?? "");
+    // Bare style code for prepacks. Computed once and reused for both
+    // the rolled-up `sku` composition and the `style_code` field of
+    // the rolled-up + variant rows below. Empty when not a prepack.
+    const prepackStyle = isPrepack ? barePrepackStyle(explicitStyle, explicitSkuRaw) : "";
     let sku: string;
-    if (isPrepack && explicitSkuRaw) {
-      // Use the full ItemNumber so pre-pack is its own product.
-      // Pre-packs with the SAME ItemNumber but different colors
-      // (e.g. RYO0822PPK in Black/Salsa AND in Black/Egret across
-      // different rows) are still distinguished here by appending
-      // the color to the dedup key.
-      sku = explicitColor ? canon(`${explicitSkuRaw}-${explicitColor}`) : explicitSkuRaw;
+    if (isPrepack) {
+      // Compose the rolled-up prepack sku from bare style + color.
+      // The size lives in its own column ("PPKn" → size); baking it
+      // into sku_code produces keys like "RYG1842PPK-BLACK-PPK60"
+      // that Xoro never emits for the actual ATS row. Pre-packs with
+      // the same bare style but different colors (e.g. RYO0822PPK in
+      // Black/Salsa AND in Black/Egret) stay distinguished here by
+      // appending the color to the dedup key.
+      if (!prepackStyle) {
+        result.skipped_no_sku++;
+        continue;
+      }
+      sku = explicitColor ? canon(`${prepackStyle}-${explicitColor}`) : prepackStyle;
     } else if (explicitStyle) {
       // When the Excel has both Style and Color populated, dedup by
       // (style, color) so EACH variant becomes its own master row.
@@ -739,7 +776,7 @@ export async function ingestItemMasterExcel(
         variantRowsByKey.set(variantSku, [r]);
         const variantRow: Record<string, unknown> = {
           sku_code: variantSku,
-          style_code: isPrepack ? (explicitSkuRaw ?? sku) : (explicitStyle ? canon(explicitStyle) : sku),
+          style_code: isPrepack ? prepackStyle : (explicitStyle ? canon(explicitStyle) : sku),
           color: explicitColor || null,
           size: explicitSize,
           uom: "each",
@@ -778,7 +815,7 @@ export async function ingestItemMasterExcel(
     // sku now carries the (style, color) pair when Color is set, so
     // we can't use sku directly here — would mis-stamp the style.
     const style = isPrepack
-      ? (explicitSkuRaw ?? sku)
+      ? prepackStyle
       : (explicitStyle ? canon(explicitStyle) : sku);
     const color = explicitColor;
     // Identifying-dimension validation. Skip pre-packs (sku == style by
