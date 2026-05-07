@@ -553,6 +553,12 @@ export async function syncOpenPosFromTandaPos(admin) {
     const key = `tanda:${c.poNumber}:${c.sku}`;
     const prev = aggMap.get(key);
     if (!prev) {
+      // Channel from po_number prefix. PO numbers starting with
+      // "ecom" (case-insensitive) are tagged as ecom so the
+      // wholesale planning grid can filter them out (and the ecom
+      // planning grid filters TO them). Everything else defaults
+      // to wholesale.
+      const channel = /^ecom/i.test(c.poNumber ?? "") ? "ecom" : "wholesale";
       aggMap.set(key, {
         sku_id: skuId,
         po_number: c.poNumber,
@@ -567,6 +573,7 @@ export async function syncOpenPosFromTandaPos(admin) {
         status: c.status,
         customer_id: c.customer_id,
         buyer_name: c.buyer_name,
+        channel,
         source: "xoro",
         source_line_key: key,
       });

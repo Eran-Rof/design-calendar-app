@@ -172,7 +172,7 @@ export async function buildEcomGridRows(run: IpPlanningRun): Promise<IpEcomGridR
     ecomRepo.listForecast(run.id),
     ecomRepo.listProductChannelStatus(),
     wholesaleRepo.listInventorySnapshots(),
-    wholesaleRepo.listOpenPos(),
+    wholesaleRepo.listOpenPos("ecom"),
     wholesaleRepo.listReceipts(receiptsFrom),
   ]);
 

@@ -230,6 +230,11 @@ export interface IpOpenPoRow {
   unit_cost: number | null;
   currency: IpCurrencyCode | null;
   status: string | null;
+  // Sales channel the PO is allocated to. "wholesale" (default) for
+  // POs that fulfill wholesale orders / stock; "ecom" for POs whose
+  // number starts with "ecom" — used by the planning sync to route
+  // each row to the right grid (wholesale vs ecom planning).
+  channel?: "wholesale" | "ecom";
   source: IpSource;
   raw_payload_id?: string | null;
   source_line_key: string;

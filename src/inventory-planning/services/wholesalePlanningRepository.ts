@@ -338,15 +338,21 @@ export const wholesaleRepo = {
       "ip_inventory_snapshot?select=sku_id,snapshot_date,qty_on_hand,qty_available,qty_committed,source&order=snapshot_date.desc",
     );
   },
-  async listOpenPos(): Promise<IpOpenPoRow[]> {
+  async listOpenPos(channel: "wholesale" | "ecom" | "all" = "wholesale"): Promise<IpOpenPoRow[]> {
     // Trimmed: drops vendor_id / buyer_name / po_line_number /
     // order_date / qty_ordered / qty_received / currency / status /
     // source / raw_payload_id / source_line_key / last_seen_at. Big
     // win on this hot path — every grid build re-reads every open
     // PO. Kept: po_number (scenario detail display).
+    //
+    // Channel filter: defaults to "wholesale" so the wholesale
+    // planning grid never sees ecom POs (which were polluting
+    // receipts and understating buy recs). Pass "ecom" from the
+    // ecom planning service; "all" is for diagnostics only.
+    const channelFilter = channel === "all" ? "" : `&channel=eq.${channel}`;
     return withRetryOn57014("listOpenPos",
       () => sbGetAll<IpOpenPoRow>(
-        "ip_open_purchase_orders?select=sku_id,qty_open,expected_date,unit_cost,customer_id,po_number&order=expected_date.asc",
+        `ip_open_purchase_orders?select=sku_id,qty_open,expected_date,unit_cost,customer_id,po_number,channel${channelFilter}&order=expected_date.asc`,
       ));
   },
   async listOpenSos(): Promise<IpOpenSoRow[]> {
