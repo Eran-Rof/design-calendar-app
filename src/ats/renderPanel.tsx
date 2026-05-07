@@ -182,16 +182,44 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         </div>
       ) : (
       <div style={S.content}>
-        {/* STAT CARDS — toggleable via the Toolbar's green triangle. */}
-        {showStatsCards && (
-          <StatsRow
-            lowStock={lowStock} zeroStock={zeroStock} negATSCount={negATSCount} totalSKUs={totalSKUs}
-            totalSoQty={totalSoQty} totalSoValue={totalSoValue}
-            totalPoQty={totalPoQty} totalPoValue={totalPoValue}
-            marginDollars={marginDollars} marginPct={marginPct}
-            activeSort={activeSort} setActiveSort={setActiveSort}
-          />
-        )}
+        {/* STAT CARDS — toggleable. The green ▼/▶ triangle is anchored
+            to the top-right corner of this section so it sits visually
+            next to the rightmost (Margin) stat card when cards are
+            shown, and remains in the same spot when collapsed. */}
+        <div style={{ position: "relative", marginBottom: showStatsCards ? 0 : 8, minHeight: showStatsCards ? undefined : 24 }}>
+          {showStatsCards && (
+            <StatsRow
+              lowStock={lowStock} zeroStock={zeroStock} negATSCount={negATSCount} totalSKUs={totalSKUs}
+              totalSoQty={totalSoQty} totalSoValue={totalSoValue}
+              totalPoQty={totalPoQty} totalPoValue={totalPoValue}
+              marginDollars={marginDollars} marginPct={marginPct}
+              activeSort={activeSort} setActiveSort={setActiveSort}
+            />
+          )}
+          <button
+            onClick={() => setShowStatsCards!(!showStatsCards)}
+            title={showStatsCards ? "Hide the stat cards on top" : "Show the stat cards on top"}
+            style={{
+              position: "absolute",
+              top: showStatsCards ? "50%" : 0,
+              right: -2,
+              transform: showStatsCards ? "translateY(-50%)" : "none",
+              background: "transparent",
+              border: `1px solid ${showStatsCards ? "#10B981" : "#334155"}`,
+              color: "#10B981",
+              cursor: "pointer",
+              padding: "4px 10px",
+              borderRadius: 8,
+              fontSize: 13,
+              lineHeight: 1,
+              display: "inline-flex",
+              alignItems: "center",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {showStatsCards ? "▼" : "▶"}
+          </button>
+        </div>
 
         {/* TOOLBAR */}
         <Toolbar
@@ -213,7 +241,6 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           collapseLevel={collapseLevel} setCollapseLevel={setCollapseLevel!}
           atShip={atShip} setAtShip={setAtShip}
           showTotalsRow={showTotalsRow} setShowTotalsRow={setShowTotalsRow!}
-          showStatsCards={showStatsCards ?? true} setShowStatsCards={setShowStatsCards!}
           generalMarginPct={generalMarginPct ?? 21} setGeneralMarginPct={setGeneralMarginPct!}
           filteredCount={filtered.length} lastSync={lastSync}
         />

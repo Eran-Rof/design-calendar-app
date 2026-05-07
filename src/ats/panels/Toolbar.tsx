@@ -127,10 +127,6 @@ interface ToolbarProps {
   // Sale / Mrgn% summed across the filtered set)
   showTotalsRow: boolean;
   setShowTotalsRow: (v: boolean) => void;
-  // Stat-card visibility — toggled by the green triangle next to TOTALS.
-  // Lets the operator hide the top cards row to gain vertical room.
-  showStatsCards: boolean;
-  setShowStatsCards: (v: boolean) => void;
   // Target gross margin % used as fallback when a SKU is missing SO
   // sale prices or cost basis. 0-100, drives the totals row only.
   generalMarginPct: number;
@@ -152,7 +148,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   collapseLevel, setCollapseLevel,
   atShip, setAtShip,
   showTotalsRow, setShowTotalsRow,
-  showStatsCards, setShowStatsCards,
   generalMarginPct, setGeneralMarginPct,
   filteredCount, lastSync,
 }) => {
@@ -406,32 +401,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       {filteredCount.toLocaleString()} SKUs
       {lastSync && <span style={{ display: "block" }}>Synced {fmtDateDisplay(lastSync.split("T")[0])} {new Date(lastSync).toLocaleTimeString()}</span>}
     </div>
-
-    {/* Stats-cards visibility toggle — green triangle. Anchored hard-
-        right via marginLeft:auto so it always sits at the top-right
-        corner of the toolbar regardless of how many filters are open
-        or whether MARGIN is visible. ▼ when cards are showing (= click
-        to collapse), ▶ when hidden (= click to expand). */}
-    <button
-      onClick={() => setShowStatsCards(!showStatsCards)}
-      title={showStatsCards ? "Hide the stat cards on top" : "Show the stat cards on top"}
-      style={{
-        marginLeft: "auto",
-        background: "transparent",
-        border: `1px solid ${showStatsCards ? "#10B981" : "#334155"}`,
-        color: "#10B981",
-        cursor: "pointer",
-        padding: "4px 10px",
-        borderRadius: 8,
-        fontSize: 13,
-        lineHeight: 1,
-        display: "inline-flex",
-        alignItems: "center",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {showStatsCards ? "▼" : "▶"}
-    </button>
   </div>
   );
 };

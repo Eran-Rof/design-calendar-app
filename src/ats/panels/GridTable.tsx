@@ -42,9 +42,11 @@ function useArrowKeyScroll(tableRef: React.RefObject<HTMLDivElement>) {
 }
 
 // Height of the totals row at the top of the table. Used to push the
-// regular sticky header down so the two stack without overlap. Tall
-// enough to fit five stacked lines (Qty / Cost / Sale / Mrgn $ / Mrgn).
-const TOTALS_ROW_HEIGHT = 96;
+// regular sticky header down so the two stack without overlap. Tight
+// to the five stacked content lines (Qty / Cost / Sale / Mrgn $ / Mrgn)
+// — empty space above/below the content is reduced to ~25% of its
+// previous value per operator request.
+const TOTALS_ROW_HEIGHT = 76;
 
 // Format dollars for the totals header. Whole-dollar precision keeps
 // the rows scannable when totals run into millions.
@@ -261,7 +263,10 @@ export const GridTable: React.FC<GridTableProps> = ({
     ...S.th,
     top: 0,
     height: TOTALS_ROW_HEIGHT,
-    padding: "6px 10px",
+    // 2px top/bottom (down from 6) — 25% of the previous empty space
+    // above and below the content per operator preference. Keeps the
+    // 10px horizontal padding so columns don't crowd their borders.
+    padding: "2px 10px",
     background: "#1E293B",
     borderBottom: "1px solid #334155",
     fontSize: 12,
