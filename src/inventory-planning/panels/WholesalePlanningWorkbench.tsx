@@ -2227,26 +2227,34 @@ export default function WholesalePlanningWorkbench() {
           <button style={S.btnSecondary} onClick={syncNewestSales} disabled={ingesting || autoWalking} title="Pulls only the LAST 10 Xoro pages (~1000 newest invoices). Use after the Excel bootstrap for daily/weekly updates.">
             {runningKind === "newest" ? "Working…" : "↻ Sync newest sales"}
           </button>
-          <span style={{ display: "inline-flex", flexDirection: "column", gap: 2 }}>
+          {/* Upload buttons. The "last upload" timestamp hangs below
+              each button via absolute positioning so the button itself
+              stays vertically aligned with the bare buttons in the
+              toolbar (the parent flex row uses alignItems: center,
+              which would otherwise push a column-wrapped button
+              downward whenever its caption was visible). Caption is
+              tinted to match the app's primary color — green for the
+              master/reference data, blue for sales/transactional. */}
+          <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
             <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }} title="Authoritative source of truth for SKU, Style, Color, Description, Avg Cost. New items are auto-stubbed by sales/PO/ATS sync; re-upload the master to refresh them.">
               {runningKind === "excel-master" ? "Working…" : "Upload item master (Excel)"}
               <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
                      onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("master", f); e.target.value = ""; } }} />
             </label>
             {lastUploadMaster && (
-              <span style={{ color: PAL.textMuted, fontSize: 10, opacity: 0.6, textAlign: "center" }}>
+              <span style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 2, color: PAL.accent2, fontSize: 10, opacity: 0.7, textAlign: "center", whiteSpace: "nowrap", pointerEvents: "none" }}>
                 last upload: {formatLastUpload(lastUploadMaster)}
               </span>
             )}
           </span>
-          <span style={{ display: "inline-flex", flexDirection: "column", gap: 2 }}>
+          <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
             <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }}>
               {runningKind === "excel-sales" ? "Working…" : "Upload sales (Excel)"}
               <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
                      onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("sales", f); e.target.value = ""; } }} />
             </label>
             {lastUploadSales && (
-              <span style={{ color: PAL.textMuted, fontSize: 10, opacity: 0.6, textAlign: "center" }}>
+              <span style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 2, color: PAL.accent, fontSize: 10, opacity: 0.7, textAlign: "center", whiteSpace: "nowrap", pointerEvents: "none" }}>
                 last upload: {formatLastUpload(lastUploadSales)}
               </span>
             )}
