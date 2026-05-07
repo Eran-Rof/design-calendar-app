@@ -42,23 +42,26 @@ function useArrowKeyScroll(tableRef: React.RefObject<HTMLDivElement>) {
 }
 
 // Height of the totals row at the top of the table. Used to push the
-// regular sticky header down so the two stack without overlap. Tight
-// to the five stacked content lines (Qty / Cost / Sale / Mrgn $ / Mrgn)
-// — empty space above/below the content is reduced to ~25% of its
-// previous value per operator request.
-const TOTALS_ROW_HEIGHT = 76;
+// regular sticky header down so the two stack without overlap. Holds
+// five stacked content lines (Qty / Cost / Sale / Mrgn $ / Mrgn) plus
+// breathing room above and below — empty space is ~50% of the original
+// (doubled from the 25%-tight version per operator follow-up).
+const TOTALS_ROW_HEIGHT = 86;
 
 // Sticky-left column definitions. Order matters — drives both the
 // header rendering and the data-row cell order. Width is in px.
+// On Hand / On Order / On PO at 120px so the biggest number we'll
+// see (~10-char "+1,377,376") has two character-widths of clearance
+// on each side.
 const STICKY_COLS = [
   { key: "category",    width: 110 },
   { key: "subCategory", width: 110 },
   { key: "style",       width: 100 },
   { key: "description", width: 180 },
   { key: "color",       width: 130 },
-  { key: "onHand",      width:  80 },
-  { key: "onOrder",     width:  80 },
-  { key: "onPO",        width:  80 },
+  { key: "onHand",      width: 120 },
+  { key: "onOrder",     width: 120 },
+  { key: "onPO",        width: 120 },
 ] as const;
 type StickyKey = typeof STICKY_COLS[number]["key"];
 
@@ -299,10 +302,9 @@ export const GridTable: React.FC<GridTableProps> = ({
     ...S.th,
     top: 0,
     height: TOTALS_ROW_HEIGHT,
-    // 2px top/bottom (down from 6) — 25% of the previous empty space
-    // above and below the content per operator preference. Keeps the
-    // 10px horizontal padding so columns don't crowd their borders.
-    padding: "2px 10px",
+    // 4px top/bottom — doubled from the previous 2px tight version.
+    // Keeps 10px horizontal padding so columns don't crowd borders.
+    padding: "4px 10px",
     background: "#1E293B",
     borderBottom: "1px solid #334155",
     fontSize: 12,
@@ -382,19 +384,19 @@ export const GridTable: React.FC<GridTableProps> = ({
             })}
             {/* On Hand sum */}
             {!isHidden("onHand") && (
-              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeft("onHand", hidden) ?? 0, minWidth: 80, zIndex: 4 }}>
+              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeft("onHand", hidden) ?? 0, minWidth: 120, zIndex: 4 }}>
                 <TotalsCell qty={sums.onHand.qty} cost={sums.onHand.cost} sale={sums.onHand.sale} skipped={sums.onHand.skipped} qtyColor="#F1F5F9" />
               </th>
             )}
             {/* On Order sum */}
             {!isHidden("onOrder") && (
-              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeft("onOrder", hidden) ?? 0, minWidth: 80, zIndex: 4 }}>
+              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeft("onOrder", hidden) ?? 0, minWidth: 120, zIndex: 4 }}>
                 <TotalsCell qty={sums.onOrder.qty} cost={sums.onOrder.cost} sale={sums.onOrder.sale} skipped={sums.onOrder.skipped} qtyColor="#F59E0B" />
               </th>
             )}
             {/* On PO sum */}
             {!isHidden("onPO") && (
-              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeft("onPO", hidden) ?? 0, minWidth: 80, zIndex: 4 }}>
+              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeft("onPO", hidden) ?? 0, minWidth: 120, zIndex: 4 }}>
                 <TotalsCell qty={sums.onPO.qty} cost={sums.onPO.cost} sale={sums.onPO.sale} skipped={sums.onPO.skipped} qtyColor="#10B981" qtyPrefix="+" />
               </th>
             )}
