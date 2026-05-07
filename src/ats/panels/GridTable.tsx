@@ -48,35 +48,45 @@ function useArrowKeyScroll(tableRef: React.RefObject<HTMLDivElement>) {
 // (doubled from the 25%-tight version per operator follow-up).
 const TOTALS_ROW_HEIGHT = 86;
 
-// Sticky-left column definitions. Order matters — drives both the
-// header rendering and the data-row cell order. Width is in px.
-// On Hand / On Order / On PO sized for the per-row max (XXX,XXX,
-// 6 digits + comma + optional sign = 8 chars) with two char-widths
-// of clearance on each side. The TOTALS row can carry a larger sum
-// (e.g. +1,377,376) but that's a single row and fits in the 100px
-// column without overflow.
-const STICKY_COLS = [
-  { key: "category",    width: 110 },
-  { key: "subCategory", width: 110 },
-  { key: "style",       width: 100 },
-  { key: "description", width: 180 },
-  { key: "color",       width: 130 },
-  { key: "onHand",      width: 100 },
-  { key: "onOrder",     width: 100 },
-  { key: "onPO",        width: 100 },
+// Sticky-left column metadata. Order matters — drives both the
+// header rendering and the data-row cell order. Widths themselves are
+// computed per render from visible content (see useMemo below); the
+// per-column charType + minPx fields are static inputs to that calc.
+// charType drives the px-per-character estimate (mono cells are
+// slightly wider) and minPx is a floor so a thin/empty filter doesn't
+// collapse a column into nothing.
+const STICKY_COL_META = [
+  { key: "category",    label: "Category",    charType: "text", minPx:  90 },
+  { key: "subCategory", label: "Sub Cat",     charType: "text", minPx:  80 },
+  { key: "style",       label: "Style",       charType: "mono", minPx:  80 },
+  { key: "description", label: "Description", charType: "text", minPx: 110 },
+  { key: "color",       label: "Color",       charType: "text", minPx:  80 },
+  { key: "onHand",      label: "On Hand",     charType: "mono", minPx:  80 },
+  { key: "onOrder",     label: "On Order",    charType: "mono", minPx:  80 },
+  { key: "onPO",        label: "On PO",       charType: "mono", minPx:  80 },
 ] as const;
-type StickyKey = typeof STICKY_COLS[number]["key"];
+type StickyKey = typeof STICKY_COL_META[number]["key"];
 
-// Compute left offset for a given column given the current hidden set.
-// Returns null when the column itself is hidden so the caller can drop
-// the cell entirely. Sibling columns reflow because hidden widths drop
-// out of the running sum.
-function colLeft(key: StickyKey, hidden: Set<string>): number | null {
+// Per-character width estimates (px). Tuned against the rendered
+// font; "mono" is slightly wider because of the bold style + monospace
+// digits. PAD_CHARS = 2 char-widths on each side per operator spec.
+const TEXT_CHAR_PX = 7;
+const MONO_CHAR_PX = 8.5;
+const PAD_CHARS = 4;
+
+// Compute left offset for a given column given the visible widths
+// map and the current hidden set. Hidden columns drop their width
+// out of the running sum so visible siblings reflow flush.
+function colLeftFrom(
+  key: StickyKey,
+  widths: Record<StickyKey, number>,
+  hidden: Set<string>,
+): number | null {
   if (hidden.has(key)) return null;
   let left = 0;
-  for (const c of STICKY_COLS) {
+  for (const c of STICKY_COL_META) {
     if (c.key === key) return left;
-    if (!hidden.has(c.key)) left += c.width;
+    if (!hidden.has(c.key)) left += widths[c.key];
   }
   return null;
 }
@@ -289,6 +299,52 @@ export const GridTable: React.FC<GridTableProps> = ({
     };
   }, [filtered, displayPeriods, atShip, eventIndex, generalMarginPct]);
 
+  // Per-column widths computed from the filtered rows + (when visible)
+  // the totals row. Each column's width = max content char count + 2
+  // chars padding each side, multiplied by per-char px. Floored at the
+  // column's minPx so a thin filter doesn't collapse the column. Re-
+  // runs only when the inputs change.
+  const stickyWidths = useMemo(() => {
+    const w: Record<StickyKey, number> = {} as Record<StickyKey, number>;
+    for (const meta of STICKY_COL_META) {
+      let maxLen = meta.label.length;
+      // Per-row content
+      for (const r of filtered) {
+        let s = "";
+        switch (meta.key) {
+          case "category":    s = String(r.master_category ?? "—"); break;
+          case "subCategory": s = String(r.master_sub_category ?? "—"); break;
+          case "style":       s = String(r.master_style ?? "—"); break;
+          case "description": s = String(r.description ?? ""); break;
+          case "color":       s = displayColor(r) || "—"; break;
+          case "onHand":      s = (r.onHand ?? 0).toLocaleString(); break;
+          case "onOrder":     s = r.onOrder > 0 ? r.onOrder.toLocaleString() : "—"; break;
+          case "onPO":        s = r.onPO > 0 ? `+${r.onPO.toLocaleString()}` : "—"; break;
+        }
+        if (s.length > maxLen) maxLen = s.length;
+      }
+      // Totals row content (numeric cols only — text cols are blank
+      // in the totals row, so they contribute nothing). Five stacked
+      // lines per cell; the longest of those drives the col width.
+      if (showTotalsRow && (meta.key === "onHand" || meta.key === "onOrder" || meta.key === "onPO")) {
+        const slot = meta.key === "onHand" ? sums.onHand : meta.key === "onOrder" ? sums.onOrder : sums.onPO;
+        const lines = [
+          slot.qty.toLocaleString(),
+          fmtUSD(slot.cost),
+          fmtUSD(slot.sale),
+          fmtUSD(slot.sale - slot.cost),
+          slot.sale > 0 ? `${(((slot.sale - slot.cost) / slot.sale) * 100).toFixed(1)}%` : "—",
+        ];
+        for (const l of lines) {
+          if (l.length > maxLen) maxLen = l.length;
+        }
+      }
+      const charPx = meta.charType === "mono" ? MONO_CHAR_PX : TEXT_CHAR_PX;
+      w[meta.key] = Math.max(meta.minPx, Math.ceil((maxLen + PAD_CHARS) * charPx));
+    }
+    return w;
+  }, [filtered, showTotalsRow, sums]);
+
   if (loading) return <div style={S.loadingState}>Loading ATS data…</div>;
   if (filtered.length === 0) return (
     <div style={S.emptyState}>
@@ -380,25 +436,24 @@ export const GridTable: React.FC<GridTableProps> = ({
             {/* Empty placeholders for the four ID columns + Color */}
             {(["category","subCategory","style","description","color"] as const).map(k => {
               if (isHidden(k)) return null;
-              const left = colLeft(k, hidden) ?? 0;
-              const width = STICKY_COLS.find(c => c.key === k)!.width;
-              return <th key={k} style={{ ...totalsThBase, ...S.stickyCol, left, minWidth: width, zIndex: 4 }} />;
+              const left = colLeftFrom(k, stickyWidths, hidden) ?? 0;
+              return <th key={k} style={{ ...totalsThBase, ...S.stickyCol, left, minWidth: stickyWidths[k], zIndex: 4 }} />;
             })}
             {/* On Hand sum */}
             {!isHidden("onHand") && (
-              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeft("onHand", hidden) ?? 0, minWidth: 100, zIndex: 4 }}>
+              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeftFrom("onHand", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onHand, zIndex: 4 }}>
                 <TotalsCell qty={sums.onHand.qty} cost={sums.onHand.cost} sale={sums.onHand.sale} skipped={sums.onHand.skipped} qtyColor="#F1F5F9" />
               </th>
             )}
             {/* On Order sum */}
             {!isHidden("onOrder") && (
-              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeft("onOrder", hidden) ?? 0, minWidth: 100, zIndex: 4 }}>
+              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeftFrom("onOrder", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onOrder, zIndex: 4 }}>
                 <TotalsCell qty={sums.onOrder.qty} cost={sums.onOrder.cost} sale={sums.onOrder.sale} skipped={sums.onOrder.skipped} qtyColor="#F59E0B" />
               </th>
             )}
             {/* On PO sum */}
             {!isHidden("onPO") && (
-              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeft("onPO", hidden) ?? 0, minWidth: 100, zIndex: 4 }}>
+              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeftFrom("onPO", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onPO, zIndex: 4 }}>
                 <TotalsCell qty={sums.onPO.qty} cost={sums.onPO.cost} sale={sums.onPO.sale} skipped={sums.onPO.skipped} qtyColor="#10B981" qtyPrefix="+" />
               </th>
             )}
@@ -431,10 +486,9 @@ export const GridTable: React.FC<GridTableProps> = ({
                 via the Toolbar's "Columns" dropdown) are dropped here
                 and their widths fall out of the cumulative `left`
                 offset, so visible siblings shift left to fill the gap. */}
-            {STICKY_COLS.map((c, ci) => {
+            {STICKY_COL_META.map((c, ci) => {
               if (isHidden(c.key)) return null;
-              const labels: Record<string, string> = { category: "Category", subCategory: "Sub Cat", style: "Style", description: "Description", color: "Color", onHand: "On Hand", onOrder: "On Order", onPO: "On PO" };
-              const left = colLeft(c.key, hidden) ?? 0;
+              const left = colLeftFrom(c.key, stickyWidths, hidden) ?? 0;
               const isActive = sortCol === c.key;
               return (
                 <th
@@ -442,7 +496,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                   style={{
                     ...S.th, ...S.stickyCol,
                     top: showTotalsRow ? TOTALS_ROW_HEIGHT : 0,
-                    left, minWidth: c.width, zIndex: 3,
+                    left, minWidth: stickyWidths[c.key], zIndex: 3,
                     textAlign: ci >= 5 ? "center" : "left",
                     cursor: "pointer",
                     color: isActive ? "#F1F5F9" : "#6B7280",
@@ -450,7 +504,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                   }}
                   onClick={() => handleThClick(c.key)}
                 >
-                  {labels[c.key]}{isActive ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+                  {c.label}{isActive ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
                 </th>
               );
             })}
@@ -545,7 +599,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                 {/* Category */}
                 {!isHidden("category") && (
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: colLeft("category", hidden) ?? 0, background: stickyBg, color: "#9CA3AF", fontSize: 12 }}
+                  style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("category", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.category, background: stickyBg, color: "#9CA3AF", fontSize: 12 }}
                   onClick={() => { if (!isAggregate) setPinnedSku(isPinned ? null : row.sku); }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -566,7 +620,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                 )}
                 {/* Sub Cat */}
                 {!isHidden("subCategory") && (
-                <td style={{ ...S.td, ...S.stickyCol, left: colLeft("subCategory", hidden) ?? 0, background: stickyBg, color: "#9CA3AF", fontSize: 12 }}>
+                <td style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("subCategory", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.subCategory, background: stickyBg, color: "#9CA3AF", fontSize: 12 }}>
                   {aggLevel === "category" ? "" : (
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       {aggLevel === "subCategory" && (
@@ -587,7 +641,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                    store badge stays here */}
                 {!isHidden("style") && (
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: colLeft("style", hidden) ?? 0, background: stickyBg }}
+                  style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("style", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.style, background: stickyBg }}
                   title={isAggregate ? undefined : row.sku}
                 >
                   {(aggLevel === "category" || aggLevel === "subCategory") ? "" : (
@@ -615,20 +669,20 @@ export const GridTable: React.FC<GridTableProps> = ({
                 )}
                 {/* Description */}
                 {!isHidden("description") && (
-                <td style={{ ...S.td, ...S.stickyCol, left: colLeft("description", hidden) ?? 0, background: stickyBg, color: isAggregate ? "#94A3B8" : "#D1D5DB", fontSize: 13, fontStyle: isAggregate ? "italic" : "normal" }}>
+                <td style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("description", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.description, background: stickyBg, color: isAggregate ? "#94A3B8" : "#D1D5DB", fontSize: 13, fontStyle: isAggregate ? "italic" : "normal" }}>
                   {row.description}
                 </td>
                 )}
                 {/* Color */}
                 {!isHidden("color") && (
-                <td style={{ ...S.td, ...S.stickyCol, left: colLeft("color", hidden) ?? 0, background: stickyBg, color: "#D1D5DB", fontSize: 12 }}>
+                <td style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("color", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.color, background: stickyBg, color: "#D1D5DB", fontSize: 12 }}>
                   {isAggregate ? "" : (displayColor(row) || "—")}
                 </td>
                 )}
                 {/* On Hand */}
                 {!isHidden("onHand") && (
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: colLeft("onHand", hidden) ?? 0, background: stickyBg, textAlign: "center", cursor: "context-menu" }}
+                  style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("onHand", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onHand, background: stickyBg, textAlign: "center", cursor: "context-menu" }}
                   onContextMenu={e => openSummaryCtx(e, "onHand", row)}
                 >
                   <span style={{ color: "#F1F5F9", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
@@ -639,7 +693,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                 {/* On Order (committed SOs) */}
                 {!isHidden("onOrder") && (
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: colLeft("onOrder", hidden) ?? 0, background: stickyBg, textAlign: "center", cursor: row.onOrder > 0 ? "context-menu" : "default" }}
+                  style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("onOrder", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onOrder, background: stickyBg, textAlign: "center", cursor: row.onOrder > 0 ? "context-menu" : "default" }}
                   onContextMenu={e => { if (row.onOrder > 0) openSummaryCtx(e, "onOrder", row); }}
                 >
                   <span style={{ color: "#F59E0B", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
@@ -650,7 +704,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                 {/* On PO (open purchase orders) */}
                 {!isHidden("onPO") && (
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: colLeft("onPO", hidden) ?? 0, background: stickyBg, textAlign: "center", cursor: row.onPO > 0 ? "context-menu" : "default" }}
+                  style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("onPO", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onPO, background: stickyBg, textAlign: "center", cursor: row.onPO > 0 ? "context-menu" : "default" }}
                   onContextMenu={e => { if (row.onPO > 0) openSummaryCtx(e, "onPO", row); }}
                 >
                   <span style={{ color: "#10B981", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
