@@ -341,20 +341,24 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // multiply either way.
   const [explodePpk, setExplodePpk] = usePersistedBool("explodePpk", true);
 
-  // Freeze-through-column was attempted via runtime width measurement
-  // (commits c3ae4e7 → 7f03c76) but the planning grid's <table> uses
-  // auto-layout, and applying position: sticky to <td> cells caused
-  // unstable column widths whenever the row set changed (sort, filter,
-  // page change). Cells visually merged into their neighbors after
-  // every sort. Reverted here.
+  // Freeze-through-column. Combined with table-layout: fixed +
+  // explicit per-column widths (see COL_WIDTHS at module scope and
+  // the Th component below) so column widths are deterministic
+  // regardless of row content. This makes position: sticky on <td>
+  // cells stable across sort / filter / page changes (auto-layout
+  // recomputed widths after each re-render and broke the freeze
+  // visually).
   //
-  // To re-enable: switch the planning table to tableLayout: fixed
-  // with explicit widths on every column, then re-introduce the
-  // freezeKey state + measurement effect + dynamic <style> block.
-  // ATS (src/ats/panels/GridTable.tsx) and PO WIP
-  // (src/tanda/views/GridView.tsx) freeze works because both have
-  // either fixed-width sticky cells or CSS Grid layout — neither
-  // contends with table-auto-layout the way this grid did.
+  // Cumulative left offsets are derived synchronously from
+  // COL_WIDTHS, no runtime measurement needed.
+  const FREEZABLE_COLS = ["category", "subCat", "style", "description", "color", "customer", "period"] as const;
+  type FreezeKey = typeof FREEZABLE_COLS[number];
+  const FREEZE_LABELS: Record<FreezeKey, string> = {
+    category: "Category", subCat: "Sub Cat", style: "Style", description: "Description",
+    color: "Color", customer: "Customer", period: "Period",
+  };
+  const [freezeKey, setFreezeKey] = usePersistedString("freezeKey");
+  const freezeIdxDom = freezeKey ? FREEZABLE_COLS.indexOf(freezeKey as FreezeKey) + 1 : 0;
   // Inline "+ Add row" form state. Closed by default; opens above
   // the table to the planner's chosen cat/sub-cat/customer + first
   // period of the run. Style + color default to "TBD". Persists
@@ -2024,8 +2028,21 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
           active={!explodePpk}
           onToggle={() => setExplodePpk(!explodePpk)}
         />
-        {/* Freeze dropdown removed — see comment near freezeIdxDom
-            in the state declarations above. */}
+        {/* Freeze through column. Pins the chosen column + everything
+            to its left sticky when the planner scrolls horizontally.
+            Filtered to visible columns so picking a hidden one can't
+            create a 0-width freeze line. */}
+        <select
+          value={freezeKey}
+          onChange={(e) => setFreezeKey(e.target.value)}
+          title="Pin leftmost columns through the chosen one when scrolling horizontally"
+          style={{ ...S.select, fontSize: 12, padding: "2px 6px" }}
+        >
+          <option value="">No freeze</option>
+          {FREEZABLE_COLS.filter(k => !hiddenColumns.has(k)).map(k => (
+            <option key={k} value={k}>Freeze through {FREEZE_LABELS[k]}</option>
+          ))}
+        </select>
       </div>
 
       <div style={{ ...S.toolbar, marginTop: -4, paddingTop: 0, gap: 10, fontSize: 12, color: PAL.textDim }}>
@@ -2389,10 +2406,35 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
           state) so columns can keep their auto-fit widths and the
           freeze still positions accurately. zIndex wins over
           regular cells but stays below the top-sticky thead. */}
-      {/* Freeze CSS removed — see freezeIdxDom comment block above
-          for why and how to re-enable. */}
+      {/* Freeze CSS — pins leftmost columns sticky-left when the
+          planner scrolls horizontally. Cumulative left offsets are
+          derived from COL_WIDTHS at module scope so they're
+          deterministic and don't drift on re-render (the bug the
+          previous runtime-measurement approach hit). Header cells
+          use z-index 5 so the corner stays on top during both-axis
+          scroll; body cells use z-index 1 so they slide UNDER the
+          top-sticky header on vertical scroll. */}
+      {freezeIdxDom > 0 && (() => {
+        const offsets: number[] = [];
+        let acc = 0;
+        for (let i = 0; i < freezeIdxDom; i++) {
+          offsets.push(acc);
+          const k = FREEZABLE_COLS[i];
+          acc += hiddenColumns.has(k) ? 0 : (COL_WIDTHS[k] ?? 0);
+        }
+        return (
+          <style>{[
+            ...offsets.map((left, i) => (
+              `tbody tr.planning-grid-row > :nth-child(${i + 1}) { position: sticky; left: ${left}px; z-index: 1; background: ${PAL.panel}; }`
+            )),
+            ...offsets.map((left, i) => (
+              `thead tr.planning-grid-row > :nth-child(${i + 1}) { position: sticky; left: ${left}px; z-index: 5 !important; background: ${PAL.panel}; }`
+            )),
+          ].join("\n")}</style>
+        );
+      })()}
       <div ref={tableWrapRef} className="ip-grid-table-wrap" style={S.tableWrap}>
-        <table style={S.table}>
+        <table style={{ ...S.table, tableLayout: "fixed" as const }}>
           <thead>
             <tr className="planning-grid-row">
               <Th label="Category"    k="category"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("category")} />
@@ -2805,12 +2847,41 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   );
 }
 
+// Per-column widths used by the table-layout: fixed shape of the
+// planning grid. Required for the freeze-through-column feature to
+// be stable: with auto-layout, each re-render recomputed widths
+// based on cell contents, and applying position: sticky to <td>
+// cells caused widths to drift after every sort / filter / page
+// change. Fixed widths give the freeze CSS a stable target.
+//
+// Tuned to fit the most-common content per column. Description
+// stays at 240px with text-overflow: ellipsis so long titles
+// truncate cleanly. Numeric columns at 80–100px. Identifier
+// columns at 90–160px depending on common content length. Tweak
+// here if the planner reports a column truncating frequently.
+const COL_WIDTHS: Record<string, number> = {
+  category: 100,    subCat: 110,        style: 110,
+  description: 240, color: 140,         customer: 160,
+  period: 96,       class: 70,
+  histT3: 80,       histLY: 80,
+  system: 90,       buyer: 90,          override: 90,    final: 90,
+  confidence: 80,   method: 110,
+  onHand: 80,       onSo: 80,
+  receipts: 80,     histRecv: 80,
+  ats: 70,
+  buy: 80,
+  avgCost: 90,      unitCost: 90,
+  buyDollars: 100,
+  shortage: 80,     excess: 80,         action: 110,
+};
+
 function Th({ label, k, sortKey, sortDir, onSort, numeric, tint, title, hidden }: {
   label: string; k: SortKey; sortKey: SortKey; sortDir: "asc" | "desc";
   onSort: (k: SortKey) => void; numeric?: boolean; tint?: string; title?: string; hidden?: boolean;
 }) {
   const active = sortKey === k;
   const baseColor = tint ?? (active ? PAL.text : PAL.textMuted);
+  const width = COL_WIDTHS[k];
   return (
     <th
       style={{
@@ -2819,6 +2890,7 @@ function Th({ label, k, sortKey, sortDir, onSort, numeric, tint, title, hidden }
         textAlign: numeric ? "right" : "left",
         color: active ? PAL.text : baseColor,
         userSelect: "none",
+        ...(width != null ? { width, minWidth: width, maxWidth: width } : null),
         ...(hidden ? { display: "none" as const } : null),
       }}
       onClick={() => onSort(k)}
