@@ -58,6 +58,7 @@ describe("itemMasterLookup.resolveStyle", () => {
       sub_category: "Tees",
       style: "RYB100",
       color: "Black",
+      size: null,
       match_source: "sku",
     });
   });
@@ -100,6 +101,7 @@ describe("itemMasterLookup.resolveStyle", () => {
       sub_category: "Jackets",
       style: "S100",
       color: "Black",
+      size: null,
       match_source: "style",
     });
   });
@@ -115,6 +117,7 @@ describe("itemMasterLookup.resolveStyle", () => {
       sub_category: null,
       style: null,
       color: null,
+      size: null,
       match_source: null,
     });
   });
@@ -127,6 +130,7 @@ describe("itemMasterLookup.resolveStyle", () => {
       sub_category: null,
       style: null,
       color: null,
+      size: null,
       match_source: null,
     });
   });
@@ -226,6 +230,23 @@ describe("itemMasterLookup.resolveStyle", () => {
     const atsDroppedSpace = resolveStyle("FOOBAR - Red", "FOOBAR");
     expect(atsDroppedSpace.match_source).toBe("style");
     expect(atsDroppedSpace.style).toBe("FOO BAR");
+  });
+
+  it("propagates the size field through the resolver — needed for PPK detection in compute.ts", () => {
+    __setCacheForTest([
+      makeRecord({
+        id: "ppk",
+        sku_code: "RYB1637SHPPK - Black",
+        style_code: "RYB1637SHPPK",
+        color: "Black",
+        size: "PPK24",
+        attributes: { group_name: "Bottoms" },
+      }),
+    ]);
+    const r = resolveStyle("RYB1637SHPPK - Black");
+    expect(r.size).toBe("PPK24");
+    // PPK detection in compute.ts will use this size value to compute
+    // the multiplier (24 in this case).
   });
 
   it("style fallback is case-insensitive — lowercase or mixed-case style parts hit uppercase master rows", () => {

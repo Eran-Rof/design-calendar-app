@@ -41,6 +41,7 @@ export interface ResolvedStyle {
   sub_category: string | null;   // attributes.sub_category_name
   style: string | null;          // style_code
   color: string | null;          // color
+  size: string | null;           // size — primary PPK location (e.g. "PPK24")
   match_source: "sku" | "style" | null; // null = unmatched
 }
 
@@ -54,6 +55,7 @@ const NULL_RESULT: ResolvedStyle = {
   sub_category: null,
   style: null,
   color: null,
+  size: null,
   match_source: null,
 };
 
@@ -178,6 +180,7 @@ export function resolveStyle(sku: string, stylePart?: string | null): ResolvedSt
       sub_category: skuHit.attributes?.category_name ?? null,
       style: skuHit.style_code ?? null,
       color: skuHit.color ?? null,
+      size: skuHit.size ?? null,
       match_source: "sku",
     };
   }
@@ -204,6 +207,9 @@ export function resolveStyle(sku: string, stylePart?: string | null): ResolvedSt
           sub_category: styleHit.attributes?.category_name ?? null,
           style: styleHit.style_code ?? null,
           color: styleHit.color ?? null,
+          // Style-level master row typically has no size — variant rows
+          // do. PPK detection will fall back to SKU/desc for these.
+          size: styleHit.size ?? null,
           match_source: "style",
         };
       }
