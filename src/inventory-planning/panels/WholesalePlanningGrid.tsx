@@ -341,43 +341,20 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // multiply either way.
   const [explodePpk, setExplodePpk] = usePersistedBool("explodePpk", true);
 
-  // Freeze-through-column. Pin leftmost columns when the planner
-  // scrolls horizontally. Default null = no freeze (legacy behavior).
-  // The freezable column set is the leftmost identifying group:
-  // Category through Period. Right-of-period columns (forecast / buy
-  // / qty / cost) aren't freezable since freezing them would
-  // collapse the scrollable area below useful width.
-  const FREEZABLE_COLS = ["category", "subCat", "style", "description", "color", "customer", "period"] as const;
-  type FreezeKey = typeof FREEZABLE_COLS[number];
-  const FREEZE_LABELS: Record<FreezeKey, string> = {
-    category: "Category",
-    subCat: "Sub Cat",
-    style: "Style",
-    description: "Description",
-    color: "Color",
-    customer: "Customer",
-    period: "Period",
-  };
-  const [freezeKey, setFreezeKey] = usePersistedString("freezeKey");
-  // Freeze-column DOM positions of FREEZABLE_COLS map directly to
-  // the order of <Th> components in the header below: index 0 =
-  // Category (1st <th>), index 1 = Sub Cat, ..., index 6 = Period.
-  // Hidden columns still emit their <th> (display: none) so DOM
-  // index stays stable; their rendered width contributes 0 to
-  // cumulative offsets, which is what we want.
+  // Freeze-through-column was attempted via runtime width measurement
+  // (commits c3ae4e7 → 7f03c76) but the planning grid's <table> uses
+  // auto-layout, and applying position: sticky to <td> cells caused
+  // unstable column widths whenever the row set changed (sort, filter,
+  // page change). Cells visually merged into their neighbors after
+  // every sort. Reverted here.
   //
-  // freezeIdxDom is "render the first N children sticky" where N is
-  // the DOM position of the chosen freezeKey + 1. Null when no
-  // freeze, < 0 ignored (defensive).
-  const freezeIdxDom = freezeKey
-    ? FREEZABLE_COLS.indexOf(freezeKey as FreezeKey) + 1
-    : 0;
-  // freezeOffsets state + measurement effect lives further down
-  // after hiddenColumns is declared — see "Freeze offsets measurement"
-  // below. Couldn't sit here at the top because hiddenColumns (a
-  // useState declared in the second half of this component) is one
-  // of the effect's dep keys, and forward-referencing it triggers a
-  // temporal dead-zone error in the bundled output.
+  // To re-enable: switch the planning table to tableLayout: fixed
+  // with explicit widths on every column, then re-introduce the
+  // freezeKey state + measurement effect + dynamic <style> block.
+  // ATS (src/ats/panels/GridTable.tsx) and PO WIP
+  // (src/tanda/views/GridView.tsx) freeze works because both have
+  // either fixed-width sticky cells or CSS Grid layout — neither
+  // contends with table-auto-layout the way this grid did.
   // Inline "+ Add row" form state. Closed by default; opens above
   // the table to the planner's chosen cat/sub-cat/customer + first
   // period of the run. Style + color default to "TBD". Persists
@@ -707,27 +684,10 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   const colHide = (key: string): React.CSSProperties | undefined =>
     hiddenColumns.has(key) ? { display: "none" } : undefined;
 
-  // ── Freeze offsets measurement ───────────────────────────────────
-  // Cumulative left offsets per DOM index for the freeze-through-
-  // column feature. Declared here (after hiddenColumns) so the
-  // effect's dep array can reference both freezeKey + hiddenColumns
-  // without forward-referencing a later useState declaration.
-  // Re-measures when freezeKey / hiddenColumns / row count changes.
-  const [freezeOffsets, setFreezeOffsets] = useState<number[]>([]);
-  useEffect(() => {
-    if (freezeIdxDom <= 0) { setFreezeOffsets([]); return; }
-    const tableEl = tableWrapRef.current?.querySelector("table");
-    const ths = tableEl?.querySelectorAll(":scope > thead > tr > th");
-    if (!ths || ths.length < freezeIdxDom) { setFreezeOffsets([]); return; }
-    const offsets: number[] = [];
-    let acc = 0;
-    for (let i = 0; i < freezeIdxDom; i++) {
-      offsets.push(acc);
-      const w = (ths[i] as HTMLElement).getBoundingClientRect().width;
-      acc += w;
-    }
-    setFreezeOffsets(offsets);
-  }, [freezeKey, freezeIdxDom, hiddenColumns, rows.length]);
+  // Freeze-offsets measurement removed alongside the freeze feature
+  // (see comment near explodePpk above). This block measured <th>
+  // widths via getBoundingClientRect to compute sticky-left offsets;
+  // unnecessary now that the freeze CSS is gone.
 
   const periods = useMemo(() => {
     const s = new Set<string>();
@@ -2064,24 +2024,8 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
           active={!explodePpk}
           onToggle={() => setExplodePpk(!explodePpk)}
         />
-        {/* Freeze through column. Pins leftmost identifying columns
-            (Category through Period) sticky-left when scrolling
-            horizontally. Widths measured at runtime so the existing
-            auto-fit layout doesn't change — see freezeOffsets state.
-            Only visible columns appear as freeze targets — picking a
-            hidden one would freeze through a 0-width track and
-            confuse the planner about why nothing is sticking. */}
-        <select
-          value={freezeKey}
-          onChange={(e) => setFreezeKey(e.target.value)}
-          title="Pin leftmost columns through the chosen one when scrolling horizontally"
-          style={{ ...S.select, fontSize: 12, padding: "2px 6px" }}
-        >
-          <option value="">No freeze</option>
-          {FREEZABLE_COLS.filter(k => !hiddenColumns.has(k)).map(k => (
-            <option key={k} value={k}>Freeze through {FREEZE_LABELS[k]}</option>
-          ))}
-        </select>
+        {/* Freeze dropdown removed — see comment near freezeIdxDom
+            in the state declarations above. */}
       </div>
 
       <div style={{ ...S.toolbar, marginTop: -4, paddingTop: 0, gap: 10, fontSize: 12, color: PAL.textDim }}>
@@ -2445,33 +2389,8 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
           state) so columns can keep their auto-fit widths and the
           freeze still positions accurately. zIndex wins over
           regular cells but stays below the top-sticky thead. */}
-      {freezeIdxDom > 0 && freezeOffsets.length > 0 && (
-        <style>{
-          // Three z-index layers so freeze + top-sticky-header compose
-          // correctly on both scroll axes:
-          //   body frozen          → 1   (slides UNDER non-frozen header
-          //                              when scrolling vertically)
-          //   header non-frozen    → 2   (S.th default; scrolls right
-          //                              with non-frozen content)
-          //   header frozen corner → 5   (top-left intersection; on top
-          //                              of EVERYTHING so the header
-          //                              for frozen columns is always
-          //                              visible regardless of how the
-          //                              planner scrolls)
-          //
-          // !important on z-index keeps the frozen header above the
-          // S.th inline z-index of 2 even though my class rule has
-          // lower CSS specificity than the inline.
-          [
-            ...freezeOffsets.map((left, i) => (
-              `tbody tr.planning-grid-row > :nth-child(${i + 1}) { position: sticky; left: ${left}px; z-index: 1; background: ${PAL.panel}; }`
-            )),
-            ...freezeOffsets.map((left, i) => (
-              `thead tr.planning-grid-row > :nth-child(${i + 1}) { position: sticky; left: ${left}px; z-index: 5 !important; background: ${PAL.panel}; }`
-            )),
-          ].join("\n")
-        }</style>
-      )}
+      {/* Freeze CSS removed — see freezeIdxDom comment block above
+          for why and how to re-enable. */}
       <div ref={tableWrapRef} className="ip-grid-table-wrap" style={S.tableWrap}>
         <table style={S.table}>
           <thead>
