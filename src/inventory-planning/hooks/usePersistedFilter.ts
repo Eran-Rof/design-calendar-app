@@ -44,3 +44,19 @@ export function usePersistedString(key: string): [string, (next: string) => void
   }, [key, value]);
   return [value, setValue];
 }
+
+function loadBool(key: string, fallback: boolean): boolean {
+  try {
+    const raw = localStorage.getItem(KEY_PREFIX + key);
+    if (raw == null) return fallback;
+    return raw === "true";
+  } catch { return fallback; }
+}
+
+export function usePersistedBool(key: string, fallback: boolean): [boolean, (next: boolean) => void] {
+  const [value, setValue] = useState<boolean>(() => loadBool(key, fallback));
+  useEffect(() => {
+    try { localStorage.setItem(KEY_PREFIX + key, value ? "true" : "false"); } catch { /* ignore */ }
+  }, [key, value]);
+  return [value, setValue];
+}

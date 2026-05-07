@@ -19,7 +19,7 @@ import { TbdStyleCell } from "../components/cells/TbdStyleCell";
 import { TbdDescriptionCell } from "../components/cells/TbdDescriptionCell";
 import { TbdCustomerCell } from "../components/cells/TbdCustomerCell";
 import { TbdColorCell } from "../components/cells/TbdColorCell";
-import { usePersistedString, usePersistedStringArray } from "../hooks/usePersistedFilter";
+import { usePersistedString, usePersistedStringArray, usePersistedBool } from "../hooks/usePersistedFilter";
 import { aggregateRows, type CollapseModes as ExtractedCollapseModes } from "./aggregateGridRows";
 import { bucketKeyFor, type BucketKeyFilters } from "./bucketBuyKey";
 import { recommendForRow } from "../compute/recommendations";
@@ -323,6 +323,13 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   const [filterPeriod, setFilterPeriod] = usePersistedStringArray("period");
   const [filterStyle, setFilterStyle] = usePersistedStringArray("style");
   const [filterColor, setFilterColor] = usePersistedStringArray("color");
+  // Show-zero-rows toggle. When OFF, rows where every meaningful qty
+  // (forecast, buy, on_hand, on_so, on_po) is 0/null are hidden — keeps
+  // the grid focused on rows the planner needs to act on. When ON, the
+  // full row set is visible — useful for searching prepacks or
+  // freshly-renamed SKUs that may not have data attached yet. Default
+  // ON so renames / migrations don't silently disappear from the view.
+  const [showZeroRows, setShowZeroRows] = usePersistedBool("showZeroRows", true);
   // Inline "+ Add row" form state. Closed by default; opens above
   // the table to the planner's chosen cat/sub-cat/customer + first
   // period of the run. Style + color default to "TBD". Persists
@@ -496,7 +503,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   };
   // Reset to first page whenever filters/sort change so the user doesn't
   // wonder why an empty page is showing.
-  useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, sortKey, sortDir, pageSize, collapse, systemSuggestionsOn]);
+  useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, sortKey, sortDir, pageSize, collapse, systemSuggestionsOn, showZeroRows]);
 
   // Report active build-relevant filters up to the workbench so the
   // PlanningRunControls' Build button can scope itself to this subset.
@@ -867,6 +874,19 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
         || (r.group_name ?? "").toUpperCase().includes(q)
         || (r.sub_category_name ?? "").toUpperCase().includes(q)
       )) return false;
+      // Hide-zero-rows filter — drops rows where every actionable qty
+      // is 0 / null. Bypassed entirely when the toggle is on.
+      if (!showZeroRows) {
+        const hasAnyQty =
+          (r.final_forecast_qty ?? 0) !== 0 ||
+          (r.planned_buy_qty ?? 0) !== 0 ||
+          (r.on_hand_qty ?? 0) !== 0 ||
+          (r.on_so_qty ?? 0) !== 0 ||
+          (r.on_po_qty ?? 0) !== 0 ||
+          (r.buyer_request_qty ?? 0) !== 0 ||
+          (r.override_qty ?? 0) !== 0;
+        if (!hasAnyQty) return false;
+      }
       return true;
     });
     // PPK pre-pack expansion. Xoro reports inventory / PO / SO qtys
@@ -909,7 +929,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       system_forecast_qty: 0,
       final_forecast_qty: Math.max(0, 0 + r.buyer_request_qty + r.override_qty),
     }));
-  }, [rows, search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, systemSuggestionsOn]);
+  }, [rows, search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, systemSuggestionsOn, showZeroRows]);
 
   // Notify the workbench when the visible (filter+mute) row set changes
   // so MonthlyTotalsCards uses the same subset (drives the top FINAL
@@ -1943,6 +1963,11 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
           label={systemSuggestionsOn ? "System suggestions: ON" : "System suggestions: OFF"}
           active={!systemSuggestionsOn}
           onToggle={() => setSystemSuggestionsOnPersistent(!systemSuggestionsOn)}
+        />
+        <CollapseToggle
+          label={showZeroRows ? "Zero-qty rows: ON" : "Zero-qty rows: OFF"}
+          active={!showZeroRows}
+          onToggle={() => setShowZeroRows(!showZeroRows)}
         />
       </div>
 
