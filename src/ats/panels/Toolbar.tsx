@@ -132,6 +132,10 @@ interface ToolbarProps {
   // the operator can flip mental gears without recomputing.
   explodePpk: boolean;
   setExplodePpk: (v: boolean) => void;
+  // Freeze through column: pin leftmost columns up through the
+  // chosen one when scrolling horizontally. null = no freeze.
+  freezeKey: "category" | "subCategory" | "style" | "description" | "color" | "onHand" | "onOrder" | "onPO" | null;
+  setFreezeKey: (v: "category" | "subCategory" | "style" | "description" | "color" | "onHand" | "onOrder" | "onPO" | null) => void;
   // Per-column hide list for the grid's left sticky columns.
   hiddenColumns: string[];
   setHiddenColumns: (v: string[]) => void;
@@ -157,6 +161,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   atShip, setAtShip,
   showTotalsRow, setShowTotalsRow,
   explodePpk, setExplodePpk,
+  freezeKey, setFreezeKey,
   hiddenColumns, setHiddenColumns,
   generalMarginPct, setGeneralMarginPct,
   filteredCount, lastSync,
@@ -405,6 +410,26 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <input type="checkbox" checked={explodePpk} onChange={e => setExplodePpk(e.target.checked)} style={{ accentColor: "#A855F7", cursor: "pointer", width: 14, height: 14 }} />
       <span style={{ color: explodePpk ? "#C4B5FD" : "#9CA3AF", fontSize: 12, fontWeight: explodePpk ? 700 : 400 }}>EXPLODE PPK</span>
     </label>
+
+    {/* Freeze-through dropdown — pin leftmost columns when scrolling.
+        Default "On PO" matches the historical all-8-sticky behavior;
+        the planner can scale freeze back to fewer columns or off. */}
+    <select
+      value={freezeKey ?? ""}
+      onChange={e => setFreezeKey((e.target.value || null) as typeof freezeKey)}
+      title="Pin leftmost columns through the chosen one when scrolling horizontally"
+      style={{ ...S.select, fontSize: 12, padding: "4px 8px" }}
+    >
+      <option value="">No freeze</option>
+      <option value="category">Freeze through Category</option>
+      <option value="subCategory">Freeze through Sub Cat</option>
+      <option value="style">Freeze through Style</option>
+      <option value="description">Freeze through Description</option>
+      <option value="color">Freeze through Color</option>
+      <option value="onHand">Freeze through On Hand</option>
+      <option value="onOrder">Freeze through On Order</option>
+      <option value="onPO">Freeze through On PO</option>
+    </select>
 
     {/* Columns visibility dropdown — toggle individual sticky-left
         columns on/off (Category through On PO). Hidden count appears

@@ -73,6 +73,13 @@ export interface ATSState {
   // hint with the unit-grain equivalent so the operator can flip
   // mental gears without losing the conversion.
   explodePpk: boolean;
+  // Rightmost sticky column when scrolling horizontally. null = no
+  // freeze (all 8 leftmost columns stay sticky — historical default).
+  // Otherwise the named column is the rightmost frozen one and
+  // every column to its right becomes scrollable. Lets the planner
+  // unfreeze noisy columns (e.g. Description) without losing the
+  // anchor on Style + Color.
+  freezeKey: "category" | "subCategory" | "style" | "description" | "color" | "onHand" | "onOrder" | "onPO" | null;
   // Per-column hide list for the grid's left fixed columns. Keys
   // map to the 8 sticky columns (category | subCategory | style |
   // description | color | onHand | onOrder | onPO). Defaults to []
@@ -164,6 +171,11 @@ export function createInitialState(startDate: string): ATSState {
     showTotalsRow: false,
     showStatsCards: true,
     explodePpk: true,
+    // Default "onPO" preserves the historical all-8-columns-sticky
+    // behavior. Setting to null gives the planner an unfrozen scroll
+    // experience; setting to a column earlier than On PO releases
+    // the columns to its right.
+    freezeKey: "onPO",
     hiddenColumns: [],
     generalMarginPct: 21,
     collapseLevel: "none",

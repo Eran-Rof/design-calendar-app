@@ -124,6 +124,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
   showTotalsRow, setShowTotalsRow,
   showStatsCards, setShowStatsCards,
   explodePpk, setExplodePpk,
+  freezeKey, setFreezeKey,
   hiddenColumns, setHiddenColumns,
   generalMarginPct, setGeneralMarginPct,
   collapseLevel, setCollapseLevel, expandedGroups, expandedGroupSet, toggleExpandGroup,
@@ -240,6 +241,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           atShip={atShip} setAtShip={setAtShip}
           showTotalsRow={showTotalsRow} setShowTotalsRow={setShowTotalsRow!}
           explodePpk={explodePpk ?? true} setExplodePpk={setExplodePpk!}
+          freezeKey={freezeKey ?? null} setFreezeKey={setFreezeKey!}
           hiddenColumns={hiddenColumns ?? []} setHiddenColumns={setHiddenColumns!}
           generalMarginPct={generalMarginPct ?? 21} setGeneralMarginPct={setGeneralMarginPct!}
           filteredCount={filtered.length} lastSync={lastSync}
@@ -277,6 +279,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
             todayKey={todayKey} atShip={atShip}
             showTotalsRow={showTotalsRow}
             explodePpk={explodePpk ?? true}
+            freezeKey={freezeKey ?? null}
             hiddenColumns={hiddenColumns ?? []}
             generalMarginPct={generalMarginPct ?? 21}
             eventIndex={eventIndex} getEventsInPeriod={getEventsInPeriod}
