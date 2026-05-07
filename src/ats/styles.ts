@@ -41,7 +41,13 @@ const S: Record<string, React.CSSProperties> = {
   table:       { borderCollapse: "separate" as const, borderSpacing: 0, width: "100%", fontSize: 13 },
   th:          { background: "#1E293B", color: "#6B7280", fontWeight: 600, fontSize: 11, textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "10px 12px", borderBottom: "1px solid #334155", borderRight: "1px solid #2D3748", whiteSpace: "nowrap" as const, position: "sticky" as const, top: 0, zIndex: 2 },
   td:          { padding: "7px 10px", borderBottom: "1px solid #334155", borderRight: "1px solid #64748B", whiteSpace: "nowrap" as const, verticalAlign: "middle" as const },
-  stickyCol:   { position: "sticky" as const, zIndex: 2, borderRight: "1px solid #64748B" },
+  // overflow:hidden + textOverflow:ellipsis clip cell content at the
+  // right edge so longer-than-the-column-width text (e.g. "Cream Tonal
+  // Grizzly Camo") can't bleed into the next column and visually
+  // erase its left border. boxSizing:border-box keeps the border
+  // INSIDE the declared width so columns line up to their stated
+  // pixel offsets.
+  stickyCol:   { position: "sticky" as const, zIndex: 2, borderRight: "1px solid #64748B", overflow: "hidden" as const, textOverflow: "ellipsis" as const, boxSizing: "border-box" as const },
   loadingState:{ textAlign: "center" as const, padding: 60, color: "#6B7280", background: "#1E293B", borderRadius: 10 },
   emptyState:  { textAlign: "center" as const, padding: 60, color: "#6B7280", background: "#1E293B", borderRadius: 10 },
   modalOverlay:{ position: "fixed" as const, inset: 0, background: "rgba(0,0,0,.75)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" },
