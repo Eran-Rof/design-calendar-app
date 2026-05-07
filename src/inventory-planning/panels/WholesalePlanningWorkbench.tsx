@@ -156,6 +156,52 @@ export default function WholesalePlanningWorkbench() {
     canCancel?: boolean;
     onCancel?: () => void;
   } | null>(null);
+
+  // Upload summary — required-dismiss modal shown after every Excel
+  // upload completes (success OR failure). Replaces the previous
+  // auto-fading status bar so the planner has time to read the
+  // counts (parsed / inserted / skipped / errors) and decide
+  // whether to retry. Stays open until the planner clicks Close.
+  type UploadSummary = {
+    kind: "sales" | "master";
+    fileName: string;
+    parsed: number;
+    inserted: number;
+    skipped_no_sku: number;
+    skipped_no_date: number;
+    skipped_zero_qty: number;
+    skipped_bad_cost: number;
+    errors: string[];
+    warnings: string[];
+    failedMessage?: string;  // when the whole upload threw
+  };
+  const [uploadSummary, setUploadSummary] = useState<UploadSummary | null>(null);
+
+  // Faded "last uploaded …" stamp shown next to each upload button.
+  // Persisted in localStorage so it survives reloads. Updated on
+  // every successful Excel ingest (skipped on outright failure so
+  // the planner doesn't see a stale "succeeded" timestamp).
+  const LAST_UPLOAD_KEYS = { sales: "ip_last_upload_sales", master: "ip_last_upload_master" } as const;
+  const [lastUploadSales, setLastUploadSales] = useState<string | null>(() => {
+    try { return localStorage.getItem(LAST_UPLOAD_KEYS.sales); } catch { return null; }
+  });
+  const [lastUploadMaster, setLastUploadMaster] = useState<string | null>(() => {
+    try { return localStorage.getItem(LAST_UPLOAD_KEYS.master); } catch { return null; }
+  });
+  function rememberUpload(kind: "sales" | "master") {
+    const iso = new Date().toISOString();
+    try { localStorage.setItem(LAST_UPLOAD_KEYS[kind], iso); } catch { /* ignore quota */ }
+    if (kind === "sales") setLastUploadSales(iso);
+    else setLastUploadMaster(iso);
+  }
+  // "yesterday at 3:14 PM" — short and parseable. Falls back to the
+  // raw ISO if Date.parse can't read it (shouldn't happen, but safe).
+  function formatLastUpload(iso: string | null): string | null {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  }
   // When the user clicks Hide / Cancel, mark dismissed so the operation's
   // tail-end progress and completion messages don't briefly re-open the
   // modal after the user thought it was gone.
@@ -399,33 +445,43 @@ export default function WholesalePlanningWorkbench() {
       const r: ExcelIngestResult =
         kind === "sales" ? await ingestSalesExcel(file, onProgress)
                          : await ingestItemMasterExcel(file, onProgress);
-      const skipParts = [];
-      if (r.skipped_no_sku) skipParts.push(`${r.skipped_no_sku} missing SKU`);
-      if (r.skipped_no_date) skipParts.push(`${r.skipped_no_date} missing date`);
-      if (r.skipped_zero_qty) skipParts.push(`${r.skipped_zero_qty} zero quantity`);
-      if (r.skipped_bad_cost) skipParts.push(`${r.skipped_bad_cost} bad cost`);
-      const skipSummary = skipParts.length > 0 ? ` · skipped ${skipParts.join(", ")}` : "";
-      const errSummary = r.errors.length > 0 ? ` · ${r.errors.length} had problems` : "";
-      const warnSummary = r.warnings && r.warnings.length > 0 ? ` · ${r.warnings.length} data-quality warning(s)` : "";
       if (r.errors.length > 0) console.error(`[excel-${kind}] errors:`, r.errors);
       if (r.warnings && r.warnings.length > 0) console.warn(`[excel-${kind}] warnings:`, r.warnings);
-      reportOp(`Done — read ${r.parsed.toLocaleString()} rows, saved ${r.inserted.toLocaleString()}${skipSummary}${errSummary}${warnSummary}`);
-      // Surface the first warning verbatim so the planner sees the
-      // most actionable detail (sample SKUs) without opening DevTools.
-      if (r.warnings && r.warnings.length > 0) {
-        await new Promise<void>((res) => setTimeout(res, 1500));
-        reportOp(`⚠ ${r.warnings[0]}${r.warnings.length > 1 ? ` (+${r.warnings.length - 1} more in console)` : ""}`);
-      }
-      await new Promise<void>((res) => setTimeout(res, 1800));
+      // Refresh grids before showing the summary so the planner
+      // dismisses the modal onto fresh data.
       if (r.inserted > 0 && kind === "sales") await loadRunData();
       if (r.inserted > 0 && kind === "master" && selectedRun) {
         const refreshed = await buildGridRows(selectedRun);
         setRows(refreshed);
       }
+      // Stamp the last-upload timestamp (only on completion — a
+      // thrown ingest skips this branch and leaves the prior stamp).
+      rememberUpload(kind);
+      // Open the required-dismiss summary dialog. Closes the
+      // status bar immediately — no auto-fade tail.
+      setUploadSummary({
+        kind,
+        fileName: file.name,
+        parsed: r.parsed,
+        inserted: r.inserted,
+        skipped_no_sku: r.skipped_no_sku ?? 0,
+        skipped_no_date: r.skipped_no_date ?? 0,
+        skipped_zero_qty: r.skipped_zero_qty ?? 0,
+        skipped_bad_cost: r.skipped_bad_cost ?? 0,
+        errors: r.errors ?? [],
+        warnings: r.warnings ?? [],
+      });
     } catch (e) {
       console.error(`[excel-${kind}] failed`, e);
-      reportOp(`Couldn't finish — ${e instanceof Error ? e.message : String(e)}`);
-      await new Promise<void>((res) => setTimeout(res, 2500));
+      const msg = e instanceof Error ? e.message : String(e);
+      setUploadSummary({
+        kind,
+        fileName: file.name,
+        parsed: 0, inserted: 0,
+        skipped_no_sku: 0, skipped_no_date: 0, skipped_zero_qty: 0, skipped_bad_cost: 0,
+        errors: [], warnings: [],
+        failedMessage: msg,
+      });
     } finally {
       setIngesting(false); setRunningKind(null);
       setOpStatus(null);
@@ -2155,16 +2211,30 @@ export default function WholesalePlanningWorkbench() {
           <button style={S.btnSecondary} onClick={syncNewestSales} disabled={ingesting || autoWalking} title="Pulls only the LAST 10 Xoro pages (~1000 newest invoices). Use after the Excel bootstrap for daily/weekly updates.">
             {runningKind === "newest" ? "Working…" : "↻ Sync newest sales"}
           </button>
-          <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }} title="Authoritative source of truth for SKU, Style, Color, Description, Avg Cost. New items are auto-stubbed by sales/PO/ATS sync; re-upload the master to refresh them.">
-            {runningKind === "excel-master" ? "Working…" : "Upload item master (Excel)"}
-            <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
-                   onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("master", f); e.target.value = ""; } }} />
-          </label>
-          <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }}>
-            {runningKind === "excel-sales" ? "Working…" : "Upload sales (Excel)"}
-            <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
-                   onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("sales", f); e.target.value = ""; } }} />
-          </label>
+          <span style={{ display: "inline-flex", flexDirection: "column", gap: 2 }}>
+            <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }} title="Authoritative source of truth for SKU, Style, Color, Description, Avg Cost. New items are auto-stubbed by sales/PO/ATS sync; re-upload the master to refresh them.">
+              {runningKind === "excel-master" ? "Working…" : "Upload item master (Excel)"}
+              <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
+                     onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("master", f); e.target.value = ""; } }} />
+            </label>
+            {lastUploadMaster && (
+              <span style={{ color: PAL.textMuted, fontSize: 10, opacity: 0.6, textAlign: "center" }}>
+                last upload: {formatLastUpload(lastUploadMaster)}
+              </span>
+            )}
+          </span>
+          <span style={{ display: "inline-flex", flexDirection: "column", gap: 2 }}>
+            <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }}>
+              {runningKind === "excel-sales" ? "Working…" : "Upload sales (Excel)"}
+              <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
+                     onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("sales", f); e.target.value = ""; } }} />
+            </label>
+            {lastUploadSales && (
+              <span style={{ color: PAL.textMuted, fontSize: 10, opacity: 0.6, textAlign: "center" }}>
+                last upload: {formatLastUpload(lastUploadSales)}
+              </span>
+            )}
+          </span>
           <button style={S.btnSecondary} onClick={() => void runMissingItemsSync()} disabled={ingesting || autoWalking} title="Pulls the Xoro item catalog and inserts only SKUs not already in the item master. Existing rows are never modified.">
             {runningKind === "missing-items" ? "Working…" : "+ Add new items (Xoro)"}
           </button>
@@ -2317,6 +2387,108 @@ export default function WholesalePlanningWorkbench() {
 
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
+
+      {/* Upload summary — required-dismiss modal shown after every
+          Excel upload completes. Replaces the previous auto-fading
+          status bar so the planner can read the counts before
+          moving on. Only the X / Close button dismisses; the
+          backdrop click is intentionally a no-op so the planner
+          can't accidentally lose the summary. */}
+      {uploadSummary && (() => {
+        const u = uploadSummary;
+        const skipped = u.skipped_no_sku + u.skipped_no_date + u.skipped_zero_qty + u.skipped_bad_cost;
+        const hasIssues = u.failedMessage || u.errors.length > 0 || u.warnings.length > 0;
+        const accent = u.failedMessage ? PAL.red : (hasIssues ? PAL.yellow : PAL.green);
+        return (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 600, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{
+              background: PAL.panel,
+              border: `1px solid ${accent}`,
+              borderRadius: 10,
+              padding: 22,
+              minWidth: 480,
+              maxWidth: 640,
+              maxHeight: "80vh",
+              overflowY: "auto",
+              color: PAL.text,
+              boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: PAL.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>
+                    {u.kind === "sales" ? "Sales upload" : "Item master upload"}
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: accent, marginTop: 2 }}>
+                    {u.failedMessage ? "Upload failed" : (u.inserted > 0 ? "Upload complete" : "Upload finished — nothing saved")}
+                  </div>
+                  <div style={{ fontSize: 12, color: PAL.textDim, marginTop: 4, fontFamily: "monospace" }}>{u.fileName}</div>
+                </div>
+                <button style={S.btnGhost} onClick={() => setUploadSummary(null)} title="Close">✕</button>
+              </div>
+
+              {u.failedMessage ? (
+                <div style={{ ...S.infoCell, padding: "10px 12px", background: PAL.red + "11", border: `1px solid ${PAL.red}55`, color: PAL.red, fontSize: 12 }}>
+                  {u.failedMessage}
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8, marginBottom: 12 }}>
+                    <div style={S.infoCell}>
+                      <div style={S.infoLabel}>Rows read</div>
+                      <div style={{ ...S.infoValue, fontFamily: "monospace" }}>{u.parsed.toLocaleString()}</div>
+                    </div>
+                    <div style={S.infoCell}>
+                      <div style={S.infoLabel}>Rows saved</div>
+                      <div style={{ ...S.infoValue, fontFamily: "monospace", color: u.inserted > 0 ? PAL.green : PAL.textMuted }}>{u.inserted.toLocaleString()}</div>
+                    </div>
+                    <div style={S.infoCell}>
+                      <div style={S.infoLabel}>Skipped</div>
+                      <div style={{ ...S.infoValue, fontFamily: "monospace", color: skipped > 0 ? PAL.yellow : PAL.textMuted }}>{skipped.toLocaleString()}</div>
+                    </div>
+                  </div>
+
+                  {skipped > 0 && (
+                    <div style={{ ...S.infoCell, padding: "10px 12px", marginBottom: 10 }}>
+                      <div style={S.infoLabel}>Skip breakdown</div>
+                      <div style={{ fontSize: 12, color: PAL.textDim, lineHeight: 1.6 }}>
+                        {u.skipped_no_sku > 0 && <div>· <strong>{u.skipped_no_sku.toLocaleString()}</strong> rows missing SKU</div>}
+                        {u.skipped_no_date > 0 && <div>· <strong>{u.skipped_no_date.toLocaleString()}</strong> rows missing date</div>}
+                        {u.skipped_zero_qty > 0 && <div>· <strong>{u.skipped_zero_qty.toLocaleString()}</strong> rows with zero quantity</div>}
+                        {u.skipped_bad_cost > 0 && <div>· <strong>{u.skipped_bad_cost.toLocaleString()}</strong> rows with unparseable cost</div>}
+                      </div>
+                    </div>
+                  )}
+
+                  {u.warnings.length > 0 && (
+                    <div style={{ ...S.infoCell, padding: "10px 12px", marginBottom: 10, background: PAL.yellow + "11", border: `1px solid ${PAL.yellow}44` }}>
+                      <div style={{ ...S.infoLabel, color: PAL.yellow }}>⚠ Data-quality warnings ({u.warnings.length})</div>
+                      <div style={{ fontSize: 12, color: PAL.textDim, marginTop: 4 }}>
+                        {u.warnings.slice(0, 5).map((w, i) => <div key={i}>· {w}</div>)}
+                        {u.warnings.length > 5 && <div style={{ color: PAL.textMuted }}>+ {u.warnings.length - 5} more in console</div>}
+                      </div>
+                    </div>
+                  )}
+
+                  {u.errors.length > 0 && (
+                    <div style={{ ...S.infoCell, padding: "10px 12px", marginBottom: 10, background: PAL.red + "11", border: `1px solid ${PAL.red}44` }}>
+                      <div style={{ ...S.infoLabel, color: PAL.red }}>Errors on {u.errors.length} row{u.errors.length === 1 ? "" : "s"}</div>
+                      <div style={{ fontSize: 12, color: PAL.textDim, marginTop: 4, fontFamily: "monospace" }}>
+                        {u.errors.slice(0, 5).map((e, i) => <div key={i}>· {e}</div>)}
+                        {u.errors.length > 5 && <div style={{ color: PAL.textMuted, fontFamily: "inherit" }}>+ {u.errors.length - 5} more in console</div>}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+                <button style={S.btnPrimary} onClick={() => setUploadSummary(null)}>Close</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {pendingConfirm && (
         <div
           onClick={pendingConfirm.onCancel}
