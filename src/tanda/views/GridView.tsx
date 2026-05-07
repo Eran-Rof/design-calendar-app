@@ -433,6 +433,48 @@ export function GridView({
     return () => window.removeEventListener("mousedown", onDown);
   }, [colDropOpen]);
 
+  // Freeze-through-column state. null = no freeze. Otherwise the
+  // selected column key marks the rightmost frozen column; every
+  // visible column at or to the left of it gets position: sticky
+  // when scrolling horizontally. Persisted under gv_freeze_key.
+  const [freezeKey, setFreezeKey] = useState<HideableColKey | null>(() => {
+    try {
+      const raw = localStorage.getItem("gv_freeze_key");
+      if (!raw || !HIDEABLE_COL_KEYS.includes(raw as HideableColKey)) return null;
+      return raw as HideableColKey;
+    } catch { return null; }
+  });
+  useEffect(() => {
+    try {
+      if (freezeKey) localStorage.setItem("gv_freeze_key", freezeKey);
+      else localStorage.removeItem("gv_freeze_key");
+    } catch { /* ignore */ }
+  }, [freezeKey]);
+  // Cumulative left offset (px) for each visible-cell index. Used to
+  // build sticky-positioning CSS rules below. Index 0 corresponds
+  // to the chevron column (always 32px), index 1 to notes (32px),
+  // index 2..7 to the hideable data columns. A hidden column has
+  // 0px width so its offset == previous offset.
+  const cellOffsets = useMemo(() => {
+    const widths: number[] = [32, 32];
+    for (const k of HIDEABLE_COL_KEYS) {
+      widths.push(hiddenCols.has(k) ? 0 : parseInt(COL_WIDTHS[k]));
+    }
+    const offsets: number[] = [];
+    let acc = 0;
+    for (const w of widths) { offsets.push(acc); acc += w; }
+    return offsets;
+  }, [hiddenCols]);
+  // How many leading columns to freeze given the freezeKey. Always
+  // includes chevron + notes (always-visible UI). Then includes
+  // hideable columns through and including the chosen freezeKey.
+  const freezeCount = useMemo(() => {
+    if (!freezeKey) return 0;
+    const idx = HIDEABLE_COL_KEYS.indexOf(freezeKey);
+    if (idx < 0) return 0;
+    return 2 + idx + 1; // chevron + notes + (idx+1) hideable cols
+  }, [freezeKey]);
+
   const [search, setSearch]                     = useState("");
   const [filterVendor, setFilterVendor]         = useState("All");
   const [filterBuyer, setFilterBuyer]           = useState("All");
@@ -1040,6 +1082,25 @@ export function GridView({
   return (
     <div style={{ maxWidth: "100%", margin: "0 auto", padding: "0 12px" }}>
       <GridScrollbarStyles scope="gv-scroll" trackColor="#0F172A" thumbColor="#334155" thumbHoverColor="#475569" size={12} />
+      {/* Sticky-left CSS for the frozen leading columns. nth-child
+          targets each row's leading cells in order; CSS Grid keeps
+          the cell at its template-driven track position so applying
+          position: sticky + a hard-coded left offset pins it.
+          Generates only when freezeCount > 0; rendering an empty
+          <style> when no freeze is set keeps the DOM clean. The
+          background here is a flat panel color — sticky cells don't
+          inherit transparent row backgrounds, so without this they'd
+          show content from the row scrolling underneath. zIndex=2
+          keeps them above non-frozen siblings; zIndex=4 on phase-
+          divider overlays already wins where it matters. */}
+      {freezeCount > 0 && (
+        <style>{
+          Array.from({ length: freezeCount }).map((_, i) => {
+            const left = cellOffsets[i] ?? 0;
+            return `.gv-grid-row > :nth-child(${i + 1}) { position: sticky; left: ${left}px; z-index: 2; background: #0F172A; }`;
+          }).join("\n")
+        }</style>
+      )}
 
       {/* ── Toolbar ────────────────────────────────────────────────────── */}
       <div style={{ ...S.filters, flexWrap: "wrap" }}>
@@ -1096,6 +1157,20 @@ export function GridView({
             </div>
           )}
         </div>
+
+        {/* Freeze dropdown — pin leftmost columns through the
+            chosen one when scrolling horizontally. */}
+        <select
+          value={freezeKey ?? ""}
+          onChange={(e) => setFreezeKey(e.target.value === "" ? null : e.target.value as HideableColKey)}
+          style={{ ...S.select, width: 180 }}
+          title="Pin leftmost columns through the selected one when scrolling horizontally"
+        >
+          <option value="">No freeze</option>
+          {HIDEABLE_COL_KEYS.filter(k => !hiddenCols.has(k)).map((k) => (
+            <option key={k} value={k}>Freeze through {COL_LABELS[k]}</option>
+          ))}
+        </select>
 
         <button
           onClick={handleUndo}
@@ -1209,7 +1284,7 @@ export function GridView({
               <div style={{ position: "sticky", top: 0, zIndex: 3 }}>
 
                 {/* Row 1 */}
-                <div style={{ display: "grid", gridTemplateColumns: ct }}>
+                <div className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct }}>
                   <span style={{ ...hdr1, ...firstCol }} />
                   <span style={{ ...hdr1 }} />
                   {(() => {
@@ -1275,7 +1350,7 @@ export function GridView({
                 </div>
 
                 {/* Row 2 */}
-                <div style={{ display: "grid", gridTemplateColumns: ct }}>
+                <div className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct }}>
                   {Array.from({ length: 8 }).map((_, i) => (
                     <span key={i} style={{ ...hdr2, ...(i === 0 ? firstCol : {}) }} />
                   ))}
@@ -1323,7 +1398,7 @@ export function GridView({
 
                 return (
                   <div key={poNum}>
-                  <div style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: isExpanded ? "#0D1929" : undefined }}>
+                  <div className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: isExpanded ? "#0D1929" : undefined }}>
 
                     {/* Expand */}
                     <span
@@ -1561,7 +1636,7 @@ export function GridView({
                     return (
                       <>
                         {/* ── PO info strip — phase spacers keep dividers alive ── */}
-                        <div style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
+                        <div className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
                           <div style={{ gridColumn: "1 / 9", padding: "8px 14px 10px", display: "flex", gap: 18, alignItems: "center", borderLeft: B_CELL, borderBottom: "1px solid #1E293B", flexWrap: "wrap" }}>
                             <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, fontSize: 13 }}>{poNum}</span>
                             <span style={{ color: "#9CA3AF", fontSize: 12, fontWeight: 600 }}>{po.VendorName}</span>
@@ -1604,7 +1679,7 @@ export function GridView({
                         {expandViewMode === "line" ? (
                           <>
                             {/* ── Item sub-header ─────────────────────────────── */}
-                            <div style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg2 }}>
+                            <div className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg2 }}>
                               {/* Fixed area: item key | line status | delivery */}
                               <div style={{ gridColumn: "1 / 9", padding: "3px 14px", borderLeft: B_CELL, borderBottom: B_CELL, display: "grid", gridTemplateColumns: "1fr 90px 80px", alignItems: "center", gap: 8 }}>
                                 <span style={{ color: "#4B5563", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>Style / Color</span>
@@ -1629,7 +1704,7 @@ export function GridView({
 
                             {/* ── One row per style/color group ──────────────── */}
                             {groups.length === 0 ? (
-                              <div style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
+                              <div className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
                                 <div style={{ gridColumn: "1 / 9", padding: "8px 14px", borderLeft: B_CELL, borderBottom: B_CELL, color: "#374151", fontSize: 11 }}>No line items on this PO.</div>
                                 {phases.map((phase, pi) => { const isLast = pi === phases.length - 1; return (
                                   <React.Fragment key={phase}>
@@ -1657,7 +1732,7 @@ export function GridView({
                               const deliveryDisplay = deliveries.length === 0 ? "—" : deliveries.length === 1 ? fmtDate(deliveries[0]) : "Mixed";
 
                               return (
-                                <div key={gIdx} style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: rowBg }}>
+                                <div key={gIdx} className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: rowBg }}>
                                   {/* Style/color + line status + delivery spanning 8 fixed cols */}
                                   <div style={{ gridColumn: "1 / 9", padding: "3px 14px", borderLeft: B_CELL, borderBottom: B_CELL, display: "grid", gridTemplateColumns: "1fr 90px 80px", alignItems: "center", gap: 8, opacity: closed ? 0.5 : 1 }}>
                                     <span>
@@ -1769,7 +1844,7 @@ export function GridView({
                           </>
                         ) : (
                           /* ── MATRIX VIEW — read-only, full size breakdown ── */
-                          <div style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
+                          <div className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
                             <div style={{ gridColumn: `1 / ${8 + phases.length * 5 + 1}`, borderLeft: B_CELL, borderBottom: B_CELL, padding: "12px 14px", overflowX: "auto" }}>
                               {allItems.length === 0 ? (
                                 <div style={{ color: "#374151", fontSize: 12 }}>No line items on this PO.</div>
