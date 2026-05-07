@@ -13,6 +13,7 @@ import * as XLSX from "xlsx";
 import { SB_HEADERS, SB_URL } from "../../utils/supabase";
 import { wholesaleRepo } from "./wholesalePlanningRepository";
 import { canonSku as sharedCanonSku, canonStyleColor } from "../utils/skuCanon";
+import { extractPpk } from "../../shared/prepack";
 
 export interface ExcelIngestResult {
   parsed: number;
@@ -686,14 +687,38 @@ export async function ingestItemMasterExcel(
     //     by style and the cost surfaces as the pack cost.
     const explicitStyle = String(pick(r, STYLE_ALIASES) ?? "").trim();
     const explicitColor = String(pick(r, COLOR_ALIASES) ?? "").trim() || null;
-    const explicitSize = String(pick(r, SIZE_ALIASES) ?? "").trim() || null;
+    const rawSize = String(pick(r, SIZE_ALIASES) ?? "").trim() || null;
     const explicitSkuRaw = canon(pick(r, SKU_ALIASES) as string);
     const descRaw = String(pick(r, DESC_ALIASES) ?? "").trim();
     const isPrepack =
       /PPK/i.test(explicitColor ?? "") ||
-      /PPK/i.test(explicitSize ?? "") ||
+      /PPK/i.test(rawSize ?? "") ||
       /PPK/i.test(descRaw) ||
       /PPK/i.test(explicitSkuRaw ?? "");
+    // Pre-pack size fallback. When the Excel's Size column is blank
+    // but the row is detected as a pre-pack (PPK token in any of the
+    // other fields), derive the multiplier number from wherever it
+    // appears and store it as "PPK{n}" so ATS / planning can compute
+    // the pack→unit multiplier at lookup time. Without this, Excel
+    // exports with sparse Size columns produce master rows whose
+    // size is null, and the multiplier silently falls back to 1
+    // (under-counting prepack inventory by the multiplier — the bug
+    // we just spent the day cleaning up via SQL backfill).
+    //
+    // Order matches the planning grid's resolution chain so the same
+    // number wins regardless of which field carries the token. Color
+    // first because that's where the planning grid found it most
+    // often historically; size last because if size already carried
+    // a PPKn we wouldn't be in this branch.
+    let explicitSize = rawSize;
+    if (isPrepack && !explicitSize) {
+      const detected =
+        extractPpk(explicitColor) ??
+        extractPpk(descRaw) ??
+        extractPpk(explicitStyle) ??
+        extractPpk(explicitSkuRaw);
+      if (detected) explicitSize = `PPK${detected}`;
+    }
     // Bare style code for prepacks. Computed once and reused for both
     // the rolled-up `sku` composition and the `style_code` field of
     // the rolled-up + variant rows below. Empty when not a prepack.
