@@ -50,18 +50,20 @@ const TOTALS_ROW_HEIGHT = 86;
 
 // Sticky-left column definitions. Order matters — drives both the
 // header rendering and the data-row cell order. Width is in px.
-// On Hand / On Order / On PO at 120px so the biggest number we'll
-// see (~10-char "+1,377,376") has two character-widths of clearance
-// on each side.
+// On Hand / On Order / On PO sized for the per-row max (XXX,XXX,
+// 6 digits + comma + optional sign = 8 chars) with two char-widths
+// of clearance on each side. The TOTALS row can carry a larger sum
+// (e.g. +1,377,376) but that's a single row and fits in the 100px
+// column without overflow.
 const STICKY_COLS = [
   { key: "category",    width: 110 },
   { key: "subCategory", width: 110 },
   { key: "style",       width: 100 },
   { key: "description", width: 180 },
   { key: "color",       width: 130 },
-  { key: "onHand",      width: 120 },
-  { key: "onOrder",     width: 120 },
-  { key: "onPO",        width: 120 },
+  { key: "onHand",      width: 100 },
+  { key: "onOrder",     width: 100 },
+  { key: "onPO",        width: 100 },
 ] as const;
 type StickyKey = typeof STICKY_COLS[number]["key"];
 
@@ -384,19 +386,19 @@ export const GridTable: React.FC<GridTableProps> = ({
             })}
             {/* On Hand sum */}
             {!isHidden("onHand") && (
-              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeft("onHand", hidden) ?? 0, minWidth: 120, zIndex: 4 }}>
+              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeft("onHand", hidden) ?? 0, minWidth: 100, zIndex: 4 }}>
                 <TotalsCell qty={sums.onHand.qty} cost={sums.onHand.cost} sale={sums.onHand.sale} skipped={sums.onHand.skipped} qtyColor="#F1F5F9" />
               </th>
             )}
             {/* On Order sum */}
             {!isHidden("onOrder") && (
-              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeft("onOrder", hidden) ?? 0, minWidth: 120, zIndex: 4 }}>
+              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeft("onOrder", hidden) ?? 0, minWidth: 100, zIndex: 4 }}>
                 <TotalsCell qty={sums.onOrder.qty} cost={sums.onOrder.cost} sale={sums.onOrder.sale} skipped={sums.onOrder.skipped} qtyColor="#F59E0B" />
               </th>
             )}
             {/* On PO sum */}
             {!isHidden("onPO") && (
-              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeft("onPO", hidden) ?? 0, minWidth: 120, zIndex: 4 }}>
+              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeft("onPO", hidden) ?? 0, minWidth: 100, zIndex: 4 }}>
                 <TotalsCell qty={sums.onPO.qty} cost={sums.onPO.cost} sale={sums.onPO.sale} skipped={sums.onPO.skipped} qtyColor="#10B981" qtyPrefix="+" />
               </th>
             )}
