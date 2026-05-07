@@ -1,5 +1,6 @@
 import React from "react";
 import S from "../styles";
+import SharedToast from "../../shared/ui/Toast";
 
 // A collection of small notification/feedback overlays that all render
 // conditionally and share no state. Grouped here rather than one file each
@@ -104,21 +105,24 @@ export const UploadProgressOverlay: React.FC<UploadProgressOverlayProps> = ({ up
   );
 };
 
+// Adapter over the shared Toast so callers keep the legacy
+// (uploadSuccess, setUploadSuccess) shape — the underlying state
+// in atsTypes is still `uploadSuccess: string | null`. Visual is
+// now the shared bright-green toast (matches planning + tanda).
+// The 6-second auto-dismiss in useExcelUpload still drives final
+// removal; passing kind="success" makes the toast click-dismissable
+// in case the user wants to clear it sooner.
 interface SuccessToastProps {
   uploadSuccess: string | null;
   setUploadSuccess: (v: string | null) => void;
 }
 
-export const SuccessToast: React.FC<SuccessToastProps> = ({ uploadSuccess, setUploadSuccess }) => {
-  if (!uploadSuccess) return null;
-  return (
-    <div style={{ position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)", background: "#064e3b", border: "1px solid #10B981", borderRadius: 10, padding: "12px 24px", color: "#6ee7b7", fontSize: 14, fontWeight: 600, zIndex: 300, display: "flex", alignItems: "center", gap: 10, boxShadow: "0 4px 24px rgba(0,0,0,0.4)" }}>
-      <span style={{ fontSize: 18 }}>✓</span>
-      {uploadSuccess}
-      <button style={{ background: "none", border: "none", color: "#6ee7b7", cursor: "pointer", fontSize: 16, marginLeft: 8 }} onClick={() => setUploadSuccess(null)}>✕</button>
-    </div>
-  );
-};
+export const SuccessToast: React.FC<SuccessToastProps> = ({ uploadSuccess, setUploadSuccess }) => (
+  <SharedToast
+    toast={uploadSuccess ? { text: uploadSuccess, kind: "success" } : null}
+    onDismiss={() => setUploadSuccess(null)}
+  />
+);
 
 interface SyncErrorModalProps {
   syncError: { title: string; detail: string } | null;

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import SharedToast from "./shared/ui/Toast";
 import { msSignIn, loadMsTokens, saveMsTokens, clearMsTokens, getMsAccessToken, MS_CLIENT_ID, MS_TENANT_ID } from "./utils/msAuth";
 import { useMSAuth, friendlyContactError } from "./tanda/hooks/useMSAuth";
 import { useDashboardData } from "./tanda/hooks/useDashboardData";
@@ -1755,11 +1756,18 @@ function TandAApp() {
           </div>
         </div>
       )}
-      {toast && (
-        <div style={{ position: "fixed", bottom: 32, left: "50%", transform: "translateX(-50%)", background: "#10B981", color: "#fff", padding: "12px 28px", borderRadius: 10, fontSize: 15, fontWeight: 700, boxShadow: "0 8px 32px rgba(0,0,0,0.4)", zIndex: 400, pointerEvents: "none" }}>
-          ✓ {toast}
-        </div>
-      )}
+      {/* Shared bottom-center toast — same component planning + ATS
+          use. Tanda's existing state shape is `string | null` so we
+          adapt at the render site. Most call sites are success
+          messages; the few error-style strings ("Failed to save…",
+          "Cascade partially failed…") render as success-green here
+          for now — left as a follow-up to migrate state to
+          ToastMessage and pick the kind per call. */}
+      <SharedToast
+        toast={toast ? { text: toast, kind: "success" } : null}
+        onDismiss={() => setToast(null)}
+      />
+
       {confirmModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => { confirmModal.onCancel?.(); setConfirmModal(null); }}>
           <div style={{ background: "#1E293B", borderRadius: 16, width: 420, border: `1px solid ${confirmModal.confirmColor}44`, boxShadow: "0 24px 64px rgba(0,0,0,0.5)", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
