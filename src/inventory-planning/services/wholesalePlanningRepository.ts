@@ -263,9 +263,22 @@ export const wholesaleRepo = {
     // — the JSONB blob alone was the bulk of every item-master fetch.
     const COLS = "id,sku_code,style_code,description,category_id,color,size,unit_cost,attributes";
     const out: IpItem[] = [];
-    const PAGE = 1000;
+    // Smaller page size to stay under PostgREST's statement timeout.
+    // The attributes JSONB column TOASTs to its own pages on disk;
+    // fetching 1000 rows at a time pulled enough JSONB to time out
+    // on a 35k+ row catalog. 500 cuts each query in half — total
+    // wall time barely changes (PostgREST batches efficiently) but
+    // each individual query stays under the timeout cap.
+    //
+    // Each page wrapped in withRetryOn57014 so transient timeouts
+    // (concurrent sync running, vacuum holding a lock briefly)
+    // get a single retry instead of failing the whole sync.
+    const PAGE = 500;
     for (let offset = 0; ; offset += PAGE) {
-      const chunk = await sbGet<IpItem>(`ip_item_master?select=${COLS}&order=sku_code.asc&limit=${PAGE}&offset=${offset}`);
+      const chunk = await withRetryOn57014(
+        `listItems offset=${offset}`,
+        () => sbGet<IpItem>(`ip_item_master?select=${COLS}&order=sku_code.asc&limit=${PAGE}&offset=${offset}`),
+      );
       out.push(...chunk);
       if (chunk.length < PAGE) break;
       if (offset > 200_000) break; // safety cap
