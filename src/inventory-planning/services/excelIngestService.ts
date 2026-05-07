@@ -21,6 +21,14 @@ export interface ExcelIngestResult {
   skipped_no_date: number;
   skipped_zero_qty: number;
   skipped_bad_cost: number;
+  // Rows collapsed because their identifying key was already seen
+  // earlier in the same upload. Master ingest dedupes on Style; Xoro
+  // exports typically have one row per Style+Color+Size variant, so
+  // the master upload routinely sees thousands of duplicate-style
+  // rows that collapse to a single style-level master row. Counting
+  // them here so the upload-summary modal accounts for every parsed
+  // row (rows_read = rows_saved + skipped_*).
+  skipped_duplicate: number;
   errors: string[];
   // Data-quality warnings raised at ingest time. Variant rows missing
   // identifying dimensions (color/size) are flagged here so the planner
@@ -39,7 +47,8 @@ export interface ExcelIngestResult {
 
 const empty = (): ExcelIngestResult => ({
   parsed: 0, inserted: 0, skipped_no_sku: 0,
-  skipped_no_date: 0, skipped_zero_qty: 0, skipped_bad_cost: 0, errors: [],
+  skipped_no_date: 0, skipped_zero_qty: 0, skipped_bad_cost: 0,
+  skipped_duplicate: 0, errors: [],
   warnings: [],
 });
 
@@ -349,6 +358,11 @@ export async function ingestSalesExcel(
     const key = String(row.source_line_key);
     const existing = merged.get(key);
     if (!existing) { merged.set(key, row); continue; }
+    // Counted as a duplicate so the upload-summary modal can show
+    // every parsed row accounted for. The aggregate path above
+    // weight-averages the prices and sums qty — no data is lost,
+    // it just collapses N variant rows to 1 master row.
+    result.skipped_duplicate++;
     const eQty = Number(existing.qty) || 0;
     const rQty = Number(row.qty) || 0;
     const totalQty = eQty + rQty;
@@ -532,6 +546,7 @@ export async function ingestItemMasterExcel(
     }
     if (!sku || seenSkus.has(sku)) {
       if (!sku) result.skipped_no_sku++;
+      else result.skipped_duplicate++;
       continue;
     }
     seenSkus.add(sku);

@@ -171,6 +171,7 @@ export default function WholesalePlanningWorkbench() {
     skipped_no_date: number;
     skipped_zero_qty: number;
     skipped_bad_cost: number;
+    skipped_duplicate: number;
     errors: string[];
     warnings: string[];
     failedMessage?: string;  // when the whole upload threw
@@ -468,6 +469,7 @@ export default function WholesalePlanningWorkbench() {
         skipped_no_date: r.skipped_no_date ?? 0,
         skipped_zero_qty: r.skipped_zero_qty ?? 0,
         skipped_bad_cost: r.skipped_bad_cost ?? 0,
+        skipped_duplicate: r.skipped_duplicate ?? 0,
         errors: r.errors ?? [],
         warnings: r.warnings ?? [],
       });
@@ -479,6 +481,7 @@ export default function WholesalePlanningWorkbench() {
         fileName: file.name,
         parsed: 0, inserted: 0,
         skipped_no_sku: 0, skipped_no_date: 0, skipped_zero_qty: 0, skipped_bad_cost: 0,
+        skipped_duplicate: 0,
         errors: [], warnings: [],
         failedMessage: msg,
       });
@@ -2396,7 +2399,7 @@ export default function WholesalePlanningWorkbench() {
           can't accidentally lose the summary. */}
       {uploadSummary && (() => {
         const u = uploadSummary;
-        const skipped = u.skipped_no_sku + u.skipped_no_date + u.skipped_zero_qty + u.skipped_bad_cost;
+        const skipped = u.skipped_no_sku + u.skipped_no_date + u.skipped_zero_qty + u.skipped_bad_cost + u.skipped_duplicate;
         const hasIssues = u.failedMessage || u.errors.length > 0 || u.warnings.length > 0;
         const accent = u.failedMessage ? PAL.red : (hasIssues ? PAL.yellow : PAL.green);
         return (
@@ -2455,6 +2458,9 @@ export default function WholesalePlanningWorkbench() {
                         {u.skipped_no_date > 0 && <div>· <strong>{u.skipped_no_date.toLocaleString()}</strong> rows missing date</div>}
                         {u.skipped_zero_qty > 0 && <div>· <strong>{u.skipped_zero_qty.toLocaleString()}</strong> rows with zero quantity</div>}
                         {u.skipped_bad_cost > 0 && <div>· <strong>{u.skipped_bad_cost.toLocaleString()}</strong> rows with unparseable cost</div>}
+                        {u.skipped_duplicate > 0 && (
+                          <div>· <strong>{u.skipped_duplicate.toLocaleString()}</strong> duplicate {u.kind === "master" ? "styles (Excel had multiple variant rows per style — collapsed to one master row)" : "lines (same invoice + style+color + date — qty summed, prices weight-averaged)"}</div>
+                        )}
                       </div>
                     </div>
                   )}
