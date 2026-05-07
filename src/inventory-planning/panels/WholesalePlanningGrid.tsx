@@ -330,6 +330,14 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // freshly-renamed SKUs that may not have data attached yet. Default
   // ON so renames / migrations don't silently disappear from the view.
   const [showZeroRows, setShowZeroRows] = usePersistedBool("showZeroRows", true);
+  // EXPLODE PPK toggle. When ON (default), supply-side qtys for
+  // prepack rows are multiplied by units-per-pack (e.g. 5 packs of
+  // PPK24 → 120 units) so the grid reads in selling units. When
+  // OFF, qtys stay in pack grain. Costs invert (per-unit when ON,
+  // per-pack when OFF). Demand fields (forecast / buyer / override
+  // / planned_buy) are entered in selling units always and don't
+  // multiply either way.
+  const [explodePpk, setExplodePpk] = usePersistedBool("explodePpk", true);
   // Inline "+ Add row" form state. Closed by default; opens above
   // the table to the planner's chosen cat/sub-cat/customer + first
   // period of the run. Style + color default to "TBD". Persists
@@ -503,7 +511,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   };
   // Reset to first page whenever filters/sort change so the user doesn't
   // wonder why an empty page is showing.
-  useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, sortKey, sortDir, pageSize, collapse, systemSuggestionsOn, showZeroRows]);
+  useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, sortKey, sortDir, pageSize, collapse, systemSuggestionsOn, showZeroRows, explodePpk]);
 
   // Report active build-relevant filters up to the workbench so the
   // PlanningRunControls' Build button can scope itself to this subset.
@@ -911,6 +919,9 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     // / buyer / override) and planned_buy_qty are entered in selling
     // units already and stay unchanged.
     const expanded = base.map((r) => {
+      // EXPLODE PPK toggle off → skip the multiplier entirely so
+      // supply qtys stay in pack grain and costs stay per-pack.
+      if (!explodePpk) return r;
       const mult = ppkMultiplier(r.sku_color, r.sku_size, r.sku_description, r.sku_style);
       if (mult === 1) return r;
       const divCost = (c: number | null | undefined): number | null => {
@@ -942,7 +953,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       system_forecast_qty: 0,
       final_forecast_qty: Math.max(0, 0 + r.buyer_request_qty + r.override_qty),
     }));
-  }, [rows, search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, systemSuggestionsOn, showZeroRows]);
+  }, [rows, search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, systemSuggestionsOn, showZeroRows, explodePpk]);
 
   // Notify the workbench when the visible (filter+mute) row set changes
   // so MonthlyTotalsCards uses the same subset (drives the top FINAL
@@ -1981,6 +1992,11 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
           label={showZeroRows ? "Zero-qty rows: ON" : "Zero-qty rows: OFF"}
           active={!showZeroRows}
           onToggle={() => setShowZeroRows(!showZeroRows)}
+        />
+        <CollapseToggle
+          label={explodePpk ? "Explode PPK: ON" : "Explode PPK: OFF"}
+          active={!explodePpk}
+          onToggle={() => setExplodePpk(!explodePpk)}
         />
       </div>
 
