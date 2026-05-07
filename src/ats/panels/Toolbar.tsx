@@ -360,30 +360,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <span style={{ color: showTotalsRow ? "#93C5FD" : "#9CA3AF", fontSize: 12, fontWeight: showTotalsRow ? 700 : 400 }}>TOTALS</span>
     </label>
 
-    {/* Stats-cards visibility toggle — green triangle. ▼ when cards are
-        showing (point-down = "click to collapse"), ▶ when hidden (click
-        to expand). Lets the operator reclaim ~140px of vertical space
-        on a laptop screen. */}
-    <button
-      onClick={() => setShowStatsCards(!showStatsCards)}
-      title={showStatsCards ? "Hide the stat cards on top" : "Show the stat cards on top"}
-      style={{
-        background: "transparent",
-        border: `1px solid ${showStatsCards ? "#10B981" : "#334155"}`,
-        color: "#10B981",
-        cursor: "pointer",
-        padding: "4px 10px",
-        borderRadius: 8,
-        fontSize: 13,
-        lineHeight: 1,
-        display: "inline-flex",
-        alignItems: "center",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {showStatsCards ? "▼" : "▶"}
-    </button>
-
     {/* General margin % — fills in Sale / Cost when SOs / avg cost / PO cost are missing.
        Only relevant when the totals header is showing, so the
        bubble is hidden when TOTALS is off. Once the user changes
@@ -430,6 +406,32 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       {filteredCount.toLocaleString()} SKUs
       {lastSync && <span style={{ display: "block" }}>Synced {fmtDateDisplay(lastSync.split("T")[0])} {new Date(lastSync).toLocaleTimeString()}</span>}
     </div>
+
+    {/* Stats-cards visibility toggle — green triangle. Anchored hard-
+        right via marginLeft:auto so it always sits at the top-right
+        corner of the toolbar regardless of how many filters are open
+        or whether MARGIN is visible. ▼ when cards are showing (= click
+        to collapse), ▶ when hidden (= click to expand). */}
+    <button
+      onClick={() => setShowStatsCards(!showStatsCards)}
+      title={showStatsCards ? "Hide the stat cards on top" : "Show the stat cards on top"}
+      style={{
+        marginLeft: "auto",
+        background: "transparent",
+        border: `1px solid ${showStatsCards ? "#10B981" : "#334155"}`,
+        color: "#10B981",
+        cursor: "pointer",
+        padding: "4px 10px",
+        borderRadius: 8,
+        fontSize: 13,
+        lineHeight: 1,
+        display: "inline-flex",
+        alignItems: "center",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {showStatsCards ? "▼" : "▶"}
+    </button>
   </div>
   );
 };

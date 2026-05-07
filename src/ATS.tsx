@@ -75,7 +75,7 @@ function ATSReport() {
     page, excelData, uploadingFile, uploadProgress, uploadSuccess, uploadError,
     uploadWarnings, pendingUploadData, showUpload, invFile, purFile, ordFile,
     syncing, syncStatus, lastSync, syncError, hoveredCell, pinnedSku, ctxMenu,
-    summaryCtx, activeSort, sortCol, sortDir, mergeHistory, atShip, showTotalsRow, generalMarginPct,
+    summaryCtx, activeSort, sortCol, sortDir, mergeHistory, atShip, showTotalsRow, showStatsCards, generalMarginPct,
     normChanges, normPendingData, normSource, customerFilter, customerDropOpen,
     customerSearch, collapseLevel, expandedGroups,
   } = st;
@@ -120,6 +120,7 @@ function ATSReport() {
   const setMergeHistory      = mk("mergeHistory");
   const setAtShip            = mk("atShip");
   const setShowTotalsRow     = mk("showTotalsRow");
+  const setShowStatsCards    = mk("showStatsCards");
   const setGeneralMarginPct  = mk("generalMarginPct");
   const setNormChanges       = mk("normChanges");
   const setNormPendingData   = mk("normPendingData");
@@ -941,6 +942,7 @@ function ATSReport() {
     mergeHistory, setMergeHistory, saveMergeHistory, undoLastMerge, clearMergeAndNavigate,
     atShip, setAtShip, onNegInven, onAgedInven,
     showTotalsRow, setShowTotalsRow,
+    showStatsCards, setShowStatsCards,
     generalMarginPct, setGeneralMarginPct,
     collapseLevel, setCollapseLevel, expandedGroups, setExpandedGroups, toggleExpandGroup, expandedGroupSet,
     unreadNotifs,
