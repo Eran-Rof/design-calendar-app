@@ -35,6 +35,18 @@ export interface ExcelIngestResult {
   // only point at rolled-up sku_ids), used by the future PO builder
   // to assemble Xoro-shape line items at the full SKU grain.
   inserted_variants: number;
+  // Excel rows that collided on the (style, color, size) variant
+  // key with an already-recorded variant — true duplicates of the
+  // same physical SKU in the source spreadsheet. Distinguished
+  // from skipped_duplicate (which counts (style, color) collisions
+  // for the rolled-up pass) so the math holds:
+  //   parsed = inserted_variants + skipped_variant_duplicate
+  //          + skipped_no_sku + (other skip buckets)
+  skipped_variant_duplicate: number;
+  // Full list of rolled-up SKUs whose Excel rows had no Size value
+  // populated. Surfaced as a copy-to-clipboard list in the upload
+  // modal so the planner can fix the source spreadsheet.
+  no_size_skus: string[];
   errors: string[];
   // Data-quality warnings raised at ingest time. Variant rows missing
   // identifying dimensions (color/size) are flagged here so the planner
@@ -54,7 +66,9 @@ export interface ExcelIngestResult {
 const empty = (): ExcelIngestResult => ({
   parsed: 0, inserted: 0, skipped_no_sku: 0,
   skipped_no_date: 0, skipped_zero_qty: 0, skipped_bad_cost: 0,
-  skipped_duplicate: 0, inserted_variants: 0, errors: [],
+  skipped_duplicate: 0, inserted_variants: 0,
+  skipped_variant_duplicate: 0, no_size_skus: [],
+  errors: [],
   warnings: [],
 });
 
@@ -608,6 +622,12 @@ export async function ingestItemMasterExcel(
       // For non-pre-packs we want size in the key when present.
       const sizePart = explicitSize ? `-${explicitSize}` : "";
       const variantSku = isPrepack ? sku : (sizePart ? canon(sku + sizePart) : sku);
+      // Capture every Excel row that's a variant (non-prepack)
+      // missing a Size value, so the modal can surface the full
+      // list (not just samples) for the planner to copy + fix.
+      if (!isPrepack && !explicitSize) {
+        result.no_size_skus.push(variantSku);
+      }
       if (!seenVariantSkus.has(variantSku)) {
         seenVariantSkus.add(variantSku);
         const variantRow: Record<string, unknown> = {
@@ -625,6 +645,11 @@ export async function ingestItemMasterExcel(
         const variantCost = toNum(pick(r, COST_ALIASES));
         if (variantCost != null && variantCost >= 0) variantRow.unit_cost = variantCost;
         variantPayload.push(variantRow);
+      } else {
+        // True (style, color, size) duplicate — same physical SKU
+        // appeared earlier in the spreadsheet. Count separately so
+        // the planner can see exactly how many rows collapsed.
+        result.skipped_variant_duplicate++;
       }
     }
 

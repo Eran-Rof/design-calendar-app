@@ -173,6 +173,8 @@ export default function WholesalePlanningWorkbench() {
     skipped_bad_cost: number;
     skipped_duplicate: number;
     inserted_variants: number;
+    skipped_variant_duplicate: number;
+    no_size_skus: string[];
     errors: string[];
     warnings: string[];
     failedMessage?: string;  // when the whole upload threw
@@ -472,6 +474,8 @@ export default function WholesalePlanningWorkbench() {
         skipped_bad_cost: r.skipped_bad_cost ?? 0,
         skipped_duplicate: r.skipped_duplicate ?? 0,
         inserted_variants: r.inserted_variants ?? 0,
+        skipped_variant_duplicate: r.skipped_variant_duplicate ?? 0,
+        no_size_skus: r.no_size_skus ?? [],
         errors: r.errors ?? [],
         warnings: r.warnings ?? [],
       });
@@ -484,6 +488,7 @@ export default function WholesalePlanningWorkbench() {
         parsed: 0, inserted: 0,
         skipped_no_sku: 0, skipped_no_date: 0, skipped_zero_qty: 0, skipped_bad_cost: 0,
         skipped_duplicate: 0, inserted_variants: 0,
+        skipped_variant_duplicate: 0, no_size_skus: [],
         errors: [], warnings: [],
         failedMessage: msg,
       });
@@ -2401,7 +2406,7 @@ export default function WholesalePlanningWorkbench() {
           can't accidentally lose the summary. */}
       {uploadSummary && (() => {
         const u = uploadSummary;
-        const skipped = u.skipped_no_sku + u.skipped_no_date + u.skipped_zero_qty + u.skipped_bad_cost + u.skipped_duplicate;
+        const skipped = u.skipped_no_sku + u.skipped_no_date + u.skipped_zero_qty + u.skipped_bad_cost + u.skipped_duplicate + u.skipped_variant_duplicate;
         const hasIssues = u.failedMessage || u.errors.length > 0 || u.warnings.length > 0;
         const accent = u.failedMessage ? PAL.red : (hasIssues ? PAL.yellow : PAL.green);
         return (
@@ -2471,6 +2476,9 @@ export default function WholesalePlanningWorkbench() {
                             ? `(style, color) pairs — Excel had multiple sizes per (style, color), collapsed to one rolled-up row each. Size data preserved separately as ${u.inserted_variants.toLocaleString()} variant rows above (used by future PO builder).`
                             : "lines (same invoice + style+color + date — qty summed, prices weight-averaged)"}</div>
                         )}
+                        {u.skipped_variant_duplicate > 0 && u.kind === "master" && (
+                          <div>· <strong>{u.skipped_variant_duplicate.toLocaleString()}</strong> duplicate (style, color, size) variants — same physical SKU appeared more than once in the spreadsheet. Last occurrence kept; the rest collapsed.</div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -2482,6 +2490,48 @@ export default function WholesalePlanningWorkbench() {
                         {u.warnings.slice(0, 5).map((w, i) => <div key={i}>· {w}</div>)}
                         {u.warnings.length > 5 && <div style={{ color: PAL.textMuted }}>+ {u.warnings.length - 5} more in console</div>}
                       </div>
+                      {/* Full SKU list of variant rows missing Size,
+                          with copy-to-clipboard so the planner can fix
+                          the source spreadsheet without re-deriving the
+                          list from console. */}
+                      {u.no_size_skus.length > 0 && (
+                        <details style={{ marginTop: 8 }}>
+                          <summary style={{ cursor: "pointer", fontSize: 12, color: PAL.yellow, fontWeight: 600 }}>
+                            ▸ View {u.no_size_skus.length.toLocaleString()} SKU{u.no_size_skus.length === 1 ? "" : "s"} missing Size
+                          </summary>
+                          <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+                            <button
+                              type="button"
+                              style={{ ...S.btnSecondary, alignSelf: "flex-start", fontSize: 11, padding: "4px 10px" }}
+                              onClick={async () => {
+                                try {
+                                  await navigator.clipboard.writeText(u.no_size_skus.join("\n"));
+                                  setToast({ text: `Copied ${u.no_size_skus.length.toLocaleString()} SKUs to clipboard`, kind: "success" });
+                                } catch {
+                                  setToast({ text: "Couldn't copy — your browser blocked clipboard access", kind: "error" });
+                                }
+                              }}
+                            >
+                              Copy all to clipboard
+                            </button>
+                            <textarea
+                              readOnly
+                              value={u.no_size_skus.join("\n")}
+                              onFocus={(e) => e.currentTarget.select()}
+                              style={{
+                                ...S.input,
+                                width: "100%",
+                                maxHeight: 180,
+                                minHeight: 80,
+                                fontFamily: "monospace",
+                                fontSize: 11,
+                                resize: "vertical" as const,
+                                background: PAL.bg,
+                              }}
+                            />
+                          </div>
+                        </details>
+                      )}
                     </div>
                   )}
 
