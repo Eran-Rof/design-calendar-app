@@ -8,6 +8,57 @@ import type { ATSRow, ATSPoEvent, ATSSoEvent, CtxMenu } from "../types";
 // repeat which gives smooth continuous scroll.
 const ARROW_SCROLL_PX = 60;
 
+// Renders a qty cell that shows either the unit-grain or pack-grain
+// number based on the EXPLODE PPK toggle, with a small faded hint
+// underneath telling the operator the other-side conversion.
+//
+//   non-prepack (mult=1)          → just the number
+//   prepack + explode=true        → "120" + faded "PPK24 × 5"
+//   prepack + explode=false       → "5"   + faded "PPK24 = 120"
+//
+// `qty` is always passed in unit grain (compute.ts already exploded
+// it). The pack-grain value is qty / mult.
+function renderQty(opts: {
+  qty: number;
+  mult: number;
+  explode: boolean;
+  color: string;
+  prefix?: string;
+  zeroDisplay?: string;
+}): React.ReactNode {
+  const { qty, mult, explode, color, prefix = "", zeroDisplay } = opts;
+  const baseStyle: React.CSSProperties = { color, fontWeight: 600, fontFamily: "monospace", fontSize: 13 };
+  const formatNum = (n: number) => Number.isFinite(n) ? n.toLocaleString() : "—";
+
+  // Non-prepack — match the previous render exactly.
+  if (mult <= 1) {
+    return (
+      <span style={baseStyle}>
+        {qty > 0 || zeroDisplay == null ? `${prefix}${formatNum(qty)}` : zeroDisplay}
+      </span>
+    );
+  }
+
+  // Prepack — primary + faded hint.
+  const packs = qty / mult;
+  const primary = explode ? qty : packs;
+  const hint = explode
+    ? `PPK${mult} × ${formatNum(packs)}`
+    : `PPK${mult} = ${formatNum(qty)}`;
+  return (
+    <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", lineHeight: 1.15 }}>
+      <span style={baseStyle}>
+        {qty > 0 || zeroDisplay == null ? `${prefix}${formatNum(primary)}` : zeroDisplay}
+      </span>
+      {qty > 0 && (
+        <span style={{ color: "#6B7280", fontSize: 9, fontFamily: "monospace", opacity: 0.75, marginTop: 1 }}>
+          {hint}
+        </span>
+      )}
+    </span>
+  );
+}
+
 // Scroll the table on arrow keys when no text input has focus. Listens
 // at the window level so the operator doesn't need to click the table
 // first — they can scan the grid as soon as they release the search box.
@@ -135,6 +186,10 @@ interface GridTableProps {
   todayKey: string;
   atShip: boolean;
   showTotalsRow: boolean;
+  // Whether to render prepack qtys as units (exploded) or as packs.
+  // ON shows packs × units-per-pack; OFF shows pack count + faded
+  // "PPKn = N" hint with the unit-grain equivalent.
+  explodePpk: boolean;
   // Per-column hide list for the sticky-left columns. Operator toggles
   // these via the Toolbar's "Columns" dropdown.
   hiddenColumns: string[];
@@ -159,7 +214,7 @@ export const GridTable: React.FC<GridTableProps> = ({
   sortCol, sortDir, handleThClick, rangeUnit,
   pinnedSku, setPinnedSku, dragSku, setDragSku, dragOverSku, setDragOverSku,
   hoveredCell, setHoveredCell,
-  todayKey, atShip, showTotalsRow, hiddenColumns, generalMarginPct, eventIndex, getEventsInPeriod,
+  todayKey, atShip, showTotalsRow, explodePpk, hiddenColumns, generalMarginPct, eventIndex, getEventsInPeriod,
   ctxMenu, setCtxMenu, setSummaryCtx,
   openSummaryCtx, handleSkuDrop, toggleExpandGroup, expandedGroupSet,
 }) => {
@@ -681,9 +736,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                   style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("onHand", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onHand, background: stickyBg, textAlign: "center", cursor: "context-menu" }}
                   onContextMenu={e => openSummaryCtx(e, "onHand", row)}
                 >
-                  <span style={{ color: "#F1F5F9", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
-                    {row.onHand.toLocaleString()}
-                  </span>
+                  {renderQty({ qty: row.onHand, mult: row.ppkMult ?? 1, explode: explodePpk, color: "#F1F5F9" })}
                 </td>
                 )}
                 {/* On Order (committed SOs) */}
@@ -692,9 +745,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                   style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("onOrder", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onOrder, background: stickyBg, textAlign: "center", cursor: row.onOrder > 0 ? "context-menu" : "default" }}
                   onContextMenu={e => { if (row.onOrder > 0) openSummaryCtx(e, "onOrder", row); }}
                 >
-                  <span style={{ color: "#F59E0B", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
-                    {row.onOrder > 0 ? row.onOrder.toLocaleString() : "—"}
-                  </span>
+                  {renderQty({ qty: row.onOrder, mult: row.ppkMult ?? 1, explode: explodePpk, color: "#F59E0B", zeroDisplay: "—" })}
                 </td>
                 )}
                 {/* On PO (open purchase orders) */}
@@ -703,9 +754,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                   style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("onPO", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onPO, background: stickyBg, textAlign: "center", cursor: row.onPO > 0 ? "context-menu" : "default" }}
                   onContextMenu={e => { if (row.onPO > 0) openSummaryCtx(e, "onPO", row); }}
                 >
-                  <span style={{ color: "#10B981", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
-                    {row.onPO > 0 ? `+${row.onPO.toLocaleString()}` : "—"}
-                  </span>
+                  {renderQty({ qty: row.onPO, mult: row.ppkMult ?? 1, explode: explodePpk, color: "#10B981", prefix: "+", zeroDisplay: "—" })}
                 </td>
                 )}
                 {/* Period cells */}

@@ -21,7 +21,7 @@ export function applyPpkMultiplierToRow(row: ATSRow): ATSRow {
     masterHit.style ?? row.sku,
     row.sku,
   );
-  if (mult === 1) return row;
+  if (mult === 1) return { ...row, ppkMult: 1 };
   const newDates: Record<string, number> = {};
   for (const [date, qty] of Object.entries(row.dates)) newDates[date] = qty * mult;
   let newFreeMap: Record<string, number> | undefined;
@@ -37,6 +37,7 @@ export function applyPpkMultiplierToRow(row: ATSRow): ATSRow {
     dates: newDates,
     freeMap: newFreeMap,
     avgCost: row.avgCost != null ? row.avgCost / mult : row.avgCost,
+    ppkMult: mult,
   };
 }
 
@@ -146,6 +147,6 @@ export function computeRowsFromExcelData(data: ExcelData, dates: string[], poSto
     // qty multiplies and the cost divides, it stays the same number,
     // so we leave it as-is.
     const avgCost = s.avgCost != null ? s.avgCost / mult : s.avgCost;
-    return { sku: s.sku, description: s.description, category: s.category, gender: s.gender, store: s.store, onHand: s.onHand * mult, onPO, onOrder, dates: dateMap, freeMap, avgCost, lastReceiptDate: s.lastReceiptDate, totalAmount: s.totalAmount };
+    return { sku: s.sku, description: s.description, category: s.category, gender: s.gender, store: s.store, onHand: s.onHand * mult, onPO, onOrder, dates: dateMap, freeMap, avgCost, lastReceiptDate: s.lastReceiptDate, totalAmount: s.totalAmount, ppkMult: mult };
   });
 }

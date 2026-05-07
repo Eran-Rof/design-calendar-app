@@ -66,6 +66,13 @@ export interface ATSState {
   // Zero Stock, Neg ATS, etc.). Defaults on. Operator hides them to
   // gain vertical room for the grid.
   showStatsCards: boolean;
+  // Toggles whether prepack qtys are shown exploded (unit grain —
+  // packs × units-per-pack) or as raw pack counts. Defaults true
+  // (exploded) so the grid matches selling-unit thinking. When
+  // false, the cell shows the pack count and a faded "PPKn = X"
+  // hint with the unit-grain equivalent so the operator can flip
+  // mental gears without losing the conversion.
+  explodePpk: boolean;
   // Per-column hide list for the grid's left fixed columns. Keys
   // map to the 8 sticky columns (category | subCategory | style |
   // description | color | onHand | onOrder | onPO). Defaults to []
@@ -156,6 +163,7 @@ export function createInitialState(startDate: string): ATSState {
     atShip: false,
     showTotalsRow: false,
     showStatsCards: true,
+    explodePpk: true,
     hiddenColumns: [],
     generalMarginPct: 21,
     collapseLevel: "none",

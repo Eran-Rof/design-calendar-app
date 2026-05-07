@@ -127,6 +127,11 @@ interface ToolbarProps {
   // Sale / Mrgn% summed across the filtered set)
   showTotalsRow: boolean;
   setShowTotalsRow: (v: boolean) => void;
+  // Explode prepacks: ON shows unit-grain qtys (5 packs of PPK24 →
+  // 120). OFF shows pack counts with a faded "PPK24 = 120" hint so
+  // the operator can flip mental gears without recomputing.
+  explodePpk: boolean;
+  setExplodePpk: (v: boolean) => void;
   // Per-column hide list for the grid's left sticky columns.
   hiddenColumns: string[];
   setHiddenColumns: (v: string[]) => void;
@@ -151,6 +156,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   collapseLevel, setCollapseLevel,
   atShip, setAtShip,
   showTotalsRow, setShowTotalsRow,
+  explodePpk, setExplodePpk,
   hiddenColumns, setHiddenColumns,
   generalMarginPct, setGeneralMarginPct,
   filteredCount, lastSync,
@@ -388,6 +394,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     >
       <input type="checkbox" checked={showTotalsRow} onChange={e => setShowTotalsRow(e.target.checked)} style={{ accentColor: "#3B82F6", cursor: "pointer", width: 14, height: 14 }} />
       <span style={{ color: showTotalsRow ? "#93C5FD" : "#9CA3AF", fontSize: 12, fontWeight: showTotalsRow ? 700 : 400 }}>TOTALS</span>
+    </label>
+
+    {/* EXPLODE PPK toggle — ON: unit-grain (default, matches selling units).
+        OFF: pack count + faded "PPKn = N units" hint. */}
+    <label
+      title={explodePpk ? "Showing prepacks as units (packs × units-per-pack). Click to switch to pack counts." : "Showing prepacks as packs. Click to switch to unit grain."}
+      style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "4px 10px", borderRadius: 8, border: `1px solid ${explodePpk ? "#A855F7" : "#334155"}`, background: explodePpk ? "rgba(168,85,247,0.12)" : "transparent", userSelect: "none", whiteSpace: "nowrap" }}
+    >
+      <input type="checkbox" checked={explodePpk} onChange={e => setExplodePpk(e.target.checked)} style={{ accentColor: "#A855F7", cursor: "pointer", width: 14, height: 14 }} />
+      <span style={{ color: explodePpk ? "#C4B5FD" : "#9CA3AF", fontSize: 12, fontWeight: explodePpk ? 700 : 400 }}>EXPLODE PPK</span>
     </label>
 
     {/* Columns visibility dropdown — toggle individual sticky-left

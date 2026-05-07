@@ -123,6 +123,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
   atShip, setAtShip, onNegInven, onAgedInven,
   showTotalsRow, setShowTotalsRow,
   showStatsCards, setShowStatsCards,
+  explodePpk, setExplodePpk,
   hiddenColumns, setHiddenColumns,
   generalMarginPct, setGeneralMarginPct,
   collapseLevel, setCollapseLevel, expandedGroups, expandedGroupSet, toggleExpandGroup,
@@ -238,6 +239,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           collapseLevel={collapseLevel} setCollapseLevel={setCollapseLevel!}
           atShip={atShip} setAtShip={setAtShip}
           showTotalsRow={showTotalsRow} setShowTotalsRow={setShowTotalsRow!}
+          explodePpk={explodePpk ?? true} setExplodePpk={setExplodePpk!}
           hiddenColumns={hiddenColumns ?? []} setHiddenColumns={setHiddenColumns!}
           generalMarginPct={generalMarginPct ?? 21} setGeneralMarginPct={setGeneralMarginPct!}
           filteredCount={filtered.length} lastSync={lastSync}
@@ -274,6 +276,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
             hoveredCell={hoveredCell} setHoveredCell={setHoveredCell}
             todayKey={todayKey} atShip={atShip}
             showTotalsRow={showTotalsRow}
+            explodePpk={explodePpk ?? true}
             hiddenColumns={hiddenColumns ?? []}
             generalMarginPct={generalMarginPct ?? 21}
             eventIndex={eventIndex} getEventsInPeriod={getEventsInPeriod}

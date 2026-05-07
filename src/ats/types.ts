@@ -9,6 +9,12 @@ export interface ATSRow {
   onPO: number;
   onOrder: number;
   onHand: number;
+  // Pack-to-unit multiplier resolved from the master at compute time.
+  // 1 for non-prepack rows. >1 (e.g. 24, 60) for prepacks. Carried on
+  // the row so the grid cell can render the toggle's "show as packs"
+  // mode and the small faded "PPKn × packs" or "PPKn = N units"
+  // annotation without re-running ppkMultiplier on every render.
+  ppkMult: number;
   avgCost?: number;
   lastReceiptDate?: string;
   totalAmount?: number;

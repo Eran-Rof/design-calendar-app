@@ -75,7 +75,7 @@ function ATSReport() {
     page, excelData, uploadingFile, uploadProgress, uploadSuccess, uploadError,
     uploadWarnings, pendingUploadData, showUpload, invFile, purFile, ordFile,
     syncing, syncStatus, lastSync, syncError, hoveredCell, pinnedSku, ctxMenu,
-    summaryCtx, activeSort, sortCol, sortDir, mergeHistory, atShip, showTotalsRow, showStatsCards, hiddenColumns, generalMarginPct,
+    summaryCtx, activeSort, sortCol, sortDir, mergeHistory, atShip, showTotalsRow, showStatsCards, explodePpk, hiddenColumns, generalMarginPct,
     normChanges, normPendingData, normSource, customerFilter, customerDropOpen,
     customerSearch, collapseLevel, expandedGroups,
   } = st;
@@ -121,6 +121,7 @@ function ATSReport() {
   const setAtShip            = mk("atShip");
   const setShowTotalsRow     = mk("showTotalsRow");
   const setShowStatsCards    = mk("showStatsCards");
+  const setExplodePpk        = mk("explodePpk");
   const setHiddenColumns     = mk("hiddenColumns");
   const setGeneralMarginPct  = mk("generalMarginPct");
   const setNormChanges       = mk("normChanges");
@@ -955,6 +956,7 @@ function ATSReport() {
     atShip, setAtShip, onNegInven, onAgedInven,
     showTotalsRow, setShowTotalsRow,
     showStatsCards, setShowStatsCards,
+    explodePpk, setExplodePpk,
     hiddenColumns, setHiddenColumns,
     generalMarginPct, setGeneralMarginPct,
     collapseLevel, setCollapseLevel, expandedGroups, setExpandedGroups, toggleExpandGroup, expandedGroupSet,
