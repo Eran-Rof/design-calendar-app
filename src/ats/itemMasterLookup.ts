@@ -80,20 +80,32 @@ function buildIndexes(records: ItemMasterRecord[]): void {
   const style = new Map<string, ItemMasterRecord>();
   for (const rec of records) {
     if (rec.sku_code) {
-      // Index under both the raw sku_code and its canonical form
-      // (uppercase, no whitespace) so a lookup hits regardless of
-      // whether the ATS row's SKU was formatted with " - " separators
-      // (Xoro export style: "RYO0822PPK - Black/Salsa") or as the
-      // canonical key the master ingest writes ("RYO0822PPK-BLACK/SALSA").
-      // Without this aliasing, prepack SKUs were never matching by sku
-      // and falling through to the style fallback — which surfaced as
-      // the "N styles not in item master" banner because some prepack
-      // styles also miss the style index when the master has them
-      // stored only at the (style+color) variant grain.
+      // Index under three forms so the lookup hits regardless of
+      // how the ATS row's SKU is shaped:
+      //
+      //   1. Raw sku_code as stored in the DB.
+      //   2. Canonical form (uppercase, no whitespace) — covers ATS
+      //      rows formatted with " - " separators ("RYO0822PPK - Black/Salsa")
+      //      vs. the canonical write ("RYO0822PPK-BLACK/SALSA").
+      //   3. PPK-suffix-stripped form — the master ingest writes some
+      //      prepack rows with the size baked into the sku_code
+      //      ("RYG1842PPK-BLACK-PPK60" or
+      //      "RYO0822PPK-BLACK/SALSA-PPK18-BLACK/SALSA"). Xoro emits
+      //      these as just the (style, color) pair without the size
+      //      suffix, so we alias under the stripped form too. The
+      //      regex strips a trailing "-PPKn" plus an optional final
+      //      "-COLOR" tail for the variant-pass shape.
+      //
+      // Without (3), the unmatched-styles banner showed prepack rows
+      // even though they were sitting in the master.
       sku.set(rec.sku_code, rec);
       const canonical = canonSku(rec.sku_code);
       if (canonical && canonical !== rec.sku_code && !sku.has(canonical)) {
         sku.set(canonical, rec);
+      }
+      const ppkStripped = canonical.replace(/-PPK[\s_-]*\d+(-[^-]*)?$/i, "");
+      if (ppkStripped && ppkStripped !== canonical && !sku.has(ppkStripped)) {
+        sku.set(ppkStripped, rec);
       }
     }
     if (rec.style_code) {

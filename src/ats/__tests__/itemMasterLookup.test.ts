@@ -256,6 +256,44 @@ describe("itemMasterLookup.resolveStyle", () => {
     // the multiplier (24 in this case).
   });
 
+  it("strips trailing -PPKn (and -PPKn-COLOR) suffix from master sku_code so ATS rows without the size suffix still match", () => {
+    // Real-world shape from ip_item_master: the master ingest baked
+    // the PPK size into the sku_code ("RYG1842PPK-BLACK-PPK60"), and
+    // the variant pass appended color again
+    // ("RYO0822PPK-BLACK/SALSA-PPK18-BLACK/SALSA"). Xoro returns the
+    // ATS row's SKU as just "STYLE - Color" without the size suffix,
+    // so the bare canonSku lookup misses. The PPK-strip alias
+    // resolves both shapes against the same ATS query.
+    __setCacheForTest([
+      makeRecord({
+        id: "ppk60",
+        sku_code: "RYG1842PPK-BLACK-PPK60",
+        style_code: "RYG1842PPK-BLACK-PPK60",
+        color: "Black",
+        size: "PPK60",
+        attributes: { group_name: "Tops" },
+      }),
+      makeRecord({
+        id: "ppk18-variant-shape",
+        sku_code: "RYO0822PPK-BLACK/SALSA-PPK18-BLACK/SALSA",
+        style_code: "RYO0822PPK-BLACK/SALSA-PPK18",
+        color: "Black/Salsa",
+        size: "PPK18",
+        attributes: { group_name: "Tops" },
+      }),
+    ]);
+
+    // Bare (style, color) — no size suffix in the ATS sku.
+    const r60 = resolveStyle("RYG1842PPK - Black");
+    expect(r60.match_source).toBe("sku");
+    expect(r60.size).toBe("PPK60");
+
+    // Same for the variant-shape sku_code with the appended color.
+    const r18 = resolveStyle("RYO0822PPK - Black/Salsa");
+    expect(r18.match_source).toBe("sku");
+    expect(r18.size).toBe("PPK18");
+  });
+
   it("style fallback is case-insensitive — lowercase or mixed-case style parts hit uppercase master rows", () => {
     __setCacheForTest([
       makeRecord({
