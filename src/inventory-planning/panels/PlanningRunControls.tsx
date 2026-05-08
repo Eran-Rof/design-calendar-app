@@ -3,12 +3,15 @@
 // A planner picks an active run, or creates a new one with a horizon.
 // Building the forecast kicks off runForecastPass on the service.
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { IpPlanningRun, IpPlanningRunStatus } from "../types/wholesale";
 import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { runForecastPass, BuildCancelledError, type BuildFilter, type BuildProgress } from "../services/wholesaleForecastService";
 import { S, PAL, formatDate } from "../components/styles";
 import type { ToastMessage } from "../components/Toast";
+import { scenarioRepo } from "../scenarios/services/scenarioRepo";
+import { cloneBaseIntoSavedBuild, deleteSavedBuild } from "../scenarios/services/scenarioService";
+import type { IpScenario } from "../scenarios/types/scenarios";
 
 export interface PlanningRunControlsProps {
   runs: IpPlanningRun[];
@@ -41,7 +44,27 @@ export default function PlanningRunControls({
   const [wipeTyped, setWipeTyped] = useState("");
   const abortRef = useRef<AbortController | null>(null);
 
+  // Saved builds — snapshots of a planning run captured by the
+  // planner. The list lives in ip_scenarios with type='saved_build';
+  // the underlying state lives in a fresh planning_run that the
+  // saved-build clone creates so the snapshot can be browsed in the
+  // grid like any other run. The dropdown reads scenarios filtered
+  // to type='saved_build' on every onChange.
+  const [savedBuilds, setSavedBuilds] = useState<IpScenario[]>([]);
+  const [savedBuildsLoading, setSavedBuildsLoading] = useState(false);
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [savedBuildName, setSavedBuildName] = useState("");
+  const [savedBuildNote, setSavedBuildNote] = useState("");
+  const [saveBuildBusy, setSaveBuildBusy] = useState(false);
+  const [pendingDeleteSaved, setPendingDeleteSaved] = useState<IpScenario | null>(null);
+
   const selected = runs.find((r) => r.id === selectedRunId) ?? null;
+  // Is the currently-loaded run itself a saved build? Drives the
+  // toolbar UX — when viewing a saved build, the primary action
+  // becomes "Fork" (clone-of-clone for the edit/resave workflow);
+  // the build/edit buttons stay live so the planner can tweak then
+  // resave from inside the snapshot.
+  const selectedSavedBuild = savedBuilds.find((s) => s.planning_run_id === selectedRunId) ?? null;
 
   const filterActive = !!buildFilter && Object.values(buildFilter).some((v) => v != null && v !== "");
 
@@ -127,6 +150,77 @@ export default function PlanningRunControls({
     await onChange();
   }
 
+  // Load the saved-build list once on mount and again after any
+  // mutation (save / fork / delete). Filtered to scenario_type
+  // 'saved_build' so what-if/promo scenarios stay on their own page.
+  async function refreshSavedBuilds() {
+    setSavedBuildsLoading(true);
+    try {
+      const all = await scenarioRepo.listScenarios();
+      setSavedBuilds(all.filter((s) => s.scenario_type === "saved_build"));
+    } catch (e) {
+      onToast({ text: "Failed to load saved builds: " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    } finally {
+      setSavedBuildsLoading(false);
+    }
+  }
+  useEffect(() => { void refreshSavedBuilds(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  async function onSaveBuildSubmit() {
+    if (!selected) { onToast({ text: "Pick a run first", kind: "error" }); return; }
+    const name = savedBuildName.trim();
+    if (!name) { onToast({ text: "Name the saved build first", kind: "error" }); return; }
+    setSaveBuildBusy(true);
+    setProgress({ phase: "loading", label: "Saving build…" });
+    try {
+      // If the planner is already viewing a saved build, save = fork
+      // (clone-of-clone). The base for the new snapshot is the run
+      // they're looking at, not its original parent.
+      const scenario = await cloneBaseIntoSavedBuild({
+        baseRunId: selected.id,
+        name,
+        note: savedBuildNote.trim() || null,
+        onProgress: (label) => setProgress({ phase: "loading", label }),
+      });
+      onToast({ text: `Saved build "${name}" created`, kind: "success" });
+      setShowSaveModal(false);
+      setSavedBuildName("");
+      setSavedBuildNote("");
+      await refreshSavedBuilds();
+      await onChange();
+      // Switch the active run to the new snapshot so the planner
+      // can immediately see / fork-edit it.
+      onSelect(scenario.planning_run_id);
+    } catch (e) {
+      onToast({ text: "Save build failed: " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    } finally {
+      setSaveBuildBusy(false);
+      setProgress(null);
+    }
+  }
+
+  function onLoadSavedBuild(planningRunId: string) {
+    if (!planningRunId) return;
+    onSelect(planningRunId);
+  }
+
+  async function onConfirmDeleteSavedBuild() {
+    if (!pendingDeleteSaved) return;
+    const scenario = pendingDeleteSaved;
+    try {
+      await deleteSavedBuild(scenario.id);
+      onToast({ text: `Deleted saved build "${scenario.scenario_name}"`, kind: "info" });
+      // If we were viewing it, drop the selection.
+      if (selectedRunId === scenario.planning_run_id) onSelect("");
+      await refreshSavedBuilds();
+      await onChange();
+    } catch (e) {
+      onToast({ text: "Delete failed: " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    } finally {
+      setPendingDeleteSaved(null);
+    }
+  }
+
   // Card-level collapse toggle. Persists to localStorage so a planner
   // who hides the run controls keeps the extra vertical space across
   // reloads.
@@ -167,11 +261,16 @@ export default function PlanningRunControls({
                 value={selectedRunId ?? ""}
                 onChange={(e) => onSelect(e.target.value)}>
           <option value="">— pick —</option>
-          {runs.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.name} · {r.status} · {formatDate(r.horizon_start)}–{formatDate(r.horizon_end)}
-            </option>
-          ))}
+          {/* Filter out saved-build runs from the main dropdown — they
+              live in their own selector below so the working-run list
+              stays focused on live planning runs. */}
+          {runs
+            .filter((r) => !savedBuilds.some((s) => s.planning_run_id === r.id))
+            .map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name} · {r.status} · {formatDate(r.horizon_start)}–{formatDate(r.horizon_end)}
+              </option>
+            ))}
         </select>
         <button style={S.btnSecondary} onClick={() => setShowNew(true)}>+ New run</button>
         {selected && (
@@ -203,6 +302,21 @@ export default function PlanningRunControls({
                 {building ? "Building…" : (filterActive ? "Build (filtered)" : "Build forecast")}
               </button>
             )}
+            {/* Save / Fork — capture the current build (including planner
+                edits, TBD rows, recs, bucket buys) as a snapshot. When
+                viewing a saved build the label flips to "Fork & save"
+                because what we're really doing is a clone-of-clone
+                (preserves the original snapshot, branches a new one). */}
+            <button
+              style={S.btnSecondary}
+              onClick={() => { setShowSaveModal(true); setSavedBuildName(""); setSavedBuildNote(""); }}
+              disabled={building || saveBuildBusy}
+              title={selectedSavedBuild
+                ? "Fork this saved build into a new snapshot you can edit independently"
+                : "Save this build as a snapshot — preserves forecast rows, planner edits, TBD stock-buys, recs, bucket buys. Find it later in the Saved builds dropdown."}
+            >
+              {selectedSavedBuild ? "Fork & save" : "Save build"}
+            </button>
             {selected.status !== "active" && (
               <button style={S.btnSecondary} onClick={() => setStatus("active")}>Mark active</button>
             )}
@@ -220,7 +334,41 @@ export default function PlanningRunControls({
             >
               What-if →
             </a>
+            <a
+              href="/planning/reconcile"
+              style={{ ...S.btnSecondary, textDecoration: "none" }}
+              title="Open Reconcile — combine recommendations across multiple saved builds into one buy plan"
+            >
+              Reconcile →
+            </a>
           </>
+        )}
+        {/* Saved builds dropdown — always visible in the toolbar so the
+            planner can switch focus between snapshots without going
+            through a separate page. Selecting a saved build switches
+            the active run to its underlying planning_run_id. */}
+        <span style={{ color: PAL.textDim, fontSize: 12, marginLeft: 8 }}>Saved builds:</span>
+        <select
+          style={{ ...S.select, minWidth: 220 }}
+          value={selectedSavedBuild?.planning_run_id ?? ""}
+          onChange={(e) => onLoadSavedBuild(e.target.value)}
+          disabled={savedBuildsLoading}
+        >
+          <option value="">{savedBuildsLoading ? "Loading…" : (savedBuilds.length === 0 ? "— none yet —" : "— pick —")}</option>
+          {savedBuilds.map((s) => (
+            <option key={s.id} value={s.planning_run_id}>
+              {s.scenario_name} · {formatDate(s.created_at.slice(0, 10))}
+            </option>
+          ))}
+        </select>
+        {selectedSavedBuild && (
+          <button
+            style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }}
+            onClick={() => setPendingDeleteSaved(selectedSavedBuild)}
+            title="Delete this saved build — drops the snapshot's planning run and every row tied to it. Cannot be undone."
+          >
+            Delete saved
+          </button>
         )}
         </>)}
       </div>
@@ -243,6 +391,76 @@ export default function PlanningRunControls({
                        onToast({ text: "Planning run created", kind: "success" });
                        await onChange();
                      }} />
+      )}
+      {showSaveModal && selected && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+          onClick={(e) => { if (e.target === e.currentTarget && !saveBuildBusy) setShowSaveModal(false); }}
+        >
+          <div style={{ background: PAL.panel, border: `1px solid ${PAL.border}`, borderRadius: 10, padding: 18, minWidth: 440, maxWidth: 520, boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <strong style={{ color: PAL.text, fontSize: 14 }}>{selectedSavedBuild ? "Fork & save snapshot" : "Save this build as a snapshot"}</strong>
+            </div>
+            <div style={{ color: PAL.textDim, fontSize: 13, lineHeight: 1.5, marginBottom: 12 }}>
+              Captures the current state of <strong style={{ color: PAL.text }}>{selected.name}</strong> — forecast rows, planner edits (override / buy / unit cost), TBD stock-buys, recommendations, bucket buys — into a new browseable run. Find it later in the <em>Saved builds</em> dropdown.
+            </div>
+            <label style={{ display: "block", color: PAL.textDim, fontSize: 12, marginBottom: 4 }}>Name</label>
+            <input
+              autoFocus
+              type="text"
+              value={savedBuildName}
+              onChange={(e) => setSavedBuildName(e.target.value)}
+              placeholder={selectedSavedBuild ? `${selectedSavedBuild.scenario_name} (copy)` : "e.g. Denim FW26"}
+              style={{ ...S.input, width: "100%", marginBottom: 10 }}
+              disabled={saveBuildBusy}
+            />
+            <label style={{ display: "block", color: PAL.textDim, fontSize: 12, marginBottom: 4 }}>Note (optional)</label>
+            <textarea
+              value={savedBuildNote}
+              onChange={(e) => setSavedBuildNote(e.target.value)}
+              placeholder="Anything you want to remember about this snapshot…"
+              style={{ ...S.input, width: "100%", minHeight: 60, marginBottom: 14, fontFamily: "inherit" }}
+              disabled={saveBuildBusy}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button style={S.btnSecondary} onClick={() => setShowSaveModal(false)} disabled={saveBuildBusy}>Cancel</button>
+              <button
+                style={{ ...S.btnPrimary, opacity: saveBuildBusy ? 0.6 : 1, cursor: saveBuildBusy ? "wait" : "pointer" }}
+                onClick={() => void onSaveBuildSubmit()}
+                disabled={saveBuildBusy || !savedBuildName.trim()}
+              >
+                {saveBuildBusy ? "Saving…" : (selectedSavedBuild ? "Fork & save" : "Save build")}
+              </button>
+            </div>
+            {progress && saveBuildBusy && (
+              <div style={{ marginTop: 10, color: PAL.textDim, fontSize: 12 }}>{progress.label}</div>
+            )}
+          </div>
+        </div>
+      )}
+      {pendingDeleteSaved && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+          onClick={(e) => { if (e.target === e.currentTarget) setPendingDeleteSaved(null); }}
+        >
+          <div style={{ background: PAL.panel, border: `1px solid ${PAL.red}`, borderRadius: 10, padding: 18, minWidth: 420, maxWidth: 520, boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ background: PAL.red, color: "#fff", borderRadius: 3, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>DELETE</span>
+              <strong style={{ color: PAL.text, fontSize: 14 }}>Delete saved build?</strong>
+            </div>
+            <div style={{ color: PAL.textDim, fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>
+              <strong style={{ color: PAL.text }}>{pendingDeleteSaved.scenario_name}</strong> and every row tied to its underlying planning run will be permanently deleted. This cannot be undone.
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button style={S.btnSecondary} onClick={() => setPendingDeleteSaved(null)}>Cancel</button>
+              <button style={{ ...S.btnPrimary, background: PAL.red, color: "#fff" }} onClick={() => void onConfirmDeleteSavedBuild()}>Delete</button>
+            </div>
+          </div>
+        </div>
       )}
       {pendingRebuildConfirm && selected && (
         <div

@@ -405,6 +405,13 @@ export const wholesaleRepo = {
     const [updated] = await sbPatch<IpPlanningRun>(`ip_planning_runs?id=eq.${id}`, patch);
     return updated;
   },
+  // Drop a planning run. The Phase 1 + 4 migrations declare
+  // ON DELETE CASCADE on the run_id FKs across forecast, recs, TBD,
+  // bucket buys, overrides, scenarios — so deleting the parent row
+  // is sufficient to clean up the entire run.
+  async deletePlanningRun(id: string): Promise<void> {
+    await sbDelete(`ip_planning_runs?id=eq.${id}`);
+  },
 
   // ── Forecast rows ────────────────────────────────────────────────────────
   // Cursor-based seek pagination (id > last_seen_id) instead of OFFSET.
@@ -596,6 +603,34 @@ export const wholesaleRepo = {
       `ip_planner_bucket_buys?planning_run_id=eq.${planningRunId}&bucket_key=eq.${encodeURIComponent(bucketKey)}`,
     ));
   },
+  // Plain bulk INSERT for cloning bucket buys into a snapshot run.
+  // Each row gets a fresh uuid PK; planning_run_id on the rows is the
+  // target run (caller pre-fills it). Chunked at 200 to stay under
+  // PostgREST URL + statement-timeout limits.
+  async bulkInsertBucketBuys(
+    rows: Array<{
+      planning_run_id: string;
+      bucket_key: string;
+      qty: number;
+      collapse_mode: string;
+      customer_id: string | null;
+      group_name: string | null;
+      sub_category_name: string | null;
+      gender: string | null;
+      period_code: string;
+      created_by: string | null;
+    }>,
+  ): Promise<void> {
+    if (rows.length === 0) return;
+    const CHUNK = 200;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      await withRetryOn57014("bulkInsertBucketBuys", () => sbPost(
+        "ip_planner_bucket_buys",
+        rows.slice(i, i + CHUNK),
+        "return=minimal",
+      ));
+    }
+  },
 
   // ── TBD stock-buy rows ───────────────────────────────────────────────────
   // One row per (planning_run, style_code, period_start) by default.
@@ -647,6 +682,42 @@ export const wholesaleRepo = {
   // constrains rows where is_user_added=false, so user-added rows
   // can multiply at will. Sets is_user_added=true server-side too
   // as a belt-and-suspenders.
+  // Plain bulk INSERT for cloning TBD rows into a snapshot run.
+  // is_user_added is preserved from the source so user-added rows
+  // remain user-added in the snapshot (and stay outside the partial
+  // unique index that constrains is_user_added=false). Chunked at
+  // 200 to stay under PostgREST + 57014 limits.
+  async bulkInsertTbdRows(
+    rows: Array<{
+      planning_run_id: string;
+      style_code: string;
+      color: string;
+      is_new_color: boolean;
+      is_user_added: boolean;
+      customer_id: string;
+      group_name: string | null;
+      sub_category_name: string | null;
+      period_start: string;
+      period_end: string;
+      period_code: string;
+      buyer_request_qty: number;
+      override_qty: number;
+      final_forecast_qty: number;
+      planned_buy_qty: number | null;
+      unit_cost: number | null;
+      notes: string | null;
+    }>,
+  ): Promise<void> {
+    if (rows.length === 0) return;
+    const CHUNK = 200;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      await withRetryOn57014("bulkInsertTbdRows", () => sbPost(
+        "ip_wholesale_forecast_tbd",
+        rows.slice(i, i + CHUNK),
+        "return=minimal",
+      ));
+    }
+  },
   async insertTbdRow(
     planningRunId: string,
     args: {

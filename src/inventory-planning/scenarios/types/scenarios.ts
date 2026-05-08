@@ -4,7 +4,8 @@
 import type { IpIsoDate, IpIsoDateTime } from "../../types/entities";
 
 export type IpScenarioType =
-  | "what_if" | "stretch" | "conservative" | "promo" | "supply_delay" | "override_review";
+  | "what_if" | "stretch" | "conservative" | "promo" | "supply_delay" | "override_review"
+  | "saved_build";
 
 export type IpApprovalStatus = "draft" | "in_review" | "approved" | "rejected" | "archived";
 
