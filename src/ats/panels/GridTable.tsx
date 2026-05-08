@@ -224,6 +224,21 @@ export const GridTable: React.FC<GridTableProps> = ({
     const m = Math.max(0, Math.min(99, generalMarginPct ?? 50)) / 100;
     const oneMinusM = 1 - m;
 
+    // Per-SKU PPK multiplier from filtered rows. Raw Xoro PO/SO events
+    // come at PACK grain — soVal/soQty and poVal/poQty are per-pack
+    // dollars. The qty fields on r (onHand / onOrder / onPO / dates)
+    // are unit-grain (compute.ts already multiplies by ppkMult), so
+    // multiplying unit qty × per-pack price would inflate cost/sale
+    // totals by ppkMult on prepacks. Divide the per-pack price by
+    // ppkMult here so soPriceBySku / poCostBySku land in per-unit
+    // grain — matching avgCostBySku, which is already per-unit
+    // because compute.ts divides r.avgCost by ppkMult on ingest.
+    const ppkMultBySku = new Map<string, number>();
+    for (const r of filtered) {
+      const m = r.ppkMult ?? 1;
+      if (m > 1) ppkMultBySku.set(r.sku, m);
+    }
+
     // Per-SKU SO avg price + PO avg unit cost from event index.
     const soPriceBySku = new Map<string, number>();
     const poCostBySku  = new Map<string, number>();
@@ -239,8 +254,9 @@ export const GridTable: React.FC<GridTableProps> = ({
             if (po.qty > 0 && po.unitCost > 0) { poQty += po.qty; poVal += po.qty * po.unitCost; }
           }
         }
-        if (soQty > 0) soPriceBySku.set(sku, soVal / soQty);
-        if (poQty > 0) poCostBySku.set(sku, poVal / poQty);
+        const mult = ppkMultBySku.get(sku) ?? 1;
+        if (soQty > 0) soPriceBySku.set(sku, (soVal / soQty) / mult);
+        if (poQty > 0) poCostBySku.set(sku, (poVal / poQty) / mult);
       }
     }
 
