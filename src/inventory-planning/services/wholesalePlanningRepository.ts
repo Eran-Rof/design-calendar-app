@@ -128,6 +128,11 @@ export const wholesaleRepo = {
   async listCustomers(): Promise<IpCustomer[]> {
     return sbGet<IpCustomer>("ip_customer_master?select=*&order=name.asc&limit=5000");
   },
+  async listVendors(): Promise<Array<{ id: string; vendor_code: string; name: string }>> {
+    return sbGet<{ id: string; vendor_code: string; name: string }>(
+      "ip_vendor_master?select=id,vendor_code,name&order=name.asc&limit=5000",
+    );
+  },
   // Placeholder customer for "supply only" forecast rows — items with
   // open POs or on-SO but no sales-history pair show up under this
   // customer in the grid so the planner can see incoming inventory.

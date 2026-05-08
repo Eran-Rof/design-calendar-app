@@ -124,6 +124,10 @@ async function mount() {
       const { default: ScenarioManager } = await import("./inventory-planning/scenarios/panels/ScenarioManager");
       root.render(<StrictMode><ErrorBoundary appName="Scenarios & Exports"><PlanningShell title="Scenarios & Exports"><ScenarioManager /></PlanningShell></ErrorBoundary></StrictMode>);
 
+    } else if (path.startsWith("/planning/reconcile")) {
+      const { default: BuildReconcileWorkbench } = await import("./inventory-planning/panels/BuildReconcileWorkbench");
+      root.render(<StrictMode><ErrorBoundary appName="Build Reconcile"><PlanningShell title="Build Reconcile"><BuildReconcileWorkbench /></PlanningShell></ErrorBoundary></StrictMode>);
+
     } else if (path.startsWith("/planning/execution")) {
       const { default: ExecutionBatchManager } = await import("./inventory-planning/execution/panels/ExecutionBatchManager");
       root.render(<StrictMode><ErrorBoundary appName="Execution"><PlanningShell title="Execution"><ExecutionBatchManager /></PlanningShell></ErrorBoundary></StrictMode>);
