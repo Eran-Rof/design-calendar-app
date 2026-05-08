@@ -498,12 +498,22 @@ function ATSReport() {
         }
       } catch {}
 
-      // Check for Excel data stored in app_data first
-      const excelRes = await fetch(
-        `${SB_URL}/rest/v1/app_data?key=eq.ats_excel_data&select=value`,
-        { headers: SB_HEADERS }
-      );
-      if (!excelRes.ok) throw new Error(`Failed to load Excel data: ${excelRes.status}`);
+      // Check for Excel data stored in app_data first. Wrapped in a
+      // small retry loop because Supabase can return 500/57014 during
+      // brief load spikes (e.g. a concurrent master upload pushing
+      // 30k rows). Without the retry, the ATS app shows broken state
+      // until the next manual reload.
+      let excelRes: Response | null = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        excelRes = await fetch(
+          `${SB_URL}/rest/v1/app_data?key=eq.ats_excel_data&select=value`,
+          { headers: SB_HEADERS }
+        );
+        if (excelRes.ok) break;
+        if (excelRes.status !== 500 && excelRes.status !== 503 && excelRes.status !== 504) break;
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+      }
+      if (!excelRes || !excelRes.ok) throw new Error(`Failed to load Excel data: ${excelRes?.status ?? "no response"}`);
       const excelRows = await excelRes.json();
       if (Array.isArray(excelRows) && excelRows[0]?.value) {
         // Clean stored blob on load (legacy uploads may have duplicates baked in).

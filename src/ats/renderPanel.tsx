@@ -269,7 +269,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         {/* GRID TABLE */}
         <GridErrorBoundary>
           <GridTable
-            loading={loading} filtered={filtered} pageRows={pageRows}
+            loading={loading || (excelData != null && excelData.skus.length > 0 && rows.length === 0)} filtered={filtered} pageRows={pageRows}
             displayPeriods={displayPeriods} tableRef={tableRef}
             sortCol={sortCol} sortDir={sortDir} handleThClick={handleThClick} rangeUnit={rangeUnit}
             pinnedSku={pinnedSku} setPinnedSku={setPinnedSku}
