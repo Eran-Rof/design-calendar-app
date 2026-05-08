@@ -939,6 +939,39 @@ export const wholesaleRepo = {
     return created;
   },
 
+  // Wipe forecast rows for a run whose (customer_id, sku_id,
+  // period_start) grain key is NOT in `inScopeGrainKeys`. Used by the
+  // filtered-build path so a focused build (e.g. one style + 8 periods)
+  // produces a run that contains ONLY the filtered slice — out-of-scope
+  // rows from prior unfiltered builds are removed automatically.
+  //
+  // Recommendations are skipped here because replaceRecommendations()
+  // already DELETEs all recs for the run before re-inserting the new
+  // (filtered) set. Same with bucket buys — they're rebuilt from
+  // planner edits each session and can be cleared independently.
+  // Overrides + TBD rows are LEFT ALONE: the user might still want
+  // their planner edits / stock-buys to live on rows that will be
+  // re-built. Future work can scope those too if it becomes an issue.
+  async wipeOutOfScopeForecast(
+    planningRunId: string,
+    inScopeGrainKeys: Set<string>,
+  ): Promise<{ wiped: number }> {
+    const all = await sbGetAll<{ id: string; customer_id: string; sku_id: string; period_start: string }>(
+      `ip_wholesale_forecast?select=id,customer_id,sku_id,period_start&planning_run_id=eq.${planningRunId}&order=id.asc`,
+    );
+    const outOfScope = all.filter(
+      (r) => !inScopeGrainKeys.has(`${r.customer_id}:${r.sku_id}:${r.period_start}`),
+    );
+    if (outOfScope.length === 0) return { wiped: 0 };
+    const DELETE_CHUNK = 500;
+    for (let i = 0; i < outOfScope.length; i += DELETE_CHUNK) {
+      const ids = outOfScope.slice(i, i + DELETE_CHUNK).map((r) => r.id);
+      const inList = ids.map((id) => `"${id}"`).join(",");
+      await sbDelete(`ip_wholesale_forecast?planning_run_id=eq.${planningRunId}&id=in.(${inList})`);
+    }
+    return { wiped: outOfScope.length };
+  },
+
   // Wipe EVERY row tied to a planning run — system-computed forecast,
   // recommendations, planner-authored TBD stock-buy rows, and
   // aggregate bucket buys. Used by the "Wipe + rebuild" path in

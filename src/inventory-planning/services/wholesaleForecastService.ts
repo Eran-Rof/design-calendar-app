@@ -444,6 +444,32 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
     prunedFilterCount += before - forecastRows.length;
   }
 
+  // Compute the in-scope grain keys up front. Used twice: first to
+  // wipe out-of-scope rows when a filter is active (so a filtered
+  // build = the filtered slice, not the filter overlaid on a prior
+  // unfiltered build), then again as the stale-row defence on
+  // read-back further down.
+  const liveGrainKeys = new Set<string>(
+    forecastRows.map((f) => `${f.customer_id}:${f.sku_id}:${f.period_start}`),
+  );
+
+  // Filtered-build scoping. Wipe forecast rows from prior builds
+  // whose grain isn't in the new filter scope. Without this, a
+  // planner who built a 30k-row full run, then filtered to one
+  // style + 8 periods, would still see all 30k rows in the grid
+  // (the upsert below only writes the filtered slice; nothing
+  // removes the leftover 29.8k from prior runs). With this, the
+  // run = the filtered slice. Saved builds (Phase 1) are how a
+  // planner preserves work before refocusing.
+  if (filterActive) {
+    checkAbort(signal);
+    onProgress?.({ phase: "writing_forecast", label: "Wiping out-of-scope rows" });
+    const wipeResult = await wholesaleRepo.wipeOutOfScopeForecast(run.id, liveGrainKeys);
+    if (wipeResult.wiped > 0) {
+      onProgress?.({ phase: "writing_forecast", label: `Wiped ${wipeResult.wiped.toLocaleString()} out-of-scope rows` });
+    }
+  }
+
   checkAbort(signal);
   onProgress?.({ phase: "writing_forecast", label: `Writing forecast`, current: 0, total: forecastRows.length });
   await wholesaleRepo.upsertForecast(forecastRows, {
@@ -460,15 +486,11 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
   // is reflected in recommendations.
   const persisted = await wholesaleRepo.listForecast(run.id);
 
-  // Stale-row defence. `listForecast` returns every row for this run,
-  // including rows written by PRIOR builds for (customer, sku) pairs
-  // that the dead-SKU prune or grid filter just excluded. Without this
-  // filter, recs are generated 1:1 from `persisted` and explode to
-  // many times the size of forecastRows — that's the root of the
-  // "1,134 forecast → 20,000 recs" cardinality blowup.
-  const liveGrainKeys = new Set<string>(
-    forecastRows.map((f) => `${f.customer_id}:${f.sku_id}:${f.period_start}`),
-  );
+  // Stale-row defence on read-back. With the filtered-build wipe
+  // above this should now be a near no-op for filtered builds, but
+  // the filter still runs as a safety net for unfiltered builds
+  // (where dead pairs from old builds can still linger in the
+  // persisted set).
   const relevantPersisted = persisted.filter((p) =>
     liveGrainKeys.has(`${p.customer_id}:${p.sku_id}:${p.period_start}`),
   );
