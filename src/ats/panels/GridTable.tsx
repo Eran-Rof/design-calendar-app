@@ -811,15 +811,29 @@ export const GridTable: React.FC<GridTableProps> = ({
                         const allRowPos = eventIndex?.[row.sku]
                           ? Object.values(eventIndex[row.sku]).flatMap(v => v.pos.filter(p => !row.store || (p.store ?? "ROF") === row.store))
                           : [];
-                        const poQtySum  = allRowPos.reduce((a, p) => a + (p.qty || 0), 0);
+                        // Reconcile PPK grain: row.onHand is unit-grain
+                        // (multiplied by ppkMult) and row.avgCost is
+                        // per-unit (divided by ppkMult); raw PO events
+                        // are still pack-grain. Without converting, the
+                        // weighted average mixes packs and units and
+                        // the SO margin downstream came out wildly
+                        // wrong (97% on a 35%-real prepack). ppkMult=1
+                        // for non-prepacks so the math is unchanged.
+                        const ppkMult = row.ppkMult ?? 1;
+                        const poQtySumUnits = allRowPos.reduce((a, p) => a + (p.qty || 0) * ppkMult, 0);
                         const poCostSum = allRowPos.reduce((a, p) => a + (p.qty || 0) * (p.unitCost || 0), 0);
                         const onHandCostSum = (row.onHand || 0) * (row.avgCost || 0);
-                        const totalQty = (row.onHand || 0) + poQtySum;
-                        let effectiveCost = totalQty > 0 ? (onHandCostSum + poCostSum) / totalQty : 0;
+                        const totalQtyUnits = (row.onHand || 0) + poQtySumUnits;
+                        let effectiveCost = totalQtyUnits > 0 ? (onHandCostSum + poCostSum) / totalQtyUnits : 0;
                         if (!effectiveCost && poList.length) {
                           const priced = poList.filter(p => p.unitCost > 0);
-                          const totQty = priced.reduce((a, p) => a + p.qty, 0);
-                          effectiveCost = totQty > 0 ? priced.reduce((a, p) => a + p.qty * p.unitCost, 0) / totQty : 0;
+                          const totQtyPacks = priced.reduce((a, p) => a + p.qty, 0);
+                          // poList.unitCost is per-pack; divide by
+                          // ppkMult to land at per-unit so it's
+                          // comparable with row.avgCost.
+                          effectiveCost = totQtyPacks > 0
+                            ? priced.reduce((a, p) => a + p.qty * p.unitCost, 0) / (totQtyPacks * ppkMult)
+                            : 0;
                         }
                         setCtxMenu({
                           x: cellRect.left, y: cellRect.bottom + 2, anchorY: cellRect.top,
@@ -827,6 +841,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                           onHand: row.onHand, skuStore: row.store ?? "ROF",
                           cellKey, cellEl, flipped: false, arrowLeft: 20,
                           unitCost: effectiveCost,
+                          ppkMult,
                         });
                       }}
                     >

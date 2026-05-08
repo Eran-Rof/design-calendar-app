@@ -78,25 +78,50 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
         )}
 
         {type === "onOrder" && (() => {
-          // Blended unit cost: weighted average of on-hand inventory (at avgCost)
-          // and all incoming POs (each at its unitCost). Matches the formula
-          //   (onHandQty × avgCost + Σ poQty × poUnitCost) / (onHandQty + Σ poQty)
-          const poQtySum  = pos.reduce((a, p) => a + (p.qty || 0), 0);
+          // PPK grain reconciliation. computeRowsFromExcelData stores
+          // qty fields at UNIT grain (onHand × ppkMult) and cost fields
+          // at UNIT grain (avgCost / ppkMult). Raw PO/SO event arrays
+          // (`pos`, `sos`) are still at PACK grain (Xoro stores them
+          // that way). Without converting, multiplying a per-unit cost
+          // by a pack qty under-counts the cost by ppkMult — and the
+          // margin came out 97% on a 35%-real-margin prepack because
+          // 142 packs × $5.625/unit = $799 instead of 142 × $135/pack
+          // = $19,170. Convert raw qtys to unit grain before doing
+          // weighted-avg / margin math; ppkMult=1 for non-prepacks
+          // makes the conversion a no-op.
+          const ppkMult = row.ppkMult ?? 1;
+
+          // Blended unit cost: weighted average of on-hand inventory
+          // (at row.avgCost, per-unit) and all incoming POs (raw qty
+          // exploded to units; raw unitCost / ppkMult for per-unit).
+          //   (onHandUnits × avgCost + Σ (poQty × ppkMult) × (poUnitCost / ppkMult))
+          //   / (onHandUnits + Σ poQty × ppkMult)
+          const poQtySumUnits  = pos.reduce((a, p) => a + (p.qty || 0) * ppkMult, 0);
+          // poCostSum is total value either way: poQty(packs) × poUnitCost(per-pack)
+          // == (poQty × ppkMult)(units) × (poUnitCost / ppkMult)(per-unit).
           const poCostSum = pos.reduce((a, p) => a + (p.qty || 0) * (p.unitCost || 0), 0);
           const onHandCostSum = (row.onHand || 0) * (row.avgCost || 0);
-          const totalQty = (row.onHand || 0) + poQtySum;
-          const blendedCost = totalQty > 0 ? (onHandCostSum + poCostSum) / totalQty : 0;
-          // If no on-hand or on-hand has no cost, fall back to PO-only weighted avg
-          const effectiveCost = blendedCost > 0 ? blendedCost : avgCost;
+          const totalQtyUnits = (row.onHand || 0) + poQtySumUnits;
+          const blendedCost = totalQtyUnits > 0 ? (onHandCostSum + poCostSum) / totalQtyUnits : 0;
+          // PO-only fallback `avgCost` (computed at parent scope) is at
+          // PACK grain; convert to per-unit for the same effective grain.
+          const avgCostPerUnit = ppkMult > 0 ? avgCost / ppkMult : avgCost;
+          const effectiveCost = blendedCost > 0 ? blendedCost : avgCostPerUnit;
 
-          const totalSoQty = sos.reduce((s, o) => s + o.qty, 0);
+          // SO totals — explode raw pack qtys to unit grain so the cost
+          // multiplication matches the per-unit effectiveCost.
+          const totalSoQtyPacks = sos.reduce((s, o) => s + (o.qty || 0), 0);
+          const totalSoQtyUnits = totalSoQtyPacks * ppkMult;
           const totalSoVal = sos.reduce((s, o) => s + (o.totalPrice || 0), 0);
-          const totalSoCost = effectiveCost > 0 ? effectiveCost * totalSoQty : 0;
+          const totalSoCost = effectiveCost > 0 ? effectiveCost * totalSoQtyUnits : 0;
           const headerMarginPct = totalSoVal > 0 && totalSoCost > 0 ? ((totalSoVal - totalSoCost) / totalSoVal) * 100 : null;
+          const isPrepack = ppkMult > 1;
           return (
             <div>
               <div style={{ background: "rgba(245,158,11,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#FCD34D", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #3D2E00" }}>
-                Committed Sales Orders — {sos.length} line{sos.length !== 1 ? "s" : ""} · {totalSoQty.toLocaleString()} units{totalSoVal > 0 ? ` · $${totalSoVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(totalSoVal / totalSoQty).toFixed(2)}/unit` : ""}{headerMarginPct !== null ? ` · Margin ${headerMarginPct >= 0 ? "" : "-"}${Math.abs(headerMarginPct).toFixed(1)}%` : ""}
+                Committed Sales Orders — {sos.length} line{sos.length !== 1 ? "s" : ""} · {isPrepack
+                  ? `${totalSoQtyPacks.toLocaleString()} pack${totalSoQtyPacks !== 1 ? "s" : ""} (${totalSoQtyUnits.toLocaleString()} units)`
+                  : `${totalSoQtyPacks.toLocaleString()} units`}{totalSoVal > 0 ? ` · $${totalSoVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(totalSoVal / totalSoQtyPacks).toFixed(2)}/${isPrepack ? "pack" : "unit"}` : ""}{headerMarginPct !== null ? ` · Margin ${headerMarginPct >= 0 ? "" : "-"}${Math.abs(headerMarginPct).toFixed(1)}%` : ""}
               </div>
               {Object.keys(soByStore).length > 1 && (
                 <div style={{ padding: "6px 14px", borderBottom: "1px solid #1a2030", display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -106,18 +131,27 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
                 </div>
               )}
               {sos.map((s, i) => {
-                const lineMargin = (effectiveCost > 0 && s.unitPrice > 0) ? ((s.unitPrice - effectiveCost) / s.unitPrice) * 100 : null;
+                // Per-line margin: s.unitPrice is per-pack (raw Xoro);
+                // effectiveCost is per-unit. Multiply effectiveCost by
+                // ppkMult to land both in pack grain. For non-prepacks
+                // ppkMult=1 so the math is unchanged.
+                const lineMargin = (effectiveCost > 0 && s.unitPrice > 0)
+                  ? ((s.unitPrice - effectiveCost * ppkMult) / s.unitPrice) * 100
+                  : null;
                 const marginColor = lineMargin === null ? "#94A3B8" : lineMargin >= 30 ? "#6EE7B7" : lineMargin >= 10 ? "#FCD34D" : "#FCA5A5";
+                const lineQtyDisplay = isPrepack
+                  ? `${s.qty.toLocaleString()} pack${s.qty !== 1 ? "s" : ""} (${(s.qty * ppkMult).toLocaleString()} units)`
+                  : `${s.qty.toLocaleString()} units`;
                 return (
                   <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                       <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700 }}>{s.orderNumber || "—"}</span>
-                      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>{s.store && storeTag(s.store)}<span style={{ color: "#F59E0B", fontWeight: 700 }}>{s.qty.toLocaleString()} units</span></span>
+                      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>{s.store && storeTag(s.store)}<span style={{ color: "#F59E0B", fontWeight: 700 }}>{lineQtyDisplay}</span></span>
                     </div>
                     <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{s.customerName || "—"}</div>
                     <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
                       <span style={{ color: "#94A3B8", fontSize: 11 }}>Cancel: {fmtDateDisplay(s.date)}</span>
-                      {s.unitPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Unit: ${s.unitPrice.toFixed(2)}</span>}
+                      {s.unitPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>{isPrepack ? "Pack" : "Unit"}: ${s.unitPrice.toFixed(2)}</span>}
                       {s.totalPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Total: ${s.totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
                       {lineMargin !== null && <span style={{ color: marginColor, fontSize: 11, fontWeight: 600 }}>Margin {lineMargin >= 0 ? "" : "-"}{Math.abs(lineMargin).toFixed(1)}%</span>}
                     </div>
@@ -228,32 +262,50 @@ export const CellContextMenu: React.FC<CellContextMenuProps> = ({ ctxMenu, ctxRe
         </div>
 
         {ctxMenu.sos.length > 0 && (() => {
+          // unitCost is per-unit (the build site converts blended cost
+          // to unit grain). SO qty is at pack grain (raw Xoro). Multiply
+          // qty by ppkMult to land in the same grain as unitCost so the
+          // margin math is correct on prepack rows. ppkMult=1 for
+          // non-prepack rows leaves behavior unchanged.
           const unitCost = ctxMenu.unitCost ?? 0;
-          const tQty = ctxMenu.sos.reduce((s, o) => s + o.qty, 0);
+          const ppkMult = ctxMenu.ppkMult ?? 1;
+          const isPrepack = ppkMult > 1;
+          const tQtyPacks = ctxMenu.sos.reduce((s, o) => s + o.qty, 0);
+          const tQtyUnits = tQtyPacks * ppkMult;
           const tVal = ctxMenu.sos.reduce((s, o) => s + (o.totalPrice || o.unitPrice * o.qty || 0), 0);
-          const tCost = unitCost > 0 ? unitCost * tQty : 0;
+          const tCost = unitCost > 0 ? unitCost * tQtyUnits : 0;
           const headerMarginPct = tVal > 0 && tCost > 0 ? ((tVal - tCost) / tVal) * 100 : null;
           return (
             <div>
               <div style={{ background: "rgba(59,130,246,0.15)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#93C5FD", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #1E3A5F" }}>
-                Sales Orders ({ctxMenu.sos.length}) · {tQty.toLocaleString()} units{tVal > 0 ? ` · $${tVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(tVal / tQty).toFixed(2)}/unit` : ""}{headerMarginPct !== null ? ` · Margin ${headerMarginPct >= 0 ? "" : "-"}${Math.abs(headerMarginPct).toFixed(1)}%` : ""}
+                Sales Orders ({ctxMenu.sos.length}) · {isPrepack
+                  ? `${tQtyPacks.toLocaleString()} pack${tQtyPacks !== 1 ? "s" : ""} (${tQtyUnits.toLocaleString()} units)`
+                  : `${tQtyPacks.toLocaleString()} units`}{tVal > 0 ? ` · $${tVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(tVal / tQtyPacks).toFixed(2)}/${isPrepack ? "pack" : "unit"}` : ""}{headerMarginPct !== null ? ` · Margin ${headerMarginPct >= 0 ? "" : "-"}${Math.abs(headerMarginPct).toFixed(1)}%` : ""}
               </div>
               {ctxMenu.sos.map((s, i) => {
-                const lineMargin = (unitCost > 0 && s.unitPrice > 0) ? ((s.unitPrice - unitCost) / s.unitPrice) * 100 : null;
+                // s.unitPrice is per-pack; unitCost is per-unit. Bring
+                // unitCost up to per-pack via ppkMult to compute margin
+                // in pack grain.
+                const lineMargin = (unitCost > 0 && s.unitPrice > 0)
+                  ? ((s.unitPrice - unitCost * ppkMult) / s.unitPrice) * 100
+                  : null;
                 const marginColor = lineMargin === null ? "#94A3B8" : lineMargin >= 30 ? "#6EE7B7" : lineMargin >= 10 ? "#FCD34D" : "#FCA5A5";
+                const lineQtyDisplay = isPrepack
+                  ? `${s.qty.toLocaleString()} pack${s.qty !== 1 ? "s" : ""} (${(s.qty * ppkMult).toLocaleString()} units)`
+                  : `${s.qty.toLocaleString()} units`;
                 return (
                   <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                       <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700 }}>{s.orderNumber || "—"}</span>
                       <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         {s.store && storeTag(s.store)}
-                        <span style={{ color: "#10B981", fontWeight: 700 }}>{s.qty.toLocaleString()} units</span>
+                        <span style={{ color: "#10B981", fontWeight: 700 }}>{lineQtyDisplay}</span>
                       </span>
                     </div>
                     <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{s.customerName || "—"}</div>
                     <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
                       <span style={{ color: "#94A3B8", fontSize: 11 }}>Cancel: {fmtDateDisplay(s.date)}</span>
-                      <span style={{ color: "#94A3B8", fontSize: 11 }}>Unit: ${s.unitPrice?.toFixed(2) ?? "—"}</span>
+                      <span style={{ color: "#94A3B8", fontSize: 11 }}>{isPrepack ? "Pack" : "Unit"}: ${s.unitPrice?.toFixed(2) ?? "—"}</span>
                       <span style={{ color: "#94A3B8", fontSize: 11 }}>Total: ${s.totalPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "—"}</span>
                       {lineMargin !== null && <span style={{ color: marginColor, fontSize: 11, fontWeight: 600 }}>Margin {lineMargin >= 0 ? "" : "-"}{Math.abs(lineMargin).toFixed(1)}%</span>}
                     </div>

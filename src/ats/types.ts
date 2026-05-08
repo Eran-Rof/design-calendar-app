@@ -57,5 +57,5 @@ export interface ATSSoEvent { sku: string; date: string; qty: number; orderNumbe
 export interface UploadWarningItem { sku: string; qty: number; orderNumber?: string; poNumber?: string; customerName?: string; vendor?: string; }
 export interface UploadWarning { severity: "error" | "warn"; field: string; affected: number; total: number; message: string; items?: UploadWarningItem[]; }
 export interface ExcelData { syncedAt: string; skus: ATSSkuData[]; pos: ATSPoEvent[]; sos: ATSSoEvent[]; warnings?: UploadWarning[]; columnNames?: { inventory: string[]; purchases: string[]; orders: string[] }; }
-export interface CtxMenu { x: number; y: number; anchorY: number; pos: ATSPoEvent[]; sos: ATSSoEvent[]; onHand: number; skuStore: string; cellKey: string; cellEl: HTMLElement | null; flipped: boolean; arrowLeft: number; unitCost?: number; }
+export interface CtxMenu { x: number; y: number; anchorY: number; pos: ATSPoEvent[]; sos: ATSSoEvent[]; onHand: number; skuStore: string; cellKey: string; cellEl: HTMLElement | null; flipped: boolean; arrowLeft: number; unitCost?: number; ppkMult?: number; }
 export interface SummaryCtxMenu { type: "onHand" | "onOrder" | "onPO"; row: ATSRow; pos: ATSPoEvent[]; sos: ATSSoEvent[]; cellEl: HTMLElement; }
