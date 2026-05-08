@@ -265,10 +265,6 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
               <span style={{ color: "#9CA3AF", fontSize: 11 }}>{l.label}</span>
             </div>
           ))}
-          {/* Operator note — same look as the legend items but no color
-              swatch since this is a global note about how the grid
-              displays prepack qtys. */}
-          <span style={{ color: "#9CA3AF", fontSize: 11 }}>Prepacks are Shown in Eaches</span>
         </div>
 
         {/* GRID TABLE */}

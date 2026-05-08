@@ -94,7 +94,7 @@ export function exportNegInven(
       v !== null && v < 0 && i !== keepIdx ? null : v
     );
 
-    return { row: r, periodVals };
+    return { row: r, periodVals, keepIdx };
   });
 
   // ── Step 3d: drop display-period columns with no surviving data ───────────────
@@ -157,7 +157,7 @@ export function exportNegInven(
   // Data rows. Each SKU produces its main row, plus an optional "+ PO"
   // sub-row showing incoming PO qty per period in green — supply that
   // may cover the negs in adjacent or later periods.
-  processed.forEach(({ row, periodVals }, ri) => {
+  processed.forEach(({ row, periodVals, keepIdx }, ri) => {
     const rf = ri % 2 === 0 ? WHITE : LGRAY;
     aoa.push([
       { v: row.sku ?? "",         t: "s", s: { font: ft(true,  9, SKU_COL), fill: fl(rf), alignment: { horizontal: "left",   vertical: "center" } } },
@@ -183,9 +183,18 @@ export function exportNegInven(
     // PO sub-row — only emit when at least one live period has incoming
     // supply for this SKU. Green "+N" cells make it instantly readable
     // against the red neg cells above.
-    const poByPeriod = livePeriodIdxs.map(pi =>
-      poQtyInPeriod(eventIndex, row.sku, displayPeriods[pi].periodStart, displayPeriods[pi].endDate)
-    );
+    //
+    // Scope to months SUBSEQUENT to the qualifying negative period
+    // (keepIdx). PO arrivals in/before the neg period are already
+    // baked into the displayed ATS value at that period — surfacing
+    // them again on the sub-row was double-counting from the
+    // operator's POV. The PO qty that matters for "filling the
+    // negative" is the supply that lands AFTER the neg shows up,
+    // not the supply that already came in.
+    const poByPeriod = livePeriodIdxs.map(pi => {
+      if (keepIdx === null || pi <= keepIdx) return 0;
+      return poQtyInPeriod(eventIndex, row.sku, displayPeriods[pi].periodStart, displayPeriods[pi].endDate);
+    });
     if (poByPeriod.some(q => q > 0)) {
       poSubRowIndexes.push(aoa.length);
       aoa.push([
