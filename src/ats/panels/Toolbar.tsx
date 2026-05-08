@@ -501,7 +501,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
        the value off the default (21), the input lights up
        light-blue to make it obvious the totals are being driven
        by a custom assumption. */}
-    {(() => {
+    {showTotalsRow && (() => {
       const touched = generalMarginPct !== 21;
       return (
         <label
@@ -555,8 +555,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <span style={{ color: touched ? "#93C5FD" : "#6B7280", fontSize: 12 }}>%</span>
         </label>
       );
-    })()}{/* /MARGIN bubble — always visible so the planner can adjust the
-            target before/after toggling the totals row. */}
+    })()}{/* /MARGIN bubble — totals-conditional */}
 
 
     <div style={{ color: "#6B7280", fontSize: 12, whiteSpace: "nowrap" }}>
