@@ -51,17 +51,18 @@ describe("extractPpk", () => {
 
 describe("ppkMultiplier — order of resolution", () => {
   it("checks color first", () => {
-    expect(ppkMultiplier("PPK24", "PPK6", "PPK12", "PPK3")).toBe(24);
+    // Style carries 'PPK' identity, color carries the unit count.
+    expect(ppkMultiplier("PPK24", "PPK6", "PPK12", "RYB1311PPK")).toBe(24);
   });
 
   it("falls through to size when color is null/empty", () => {
-    expect(ppkMultiplier(null, "PPK6", "PPK12", "PPK3")).toBe(6);
-    expect(ppkMultiplier("", "PPK6", null, null)).toBe(6);
+    expect(ppkMultiplier(null, "PPK6", "PPK12", "RYB1311PPK")).toBe(6);
+    expect(ppkMultiplier("", "PPK6", null, "RYB1311PPK")).toBe(6);
   });
 
-  it("falls through to description, then style", () => {
-    expect(ppkMultiplier(null, null, "PPK12", "PPK3")).toBe(12);
-    expect(ppkMultiplier(null, null, null, "PPK3")).toBe(3);
+  it("falls through to description, then style-embedded unit count", () => {
+    expect(ppkMultiplier(null, null, "PPK12", "RYB1311PPK")).toBe(12);
+    expect(ppkMultiplier(null, null, null, "RYB1311PPK3")).toBe(3);
   });
 
   it("returns 1 when nothing matches", () => {
@@ -70,7 +71,27 @@ describe("ppkMultiplier — order of resolution", () => {
   });
 
   it("ignores PPK with no number in earlier fields and falls through", () => {
-    expect(ppkMultiplier("PPK", "PPK24", null, null)).toBe(24);
+    expect(ppkMultiplier("PPK", "PPK24", null, "RYB1311PPK")).toBe(24);
+  });
+
+  it("identity gate — refuses to multiply when neither SKU nor style signals prepack", () => {
+    // RYB059430 shares a style with the prepack RYB059430PPK but is itself
+    // a non-prepack row. Even if its description (or any other field) carries
+    // a stray 'PPK24' token, multiplier must stay 1 — multiplying by 24
+    // would 24x the on-hand / on-PO / on-SO bloat the planner sees.
+    expect(ppkMultiplier(null, null, "see RYB059430PPK24 prepack", "RYB059430", "RYB059430")).toBe(1);
+    expect(ppkMultiplier("PPK24", "PPK6", null, "RYB1311", "RYB1311")).toBe(1);
+  });
+
+  it("identity gate — accepts when SKU contains PPK", () => {
+    expect(ppkMultiplier(null, "PPK24", null, null, "RYB059430PPK")).toBe(24);
+  });
+
+  it("identity gate — accepts when style contains PPK even if SKU doesn't", () => {
+    // Edge case: ATS row's SKU may not carry the PPK marker but the
+    // master-resolved style code does (e.g. variant SKU 'ABC-RED'
+    // matches a master row whose style_code is 'ABCPPK').
+    expect(ppkMultiplier(null, "PPK24", null, "ABCPPK", "ABC-RED")).toBe(24);
   });
 });
 
@@ -80,8 +101,17 @@ describe("ppkMultiplierForAts — SKU + description fallbacks", () => {
     expect(ppkMultiplierForAts("RBB0185-03SFPPK6", null)).toBe(6);
   });
 
-  it("matches PPKn embedded in the description when SKU has none", () => {
-    expect(ppkMultiplierForAts("RYB1311 - Black", "Tech Jogger PPK12 Special")).toBe(12);
+  it("identity gate — refuses to multiply when SKU has no PPK marker even if description does", () => {
+    // Was previously expected to return 12; rejected now to fix the
+    // bug where a non-prepack SKU like RYB059430 (which shares a style
+    // with the prepack RYB059430PPK) would have its on-hand bloated
+    // 24x because of stray PPK text in the description / cross-ref.
+    expect(ppkMultiplierForAts("RYB1311 - Black", "Tech Jogger PPK12 Special")).toBe(1);
+  });
+
+  it("matches PPKn from description when the SKU itself signals prepack", () => {
+    // SKU carries 'PPK' identity; the unit count comes from description.
+    expect(ppkMultiplierForAts("RYB1311PPK - Black", "Tech Jogger PPK12 Special")).toBe(12);
   });
 
   it("returns 1 for non-prepack SKUs", () => {

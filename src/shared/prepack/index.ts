@@ -44,7 +44,16 @@ export function extractPpk(value: string | null | undefined): number | null {
  *  Field-priority order is the planning-grid convention: color first
  *  (most distinctive), size next, then descriptive fallbacks. ATS
  *  passes `null` for the color slot since it doesn't carry a separate
- *  color column, but the same priority chain still applies. */
+ *  color column, but the same priority chain still applies.
+ *
+ *  Identity gate: `sku` (or `style`) MUST contain "PPK" before we'll
+ *  return a multiplier > 1. Without this, a non-prepack row that
+ *  shares a style with a prepack — e.g. RYB059430 alongside
+ *  RYB059430PPK — could pick up a mistaken PPK24 token from its
+ *  description (cross-ref text, badge note, master leakage) and have
+ *  its on-hand / on-PO / on-SO multiplied 24x. The gate refuses to
+ *  trust description/size/color signals when the SKU itself isn't
+ *  a prepack. */
 export function ppkMultiplier(
   color: string | null | undefined,
   size: string | null | undefined,
@@ -52,6 +61,9 @@ export function ppkMultiplier(
   style?: string | null,
   sku?: string | null,
 ): number {
+  const skuLooksPpk = !!sku && /PPK/i.test(sku);
+  const styleLooksPpk = !!style && /PPK/i.test(style);
+  if (!skuLooksPpk && !styleLooksPpk) return 1;
   return (
     extractPpk(color) ??
     extractPpk(size) ??
@@ -65,10 +77,12 @@ export function ppkMultiplier(
 /** Convenience for ATS-shape rows where SKU and description are the
  *  only fields likely to carry the PPK token. SKU is the canonical
  *  place we'd see "PPK" since the parser folds color into the SKU
- *  string; description is the secondary fallback. */
+ *  string; description is the secondary fallback. Same identity gate
+ *  as ppkMultiplier — without "PPK" in the SKU, never multiplies. */
 export function ppkMultiplierForAts(
   sku: string | null | undefined,
   description: string | null | undefined,
 ): number {
+  if (!sku || !/PPK/i.test(sku)) return 1;
   return extractPpk(sku) ?? extractPpk(description) ?? 1;
 }
