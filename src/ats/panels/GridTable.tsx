@@ -209,7 +209,13 @@ export const GridTable: React.FC<GridTableProps> = ({
   const unfreezeStyle = (key: StickyKey): React.CSSProperties => (
     isFrozen(key)
       ? {}
-      : { position: "static" as const, left: undefined, zIndex: undefined }
+      // Unfrozen cells were `position: static`, but the row-divider
+      // `::after` pseudo-element (declared in the injected style block
+      // below) needs a positioned ancestor to anchor against. Switch
+      // to `position: relative` so the ::after still lays its 1-pixel
+      // line inside the cell. left:undefined / zIndex:undefined drops
+      // the sticky-only props that no longer apply.
+      : { position: "relative" as const, left: undefined, zIndex: undefined }
   );
 
   // Totals across the filtered set (not just the current page).
@@ -493,7 +499,36 @@ export const GridTable: React.FC<GridTableProps> = ({
 
   return (
     <div style={S.tableWrap} ref={tableRef}>
-      <table style={S.table}>
+      {/* Row dividers as a real ::after pseudo-element on every body
+          cell. Belt #4 on top of borderBottom + 2× box-shadow already
+          declared in S.td — the Chrome compositor on Windows keeps
+          dropping painted borders/shadows on sticky cells under
+          horizontal scroll, so this lays a real DOM-rendered 1-pixel
+          line at the bottom of each cell. position:sticky on the
+          cell forms a containing block for the absolutely-positioned
+          ::after, and z-index keeps it above the cell's own
+          background but below scrolling content. The non-sticky
+          (date) cells fall back to the box-shadow path. The class
+          name is scoped to .ats-grid so it only targets this table. */}
+      <style>{`
+        /* position:relative for non-sticky body cells so the ::after
+           anchors inside them. Frozen cells use position:sticky inline,
+           which overrides — sticky also forms a positioning context
+           for absolute children, so the ::after still anchors there. */
+        .ats-grid tbody td { position: relative; }
+        .ats-grid tbody td::after {
+          content: "";
+          position: absolute;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          height: 1px;
+          background: #475569;
+          pointer-events: none;
+          z-index: 1;
+        }
+      `}</style>
+      <table className="ats-grid" style={S.table}>
         <thead>
           {/* Totals row — sticky top: 0, sums across the filtered set.
              Column geometry mirrors the column-header row below; both
