@@ -325,9 +325,13 @@ export const wholesaleRepo = {
     }
     const raw = rows[0]?.value;
     if (!raw) return new Map();
+    // ATS now stores ats_excel_data as a gzip+base64 envelope to keep
+    // large uploads under Supabase's 8s statement timeout. unpackGzipEnvelope
+    // detects the envelope and falls back to plain JSON for legacy rows.
     let parsed: unknown;
     try {
-      parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+      const { unpackGzipEnvelope } = await import("../../utils/gzipBase64");
+      parsed = await unpackGzipEnvelope(raw);
     } catch {
       return new Map();
     }

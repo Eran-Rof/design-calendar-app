@@ -3,6 +3,7 @@ import type { ATSRow, ExcelData } from "../types";
 import { mergeExcelDataSkus, mergeRows } from "../merge";
 import { skuSimilarity } from "../helpers";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
+import { unpackGzipEnvelope } from "../../utils/gzipBase64";
 
 export interface MergeOp {
   fromSku: string;
@@ -107,7 +108,7 @@ export function useMergeHistory(opts: UseMergeHistoryOpts) {
       const baseRes = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.ats_base_data&select=value`, { headers: SB_HEADERS });
       if (!baseRes.ok) throw new Error(`Failed to load base data: ${baseRes.status}`);
       const baseRows = await baseRes.json();
-      if (Array.isArray(baseRows) && baseRows[0]?.value) baseData = JSON.parse(baseRows[0].value);
+      if (Array.isArray(baseRows) && baseRows[0]?.value) baseData = await unpackGzipEnvelope<ExcelData>(baseRows[0].value);
     } catch {}
     if (!baseData) {
       alert("Cannot undo: no base snapshot found. Please re-upload your Excel files to reset merge history.");

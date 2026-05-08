@@ -79,17 +79,34 @@ export async function runSaveUploadData(rawData: ExcelData, opts: UseExcelUpload
       }
 
       opts.setUploadProgress({ step: `Saving ${data.skus.length.toLocaleString()} SKUs…`, pct: 85 });
-      const payloadBytes = JSON.stringify(data).length;
-      console.warn(`[ATS upload] POST ${SB_URL}/rest/v1/app_data — ${payloadBytes.toLocaleString()} bytes — about to fire`);
-      const saveRes = await fetch(`${SB_URL}/rest/v1/app_data`, {
-        method: "POST",
-        headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify({ key: "ats_excel_data", value: JSON.stringify(data) }),
-      });
-      console.warn(`[ATS upload] response status=${saveRes.status}`);
-      if (!saveRes.ok) {
-        const detail = await saveRes.text().catch(() => "");
-        const msg = `Save to database FAILED — HTTP ${saveRes.status} ${detail.slice(0, 400)}`;
+      // Compress the payload before sending — a 16-MB ExcelData JSON
+      // typically gzips to ~1.5 MB, which keeps the INSERT under the
+      // 8s anon-role statement timeout in Supabase. Without this,
+      // large uploads were failing with 57014.
+      const { packGzipEnvelope } = await import("../../utils/gzipBase64");
+      const envelope = await packGzipEnvelope(data);
+      const rawBytes = JSON.stringify(data).length;
+      console.warn(`[ATS upload] POST ${SB_URL}/rest/v1/app_data — raw=${rawBytes.toLocaleString()} packed=${envelope.length.toLocaleString()} bytes — about to fire`);
+      // Retry on transient 5xx / 57014 timeouts. The compressed
+      // payload should clear the timeout, but concurrent writes or
+      // index maintenance can still cause sporadic stalls.
+      let saveRes: Response | null = null;
+      let lastDetail = "";
+      for (let attempt = 0; attempt < 3; attempt++) {
+        saveRes = await fetch(`${SB_URL}/rest/v1/app_data`, {
+          method: "POST",
+          headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify({ key: "ats_excel_data", value: envelope }),
+        });
+        if (saveRes.ok) break;
+        lastDetail = await saveRes.text().catch(() => "");
+        const isTransient = saveRes.status >= 500 || lastDetail.includes("57014") || lastDetail.includes("statement timeout");
+        if (!isTransient) break;
+        await new Promise((r) => setTimeout(r, 700 + 1100 * attempt));
+      }
+      console.warn(`[ATS upload] response status=${saveRes?.status}`);
+      if (!saveRes || !saveRes.ok) {
+        const msg = `Save to database FAILED — HTTP ${saveRes?.status ?? "no response"} ${lastDetail.slice(0, 400)}`;
         console.error("[ATS upload]", msg);
         throw new Error(msg);
       }

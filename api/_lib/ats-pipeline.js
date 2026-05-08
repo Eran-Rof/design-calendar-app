@@ -261,7 +261,16 @@ async function loadAppDataValue(sbUrl, sbKey, key) {
   if (!res.ok) return null;
   const rows = await res.json();
   if (!Array.isArray(rows) || !rows[0]?.value) return null;
-  try { return JSON.parse(rows[0].value); } catch { return null; }
+  // Browser-side ATS now stores ats_excel_data / ats_base_data as a
+  // gzip+base64 envelope (`{"_gz":"<base64>"}`) to keep large uploads
+  // under the 8s anon-role statement timeout. The unpacker detects
+  // the envelope; legacy plain-JSON rows still parse via the fallback.
+  try {
+    const { unpackGzipEnvelope } = await import("./gzipEnvelope.js");
+    return unpackGzipEnvelope(rows[0].value);
+  } catch {
+    try { return JSON.parse(rows[0].value); } catch { return null; }
+  }
 }
 
 async function saveAppDataValue(sbUrl, sbKey, key, value) {

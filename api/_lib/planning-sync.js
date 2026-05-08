@@ -13,6 +13,7 @@
 // unit-testable.
 
 import { canonSku, canonStyleColor, buildItemRow } from "./sku-canon.js";
+import { unpackGzipEnvelope } from "./gzipEnvelope.js";
 
 function toNum(v) {
   if (v == null || v === "") return 0;
@@ -88,11 +89,18 @@ export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit =
     return { ...result, error: "No ATS Excel snapshot uploaded yet — upload via /api/ats/upload first." };
   }
 
+  // ATS now writes ats_excel_data as a gzip+base64 envelope to keep
+  // large uploads under Supabase's 8s statement timeout. The unpacker
+  // detects the envelope and falls back to plain JSON for legacy
+  // uncompressed rows still in app_data.
   let parsed;
   try {
-    parsed = typeof appRow.value === "string" ? JSON.parse(appRow.value) : appRow.value;
+    parsed = unpackGzipEnvelope(appRow.value);
   } catch (e) {
-    return { ...result, error: "ATS snapshot is not valid JSON", details: String(e) };
+    return { ...result, error: "ATS snapshot decode failed", details: String(e) };
+  }
+  if (parsed == null) {
+    return { ...result, error: "ATS snapshot is not valid JSON" };
   }
 
   const allSkus = Array.isArray(parsed?.skus) ? parsed.skus : [];

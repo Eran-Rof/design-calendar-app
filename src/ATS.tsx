@@ -23,6 +23,7 @@ import { StatCard } from "./ats/StatCard";
 import { ATSProvider, useATSState, useATSDispatch } from "./ats/state/ATSContext";
 import type { ATSState, ATSAction } from "./ats/state/atsTypes";
 import { atsRenderPanel } from "./ats/renderPanel";
+import { packGzipEnvelope, unpackGzipEnvelope } from "./utils/gzipBase64";
 
 // ── Main Component ────────────────────────────────────────────────────────────
 function readPlmUserId(): string | null {
@@ -517,7 +518,9 @@ function ATSReport() {
       const excelRows = await excelRes.json();
       if (Array.isArray(excelRows) && excelRows[0]?.value) {
         // Clean stored blob on load (legacy uploads may have duplicates baked in).
-        const data: ExcelData = dedupeExcelData(JSON.parse(excelRows[0].value));
+        // unpackGzipEnvelope handles both new compressed format
+        // (`{"_gz":"<base64>"}`) and legacy plain JSON strings.
+        const data: ExcelData = dedupeExcelData(await unpackGzipEnvelope<ExcelData>(excelRows[0].value));
         // Auto-refresh PO data from PO WIP on every load
         let freshData = data;
         try {
@@ -604,37 +607,56 @@ function ATSReport() {
     setNormChanges, setNormPendingData, setNormSource,
   });
 
-  async function saveNormResult(result: ExcelData) {
+  // Gzip+base64 the value before saving. Cuts a 16-MB ExcelData blob
+  // to ~1.5 MB, which keeps the INSERT/UPDATE under Supabase's 8s
+  // anon-role statement timeout. Without this, large uploads were
+  // hitting 57014 ("canceling statement due to statement timeout").
+  // Loader unpacks via unpackGzipEnvelope and falls back gracefully
+  // for any legacy uncompressed rows still in app_data.
+  async function saveAppDataBlob(key: string, data: unknown): Promise<{ ok: boolean; detail?: string }> {
+    let body: string;
     try {
-      const res = await fetch(`${SB_URL}/rest/v1/app_data`, {
-        method: "POST",
-        headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify({ key: "ats_excel_data", value: JSON.stringify(result) }),
-      });
-      if (!res.ok) {
-        const detail = await res.text().catch(() => "");
-        console.error("[ATS] saveNormResult failed:", res.status, detail);
-        setUploadError(`Save to database FAILED — ${res.status} ${detail.slice(0, 200)}. Planning sync will use stale data until this is fixed.`);
-      }
+      body = JSON.stringify({ key, value: await packGzipEnvelope(data) });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error("[ATS] saveNormResult threw:", e);
-      setUploadError(`Save to database FAILED — ${msg}. Planning sync will use stale data until this is fixed.`);
+      return { ok: false, detail: e instanceof Error ? e.message : String(e) };
+    }
+    let lastDetail = "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch(`${SB_URL}/rest/v1/app_data`, {
+          method: "POST",
+          headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
+          body,
+        });
+        if (res.ok) return { ok: true };
+        const detail = await res.text().catch(() => "");
+        lastDetail = `${res.status} ${detail.slice(0, 200)}`;
+        // Retry only on transient signals — 57014 timeout, 5xx,
+        // gateway timeouts. A 4xx is structural and won't recover.
+        const isTransient = res.status >= 500 || detail.includes("57014") || detail.includes("statement timeout");
+        if (!isTransient) break;
+        // Linear-ish backoff: 700ms, 1800ms. Total worst-case 2.5s
+        // before final failure — fast enough for a UI save.
+        await new Promise((r) => setTimeout(r, 700 + 1100 * attempt));
+      } catch (e) {
+        lastDetail = e instanceof Error ? e.message : String(e);
+        break;
+      }
+    }
+    return { ok: false, detail: lastDetail };
+  }
+
+  async function saveNormResult(result: ExcelData) {
+    const { ok, detail } = await saveAppDataBlob("ats_excel_data", result);
+    if (!ok) {
+      console.error("[ATS] saveNormResult failed:", detail);
+      setUploadError(`Save to database FAILED — ${detail}. Planning sync will use stale data until this is fixed.`);
     }
   }
 
   async function saveBaseData(data: ExcelData) {
-    try {
-      const res = await fetch(`${SB_URL}/rest/v1/app_data`, {
-        method: "POST",
-        headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify({ key: "ats_base_data", value: JSON.stringify(data) }),
-      });
-      if (!res.ok) {
-        const detail = await res.text().catch(() => "");
-        console.error("[ATS] saveBaseData failed:", res.status, detail);
-      }
-    } catch (e) { console.error("[ATS] saveBaseData threw:", e); }
+    const { ok, detail } = await saveAppDataBlob("ats_base_data", data);
+    if (!ok) console.error("[ATS] saveBaseData failed:", detail);
   }
 
   async function loadNormDecisions(): Promise<NormDecisions> {
