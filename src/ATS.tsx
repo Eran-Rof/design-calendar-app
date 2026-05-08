@@ -998,5 +998,6 @@ function ATSReport() {
     showingNotifications,
     onToggleNotifications: () => setShowingNotifications((v) => !v),
     notificationsView,
+    masterReady,
   });
 }

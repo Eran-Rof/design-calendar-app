@@ -85,6 +85,11 @@ interface ATSDerivedCtx {
   pendingMerge: { fromSku: string; toSku: string; similarity: number } | null;
   setPendingMerge: (v: { fromSku: string; toSku: string; similarity: number } | null) => void;
   isAdmin: boolean;
+  // True once the ip_item_master cache has loaded. Until then matchedRows
+  // is empty (every row reads as unmatched) so the grid would otherwise
+  // show "No SKUs match your filters" during the 2-4s master-cache fetch.
+  // We treat that window as still-loading.
+  masterReady: boolean;
   // Callbacks
   handleFileUpload: (inv: File, pur: File | null, ord: File) => Promise<void>;
   refreshPOsFromWIP: () => Promise<void>;
@@ -128,7 +133,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
   hiddenColumns, setHiddenColumns,
   generalMarginPct, setGeneralMarginPct,
   collapseLevel, setCollapseLevel, expandedGroups, expandedGroupSet, toggleExpandGroup,
-  unreadNotifs, showingNotifications, onToggleNotifications, notificationsView } = ctx;
+  unreadNotifs, showingNotifications, onToggleNotifications, notificationsView, masterReady } = ctx;
 
   return (
     <div style={S.app}>
@@ -269,7 +274,10 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         {/* GRID TABLE */}
         <GridErrorBoundary>
           <GridTable
-            loading={loading || (excelData != null && excelData.skus.length > 0 && rows.length === 0)} filtered={filtered} pageRows={pageRows}
+            loading={loading
+              || (excelData != null && excelData.skus.length > 0 && rows.length === 0)
+              || (excelData != null && excelData.skus.length > 0 && !masterReady && filtered.length === 0)
+            } filtered={filtered} pageRows={pageRows}
             displayPeriods={displayPeriods} tableRef={tableRef}
             sortCol={sortCol} sortDir={sortDir} handleThClick={handleThClick} rangeUnit={rangeUnit}
             pinnedSku={pinnedSku} setPinnedSku={setPinnedSku}

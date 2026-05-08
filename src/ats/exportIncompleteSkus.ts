@@ -55,11 +55,10 @@ export function exportIncompleteSkus(
     }
   }
 
-  if (incomplete.length === 0) {
-    alert("No incomplete styles found. Every filtered SKU has an SO, avg cost, or PO cost.");
-    return { count: 0 };
-  }
-
+  // Empty result is still a download. Operators kept clicking expecting
+  // a workbook and getting a blocking alert; replace it with a one-row
+  // status sheet so the click always produces the expected file. Caller
+  // can still react to count===0 if it wants to surface a softer toast.
   const HDR: any = {
     font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
     fill: { fgColor: { rgb: "B91C1C" }, patternType: "solid" },
@@ -79,18 +78,35 @@ export function exportIncompleteSkus(
 
   const headers = ["SKU", "Description", "Category", "Sub Cat", "Color", "Store", "On Hand", "On Order", "On PO"];
   const aoa: any[][] = [headers.map((h) => ({ v: h, s: HDR }))];
-  for (const r of incomplete) {
+  if (incomplete.length === 0) {
+    // Single status row spanning into the SKU column so the workbook
+    // is never empty. Lets the operator file/share the run even on
+    // a clean snapshot.
+    const okStyle: any = {
+      ...cell,
+      font: { italic: true, color: { rgb: "047857" } },
+      alignment: { horizontal: "left", vertical: "center" },
+    };
     aoa.push([
-      { v: r.sku, s: cell },
-      { v: r.description ?? "", s: cell },
-      { v: r.master_category ?? r.category ?? "", s: cell },
-      { v: r.master_sub_category ?? "", s: cell },
-      { v: r.master_color ?? "", s: cell },
-      { v: r.store ?? "ROF", s: cell },
-      { v: r.onHand ?? 0, s: cellNum },
-      { v: r.onOrder ?? 0, s: cellNum },
-      { v: r.onPO ?? 0, s: cellNum },
+      { v: "— None —", s: okStyle },
+      { v: "All filtered SKUs have an SO, avg cost, or PO cost.", s: okStyle },
+      { v: "", s: cell }, { v: "", s: cell }, { v: "", s: cell },
+      { v: "", s: cell }, { v: "", s: cellNum }, { v: "", s: cellNum }, { v: "", s: cellNum },
     ]);
+  } else {
+    for (const r of incomplete) {
+      aoa.push([
+        { v: r.sku, s: cell },
+        { v: r.description ?? "", s: cell },
+        { v: r.master_category ?? r.category ?? "", s: cell },
+        { v: r.master_sub_category ?? "", s: cell },
+        { v: r.master_color ?? "", s: cell },
+        { v: r.store ?? "ROF", s: cell },
+        { v: r.onHand ?? 0, s: cellNum },
+        { v: r.onOrder ?? 0, s: cellNum },
+        { v: r.onPO ?? 0, s: cellNum },
+      ]);
+    }
   }
 
   const ws = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
