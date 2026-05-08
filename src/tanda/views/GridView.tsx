@@ -10,6 +10,7 @@ import { useArrowKeyScroll } from "../../shared/grid/useArrowKeyScroll";
 import { GridScrollbarStyles } from "../../shared/grid/GridScrollbarStyles";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
 import { useTandaStore } from "../store/index";
+import { PoMatrixPopover } from "./PoMatrixPopover";
 
 const PAGE_SIZE = 16;
 const MAX_UNDO  = 30;
@@ -480,6 +481,9 @@ export function GridView({
   const [filterBuyer, setFilterBuyer]           = useState("All");
   const [expandedPoNum, setExpandedPoNum]       = useState<string | null>(null);
   const [expandViewMode, setExpandViewMode]     = useState<"line" | "matrix">("line");
+  // Right-click matrix popover anchored at click-position. Lets the
+  // planner peek a PO's size matrix without expanding the row.
+  const [matrixPopover, setMatrixPopover]       = useState<{ po: XoroPO; x: number; y: number } | null>(null);
   const [buyerPoEditing, setBuyerPoEditing]     = useState<string | null>(null);
   const [buyerPoDraft, setBuyerPoDraft]     = useState("");
   const [page, setPage]                     = useState(0);
@@ -1437,11 +1441,18 @@ export function GridView({
                       );
                     })()}
 
-                    {/* PO # */}
+                    {/* PO # — left-click opens full detail; right-click
+                         opens a compact matrix popover at the cursor so the
+                         planner can sanity-check sizes / qtys without
+                         leaving the grid. */}
                     <span
                       onClick={() => { setSelected(po); setDetailMode("milestones"); setView("list"); }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setMatrixPopover({ po, x: e.clientX, y: e.clientY });
+                      }}
                       style={{ ...cell, color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, fontSize: 12, cursor: "pointer", textDecoration: "underline", whiteSpace: "normal", wordBreak: "break-all" }}
-                      title="Open full PO detail"
+                      title="Click: open full PO detail · Right-click: peek size matrix"
                     >
                       {poNum}
                     </span>
@@ -1999,6 +2010,17 @@ export function GridView({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Right-click matrix peek ───────────────────────────────────────── */}
+      {matrixPopover && (
+        <PoMatrixPopover
+          po={matrixPopover.po}
+          x={matrixPopover.x}
+          y={matrixPopover.y}
+          explodePpk={true}
+          onClose={() => setMatrixPopover(null)}
+        />
       )}
 
       {/* ── Notes modal ───────────────────────────────────────────────────── */}

@@ -79,6 +79,20 @@ export function PoMatrixTab({ ctx, total, totalQty }: { ctx: DetailPanelCtx; tot
     row.sizes[p.size] = (row.sizes[p.size] || 0) + p.qty;
   });
 
+  // PO-level unit + pack totals across non-closed lines. Drives the
+  // "Units: N" hint in the matrix header so the planner sees the
+  // total qty without scrolling to the grand-total footer. EXPLODE
+  // PPK toggle picks which grain shows on top — the other is faded
+  // alongside it. Closed lines are excluded so the totals match the
+  // tfoot grand totals.
+  const totalPacks = parsed.reduce((s: number, p: any) => s + (p.closed ? 0 : (p.qty ?? 0)), 0);
+  const totalUnits = parsed.reduce((s: number, p: any) => {
+    if (p.closed) return s;
+    const mult = extractPpk(p.size) ?? 1;
+    return s + (p.qty ?? 0) * mult;
+  }, 0);
+  const totalIsPrepack = totalUnits !== totalPacks;
+
   return (
     <>
       <div style={{ marginBottom: 8 }}>
@@ -86,7 +100,17 @@ export function PoMatrixTab({ ctx, total, totalQty }: { ctx: DetailPanelCtx; tot
           style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#0F172A", borderRadius: matrixCollapsed ? 8 : "8px 8px 0 0", cursor: "pointer", userSelect: "none" }}>
           <span style={{ color: "#6B7280", fontSize: 12 }}>{matrixCollapsed ? "▶" : "▼"}</span>
           <span style={{ color: "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Item Matrix</span>
-          <span style={{ color: "#6B7280", fontSize: 11, marginLeft: "auto" }}>{bases.length} base parts · {sizeOrder.length} sizes</span>
+          <span style={{ color: "#6B7280", fontSize: 11, marginLeft: "auto", display: "inline-flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.2 }}>
+            <span>{bases.length} base part{bases.length !== 1 ? "s" : ""} · {sizeOrder.length} size{sizeOrder.length !== 1 ? "s" : ""}</span>
+            <span style={{ color: "#9CA3AF", fontFamily: "monospace", fontSize: 10 }}>
+              Units: {(explodePpk ? totalUnits : totalPacks).toLocaleString()}
+              {totalIsPrepack && (
+                <span style={{ color: "#4B5563", marginLeft: 6 }}>
+                  ({explodePpk ? `${totalPacks.toLocaleString()} packs` : `= ${totalUnits.toLocaleString()} units`})
+                </span>
+              )}
+            </span>
+          </span>
           {/* EXPLODE PPK toggle. Stop propagation so clicking the
               chip doesn't also toggle the matrix collapsed state. */}
           <label
