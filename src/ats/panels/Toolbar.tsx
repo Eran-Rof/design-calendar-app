@@ -3,6 +3,87 @@ import S from "../styles";
 import { fmtDateDisplay } from "../helpers";
 import type { ExcelData } from "../types";
 
+// Margin % input. Splits the controlled-input value from the numeric
+// state so a user can type "21." (incomplete decimal) and continue
+// to "21.5" without parseFloat truncating the trailing dot and the
+// re-render snapping the input back to "21". The numeric prop is
+// only updated when the input parses to a complete finite number;
+// while the input ends in "." we keep the raw string in local state
+// and let the totals math run against the prior parsed value.
+interface MarginInputProps {
+  generalMarginPct: number;
+  setGeneralMarginPct: (v: number) => void;
+}
+const MarginInput: React.FC<MarginInputProps> = ({ generalMarginPct, setGeneralMarginPct }) => {
+  const touched = generalMarginPct !== 21;
+  const [draft, setDraft] = useState<string>(() => String(generalMarginPct));
+  // Sync from the prop only when it diverges from what the input
+  // currently parses to — that way an external reset (default 21)
+  // updates the box, but the user's mid-edit "21." doesn't get
+  // clobbered when our own setGeneralMarginPct(21) flushes back.
+  useEffect(() => {
+    const cur = parseFloat(draft);
+    if (!Number.isFinite(cur) || Math.abs(cur - generalMarginPct) > 0.001) {
+      setDraft(String(generalMarginPct));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [generalMarginPct]);
+
+  return (
+    <label
+      title="Click to edit. Target gross margin % used as fallback in the totals row when a SKU has no SO sale prices or no cost basis. SKUs with no SO, no avg cost, AND no PO cost are skipped (* shown next to Mrgn). Decimal values are accepted (e.g. 21.5)."
+      onClick={(e) => {
+        if (e.target instanceof HTMLInputElement) return;
+        const input = (e.currentTarget as HTMLLabelElement).querySelector("input");
+        if (input) { input.focus(); input.select(); }
+      }}
+      style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 8, border: `1px solid ${touched ? "#3B82F6" : "#334155"}`, background: touched ? "rgba(59,130,246,0.12)" : "transparent", userSelect: "none", whiteSpace: "nowrap", cursor: "text" }}
+    >
+      <span style={{ color: touched ? "#93C5FD" : "#9CA3AF", fontSize: 12, fontWeight: touched ? 700 : 600 }}>MARGIN</span>
+      <input
+        type="text"
+        inputMode="decimal"
+        value={draft}
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => {
+          // Allow at most one decimal point; strip everything else.
+          let raw = e.target.value.replace(/[^0-9.]/g, "");
+          const firstDot = raw.indexOf(".");
+          if (firstDot !== -1) {
+            raw = raw.slice(0, firstDot + 1) + raw.slice(firstDot + 1).replace(/\./g, "");
+          }
+          setDraft(raw);
+          // Skip incomplete inputs (empty / lone dot / trailing dot)
+          // so parseFloat doesn't snap them back to an integer.
+          if (raw === "" || raw === "." || raw.endsWith(".")) return;
+          const n = parseFloat(raw);
+          if (Number.isFinite(n)) setGeneralMarginPct(Math.max(0, Math.min(99, n)));
+        }}
+        onBlur={() => {
+          // On blur, normalize the displayed value to the committed
+          // numeric state. Empty / lone-dot defaults to 0.
+          if (draft === "" || draft === ".") {
+            setGeneralMarginPct(0);
+            setDraft("0");
+          } else {
+            const n = parseFloat(draft);
+            if (Number.isFinite(n)) {
+              const clamped = Math.max(0, Math.min(99, n));
+              setGeneralMarginPct(clamped);
+              setDraft(String(clamped));
+            }
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        }}
+        style={{ width: 56, background: "#0F172A", border: `1px solid ${touched ? "#3B82F6" : "#334155"}`, borderRadius: 4, color: touched ? "#93C5FD" : "#F1F5F9", padding: "2px 6px", fontSize: 12, textAlign: "right", fontFamily: "monospace" }}
+      />
+      <span style={{ color: touched ? "#93C5FD" : "#6B7280", fontSize: 12 }}>%</span>
+    </label>
+  );
+};
+
 // Reusable searchable dropdown built to match the existing Customer/Vendor
 // dropdown pattern. Single-select; "All" entry always at the top.
 interface SearchableDropdownProps {
@@ -484,40 +565,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
        the value off the default (21), the input lights up
        light-blue to make it obvious the totals are being driven
        by a custom assumption. */}
-    {showTotalsRow && (() => {
-      const touched = generalMarginPct !== 21;
-      return (
-        <label
-          title="Click to edit. Target gross margin % used as fallback in the totals row when a SKU has no SO sale prices or no cost basis. SKUs with no SO, no avg cost, AND no PO cost are skipped (* shown next to Mrgn)."
-          onClick={(e) => {
-            // Tap the label/value/% surround to focus + select. If
-            // the click landed on the input itself, leave caret
-            // placement to the browser so the user can position
-            // mid-edit without losing their click target.
-            if (e.target instanceof HTMLInputElement) return;
-            const input = (e.currentTarget as HTMLLabelElement).querySelector("input");
-            if (input) { input.focus(); input.select(); }
-          }}
-          style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 8, border: `1px solid ${touched ? "#3B82F6" : "#334155"}`, background: touched ? "rgba(59,130,246,0.12)" : "transparent", userSelect: "none", whiteSpace: "nowrap", cursor: "text" }}
-        >
-          <span style={{ color: touched ? "#93C5FD" : "#9CA3AF", fontSize: 12, fontWeight: touched ? 700 : 600 }}>MARGIN</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={String(generalMarginPct)}
-            onFocus={(e) => e.currentTarget.select()}
-            onChange={e => {
-              const raw = e.target.value.replace(/[^0-9.]/g, "");
-              if (raw === "") { setGeneralMarginPct(0); return; }
-              const n = parseFloat(raw);
-              if (Number.isFinite(n)) setGeneralMarginPct(Math.max(0, Math.min(99, n)));
-            }}
-            style={{ width: 44, background: "#0F172A", border: `1px solid ${touched ? "#3B82F6" : "#334155"}`, borderRadius: 4, color: touched ? "#93C5FD" : "#F1F5F9", padding: "2px 6px", fontSize: 12, textAlign: "right", fontFamily: "monospace" }}
-          />
-          <span style={{ color: touched ? "#93C5FD" : "#6B7280", fontSize: 12 }}>%</span>
-        </label>
-      );
-    })()}{/* /MARGIN bubble — totals-conditional */}
+    {showTotalsRow && (
+      <MarginInput
+        generalMarginPct={generalMarginPct}
+        setGeneralMarginPct={setGeneralMarginPct}
+      />
+    )}{/* /MARGIN bubble — totals-conditional */}
 
 
     <div style={{ color: "#6B7280", fontSize: 12, whiteSpace: "nowrap" }}>

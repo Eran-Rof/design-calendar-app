@@ -40,15 +40,19 @@ const S: Record<string, React.CSSProperties> = {
   tableWrap:   { overflowX: "scroll" as const, overflowY: "auto" as const, flex: 1, minHeight: 0, borderRadius: 10, border: "1px solid #334155", background: "#0F172A" },
   table:       { borderCollapse: "separate" as const, borderSpacing: 0, width: "100%", fontSize: 13 },
   th:          { background: "#1E293B", color: "#6B7280", fontWeight: 600, fontSize: 11, textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "10px 12px", borderBottom: "1px solid #334155", borderRight: "1px solid #2D3748", whiteSpace: "nowrap" as const, position: "sticky" as const, top: 0, zIndex: 2 },
-  // borderBottom uses #475569 (slate-600) instead of the original
-  // #334155 (slate-700). Against the #0F172A row background, slate-700
-  // was practically invisible on most monitors — operators were
-  // reporting "missing dividing lines" between rows. Slate-600 is
-  // still subtle (matches the design's quiet palette) but reads as a
-  // clear horizontal rule. The vertical borderRight already uses
-  // slate-500 #64748B so the grid stays consistent: vertical lines
-  // a touch brighter than horizontal, both visible.
-  td:          { padding: "7px 10px", borderBottom: "1px solid #475569", borderRight: "1px solid #64748B", whiteSpace: "nowrap" as const, verticalAlign: "middle" as const },
+  // Row divider drawn as `box-shadow: inset 0 -1px 0` instead of a
+  // real `borderBottom`. Reason: the body cells use position:sticky +
+  // overflow:hidden + box-sizing:border-box on the leading 8 columns
+  // (S.stickyCol). In that combination Chrome/Edge intermittently
+  // drop the painted borderBottom on sticky cells during horizontal
+  // scroll — lines flicker / disappear and rows visually merge. The
+  // inset shadow paints inside the layout box, on top of the
+  // background, so neither overflow clipping nor sticky stacking can
+  // hide it. Visually identical to a 1px borderBottom at #475569
+  // (slate-600), which reads cleanly against the #0F172A row bg.
+  // borderRight stays as a real border because vertical separators
+  // weren't affected by the bug.
+  td:          { padding: "7px 10px", boxShadow: "inset 0 -1px 0 0 #475569", borderRight: "1px solid #64748B", whiteSpace: "nowrap" as const, verticalAlign: "middle" as const },
   // overflow:hidden + textOverflow:ellipsis clip cell content at the
   // right edge so longer-than-the-column-width text (e.g. "Cream Tonal
   // Grizzly Camo") can't bleed into the next column and visually

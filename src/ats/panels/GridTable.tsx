@@ -428,7 +428,13 @@ export const GridTable: React.FC<GridTableProps> = ({
     // Keeps 10px horizontal padding so columns don't crowd borders.
     padding: "4px 10px",
     background: "#1E293B",
-    borderBottom: "1px solid #334155",
+    // Bottom divider via box-shadow inset, same as body cells. The
+    // totals row is sticky-top and overlaps with sticky-left frozen
+    // cells; a real borderBottom intermittently dropped during scroll
+    // for the same reason — sticky + overflow:hidden + border-box.
+    // box-shadow paints inside the layout box and is immune.
+    borderBottom: "none",
+    boxShadow: "inset 0 -1px 0 0 #475569",
     fontSize: 12,
     textTransform: "none",
     letterSpacing: 0,
