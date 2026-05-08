@@ -40,7 +40,15 @@ const S: Record<string, React.CSSProperties> = {
   tableWrap:   { overflowX: "scroll" as const, overflowY: "auto" as const, flex: 1, minHeight: 0, borderRadius: 10, border: "1px solid #334155", background: "#0F172A" },
   table:       { borderCollapse: "separate" as const, borderSpacing: 0, width: "100%", fontSize: 13 },
   th:          { background: "#1E293B", color: "#6B7280", fontWeight: 600, fontSize: 11, textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "10px 12px", borderBottom: "1px solid #334155", borderRight: "1px solid #2D3748", whiteSpace: "nowrap" as const, position: "sticky" as const, top: 0, zIndex: 2 },
-  td:          { padding: "7px 10px", borderBottom: "1px solid #334155", borderRight: "1px solid #64748B", whiteSpace: "nowrap" as const, verticalAlign: "middle" as const },
+  // borderBottom uses #475569 (slate-600) instead of the original
+  // #334155 (slate-700). Against the #0F172A row background, slate-700
+  // was practically invisible on most monitors — operators were
+  // reporting "missing dividing lines" between rows. Slate-600 is
+  // still subtle (matches the design's quiet palette) but reads as a
+  // clear horizontal rule. The vertical borderRight already uses
+  // slate-500 #64748B so the grid stays consistent: vertical lines
+  // a touch brighter than horizontal, both visible.
+  td:          { padding: "7px 10px", borderBottom: "1px solid #475569", borderRight: "1px solid #64748B", whiteSpace: "nowrap" as const, verticalAlign: "middle" as const },
   // overflow:hidden + textOverflow:ellipsis clip cell content at the
   // right edge so longer-than-the-column-width text (e.g. "Cream Tonal
   // Grizzly Camo") can't bleed into the next column and visually
