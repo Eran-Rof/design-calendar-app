@@ -2,7 +2,7 @@
 // so planners can scan a row end-to-end without scrolling. Click a row to
 // open the detail drawer.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ppkMultiplier } from "../../shared/prepack";
 import { useArrowKeyScroll } from "../../shared/grid/useArrowKeyScroll";
@@ -307,6 +307,14 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // mirrored to ws_planning_filter_<key> in localStorage so the
   // planner doesn't re-pick after a reload or rebuild.
   const [search, setSearch] = usePersistedString("search");
+  // Defer the search value used by the heavy filter / aggregate
+  // computations. The input keeps re-rendering with `search` so each
+  // keystroke is instant; React falls behind on the filter pass with
+  // `deferredSearch`, then catches up when typing pauses. Without
+  // this, every keystroke (including Backspace and Enter) blocked
+  // on a full filter+sort pass of thousands of rows — felt like a
+  // multi-hundred-ms lag per character.
+  const deferredSearch = useDeferredValue(search);
   // Multi-select filters — empty array = no filter (all rows pass).
   // Each non-empty array narrows to rows whose value is in the set.
   const [filterCustomer, setFilterCustomer] = usePersistedStringArray("customer");
@@ -870,7 +878,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // pre-aggregate, pre-roll). This is the canonical "rows in scope" set
   // used by per-row math, totals, and MonthlyTotalsCards.
   const mutedRows = useMemo(() => {
-    const q = search.trim().toUpperCase();
+    const q = deferredSearch.trim().toUpperCase();
     // Pre-compute Sets for O(1) membership checks. Without this, 30k
     // rows × 8 filters × dozens of selected values per filter became
     // a million+ array.includes scans per render.
@@ -983,7 +991,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       system_forecast_qty: 0,
       final_forecast_qty: Math.max(0, 0 + r.buyer_request_qty + r.override_qty),
     }));
-  }, [rows, search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, systemSuggestionsOn, showZeroRows, explodePpk]);
+  }, [rows, deferredSearch, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, systemSuggestionsOn, showZeroRows, explodePpk]);
 
   // Notify the workbench when the visible (filter+mute) row set changes
   // so MonthlyTotalsCards uses the same subset (drives the top FINAL
@@ -1598,7 +1606,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
         }
       }
     }
-    const searchTrim = search.trim();
+    const searchTrim = deferredSearch.trim();
     if (searchTrim.length > 0) {
       // Auto-expand every aggregate while the planner is searching
       // — bucketing the matches behind a header defeats the
@@ -1714,7 +1722,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       }
     }
     return { displayRows: base, childIds: ids };
-  }, [filtered, expandedAggs, manuallyCollapsedAggs, mutedById, skuPeriodMath, lastAddedTbdMarker, rows, collapse, search, sortKey, sortDir]);
+  }, [filtered, expandedAggs, manuallyCollapsedAggs, mutedById, skuPeriodMath, lastAddedTbdMarker, rows, collapse, deferredSearch, sortKey, sortDir]);
 
   const totals = useMemo(() => {
     const t = { final: 0, shortage: 0, excess: 0, actions: {} as Record<string, number>, methods: {} as Record<string, number> };
