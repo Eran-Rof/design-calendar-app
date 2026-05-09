@@ -58,4 +58,17 @@ export interface UploadWarningItem { sku: string; qty: number; orderNumber?: str
 export interface UploadWarning { severity: "error" | "warn"; field: string; affected: number; total: number; message: string; items?: UploadWarningItem[]; }
 export interface ExcelData { syncedAt: string; skus: ATSSkuData[]; pos: ATSPoEvent[]; sos: ATSSoEvent[]; warnings?: UploadWarning[]; columnNames?: { inventory: string[]; purchases: string[]; orders: string[] }; }
 export interface CtxMenu { x: number; y: number; anchorY: number; pos: ATSPoEvent[]; sos: ATSSoEvent[]; onHand: number; skuStore: string; cellKey: string; cellEl: HTMLElement | null; flipped: boolean; arrowLeft: number; unitCost?: number; ppkMult?: number; }
-export interface SummaryCtxMenu { type: "onHand" | "onOrder" | "onPO"; row: ATSRow; pos: ATSPoEvent[]; sos: ATSSoEvent[]; cellEl: HTMLElement; }
+export interface SummaryCtxMenu {
+  type: "onHand" | "onOrder" | "onPO";
+  row: ATSRow;
+  pos: ATSPoEvent[];
+  sos: ATSSoEvent[];
+  cellEl: HTMLElement;
+  // Anchor position captured at click time. Used as the popup's
+  // initial JSX inline style so the first paint is already in the
+  // right place. Without this the popup briefly rendered at (0,0)
+  // and the layout-effect reposition was racing the first paint —
+  // visible as a missed arrow-overlap on most cells.
+  initialX: number;
+  initialY: number;
+}

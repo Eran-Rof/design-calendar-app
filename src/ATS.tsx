@@ -390,7 +390,18 @@ function ATSReport() {
     e.preventDefault();
     const { pos, sos } = getAllSkuEvents(row.sku, row.store);
     const cellEl = e.currentTarget as HTMLElement;
-    setSummaryCtx({ type, row, pos, sos, cellEl });
+    // Capture the cell rect at click time so the menu's first paint
+    // is already at the cell-anchored position (top = cell.bottom -
+    // ARROW_OVERLAP). Without this the menu briefly rendered at the
+    // type's default (0, 0) and the layout-effect reposition was
+    // racing the first paint — operators saw the arrow-into-cell
+    // behavior only on cells where layout-effect happened to fire
+    // before paint, which read as random.
+    const r = cellEl.getBoundingClientRect();
+    const ARROW_OVERLAP = 6;
+    const initialX = r.left;
+    const initialY = r.bottom - ARROW_OVERLAP;
+    setSummaryCtx({ type, row, pos, sos, cellEl, initialX, initialY });
     setCtxMenu(null);
   }
 

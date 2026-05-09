@@ -36,7 +36,7 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
   })();
 
   return (
-    <div ref={summaryCtxRef} style={{ position: "fixed", left: 0, top: 0, zIndex: 500, minWidth: 280, maxWidth: 420, filter: "drop-shadow(0 8px 24px rgba(0,0,0,0.55))" }} onClick={e => e.stopPropagation()}>
+    <div ref={summaryCtxRef} style={{ position: "fixed", left: summaryCtx.initialX, top: summaryCtx.initialY, zIndex: 500, minWidth: 280, maxWidth: 420, filter: "drop-shadow(0 8px 24px rgba(0,0,0,0.55))" }} onClick={e => e.stopPropagation()}>
       <div data-arrow="up" style={{ position: "relative", height: 8, overflow: "visible" }}>
         <div style={{ position: "absolute", top: 0, left: 20, width: 0, height: 0, borderLeft: "9px solid transparent", borderRight: "9px solid transparent", borderBottom: "9px solid #334155", pointerEvents: "none" }} />
         <div style={{ position: "absolute", top: 1, left: 21, width: 0, height: 0, borderLeft: "8px solid transparent", borderRight: "8px solid transparent", borderBottom: "8px solid #1E293B", pointerEvents: "none" }} />
