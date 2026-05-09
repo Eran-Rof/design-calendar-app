@@ -21,9 +21,15 @@ const S: Record<string, React.CSSProperties> = {
   // remaining space below the navbar/banners. minHeight:0 is the
   // standard flex-child override that lets the inner table actually
   // shrink + scroll instead of forcing the parent to grow.
-  content:     { maxWidth: 1600, margin: "0 auto", padding: "20px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" as const, width: "100%", boxSizing: "border-box" as const },
+  // Top padding 15 (was 20) trims the gap between the unmatched-banner
+  // and the stat cards by 25% per operator request. Sides + bottom
+  // stay at 20 so the body grid keeps its breathing room.
+  content:     { maxWidth: 1600, margin: "0 auto", padding: "15px 20px 20px 20px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" as const, width: "100%", boxSizing: "border-box" as const },
   statsRow:    { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16, flexShrink: 0 },
-  statCard:    { background: "#1E293B", borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 4 },
+  // Card height ~25% smaller: vertical padding 16→10, internal gap
+  // 4→2, plus matching font-size trims in StatCard.tsx (value 22→18,
+  // label 11→10) so the slimmer card doesn't crop the value.
+  statCard:    { background: "#1E293B", borderRadius: 10, padding: "10px 14px", display: "flex", flexDirection: "column", gap: 2 },
   toolbar:     { display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap", flexShrink: 0 },
   searchInput: { background: "#1E293B", border: "1px solid #334155", borderRadius: 8, padding: "8px 14px", color: "#F1F5F9", fontSize: 13, outline: "none", width: 240, boxSizing: "border-box" as const },
   select:      { background: "#1E293B", border: "1px solid #334155", borderRadius: 8, padding: "8px 10px", color: "#F1F5F9", fontSize: 13, outline: "none", cursor: "pointer" },

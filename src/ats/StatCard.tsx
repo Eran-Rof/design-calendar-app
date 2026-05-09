@@ -24,14 +24,14 @@ export function StatCard({ icon, label, value, color, sortKey, activeSort, onSor
       onClick={() => sortKey && onSort && onSort(isActive ? null : sortKey)}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <span style={{ fontSize: 11, color: "#9CA3AF", lineHeight: 1.3 }}>{label}</span>
-        <span style={{ fontSize: 14, color, opacity: 0.7 }}>{icon}</span>
+        <span style={{ fontSize: 10, color: "#9CA3AF", lineHeight: 1.2 }}>{label}</span>
+        <span style={{ fontSize: 13, color, opacity: 0.7 }}>{icon}</span>
       </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color, fontFamily: "monospace", marginTop: 4, lineHeight: 1.2 }}>
+      <div style={{ fontSize: 18, fontWeight: 700, color, fontFamily: "monospace", marginTop: 2, lineHeight: 1.15 }}>
         {display}
       </div>
       {fmt === "margin" && marginPct != null && (
-        <div style={{ fontSize: 11, color, opacity: 0.75, fontFamily: "monospace" }}>
+        <div style={{ fontSize: 10, color, opacity: 0.75, fontFamily: "monospace" }}>
           {(marginPct * 100).toFixed(1)}%
         </div>
       )}
