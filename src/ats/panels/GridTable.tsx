@@ -533,7 +533,7 @@ export const GridTable: React.FC<GridTableProps> = ({
            in styles.ts (inline). Belt + suspenders. */
         .ats-grid tbody td {
           position: relative;
-          background-image: linear-gradient(to top, #64748B 0, #64748B 1px, transparent 1px) !important;
+          background-image: linear-gradient(to top, #64748B 0, #64748B 2px, transparent 2px) !important;
           background-repeat: no-repeat !important;
           background-size: 100% 100% !important;
           background-position: 0 100% !important;
@@ -546,7 +546,7 @@ export const GridTable: React.FC<GridTableProps> = ({
           left: 0;
           right: 0;
           bottom: 0;
-          height: 1px;
+          height: 2px;
           background-color: #64748B;
           pointer-events: none;
           z-index: 1;
