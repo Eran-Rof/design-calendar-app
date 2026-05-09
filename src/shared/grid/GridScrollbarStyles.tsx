@@ -48,8 +48,13 @@ export function GridScrollbarStyles({
   // Border on the track top creates a visual separator between
   // the table body and the scrollbar — makes the bar feel like
   // part of the grid card, not floating beneath it.
+  // -webkit-appearance: none disables the native macOS overlay scrollbar
+  // (the one that fades out when not actively scrolling). Without this,
+  // Chrome / Safari ignore explicit width/height in some macOS configs
+  // and keep the auto-hiding overlay regardless. With it + width set,
+  // both browsers switch to a permanent inline scrollbar.
   const css = `
-    .${scope}::-webkit-scrollbar { width: ${size}px; height: ${size}px; background: ${trackColor}; }
+    .${scope}::-webkit-scrollbar { -webkit-appearance: none; width: ${size}px; height: ${size}px; background: ${trackColor}; }
     .${scope}::-webkit-scrollbar-track { background: ${trackColor}; }
     .${scope}::-webkit-scrollbar-thumb { background: ${thumbColor}; border-radius: ${Math.floor(size / 2)}px; border: 2px solid ${trackColor}; }
     .${scope}::-webkit-scrollbar-thumb:hover { background: ${thumbHoverColor}; }
