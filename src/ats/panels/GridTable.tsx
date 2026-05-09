@@ -209,13 +209,7 @@ export const GridTable: React.FC<GridTableProps> = ({
   const unfreezeStyle = (key: StickyKey): React.CSSProperties => (
     isFrozen(key)
       ? {}
-      // Unfrozen cells were `position: static`, but the row-divider
-      // `::after` pseudo-element (declared in the injected style block
-      // below) needs a positioned ancestor to anchor against. Switch
-      // to `position: relative` so the ::after still lays its 1-pixel
-      // line inside the cell. left:undefined / zIndex:undefined drops
-      // the sticky-only props that no longer apply.
-      : { position: "relative" as const, left: undefined, zIndex: undefined }
+      : { position: "static" as const, left: undefined, zIndex: undefined }
   );
 
   // Totals across the filtered set (not just the current page).
@@ -434,12 +428,9 @@ export const GridTable: React.FC<GridTableProps> = ({
     // Keeps 10px horizontal padding so columns don't crowd borders.
     padding: "4px 10px",
     background: "#1E293B",
-    // Triple-render the bottom divider (border + inner shadow + outer
-    // shadow) so the totals row separator survives Chrome's compositor
-    // dropping individual paints during scroll. Same approach + color
-    // (slate-500 #64748B) as S.td so all dividers match.
-    borderBottom: "1px solid #64748B",
-    boxShadow: "inset 0 -1px 0 0 #64748B, 0 1px 0 0 #64748B",
+    // Slightly heavier border under the totals row so the divider
+    // between totals and column headers stays visible.
+    borderBottom: "2px solid #475569",
     fontSize: 12,
     textTransform: "none",
     letterSpacing: 0,
@@ -500,73 +491,6 @@ export const GridTable: React.FC<GridTableProps> = ({
 
   return (
     <div style={S.tableWrap} ref={tableRef}>
-      {/* Row dividers as a real ::after pseudo-element on every body
-          cell. Belt #4 on top of borderBottom + 2× box-shadow already
-          declared in S.td — the Chrome compositor on Windows keeps
-          dropping painted borders/shadows on sticky cells under
-          horizontal scroll, so this lays a real DOM-rendered 1-pixel
-          line at the bottom of each cell. position:sticky on the
-          cell forms a containing block for the absolutely-positioned
-          ::after, and z-index keeps it above the cell's own
-          background but below scrolling content. The non-sticky
-          (date) cells fall back to the box-shadow path. The class
-          name is scoped to .ats-grid so it only targets this table. */}
-      <style>{`
-        /* Row dividers — multiple paint paths so at least one survives
-           the Chrome compositor's culling on sticky cells.
-
-           Path 1: background-image gradient anchored to the BORDER
-           box bottom (background-origin: border-box), positioned at
-           100% (bottom). The bottom 1px is solid slate-600. Painted
-           as part of the cell's stable background paint.
-           !important is required because the inline `background:`
-           shorthand sets background-image:none on the cell — the
-           overrides here only force the image-related sub-properties
-           so the inline `background-color` for per-row alternating
-           bgs / pinned highlights still applies.
-
-           Path 2: ::after pseudo-element rendered as a real DOM
-           child — can't be culled by the compositor. Anchored at
-           bottom: 0 inside the cell's positioning context.
-
-           Path 3: real borderBottom + box-shadows declared on S.td
-           in styles.ts (inline). Belt + suspenders. */
-        .ats-grid tbody td {
-          position: relative;
-          background-image: linear-gradient(to top, #64748B 0, #64748B 2px, transparent 2px) !important;
-          background-repeat: no-repeat !important;
-          background-size: 100% 100% !important;
-          background-position: 0 100% !important;
-          background-origin: border-box !important;
-          background-clip: border-box !important;
-        }
-        .ats-grid tbody td::after {
-          content: "";
-          position: absolute;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          height: 2px;
-          background-color: #64748B;
-          pointer-events: none;
-          z-index: 1;
-        }
-        /* Hard fallback — every body row gets a real bottom border
-           at the row level. With border-collapse: separate the row
-           border doesn't normally render, but `display: table-row`
-           cells inherit row positioning. The trick: render an
-           outline on the row (which DOES render) at offset -1 so
-           it lays a single horizontal line right at the row's
-           bottom edge regardless of cell-level paints. */
-        .ats-grid tbody tr {
-          outline: 0;
-        }
-        .ats-grid tbody tr td:last-child {
-          /* Right edge of the last cell in the row: extend the
-             gradient slightly so the seam between cells is filled. */
-          background-size: 100% 100% !important;
-        }
-      `}</style>
       <table className="ats-grid" style={S.table}>
         <thead>
           {/* Totals row — sticky top: 0, sums across the filtered set.
@@ -688,10 +612,19 @@ export const GridTable: React.FC<GridTableProps> = ({
             const aggLevel = row.__collapsed?.level ?? null;
             const aggKey = row.__collapsed?.key ?? "";
             const isExpanded = aggKey ? expandedGroupSet.has(aggKey) : false;
+            // Heavy row-bg alternation — slate-900 vs slate-800 — instead
+            // of relying on hairline dividers between rows. Sticky cells
+            // under horizontal scroll keep dropping their painted
+            // borders/shadows on Chrome no matter how many redundant
+            // paint paths we layer on, so the strategy here is to make
+            // the rows visually distinct on their own. With #0F172A
+            // (slate-900) vs #1E293B (slate-800) the rows read as clearly
+            // separate stripes; the 2px divider line is now a bonus on
+            // top, not the only signal.
             // Tint aggregate rows so they read as group headers, not leaves.
             const baseBg = isAggregate
-              ? (ri % 2 === 0 ? "#1a2332" : "#1e2738")
-              : (ri % 2 === 0 ? "#0F172A" : "#111827");
+              ? (ri % 2 === 0 ? "#22304A" : "#2A3A57")
+              : (ri % 2 === 0 ? "#0F172A" : "#1E293B");
             const stickyBg = isPinned ? "#1a2332" : baseBg;
             return (
               <tr

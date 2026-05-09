@@ -62,14 +62,13 @@ const S: Record<string, React.CSSProperties> = {
   // compositor cull on sticky cells under horizontal scroll.
   td:          {
     padding: "7px 10px",
-    // 2px-tall divider (was 1px) so Chrome's compositor can't sub-
-    // pixel-cull it during sticky-cell scroll. The On Hand / On Order
-    // / On PO columns are mid-sticky (cols 6-8 of 8) and were the
-    // most reliable place for the cull to happen. 2px lines stay
-    // visible even when the renderer drops a row of sub-pixels.
-    borderBottom: "2px solid #64748B",
-    boxShadow: "inset 0 -2px 0 0 #64748B, 0 2px 0 0 #64748B",
-    borderRight: "1px solid #64748B",
+    // Row separation now comes primarily from heavy row-bg alternation
+    // in GridTable.tsx (slate-900 vs slate-800). The borderBottom
+    // here is a cosmetic accent — if the compositor culls it on a
+    // sticky cell during scroll, the row is still clearly distinct
+    // because of its background.
+    borderBottom: "1px solid #334155",
+    borderRight: "1px solid #334155",
     whiteSpace: "nowrap" as const,
     verticalAlign: "middle" as const,
   },

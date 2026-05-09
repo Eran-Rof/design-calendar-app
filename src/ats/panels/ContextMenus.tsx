@@ -41,7 +41,7 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
         <div style={{ position: "absolute", top: 0, left: 20, width: 0, height: 0, borderLeft: "9px solid transparent", borderRight: "9px solid transparent", borderBottom: "9px solid #334155", pointerEvents: "none" }} />
         <div style={{ position: "absolute", top: 1, left: 21, width: 0, height: 0, borderLeft: "8px solid transparent", borderRight: "8px solid transparent", borderBottom: "8px solid #1E293B", pointerEvents: "none" }} />
       </div>
-      <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 10, overflow: "hidden", maxHeight: "70vh", overflowY: "auto" }}>
+      <div data-popup-body style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 10, overflow: "hidden", maxHeight: "70vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 14px 6px", borderBottom: "1px solid #1a2030", position: "sticky", top: 0, background: "#1E293B", zIndex: 1 }}>
           <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, fontSize: 12 }}>{row.sku}</span>
           <button style={{ background: "none", border: "none", color: "#475569", fontSize: 16, cursor: "pointer", lineHeight: 1, padding: "2px 4px", borderRadius: 4 }} onClick={() => setSummaryCtx(null)}>✕</button>

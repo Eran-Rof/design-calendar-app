@@ -246,26 +246,44 @@ function ATSReport() {
     const cell = summaryCtx.cellEl.getBoundingClientRect();
     const theadBottom = tableRef.current?.querySelector("th")?.getBoundingClientRect().bottom ?? 0;
     if (cell.bottom <= theadBottom + 2 || cell.top >= window.innerHeight) { setSummaryCtx(null); return; }
-    const ph   = el.offsetHeight;
-    const pw   = el.offsetWidth;
     const vh   = window.innerHeight;
     const vw   = window.innerWidth;
     const pad  = 8;
-    // ARROW_OVERLAP — pixels the popup's pointing arrow extends INTO
-    // the anchor cell so it visually attaches to the cell rather than
-    // hovering 4px below it. Operators were missing which cell was
-    // clicked on dense grids; pulling the arrow tip into the cell
-    // removes that ambiguity.
-    const ARROW_OVERLAP = 6;
-    let top     = cell.bottom - ARROW_OVERLAP;
-    let flipped = false;
-    // Flip ABOVE only when the menu genuinely doesn't fit below. The
-    // top data row (just below the sticky header) virtually always
-    // has room — keeping default = below also matches the On PO flow.
-    if (top + ph > vh - pad) { top = Math.max(pad, cell.top - ph + ARROW_OVERLAP); flipped = true; }
-    let left = Math.max(pad, Math.min(vw - pw - pad, cell.left));
-    el.style.top  = `${top}px`;
+    const ARROW_OVERLAP = 12;   // pixels arrow tip sits inside the cell
+    const ARROW_DIV_H   = 8;    // matches the up/down arrow div height
+
+    // Available vertical space on each side of the cell, accounting
+    // for the arrow overlap into the cell. We size the popup body to
+    // fit on whichever side has more room; without this the popup
+    // could be 70vh tall and overflow the cell anchor entirely.
+    const belowSpace = vh - cell.bottom + ARROW_OVERLAP - pad;
+    const aboveSpace = cell.top + ARROW_OVERLAP - pad;
+    const flipped    = aboveSpace > belowSpace;
+    const space      = flipped ? aboveSpace : belowSpace;
+    const bodyMax    = Math.max(120, space - ARROW_DIV_H);
+
+    // Clamp inner body height so the popup never exceeds available
+    // space. Inner content scrolls when there's more than `bodyMax`.
+    const bodyEl = el.querySelector("[data-popup-body]") as HTMLElement | null;
+    if (bodyEl) bodyEl.style.maxHeight = `${bodyMax}px`;
+
+    // Re-measure after clamping so `top` lines up to whatever height
+    // the popup actually rendered at (could be less than bodyMax for
+    // short popups).
+    const ph = el.offsetHeight;
+    let top: number;
+    if (flipped) {
+      // Anchor menu BOTTOM at cell.top + ARROW_OVERLAP so the down-
+      // arrow tip lands inside the cell.
+      top = (cell.top + ARROW_OVERLAP) - ph;
+    } else {
+      top = cell.bottom - ARROW_OVERLAP;
+    }
+    const pw   = el.offsetWidth;
+    const left = Math.max(pad, Math.min(vw - pw - pad, cell.left));
+    el.style.top  = `${Math.max(pad, top)}px`;
     el.style.left = `${left}px`;
+
     const arrowLeft = Math.max(10, Math.min(cell.left + cell.width / 2 - left - 9, pw - 28));
     const upEl   = el.querySelector("[data-arrow='up']")   as HTMLElement | null;
     const downEl = el.querySelector("[data-arrow='down']") as HTMLElement | null;
@@ -398,7 +416,7 @@ function ATSReport() {
     // behavior only on cells where layout-effect happened to fire
     // before paint, which read as random.
     const r = cellEl.getBoundingClientRect();
-    const ARROW_OVERLAP = 6;
+    const ARROW_OVERLAP = 12;
     const initialX = r.left;
     const initialY = r.bottom - ARROW_OVERLAP;
     setSummaryCtx({ type, row, pos, sos, cellEl, initialX, initialY });
