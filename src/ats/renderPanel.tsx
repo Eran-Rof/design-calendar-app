@@ -184,13 +184,22 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
       <SyncProgressBanner syncProgress={syncProgress} />
       <UnmatchedBanner
         unmatchedRows={unmatchedRows}
-        // Only treat the load as "complete" once the fetch has
-        // settled, the item-master cache has resolved, and rows are
-        // populated. Without all three, unmatchedRows can transiently
-        // reflect a pre-master state where every row reads as
-        // unmatched — flashing a misleading count to the operator.
-        // The banner adds its own 200ms grace beyond this signal.
-        ready={!loading && masterReady && rows.length > 0}
+        // The banner is only "ready" once the master-aware enrichment
+        // has actually run on `rows` — checked via the cheap
+        // `rows.some(... master_match_source != null)`. masterReady
+        // flips true the moment the cache resolves, but there's a
+        // microtask gap before the rows useEffect re-runs and
+        // produces the post-master row set. Waiting on `rows` to
+        // contain at least one matched row guarantees the count
+        // shown is the stable post-load value (e.g. 12) instead of
+        // the pre-load transient (e.g. 2760 every row unmatched).
+        // The banner adds its own 200ms grace on top.
+        ready={
+          !loading
+          && masterReady
+          && rows.length > 0
+          && rows.some(r => r.master_match_source != null)
+        }
       />
 
       {showingNotifications ? (
