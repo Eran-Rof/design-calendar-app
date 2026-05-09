@@ -511,11 +511,27 @@ export const GridTable: React.FC<GridTableProps> = ({
           (date) cells fall back to the box-shadow path. The class
           name is scoped to .ats-grid so it only targets this table. */}
       <style>{`
-        /* position:relative for non-sticky body cells so the ::after
-           anchors inside them. Frozen cells use position:sticky inline,
-           which overrides — sticky also forms a positioning context
-           for absolute children, so the ::after still anchors there. */
-        .ats-grid tbody td { position: relative; }
+        /* Row dividers as a background-image gradient on every body
+           cell. !important is required because every cell sets an
+           inline `background: <color>` shorthand which would
+           otherwise reset background-image to none. The gradient is
+           a 1-pixel line at the bottom of the cell painted as part
+           of the cell's stable background — Chrome doesn't optimize
+           background painting away during sticky-cell scroll the
+           way it does borders and box-shadows.
+
+           background-color stays inline (per-cell) so per-row
+           alternating colors and pinned highlights still apply;
+           we only force the background-image layer here. */
+        .ats-grid tbody td {
+          position: relative;
+          background-image: linear-gradient(to top, #475569 0, #475569 1px, transparent 1px) !important;
+          background-repeat: no-repeat !important;
+          background-size: 100% 100% !important;
+          background-position: 0 0 !important;
+        }
+        /* Belt-and-suspenders ::after — DOM child, can't be culled
+           by the compositor at all. Same 1-pixel line at bottom. */
         .ats-grid tbody td::after {
           content: "";
           position: absolute;
@@ -523,7 +539,7 @@ export const GridTable: React.FC<GridTableProps> = ({
           right: 0;
           bottom: 0;
           height: 1px;
-          background: #475569;
+          background-color: #475569;
           pointer-events: none;
           z-index: 1;
         }
