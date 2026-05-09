@@ -1,11 +1,17 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import type { ATSRow } from "../types";
 
 export interface UnmatchedBannerProps {
   unmatchedRows: ATSRow[];
+  // True once the ATS load pipeline has settled — Excel data fetched,
+  // master cache loaded, rows enriched. The banner uses this to defer
+  // rendering until 200ms AFTER the signal flips true so the count
+  // shown reflects the post-master-load state, not the transient
+  // pre-load state where every row reads as unmatched.
+  ready?: boolean;
 }
 
-export const UnmatchedBanner: React.FC<UnmatchedBannerProps> = ({ unmatchedRows }) => {
+export const UnmatchedBanner: React.FC<UnmatchedBannerProps> = ({ unmatchedRows, ready = true }) => {
   const [open, setOpen] = useState(false);
   const [copiedAll, setCopiedAll] = useState(false);
   const [copiedSku, setCopiedSku] = useState<string | null>(null);
@@ -14,8 +20,17 @@ export const UnmatchedBanner: React.FC<UnmatchedBannerProps> = ({ unmatchedRows 
   // Persisting the dismissal would risk hiding new unmatched SKUs that
   // appear on later uploads.
   const [dismissed, setDismissed] = useState(false);
+  // Show only after a 200ms grace period beyond `ready=true`. If ready
+  // flips back to false (e.g. a new upload kicks off a reload) we
+  // immediately hide and re-arm the timer.
+  const [postReady, setPostReady] = useState(false);
+  useEffect(() => {
+    if (!ready) { setPostReady(false); return; }
+    const t = setTimeout(() => setPostReady(true), 200);
+    return () => clearTimeout(t);
+  }, [ready]);
 
-  if (unmatchedRows.length === 0 || dismissed) return null;
+  if (!postReady || unmatchedRows.length === 0 || dismissed) return null;
 
   const count = unmatchedRows.length;
   const styleWord = count === 1 ? "style" : "styles";

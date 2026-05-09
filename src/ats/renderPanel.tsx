@@ -182,7 +182,16 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         setExcelData={setExcelData}
       />
       <SyncProgressBanner syncProgress={syncProgress} />
-      <UnmatchedBanner unmatchedRows={unmatchedRows} />
+      <UnmatchedBanner
+        unmatchedRows={unmatchedRows}
+        // Only treat the load as "complete" once the fetch has
+        // settled, the item-master cache has resolved, and rows are
+        // populated. Without all three, unmatchedRows can transiently
+        // reflect a pre-master state where every row reads as
+        // unmatched — flashing a misleading count to the operator.
+        // The banner adds its own 200ms grace beyond this signal.
+        ready={!loading && masterReady && rows.length > 0}
+      />
 
       {showingNotifications ? (
         <div style={{ ...S.content, padding: "24px 24px 60px" }}>
