@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import S from "../styles";
 import { getQtyColor, getQtyBg, displayColor } from "../helpers";
 import { useArrowKeyScroll } from "../../shared/grid/useArrowKeyScroll";
+import { GridScrollbarStyles } from "../../shared/grid/GridScrollbarStyles";
 import type { ATSRow, ATSPoEvent, ATSSoEvent, CtxMenu } from "../types";
 
 // Renders a qty cell that shows either the unit-grain or pack-grain
@@ -520,7 +521,9 @@ export const GridTable: React.FC<GridTableProps> = ({
   };
 
   return (
-    <div style={S.tableWrap} ref={tableRef}>
+    <>
+      <GridScrollbarStyles scope="ats-grid-wrap" />
+      <div className="ats-grid-wrap" style={S.tableWrap} ref={tableRef}>
       <table className="ats-grid" style={S.table}>
         <thead>
           {/* Totals row — sticky top: 0, sums across the filtered set.
@@ -972,6 +975,7 @@ export const GridTable: React.FC<GridTableProps> = ({
           })}
         </tbody>
       </table>
-    </div>
+      </div>
+    </>
   );
 };

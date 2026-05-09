@@ -38,12 +38,16 @@ const S: Record<string, React.CSSProperties> = {
   dateInput:   { background: "#1E293B", border: "1px solid #334155", borderRadius: 8, padding: "7px 10px", color: "#F1F5F9", fontSize: 13, outline: "none" },
   legend:      { display: "flex", gap: 16, marginBottom: 10, alignItems: "center", flexWrap: "wrap" as const },
   legendItem:  { display: "flex", alignItems: "center", gap: 5 },
-  // overflowX: "scroll" (not "auto") forces the horizontal scrollbar to
-  // be drawn even when the content fits. flex:1 + minHeight:0 lets the
-  // wrapper grow into the remaining viewport space below the toolbar
-  // — combined with S.app's viewport lock, the horizontal bar is
-  // pinned to the bottom of the visible area.
-  tableWrap:   { overflowX: "scroll" as const, overflowY: "auto" as const, flex: 1, minHeight: 0, borderRadius: 10, border: "1px solid #334155", background: "#0F172A" },
+  // overflowX/Y: "scroll" (not "auto") forces both scrollbars to be
+  // drawn even when the content fits — defeats macOS overlay scrollbars
+  // that auto-hide and fade out unless the user is actively scrolling.
+  // scrollbarColor + scrollbarWidth set the Firefox bar to always-on
+  // slate; webkit browsers pick up the global ::-webkit-scrollbar rules
+  // in index.html. flex:1 + minHeight:0 lets the wrapper grow into the
+  // remaining viewport space below the toolbar — combined with S.app's
+  // viewport lock, the horizontal bar is pinned to the bottom of the
+  // visible area and the vertical bar pinned to the right.
+  tableWrap:   { overflowX: "scroll" as const, overflowY: "scroll" as const, flex: 1, minHeight: 0, borderRadius: 10, border: "1px solid #334155", background: "#0F172A", scrollbarColor: "#475569 #0F172A", scrollbarWidth: "thin" as const },
   table:       { borderCollapse: "separate" as const, borderSpacing: 0, width: "100%", fontSize: 13 },
   th:          { background: "#1E293B", color: "#6B7280", fontWeight: 600, fontSize: 11, textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "10px 12px", borderBottom: "1px solid #334155", borderRight: "1px solid #2D3748", whiteSpace: "nowrap" as const, position: "sticky" as const, top: 0, zIndex: 2 },
   // Row divider color bumped to slate-500 #64748B to match the
