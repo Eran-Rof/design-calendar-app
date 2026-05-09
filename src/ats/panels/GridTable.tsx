@@ -148,6 +148,12 @@ interface GridTableProps {
   // cell behavior
   todayKey: string;
   atShip: boolean;
+  // Grid cell content selector. "ats" = running on-hand balance (uses
+  // row.dates / row.freeMap depending on atShip). "so" / "po" = sum of
+  // SO/PO qty within each period via getEventsInPeriod, so the column
+  // labelled e.g. "Mar 2026" shows the SO (or PO receipt) qty falling
+  // in March across the filtered SKUs. The totals-row Qty mirrors this.
+  viewMode: "ats" | "so" | "po";
   showTotalsRow: boolean;
   // Whether to render prepack qtys as units (exploded) or as packs.
   // ON shows packs × units-per-pack; OFF shows pack count + faded
@@ -181,7 +187,7 @@ export const GridTable: React.FC<GridTableProps> = ({
   sortCol, sortDir, handleThClick, rangeUnit,
   pinnedSku, setPinnedSku, dragSku, setDragSku, dragOverSku, setDragOverSku,
   hoveredCell, setHoveredCell,
-  todayKey, atShip, showTotalsRow, explodePpk, freezeKey, hiddenColumns, generalMarginPct, eventIndex, getEventsInPeriod,
+  todayKey, atShip, viewMode, showTotalsRow, explodePpk, freezeKey, hiddenColumns, generalMarginPct, eventIndex, getEventsInPeriod,
   ctxMenu, setCtxMenu, setSummaryCtx,
   openSummaryCtx, handleSkuDrop, toggleExpandGroup, expandedGroupSet,
 }) => {
@@ -334,7 +340,31 @@ export const GridTable: React.FC<GridTableProps> = ({
     for (const p of displayPeriods) {
       let q = 0, c = 0, s = 0, skipped = 0;
       for (const r of filtered) {
-        const v = atShip ? (r.freeMap?.[p.endDate] ?? r.dates[p.endDate]) : r.dates[p.endDate];
+        let v: number | undefined;
+        if (viewMode === "ats") {
+          v = atShip ? (r.freeMap?.[p.endDate] ?? r.dates[p.endDate]) : r.dates[p.endDate];
+        } else if (!r.__collapsed && eventIndex) {
+          // SO / PO mode — sum event qty whose date falls inside the
+          // period bucket [periodStart, endDate], scoped to the row's
+          // store. Reads eventIndex directly to keep this memo free of
+          // a function-identity dep that would invalidate every render.
+          const skuIdx = eventIndex[r.sku];
+          if (skuIdx) {
+            let sum = 0;
+            const rowStore = r.store;
+            for (const date of Object.keys(skuIdx)) {
+              if (date < p.periodStart || date > p.endDate) continue;
+              const list = viewMode === "so" ? skuIdx[date].sos : skuIdx[date].pos;
+              for (const e of list) {
+                if (rowStore && (e.store ?? "ROF") !== rowStore) continue;
+                sum += e.qty || 0;
+              }
+            }
+            v = sum;
+          } else {
+            v = 0;
+          }
+        }
         if (v == null) continue;
         q += v;
         const res = resolved.get(r.sku);
@@ -353,7 +383,7 @@ export const GridTable: React.FC<GridTableProps> = ({
       onPO:    { qty: onPOQty,    cost: onPOCost,    sale: onPOSale,    skipped: onPOSkipped    },
       periodQty, periodCost, periodSale, periodSkipped,
     };
-  }, [filtered, displayPeriods, atShip, eventIndex, generalMarginPct]);
+  }, [filtered, displayPeriods, atShip, viewMode, eventIndex, generalMarginPct]);
 
   // Per-column widths. Auto-fit columns (numeric: onHand/onOrder/onPO)
   // compute width from the largest content + 2 char-widths padding on
@@ -784,14 +814,24 @@ export const GridTable: React.FC<GridTableProps> = ({
                 )}
                 {/* Period cells */}
                 {displayPeriods.map(p => {
-                  const fullQty = row.dates[p.endDate];
-                  const qty = atShip ? (row.freeMap?.[p.endDate] ?? fullQty) : fullQty;
-                  const isNeg = qty != null && qty < 0;
-                  const isHov = hoveredCell?.sku === row.sku && hoveredCell?.date === p.key;
-                  const isEmpty = qty === undefined || qty === null;
                   const ev = eventIndex ? getEventsInPeriod(row.sku, p.periodStart, p.endDate, row.store) : null;
                   const hasPO = (ev?.pos.length ?? 0) > 0;
                   const hasSO = (ev?.sos.length ?? 0) > 0;
+                  // viewMode "ats" → running on-hand balance (existing).
+                  // "so" / "po" → bucketed event qty for this period.
+                  // Aggregate rows skip SO/PO mode (no sku/store to query)
+                  // and fall back to undefined → renders as "—".
+                  let qty: number | undefined;
+                  if (viewMode === "ats") {
+                    const fullQty = row.dates[p.endDate];
+                    qty = atShip ? (row.freeMap?.[p.endDate] ?? fullQty) : fullQty;
+                  } else if (!row.__collapsed && ev) {
+                    const list = viewMode === "so" ? ev.sos : ev.pos;
+                    qty = list.reduce((a, e) => a + (e.qty || 0), 0);
+                  }
+                  const isNeg = qty != null && qty < 0;
+                  const isHov = hoveredCell?.sku === row.sku && hoveredCell?.date === p.key;
+                  const isEmpty = qty === undefined || qty === null;
                   const canClick = hasPO || hasSO || isNeg;
                   const baseBg = p.isToday
                     ? (isEmpty ? "#12201a" : isNeg ? "rgba(239,68,68,0.18)cc" : getQtyBg(qty!) + "cc")

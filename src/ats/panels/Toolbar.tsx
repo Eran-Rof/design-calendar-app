@@ -123,6 +123,11 @@ interface ToolbarProps {
   // AT SHIP + status line
   atShip: boolean;
   setAtShip: (v: boolean) => void;
+  // Grid view mode — what each cell shows. "ats" = running on-hand
+  // (current behavior + AT SHIP free-to-sell when atShip is on);
+  // "so" / "po" = SO or PO qty bucketed into the column's period.
+  viewMode: "ats" | "so" | "po";
+  setViewMode: (v: "ats" | "so" | "po") => void;
   // TOTALS row (sticky header above column labels with Qty / Cost /
   // Sale / Mrgn% summed across the filtered set)
   showTotalsRow: boolean;
@@ -159,6 +164,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch,
   collapseLevel, setCollapseLevel,
   atShip, setAtShip,
+  viewMode, setViewMode,
   showTotalsRow, setShowTotalsRow,
   explodePpk, setExplodePpk,
   freezeKey, setFreezeKey,
@@ -398,6 +404,23 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </div>
         </div>
       )}
+    </div>
+
+    {/* VIEW mode selector — switches what the date cells show.
+       ATS  → running on-hand balance (current behavior, paired with AT SHIP)
+       SO   → sum of SO qty whose order date falls in the cell's period
+       PO   → sum of PO qty whose receipt date falls in the cell's period */}
+    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+      <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>View:</span>
+      <select
+        style={S.select}
+        value={viewMode}
+        onChange={e => setViewMode(e.target.value as "ats" | "so" | "po")}
+      >
+        <option value="ats">ATS</option>
+        <option value="so">On SO</option>
+        <option value="po">On PO Receipt</option>
+      </select>
     </div>
 
     {/* AT SHIP toggle */}
