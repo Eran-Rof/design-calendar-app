@@ -251,9 +251,18 @@ function ATSReport() {
     const vh   = window.innerHeight;
     const vw   = window.innerWidth;
     const pad  = 8;
-    let top     = cell.bottom + 4;
+    // ARROW_OVERLAP — pixels the popup's pointing arrow extends INTO
+    // the anchor cell so it visually attaches to the cell rather than
+    // hovering 4px below it. Operators were missing which cell was
+    // clicked on dense grids; pulling the arrow tip into the cell
+    // removes that ambiguity.
+    const ARROW_OVERLAP = 6;
+    let top     = cell.bottom - ARROW_OVERLAP;
     let flipped = false;
-    if (top + ph > vh - pad) { top = Math.max(pad, cell.top - ph - 4); flipped = true; }
+    // Flip ABOVE only when the menu genuinely doesn't fit below. The
+    // top data row (just below the sticky header) virtually always
+    // has room — keeping default = below also matches the On PO flow.
+    if (top + ph > vh - pad) { top = Math.max(pad, cell.top - ph + ARROW_OVERLAP); flipped = true; }
     let left = Math.max(pad, Math.min(vw - pw - pad, cell.left));
     el.style.top  = `${top}px`;
     el.style.left = `${left}px`;
@@ -287,11 +296,15 @@ function ATSReport() {
     const vw   = window.innerWidth;
     const pad  = 8;
 
-    let top     = cell.bottom + 2;
+    // Same ARROW_OVERLAP idea as repositionSummaryCtx — anchor the
+    // arrow tip inside the cell so the popup unambiguously points at
+    // its source.
+    const ARROW_OVERLAP = 6;
+    let top     = cell.bottom - ARROW_OVERLAP;
     let left    = cell.left;
     let flipped = false;
 
-    if (top + ph > vh - pad) { top = Math.max(pad, cell.top - ph - 2); flipped = true; }
+    if (top + ph > vh - pad) { top = Math.max(pad, cell.top - ph + ARROW_OVERLAP); flipped = true; }
     if (left + pw > vw - pad) left = Math.max(pad, vw - pw - pad);
 
     el.style.top  = `${top}px`;

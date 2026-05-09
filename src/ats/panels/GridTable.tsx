@@ -930,7 +930,11 @@ export const GridTable: React.FC<GridTableProps> = ({
                             : 0;
                         }
                         setCtxMenu({
-                          x: cellRect.left, y: cellRect.bottom + 2, anchorY: cellRect.top,
+                          // y starts with the same -6 overlap that
+                          // repositionCtxMenu later applies, so the
+                          // first paint already shows the arrow tip
+                          // inside the cell.
+                          x: cellRect.left, y: cellRect.bottom - 6, anchorY: cellRect.top,
                           pos: poList, sos: ev?.sos ?? [],
                           onHand: row.onHand, skuStore: row.store ?? "ROF",
                           cellKey, cellEl, flipped: false, arrowLeft: 20,
