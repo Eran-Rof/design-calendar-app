@@ -46,21 +46,24 @@ const S: Record<string, React.CSSProperties> = {
   tableWrap:   { overflowX: "scroll" as const, overflowY: "auto" as const, flex: 1, minHeight: 0, borderRadius: 10, border: "1px solid #334155", background: "#0F172A" },
   table:       { borderCollapse: "separate" as const, borderSpacing: 0, width: "100%", fontSize: 13 },
   th:          { background: "#1E293B", color: "#6B7280", fontWeight: 600, fontSize: 11, textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "10px 12px", borderBottom: "1px solid #334155", borderRight: "1px solid #2D3748", whiteSpace: "nowrap" as const, position: "sticky" as const, top: 0, zIndex: 2 },
-  // Row divider drawn THREE ways at once because the sticky-cell
-  // render path on Chrome/Edge keeps dropping it under horizontal
-  // scroll. Belt + suspenders + braces:
-  //   1. `borderBottom`   — real CSS border (the obvious one)
-  //   2. `boxShadow inset 0 -1px` — paints inside the layout box,
-  //                                 immune to overflow:hidden clipping
-  //   3. `boxShadow      0  1px` (no inset) — paints outside the cell,
-  //                                 spans into the next row's top edge
-  //                                 so any seam between cells is filled
-  // If any single one of these gets culled by the compositor, the
-  // others still draw the line. Visually a single 1px slate-600 rule.
+  // Row divider color bumped to slate-500 #64748B to match the
+  // existing vertical borderRight. The previous slate-600 #475569
+  // was rendering reliably enough on frozen sticky cells but reading
+  // as nearly-absent in the non-freeze view — just below the
+  // monitor's contrast threshold for some operators. Matching the
+  // verticals also makes the grid look uniform.
+  //
+  // Drawn THREE ways at once for redundancy: real borderBottom +
+  // box-shadow inset (paints inside the layout box) + box-shadow
+  // outset (paints into the next row's top edge so any cell-seam
+  // gap is filled). The CSS rule injected from GridTable.tsx adds
+  // a fourth (gradient background-image) and a fifth (::after
+  // pseudo-element) — together they survive any single Chrome
+  // compositor cull on sticky cells under horizontal scroll.
   td:          {
     padding: "7px 10px",
-    borderBottom: "1px solid #475569",
-    boxShadow: "inset 0 -1px 0 0 #475569, 0 1px 0 0 #475569",
+    borderBottom: "1px solid #64748B",
+    boxShadow: "inset 0 -1px 0 0 #64748B, 0 1px 0 0 #64748B",
     borderRight: "1px solid #64748B",
     whiteSpace: "nowrap" as const,
     verticalAlign: "middle" as const,

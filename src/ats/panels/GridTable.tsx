@@ -436,9 +436,10 @@ export const GridTable: React.FC<GridTableProps> = ({
     background: "#1E293B",
     // Triple-render the bottom divider (border + inner shadow + outer
     // shadow) so the totals row separator survives Chrome's compositor
-    // dropping individual paints during scroll. Same approach as S.td.
-    borderBottom: "1px solid #475569",
-    boxShadow: "inset 0 -1px 0 0 #475569, 0 1px 0 0 #475569",
+    // dropping individual paints during scroll. Same approach + color
+    // (slate-500 #64748B) as S.td so all dividers match.
+    borderBottom: "1px solid #64748B",
+    boxShadow: "inset 0 -1px 0 0 #64748B, 0 1px 0 0 #64748B",
     fontSize: 12,
     textTransform: "none",
     letterSpacing: 0,
@@ -511,27 +512,34 @@ export const GridTable: React.FC<GridTableProps> = ({
           (date) cells fall back to the box-shadow path. The class
           name is scoped to .ats-grid so it only targets this table. */}
       <style>{`
-        /* Row dividers as a background-image gradient on every body
-           cell. !important is required because every cell sets an
-           inline `background: <color>` shorthand which would
-           otherwise reset background-image to none. The gradient is
-           a 1-pixel line at the bottom of the cell painted as part
-           of the cell's stable background — Chrome doesn't optimize
-           background painting away during sticky-cell scroll the
-           way it does borders and box-shadows.
+        /* Row dividers — multiple paint paths so at least one survives
+           the Chrome compositor's culling on sticky cells.
 
-           background-color stays inline (per-cell) so per-row
-           alternating colors and pinned highlights still apply;
-           we only force the background-image layer here. */
+           Path 1: background-image gradient anchored to the BORDER
+           box bottom (background-origin: border-box), positioned at
+           100% (bottom). The bottom 1px is solid slate-600. Painted
+           as part of the cell's stable background paint.
+           !important is required because the inline `background:`
+           shorthand sets background-image:none on the cell — the
+           overrides here only force the image-related sub-properties
+           so the inline `background-color` for per-row alternating
+           bgs / pinned highlights still applies.
+
+           Path 2: ::after pseudo-element rendered as a real DOM
+           child — can't be culled by the compositor. Anchored at
+           bottom: 0 inside the cell's positioning context.
+
+           Path 3: real borderBottom + box-shadows declared on S.td
+           in styles.ts (inline). Belt + suspenders. */
         .ats-grid tbody td {
           position: relative;
-          background-image: linear-gradient(to top, #475569 0, #475569 1px, transparent 1px) !important;
+          background-image: linear-gradient(to top, #64748B 0, #64748B 1px, transparent 1px) !important;
           background-repeat: no-repeat !important;
           background-size: 100% 100% !important;
-          background-position: 0 0 !important;
+          background-position: 0 100% !important;
+          background-origin: border-box !important;
+          background-clip: border-box !important;
         }
-        /* Belt-and-suspenders ::after — DOM child, can't be culled
-           by the compositor at all. Same 1-pixel line at bottom. */
         .ats-grid tbody td::after {
           content: "";
           position: absolute;
@@ -539,9 +547,24 @@ export const GridTable: React.FC<GridTableProps> = ({
           right: 0;
           bottom: 0;
           height: 1px;
-          background-color: #475569;
+          background-color: #64748B;
           pointer-events: none;
           z-index: 1;
+        }
+        /* Hard fallback — every body row gets a real bottom border
+           at the row level. With border-collapse: separate the row
+           border doesn't normally render, but `display: table-row`
+           cells inherit row positioning. The trick: render an
+           outline on the row (which DOES render) at offset -1 so
+           it lays a single horizontal line right at the row's
+           bottom edge regardless of cell-level paints. */
+        .ats-grid tbody tr {
+          outline: 0;
+        }
+        .ats-grid tbody tr td:last-child {
+          /* Right edge of the last cell in the row: extend the
+             gradient slightly so the seam between cells is filled. */
+          background-size: 100% 100% !important;
         }
       `}</style>
       <table className="ats-grid" style={S.table}>
