@@ -39,7 +39,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     <div style={S.modalOverlay} onClick={() => setShowUpload(false)}>
       <div style={{ ...S.modal, width: 560 }} onClick={e => e.stopPropagation()}>
         <div style={S.modalHeader}>
-          <h2 style={S.modalTitle}>Upload Excel Files</h2>
+          <h2 style={S.modalTitle}>Upload Excel / CSV Files</h2>
           <button style={S.closeBtn} onClick={() => setShowUpload(false)}>✕</button>
         </div>
         <div style={S.modalBody}>
@@ -79,7 +79,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 ) : (
                   <div style={{ flex: 1 }}>
                     <div style={{ color: "#D1D5DB", fontSize: 13 }}>Drop file or click to browse</div>
-                    <div style={{ color: "#475569", fontSize: 11 }}>.xlsx</div>
+                    <div style={{ color: "#475569", fontSize: 11 }}>.xlsx, .xls, .csv</div>
                   </div>
                 )}
                 {slot.file && (
@@ -91,7 +91,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 <input
                   ref={slot.ref}
                   type="file"
-                  accept=".xlsx,.xls"
+                  accept=".xlsx,.xls,.csv"
                   style={{ display: "none" }}
                   onChange={e => { const f = e.target.files?.[0]; if (f) slot.setFile(f); }}
                 />
