@@ -144,7 +144,8 @@ export async function parseExcelFiles(
   // capitalization / spacing for the base-part column. Match on the
   // first column whose value is non-empty.
   const BASE_PART_COLS = ["Base Part No", "BasePartNumber", "Base Part Number", "Base Part", "BasePart", "Base_Part_No", "BasePartNo"];
-  const QTY_COLS = ["Total Sum of Qty", "Total Qty", "Qty On Hand", "OnHand", "On Hand"];
+  const QTY_COLS = ["Total Sum of Qty", "Total Qty", "Qty On Hand", "OnHand", "On Hand", "Qty"];
+  const AMOUNT_COLS = ["Total Sum of Amount Home Currency", "Amount Home Currency"];
   function pickCell(row: Record<string, unknown>, names: string[]): string {
     for (const n of names) {
       const v = str(row[n]);
@@ -155,6 +156,12 @@ export async function parseExcelFiles(
   function pickNum(row: Record<string, unknown>, names: string[]): number {
     for (const n of names) {
       if (row[n] !== undefined && row[n] !== null && row[n] !== "") return toNum(row[n]);
+    }
+    return 0;
+  }
+  function pickMoney(row: Record<string, unknown>, names: string[]): number {
+    for (const n of names) {
+      if (row[n] !== undefined && row[n] !== null && row[n] !== "") return toMoney(row[n]);
     }
     return 0;
   }
@@ -186,7 +193,7 @@ export async function parseExcelFiles(
       };
     }
     skuMap[key].onHand += pickNum(r, QTY_COLS);
-    skuMap[key].totalAmount = (skuMap[key].totalAmount || 0) + toMoney(r["Total Sum of Amount Home Currency"]);
+    skuMap[key].totalAmount = (skuMap[key].totalAmount || 0) + pickMoney(r, AMOUNT_COLS);
   }
   console.warn(`[ATS parse] inventory: ${invRows.length} rows in file, ${invParsed} parsed (${invRows.length - invParsed} skipped — likely missing base-part column). Inventory column names: ${columnNames.inventory.join(", ")}`);
 

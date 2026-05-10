@@ -95,6 +95,17 @@ interface PhaseNote {
   deleted_at: string | null;
 }
 
+// When was this status field most recently changed?
+//   approved request → reviewed_at  (the change took effect on review)
+//   pending  request → requested_at (proposal in flight, not yet effective)
+//   rejected/none    → null         (no actual status change to surface)
+function statusChangeDate(req: ChangeRequest | null): { date: string; label: "approved" | "pending" } | null {
+  if (!req) return null;
+  if (req.status === "approved" && req.reviewed_at) return { date: req.reviewed_at, label: "approved" };
+  if (req.status === "pending" && req.requested_at) return { date: req.requested_at, label: "pending" };
+  return null;
+}
+
 // Compute a phase's expected date = DDP − daysBeforeDDP.
 export function computeExpectedDate(ddp: string | null, daysBefore: number): string | null {
   if (!ddp) return null;
@@ -522,14 +533,14 @@ export default function VendorPhasesView({ poId }: Props = {}) {
       )}
 
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "auto", boxShadow: `0 1px 2px ${TH.shadow}` }}>
-        <div style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 60px 280px 60px`, padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
+        <div style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 110px 280px 60px`, padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
           <div></div>{/* expand-toggle column — keeps header aligned with rows */}
           {!poId && <div>PO #</div>}
           <div>Phase</div>
           <div>Expected</div>
           <div style={{ textAlign: "center" }}>Days</div>
           <div>Status</div>
-          <div></div>{/* spacer — push Review state + Notes to the right */}
+          <div>Status date</div>
           <div style={{ textAlign: "left" }}>Review state</div>
           <div style={{ textAlign: "right" }}>Notes</div>
         </div>
@@ -563,7 +574,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
           return (
             <div key={expandKey}>
               {/* ── Master phase row ─────────────────────────────────── */}
-              <div style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 60px 280px 60px`, padding: "10px 14px", borderBottom: isExpanded ? "none" : `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", background: isExpanded ? TH.surfaceHi : "transparent" }}>
+              <div style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 110px 280px 60px`, padding: "10px 14px", borderBottom: isExpanded ? "none" : `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", background: isExpanded ? TH.surfaceHi : "transparent" }}>
                 <button
                   onClick={() => setExpanded((prev) => {
                     const next = new Set(prev);
@@ -616,7 +627,24 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                     {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
-                <div></div>{/* spacer column — matches header, pushes review state + notes right */}
+                {/* Status date — when this phase's status field was most
+                    recently changed. Approved request → reviewed_at;
+                    pending request → requested_at (proposal in flight). */}
+                <div style={{ fontSize: 11, color: TH.textSub2, fontFamily: "Menlo, monospace", lineHeight: 1.3 }}>
+                  {(() => {
+                    const sd = statusChangeDate(r.statusReq);
+                    if (!sd) return <span style={{ color: TH.textMuted }}>—</span>;
+                    const dateStr = new Date(sd.date).toLocaleDateString();
+                    return (
+                      <div style={{ display: "grid", gap: 1 }} title={sd.label === "pending" ? "Status change pending review" : "Status last changed (approved)"}>
+                        <span>{dateStr}</span>
+                        {sd.label === "pending" && (
+                          <span style={{ fontSize: 9, color: "#FCD34D", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}>pending</span>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
                 <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, lineHeight: 1.35, display: "grid", gap: 2 }}>
                   {pending && <div style={{ color: "#FCD34D" }}>⏳ Pending review</div>}
                   {hasMismatch && <div style={{ color: "#7C3AED" }}>⚠ Lines differ</div>}
@@ -709,7 +737,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                           // Mirror the master row's grid so every cell (and
                           // especially the right-most Notes icon) lines up
                           // vertically with the master above.
-                          <div key={l.id} style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 60px 280px 60px`, padding: "6px 14px", borderTop: `1px solid ${TH.border}`, fontSize: 12, alignItems: "start", gap: 0 }}>
+                          <div key={l.id} style={{ display: "grid", gridTemplateColumns: `32px ${poId ? "" : "140px "}240px 120px 110px 120px 110px 280px 60px`, padding: "6px 14px", borderTop: `1px solid ${TH.border}`, fontSize: 12, alignItems: "start", gap: 0 }}>
                             <div></div>{/* expand-toggle placeholder */}
                             {!poId && <div></div>}{/* PO # placeholder — master shows number, line leaves blank */}
                             {/* Style + description occupy the Phase column so
@@ -741,7 +769,23 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                                 <div style={{ fontSize: 9, color: "#FCD34D", marginTop: 2, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}>⏳ Pending</div>
                               )}
                             </div>
-                            <div></div>{/* spacer */}
+                            {/* Status date — same logic as the master row
+                                but scoped to this line's status request. */}
+                            <div style={{ fontSize: 10, color: TH.textSub2, fontFamily: "Menlo, monospace", lineHeight: 1.3, paddingTop: 4 }}>
+                              {(() => {
+                                const sd = statusChangeDate(lineStatusReq);
+                                if (!sd) return <span style={{ color: TH.textMuted }}>—</span>;
+                                const dateStr = new Date(sd.date).toLocaleDateString();
+                                return (
+                                  <div style={{ display: "grid", gap: 1 }}>
+                                    <span>{dateStr}</span>
+                                    {sd.label === "pending" && (
+                                      <span style={{ fontSize: 8, color: "#FCD34D", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}>pending</span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </div>
                             {/* Review state column — stack line review history
                                 here so it aligns under the master's review
                                 chips, matching the user's "beacon" ask. */}
