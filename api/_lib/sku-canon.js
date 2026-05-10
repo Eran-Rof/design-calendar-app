@@ -11,9 +11,11 @@
 // All known size suffixes we strip to roll items up to style+color grain.
 // Covers numeric sizes (-30, -32, -2), single-letter (-XS..-XXXL),
 // 2-letter combos (-SM/-MD/-LG), 3-letter combos (-SML/-MED/-LRG/-XLG/-XXLG/-XXXLG/-XSM),
-// one-size markers (-OS/-OSFA/-O/S), and parenthesized ranges (-L(14-16) etc.).
+// digit-prefixed XL family (-2XL/-3XLG/etc., generalized as [0-9]*X+LG?),
+// one-size markers (-OS/-OSFA/-O/S), prepack suffixes (-PPK18, -PPK_24),
+// and parenthesized ranges (-L(14-16) etc.).
 const SIZE_SUFFIX_RE =
-  /-(XS|XSM|S|SM|M|MD|L|LG|XL|XLG|XXL|XXLG|XXXL|XXXLG|SML|MED|LRG|OS|OSFA|O\/S|[0-9]+|[A-Z]+\([0-9X\-]+\))$/;
+  /-(XS|XSM|S|SM|M|MD|L|LG|[0-9]*X+LG?|SML|MED|LRG|OS|OSFA|O\/S|PPK[\s_-]*\d+|[0-9]+|[A-Z]+\([0-9X\-]+\))$/;
 
 // Strip whitespace + uppercase. Used for hash-key matching (sku_code in DB).
 export function canonSku(raw) {
