@@ -2231,7 +2231,7 @@ export default function WholesalePlanningWorkbench() {
           <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
             <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }} title="Authoritative source of truth for SKU, Style, Color, Description, Avg Cost. New items are auto-stubbed by sales/PO/ATS sync; re-upload the master to refresh them.">
               {runningKind === "excel-master" ? "Working…" : "Upload item master (Excel)"}
-              <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
+              <input type="file" accept=".xlsx,.xls,.csv" disabled={ingesting} style={{ display: "none" }}
                      onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("master", f); e.target.value = ""; } }} />
             </label>
             <LastUploadStamp iso={lastUploadMaster} color={PAL.accent2} />
@@ -2239,7 +2239,7 @@ export default function WholesalePlanningWorkbench() {
           <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
             <label style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", cursor: ingesting ? "not-allowed" : "pointer", opacity: ingesting ? 0.5 : 1 }}>
               {runningKind === "excel-sales" ? "Working…" : "Upload sales (Excel)"}
-              <input type="file" accept=".xlsx,.xls" disabled={ingesting} style={{ display: "none" }}
+              <input type="file" accept=".xlsx,.xls,.csv" disabled={ingesting} style={{ display: "none" }}
                      onChange={(e) => { const f = e.target.files?.[0]; if (f) { void ingestExcel("sales", f); e.target.value = ""; } }} />
             </label>
             <LastUploadStamp iso={lastUploadSales} color={PAL.accent} />
