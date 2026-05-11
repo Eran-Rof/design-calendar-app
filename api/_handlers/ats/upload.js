@@ -39,6 +39,8 @@
 //   purchases            ← optional (PO data normally comes from PO WIP)
 
 import { randomUUID } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
+import { gunzipSync } from "node:zlib";
 import formidable from "formidable";
 import { parseExcelRows, readSheetFromPath } from "../../_lib/ats-parse.js";
 import {
@@ -65,6 +67,22 @@ function pickFile(files, ...keys) {
     if (v) return Array.isArray(v) ? v[0] : v;
   }
   return null;
+}
+
+// post_to_ats.py gzips the CSVs to stay under Vercel's serverless function
+// payload limit. Browser uploads still send raw xlsx, so we only decompress
+// when we actually see gzip — sniffed by filename suffix or the 1f 8b magic.
+function decompressIfGzipped(file) {
+  if (!file) return null;
+  const buf = readFileSync(file.filepath);
+  const name = String(file.originalFilename || "").toLowerCase();
+  const isGzip = name.endsWith(".gz")
+    || (buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b);
+  if (!isGzip) return file.filepath;
+  const decompressed = gunzipSync(buf);
+  const outPath = `${file.filepath}.decompressed`;
+  writeFileSync(outPath, decompressed);
+  return outPath;
 }
 
 // Compact textual diff for the response. The skill checks
@@ -130,13 +148,16 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1. Parse workbooks
+    // 1. Parse workbooks (decompressing any gzipped uploads first)
+    const invPath = decompressIfGzipped(inv);
+    const ordPath = decompressIfGzipped(ord);
+    const purPath = decompressIfGzipped(pur);
     const invStart = Date.now();
-    const invRows = readSheetFromPath(inv.filepath);
+    const invRows = readSheetFromPath(invPath);
     const invElapsed = Date.now() - invStart;
-    const purRows = pur ? readSheetFromPath(pur.filepath) : [];
+    const purRows = purPath ? readSheetFromPath(purPath) : [];
     const ordStart = Date.now();
-    const ordRows = readSheetFromPath(ord.filepath);
+    const ordRows = readSheetFromPath(ordPath);
     const ordElapsed = Date.now() - ordStart;
     let data = parseExcelRows(invRows, purRows, ordRows);
 
