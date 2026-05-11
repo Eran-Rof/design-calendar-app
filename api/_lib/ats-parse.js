@@ -153,8 +153,8 @@ export function parseExcelRows(invRows, purRows, ordRows) {
         avgCost: parseFloat(String(r["Avrg Cost"] || 0).replace(/[^0-9.-]/g, "")) || 0,
       };
     }
-    skuMap[key].onHand += toNum(r["Total Sum of Qty"]);
-    skuMap[key].totalAmount = (skuMap[key].totalAmount || 0) + toNum(r["Total Sum of Amount Home Currency"]);
+    skuMap[key].onHand += toNum(r["Total Sum of Qty"] ?? r["Qty"]);
+    skuMap[key].totalAmount = (skuMap[key].totalAmount || 0) + toNum(r["Total Sum of Amount Home Currency"] ?? r["Amount Home Currency"]);
   }
 
   // ── 2. Purchased Items Report → PO events ────────────────────────────────
@@ -167,7 +167,7 @@ export function parseExcelRows(invRows, purRows, ordRows) {
     const color = str(r["Option 1 Value"]);
     if (!base) continue;
     const sku = color ? `${base} - ${color}` : base;
-    const qty = toNum(r["Total Sum of Qty Ordered"]);
+    const qty = toNum(r["Total Sum of Qty Ordered"] ?? r["Qty Ordered"]);
 
     const poBrand = str(r["Brand Name"] || r["Brand"] || "");
     const poStore = detectSkuStore(poBrand);
@@ -208,7 +208,7 @@ export function parseExcelRows(invRows, purRows, ordRows) {
     const color = str(r["Option 1 Value"]);
     if (!base) continue;
     const sku = color ? `${base} - ${color}` : base;
-    const qty = toNum(r["Total Sum of Qty Ordered"]);
+    const qty = toNum(r["Total Sum of Qty Ordered"] ?? r["Qty Ordered"]);
 
     const soBrand     = str(r["Brand"] || r["Brand Name"] || "");
     const saleStore   = str(r["Sale Store"] || r["Store"] || r["Channel"] || "");
@@ -239,11 +239,16 @@ export function parseExcelRows(invRows, purRows, ordRows) {
         r["Average of Unit Price"] || r["Sum of Unit Price"] ||
         r["Total Average of Unit Cost"] || r["Item Price"] || r["Item Cost"] || 0
       ).replace(/[^0-9.-]/g, "")) || 0;
-      const totalPrice   = parseFloat(String(
+      let totalPrice = parseFloat(String(
         r["Total Sum of Total Price"] || r["Total Price"] || r["Extended Price"] ||
         r["Sum of Total Price"] || r["Total Sum of Amount"] ||
         r["Total Sum of Amount Home Currency"] || r["Amount"] || 0
       ).replace(/[^0-9.-]/g, "")) || 0;
+      // CSV row-level exports omit Total Price; derive it from unit × qty
+      // so $-on-order totals don't collapse to zero on the nightly upload.
+      if (totalPrice <= 0 && unitPrice > 0 && qty > 0) {
+        totalPrice = unitPrice * qty;
+      }
 
       if (!date) { soNoDate++; soNoDateItems.push({ sku, qty, orderNumber: orderNumber || undefined, customerName: customerName || undefined }); }
       if (!orderNumber) soNoOrderNum++;
