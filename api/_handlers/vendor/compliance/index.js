@@ -17,6 +17,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { writeAudit } from "../../../_lib/compliance-audit.js";
+import { getInternalRecipients } from "../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 30 };
 
@@ -203,8 +204,7 @@ export default async function handler(req, res) {
     // INTERNAL_COMPLIANCE_EMAILS is a comma-separated list of addresses
     // set in Vercel env vars.
     try {
-      const emails = (process.env.INTERNAL_COMPLIANCE_EMAILS || "")
-        .split(",").map((e) => e.trim()).filter(Boolean);
+      const { emails } = getInternalRecipients("compliance", { event: "compliance_doc_submitted" });
       if (emails.length > 0) {
         const { data: vendor } = await admin.from("vendors").select("name").eq("id", caller.vendor_id).maybeSingle();
         const vendorName = vendor?.name || "A vendor";

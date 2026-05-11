@@ -22,6 +22,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { writeAudit } from "../../_lib/compliance-audit.js";
+import { getInternalRecipients } from "../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 60 };
 
@@ -168,8 +169,7 @@ export default async function handler(req, res) {
     result.errors.push({ pass: "expired_scan", error: err?.message || String(err) });
   }
 
-  const internalEmails = (process.env.INTERNAL_COMPLIANCE_EMAILS || "")
-    .split(",").map((e) => e.trim()).filter(Boolean);
+  const { emails: internalEmails } = getInternalRecipients("compliance", { event: "compliance_expiring_soon" });
 
   for (const doc of expiredDocs) {
     const typeName = doc.document_type?.name || "Document";

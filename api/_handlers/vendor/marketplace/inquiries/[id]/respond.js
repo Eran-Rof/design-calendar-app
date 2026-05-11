@@ -5,6 +5,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateVendor } from "../../../../../_lib/vendor-auth.js";
+import { getInternalRecipients } from "../../../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 15 };
 
@@ -54,8 +55,7 @@ export default async function handler(req, res) {
 
   // Notify the inquiring user — env var is comma-separated, fan out per email.
   try {
-    const emails = (process.env.INTERNAL_COMPLIANCE_EMAILS || "")
-      .split(",").map((e) => e.trim()).filter(Boolean);
+    const { emails } = getInternalRecipients("compliance", { event: "marketplace_inquiry_responded" });
     const origin = `https://${req.headers.host}`;
     for (const email of emails) {
       await fetch(`${origin}/api/send-notification`, {

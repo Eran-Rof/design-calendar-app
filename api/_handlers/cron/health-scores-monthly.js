@@ -10,6 +10,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { composeHealth } from "../../_lib/analytics.js";
+import { getInternalRecipients } from "../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 60 };
 
@@ -159,8 +160,7 @@ export default async function handler(req, res) {
     //   - health_score_low to internal team + vendor admin users
     //     (explains *why* and gives the vendor visibility)
     try {
-      const internalEmails = (process.env.INTERNAL_VENDOR_ALERT_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "")
-        .split(",").map((e) => e.trim()).filter(Boolean);
+      const { emails: internalEmails } = getInternalRecipients("vendor_alert", { event: "health_score_alert", fallback: "compliance" });
       await Promise.all(internalEmails.map((email) =>
         fetch(`${origin}/api/send-notification`, {
           method: "POST",

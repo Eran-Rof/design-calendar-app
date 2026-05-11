@@ -16,14 +16,14 @@
 //
 // Side effects:
 //   - Inserts one invoices row + N invoice_line_items rows
-//   - Fires invoice_submitted notification to INTERNAL_INVOICE_EMAILS
-//     (falls back to INTERNAL_COMPLIANCE_EMAILS), subject:
-//     '{vendor name} submitted invoice {invoice_number}'
+//   - Fires invoice_submitted notification to INTERNAL_INVOICE_EMAILS,
+//     subject: '{vendor name} submitted invoice {invoice_number}'
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateVendor } from "../../_lib/vendor-auth.js";
 import { fireWorkflowEvent } from "../../_lib/workflow.js";
 import { toMoneyString, MoneyError } from "../../_lib/money.js";
+import { getInternalRecipients } from "../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 30 };
 
@@ -216,6 +216,37 @@ export default async function handler(req, res) {
         read_by_internal: false,
       });
     } catch { /* non-blocking */ }
+
+    // Fire invoice_discrepancy to internal AP team — separate event so
+    // ops can subscribe specifically to mismatches without subscribing
+    // to every invoice submission. send-notification dedupes on
+    // invoice id within an hour.
+    try {
+      const origin = `https://${req.headers.host}`;
+      const { emails: discrepancyEmails } = getInternalRecipients("invoice", { event: "invoice_discrepancy" });
+      if (discrepancyEmails.length > 0) {
+        const { data: vendor } = await admin.from("vendors").select("name").eq("id", caller.vendor_id).maybeSingle();
+        const vendorName = vendor?.name || "A vendor";
+        const summary = discrepancies.slice(0, 5).map((d) => `• ${String(d)}`).join("\n");
+        const more = discrepancies.length > 5 ? `\n…and ${discrepancies.length - 5} more` : "";
+        await Promise.all(discrepancyEmails.map((email) =>
+          fetch(`${origin}/api/send-notification`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              event_type: "invoice_discrepancy",
+              title: `${vendorName} flagged ${discrepancies.length} discrepanc${discrepancies.length === 1 ? "y" : "ies"} on invoice ${inv.invoice_number}`,
+              body: `PO ${po.po_number}:\n${summary}${more}`,
+              link: "/",
+              metadata: { invoice_id: inv.id, vendor_id: caller.vendor_id, po_number: po.po_number, discrepancy_count: discrepancies.length },
+              recipient: { internal_id: "ap_team", email },
+              dedupe_key: `invoice_discrepancy_${inv.id}_${email}`,
+              email: true,
+            }),
+          }).catch(() => {})
+        ));
+      }
+    } catch { /* non-blocking */ }
   }
 
   // Resolve the shipment to stamp: prefer the client-provided from_asn_id,
@@ -275,8 +306,7 @@ export default async function handler(req, res) {
 
   // Fire internal notifications
   try {
-    const emails = (process.env.INTERNAL_INVOICE_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "")
-      .split(",").map((e) => e.trim()).filter(Boolean);
+    const { emails } = getInternalRecipients("invoice", { event: "invoice_submitted" });
     if (emails.length > 0) {
       const { data: vendor } = await admin.from("vendors").select("name").eq("id", caller.vendor_id).maybeSingle();
       const vendorName = vendor?.name || "A vendor";

@@ -5,6 +5,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../../_lib/auth.js";
+import { getInternalRecipients } from "../../../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 15 };
 
@@ -64,8 +65,7 @@ export default async function handler(req, res) {
   // Alert internal team leads on high/critical flags only.
   if (finalSeverity === "high" || finalSeverity === "critical") {
     try {
-      const emails = (process.env.INTERNAL_VENDOR_ALERT_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "")
-        .split(",").map((e) => e.trim()).filter(Boolean);
+      const { emails } = getInternalRecipients("vendor_alert", { event: "vendor_flagged" });
       if (emails.length > 0) {
         const { data: v } = await admin.from("vendors").select("name").eq("id", vendorId).maybeSingle();
         const vendorName = v?.name || "Vendor";

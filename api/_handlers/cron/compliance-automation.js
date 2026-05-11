@@ -18,6 +18,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { writeAudit } from "../../_lib/compliance-audit.js";
+import { getInternalRecipients } from "../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 120 };
 
@@ -142,13 +143,11 @@ export default async function handler(req, res) {
           const vendorName = vendor?.name || `Vendor ${r.vendor_id.slice(0, 8)}`;
           const typeName = docRow?.document_type?.name || "compliance document";
 
-          // INTERNAL_COMPLIANCE_EMAILS is a comma-separated env var — fan
-          // out one notification per email so each recipient receives a
-          // valid send-notification payload (passing the whole list as a
-          // single `email` field would either fail validation or send to a
+          // Fan out one notification per recipient so each gets a valid
+          // send-notification payload (passing the whole list as a single
+          // `email` field would either fail validation or send to a
           // malformed address).
-          const escEmails = (process.env.INTERNAL_COMPLIANCE_EMAILS || "")
-            .split(",").map((e) => e.trim()).filter(Boolean);
+          const { emails: escEmails } = getInternalRecipients("compliance", { event: "compliance_escalation" });
           for (const email of escEmails) {
             await sendNotification(origin, {
               event_type: "compliance_escalated",

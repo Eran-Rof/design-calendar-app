@@ -6,6 +6,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateVendor } from "../../../_lib/vendor-auth.js";
+import { getInternalRecipients } from "../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 30 };
 
@@ -71,10 +72,7 @@ export default async function handler(req, res) {
     const { data: vendorRow } = await admin.from("vendors").select("name").eq("id", vendorId).maybeSingle();
     const vendorName = vendorRow?.name || `Vendor ${vendorId.slice(0, 8)}`;
     try {
-      // INTERNAL_COMPLIANCE_EMAILS is comma-separated — fan out one
-      // notification per email so each recipient gets a valid payload.
-      const emails = (process.env.INTERNAL_COMPLIANCE_EMAILS || "")
-        .split(",").map((e) => e.trim()).filter(Boolean);
+      const { emails } = getInternalRecipients("compliance", { event: "sustainability_report_submitted" });
       const origin = `https://${req.headers.host}`;
       for (const email of emails) {
         await fetch(`${origin}/api/send-notification`, {

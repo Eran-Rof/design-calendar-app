@@ -128,12 +128,14 @@ export default async function handler(req, res) {
       // Try exact match on invoice_number
       const { data: exact } = await admin
         .from("invoices")
-        .select("id, status")
+        .select("id, status, xoro_ap_id")
         .eq("vendor_id", vendorId)
         .eq("invoice_number", billNumber)
         .maybeSingle();
 
       let invoiceId = exact?.id ?? null;
+      let priorStatus = exact?.status ?? null;
+      let priorXoroApId = exact?.xoro_ap_id ?? null;
       let matchMode = exact ? "invoice_number" : null;
 
       if (!invoiceId && billPONumber) {
@@ -143,12 +145,14 @@ export default async function handler(req, res) {
         if (poTp) {
           const { data: candidates } = await admin
             .from("invoices")
-            .select("id, status")
+            .select("id, status, xoro_ap_id")
             .eq("vendor_id", vendorId)
             .eq("po_id", poTp.uuid_id)
             .in("status", ["submitted", "under_review", "approved"]);
           if (candidates && candidates.length === 1) {
             invoiceId = candidates[0].id;
+            priorStatus = candidates[0].status;
+            priorXoroApId = candidates[0].xoro_ap_id;
             matchMode = "po_number";
           }
         }
@@ -173,6 +177,49 @@ export default async function handler(req, res) {
       if (matchMode === "invoice_number") result.matched_by_invoice_number++;
       if (matchMode === "po_number") result.matched_by_po_number++;
       if (isPaid) result.marked_paid++;
+
+      // Vendor notifications — fire only on real transitions to avoid
+      // re-notifying every time the cron re-syncs the same bill.
+      const origin = `https://${req.headers.host}`;
+      const firstTimeLinkedToAp = !priorXoroApId && xoroApId;
+      const newlyPaid = isPaid && priorStatus !== "paid";
+      if (firstTimeLinkedToAp || newlyPaid) {
+        const fmtAmount = total
+          ? total.toLocaleString(undefined, { style: "currency", currency: "USD" })
+          : null;
+        if (firstTimeLinkedToAp) {
+          fetch(`${origin}/api/send-notification`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              event_type: "invoice_approved",
+              title: `Invoice ${billNumber} accepted by AP`,
+              body: `Ring of Fire AP has accepted invoice ${billNumber}${billPONumber ? ` for PO ${billPONumber}` : ""}${fmtAmount ? ` (${fmtAmount})` : ""}. You'll receive another notification once payment is sent.`,
+              link: `/vendor/invoices/${invoiceId}`,
+              metadata: { invoice_id: invoiceId, po_number: billPONumber || null, vendor_id: vendorId, xoro_ap_id: xoroApId },
+              recipient: { vendor_id: vendorId },
+              dedupe_key: `invoice_approved_${invoiceId}`,
+              email: true,
+            }),
+          }).catch(() => {});
+        }
+        if (newlyPaid) {
+          fetch(`${origin}/api/send-notification`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              event_type: "payment_sent",
+              title: `Payment sent for invoice ${billNumber}`,
+              body: `Payment ${fmtAmount ? `of ${fmtAmount} ` : ""}has been sent for invoice ${billNumber}${updates.payment_method ? ` via ${updates.payment_method}` : ""}${updates.payment_reference ? ` (ref ${updates.payment_reference})` : ""}.`,
+              link: `/vendor/invoices/${invoiceId}`,
+              metadata: { invoice_id: invoiceId, po_number: billPONumber || null, vendor_id: vendorId, payment_method: updates.payment_method, payment_reference: updates.payment_reference, paid_at: paidAt },
+              recipient: { vendor_id: vendorId },
+              dedupe_key: `payment_sent_${invoiceId}`,
+              email: true,
+            }),
+          }).catch(() => {});
+        }
+      }
     } catch (err) {
       result.errors.push({ bill: bill.BillNumber, error: err?.message || String(err) });
     }

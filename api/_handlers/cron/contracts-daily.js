@@ -12,6 +12,7 @@
 //         Deduped same way.
 
 import { createClient } from "@supabase/supabase-js";
+import { getInternalRecipients } from "../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 120 };
 
@@ -46,8 +47,7 @@ export default async function handler(req, res) {
   const cutoffIso = new Date(today.getTime() + EXPIRING_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
 
   // Fan-out internal recipients: env + internal_owner if it looks like an email
-  const baseInternalEmails = (process.env.INTERNAL_CONTRACT_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "")
-    .split(",").map((e) => e.trim()).filter(Boolean);
+  const { emails: baseInternalEmails } = getInternalRecipients("contract", { event: "contract_expiring_soon" });
 
   // ── Pass 1: expiring soon ────────────────────────────────────────────
   try {

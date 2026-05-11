@@ -19,10 +19,13 @@
 // flag, we mark it dismissed with reviewed_by='cron.anomaly'.
 //
 // High/critical severities fire an anomaly_detected notification to
-// INTERNAL_VENDOR_ALERT_EMAILS (falls back to INTERNAL_COMPLIANCE_EMAILS).
+// the first non-empty of INTERNAL_PROCUREMENT_EMAILS,
+// INTERNAL_FINANCE_EMAILS, INTERNAL_VENDOR_ALERT_EMAILS,
+// INTERNAL_COMPLIANCE_EMAILS (cascade).
 
 import { createClient } from "@supabase/supabase-js";
 import { fireWorkflowEvent } from "../../_lib/workflow.js";
+import { getInternalRecipients } from "../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 60 };
 
@@ -38,24 +41,14 @@ function monthKey(d) { const x = new Date(d); return `${x.getUTCFullYear()}-${St
 
 async function fireHighSeverityAlert(admin, origin, vendor, flag) {
   try {
-    // Procurement + finance team — procurement sees vendor issues,
-    // finance sees the ones that touch payment/invoice risk.
-    const pool = new Set();
-    for (const raw of [
-      process.env.INTERNAL_PROCUREMENT_EMAILS,
-      process.env.INTERNAL_FINANCE_EMAILS,
-      process.env.INTERNAL_VENDOR_ALERT_EMAILS,
-      process.env.INTERNAL_COMPLIANCE_EMAILS,
-    ]) {
-      if (!raw) continue;
-      for (const e of raw.split(",")) {
-        const v = e.trim();
-        if (v) pool.add(v);
-      }
-      if (pool.size > 0) break; // first source with any entries wins
+    // Anomalies cascade: try procurement → finance → vendor_alert → compliance.
+    const anomalyCategories = ["procurement", "finance", "vendor_alert", "compliance"];
+    let emails = [];
+    for (const cat of anomalyCategories) {
+      const result = getInternalRecipients(cat, { event: "anomaly_detected" });
+      if (result.emails.length > 0) { emails = result.emails; break; }
     }
-    if (pool.size === 0) return;
-    const emails = [...pool];
+    if (emails.length === 0) return;
     await Promise.all(emails.map((email) =>
       fetch(`${origin}/api/send-notification`, {
         method: "POST",

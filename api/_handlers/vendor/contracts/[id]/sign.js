@@ -11,9 +11,10 @@
 //   - Sets status='signed', signed_at=now(), signed_by_vendor=caller
 //   - Inserts a new contract_versions row (next version_number, type='vendor')
 //   - Fires contract_signed notification to internal_owner email
-//     (or INTERNAL_CONTRACT_EMAILS fallback)
+//     plus INTERNAL_CONTRACT_EMAILS
 
 import { createClient } from "@supabase/supabase-js";
+import { getInternalRecipients } from "../../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 30 };
 
@@ -108,12 +109,11 @@ export default async function handler(req, res) {
   // Notification
   try {
     const origin = `https://${req.headers.host}`;
-    const emails = new Set();
-    if (contract.internal_owner && contract.internal_owner.includes("@")) emails.add(contract.internal_owner);
-    for (const e of (process.env.INTERNAL_CONTRACT_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "").split(",")) {
-      const v = e.trim();
-      if (v) emails.add(v);
-    }
+    const ownerExtra = contract.internal_owner && contract.internal_owner.includes("@") ? contract.internal_owner : null;
+    const { emails } = getInternalRecipients("contract", {
+      event: "contract_signed",
+      extras: [ownerExtra].filter(Boolean),
+    });
     const { data: vendor } = await admin.from("vendors").select("name").eq("id", caller.vendor_id).maybeSingle();
     const vendorName = vendor?.name || "A vendor";
     for (const email of emails) {

@@ -16,6 +16,7 @@
 // supabase-js Realtime subscriptions client-side on the po_messages table.
 
 import { createClient } from "@supabase/supabase-js";
+import { getInternalRecipients } from "../../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 30 };
 
@@ -135,8 +136,7 @@ export default async function handler(req, res) {
     // longer dropped silently — every message contributes either to a
     // direct send or to a digest, never to /dev/null.
     try {
-      const emails = (process.env.INTERNAL_MESSAGE_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "")
-        .split(",").map((e) => e.trim()).filter(Boolean);
+      const { emails } = getInternalRecipients("message", { event: "new_message" });
       const origin = `https://${req.headers.host}`;
       await Promise.all(emails.map(async (email) => {
         await fetch(`${origin}/api/send-notification`, {

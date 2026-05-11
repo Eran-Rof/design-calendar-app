@@ -14,12 +14,12 @@
 //
 // Side effects:
 //   - Inserts shipments row (workflow_status='submitted') + shipment_lines
-//   - Fires asn_submitted notification to INTERNAL_SHIPMENT_EMAILS
-//     (falls back to INTERNAL_COMPLIANCE_EMAILS), subject:
-//     '{vendor name} submitted ASN {asn_number}'
+//   - Fires asn_submitted notification to INTERNAL_SHIPMENT_EMAILS,
+//     subject: '{vendor name} submitted ASN {asn_number}'
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateVendor } from "../../_lib/vendor-auth.js";
+import { getInternalRecipients } from "../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 30 };
 
@@ -112,8 +112,7 @@ export default async function handler(req, res) {
 
   // Internal notification
   try {
-    const emails = (process.env.INTERNAL_SHIPMENT_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "")
-      .split(",").map((e) => e.trim()).filter(Boolean);
+    const { emails } = getInternalRecipients("shipment", { event: "asn_submitted" });
     if (emails.length > 0) {
       const { data: vendor } = await admin.from("vendors").select("name").eq("id", caller.vendor_id).maybeSingle();
       const vendorName = vendor?.name || "A vendor";

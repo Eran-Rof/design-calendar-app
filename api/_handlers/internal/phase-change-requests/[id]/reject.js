@@ -79,7 +79,7 @@ export default async function handler(req, res) {
       body: `${reviewer} rejected "${cr.phase_name}"${cr.po_line_key ? ` (line-level)` : ""}: ${cr.field_name} → ${cr.new_value ?? "(cleared)"}\n\nReason: ${note}`,
       link: `/vendor/pos/${cr.po_id}?tab=phases`,
       metadata: { po_id: cr.po_id, po_number: cr.po_number, phase_name: cr.phase_name, field_name: cr.field_name, request_id: cr.id },
-    });
+    }, { email: true, origin: `https://${req.headers.host}` });
   } catch { /* non-blocking */ }
 
   return res.status(200).json(updated);

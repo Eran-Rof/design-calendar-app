@@ -8,10 +8,11 @@
 //   body: { type, subject, body, invoice_id?, po_id?, priority? }
 // Creates the dispute (status='open', raised_by=vendor) + the opening
 // dispute_messages row. Fires dispute_opened notification to
-// INTERNAL_DISPUTE_EMAILS (falls back to INTERNAL_COMPLIANCE_EMAILS).
+// INTERNAL_DISPUTE_EMAILS.
 
 import { createClient } from "@supabase/supabase-js";
 import { fireWorkflowEvent } from "../../../_lib/workflow.js";
+import { getInternalRecipients } from "../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 30 };
 
@@ -121,8 +122,7 @@ export default async function handler(req, res) {
 
     // Internal notifications
     try {
-      const emails = (process.env.INTERNAL_DISPUTE_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "")
-        .split(",").map((e) => e.trim()).filter(Boolean);
+      const { emails } = getInternalRecipients("dispute", { event: "dispute_opened" });
       if (emails.length > 0) {
         const { data: vendor } = await admin.from("vendors").select("name").eq("id", caller.vendor_id).maybeSingle();
         const vendorName = vendor?.name || "A vendor";

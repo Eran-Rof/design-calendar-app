@@ -2,10 +2,10 @@
 //
 // POST — explicitly move workflow to pending_review (if all steps are
 // complete). No-op if already pending_review or approved. Fires
-// onboarding_submitted notification to INTERNAL_ONBOARDING_EMAILS
-// (falls back to INTERNAL_COMPLIANCE_EMAILS).
+// onboarding_submitted notification to INTERNAL_ONBOARDING_EMAILS.
 
 import { createClient } from "@supabase/supabase-js";
+import { getInternalRecipients } from "../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 15 };
 
@@ -51,8 +51,7 @@ export default async function handler(req, res) {
 
   // Notify internal review team
   try {
-    const emails = (process.env.INTERNAL_ONBOARDING_EMAILS || process.env.INTERNAL_COMPLIANCE_EMAILS || "")
-      .split(",").map((e) => e.trim()).filter(Boolean);
+    const { emails } = getInternalRecipients("onboarding", { event: "onboarding_submitted" });
     if (emails.length > 0) {
       const { data: vendor } = await admin.from("vendors").select("name").eq("id", caller.vendor_id).maybeSingle();
       const vendorName = vendor?.name || "A vendor";

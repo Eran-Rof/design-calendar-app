@@ -24,19 +24,13 @@
 //   | compliance_expired | dispute_opened | anomaly_detected
 //   | onboarding_submitted | contract_signed | rfq_awarded
 
-const DEFAULT_ROLE_EMAILS = {
-  finance_manager:    process.env.INTERNAL_FINANCE_EMAILS,
-  procurement:        process.env.INTERNAL_PROCUREMENT_EMAILS,
-  compliance:         process.env.INTERNAL_COMPLIANCE_EMAILS,
-  vendor_ops:         process.env.INTERNAL_VENDOR_ALERT_EMAILS,
-  edi_ops:            process.env.INTERNAL_EDI_EMAILS,
-  disputes_team:      process.env.INTERNAL_DISPUTE_EMAILS,
-  onboarding_team:    process.env.INTERNAL_ONBOARDING_EMAILS,
-};
+import { getRoleRecipients } from "./internal-recipients.js";
 
 function roleEmails(role) {
-  const raw = DEFAULT_ROLE_EMAILS[role] || process.env.INTERNAL_COMPLIANCE_EMAILS || "";
-  return raw.split(",").map((e) => e.trim()).filter(Boolean);
+  // Workflow rules are typically critical (approvals, anomaly fan-outs)
+  // — keep the compliance fallback here. getRoleRecipients warns when
+  // both the role's primary var and the compliance fallback are empty.
+  return getRoleRecipients(role, { event: `workflow_${role}` }).emails;
 }
 
 function evalOp(op, a, b) {

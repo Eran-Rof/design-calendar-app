@@ -6,6 +6,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { dueSoonSubject, filterDueSoonTasks } from "../../_lib/notifications-phase9.js";
+import { getInternalRecipients } from "../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 60 };
 
@@ -47,7 +48,8 @@ export default async function handler(req, res) {
       if (t.assigned_to_type === "vendor" && t.workspace?.vendor_id) {
         payload.recipient = { vendor_id: t.workspace.vendor_id };
       } else if (t.assigned_to_type === "internal") {
-        const email = isEmail(t.assigned_to) ? t.assigned_to : (process.env.INTERNAL_COMPLIANCE_EMAILS || "").split(",")[0]?.trim();
+        const fallbackEmails = isEmail(t.assigned_to) ? [] : getInternalRecipients("compliance", { event: "workspace_task_due" }).emails;
+        const email = isEmail(t.assigned_to) ? t.assigned_to : (fallbackEmails[0] || null);
         if (!email) { result.skipped_no_assignee += 1; continue; }
         payload.recipient = { internal_id: t.assigned_to, email };
       } else {

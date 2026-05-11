@@ -91,6 +91,9 @@ export default async function handler(req, res) {
   if (!SB_URL || !SERVICE_KEY) {
     return res.status(500).json({ error: "Server not configured", supabase: !!SB_URL, serviceKey: !!SERVICE_KEY });
   }
+  if (!RESEND_KEY) {
+    console.warn("[send-notification] RESEND_API_KEY missing — in-app notification will be written but email will skip. Set RESEND_API_KEY in Vercel to enable email delivery.");
+  }
   const admin = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
   let body = req.body;

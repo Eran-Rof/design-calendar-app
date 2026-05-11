@@ -142,7 +142,7 @@ export default async function handler(req, res) {
       body: `"${phase_name}"${po_line_key ? ` (line-level)` : ""}: ${field_name} → ${new_value ?? "(cleared)"} (was ${old_value ?? "(empty)"}). Needs your review.`,
       link: "/rof/phase-reviews",
       metadata: { po_id, po_number: po.po_number, phase_name, field_name, po_line_key, request_id: inserted?.id },
-    });
+    }, { email: true, origin: `https://${req.headers.host}` });
   } catch { /* non-blocking */ }
 
   return send(201, inserted);
