@@ -57,6 +57,10 @@ export default function PlanningRunControls({
   const [savedBuildNote, setSavedBuildNote] = useState("");
   const [saveBuildBusy, setSaveBuildBusy] = useState(false);
   const [pendingDeleteSaved, setPendingDeleteSaved] = useState<IpScenario | null>(null);
+  // After a successful delete the modal flips to a "Deleted" confirmation
+  // for 1.5s instead of vanishing immediately, so the planner sees the
+  // action landed before the dialog closes itself.
+  const [deleteSucceeded, setDeleteSucceeded] = useState(false);
 
   const selected = runs.find((r) => r.id === selectedRunId) ?? null;
   // Is the currently-loaded run itself a saved build? Drives the
@@ -214,9 +218,14 @@ export default function PlanningRunControls({
       if (selectedRunId === scenario.planning_run_id) onSelect("");
       await refreshSavedBuilds();
       await onChange();
+      // Brief "Deleted" confirmation in the dialog before it dismisses.
+      setDeleteSucceeded(true);
+      setTimeout(() => {
+        setPendingDeleteSaved(null);
+        setDeleteSucceeded(false);
+      }, 1500);
     } catch (e) {
       onToast({ text: "Delete failed: " + (e instanceof Error ? e.message : String(e)), kind: "error" });
-    } finally {
       setPendingDeleteSaved(null);
     }
   }
@@ -445,20 +454,34 @@ export default function PlanningRunControls({
           role="dialog"
           aria-modal="true"
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
-          onClick={(e) => { if (e.target === e.currentTarget) setPendingDeleteSaved(null); }}
+          onClick={(e) => { if (e.target === e.currentTarget && !deleteSucceeded) setPendingDeleteSaved(null); }}
         >
-          <div style={{ background: PAL.panel, border: `1px solid ${PAL.red}`, borderRadius: 10, padding: 18, minWidth: 420, maxWidth: 520, boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <span style={{ background: PAL.red, color: "#fff", borderRadius: 3, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>DELETE</span>
-              <strong style={{ color: PAL.text, fontSize: 14 }}>Delete saved build?</strong>
-            </div>
-            <div style={{ color: PAL.textDim, fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>
-              <strong style={{ color: PAL.text }}>{pendingDeleteSaved.scenario_name}</strong> and every row tied to its underlying planning run will be permanently deleted. This cannot be undone.
-            </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <button style={S.btnSecondary} onClick={() => setPendingDeleteSaved(null)}>Cancel</button>
-              <button style={{ ...S.btnPrimary, background: PAL.red, color: "#fff" }} onClick={() => void onConfirmDeleteSavedBuild()}>Delete</button>
-            </div>
+          <div style={{ background: PAL.panel, border: `1px solid ${deleteSucceeded ? PAL.green : PAL.red}`, borderRadius: 10, padding: 18, minWidth: 420, maxWidth: 520, boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+            {deleteSucceeded ? (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <span style={{ background: PAL.green, color: "#fff", borderRadius: 3, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>DELETED</span>
+                  <strong style={{ color: PAL.text, fontSize: 14 }}>Saved build removed</strong>
+                </div>
+                <div style={{ color: PAL.textDim, fontSize: 13, lineHeight: 1.5 }}>
+                  <strong style={{ color: PAL.text }}>{pendingDeleteSaved.scenario_name}</strong> and its planning-run rows have been deleted.
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <span style={{ background: PAL.red, color: "#fff", borderRadius: 3, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>DELETE</span>
+                  <strong style={{ color: PAL.text, fontSize: 14 }}>Delete saved build?</strong>
+                </div>
+                <div style={{ color: PAL.textDim, fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>
+                  <strong style={{ color: PAL.text }}>{pendingDeleteSaved.scenario_name}</strong> and every row tied to its underlying planning run will be permanently deleted. This cannot be undone.
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                  <button style={S.btnSecondary} onClick={() => setPendingDeleteSaved(null)}>Cancel</button>
+                  <button style={{ ...S.btnPrimary, background: PAL.red, color: "#fff" }} onClick={() => void onConfirmDeleteSavedBuild()}>Delete</button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
