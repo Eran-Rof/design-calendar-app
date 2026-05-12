@@ -61,6 +61,13 @@ export default function PlanningRunControls({
   // for 1.5s instead of vanishing immediately, so the planner sees the
   // action landed before the dialog closes itself.
   const [deleteSucceeded, setDeleteSucceeded] = useState(false);
+  // Which saved build the planner explicitly picked from the "Saved
+  // builds" dropdown. Independent of selectedRunId so the Delete affordance
+  // stays visible even when the run-id derivation race-conditions
+  // (e.g. just-forked, refresh in flight, or selectedRunId got switched
+  // by some other path). Cleared on delete-success and on a literal
+  // "— pick —" selection.
+  const [pickedSavedBuildId, setPickedSavedBuildId] = useState<string | null>(null);
 
   const selected = runs.find((r) => r.id === selectedRunId) ?? null;
   // Is the currently-loaded run itself a saved build? Drives the
@@ -68,7 +75,14 @@ export default function PlanningRunControls({
   // becomes "Fork" (clone-of-clone for the edit/resave workflow);
   // the build/edit buttons stay live so the planner can tweak then
   // resave from inside the snapshot.
-  const selectedSavedBuild = savedBuilds.find((s) => s.planning_run_id === selectedRunId) ?? null;
+  // Prefer the planner's explicit pick from the Saved builds dropdown —
+  // that's the source of truth for "is a saved build currently selected".
+  // Fall back to the selectedRunId-based lookup so deeplinks / initial-load
+  // paths still light the dropdown when the planner hasn't clicked it yet.
+  const selectedSavedBuild =
+    (pickedSavedBuildId ? savedBuilds.find((s) => s.id === pickedSavedBuildId) : null)
+    ?? savedBuilds.find((s) => s.planning_run_id === selectedRunId)
+    ?? null;
 
   const filterActive = !!buildFilter && Object.values(buildFilter).some((v) => v != null && v !== "");
 
@@ -194,6 +208,7 @@ export default function PlanningRunControls({
       await onChange();
       // Switch the active run to the new snapshot so the planner
       // can immediately see / fork-edit it.
+      setPickedSavedBuildId(scenario.id);
       onSelect(scenario.planning_run_id);
     } catch (e) {
       onToast({ text: "Save build failed: " + (e instanceof Error ? e.message : String(e)), kind: "error" });
@@ -204,7 +219,12 @@ export default function PlanningRunControls({
   }
 
   function onLoadSavedBuild(planningRunId: string) {
-    if (!planningRunId) return;
+    if (!planningRunId) {
+      setPickedSavedBuildId(null);
+      return;
+    }
+    const sb = savedBuilds.find((s) => s.planning_run_id === planningRunId);
+    setPickedSavedBuildId(sb?.id ?? null);
     onSelect(planningRunId);
   }
 
@@ -216,6 +236,8 @@ export default function PlanningRunControls({
       onToast({ text: `Deleted saved build "${scenario.scenario_name}"`, kind: "info" });
       // If we were viewing it, drop the selection.
       if (selectedRunId === scenario.planning_run_id) onSelect("");
+      // Clear the explicit dropdown pick so the Delete button hides.
+      if (pickedSavedBuildId === scenario.id) setPickedSavedBuildId(null);
       await refreshSavedBuilds();
       await onChange();
       // Brief "Deleted" confirmation in the dialog before it dismisses.
@@ -328,9 +350,6 @@ export default function PlanningRunControls({
             </button>
             {selected.status !== "active" && (
               <button style={S.btnSecondary} onClick={() => setStatus("active")}>Mark active</button>
-            )}
-            {selected.status !== "archived" && (
-              <button style={S.btnSecondary} onClick={() => setStatus("archived")}>Archive</button>
             )}
             {/* Quick jump to the scenario manager pre-targeted at this
                 run as the base. The manager reads ?baseRunId from the
