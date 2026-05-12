@@ -26,7 +26,11 @@ export const config = { api: { bodyParser: false }, maxDuration: 300 };
 
 const RATE_LIMIT = { limit: 30, windowMs: 60 * 60 * 1000 };
 const CHUNK = 500;
-const SOURCE = "xoro_invoice_csv";
+// Match the source value the browser modal writes (excelIngestService.ts)
+// so re-runs UPSERT against existing rows instead of duplicating them.
+// The (source, source_line_key) unique constraint dedupes correctly only
+// when both halves match — see project_invoice_sync_built.md.
+const SOURCE = "excel";
 
 function pickFile(files, ...keys) {
   for (const k of keys) {
@@ -298,8 +302,10 @@ export default async function handler(req, res) {
   const newCustomers = [];
   for (const [canonKey, displayName] of missingCustomers) {
     if (customerNameToId.has(canonKey) || customerCodeToId.has(canonKey)) continue;
+    // Match the browser modal's customer_code prefix so manually-uploaded
+    // and auto-synced customers don't fork into two rows.
     newCustomers.push({
-      customer_code: `XORO:${canonKey}`,
+      customer_code: `EXCEL:${canonKey}`,
       name: displayName,
     });
   }
@@ -331,9 +337,11 @@ export default async function handler(req, res) {
       ? (customerNameToId.get(c.customerKey) ?? customerCodeToId.get(c.customerKey) ?? null)
       : null;
 
+    // Match the line-key format the browser modal uses so the same invoice
+    // line collides on the (source, source_line_key) unique constraint.
     const lineKey = c.invoiceNumber
-      ? `xoro:inv:${c.invoiceNumber}:${c.sku}:${c.txnDate}`
-      : `xoro:${c.sku}:${c.txnDate}:${c.qty}`;
+      ? `excel:inv:${c.invoiceNumber}:${c.sku}:${c.txnDate}`
+      : `excel:${c.sku}:${c.txnDate}:${c.qty}`;
 
     out.push({
       sku_id: skuId,
