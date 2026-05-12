@@ -388,42 +388,53 @@ export default async function handler(req, res) {
   }
   const aggregated = Array.from(merged.values());
 
-  // Snapshot replace: wipe existing source="excel" rows so the CSV is
-  // the single source of truth. Safety guard: refuse if the new CSV is
-  // suspiciously small — prevents wiping production on a bad upload.
-  // The Xoro "Last Calendar Year to Date" report typically produces
-  // 20k+ aggregated rows, so 1000 is a generous floor.
-  const REPLACE_FLOOR = 1000;
-  if (aggregated.length < REPLACE_FLOOR) {
-    return res.status(200).json({
-      processed: false,
-      error: `CSV produced only ${aggregated.length} aggregated rows — refusing to wipe existing sales (floor: ${REPLACE_FLOOR}). Re-fetch the report and retry.`,
-      ...counts,
-    });
+  // Default: incremental upsert — matching (source, source_line_key)
+  // rows get UPDATEd, new ones INSERTed, orphans stay. This is the
+  // right cadence for nightly runs where the CSV is a rolling window.
+  //
+  // Opt-in: `?mode=replace` wipes all source="excel" rows first, then
+  // inserts fresh. Use this for first-time setup or when the CSV is
+  // known to be the complete authoritative dataset and you want
+  // orphans cleared. Safety guard: refuse the wipe if the parsed CSV
+  // produces fewer than 1000 aggregated rows.
+  const url = new URL(req.url, `https://${req.headers.host}`);
+  const mode = (url.searchParams.get("mode") || "").toLowerCase();
+  const replace = mode === "replace";
+
+  if (replace) {
+    const REPLACE_FLOOR = 1000;
+    if (aggregated.length < REPLACE_FLOOR) {
+      return res.status(200).json({
+        processed: false,
+        error: `mode=replace requested but CSV produced only ${aggregated.length} rows (floor: ${REPLACE_FLOOR}). Refusing to wipe.`,
+        ...counts,
+      });
+    }
+    const { error: delError, count: deletedCount } = await admin
+      .from("ip_sales_history_wholesale")
+      .delete({ count: "exact" })
+      .eq("source", SOURCE);
+    if (delError) {
+      counts.errors.push(`pre-insert wipe failed: ${delError.message}`);
+      return res.status(500).json({ processed: false, ...counts });
+    }
+    counts.deleted_before_insert = deletedCount ?? 0;
   }
 
-  const { error: delError, count: deletedCount } = await admin
-    .from("ip_sales_history_wholesale")
-    .delete({ count: "exact" })
-    .eq("source", SOURCE);
-  if (delError) {
-    counts.errors.push(`pre-insert wipe failed: ${delError.message}`);
-    return res.status(500).json({ processed: false, ...counts });
-  }
-  counts.deleted_before_insert = deletedCount ?? 0;
-
-  // Bulk insert fresh rows (no conflict possible since we just wiped).
   for (let i = 0; i < aggregated.length; i += CHUNK) {
     const chunk = aggregated.slice(i, i + CHUNK);
-    const { error } = await admin
-      .from("ip_sales_history_wholesale")
-      .insert(chunk);
+    const { error } = replace
+      ? await admin.from("ip_sales_history_wholesale").insert(chunk)
+      : await admin
+          .from("ip_sales_history_wholesale")
+          .upsert(chunk, { onConflict: "source,source_line_key", ignoreDuplicates: false });
     if (error) {
-      counts.errors.push(`sales insert chunk ${i}: ${error.message}`);
+      counts.errors.push(`sales write chunk ${i}: ${error.message}`);
       continue;
     }
     counts.sales_upserted += chunk.length;
   }
+  counts.mode = replace ? "replace" : "incremental";
 
   return res.status(200).json({ processed: true, ...counts });
 }
