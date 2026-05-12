@@ -501,7 +501,11 @@ export const wholesaleRepo = {
   },
   async upsertForecast(
     rows: Array<Omit<IpWholesaleForecast, "id" | "created_at" | "updated_at">>,
-    options: { signal?: AbortSignal; onProgress?: (rowsDone: number, totalRows: number) => void } = {},
+    options: {
+      signal?: AbortSignal;
+      onProgress?: (rowsDone: number, totalRows: number) => void;
+      onChunk?: (chunkSize: number) => void;
+    } = {},
   ): Promise<void> {
     if (rows.length === 0) return;
     const url = "ip_wholesale_forecast?on_conflict=planning_run_id,customer_id,sku_id,period_start";
@@ -510,7 +514,7 @@ export const wholesaleRepo = {
     // tip past Supabase's 8s statement timeout (57014).
     const INITIAL_CHUNK = 200;
     const MIN_CHUNK = 25;
-    const { signal, onProgress } = options;
+    const { signal, onProgress, onChunk } = options;
 
     type Row = (typeof rows)[number];
     const postChunk = async (chunk: Row[]): Promise<void> => {
@@ -547,6 +551,7 @@ export const wholesaleRepo = {
       await postChunk(chunk);
       done += chunk.length;
       onProgress?.(done, rows.length);
+      onChunk?.(chunk.length);
     }
   },
   async patchForecastOverride(
@@ -645,15 +650,19 @@ export const wholesaleRepo = {
       period_code: string;
       created_by: string | null;
     }>,
+    options: { onChunk?: (chunkSize: number) => void } = {},
   ): Promise<void> {
     if (rows.length === 0) return;
     const CHUNK = 200;
+    const { onChunk } = options;
     for (let i = 0; i < rows.length; i += CHUNK) {
+      const chunk = rows.slice(i, i + CHUNK);
       await withRetryOn57014("bulkInsertBucketBuys", () => sbPost(
         "ip_planner_bucket_buys",
-        rows.slice(i, i + CHUNK),
+        chunk,
         "return=minimal",
       ));
+      onChunk?.(chunk.length);
     }
   },
 
@@ -732,15 +741,19 @@ export const wholesaleRepo = {
       unit_cost: number | null;
       notes: string | null;
     }>,
+    options: { onChunk?: (chunkSize: number) => void } = {},
   ): Promise<void> {
     if (rows.length === 0) return;
     const CHUNK = 200;
+    const { onChunk } = options;
     for (let i = 0; i < rows.length; i += CHUNK) {
+      const chunk = rows.slice(i, i + CHUNK);
       await withRetryOn57014("bulkInsertTbdRows", () => sbPost(
         "ip_wholesale_forecast_tbd",
-        rows.slice(i, i + CHUNK),
+        chunk,
         "return=minimal",
       ));
+      onChunk?.(chunk.length);
     }
   },
   async insertTbdRow(
@@ -1044,9 +1057,10 @@ export const wholesaleRepo = {
       signal?: AbortSignal;
       onProgress?: (rowsDone: number, totalRows: number) => void;
       onPhase?: (label: string) => void;
+      onChunk?: (chunkSize: number) => void;
     } = {},
   ): Promise<void> {
-    const { signal, onProgress, onPhase } = options;
+    const { signal, onProgress, onPhase, onChunk } = options;
     if (signal?.aborted) throw new BuildCancelledError();
 
     // Chunked DELETE — a single DELETE WHERE planning_run_id=X against
@@ -1096,6 +1110,7 @@ export const wholesaleRepo = {
       await postChunk(chunk);
       done += chunk.length;
       onProgress?.(done, rows.length);
+      onChunk?.(chunk.length);
     }
   },
 

@@ -10,7 +10,7 @@ import { runForecastPass, BuildCancelledError, type BuildFilter, type BuildProgr
 import { S, PAL, formatDate } from "../components/styles";
 import type { ToastMessage } from "../components/Toast";
 import { scenarioRepo } from "../scenarios/services/scenarioRepo";
-import { cloneBaseIntoSavedBuild, deleteSavedBuild } from "../scenarios/services/scenarioService";
+import { cloneBaseIntoSavedBuild, deleteSavedBuild, type SaveBuildProgress } from "../scenarios/services/scenarioService";
 import type { IpScenario } from "../scenarios/types/scenarios";
 
 export interface PlanningRunControlsProps {
@@ -68,6 +68,9 @@ export default function PlanningRunControls({
   // by some other path). Cleared on delete-success and on a literal
   // "— pick —" selection.
   const [pickedSavedBuildId, setPickedSavedBuildId] = useState<string | null>(null);
+  // Save-modal progress — separate from the build progress so the two
+  // flows can render concurrently without one stomping the other's bar.
+  const [saveProgress, setSaveProgress] = useState<SaveBuildProgress | null>(null);
 
   const selected = runs.find((r) => r.id === selectedRunId) ?? null;
   // Is the currently-loaded run itself a saved build? Drives the
@@ -189,7 +192,7 @@ export default function PlanningRunControls({
     const name = savedBuildName.trim();
     if (!name) { onToast({ text: "Name the saved build first", kind: "error" }); return; }
     setSaveBuildBusy(true);
-    setProgress({ phase: "loading", label: "Saving build…" });
+    setSaveProgress({ label: "Saving build…", done: 0, total: 1 });
     try {
       // If the planner is already viewing a saved build, save = fork
       // (clone-of-clone). The base for the new snapshot is the run
@@ -198,7 +201,7 @@ export default function PlanningRunControls({
         baseRunId: selected.id,
         name,
         note: savedBuildNote.trim() || null,
-        onProgress: (label) => setProgress({ phase: "loading", label }),
+        onProgress: (update) => setSaveProgress(update),
       });
       onToast({ text: `Saved build "${name}" created`, kind: "success" });
       setShowSaveModal(false);
@@ -214,7 +217,7 @@ export default function PlanningRunControls({
       onToast({ text: "Save build failed: " + (e instanceof Error ? e.message : String(e)), kind: "error" });
     } finally {
       setSaveBuildBusy(false);
-      setProgress(null);
+      setSaveProgress(null);
     }
   }
 
@@ -462,8 +465,27 @@ export default function PlanningRunControls({
                 {saveBuildBusy ? "Saving…" : (selectedSavedBuild ? "Fork & save" : "Save build")}
               </button>
             </div>
-            {progress && saveBuildBusy && (
-              <div style={{ marginTop: 10, color: PAL.textDim, fontSize: 12 }}>{progress.label}</div>
+            {saveBuildBusy && saveProgress && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", color: PAL.textDim, fontSize: 12, marginBottom: 4 }}>
+                  <span>{saveProgress.label}</span>
+                  <span>
+                    {saveProgress.total > 1
+                      ? `${saveProgress.done.toLocaleString()} / ${saveProgress.total.toLocaleString()}`
+                      : ""}
+                  </span>
+                </div>
+                <div style={{ height: 6, background: PAL.border, borderRadius: 3, overflow: "hidden" }}>
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${Math.max(2, Math.min(100, Math.round(100 * saveProgress.done / Math.max(1, saveProgress.total))))}%`,
+                      background: PAL.accent,
+                      transition: "width 200ms ease-out",
+                    }}
+                  />
+                </div>
+              </div>
             )}
           </div>
         </div>
