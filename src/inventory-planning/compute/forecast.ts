@@ -270,12 +270,30 @@ export function buildWholesaleBaselineForecast(
   const baselineCache = new Map<string, PairBaselineResult>();
   const out: IpForecastComputeOutput[] = [];
 
+  // LY reference is shown in the grid's HIST LY column for every row,
+  // not only when ly_sales wins the method race — planners use it as a
+  // diagnostic ("what did this pair do same period last year?") even
+  // when forecasting on trailing avg or cadence. baselineForPairLy is
+  // gated on method preference inside baselineForPair, so we compute
+  // it again unconditionally here and cache by pair.
+  const lyCache = new Map<string, number | null>();
+
   for (const pair of input.pairs) {
     const key = `${pair.customer_id}:${pair.sku_id}`;
     let baseline = baselineCache.get(key);
     if (!baseline) {
       baseline = baselineForPair(input, pair.customer_id, pair.sku_id, pair.category_id, input.methodPreference);
       baselineCache.set(key, baseline);
+    }
+
+    let lyRef = lyCache.get(key);
+    if (lyRef === undefined) {
+      lyRef = baseline.ly_reference_qty ?? null;
+      if (lyRef == null) {
+        const ly = baselineForPairLy(input.history, input.source_snapshot_date, pair.customer_id, pair.sku_id);
+        lyRef = ly?.ly_reference_qty ?? null;
+      }
+      lyCache.set(key, lyRef);
     }
 
     for (const period of horizon) {
@@ -294,7 +312,7 @@ export function buildWholesaleBaselineForecast(
         confidence_level: baseline.confidence,
         forecast_method: baseline.method,
         history_months_used: baseline.history_months_used,
-        ly_reference_qty: baseline.ly_reference_qty ?? null,
+        ly_reference_qty: lyRef,
         notes: null,
       });
     }
