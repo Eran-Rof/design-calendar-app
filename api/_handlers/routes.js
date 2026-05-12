@@ -240,6 +240,7 @@ import h234 from "./parse-excel.js";
 import h235 from "./xoro-proxy.js";
 import h236 from "./cron/po-issued-notify.js";
 import h237 from "./master/sync.js";
+import h238 from "./sales/sync-invoices.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -480,6 +481,7 @@ export const ROUTES = [
   { pattern: "/api/xoro-proxy", handler: h235 },
   { pattern: "/api/cron/po-issued-notify", handler: h236 },
   { pattern: "/api/master/sync", handler: h237 },
+  { pattern: "/api/sales/sync-invoices", handler: h238 },
 ];
 
 export function compileRoutes(routes) {
