@@ -172,75 +172,76 @@ import h166 from "./planning/sync-open-pos.js";
 import h167 from "./vendor/change-requests.js";
 import h168 from "./vendor/discount-offers/index.js";
 import h169 from "./cron/compliance-daily.js";
-import h170 from "./internal/ip-ai-demand/index.js";
-import h171 from "./internal/scf-programs/index.js";
-import h172 from "./planning/sync-on-hand.js";
-import h173 from "./vendor/sustainability/index.js";
-import h174 from "./cron/contracts-daily.js";
-import h175 from "./cron/insights-weekly.js";
-import h176 from "./internal/phase-notes/index.js";
-import h177 from "./marketplace/listings/index.js";
-import h178 from "./vendor/virtual-cards/index.js";
-import h179 from "./internal/compliance/index.js";
-import h180 from "./internal/esg-scores/index.js";
-import h181 from "./internal/onboarding/index.js";
-import h182 from "./internal/scorecards/index.js";
-import h183 from "./internal/workspaces/index.js";
-import h184 from "./shopify/collections.js";
-import h185 from "./cron/push-delivery.js";
-import h186 from "./internal/anomalies/index.js";
-import h187 from "./internal/contracts/index.js";
-import h188 from "./vendor/attachments/index.js";
-import h189 from "./xoro/probe-filters.js";
-import h190 from "./xoro/sales-history.js";
-import h191 from "./cron/fx-rate-sync.js";
-import h192 from "./internal/disputes/index.js";
-import h193 from "./internal/entities/index.js";
-import h194 from "./internal/insights/index.js";
-import h195 from "./internal/payments/index.js";
-import h196 from "./shopify/inventory.js";
-import h197 from "./vendor/compliance/index.js";
-import h198 from "./vendor/onboarding/index.js";
-import h199 from "./vendor/workspaces/index.js";
-import h200 from "./internal/vendors/index.js";
-import h201 from "./shopify/products.js";
-import h202 from "./vendor/contracts/index.js";
-import h203 from "./vendor/esg-score/index.js";
-import h204 from "./vendor/scorecard.js";
-import h205 from "./vendor/shipments.js";
-import h206 from "./shopify/returns.js";
-import h207 from "./vendor/api-keys/index.js";
-import h208 from "./vendor/disputes/index.js";
-import h209 from "./vendor/entities.js";
-import h210 from "./vendor/invoices.js";
-import h211 from "./vendor/payments/index.js";
-import h212 from "./shopify/orders.js";
-import h213 from "./vendor/banking.js";
-import h214 from "./internal/rfqs/index.js";
-import h215 from "./xoro/open-pos.js";
-import h216 from "./xoro/open-sos.js";
-import h217 from "./xoro/receipts.js";
-import h218 from "./edi/inbound/index.js";
-import h219 from "./vendor/bulk/index.js";
-import h220 from "./vendor/rfqs/index.js";
-import h221 from "./ats/upload.js";
-import h222 from "./vendor/erp.js";
-import h223 from "./xoro/items.js";
-import h224 from "./xoro-items-missing-sync.js";
-import h225 from "./xoro-receipts-sync.js";
-import h226 from "./send-notification.js";
-import h227 from "./ats-supply-sync.js";
-import h228 from "./xoro-sales-sync.js";
-import h229 from "./searates-proxy.js";
-import h230 from "./tanda-pos-sync.js";
-import h231 from "./dropbox-proxy.js";
-import h232 from "./vendor-invite.js";
-import h233 from "./xoro-ap-sync.js";
-import h234 from "./parse-excel.js";
-import h235 from "./xoro-proxy.js";
-import h236 from "./cron/po-issued-notify.js";
-import h237 from "./master/sync.js";
-import h238 from "./sales/sync-invoices.js";
+import h170 from "./cron/po-issued-notify.js";
+import h171 from "./internal/ip-ai-demand/index.js";
+import h172 from "./internal/scf-programs/index.js";
+import h173 from "./planning/sync-on-hand.js";
+import h174 from "./vendor/sustainability/index.js";
+import h175 from "./cron/contracts-daily.js";
+import h176 from "./cron/insights-weekly.js";
+import h177 from "./internal/phase-notes/index.js";
+import h178 from "./marketplace/listings/index.js";
+import h179 from "./tanda/sync-from-xoro.js";
+import h180 from "./vendor/virtual-cards/index.js";
+import h181 from "./internal/compliance/index.js";
+import h182 from "./internal/esg-scores/index.js";
+import h183 from "./internal/onboarding/index.js";
+import h184 from "./internal/scorecards/index.js";
+import h185 from "./internal/workspaces/index.js";
+import h186 from "./sales/sync-invoices.js";
+import h187 from "./shopify/collections.js";
+import h188 from "./cron/push-delivery.js";
+import h189 from "./internal/anomalies/index.js";
+import h190 from "./internal/contracts/index.js";
+import h191 from "./vendor/attachments/index.js";
+import h192 from "./xoro/probe-filters.js";
+import h193 from "./xoro/sales-history.js";
+import h194 from "./cron/fx-rate-sync.js";
+import h195 from "./internal/disputes/index.js";
+import h196 from "./internal/entities/index.js";
+import h197 from "./internal/insights/index.js";
+import h198 from "./internal/payments/index.js";
+import h199 from "./shopify/inventory.js";
+import h200 from "./vendor/compliance/index.js";
+import h201 from "./vendor/onboarding/index.js";
+import h202 from "./vendor/workspaces/index.js";
+import h203 from "./internal/vendors/index.js";
+import h204 from "./shopify/products.js";
+import h205 from "./vendor/contracts/index.js";
+import h206 from "./vendor/esg-score/index.js";
+import h207 from "./vendor/scorecard.js";
+import h208 from "./vendor/shipments.js";
+import h209 from "./shopify/returns.js";
+import h210 from "./vendor/api-keys/index.js";
+import h211 from "./vendor/disputes/index.js";
+import h212 from "./vendor/entities.js";
+import h213 from "./vendor/invoices.js";
+import h214 from "./vendor/payments/index.js";
+import h215 from "./shopify/orders.js";
+import h216 from "./vendor/banking.js";
+import h217 from "./internal/rfqs/index.js";
+import h218 from "./xoro/open-pos.js";
+import h219 from "./xoro/open-sos.js";
+import h220 from "./xoro/receipts.js";
+import h221 from "./edi/inbound/index.js";
+import h222 from "./master/sync.js";
+import h223 from "./vendor/bulk/index.js";
+import h224 from "./vendor/rfqs/index.js";
+import h225 from "./ats/upload.js";
+import h226 from "./vendor/erp.js";
+import h227 from "./xoro/items.js";
+import h228 from "./xoro-items-missing-sync.js";
+import h229 from "./xoro-receipts-sync.js";
+import h230 from "./send-notification.js";
+import h231 from "./ats-supply-sync.js";
+import h232 from "./xoro-sales-sync.js";
+import h233 from "./searates-proxy.js";
+import h234 from "./tanda-pos-sync.js";
+import h235 from "./dropbox-proxy.js";
+import h236 from "./vendor-invite.js";
+import h237 from "./xoro-ap-sync.js";
+import h238 from "./parse-excel.js";
+import h239 from "./xoro-proxy.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -413,75 +414,76 @@ export const ROUTES = [
   { pattern: "/api/vendor/change-requests", handler: h167 },
   { pattern: "/api/vendor/discount-offers", handler: h168 },
   { pattern: "/api/cron/compliance-daily", handler: h169 },
-  { pattern: "/api/internal/ip-ai-demand", handler: h170 },
-  { pattern: "/api/internal/scf-programs", handler: h171 },
-  { pattern: "/api/planning/sync-on-hand", handler: h172 },
-  { pattern: "/api/vendor/sustainability", handler: h173 },
-  { pattern: "/api/cron/contracts-daily", handler: h174 },
-  { pattern: "/api/cron/insights-weekly", handler: h175 },
-  { pattern: "/api/internal/phase-notes", handler: h176 },
-  { pattern: "/api/marketplace/listings", handler: h177 },
-  { pattern: "/api/vendor/virtual-cards", handler: h178 },
-  { pattern: "/api/internal/compliance", handler: h179 },
-  { pattern: "/api/internal/esg-scores", handler: h180 },
-  { pattern: "/api/internal/onboarding", handler: h181 },
-  { pattern: "/api/internal/scorecards", handler: h182 },
-  { pattern: "/api/internal/workspaces", handler: h183 },
-  { pattern: "/api/shopify/collections", handler: h184 },
-  { pattern: "/api/cron/push-delivery", handler: h185 },
-  { pattern: "/api/internal/anomalies", handler: h186 },
-  { pattern: "/api/internal/contracts", handler: h187 },
-  { pattern: "/api/vendor/attachments", handler: h188 },
-  { pattern: "/api/xoro/probe-filters", handler: h189 },
-  { pattern: "/api/xoro/sales-history", handler: h190 },
-  { pattern: "/api/cron/fx-rate-sync", handler: h191 },
-  { pattern: "/api/internal/disputes", handler: h192 },
-  { pattern: "/api/internal/entities", handler: h193 },
-  { pattern: "/api/internal/insights", handler: h194 },
-  { pattern: "/api/internal/payments", handler: h195 },
-  { pattern: "/api/shopify/inventory", handler: h196 },
-  { pattern: "/api/vendor/compliance", handler: h197 },
-  { pattern: "/api/vendor/onboarding", handler: h198 },
-  { pattern: "/api/vendor/workspaces", handler: h199 },
-  { pattern: "/api/internal/vendors", handler: h200 },
-  { pattern: "/api/shopify/products", handler: h201 },
-  { pattern: "/api/vendor/contracts", handler: h202 },
-  { pattern: "/api/vendor/esg-score", handler: h203 },
-  { pattern: "/api/vendor/scorecard", handler: h204 },
-  { pattern: "/api/vendor/shipments", handler: h205 },
-  { pattern: "/api/shopify/returns", handler: h206 },
-  { pattern: "/api/vendor/api-keys", handler: h207 },
-  { pattern: "/api/vendor/disputes", handler: h208 },
-  { pattern: "/api/vendor/entities", handler: h209 },
-  { pattern: "/api/vendor/invoices", handler: h210 },
-  { pattern: "/api/vendor/payments", handler: h211 },
-  { pattern: "/api/shopify/orders", handler: h212 },
-  { pattern: "/api/vendor/banking", handler: h213 },
-  { pattern: "/api/internal/rfqs", handler: h214 },
-  { pattern: "/api/xoro/open-pos", handler: h215 },
-  { pattern: "/api/xoro/open-sos", handler: h216 },
-  { pattern: "/api/xoro/receipts", handler: h217 },
-  { pattern: "/api/edi/inbound", handler: h218 },
-  { pattern: "/api/vendor/bulk", handler: h219 },
-  { pattern: "/api/vendor/rfqs", handler: h220 },
-  { pattern: "/api/ats/upload", handler: h221 },
-  { pattern: "/api/vendor/erp", handler: h222 },
-  { pattern: "/api/xoro/items", handler: h223 },
-  { pattern: "/api/xoro-items-missing-sync", handler: h224 },
-  { pattern: "/api/xoro-receipts-sync", handler: h225 },
-  { pattern: "/api/send-notification", handler: h226 },
-  { pattern: "/api/ats-supply-sync", handler: h227 },
-  { pattern: "/api/xoro-sales-sync", handler: h228 },
-  { pattern: "/api/searates-proxy", handler: h229 },
-  { pattern: "/api/tanda-pos-sync", handler: h230 },
-  { pattern: "/api/dropbox-proxy", handler: h231 },
-  { pattern: "/api/vendor-invite", handler: h232 },
-  { pattern: "/api/xoro-ap-sync", handler: h233 },
-  { pattern: "/api/parse-excel", handler: h234 },
-  { pattern: "/api/xoro-proxy", handler: h235 },
-  { pattern: "/api/cron/po-issued-notify", handler: h236 },
-  { pattern: "/api/master/sync", handler: h237 },
-  { pattern: "/api/sales/sync-invoices", handler: h238 },
+  { pattern: "/api/cron/po-issued-notify", handler: h170 },
+  { pattern: "/api/internal/ip-ai-demand", handler: h171 },
+  { pattern: "/api/internal/scf-programs", handler: h172 },
+  { pattern: "/api/planning/sync-on-hand", handler: h173 },
+  { pattern: "/api/vendor/sustainability", handler: h174 },
+  { pattern: "/api/cron/contracts-daily", handler: h175 },
+  { pattern: "/api/cron/insights-weekly", handler: h176 },
+  { pattern: "/api/internal/phase-notes", handler: h177 },
+  { pattern: "/api/marketplace/listings", handler: h178 },
+  { pattern: "/api/tanda/sync-from-xoro", handler: h179 },
+  { pattern: "/api/vendor/virtual-cards", handler: h180 },
+  { pattern: "/api/internal/compliance", handler: h181 },
+  { pattern: "/api/internal/esg-scores", handler: h182 },
+  { pattern: "/api/internal/onboarding", handler: h183 },
+  { pattern: "/api/internal/scorecards", handler: h184 },
+  { pattern: "/api/internal/workspaces", handler: h185 },
+  { pattern: "/api/sales/sync-invoices", handler: h186 },
+  { pattern: "/api/shopify/collections", handler: h187 },
+  { pattern: "/api/cron/push-delivery", handler: h188 },
+  { pattern: "/api/internal/anomalies", handler: h189 },
+  { pattern: "/api/internal/contracts", handler: h190 },
+  { pattern: "/api/vendor/attachments", handler: h191 },
+  { pattern: "/api/xoro/probe-filters", handler: h192 },
+  { pattern: "/api/xoro/sales-history", handler: h193 },
+  { pattern: "/api/cron/fx-rate-sync", handler: h194 },
+  { pattern: "/api/internal/disputes", handler: h195 },
+  { pattern: "/api/internal/entities", handler: h196 },
+  { pattern: "/api/internal/insights", handler: h197 },
+  { pattern: "/api/internal/payments", handler: h198 },
+  { pattern: "/api/shopify/inventory", handler: h199 },
+  { pattern: "/api/vendor/compliance", handler: h200 },
+  { pattern: "/api/vendor/onboarding", handler: h201 },
+  { pattern: "/api/vendor/workspaces", handler: h202 },
+  { pattern: "/api/internal/vendors", handler: h203 },
+  { pattern: "/api/shopify/products", handler: h204 },
+  { pattern: "/api/vendor/contracts", handler: h205 },
+  { pattern: "/api/vendor/esg-score", handler: h206 },
+  { pattern: "/api/vendor/scorecard", handler: h207 },
+  { pattern: "/api/vendor/shipments", handler: h208 },
+  { pattern: "/api/shopify/returns", handler: h209 },
+  { pattern: "/api/vendor/api-keys", handler: h210 },
+  { pattern: "/api/vendor/disputes", handler: h211 },
+  { pattern: "/api/vendor/entities", handler: h212 },
+  { pattern: "/api/vendor/invoices", handler: h213 },
+  { pattern: "/api/vendor/payments", handler: h214 },
+  { pattern: "/api/shopify/orders", handler: h215 },
+  { pattern: "/api/vendor/banking", handler: h216 },
+  { pattern: "/api/internal/rfqs", handler: h217 },
+  { pattern: "/api/xoro/open-pos", handler: h218 },
+  { pattern: "/api/xoro/open-sos", handler: h219 },
+  { pattern: "/api/xoro/receipts", handler: h220 },
+  { pattern: "/api/edi/inbound", handler: h221 },
+  { pattern: "/api/master/sync", handler: h222 },
+  { pattern: "/api/vendor/bulk", handler: h223 },
+  { pattern: "/api/vendor/rfqs", handler: h224 },
+  { pattern: "/api/ats/upload", handler: h225 },
+  { pattern: "/api/vendor/erp", handler: h226 },
+  { pattern: "/api/xoro/items", handler: h227 },
+  { pattern: "/api/xoro-items-missing-sync", handler: h228 },
+  { pattern: "/api/xoro-receipts-sync", handler: h229 },
+  { pattern: "/api/send-notification", handler: h230 },
+  { pattern: "/api/ats-supply-sync", handler: h231 },
+  { pattern: "/api/xoro-sales-sync", handler: h232 },
+  { pattern: "/api/searates-proxy", handler: h233 },
+  { pattern: "/api/tanda-pos-sync", handler: h234 },
+  { pattern: "/api/dropbox-proxy", handler: h235 },
+  { pattern: "/api/vendor-invite", handler: h236 },
+  { pattern: "/api/xoro-ap-sync", handler: h237 },
+  { pattern: "/api/parse-excel", handler: h238 },
+  { pattern: "/api/xoro-proxy", handler: h239 },
 ];
 
 export function compileRoutes(routes) {
