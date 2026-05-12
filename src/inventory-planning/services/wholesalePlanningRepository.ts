@@ -47,19 +47,28 @@ async function sbGet<T>(path: string): Promise<T[]> {
 
 // Paginated GET — PostgREST caps single-fetch responses at db_role.max_rows
 // (default 1000) regardless of the &limit= value. Walks through the table
-// in 1000-row pages using Range headers.
-async function sbGetAll<T>(pathWithoutLimit: string): Promise<T[]> {
+// in `pageSize`-row pages using limit/offset.
+//
+// Each page is wrapped in withRetryOn57014 so a deep-offset page that
+// tips over Postgres' anon-role statement timeout (8s) gets a single
+// retry instead of failing the whole load. The retry restarts only the
+// failing page, not from offset=0.
+async function sbGetAll<T>(pathWithoutLimit: string, pageSize = 1000): Promise<T[]> {
   assertSupabase();
   const out: T[] = [];
-  const PAGE = 1000;
-  for (let offset = 0; ; offset += PAGE) {
+  for (let offset = 0; ; offset += pageSize) {
     const sep = pathWithoutLimit.includes("?") ? "&" : "?";
-    const url = `${SB_URL}/rest/v1/${pathWithoutLimit}${sep}limit=${PAGE}&offset=${offset}`;
-    const r = await fetch(url, { headers: SB_HEADERS });
-    if (!r.ok) throw new Error(`Supabase GET ${url} failed: ${r.status} ${await r.text()}`);
-    const chunk = (await r.json()) as T[];
+    const url = `${SB_URL}/rest/v1/${pathWithoutLimit}${sep}limit=${pageSize}&offset=${offset}`;
+    const chunk = await withRetryOn57014(
+      `sbGetAll offset=${offset}`,
+      async () => {
+        const r = await fetch(url, { headers: SB_HEADERS });
+        if (!r.ok) throw new Error(`Supabase GET ${url} failed: ${r.status} ${await r.text()}`);
+        return (await r.json()) as T[];
+      },
+    );
     out.push(...chunk);
-    if (chunk.length < PAGE) break;
+    if (chunk.length < pageSize) break;
     if (offset > 1_000_000) break;
   }
   return out;
@@ -349,8 +358,15 @@ export const wholesaleRepo = {
     // currency / source / raw_payload_id / source_line_key / channel_id
     // columns. accuracyService is the only caller that reads net_amount
     // so it's retained.
+    //
+    // pageSize=500 (not the default 1000): the full-year invoice replay
+    // brought this table past 46k rows, and 1000-row pages at offset
+    // 16k+ were tipping over the 8s statement timeout (57014). Halving
+    // page size keeps each request comfortably inside the budget; total
+    // wall time barely changes since PostgREST batches efficiently.
     return sbGetAll<IpSalesWholesaleRow>(
       `ip_sales_history_wholesale?select=sku_id,customer_id,category_id,txn_date,qty,net_amount&txn_date=gte.${sinceIso}&order=txn_date.asc`,
+      500,
     );
   },
   async listInventorySnapshots(): Promise<IpInventorySnapshot[]> {
