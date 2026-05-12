@@ -652,7 +652,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     { key: "period", label: "Period" },
     { key: "class", label: "Class" },
     { key: "histT3", label: "Hist T3" },
-    { key: "histLY", label: "Hist LY" },
+    { key: "histLY", label: "SP/LY" },
     { key: "system", label: "System" },
     { key: "buyer", label: "Buyer" },
     { key: "override", label: "Override" },
@@ -2454,7 +2454,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
               <Th label="Period"      k="period"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("period")} />
               <Th label="Class"       k="class"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="ABC volume rank × XYZ demand variability" hidden={hiddenColumns.has("class")} />
               <Th label="Hist T3"     k="histT3"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("histT3")} />
-              <Th label="Hist LY"     k="histLY"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("histLY")} />
+              <Th label="SP/LY"       k="histLY"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="Same Period Last Year" numeric hidden={hiddenColumns.has("histLY")} />
               <Th label="System"      k="system"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("system")} />
               <Th label="Buyer"       k="buyer"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("buyer")} />
               <Th label="Override"    k="override"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("override")} />
