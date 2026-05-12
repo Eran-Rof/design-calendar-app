@@ -77,8 +77,11 @@ function toNum(v) {
   return isNaN(n) ? null : n;
 }
 
-// Build a candidate ip_item_master row from one CurrentProducts CSV row.
-// Returns null when the row has no usable identifier.
+// Build an upsert row for ip_item_master from one CurrentProducts CSV row.
+// Returns null when the row has no usable identifier. Intentionally OMITS
+// unit_cost from the payload — that column stays under the Excel uploader's
+// control, and including it (even as null) would clobber hand-set values
+// via the ON CONFLICT SET clause.
 function buildCandidate(r) {
   const itemNumber = str(r.ItemNumber);
   const basePart = str(r.BasePartNumber);
@@ -101,7 +104,6 @@ function buildCandidate(r) {
   const categoryName = str(r.CategoryName);
   const productCategory = str(r.ProductCategoryName);
   const gender = str(r.GenderCode);
-  const cost = toNum(r.StandardUnitCost);
 
   const attributes = {};
   if (groupName) attributes.group_name = groupName;
@@ -114,38 +116,10 @@ function buildCandidate(r) {
     style_code: styleCode,
     color: opt1 || null,
     description: description || null,
-    unit_cost: cost,
     attributes: Object.keys(attributes).length > 0 ? attributes : null,
+    uom: "each",
+    active: true,
   };
-}
-
-// Decide whether `existing` row needs an update from `cand`. Only fills
-// NULL/empty scalar fields. Attributes JSONB is merged: keys present on
-// existing win; new keys from cand are added.
-function buildUpdateForExisting(existing, cand) {
-  const updates = {};
-  if ((existing.style_code == null || existing.style_code === "") && cand.style_code) {
-    updates.style_code = cand.style_code;
-  }
-  if ((existing.color == null || existing.color === "") && cand.color) {
-    updates.color = cand.color;
-  }
-  if ((existing.description == null || existing.description === "") && cand.description) {
-    updates.description = cand.description;
-  }
-  if (cand.attributes) {
-    const ex = existing.attributes && typeof existing.attributes === "object"
-      ? existing.attributes
-      : {};
-    const merged = { ...cand.attributes, ...ex }; // existing wins
-    const exKeys = Object.keys(ex);
-    const mergedKeys = Object.keys(merged);
-    // Only emit an update if merging adds at least one new key.
-    if (mergedKeys.length > exKeys.length) {
-      updates.attributes = merged;
-    }
-  }
-  return updates;
 }
 
 export default async function handler(req, res) {
@@ -203,9 +177,7 @@ export default async function handler(req, res) {
     csv_rows: csvRows.length,
     deduped_to_unique_skus: 0,
     skipped_no_sku: 0,
-    already_complete: 0,
-    inserted: 0,
-    updated: 0,
+    upserted: 0,
     errors: [],
   };
 
@@ -219,77 +191,21 @@ export default async function handler(req, res) {
   }
   counts.deduped_to_unique_skus = candidates.size;
 
-  // Diff against existing ip_item_master.
-  const allSkus = Array.from(candidates.keys());
-  const existingMap = new Map();
-  for (let i = 0; i < allSkus.length; i += CHUNK) {
-    const chunk = allSkus.slice(i, i + CHUNK);
-    const { data: rows, error } = await admin
-      .from("ip_item_master")
-      .select("sku_code, style_code, color, description, attributes")
-      .in("sku_code", chunk);
-    if (error) {
-      counts.errors.push(`existing-lookup chunk ${i}: ${error.message}`);
-      continue;
-    }
-    for (const r of rows ?? []) existingMap.set(r.sku_code, r);
-  }
-
-  const toInsert = [];
-  const toUpdate = [];
-  for (const [sku, cand] of candidates) {
-    const existing = existingMap.get(sku);
-    if (!existing) {
-      toInsert.push({
-        sku_code: cand.sku_code,
-        style_code: cand.style_code,
-        color: cand.color,
-        description: cand.description,
-        attributes: cand.attributes,
-        unit_cost: cand.unit_cost,
-        uom: "each",
-        active: true,
-      });
-      continue;
-    }
-    const updates = buildUpdateForExisting(existing, cand);
-    if (Object.keys(updates).length > 0) {
-      toUpdate.push({ sku_code: sku, ...updates });
-    } else {
-      counts.already_complete++;
-    }
-  }
-
-  // Insert new rows (ignoreDuplicates protects against races with the
-  // Excel uploader). We don't pre-check via the existence Set because
-  // a manual upload between our select and our insert would still be
-  // protected by the ON CONFLICT DO NOTHING.
-  for (let i = 0; i < toInsert.length; i += CHUNK) {
-    const chunk = toInsert.slice(i, i + CHUNK);
+  // Bulk upsert. ignoreDuplicates: false makes existing rows go through
+  // ON CONFLICT DO UPDATE, but the SET clause only touches columns
+  // included in the payload — unit_cost / unit_price (not passed) stay
+  // under the Excel uploader's authority.
+  const rows = Array.from(candidates.values());
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
     const { error } = await admin
       .from("ip_item_master")
-      .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: true });
+      .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: false });
     if (error) {
-      counts.errors.push(`insert chunk ${i}: ${error.message}`);
+      counts.errors.push(`upsert chunk ${i}: ${error.message}`);
       continue;
     }
-    counts.inserted += chunk.length;
-  }
-
-  // Update fills (per-row UPDATE; Supabase's batch upsert with
-  // ignoreDuplicates: false would overwrite columns we don't want to
-  // touch, so per-row is the safest path).
-  for (const u of toUpdate) {
-    const { sku_code, ...patch } = u;
-    const { error } = await admin
-      .from("ip_item_master")
-      .update(patch)
-      .eq("sku_code", sku_code);
-    if (error) {
-      counts.errors.push(`update ${sku_code}: ${error.message}`);
-      continue;
-    }
-    counts.updated++;
+    counts.upserted += chunk.length;
   }
 
   return res.status(200).json({ processed: true, ...counts });
