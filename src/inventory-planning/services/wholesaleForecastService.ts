@@ -53,11 +53,20 @@ function checkAbort(signal: AbortSignal | undefined): void {
 
 import { readGender, readGroupName, readSubCategoryName } from "../types/itemAttributes";
 
-// Trim history to the forecast lookback window (default: 12 months before
-// the snapshot date). Keeps the compute payload small.
-function historySince(snapshotDate: IpIsoDate, lookbackMonths = 12): IpIsoDate {
+// Trim history to the forecast lookback window. Default 13 months so the
+// LY ±1 buffer (months 11/12/13 before snapshot — see baselineForPairLy)
+// has full coverage of LY-1. Day is rounded to 1 so an arbitrary snapshot
+// day-of-month doesn't clip the leading edge of the LY-1 month.
+//
+// Example: snapshot 2026-04-26 with lookback=13 -> 2025-03-01 (covers all
+// of March 2025, the LY-1 month). Without start-of-month rounding the
+// cutoff would be 2025-03-26 and any txn before the 26th in that month
+// would be dropped — exactly the bug that hid RYB0412/Ross Procurement's
+// 2025-03-18 sale from the SP/LY column.
+function historySince(snapshotDate: IpIsoDate, lookbackMonths = 13): IpIsoDate {
   const d = new Date(snapshotDate + "T00:00:00Z");
   d.setUTCMonth(d.getUTCMonth() - lookbackMonths);
+  d.setUTCDate(1);
   return d.toISOString().slice(0, 10);
 }
 
@@ -152,7 +161,7 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
   }
   const { signal, onProgress } = options;
   const snapshotDate = run.source_snapshot_date;
-  const lookbackFrom = historySince(snapshotDate, 12);
+  const lookbackFrom = historySince(snapshotDate);
 
   onProgress?.({ phase: "loading", label: "Loading sales, inventory, POs…" });
   checkAbort(signal);
@@ -686,10 +695,12 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     wholesaleRepo.listCustomers(),
     wholesaleRepo.listCategories(),
     wholesaleRepo.listForecast(run.id),
-    // 12-month sales fetch so ABC/XYZ classification has enough buckets
-    // to be meaningful. The trailing-3 calc below filters in-memory so
-    // the Hist T3 column still reflects the prior quarter only.
-    wholesaleRepo.listWholesaleSales(historySince(run.source_snapshot_date, 12)),
+    // 13-month sales fetch — 12 months back for ABC/XYZ classification
+    // plus an extra month so the LY ±1 window (used by SP/LY in the
+    // grid + the ly_sales forecast method) has full coverage of the
+    // LY-1 month. The trailing-3 calc below filters in-memory so the
+    // Hist T3 column still reflects the prior quarter only.
+    wholesaleRepo.listWholesaleSales(historySince(run.source_snapshot_date)),
     wholesaleRepo.listInventorySnapshots(),
     wholesaleRepo.listOpenPos(),
     wholesaleRepo.listOpenSos(),
