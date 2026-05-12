@@ -158,6 +158,7 @@ export default async function handler(req, res) {
     skipped_zero_qty: 0,
     new_items_created: 0,
     new_customers_created: 0,
+    deleted_before_insert: 0,
     sales_upserted: 0,
     duplicates_merged: 0,
     errors: [],
@@ -387,14 +388,38 @@ export default async function handler(req, res) {
   }
   const aggregated = Array.from(merged.values());
 
-  // Bulk upsert sales rows
+  // Snapshot replace: wipe existing source="excel" rows so the CSV is
+  // the single source of truth. Safety guard: refuse if the new CSV is
+  // suspiciously small — prevents wiping production on a bad upload.
+  // The Xoro "Last Calendar Year to Date" report typically produces
+  // 20k+ aggregated rows, so 1000 is a generous floor.
+  const REPLACE_FLOOR = 1000;
+  if (aggregated.length < REPLACE_FLOOR) {
+    return res.status(200).json({
+      processed: false,
+      error: `CSV produced only ${aggregated.length} aggregated rows — refusing to wipe existing sales (floor: ${REPLACE_FLOOR}). Re-fetch the report and retry.`,
+      ...counts,
+    });
+  }
+
+  const { error: delError, count: deletedCount } = await admin
+    .from("ip_sales_history_wholesale")
+    .delete({ count: "exact" })
+    .eq("source", SOURCE);
+  if (delError) {
+    counts.errors.push(`pre-insert wipe failed: ${delError.message}`);
+    return res.status(500).json({ processed: false, ...counts });
+  }
+  counts.deleted_before_insert = deletedCount ?? 0;
+
+  // Bulk insert fresh rows (no conflict possible since we just wiped).
   for (let i = 0; i < aggregated.length; i += CHUNK) {
     const chunk = aggregated.slice(i, i + CHUNK);
     const { error } = await admin
       .from("ip_sales_history_wholesale")
-      .upsert(chunk, { onConflict: "source,source_line_key", ignoreDuplicates: false });
+      .insert(chunk);
     if (error) {
-      counts.errors.push(`sales upsert chunk ${i}: ${error.message}`);
+      counts.errors.push(`sales insert chunk ${i}: ${error.message}`);
       continue;
     }
     counts.sales_upserted += chunk.length;
