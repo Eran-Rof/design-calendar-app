@@ -35,6 +35,18 @@ export const config = { maxDuration: 300 };
 
 const PO_PATH = "purchaseorder/getpurchaseorder";
 const ACTIVE_STATUSES = ["Open", "Released", "Partially Received"];
+// Mirror src/tanda/syncLogic.ts AUTO_ARCHIVE_STATUSES + isPartial guard.
+// "Partially Received" matches "Partial" so it's deliberately excluded
+// from the terminal set here — stays active.
+const TERMINAL_STATUSES = ["Received", "Closed", "Cancelled"];
+const ALL_STATUSES = [...ACTIVE_STATUSES, ...TERMINAL_STATUSES];
+
+function isPartial(s) {
+  return (s || "").toLowerCase().includes("partial");
+}
+function shouldArchive(statusName) {
+  return TERMINAL_STATUSES.includes(statusName) && !isPartial(statusName);
+}
 
 // Flatten Xoro's wrapped PO shape ({ poHeader: {...}, poLines: [...] })
 // into the flat shape the browser-side useSyncOps writes to tanda_pos
@@ -109,11 +121,16 @@ export default async function handler(req, res) {
   const requestId = randomUUID();
   const result = {
     request_id: requestId,
-    statuses_fetched: ACTIVE_STATUSES,
+    statuses_fetched: ALL_STATUSES,
     xoro_pages_walked: 0,
     xoro_pos_returned: 0,
     pos_unique_after_dedup: 0,
     upserted: 0,
+    active_upserted: 0,
+    archived_total: 0,
+    archived_source_xoro_terminal: 0,
+    archived_source_cache_terminal: 0,
+    archived_source_missing_from_xoro: 0,
     skipped_no_po_number: 0,
     buyer_po_preserved: 0,
     per_status: [],
@@ -121,11 +138,21 @@ export default async function handler(req, res) {
   };
 
   try {
-    // 1. Fan out Xoro fetches sequentially. Parallel fan-out trips Xoro
-    //    rate limits (the browser uses CONCURRENCY=2 + 600ms stagger;
-    //    server-side we have time, so go strictly sequential).
+    // 1. Fan out Xoro fetches sequentially across ALL 6 statuses (3 active +
+    //    3 terminal). Parallel fan-out trips Xoro rate limits (the browser
+    //    uses CONCURRENCY=2 + 600ms stagger; server-side we have time, so
+    //    go strictly sequential).
+    //
+    //    Why fetch terminals: source-1 archive detection (per
+    //    src/tanda/syncLogic.ts::getArchiveDecisions) needs to see POs
+    //    that have flipped to Received/Closed/Cancelled in Xoro since the
+    //    last sync. Without this, tanda_pos accumulates stale "active"
+    //    rows whose Xoro counterpart is already done. Discovered when
+    //    PO WIP showed 206 active POs but Xoro showed 141 — the 65 stale
+    //    rows polluted ip_open_purchase_orders with phantom open supply.
     const allRaw = [];
-    for (const status of ACTIVE_STATUSES) {
+    let allStatusesSucceeded = true;
+    for (const status of ALL_STATUSES) {
       const r = await fetchXoroAll({
         path: PO_PATH,
         params: { per_page: "200", status },
@@ -138,6 +165,7 @@ export default async function handler(req, res) {
       result.xoro_pos_returned += records.length;
       result.per_status.push({ status, pages: pageCount, records: records.length, ok: !!r.ok });
       if (!r.ok) {
+        allStatusesSucceeded = false;
         result.errors.push(`status=${status}: ${r.body?.error || r.body?.Message || "fetch failed"}`);
         continue;
       }
@@ -147,11 +175,10 @@ export default async function handler(req, res) {
       return res.status(502).json({ ...result, error: "All status fetches failed" });
     }
 
-    // 2. Flatten Xoro's wrapped shape (poHeader + poLines) into the flat
-    //    PO shape useSyncOps writes. Then dedup by PoNumber. A PO that
-    //    flips status mid-walk can appear under more than one status
-    //    bucket; keep the first occurrence (Open before Released before
-    //    Partially Received).
+    // 2. Flatten + dedup by PoNumber. A PO that flips status mid-walk
+    //    can appear in more than one bucket; the active fetch comes
+    //    first in ALL_STATUSES so a still-active PO wins over a stale
+    //    terminal sighting.
     const byPo = new Map();
     for (const raw of allRaw) {
       const flat = flattenXoroPo(raw);
@@ -164,17 +191,17 @@ export default async function handler(req, res) {
       return res.status(200).json(result);
     }
 
-    // 3. Pull existing tanda_pos rows so we can preserve user-set
-    //    buyer_po overrides. Only pulling po_number + buyer_po keeps
-    //    the response small (~50KB for 2,500 rows).
-    const existingBuyerPo = new Map();
+    // 3. Pull existing tanda_pos rows. Need full data field this time
+    //    (not just buyer_po) so the archive logic can read each row's
+    //    last known status + _archived flag.
+    const cachedByPo = new Map();
     {
       let offset = 0;
       const PAGE = 1000;
       while (true) {
         const { data, error } = await admin
           .from("tanda_pos")
-          .select("po_number, buyer_po")
+          .select("po_number, buyer_po, data")
           .order("po_number", { ascending: true })
           .range(offset, offset + PAGE - 1);
         if (error) {
@@ -182,39 +209,106 @@ export default async function handler(req, res) {
           break;
         }
         if (!data || data.length === 0) break;
-        for (const r of data) {
-          if (r.buyer_po) existingBuyerPo.set(r.po_number, r.buyer_po);
-        }
+        for (const r of data) cachedByPo.set(r.po_number, r);
         if (data.length < PAGE) break;
         offset += PAGE;
       }
     }
 
-    // 4. Build upsert rows. Matches useSyncOps.ts:295-312 exactly so
-    //    nightly + browser writes converge on the same shape and the
-    //    UI's PoNumber → row lookup keeps working.
-    const now = new Date().toISOString();
-    const rows = [];
+    // 4. Decide which POs to archive. Mirrors src/tanda/syncLogic.ts::
+    //    getArchiveDecisions exactly — three sources, same guards.
+    const archiveByPo = new Map(); // poNumber → flat-or-null
+    // Source 1: Xoro returned PO as terminal AND it was previously cached.
+    // Skips first-time-seen terminals so a fresh sync doesn't pull historical
+    // archived POs into the app.
     for (const [poNumber, flat] of byPo) {
-      // flat is already in the canonical shape (PoNumber/Items/etc.).
-      // Preserve user-set buyer_po overrides — clearing the override
-      // re-opens the field to Xoro's value.
-      const userBuyerPo = existingBuyerPo.get(poNumber) || "";
+      if (shouldArchive(flat.StatusName) && cachedByPo.has(poNumber)) {
+        archiveByPo.set(poNumber, flat);
+        result.archived_source_xoro_terminal++;
+      }
+    }
+    // Source 2: Cached PO already has terminal status but isn't yet
+    // marked _archived. (Catches catch-up on POs missed by source 1
+    // because Xoro paginated them off the visible window.)
+    for (const [poNumber, row] of cachedByPo) {
+      if (archiveByPo.has(poNumber)) continue;
+      if (row.data?._archived) continue;
+      if (shouldArchive(row.data?.StatusName ?? "")) {
+        archiveByPo.set(poNumber, null);
+        result.archived_source_cache_terminal++;
+      }
+    }
+    // Source 3: PO completely missing from Xoro AND last known status was
+    // terminal. Only safe when ALL status fetches succeeded — partial
+    // failures could create false positives. Mirrors syncLogic.ts:81-83
+    // (skips Partially Received explicitly).
+    if (allStatusesSucceeded) {
+      for (const [poNumber, row] of cachedByPo) {
+        if (archiveByPo.has(poNumber) || row.data?._archived) continue;
+        if (byPo.has(poNumber)) continue;
+        const lastStatus = row.data?.StatusName ?? "";
+        if (shouldArchive(lastStatus)) {
+          archiveByPo.set(poNumber, null);
+          result.archived_source_missing_from_xoro++;
+        }
+      }
+    }
+    result.archived_total = archiveByPo.size;
+
+    // 5. Build active-upsert rows. Skip POs that are heading to archive —
+    //    they get their own upsert pass below with _archived=true.
+    const now = new Date().toISOString();
+    const activeRows = [];
+    for (const [poNumber, flat] of byPo) {
+      if (archiveByPo.has(poNumber)) continue;
+      const isActive = ACTIVE_STATUSES.includes(flat.StatusName) || isPartial(flat.StatusName);
+      if (!isActive) continue; // a terminal-status PO not in archive set (never previously cached) — skip
+      const cached = cachedByPo.get(poNumber);
+      const userBuyerPo = (cached?.buyer_po) || "";
       const buyerPo = userBuyerPo || flat.BuyerPo || "";
       if (userBuyerPo) result.buyer_po_preserved++;
-      rows.push({
+      activeRows.push({
         po_number: poNumber,
         vendor: flat.VendorName ?? "",
         date_order: flat.DateOrder || null,
         date_expected: flat.DateExpectedDelivery || null,
         status: flat.StatusName ?? "",
         buyer_po: buyerPo || null,
-        data: { ...flat, BuyerPo: buyerPo },
+        // Strip _archived from the data blob so a previously-archived PO
+        // that flipped back to active (rare but possible) gets re-activated.
+        data: { ...flat, BuyerPo: buyerPo, _archived: false },
         synced_at: now,
       });
     }
 
-    // 5. Upsert in chunks (Supabase REST tops out around 1MB body).
+    // 6. Build archive-upsert rows. Mirrors useSyncOps.ts:387-393 — fresh
+    //    Xoro data when available (source 1), else cached data (sources
+    //    2 and 3) so the archive carries whatever the last known shape was.
+    const archiveRows = [];
+    for (const [poNumber, freshFlat] of archiveByPo) {
+      const cached = cachedByPo.get(poNumber);
+      const base = freshFlat ?? cached?.data ?? { PoNumber: poNumber };
+      const buyerPo = (cached?.buyer_po) || base.BuyerPo || "";
+      const archivedData = { ...base, _archived: true, _archivedAt: now, BuyerPo: buyerPo };
+      archiveRows.push({
+        po_number: poNumber,
+        vendor: archivedData.VendorName ?? "",
+        date_order: archivedData.DateOrder || null,
+        date_expected: archivedData.DateExpectedDelivery || null,
+        status: archivedData.StatusName ?? "",
+        buyer_po: buyerPo || null,
+        data: archivedData,
+        synced_at: now,
+      });
+    }
+
+    const rows = [...activeRows, ...archiveRows];
+    result.active_upserted = activeRows.length;
+
+    // 7. Upsert in chunks (Supabase REST tops out around 1MB body).
+    //    `upserted` counts BOTH active and archive writes — the per-bucket
+    //    breakdown lives in `active_upserted` + `archived_total`.
+    let upsertedRowCount = 0;
     for (let i = 0; i < rows.length; i += 500) {
       const chunk = rows.slice(i, i + 500);
       const { error } = await admin
@@ -224,8 +318,9 @@ export default async function handler(req, res) {
         result.errors.push(`upsert chunk ${i}: ${error.message}`);
         continue;
       }
-      result.upserted += chunk.length;
+      upsertedRowCount += chunk.length;
     }
+    result.upserted = upsertedRowCount;
 
     return res.status(200).json(result);
   } catch (e) {

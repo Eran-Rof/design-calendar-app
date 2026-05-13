@@ -87,6 +87,10 @@ interface ToolbarProps {
   subCategories: string[];
   filterGender: string;
   setFilterGender: (v: string) => void;
+  // Status filter — driven by the colored stat-card pills (Negative ATS,
+  // Aged Inven, etc.). Cleared by the toolbar's Clear button so a stuck
+  // pill doesn't keep the grid filtered after the planner expects a reset.
+  setFilterStatus: (v: string) => void;
   // Store dropdown
   STORES: readonly string[];
   storeFilter: string[];
@@ -155,7 +159,7 @@ interface ToolbarProps {
 export const Toolbar: React.FC<ToolbarProps> = ({
   search, setSearch, filterCategory, setFilterCategory, categories,
   filterSubCategory, setFilterSubCategory, subCategories,
-  filterGender, setFilterGender,
+  filterGender, setFilterGender, setFilterStatus,
   STORES, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, setSoDropOpen,
   poDropRef, toggleStore,
   minATS, setMinATS, startDate, setStartDate,
@@ -197,6 +201,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     setFilterCategory("All");
     setFilterSubCategory("All");
     setFilterGender("All");
+    setFilterStatus("All");
     setStoreFilter(["ROF"]);
     setMinATS("");
     setCustomerFilter("");
@@ -239,10 +244,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   <div style={S.toolbar}>
     <button
       onClick={handleClearFilters}
-      title="Reset all filters and collapse to defaults (window settings preserved)"
-      style={{ ...S.select, padding: "6px 10px", color: "#94A3B8", cursor: "pointer", whiteSpace: "nowrap" }}
+      title="Reset search, all filters (category, sub cat, gender, status, stores, customer, min ATS, AT SHIP), and collapse mode. Date range / units are preserved."
+      style={{ ...S.select, padding: "6px 12px", color: "#FCA5A5", borderColor: "#7F1D1D", cursor: "pointer", whiteSpace: "nowrap", fontWeight: 600 }}
     >
-      ✕ Clear filters
+      ✕ Clear all
     </button>
     <input
       type="text"
@@ -583,7 +588,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
     <div style={{ color: "#6B7280", fontSize: 12, whiteSpace: "nowrap" }}>
       {filteredCount.toLocaleString()} SKUs
-      {lastSync && <span style={{ display: "block" }}>Synced {fmtDateDisplay(lastSync.split("T")[0])} {new Date(lastSync).toLocaleTimeString()}</span>}
+      {/* lastSync is a UTC ISO from server (api/_lib/ats-parse.js writes new Date().toISOString()).
+          Splitting on "T" keeps the UTC date, but the time below is converted to local via
+          toLocaleTimeString — produces a "May/13 5:02 PM" mismatch when local is UTC- and
+          the sync ran late in the local day (UTC has rolled to tomorrow). Use local date
+          for both halves so date + time always agree. */}
+      {lastSync && (() => {
+        const d = new Date(lastSync);
+        const localIso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+        return <span style={{ display: "block" }}>Synced {fmtDateDisplay(localIso)} {d.toLocaleTimeString()}</span>;
+      })()}
     </div>
   </div>
   );
