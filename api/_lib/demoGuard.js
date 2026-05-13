@@ -19,6 +19,33 @@ export function isDemoMode() {
   return v === "true" || v === "1";
 }
 
+// Path-pattern based stub matcher. Called from api/dispatch.js BEFORE
+// any handler runs, so it catches every sync/proxy route in one place.
+// Returns the canned-response kind to use, or null if the path should
+// flow through to the real handler.
+//
+// Anything that contacts Xoro, Searates, Resend, or Supabase Auth-admin
+// goes here. Keep this list tight — accidentally stubbing a Supabase REST
+// passthrough would break read/write paths the app actually needs.
+export function demoStubKind(pathname) {
+  // External proxies
+  if (pathname === "/api/xoro-proxy")        return "xoro";
+  if (pathname === "/api/searates-proxy")    return "searates";
+  if (pathname === "/api/send-notification") return "notification";
+  if (pathname === "/api/vendor-invite")     return "vendor-invite";
+  // Xoro pull/push handlers (anything that calls out to Xoro)
+  if (pathname.startsWith("/api/tanda-pos-sync"))           return "xoro";
+  if (pathname.startsWith("/api/tanda/sync-from-xoro"))     return "xoro";
+  if (pathname.startsWith("/api/xoro-ap-sync"))             return "xoro";
+  if (pathname.startsWith("/api/xoro-items-missing-sync"))  return "xoro";
+  if (pathname.startsWith("/api/xoro-receipts-sync"))       return "xoro";
+  if (pathname.startsWith("/api/xoro-sales-sync"))          return "xoro";
+  if (pathname.startsWith("/api/ats-supply-sync"))          return "xoro";
+  if (pathname.startsWith("/api/planning/sync-"))           return "xoro";
+  if (pathname.startsWith("/api/xoro/writeback"))           return "xoro-writeback";
+  return null;
+}
+
 const CORS = (res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");

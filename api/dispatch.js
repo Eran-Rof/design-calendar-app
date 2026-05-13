@@ -13,6 +13,7 @@
 // and delegates to the right handler.
 
 import { ROUTES, compileRoutes } from "./_handlers/routes.js";
+import { demoEarlyExit, demoStubKind } from "./_lib/demoGuard.js";
 
 // Bumped from 60s → 300s. Several inner handlers (parse-excel,
 // xoro-proxy, ats-supply-sync, tanda-pos-sync, xoro-sales-sync,
@@ -32,6 +33,12 @@ export default async function handler(req, res) {
   // vercel.json's rewrite rule. Fall back to url.pathname for direct hits.
   const rawPath = url.searchParams.get("__fullpath");
   const pathname = rawPath || url.pathname;
+
+  // Demo-mode short-circuit. Centralised here so individual handlers don't
+  // each need to import demoGuard. Stubs all routes that would contact
+  // Xoro / Searates / Resend / Supabase Auth invite.
+  const stubKind = demoStubKind(pathname);
+  if (stubKind && demoEarlyExit(req, res, stubKind)) return;
 
   for (const route of COMPILED) {
     const match = route.regex.exec(pathname);

@@ -305,6 +305,72 @@ for (let i = 0; i < 20; i++) {
   });
 }
 
+// ── Build PO milestones (tanda_milestones) ──────────────────────────────
+// Mirrors DEFAULT_WIP_TEMPLATES in src/utils/tandaTypes.ts. 20 phases per PO,
+// expected_date = ddp - daysBeforeDDP, status varies by where the phase falls
+// relative to TODAY so the WIP grid looks realistically in-flight.
+const WIP_TEMPLATE = [
+  { id: "wip_labdip",    phase: "Lab Dip / Strike Off",      category: "Pre-Production", daysBeforeDDP: 120 },
+  { id: "wip_trims",     phase: "Trims",                     category: "Pre-Production", daysBeforeDDP: 110 },
+  { id: "wip_rawgoods",  phase: "Raw Goods Available",       category: "Fabric T&A",     daysBeforeDDP: 100 },
+  { id: "wip_fabprint",  phase: "Fabric at Printing Mill",   category: "Fabric T&A",     daysBeforeDDP: 90  },
+  { id: "wip_fabfg",     phase: "Fabric Finished Goods",     category: "Fabric T&A",     daysBeforeDDP: 80  },
+  { id: "wip_fabfact",   phase: "Fabric at Factory",         category: "Fabric T&A",     daysBeforeDDP: 70  },
+  { id: "wip_fabcut",    phase: "Fabric at Cutting Line",    category: "Fabric T&A",     daysBeforeDDP: 60  },
+  { id: "wip_fitsample", phase: "Fit Sample",                category: "Samples",        daysBeforeDDP: 90  },
+  { id: "wip_ppsample",  phase: "PP Sample",                 category: "Samples",        daysBeforeDDP: 75  },
+  { id: "wip_ppapproval",phase: "PP Approval",               category: "Samples",        daysBeforeDDP: 65  },
+  { id: "wip_sizeset",   phase: "Size Set",                  category: "Samples",        daysBeforeDDP: 55  },
+  { id: "wip_topsample", phase: "Top Sample",                category: "Samples",        daysBeforeDDP: 18  },
+  { id: "wip_fabready",  phase: "Fabric Ready",              category: "Production",     daysBeforeDDP: 50  },
+  { id: "wip_prodstart", phase: "Prod Start",                category: "Production",     daysBeforeDDP: 42  },
+  { id: "wip_packstart", phase: "Packing Start",             category: "Production",     daysBeforeDDP: 28  },
+  { id: "wip_prodend",   phase: "Prod End",                  category: "Production",     daysBeforeDDP: 21  },
+  { id: "wip_exfactory", phase: "Ex Factory",                category: "Transit",        daysBeforeDDP: 14  },
+  { id: "wip_packdocs",  phase: "Packing List / Docs Rec'd", category: "Transit",        daysBeforeDDP: 7   },
+  { id: "wip_inhouse",   phase: "In House / DDP",            category: "Transit",        daysBeforeDDP: 0   },
+];
+
+const milestones = [];
+tandaPos.forEach((po) => {
+  WIP_TEMPLATE.forEach((tpl, idx) => {
+    const expected = addDays(po.date_expected_delivery, -tpl.daysBeforeDDP);
+    // Status logic: past + buffer → Complete; within buffer → In Progress;
+    // future → Not Started. A small slice (~10%) becomes Delayed for realism.
+    const dueOffset = (new Date(expected) - new Date(TODAY)) / 86_400_000;
+    let status;
+    let actual = null;
+    if (dueOffset < -7)       { status = "Complete"; actual = expected; }
+    else if (dueOffset < -2)  { status = (rngInt(`ms-delay-${po.po_number}-${idx}`, 0, 9) === 0) ? "Delayed" : "Complete"; if (status === "Complete") actual = expected; }
+    else if (dueOffset < 7)   { status = "In Progress"; }
+    else                      { status = "Not Started"; }
+    const msId = "ms_" + hash(`${po.po_number}-${tpl.id}`).slice(0, 16);
+    milestones.push({
+      id: msId,
+      data: {
+        id: msId,
+        po_number: po.po_number,
+        phase: tpl.phase,
+        category: tpl.category,
+        sort_order: idx,
+        days_before_ddp: tpl.daysBeforeDDP,
+        expected_date: expected,
+        actual_date: actual,
+        status,
+        status_date: actual,
+        status_dates: null,
+        notes: "",
+        note_entries: null,
+        updated_at: new Date().toISOString(),
+        updated_by: "demo-seed",
+        variant_statuses: null,
+        variant_notes: null,
+        _demo: true,
+      },
+    });
+  });
+});
+
 // ── Build Design Calendar tasks (~6 per collection per style sample) ────
 const tasks = [];
 const styleSample = styles.slice(0, 8); // ~8 styles get task rows
@@ -392,6 +458,7 @@ const bundle = {
       ipSnapshots: ipSnapshots.length,
       openPos: openPos.length,
       tandaPos: tandaPos.length,
+      tandaMilestones: milestones.length,
       tasks: tasks.length,
       collections: collectionRows.length,
       users: usersBlob.length,
@@ -404,6 +471,7 @@ const bundle = {
   ip_inventory_snapshot: ipSnapshots,
   ip_open_purchase_orders: openPos,
   tanda_pos:        tandaPos,
+  tanda_milestones: milestones,
   tasks:            tasks,
   collections:      collectionRows,
   app_data_users:   usersBlob,
@@ -473,6 +541,7 @@ async function upsert(table, rows, onConflictHint) {
 console.log("\nWiping existing DEMO-* rows…");
 await del("tasks", "data->>_demo=eq.true");
 await del("collections", "id=like.DEMO-COL-*");
+await del("tanda_milestones", "data->>_demo=eq.true");
 await del("tanda_pos", "po_number=like.DEMO-PO-*");
 await del("ip_open_purchase_orders", "po_number=like.DEMO-PO-*");
 await del("ip_inventory_snapshot", "warehouse_code=eq.DEMO-WH1");
@@ -491,6 +560,7 @@ await upsert("ip_item_master", ipItems, "sku_code");
 await upsert("ip_inventory_snapshot", ipSnapshots, "sku_id,warehouse_code,snapshot_date,source");
 await upsert("ip_open_purchase_orders", openPos, "source,source_line_key");
 await upsert("tanda_pos", tandaPos, null);  // wiped above; plain insert
+await upsert("tanda_milestones", milestones, "id");
 await upsert("tasks", tasks.map(t => ({ id: t.id, data: t })), "id");
 await upsert("collections", collectionRows, "id");
 
