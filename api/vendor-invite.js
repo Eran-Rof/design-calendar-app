@@ -14,11 +14,8 @@
 // The service-role client bypasses RLS, which is necessary for admin.inviteUserByEmail.
 
 import { createClient } from "@supabase/supabase-js";
-import { demoEarlyExit } from "./_lib/demoGuard.js";
 
 export default async function handler(req, res) {
-  if (demoEarlyExit(req, res, "vendor-invite")) return;
-
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");

@@ -1,13 +1,9 @@
 // api/xoro-proxy.js — Vercel Node.js Serverless Function
 
-import { demoEarlyExit } from "./_lib/demoGuard.js";
-
 // Pro plan: headroom for a single paginated fetch (up to 50 pages).
 export const config = { maxDuration: 300 };
 
 export default async function handler(req, res) {
-  if (demoEarlyExit(req, res, "xoro")) return;
-
   // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
