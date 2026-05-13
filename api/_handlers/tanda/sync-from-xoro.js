@@ -153,9 +153,20 @@ export default async function handler(req, res) {
     const allRaw = [];
     let allStatusesSucceeded = true;
     for (const status of ALL_STATUSES) {
+      // Active statuses: walk all pages (default cap 50 = up to 10k POs).
+      // Terminal statuses: cap at 10 pages = up to 2,000 most-recent terminals.
+      // Source-1 archive only needs to catch POs that flipped to terminal
+      // since the last sync (~hours/days ago) — those are on the first
+      // pages of terminal results. Older historical terminals are already
+      // _archived in cache and don't need re-archiving. Without this cap,
+      // a Received status with hundreds of pages would push the endpoint
+      // past Vercel's 300s function timeout (504 FUNCTION_INVOCATION_TIMEOUT
+      // observed first time the all-status path went live).
+      const isTerminal = TERMINAL_STATUSES.includes(status);
       const r = await fetchXoroAll({
         path: PO_PATH,
         params: { per_page: "200", status },
+        maxPages: isTerminal ? 10 : 50,
         // module=undefined → default "PO To ASN Workflow" creds, which
         // is what xoro-proxy.js uses for purchaseorder/getpurchaseorder.
       });
@@ -163,7 +174,7 @@ export default async function handler(req, res) {
       const records = Array.isArray(r.body?.Data) ? r.body.Data : [];
       result.xoro_pages_walked += pageCount;
       result.xoro_pos_returned += records.length;
-      result.per_status.push({ status, pages: pageCount, records: records.length, ok: !!r.ok });
+      result.per_status.push({ status, pages: pageCount, records: records.length, ok: !!r.ok, capped: isTerminal });
       if (!r.ok) {
         allStatusesSucceeded = false;
         result.errors.push(`status=${status}: ${r.body?.error || r.body?.Message || "fetch failed"}`);
