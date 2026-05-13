@@ -150,37 +150,52 @@ export default async function handler(req, res) {
     //    rows whose Xoro counterpart is already done. Discovered when
     //    PO WIP showed 206 active POs but Xoro showed 141 — the 65 stale
     //    rows polluted ip_open_purchase_orders with phantom open supply.
+    // Active statuses: walk all pages (default cap 50 = up to 10k POs).
+    // Terminal statuses: cap at 10 pages = up to 2,000 most-recent terminals.
+    // Source-1 archive only needs to catch POs that flipped to terminal
+    // since the last sync — those are on the first pages of terminal
+    // results. Older historical terminals are already _archived in cache.
+    //
+    // Parallel fan-out at concurrency=2 mirrors src/tanda/hooks/useSyncOps.ts
+    // (CONCURRENCY=2 + 600ms stagger). Strict-serial across 6 statuses was
+    // taking >300s and hitting Vercel FUNCTION_INVOCATION_TIMEOUT — even
+    // with the terminal-page cap. Running 2-at-a-time roughly halves wall
+    // time without tripping Xoro's per-caller rate limit.
     const allRaw = [];
     let allStatusesSucceeded = true;
-    for (const status of ALL_STATUSES) {
-      // Active statuses: walk all pages (default cap 50 = up to 10k POs).
-      // Terminal statuses: cap at 10 pages = up to 2,000 most-recent terminals.
-      // Source-1 archive only needs to catch POs that flipped to terminal
-      // since the last sync (~hours/days ago) — those are on the first
-      // pages of terminal results. Older historical terminals are already
-      // _archived in cache and don't need re-archiving. Without this cap,
-      // a Received status with hundreds of pages would push the endpoint
-      // past Vercel's 300s function timeout (504 FUNCTION_INVOCATION_TIMEOUT
-      // observed first time the all-status path went live).
-      const isTerminal = TERMINAL_STATUSES.includes(status);
-      const r = await fetchXoroAll({
-        path: PO_PATH,
-        params: { per_page: "200", status },
-        maxPages: isTerminal ? 10 : 50,
-        // module=undefined → default "PO To ASN Workflow" creds, which
-        // is what xoro-proxy.js uses for purchaseorder/getpurchaseorder.
-      });
-      const pageCount = Array.isArray(r.body?._pageCounts) ? r.body._pageCounts.length : 0;
-      const records = Array.isArray(r.body?.Data) ? r.body.Data : [];
-      result.xoro_pages_walked += pageCount;
-      result.xoro_pos_returned += records.length;
-      result.per_status.push({ status, pages: pageCount, records: records.length, ok: !!r.ok, capped: isTerminal });
-      if (!r.ok) {
-        allStatusesSucceeded = false;
-        result.errors.push(`status=${status}: ${r.body?.error || r.body?.Message || "fetch failed"}`);
-        continue;
+    const CONCURRENCY = 2;
+    const BATCH_DELAY_MS = 600;
+    for (let i = 0; i < ALL_STATUSES.length; i += CONCURRENCY) {
+      if (i > 0) await new Promise((r) => setTimeout(r, BATCH_DELAY_MS));
+      const batch = ALL_STATUSES.slice(i, i + CONCURRENCY);
+      const settled = await Promise.allSettled(batch.map((status) => {
+        const isTerminal = TERMINAL_STATUSES.includes(status);
+        return fetchXoroAll({
+          path: PO_PATH,
+          params: { per_page: "200", status },
+          maxPages: isTerminal ? 10 : 50,
+          // module=undefined → default "PO To ASN Workflow" creds.
+        }).then((r) => ({ status, isTerminal, r }));
+      }));
+      for (const s of settled) {
+        if (s.status === "rejected") {
+          allStatusesSucceeded = false;
+          result.errors.push(`batch fetch rejected: ${String(s.reason?.message || s.reason)}`);
+          continue;
+        }
+        const { status, isTerminal, r } = s.value;
+        const pageCount = Array.isArray(r.body?._pageCounts) ? r.body._pageCounts.length : 0;
+        const records = Array.isArray(r.body?.Data) ? r.body.Data : [];
+        result.xoro_pages_walked += pageCount;
+        result.xoro_pos_returned += records.length;
+        result.per_status.push({ status, pages: pageCount, records: records.length, ok: !!r.ok, capped: isTerminal });
+        if (!r.ok) {
+          allStatusesSucceeded = false;
+          result.errors.push(`status=${status}: ${r.body?.error || r.body?.Message || "fetch failed"}`);
+          continue;
+        }
+        allRaw.push(...records);
       }
-      allRaw.push(...records);
     }
     if (allRaw.length === 0 && result.errors.length > 0) {
       return res.status(502).json({ ...result, error: "All status fetches failed" });
