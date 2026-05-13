@@ -194,7 +194,14 @@ export function parseExcelRows(invRows, purRows, ordRows) {
       const store    = detectPoStore(poNumber, brandName);
       const unitCost = parseFloat(String(r["Total Average of PO Unit Cost"] || r["Unit Cost"] || r["Cost"] || r["Unit Price"] || r["Price"] || 0).replace(/[^0-9.-]/g, "")) || 0;
 
-      if (date) pos.push({ sku, date, qty, poNumber, vendor, store, unitCost });
+      // Always push, even when date is empty (Xoro PO with no DDP).
+      // Empty-date events are excluded from time-period columns by
+      // getEventsInPeriod (date "" < any periodStart) but INCLUDED in
+      // $ on PO totals at ATS.tsx:941. Without this, undated POs
+      // silently dropped from $ on PO while their qty stayed in the
+      // QTY stat — confusing low-by-$X numbers (the "$1M off" bug
+      // user found 2026-05-12). Mirrors the parseExcelClient fix.
+      pos.push({ sku, date, qty, poNumber, vendor, store, unitCost });
     }
   }
 
@@ -255,7 +262,14 @@ export function parseExcelRows(invRows, purRows, ordRows) {
       if (!customerName) soNoCustName++;
       if (unitPrice <= 0 && totalPrice <= 0) soNoUnitPrice++;
 
-      if (date) sos.push({ sku, date, qty, orderNumber, customerName, unitPrice, totalPrice, store: soStore });
+      // Always push, even when date is empty (SO with no ship/cancel
+      // date — backorders, freshly-created orders before DDP, etc.).
+      // Same rationale as PO undated above: undated SOs WERE silently
+      // dropped from $ on SO total at ATS.tsx:937 while their qty
+      // stayed in the On Order stat. The warning at line 325
+      // ("are still counted in the On Order total") documented the
+      // intent; this matches it.
+      sos.push({ sku, date, qty, orderNumber, customerName, unitPrice, totalPrice, store: soStore });
     }
   }
 

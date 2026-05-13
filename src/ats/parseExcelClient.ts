@@ -231,7 +231,12 @@ export async function parseExcelFiles(
       const brandName = str(r["Brand Name"] || r["Brand"] || "");
       const store = detectPoStore(poNumber, brandName);
       const unitCost = parseFloat(String(r["Total Average of PO Unit Cost"] || r["Unit Cost"] || r["Cost"] || r["Unit Price"] || r["Price"] || 0).replace(/[^0-9.-]/g, "")) || 0;
-      if (date) pos.push({ sku, date, qty, poNumber, vendor, store, unitCost });
+      // Always push — see ats-parse.js for the rationale. Undated POs
+      // count toward $ on PO total but stay out of time-period columns.
+      // (PO Excel-upload path is mostly retired since POs come from
+      // PO WIP nightly, but kept consistent here for any emergency
+      // dev-console manual upload.)
+      pos.push({ sku, date, qty, poNumber, vendor, store, unitCost });
     }
   }
   console.warn(`[ATS parse] purchases: ${purRows.length} rows in file, ${purParsed} parsed (${purRows.length - purParsed} skipped — likely missing base-part column). Purchase column names: ${columnNames.purchases.join(", ")}`);
@@ -300,7 +305,9 @@ export async function parseExcelFiles(
       if (!orderNumber) soNoOrderNum++;
       if (!customerName) soNoCustName++;
       if (unitPrice <= 0 && totalPrice <= 0) soNoUnitPrice++;
-      if (date) sos.push({ sku, date, qty, orderNumber, customerName, unitPrice, totalPrice, store: soStore });
+      // Always push — see ats-parse.js for the rationale. Undated SOs
+      // count toward $ on SO total but stay out of time-period columns.
+      sos.push({ sku, date, qty, orderNumber, customerName, unitPrice, totalPrice, store: soStore });
     }
   }
   console.warn(`[ATS parse] orders: ${ordRows.length} rows in file, ${ordParsed} parsed (${ordRows.length - ordParsed} skipped — likely missing base-part column). Order column names: ${columnNames.orders.join(", ")}`);
