@@ -317,9 +317,12 @@ export default function PLMApp() {
         <p style={S.greetingSub}>Select an application to get started</p>
 
         <div style={S.grid}>
-          {APPS.filter(app =>
-            app.id !== "planning" || appConfig.inventoryPlanningEnabled
-          ).map(app => {
+          {APPS.filter(app => {
+            // Demo mode: only show the four apps in scope (Design Calendar,
+            // PO WIP, ATS, Planning). Tech Packs + GS1 are hidden.
+            if (appConfig.demoMode && (app.id === "techpack" || app.id === "gs1")) return false;
+            return app.id !== "planning" || appConfig.inventoryPlanningEnabled;
+          }).map(app => {
             const perm = getPermission(user, app.id);
             const locked = !perm.access;
 

@@ -14,10 +14,13 @@
 // coverage — keep the two in sync when updating.
 
 import { createClient } from "@supabase/supabase-js";
+import { demoEarlyExit } from "./_lib/demoGuard.js";
 
 export const config = { maxDuration: 30 };
 
 export default async function handler(req, res) {
+  if (demoEarlyExit(req, res, "searates")) return;
+
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");

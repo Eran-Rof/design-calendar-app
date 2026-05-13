@@ -16,6 +16,7 @@
 //     dedupe_key?: string }
 
 import { createClient } from "@supabase/supabase-js";
+import { demoEarlyExit } from "./_lib/demoGuard.js";
 
 export const config = { maxDuration: 30 };
 
@@ -61,6 +62,8 @@ async function queuePushesForVendor(admin, { vendor_id, event_type, title, body,
 }
 
 export default async function handler(req, res) {
+  if (demoEarlyExit(req, res, "notification")) return;
+
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");

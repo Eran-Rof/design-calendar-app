@@ -51,4 +51,10 @@ export const appConfig = {
   xoroReadOnly:      parseBool("VITE_ENABLE_XORO_READONLY",    appEnv !== "production"),
   shopifyReadOnly:   parseBool("VITE_ENABLE_SHOPIFY_READONLY",  appEnv !== "production"),
   erpWritebackEnabled: parseBool("VITE_ENABLE_ERP_WRITEBACK",   false),
+
+  // Sandbox demo mode. When true: external integrations return canned
+  // responses (see api/_lib/demoGuard.js), the PLM landing hides apps
+  // outside the demo scope, and a DEMO banner is rendered. Set only on
+  // the design-calendar-demo Vercel deploy.
+  demoMode: parseBool("VITE_DEMO_MODE", false),
 } as const;

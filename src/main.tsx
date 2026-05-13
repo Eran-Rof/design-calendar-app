@@ -53,14 +53,22 @@ function PlanningBlocked() {
 }
 
 async function mount() {
-  // ── Staging banner ────────────────────────────────────────────────────────
+  // ── Demo / staging banner ─────────────────────────────────────────────────
   // Mounted in its own div so it's independent of whichever sub-app loads.
-  if (appConfig.isStaging) {
+  // Demo takes precedence over staging when both flags are set.
+  if (appConfig.demoMode) {
+    const { default: DemoBanner } = await import("./components/DemoBanner");
+    const bannerDiv = document.createElement("div");
+    bannerDiv.id = "demo-banner-root";
+    document.body.prepend(bannerDiv);
+    const rootEl = document.getElementById("root");
+    if (rootEl) rootEl.style.paddingTop = "34px";
+    createRoot(bannerDiv).render(<StrictMode><DemoBanner /></StrictMode>);
+  } else if (appConfig.isStaging) {
     const { default: StagingBanner } = await import("./components/StagingBanner");
     const bannerDiv = document.createElement("div");
     bannerDiv.id = "staging-banner-root";
     document.body.prepend(bannerDiv);
-    // Push the main root down so the banner doesn't overlap app headers.
     const rootEl = document.getElementById("root");
     if (rootEl) rootEl.style.paddingTop = "34px";
     createRoot(bannerDiv).render(<StrictMode><StagingBanner /></StrictMode>);
