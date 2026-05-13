@@ -266,36 +266,34 @@ export const wholesaleRepo = {
     return Array.from(out.values()).sort((a, b) => a.style_code.localeCompare(b.style_code));
   },
   async listItems(): Promise<IpItem[]> {
-    // Paginate so a 20k+ catalog (Xoro items-sync + auto-create from
-    // invoice ingest can easily exceed the previous 20000 cap) doesn't
-    // truncate. PostgREST limit caps at 1000/req on most configurations.
+    // Cursor pagination (sku_code > last) instead of OFFSET. Deep
+    // OFFSET on a 10k+ row table forces the planner to read+skip
+    // OFFSET rows from the index before returning LIMIT — combined
+    // with the JSONB `attributes` TOAST reads, page 7 (offset=3000)
+    // started timing out at the 8s anon statement-timeout cap right
+    // after the nightly's massive UPSERTs (autovacuum pressure).
+    //
+    // Cursor reads exactly PAGE rows from the unique sku_code index
+    // each call regardless of depth — flat-time pagination across
+    // any catalog size. Same total row count, no OFFSET cost.
     //
     // Explicit column list: skips external_refs (Xoro JSONB import
     // payload, can be many KB per row) and other columns no IP caller
-    // reads (vendor_id, unit_price, lead_time_days, moq_units,
-    // lifecycle_status, planning_class, uom, active). Big disk-IO win
-    // — the JSONB blob alone was the bulk of every item-master fetch.
+    // reads. JSONB blob was previously the bulk of every fetch.
     const COLS = "id,sku_code,style_code,description,category_id,color,size,unit_cost,attributes";
-    const out: IpItem[] = [];
-    // Smaller page size to stay under PostgREST's statement timeout.
-    // The attributes JSONB column TOASTs to its own pages on disk;
-    // fetching 1000 rows at a time pulled enough JSONB to time out
-    // on a 35k+ row catalog. 500 cuts each query in half — total
-    // wall time barely changes (PostgREST batches efficiently) but
-    // each individual query stays under the timeout cap.
-    //
-    // Each page wrapped in withRetryOn57014 so transient timeouts
-    // (concurrent sync running, vacuum holding a lock briefly)
-    // get a single retry instead of failing the whole sync.
     const PAGE = 500;
-    for (let offset = 0; ; offset += PAGE) {
+    const out: IpItem[] = [];
+    let lastSku: string | null = null;
+
+    for (let pageNo = 0; pageNo < 400; pageNo++) {
+      const cursor = lastSku ? `&sku_code=gt.${encodeURIComponent(lastSku)}` : "";
       const chunk = await withRetryOn57014(
-        `listItems offset=${offset}`,
-        () => sbGet<IpItem>(`ip_item_master?select=${COLS}&order=sku_code.asc&limit=${PAGE}&offset=${offset}`),
+        `listItems page=${pageNo} after=${lastSku ?? "start"}`,
+        () => sbGet<IpItem>(`ip_item_master?select=${COLS}&order=sku_code.asc&limit=${PAGE}${cursor}`),
       );
       out.push(...chunk);
       if (chunk.length < PAGE) break;
-      if (offset > 200_000) break; // safety cap
+      lastSku = chunk[chunk.length - 1].sku_code;
     }
     return out;
   },
