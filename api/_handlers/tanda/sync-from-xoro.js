@@ -121,7 +121,7 @@ export default async function handler(req, res) {
   const requestId = randomUUID();
   const result = {
     request_id: requestId,
-    statuses_fetched: ALL_STATUSES,
+    statuses_fetched: ACTIVE_STATUSES,
     xoro_pages_walked: 0,
     xoro_pos_returned: 0,
     pos_unique_after_dedup: 0,
@@ -150,52 +150,41 @@ export default async function handler(req, res) {
     //    rows whose Xoro counterpart is already done. Discovered when
     //    PO WIP showed 206 active POs but Xoro showed 141 — the 65 stale
     //    rows polluted ip_open_purchase_orders with phantom open supply.
-    // Active statuses: walk all pages (default cap 50 = up to 10k POs).
-    // Terminal statuses: cap at 10 pages = up to 2,000 most-recent terminals.
-    // Source-1 archive only needs to catch POs that flipped to terminal
-    // since the last sync — those are on the first pages of terminal
-    // results. Older historical terminals are already _archived in cache.
+    // Active statuses only (3 fetches). Terminal-status fetches were
+    // attempted twice and both hit Vercel FUNCTION_INVOCATION_TIMEOUT
+    // (300s cap) — even with the terminal-page cap of 10 and CONCURRENCY=2
+    // fan-out. Likely cause: Xoro's per-page response latency on Received
+    // status is variable enough that the 90s-per-attempt × 3-retry budget
+    // can exhaust the function timeout on one stuck page.
     //
-    // Parallel fan-out at concurrency=2 mirrors src/tanda/hooks/useSyncOps.ts
-    // (CONCURRENCY=2 + 600ms stagger). Strict-serial across 6 statuses was
-    // taking >300s and hitting Vercel FUNCTION_INVOCATION_TIMEOUT — even
-    // with the terminal-page cap. Running 2-at-a-time roughly halves wall
-    // time without tripping Xoro's per-caller rate limit.
+    // Trade-off: source-1 archive (POs that flipped to terminal in Xoro
+    // since last sync) requires the terminal-status fetches we just
+    // dropped. Without source-1, terminal POs stay marked active in
+    // tanda_pos until somebody clicks Sync in PO WIP (browser does the
+    // full 6-status walk). The user explicitly accepted this trade-off —
+    // see commit message + memory.
+    //
+    // Source-2 + source-3 archive (cached-already-terminal, missing-from-
+    // Xoro-with-cached-terminal) still run below — they need only the
+    // active-status results to compare against.
     const allRaw = [];
     let allStatusesSucceeded = true;
-    const CONCURRENCY = 2;
-    const BATCH_DELAY_MS = 600;
-    for (let i = 0; i < ALL_STATUSES.length; i += CONCURRENCY) {
-      if (i > 0) await new Promise((r) => setTimeout(r, BATCH_DELAY_MS));
-      const batch = ALL_STATUSES.slice(i, i + CONCURRENCY);
-      const settled = await Promise.allSettled(batch.map((status) => {
-        const isTerminal = TERMINAL_STATUSES.includes(status);
-        return fetchXoroAll({
-          path: PO_PATH,
-          params: { per_page: "200", status },
-          maxPages: isTerminal ? 10 : 50,
-          // module=undefined → default "PO To ASN Workflow" creds.
-        }).then((r) => ({ status, isTerminal, r }));
-      }));
-      for (const s of settled) {
-        if (s.status === "rejected") {
-          allStatusesSucceeded = false;
-          result.errors.push(`batch fetch rejected: ${String(s.reason?.message || s.reason)}`);
-          continue;
-        }
-        const { status, isTerminal, r } = s.value;
-        const pageCount = Array.isArray(r.body?._pageCounts) ? r.body._pageCounts.length : 0;
-        const records = Array.isArray(r.body?.Data) ? r.body.Data : [];
-        result.xoro_pages_walked += pageCount;
-        result.xoro_pos_returned += records.length;
-        result.per_status.push({ status, pages: pageCount, records: records.length, ok: !!r.ok, capped: isTerminal });
-        if (!r.ok) {
-          allStatusesSucceeded = false;
-          result.errors.push(`status=${status}: ${r.body?.error || r.body?.Message || "fetch failed"}`);
-          continue;
-        }
-        allRaw.push(...records);
+    for (const status of ACTIVE_STATUSES) {
+      const r = await fetchXoroAll({
+        path: PO_PATH,
+        params: { per_page: "200", status },
+      });
+      const pageCount = Array.isArray(r.body?._pageCounts) ? r.body._pageCounts.length : 0;
+      const records = Array.isArray(r.body?.Data) ? r.body.Data : [];
+      result.xoro_pages_walked += pageCount;
+      result.xoro_pos_returned += records.length;
+      result.per_status.push({ status, pages: pageCount, records: records.length, ok: !!r.ok });
+      if (!r.ok) {
+        allStatusesSucceeded = false;
+        result.errors.push(`status=${status}: ${r.body?.error || r.body?.Message || "fetch failed"}`);
+        continue;
       }
+      allRaw.push(...records);
     }
     if (allRaw.length === 0 && result.errors.length > 0) {
       return res.status(502).json({ ...result, error: "All status fetches failed" });
