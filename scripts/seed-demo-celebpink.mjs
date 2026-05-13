@@ -88,6 +88,30 @@ const DEMO_COLLECTIONS = [
   { key: "DEMO-COL-RS27", name: "Resort 2027",     season: "Resort 2027" },
 ];
 
+// Category / sub-category mapping for the demo. ip_item_master.attributes
+// uses `group_name` for Category and `category_name` for Sub Cat (the
+// planning team's naming, see src/ats/itemMasterLookup.ts).
+const CATEGORY_MAP = {
+  "High Rise Straight":      { category: "DENIM",     sub: "WIDE LEG DENIM" },
+  "High Rise Slim":          { category: "DENIM",     sub: "SKINNY" },
+  "Ultra High Rise Short":   { category: "DENIM",     sub: "FLARE DENIM" },
+  "High rise skinny":        { category: "DENIM",     sub: "SKINNY" },
+  "Jumpsuit":                { category: "NON-DENIM", sub: "JUMPSUIT" },
+  "Shortall":                { category: "NON-DENIM", sub: "SHORTALL" },
+  "Tube Top":                { category: "NON-DENIM", sub: "TUBE TOP" },
+  "Mid rise shorts":         { category: "DENIM",     sub: "SHORTS" },
+  "High rise shorts":        { category: "DENIM",     sub: "SHORTS" },
+  "Mid rise bermuda":        { category: "DENIM",     sub: "WIDE LEG DENIM" },
+  "High rise bermuda":       { category: "DENIM",     sub: "WIDE LEG DENIM" },
+  "High rise skirt":         { category: "DENIM",     sub: "SKIRT" },
+  "Mid rise skinny crop":    { category: "DENIM",     sub: "SKINNY" },
+  "Denim jacket":            { category: "OUTERWEAR", sub: "DENIM JACKET" },
+  "Curvy mid rise slim":     { category: "DENIM",     sub: "SKINNY" },
+};
+function mapCategory(productType) {
+  return CATEGORY_MAP[productType] || { category: "DENIM", sub: "OTHER" };
+}
+
 const TASK_PHASES = ["Design", "Tech Pack", "Proto Sample", "PP Sample", "Bulk PO", "Production", "Shipping"];
 const TASK_STATUSES = ["Not Started", "In Progress", "Approved", "Complete"];
 const DEMO_USERS = [
@@ -170,6 +194,7 @@ products.forEach((p, pi) => {
     const sku = `DEMO-${stylePart}-${colorPart}-${sizePart}`;
     const itemId = uuidFrom(`item-${sku}`);
 
+    const cm = mapCategory(p.product_type);
     ipItems.push({
       id: itemId,
       sku_code: sku,
@@ -189,6 +214,13 @@ products.forEach((p, pi) => {
       active: true,
       external_refs: { demo: true, shopify_variant_id: v.id, shopify_product_id: p.id },
       attributes: {
+        // Master metadata used by ATS enrichment + planning grid.
+        // group_name = Category, category_name = Sub Cat (see ItemMasterRecord
+        // in src/ats/itemMasterLookup.ts).
+        group_name: cm.category,
+        category_name: cm.sub,
+        product_category: cm.category === "OUTERWEAR" ? "OUTERWEAR" : "BOTTOMS",
+        gender: "Women",
         image_url: firstImage,
         product_handle: p.handle,
         product_title: p.title,
@@ -217,6 +249,104 @@ products.forEach((p, pi) => {
 
     if (!styleToItems.has(styleCode)) styleToItems.set(styleCode, { product: p, items: [] });
     styleToItems.get(styleCode).items.push({ itemId, sku, price, cost });
+  });
+});
+
+// ── Build prepack (PPK) styles ──────────────────────────────────────────
+// Demo a few prepack SKUs to show the PPK explosion behaviour. The PPK
+// detector in src/shared/prepack/index.ts looks for "PPKn" anywhere in
+// the SKU and multiplies on-hand / on-PO / on-SO by n for display.
+// We pick 5 distinct styles, generate a PPK<size-mix> variant per
+// product-type with multipliers chosen for variety (6, 12, 24).
+const PPK_DEFINITIONS = [
+  { mult: 6,  label: "PPK6",  desc: "Pack of 6 (size run: 1×24, 2×26, 2×28, 1×30)" },
+  { mult: 12, label: "PPK12", desc: "Pack of 12 (size run: 2×24, 3×26, 3×28, 2×30, 2×32)" },
+  { mult: 24, label: "PPK24", desc: "Pack of 24 (full size run across 24-32)" },
+  { mult: 6,  label: "PPK6",  desc: "Pack of 6 (size run: 1×26, 2×28, 2×30, 1×32)" },
+  { mult: 12, label: "PPK12", desc: "Pack of 12 (size run: 2×25, 3×27, 3×29, 2×31, 2×33)" },
+];
+const prepackItems = [];
+const prepackSnaps = [];
+const ppkSourceProducts = products.slice(0, 5);
+ppkSourceProducts.forEach((p, idx) => {
+  const def = PPK_DEFINITIONS[idx];
+  const cat = categoryByType.get(p.product_type);
+  const vendor = vendorByIdx(idx);
+  const stylePart = String(p.handle || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 20) || "STYLE";
+  // First color of this product, slugified
+  const firstColor = p.options.find(o => /color|wash/i.test(o.name))?.values[0] || "BLACK";
+  const colorPart = String(firstColor).replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 12);
+  // SKU: DEMO-{style}-{color}-PPK{n}. PPK token is last so PPK detector
+  // catches it; isSizeToken won't match so size column stays blank (correct
+  // for prepacks — they aren't per-size).
+  const sku = `DEMO-${stylePart}-${colorPart}-${def.label}`;
+  const itemId = uuidFrom(`item-${sku}`);
+  const unitPrice = Number(p.variants[0]?.price) || 49;
+  // Pack-grain cost: avg per-unit cost × multiplier (Xoro stores prepack
+  // cost at pack grain, not per-unit). avg unit cost = 30% of price.
+  const unitCost = Math.round(unitPrice * 0.30 * 100) / 100;
+  const packCost = Math.round(unitCost * def.mult * 100) / 100;
+
+  const prepackItem = {
+    id: itemId,
+    sku_code: sku,
+    style_code: `DEMO-${stylePart}-PPK`,
+    description: `${p.title} ${def.label} — ${firstColor} — ${def.desc}`,
+    category_id: cat?.id || null,
+    vendor_id: vendor.id,
+    color: firstColor,
+    size: def.label,
+    uom: "pack",
+    unit_cost: packCost,
+    unit_price: unitPrice * def.mult,
+    lead_time_days: vendor.default_lead_time_days,
+    moq_units: 100,
+    lifecycle_status: "active",
+    planning_class: "core",
+    active: true,
+    external_refs: { demo: true, ppk: true, ppk_mult: def.mult },
+    attributes: (() => {
+      const cm = mapCategory(p.product_type);
+      return {
+        group_name: cm.category,
+        category_name: cm.sub,
+        product_category: cm.category === "OUTERWEAR" ? "OUTERWEAR" : "BOTTOMS",
+        gender: "Women",
+        image_url: p.images?.[0]?.src || null,
+        product_handle: p.handle,
+        product_title: p.title,
+        product_type: p.product_type,
+        is_prepack: true,
+        ppk_mult: def.mult,
+      };
+    })(),
+  };
+  prepackItems.push(prepackItem);
+  ipItems.push(prepackItem);
+
+  // Inventory: prepacks are stocked at pack grain. Smaller numbers (3-15
+  // packs) so the explosion math is visible (e.g. 5 packs × 24 = 120 units).
+  const onHandPacks = rngInt(`ppk-oh-${sku}`, 3, 20);
+  const onOrderPacks = rngInt(`ppk-oo-${sku}`, 0, 30);
+  const snap = {
+    id: uuidFrom(`snap-${sku}-${TODAY}`),
+    sku_id: itemId,
+    warehouse_code: "DEMO-WH1",
+    snapshot_date: TODAY,
+    qty_on_hand: onHandPacks,
+    qty_available: onHandPacks,
+    qty_committed: 0,
+    qty_on_order: onOrderPacks,
+    qty_in_transit: 0,
+    source: "manual",
+  };
+  prepackSnaps.push(snap);
+  ipSnapshots.push(snap);
+
+  // Register the prepack style for inclusion in random POs below.
+  styleToItems.set(prepackItem.style_code, {
+    product: p,
+    items: [{ itemId, sku, price: unitPrice * def.mult, cost: packCost }],
   });
 });
 
@@ -437,7 +567,7 @@ const atsSkus = ipItems.map(it => {
   return {
     sku: it.sku_code,
     description: it.description,
-    category: it.attributes?.product_type || "",
+    category: it.attributes?.group_name || it.attributes?.product_type || "",
     gender: "Women",
     store: "DEMO-WH1",
     onHand: Number(snap?.qty_on_hand || 0),

@@ -1,5 +1,6 @@
 import type { ATSRow, ExcelData, UploadWarning, CtxMenu, SummaryCtxMenu } from "../types";
 import type { NormChange } from "../normalize";
+import { appConfig } from "../../config/env";
 
 export interface ATSState {
   // Date range
@@ -138,7 +139,10 @@ export function createInitialState(startDate: string): ATSState {
     // ROF ECOM is intentionally OFF by default — it's a small ecom-only
     // pool the operator flips on when looking at ecom-specific buys.
     // Confirmed with user 2026-05-12.
-    storeFilter: ["ROF", "PT"],
+    // In demo mode the seed uses DEMO-WH1 as the only store, so default
+    // to empty (= all stores visible) so the third party doesn't have
+    // to fiddle with the dropdown.
+    storeFilter: appConfig.demoMode ? [] : ["ROF", "PT"],
     poDropOpen: false,
     soDropOpen: false,
     rows: [],
