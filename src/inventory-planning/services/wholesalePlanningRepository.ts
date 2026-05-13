@@ -401,6 +401,50 @@ export const wholesaleRepo = {
         "ip_open_sales_orders?select=sku_id,customer_id,qty_open,ship_date&order=ship_date.asc",
       ));
   },
+  // Detail lookups for the planning grid's right-click context menu.
+  // Wide SELECT — these methods only run when the planner asks for
+  // details on a single cell (rare). Period filter applies to the
+  // already-bucketed display so a row showing "On PO 1,234 in Apr" gets
+  // exactly the lines making up that bucket.
+  async listOpenPoLinesForCell(args: {
+    sku_ids: string[];
+    period_start: string;
+    period_end: string;
+    customer_id: string | null;
+  }): Promise<IpOpenPoRow[]> {
+    if (args.sku_ids.length === 0) return [];
+    const skuFilter = `&sku_id=in.(${args.sku_ids.join(",")})`;
+    // customer_id = null means "match the supply-only placeholder OR no
+    // customer attached". For wholesale + ecom we filter to exactly the
+    // requested customer.
+    const custFilter = args.customer_id == null
+      ? ""
+      : `&customer_id=eq.${args.customer_id}`;
+    return sbGetAll<IpOpenPoRow>(
+      `ip_open_purchase_orders?select=*${skuFilter}` +
+      `&expected_date=gte.${args.period_start}&expected_date=lte.${args.period_end}` +
+      custFilter +
+      `&order=expected_date.asc`,
+    );
+  },
+  async listOpenSoLinesForCell(args: {
+    sku_ids: string[];
+    period_start: string;
+    period_end: string;
+    customer_id: string | null;
+  }): Promise<IpOpenSoRow[]> {
+    if (args.sku_ids.length === 0) return [];
+    const skuFilter = `&sku_id=in.(${args.sku_ids.join(",")})`;
+    const custFilter = args.customer_id == null
+      ? ""
+      : `&customer_id=eq.${args.customer_id}`;
+    return sbGetAll<IpOpenSoRow>(
+      `ip_open_sales_orders?select=*${skuFilter}` +
+      `&ship_date=gte.${args.period_start}&ship_date=lte.${args.period_end}` +
+      custFilter +
+      `&order=ship_date.asc`,
+    );
+  },
   async listReceipts(sinceIso: string): Promise<IpReceiptRow[]> {
     // Trimmed: drops vendor_id / po_number / receipt_number /
     // warehouse_code / source / raw_payload_id / source_line_key.

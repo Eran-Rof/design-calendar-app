@@ -26,6 +26,19 @@ import { aggregateRows, type CollapseModes as ExtractedCollapseModes } from "./a
 import { bucketKeyFor, type BucketKeyFilters } from "./bucketBuyKey";
 import { recommendForRow } from "../compute/recommendations";
 import { applyRollingPool } from "../compute/supply";
+import { wholesaleRepo } from "../services/wholesalePlanningRepository";
+// Right-click context menu reused verbatim from the ATS app so the
+// look matches what the planner already knows. The menu expects ATS-
+// shaped row + event records — we build them from the planning row +
+// the lazy-fetched ip_open_purchase_orders / ip_open_sales_orders
+// lines for the clicked cell.
+import { SummaryContextMenu } from "../../ats/panels/ContextMenus";
+import type {
+  ATSRow,
+  ATSPoEvent,
+  ATSSoEvent,
+  SummaryCtxMenu,
+} from "../../ats/types";
 
 export interface WholesalePlanningGridProps {
   rows: IpPlanningGridRow[];
@@ -398,6 +411,14 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     description: "",
   });
   const [addRowSaving, setAddRowSaving] = useState(false);
+  // Right-click context menu state, reused from the ATS app via
+  // SummaryContextMenu. summaryCtx is null until the planner right-
+  // clicks an On SO or Receipts cell; opening sets it (plus the
+  // ATS-shaped row + event arrays the menu expects). Click-outside +
+  // Escape both dismiss it via the useEffect below.
+  const [summaryCtx, setSummaryCtx] = useState<SummaryCtxMenu | null>(null);
+  const summaryCtxRef = useRef<HTMLDivElement>(null);
+  const [summaryCtxLoading, setSummaryCtxLoading] = useState(false);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(500);
   // Collapse / aggregation modes — independent toggles that change the
@@ -1852,6 +1873,150 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     else { setSortKey(key); setSortDir("asc"); }
   }
 
+  // Open the ATS-style right-click context menu for an On SO or
+  // Receipts (On PO) cell. type="onOrder" → SO menu (yellow); type="onPO"
+  // → PO menu (green). Resolves the row's SKU set (aggregates expand to
+  // their underlying mutedRows sku_ids; leaf rows use their own
+  // sku_id), then lazy-fetches ip_open_sales_orders / ip_open_purchase_orders
+  // for that (sku_ids[], period, customer_id) grain and maps each line to
+  // the ATSPoEvent / ATSSoEvent shape the menu component expects.
+  async function openSummaryCtx(
+    e: React.MouseEvent,
+    type: "onOrder" | "onPO",
+    row: IpPlanningGridRow,
+  ) {
+    e.preventDefault();
+    const cellEl = e.currentTarget as HTMLElement;
+    const rect = cellEl.getBoundingClientRect();
+    const ARROW_OVERLAP = 12;
+    const initialX = rect.left;
+    const initialY = rect.bottom - ARROW_OVERLAP;
+
+    // Resolve sku + customer scope from the row's underlying children.
+    // For leaf rows: just the row's own sku + customer. For aggregates
+    // (size merges always, plus any explicit collapse): collect every
+    // underlying mutedRow's sku_id + customer_id. If exactly one
+    // customer appears across the bucket the lookup filters to it; if
+    // many appear (e.g. customer-rolled-up aggregate) pass null so the
+    // lookup spans all customers under that bucket.
+    const skuIdSet = new Set<string>();
+    const customerIdSet = new Set<string>();
+    if (row.is_aggregate && row.aggregate_underlying_ids?.length) {
+      for (const fid of row.aggregate_underlying_ids) {
+        const u = mutedById.get(fid);
+        if (u?.sku_id) skuIdSet.add(u.sku_id);
+        if (u?.customer_id) customerIdSet.add(u.customer_id);
+      }
+    } else {
+      skuIdSet.add(row.sku_id);
+      if (row.customer_id) customerIdSet.add(row.customer_id);
+    }
+    const sku_ids = Array.from(skuIdSet);
+    const customer_id = customerIdSet.size === 1
+      ? Array.from(customerIdSet)[0]
+      : null;
+
+    // Build a fake ATSRow from the planning row so SummaryContextMenu's
+    // header pills (SKU code, On Hand chip, Avg Cost) render with the
+    // right values. ppkMult=1 keeps the menu's prepack math a no-op.
+    const skuLabel = row.sku_style && row.sku_color
+      ? `${row.sku_style} ${row.sku_color}`
+      : (row.sku_code ?? row.sku_style ?? "");
+    const atsRow: ATSRow = {
+      sku: skuLabel,
+      description: row.sku_description ?? "",
+      onHand: row.on_hand_qty ?? 0,
+      onPO: row.receipts_due_qty ?? 0,
+      onOrder: row.on_so_qty ?? 0,
+      avgCost: row.avg_cost ?? 0,
+      totalAmount: (row.on_hand_qty ?? 0) * (row.avg_cost ?? 0),
+      store: "ROF",
+    } as ATSRow;
+
+    // Render an empty menu immediately so the user gets feedback that
+    // the click registered. The fetch fills in the events below.
+    setSummaryCtx({
+      type: type === "onOrder" ? "onOrder" : "onPO",
+      row: atsRow,
+      pos: [],
+      sos: [],
+      cellEl,
+      initialX,
+      initialY,
+    });
+    setSummaryCtxLoading(true);
+    try {
+      if (type === "onOrder") {
+        const lines = await wholesaleRepo.listOpenSoLinesForCell({
+          sku_ids,
+          period_start: row.period_start,
+          period_end: row.period_end,
+          customer_id,
+        });
+        const sos: ATSSoEvent[] = lines.map((l) => ({
+          sku: skuLabel,
+          // ATS treats `date` as the ship/cancel date — surface ship_date.
+          date: l.ship_date ?? "",
+          qty: l.qty_open ?? 0,
+          orderNumber: l.so_number ?? "",
+          customerName: l.customer_name ?? row.customer_name ?? "",
+          unitPrice: l.unit_price ?? 0,
+          totalPrice: (l.unit_price ?? 0) * (l.qty_open ?? 0),
+          store: l.store ?? "ROF",
+        }));
+        setSummaryCtx((prev) => (prev ? { ...prev, sos } : prev));
+      } else {
+        const lines = await wholesaleRepo.listOpenPoLinesForCell({
+          sku_ids,
+          period_start: row.period_start,
+          period_end: row.period_end,
+          customer_id,
+        });
+        const pos: ATSPoEvent[] = lines.map((l) => ({
+          sku: skuLabel,
+          date: l.expected_date ?? "",
+          qty: l.qty_open ?? 0,
+          poNumber: l.po_number ?? "",
+          // buyer_name on the planning side carries the TandA "BuyerName"
+          // string (often a customer name for committed POs, "ROF Stock"
+          // / "PT Stock" for stock POs). The ATS menu labels this field
+          // as "vendor" — same visual slot.
+          vendor: l.buyer_name ?? "",
+          store: l.channel === "ecom" ? "ROF ECOM" : "ROF",
+          unitCost: l.unit_cost ?? 0,
+        }));
+        setSummaryCtx((prev) => (prev ? { ...prev, pos } : prev));
+      }
+    } finally {
+      setSummaryCtxLoading(false);
+    }
+  }
+
+  // Click-outside + Escape dismiss for the right-click menu. Matches the
+  // ATS implementation: any pointerdown that isn't inside the menu (or
+  // on a cell that just opened it) closes the menu.
+  useEffect(() => {
+    if (!summaryCtx) return;
+    function onPointerDown(e: PointerEvent) {
+      const node = summaryCtxRef.current;
+      if (!node) { setSummaryCtx(null); return; }
+      if (node.contains(e.target as Node)) return;
+      // Don't dismiss if the click landed on the cell that opened the
+      // menu — the right-click handler will re-open it anyway.
+      if (summaryCtx.cellEl && summaryCtx.cellEl.contains(e.target as Node)) return;
+      setSummaryCtx(null);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setSummaryCtx(null);
+    }
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [summaryCtx]);
+
   return (
     <div>
       <style>{`
@@ -2881,10 +3046,18 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
                   </span>
                 </td>
                 <td style={{ ...S.tdNum, ...colHide("onHand") }}>{formatQty(r.on_hand_qty)}</td>
-                <td style={{ ...S.tdNum, color: r.on_so_qty > 0 ? PAL.yellow : PAL.textMuted, ...colHide("onSo") }}>
+                <td
+                  style={{ ...S.tdNum, color: r.on_so_qty > 0 ? PAL.yellow : PAL.textMuted, cursor: r.on_so_qty > 0 ? "context-menu" : "default", ...colHide("onSo") }}
+                  title={r.on_so_qty > 0 ? "Right-click for SO line details" : undefined}
+                  onContextMenu={(e) => { if (r.on_so_qty > 0) void openSummaryCtx(e, "onOrder", r); }}
+                >
                   {r.on_so_qty > 0 ? formatQty(r.on_so_qty) : "—"}
                 </td>
-                <td style={{ ...S.tdNum, ...colHide("receipts") }}>{formatQty(r.receipts_due_qty)}</td>
+                <td
+                  style={{ ...S.tdNum, cursor: (r.receipts_due_qty ?? 0) > 0 ? "context-menu" : "default", ...colHide("receipts") }}
+                  title={(r.receipts_due_qty ?? 0) > 0 ? "Right-click for PO line details" : undefined}
+                  onContextMenu={(e) => { if ((r.receipts_due_qty ?? 0) > 0) void openSummaryCtx(e, "onPO", r); }}
+                >{formatQty(r.receipts_due_qty)}</td>
                 <td style={{ ...S.tdNum, color: PAL.textMuted, ...colHide("histRecv") }}>{r.historical_receipts_qty ? formatQty(r.historical_receipts_qty) : "—"}</td>
                 <td style={{ ...S.tdNum, color: PAL.text, ...colHide("ats") }}>{formatQty(r.available_supply_qty)}</td>
                 <td style={{ ...S.tdNum, padding: "0 4px", ...colHide("buy") }} onClick={(e) => e.stopPropagation()}>
@@ -2966,6 +3139,32 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
           </div>
         )}
       </div>
+      {/* Right-click PO/SO details — reused from the ATS app verbatim
+          so the look matches. summaryCtx is null when no cell is
+          active; loading state is only the small window between the
+          click and the lazy fetch landing. */}
+      <SummaryContextMenu
+        summaryCtx={summaryCtx}
+        summaryCtxRef={summaryCtxRef as React.RefObject<HTMLDivElement>}
+        setSummaryCtx={setSummaryCtx}
+      />
+      {summaryCtxLoading && summaryCtx && (
+        <div
+          style={{
+            position: "fixed",
+            left: summaryCtx.initialX + 12,
+            top: summaryCtx.initialY + 20,
+            zIndex: 501,
+            background: PAL.panel,
+            color: PAL.textDim,
+            border: `1px solid ${PAL.border}`,
+            borderRadius: 6,
+            padding: "4px 10px",
+            fontSize: 11,
+            pointerEvents: "none",
+          }}
+        >Loading…</div>
+      )}
     </div>
   );
 }
