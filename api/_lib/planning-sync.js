@@ -74,6 +74,9 @@ export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit =
     so_lines_inserted: 0,
     so_lines_pruned: 0,
     so_customers_created: 0,
+    so_skus_auto_created: 0,
+    so_skipped_no_sku: 0,
+    so_skipped_no_sku_id: 0,
     errors: [],
   };
 
@@ -299,12 +302,94 @@ export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit =
       }
     }
 
+    // Expand itemMap to cover SO SKUs that aren't in this chunk's
+    // inventory itemMap. Inventory itemMap was built from this chunk's
+    // ~2000 SKUs only — SOs reference the FULL SKU set across all
+    // chunks, plus any SKU with SO activity but no inventory presence.
+    // Without this, SOs for chunk-2+ SKUs (or zero-inventory active
+    // SKUs) get silently dropped at the if (!skuId) continue below
+    // — which lost ~$5M of the $9.4M SO book in production
+    // (discovered 2026-05-13 — user reported $4M instead of expected
+    // $9M after running the nightly).
+    //
+    // Step 1: bulk-lookup any SO SKU not already in itemMap.
+    // Step 2: stub-create the still-missing ones in ip_item_master,
+    // mirroring the inventory side's behaviour.
+    {
+      const soSkuSet = new Set();
+      for (const so of allSos) {
+        const sku = canonStyleColor(so.sku);
+        if (!sku) continue;
+        if (!itemMap.has(sku)) soSkuSet.add(sku);
+      }
+      // Also include PPK-stripped variants so a prepack SO whose SKU
+      // bakes the size token in resolves to the bare (style, color)
+      // master row. Mirrors the inventory-side fallback above.
+      const ppkStrippedSoExtras = new Set();
+      for (const sku of soSkuSet) {
+        const stripped = sku.replace(/-PPK[\s_-]*\d+(-[^-]*)?$/i, "");
+        if (stripped !== sku && !itemMap.has(stripped)) ppkStrippedSoExtras.add(stripped);
+      }
+      const allSoLookupSkus = [...soSkuSet, ...ppkStrippedSoExtras];
+      for (let i = 0; i < allSoLookupSkus.length; i += 200) {
+        const chunk = allSoLookupSkus.slice(i, i + 200);
+        const { data, error } = await admin
+          .from("ip_item_master")
+          .select("id, sku_code")
+          .in("sku_code", chunk);
+        if (error) {
+          result.errors.push(`so item_master fetch: ${error.message}`);
+          continue;
+        }
+        for (const r of data ?? []) itemMap.set(canonSku(r.sku_code), r.id);
+      }
+      // Stub-create still-missing SO SKUs so the SO line gets persisted
+      // instead of silently dropped. Same minimal-payload rule as
+      // inventory stubs (sku_code + parsed style_code + active=true).
+      const stillMissingSoSkus = [];
+      for (const sku of soSkuSet) {
+        if (itemMap.has(sku)) continue;
+        const stripped = sku.replace(/-PPK[\s_-]*\d+(-[^-]*)?$/i, "");
+        if (stripped !== sku && itemMap.has(stripped)) {
+          itemMap.set(sku, itemMap.get(stripped));
+          continue;
+        }
+        stillMissingSoSkus.push(sku);
+      }
+      if (stillMissingSoSkus.length > 0) {
+        const newItems = stillMissingSoSkus.map((sku) => buildItemRow(sku));
+        for (let i = 0; i < newItems.length; i += 500) {
+          const chunk = newItems.slice(i, i + 500);
+          const { data: created, error } = await admin
+            .from("ip_item_master")
+            .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: true })
+            .select("id, sku_code");
+          if (error) {
+            result.errors.push(`so item bulk insert chunk ${i}: ${error.message}`);
+            continue;
+          }
+          for (const row of created ?? []) itemMap.set(canonSku(row.sku_code), row.id);
+        }
+        result.so_skus_auto_created = (result.so_skus_auto_created ?? 0) + stillMissingSoSkus.length;
+      }
+    }
+
     const soAgg = new Map();
     for (const so of allSos) {
       const sku = canonStyleColor(so.sku);
-      if (!sku) continue;
+      if (!sku) {
+        result.so_skipped_no_sku = (result.so_skipped_no_sku ?? 0) + 1;
+        continue;
+      }
       const skuId = lookupSkuIdWithPpkFallback(itemMap, sku);
-      if (!skuId) continue;
+      if (!skuId) {
+        // Should be rare now after the expand+stub above. Surfaced as
+        // a counter so a future regression (e.g. a Xoro change in SKU
+        // shape that breaks canonStyleColor) is visible immediately
+        // in the response instead of as silent $ shrinkage.
+        result.so_skipped_no_sku_id = (result.so_skipped_no_sku_id ?? 0) + 1;
+        continue;
+      }
       // Persist undated SOs with ship_date=null instead of dropping
       // them. Reason: ATS exports often contain backorders / suspended
       // orders / freshly-created lines without a scheduled ship date.
@@ -398,6 +483,17 @@ export async function syncOnHandFromAtsSnapshot(admin, { chunkSize = 2000 } = {}
   let newSkus = 0;
   let skipped = 0;
   let scanned = 0;
+  // SO ingest only fires on chunk 1, but we track these so the response
+  // surfaces them. Without them, a future regression in SO promote (e.g.
+  // the "$4M instead of $9M" bug 2026-05-13) would not be visible until
+  // someone manually compares ATS UI vs DB totals.
+  let soTotal = 0;
+  let soInserted = 0;
+  let soPruned = 0;
+  let soSkusAutoCreated = 0;
+  let soSkippedNoSku = 0;
+  let soSkippedNoSkuId = 0;
+  let soCustomersCreated = 0;
   const errors = [];
   let firstError = null;
 
@@ -409,6 +505,13 @@ export async function syncOnHandFromAtsSnapshot(admin, { chunkSize = 2000 } = {}
     newSkus += r.auto_created_skus ?? 0;
     skipped += (r.skipped_zero_state ?? 0) + (r.skipped_no_sku ?? 0);
     scanned = r.ats_skus_total ?? scanned;
+    soTotal += r.so_lines_total ?? 0;
+    soInserted += r.so_lines_inserted ?? 0;
+    soPruned += r.so_lines_pruned ?? 0;
+    soSkusAutoCreated += r.so_skus_auto_created ?? 0;
+    soSkippedNoSku += r.so_skipped_no_sku ?? 0;
+    soSkippedNoSkuId += r.so_skipped_no_sku_id ?? 0;
+    soCustomersCreated += r.so_customers_created ?? 0;
     if (Array.isArray(r.errors) && r.errors.length > 0) errors.push(...r.errors);
     if (firstError) break;
     if (r.done || r.next_start == null) break;
@@ -421,6 +524,13 @@ export async function syncOnHandFromAtsSnapshot(admin, { chunkSize = 2000 } = {}
     skipped,
     scanned,
     chunks,
+    so_lines_total: soTotal,
+    so_lines_inserted: soInserted,
+    so_lines_pruned: soPruned,
+    so_skus_auto_created: soSkusAutoCreated,
+    so_skipped_no_sku: soSkippedNoSku,
+    so_skipped_no_sku_id: soSkippedNoSkuId,
+    so_customers_created: soCustomersCreated,
     errors,
     error: firstError?.error ?? null,
     details: firstError?.details ?? null,
