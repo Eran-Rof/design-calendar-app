@@ -252,6 +252,26 @@ products.forEach((p, pi) => {
   });
 });
 
+// ── Build customer master ───────────────────────────────────────────────
+// 5 demo customers across tiers so the planning grid shows real customer
+// names (instead of "(Supply Only)" everywhere) and ABC analysis has data.
+const DEMO_CUSTOMERS = [
+  { code: "DEMO-CUST-WMT",   name: "Walmart",  tier: "major",    country: "US" },
+  { code: "DEMO-CUST-MACYS", name: "Macy's",   tier: "major",    country: "US" },
+  { code: "DEMO-CUST-DILL",  name: "Dillards", tier: "major",    country: "US" },
+  { code: "DEMO-CUST-TJX",   name: "TJ Maxx",  tier: "off-price", country: "US" },
+  { code: "DEMO-CUST-ROSS",  name: "Ross",     tier: "off-price", country: "US" },
+];
+const ipCustomers = DEMO_CUSTOMERS.map(c => ({
+  id: uuidFrom(`cust-${c.code}`),
+  customer_code: c.code,
+  name: c.name,
+  customer_tier: c.tier,
+  country: c.country,
+  active: true,
+  external_refs: { demo: true },
+}));
+
 // ── Build prepack (PPK) styles ──────────────────────────────────────────
 // Demo a few prepack SKUs to show the PPK explosion behaviour. The PPK
 // detector in src/shared/prepack/index.ts looks for "PPKn" anywhere in
@@ -594,8 +614,92 @@ openPos.forEach((po) => {
   });
 });
 
-// Synthesise SO commitments. ~25% of SKUs get a near-future SO so the demo
-// grid shows on-SO bars in the next few months.
+// ── Build open SOs (ip_open_sales_orders) ───────────────────────────────
+// Distributes ~70% of SKUs across the 5 retailers with 1-2 open commitments
+// each, ship_dates spanning 4-180 days out so the planning grid shows
+// multiple customers × multiple period buckets per SKU (not "Supply Only").
+const ipOpenSos = [];
+ipItems.forEach((it, idx) => {
+  const skuId = it.id;
+  const hasSo = rngInt(`hasipso-${it.sku_code}`, 0, 9) >= 3; // ~70%
+  if (!hasSo) return;
+  const numCommits = 1 + rngInt(`nc-${it.sku_code}`, 0, 1);
+  for (let k = 0; k < numCommits; k++) {
+    const customer = ipCustomers[rngInt(`cust-${it.sku_code}-${k}`, 0, ipCustomers.length - 1)];
+    const qty = rngInt(`soq-${it.sku_code}-${k}`, 6, 200);
+    const shipped = rngInt(`shp-${it.sku_code}-${k}`, 0, 1) === 0 ? 0 : Math.floor(qty / 3);
+    const daysOut = rngInt(`shd-${it.sku_code}-${k}`, 4, 180);
+    const shipDate = addDays(TODAY, daysOut);
+    const soNumber = `DEMO-SO-${String(5000 + idx * 3 + k).padStart(6, "0")}`;
+    ipOpenSos.push({
+      id: uuidFrom(`ipso-${it.sku_code}-${k}`),
+      sku_id: skuId,
+      customer_id: customer.id,
+      customer_name: customer.name,
+      so_number: soNumber,
+      ship_date: shipDate,
+      cancel_date: addDays(shipDate, 30),
+      qty_ordered: qty,
+      qty_shipped: shipped,
+      qty_open: qty - shipped,
+      unit_price: Number(it.unit_price || 0),
+      currency: "USD",
+      status: shipped > 0 ? "partial" : "open",
+      store: "DEMO-WH1",
+      source: "manual",
+      source_line_key: `${soNumber}:${k}`,
+    });
+  }
+});
+
+// ── Build sales history (ip_sales_history_wholesale) ────────────────────
+// 14 months of monthly sales per SKU split across the 5 retailers. Gives
+// the planning grid usable T3 (trailing-3-month) and SP/LY (same-period-
+// last-year) signals. Volume varies seasonally so charts look natural.
+const ipSalesHistory = [];
+const monthsBack = 14;
+ipItems.forEach((it, idx) => {
+  for (let m = 1; m <= monthsBack; m++) {
+    // 1-2 transactions per month, ~3 of the 5 customers buying per SKU
+    const customer = ipCustomers[(idx + m) % ipCustomers.length];
+    const monthOffset = -m * 30 + rngInt(`hd-${it.sku_code}-${m}`, -10, 10);
+    const txnDate = addDays(TODAY, monthOffset);
+    // Seasonal multiplier: m near 6 (6 months ago = Nov) and m near 12 (May 2025)
+    // skew higher to mimic spring/fall lifts.
+    const month = new Date(txnDate + "T00:00:00Z").getUTCMonth() + 1;
+    const seasonMult = [3, 4, 5].includes(month) ? 1.4 : [10, 11].includes(month) ? 1.25 : 1.0;
+    const baseQty = rngInt(`hq-${it.sku_code}-${m}`, 8, 80);
+    const qty = Math.round(baseQty * seasonMult);
+    const unitPrice = Number(it.unit_price || 0);
+    const gross = qty * unitPrice;
+    const discountPct = rngInt(`dpct-${it.sku_code}-${m}`, 0, 25) / 100;
+    const discount = Math.round(gross * discountPct * 100) / 100;
+    const orderNumber = `DEMO-ORD-${idx}-${m}`;
+    const invoiceNumber = `DEMO-INV-${idx}-${m}`;
+    ipSalesHistory.push({
+      id: uuidFrom(`hist-${it.sku_code}-${m}`),
+      sku_id: it.id,
+      customer_id: customer.id,
+      category_id: it.category_id,
+      order_number: orderNumber,
+      invoice_number: invoiceNumber,
+      txn_type: "invoice",
+      txn_date: txnDate,
+      qty,
+      unit_price: unitPrice,
+      gross_amount: gross,
+      discount_amount: discount,
+      net_amount: Math.round((gross - discount) * 100) / 100,
+      currency: "USD",
+      source: "demo",
+      source_line_key: `${invoiceNumber}:${it.sku_code}`,
+    });
+  }
+});
+
+// Synthesise ATS-side SO commitments. ~25% of SKUs get a near-future SO so
+// the ATS grid shows on-SO bars too (separate from ip_open_sales_orders
+// above, which feeds the planning grid).
 const atsSos = [];
 ipItems.forEach((it, i) => {
   const hasSo = rngInt(`hasso-${it.sku_code}`, 0, 3) === 0;
@@ -686,14 +790,20 @@ const bundle = {
       atsSkus: atsExcelData.skus.length,
       atsPos: atsExcelData.pos.length,
       atsSos: atsExcelData.sos.length,
+      ipCustomers: ipCustomers.length,
+      ipOpenSos: ipOpenSos.length,
+      ipSalesHistory: ipSalesHistory.length,
     },
   },
   vendors:          portalVendors,
   ip_vendor_master: ipVendors,
+  ip_customer_master: ipCustomers,
   ip_category_master: ipCategories,
   ip_item_master:   ipItems,
   ip_inventory_snapshot: ipSnapshots,
   ip_open_purchase_orders: openPos,
+  ip_open_sales_orders: ipOpenSos,
+  ip_sales_history_wholesale: ipSalesHistory,
   tanda_pos:        tandaPos,
   tanda_milestones: milestones,
   tasks:            tasks,
@@ -749,6 +859,53 @@ async function del(table, filter) {
   console.log(`  ✗ wiped ${table} (${filter})`);
 }
 
+// Delete dependents that FK to ip_item_master before deleting the items.
+// Reads the current demo sku_id list from the DB (catches rows seeded in
+// prior runs whose IDs may not match our current deterministic UUIDs).
+async function wipeItemDependents() {
+  const r = await fetch(`${REST}/ip_item_master?sku_code=like.DEMO-*&select=id`, { headers: H_READ });
+  if (!r.ok) {
+    console.log(`  (skip dependents wipe — no items present)`);
+    return;
+  }
+  const rows = await r.json();
+  if (!rows.length) { console.log(`  (no item dependents to wipe)`); return; }
+  const ids = rows.map(x => x.id);
+  console.log(`  (found ${ids.length} demo sku_ids — wiping dependents)`);
+  // Tables that may have a sku_id FK to ip_item_master. We try them all;
+  // the del() function tolerates 404 (table missing) and 400 (column missing)
+  // so the misses are no-ops.
+  const dependentTables = [
+    "ip_wholesale_forecast", "ip_wholesale_forecast_tbd", "ip_wholesale_recommendations",
+    "ip_ecom_forecast", "ip_ecom_override_events",
+    "ip_planner_bucket_buys", "ip_planner_overrides",
+    "ip_item_avg_cost", "ip_forecast_accuracy", "ip_forecast_actuals",
+    "ip_planned_buys_supply", "ip_projected_inventory",
+    "ip_inventory_recommendations", "ip_ai_suggestions",
+    "ip_planning_anomalies", "ip_override_effectiveness",
+    "ip_supply_exceptions", "ip_vendor_timing_signals",
+    "ip_product_channel_status", "ip_allocation_rules",
+    "ip_future_demand_requests", "ip_planning_approvals",
+    "ip_execution_actions", "ip_scenario_assumptions",
+    "ip_change_audit_log", "ip_action_templates",
+    "ip_receipts_history", "ip_sales_history_ecom",
+  ];
+  const CHUNK = 50;
+  for (const t of dependentTables) {
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const slice = ids.slice(i, i + CHUNK);
+      const filter = `sku_id=in.(${slice.join(",")})`;
+      const url = `${REST}/${t}?${filter}`;
+      const r = await fetch(url, { method: "DELETE", headers: H_READ });
+      if (!r.ok && r.status !== 404 && r.status !== 400) {
+        // 404 = table doesn't exist, 400 = column doesn't exist; both ok
+        console.log(`    ⚠ ${t} chunk ${i / CHUNK + 1} HTTP ${r.status}`);
+      }
+    }
+    console.log(`  ✗ wiped ${t} for demo sku_ids`);
+  }
+}
+
 async function upsert(table, rows, onConflictHint) {
   if (rows.length === 0) return;
   // Chunk large arrays to keep payload + URL sizes sane.
@@ -768,9 +925,13 @@ await del("tasks", "data->>_demo=eq.true");
 await del("collections", "id=like.DEMO-COL-*");
 await del("tanda_milestones", "data->>_demo=eq.true");
 await del("tanda_pos", "po_number=like.DEMO-PO-*");
+await del("ip_sales_history_wholesale", "source=eq.demo");
+await del("ip_open_sales_orders", "so_number=like.DEMO-SO-*");
 await del("ip_open_purchase_orders", "po_number=like.DEMO-PO-*");
 await del("ip_inventory_snapshot", "warehouse_code=eq.DEMO-WH1");
+await wipeItemDependents();
 await del("ip_item_master", "sku_code=like.DEMO-*");
+await del("ip_customer_master", "customer_code=like.DEMO-CUST-*");
 await del("ip_category_master", "category_code=like.DEMO-CAT-*");
 await del("ip_vendor_master", "vendor_code=like.DEMO-VND-*");
 const portalIds = portalVendors.map(v => v.id).join(",");
@@ -781,9 +942,12 @@ console.log("\nInserting fresh DEMO rows…");
 await upsert("vendors", portalVendors, "id");
 await upsert("ip_vendor_master", ipVendors, "vendor_code");
 await upsert("ip_category_master", ipCategories, "category_code");
+await upsert("ip_customer_master", ipCustomers, "customer_code");
 await upsert("ip_item_master", ipItems, "sku_code");
 await upsert("ip_inventory_snapshot", ipSnapshots, "sku_id,warehouse_code,snapshot_date,source");
 await upsert("ip_open_purchase_orders", openPos, "source,source_line_key");
+await upsert("ip_open_sales_orders", ipOpenSos, "source,source_line_key");
+await upsert("ip_sales_history_wholesale", ipSalesHistory, "source,source_line_key");
 await upsert("tanda_pos", tandaPos, null);  // wiped above; plain insert
 await upsert("tanda_milestones", milestones, "id");
 await upsert("tasks", tasks.map(t => ({ id: t.id, data: t })), "id");
