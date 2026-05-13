@@ -134,9 +134,11 @@ export function createInitialState(startDate: string): ATSState {
     filterGender: "All",
     filterStatus: "All",
     minATS: "",
-    // Default to ROF only — the bulk of the inventory + SO volume.
-    // PT and ROF ECOM are minor and operators flip them on as needed.
-    storeFilter: ["ROF"],
+    // Default to ROF + PT (both are real customer-facing inventory).
+    // ROF ECOM is intentionally OFF by default — it's a small ecom-only
+    // pool the operator flips on when looking at ecom-specific buys.
+    // Confirmed with user 2026-05-12.
+    storeFilter: ["ROF", "PT"],
     poDropOpen: false,
     soDropOpen: false,
     rows: [],
