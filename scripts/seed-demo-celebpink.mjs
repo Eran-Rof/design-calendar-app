@@ -151,9 +151,6 @@ products.forEach((p, pi) => {
   const firstImage = p.images?.[0]?.src || null;
 
   p.variants.forEach((v) => {
-    const baseSku = v.sku || `${p.handle}-${v.option1 || ""}-${v.option2 || ""}`;
-    const sku = `DEMO-${baseSku.replace(/\s+/g, "-").replace(/[^A-Za-z0-9._-]/g, "")}`;
-    const itemId = uuidFrom(`item-${sku}`);
     const price = Number(v.price) || 0;
     const cost = Math.round(price * 0.30 * 100) / 100;
 
@@ -162,6 +159,16 @@ products.forEach((p, pi) => {
     const colorOptIdx = p.options.findIndex(o => /color|wash/i.test(o.name));
     const size = sizeOptIdx === 0 ? v.option1 : sizeOptIdx === 1 ? v.option2 : v.option1;
     const color = colorOptIdx === 0 ? v.option1 : colorOptIdx === 1 ? v.option2 : v.option2;
+
+    // SKU format chosen to match the app's size-parser expectation:
+    // DEMO-{stylepart}-{colorpart}-{size}. The last dash-separated token
+    // must pass isSizeToken (numeric or XS/S/M/L/XL etc.) so the PO
+    // detail matrix renders correctly. See itemSizeLabel in GridView.tsx.
+    const stylePart = String(p.handle || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 20) || "STYLE";
+    const colorPart = String(color || "X").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 12) || "X";
+    const sizePart  = String(size  || "OS").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 6) || "OS";
+    const sku = `DEMO-${stylePart}-${colorPart}-${sizePart}`;
+    const itemId = uuidFrom(`item-${sku}`);
 
     ipItems.push({
       id: itemId,
@@ -233,13 +240,18 @@ for (let i = 0; i < 20; i++) {
     pickedStyles.push(styles[(i * 7 + s * 13) % styles.length]);
   }
 
-  const lines = [];
+  // Build PO lines. Two shapes generated from the same loop:
+  //   - openPos[] for ip_open_purchase_orders (snake_case, planning schema)
+  //   - items[] for tanda_pos.data.Items (Xoro PascalCase, what the PO WIP
+  //     UI reads — see XoroPOItem in src/utils/tandaTypes.ts).
+  const items = [];
   pickedStyles.forEach(([styleCode, info], si) => {
     info.items.forEach((it, vi) => {
       const qty = rngInt(`poq-${i}-${si}-${vi}`, 6, 120);
       const received = status === "received" ? qty : status === "shipped" ? Math.floor(qty / 2) : 0;
       const lineNo = String(si * 100 + vi + 1);
       const skuObj = ipItems.find(x => x.id === it.itemId);
+      const lineStatus = status === "received" ? "Closed" : "Open";
       openPos.push({
         id: uuidFrom(`opo-${poNumber}-${it.sku}`),
         sku_id: it.itemId,
@@ -257,25 +269,25 @@ for (let i = 0; i < 20; i++) {
         source: "manual",
         source_line_key: `${poNumber}:${lineNo}`,
       });
-      lines.push({
-        line_no: lineNo,
-        sku: it.sku,
-        description: skuObj?.description,
-        qty,
-        received,
-        unit_cost: it.cost,
-        unit_price: it.price,
-        size: skuObj?.size,
-        color: skuObj?.color,
-        image_url: skuObj?.attributes?.image_url,
+      items.push({
+        ItemNumber: it.sku,
+        Description: skuObj?.description ?? "",
+        QtyOrder: qty,
+        QtyReceived: received,
+        QtyRemaining: qty - received,
+        UnitPrice: it.price,
+        Discount: 0,
+        StatusName: lineStatus,
+        DateExpectedDelivery: expectedDate,
       });
     });
   });
 
-  const totalQty = lines.reduce((n, l) => n + l.qty, 0);
-  const totalValue = lines.reduce((n, l) => n + l.qty * l.unit_cost, 0);
+  const totalQty = items.reduce((n, l) => n + (l.QtyOrder || 0), 0);
+  const totalAmount = items.reduce((n, l) => n + (l.QtyOrder || 0) * (l.UnitPrice || 0), 0);
 
   const tandaId = uuidFrom(`tanda-${poNumber}`);
+  const xoroStatus = status === "issued" ? "Released" : status === "in_production" ? "Released" : status === "shipped" ? "Released" : "Closed";
   tandaPos.push({
     uuid_id: tandaId,
     po_number: poNumber,
@@ -289,18 +301,24 @@ for (let i = 0; i < 20; i++) {
     status,
     synced_at: new Date().toISOString(),
     data: {
-      po_number: poNumber,
-      vendor: vendor.name,
-      vendor_code: vendor.vendor_code,
-      buyer_po: buyerPo,
-      date_order: orderDate,
-      date_expected_delivery: expectedDate,
-      status,
-      currency: "USD",
-      total_qty: totalQty,
-      total_value: Math.round(totalValue * 100) / 100,
-      lines,
+      // Xoro-shaped PO header (see XoroPO interface in src/utils/tandaTypes.ts).
+      // PascalCase is required — the PO WIP detail panels read these specific
+      // field names. snake_case fields will leave the UI blank.
+      PoNumber: poNumber,
+      VendorName: vendor.name,
+      DateOrder: orderDate,
+      DateExpectedDelivery: expectedDate,
+      StatusName: xoroStatus,
+      CurrencyCode: "USD",
+      BuyerName: "Celebrity Pink Jeans (DEMO)",
+      BuyerPo: buyerPo,
+      BrandName: "Celebrity Pink",
+      TotalAmount: Math.round(totalAmount * 100) / 100,
+      Items: items,
+      // Legacy/extra fields useful for debugging; do not remove
       _demo: true,
+      _totalQty: totalQty,
+      _vendorCode: vendor.vendor_code,
     },
   });
 }
