@@ -140,9 +140,10 @@ export function createInitialState(startDate: string): ATSState {
     // pool the operator flips on when looking at ecom-specific buys.
     // Confirmed with user 2026-05-12.
     // In demo mode the seed uses DEMO-WH1 as the only store, so default
-    // to empty (= all stores visible) so the third party doesn't have
-    // to fiddle with the dropdown.
-    storeFilter: appConfig.demoMode ? [] : ["ROF", "PT"],
+    // to ["All"] — that's the sentinel filter.ts checks for to bypass
+    // store filtering entirely. Empty [] would mean "no stores selected"
+    // and hide every row.
+    storeFilter: appConfig.demoMode ? ["All"] : ["ROF", "PT"],
     poDropOpen: false,
     soDropOpen: false,
     rows: [],
