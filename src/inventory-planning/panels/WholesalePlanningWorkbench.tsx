@@ -2210,7 +2210,7 @@ export default function WholesalePlanningWorkbench() {
           <input type="date" value={ingestTo} onChange={(e) => setIngestTo(e.target.value)}
                  style={{ ...S.input, width: 140 }} />
           {!autoWalking ? (
-            <button style={S.btnPrimary} onClick={autoWalkSales} disabled={ingesting} title="Pulls every invoice in your Xoro catalog. Forecast layer will trim to last 12 months from snapshot when building.">
+            <button style={S.btnSecondary} onClick={autoWalkSales} disabled={ingesting} title="Bootstrap / history extension only. Walks every invoice page from page 1 — use this to pull history older than the nightly 'Last Calendar Year to Date' window (~17 months). Routine daily updates are covered by the nightly pipeline.">
               {runningKind === "autowalk" ? "Working…" : "▶ Fetch all Xoro sales"}
             </button>
           ) : (
@@ -2218,26 +2218,22 @@ export default function WholesalePlanningWorkbench() {
               ■ Stop fetch
             </button>
           )}
-          <button style={S.btnSecondary} onClick={syncNewestSales} disabled={ingesting || autoWalking} title="Pulls only the LAST 10 Xoro pages (~1000 newest invoices). Use after the Excel bootstrap for daily/weekly updates.">
-            {runningKind === "newest" ? "Working…" : "↻ Sync newest sales"}
-          </button>
-          {/* "Upload item master (Excel)" + "Upload sales (Excel)" buttons
-              were retired when the nightly pipeline took over both data
-              types — post_master_data.py refreshes ip_item_master from
-              the Xoro CurrentProducts CSV, and post_invoice_detail.py
-              refreshes ip_sales_history_wholesale from the Xoro
-              InvoiceDetail CSV. Manual Excel uploads bypassed those
-              tables and risked overwriting fresh nightly data with a
-              stale spreadsheet. The ingestSalesExcel / ingestItemMasterExcel
-              services still exist for emergency manual re-runs from a
-              dev console; the buttons are intentionally hidden. */}
-          <button style={S.btnSecondary} onClick={() => void runMissingItemsSync()} disabled={ingesting || autoWalking} title="Pulls the Xoro item catalog and inserts only SKUs not already in the item master. Existing rows are never modified.">
-            {runningKind === "missing-items" ? "Working…" : "+ Add new items (Xoro)"}
-          </button>
-          <button style={S.btnSecondary} onClick={() => void runSupplySync("ats")} disabled={ingesting || autoWalking} title="Pulls on-hand / on-SO from the ATS app's persisted Excel snapshot into ip_inventory_snapshot">
+          {/* Retired buttons (intentionally hidden — nightly pipeline covers both):
+              - "↻ Sync newest sales" — post_invoice_detail.py incrementally upserts
+                ip_sales_history_wholesale every night ("Last Calendar Year to Date")
+              - "+ Add new items (Xoro)" — post_master_data.py does a full upsert of
+                CurrentProducts into ip_item_master every night (new items included)
+              - "Upload item master (Excel)" + "Upload sales (Excel)" — retired
+                earlier for the same reason. Manual Excel uploads bypassed the
+                canonical tables and risked overwriting fresh nightly data with
+                a stale spreadsheet.
+              The underlying services (syncNewestSalesViaServer, syncMissingItems,
+              ingestSalesExcel, ingestItemMasterExcel) remain wired up for
+              emergency dev-console re-runs; only the buttons are hidden. */}
+          <button style={S.btnSecondary} onClick={() => void runSupplySync("ats")} disabled={ingesting || autoWalking} title="Mid-day refresh: pulls on-hand / on-SO from the ATS app's persisted Excel snapshot into ip_inventory_snapshot. Nightly post_planning_supply.py already runs this at 21:00.">
             {runningKind === "ats" ? "Working…" : "Sync on-hand (ATS)"}
           </button>
-          <button style={S.btnSecondary} onClick={() => void runSupplySync("tanda")} disabled={ingesting || autoWalking} title="Pulls open POs from the PO WIP app's tanda_pos table into ip_open_purchase_orders">
+          <button style={S.btnSecondary} onClick={() => void runSupplySync("tanda")} disabled={ingesting || autoWalking} title="Mid-day refresh: pulls open POs from the PO WIP app's tanda_pos table into ip_open_purchase_orders. Nightly post_purchase_orders.py already runs this at 21:00.">
             {runningKind === "tanda" ? "Working…" : "Sync open POs (TandA)"}
           </button>
           <span style={{ color: PAL.textMuted, fontSize: 12, flexBasis: "100%" }}>
