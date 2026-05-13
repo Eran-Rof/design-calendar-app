@@ -36,6 +36,53 @@ export const config = { maxDuration: 300 };
 const PO_PATH = "purchaseorder/getpurchaseorder";
 const ACTIVE_STATUSES = ["Open", "Released", "Partially Received"];
 
+// Flatten Xoro's wrapped PO shape ({ poHeader: {...}, poLines: [...] })
+// into the flat shape the browser-side useSyncOps writes to tanda_pos
+// (PoNumber, VendorName, ... at the top level + Items: [...] for lines).
+// This MUST mirror src/utils/tandaTypes.ts::mapXoroRaw() — same lookup
+// keys, same fallback chain — so tanda_pos rows written by the nightly
+// agent are indistinguishable from rows written by the PO WIP UI.
+//
+// Why flatten here, not let downstream do it: api/_lib/planning-sync.js
+// (syncOpenPosFromTandaPos) reads po.PoLineArr / po.Items only — it
+// won't recognize Xoro's poLines array. Writing the wrapped shape would
+// silently drop every PO's line items at promote time.
+function flattenXoroPo(raw) {
+  const h = raw?.poHeader ?? raw ?? {};
+  const lines = Array.isArray(raw?.poLines) ? raw.poLines
+              : Array.isArray(raw?.PoLineArr) ? raw.PoLineArr
+              : Array.isArray(raw?.Items) ? raw.Items
+              : [];
+  return {
+    PoNumber:              h.OrderNumber ?? h.PoNumber ?? "",
+    VendorName:            h.VendorName ?? "",
+    DateOrder:             h.DateOrder ?? "",
+    DateExpectedDelivery:  h.DateExpectedDelivery ?? "",
+    VendorReqDate:         h.VendorReqDate ?? "",
+    StatusName:            h.StatusName ?? "",
+    CurrencyCode:          h.CurrencyCode ?? "USD",
+    Memo:                  h.Memo ?? "",
+    Tags:                  h.Tags ?? "",
+    PaymentTermsName:      h.PaymentTermsName ?? "",
+    ShipMethodName:        h.ShipMethodName ?? "",
+    CarrierName:           h.CarrierName ?? "",
+    BuyerName:             h.BuyerName ?? "",
+    BuyerPo:               h.ReferenceNumber ?? h.RefNumber ?? h.BuyerOrderNumber ?? h.BuyerPo ?? "",
+    BrandName:             h.BrandName ?? h.Brand ?? "",
+    TotalAmount:           h.TotalAmount ?? 0,
+    Items: lines.map((l) => ({
+      ItemNumber:           l.PoItemNumber ?? l.ItemNumber ?? "",
+      Description:          l.Description ?? l.Title ?? "",
+      QtyOrder:             l.QtyOrder ?? 0,
+      QtyReceived:          l.QtyReceived ?? 0,
+      QtyRemaining:         l.QtyRemaining ?? ((l.QtyOrder ?? 0) - (l.QtyReceived ?? 0)),
+      UnitPrice:            l.UnitPrice ?? l.EffectiveUnitPrice ?? 0,
+      StatusName:           l.StatusName ?? l.Status ?? l.LineStatusName ?? "",
+      DateExpectedDelivery: l.DateExpectedDelivery ?? l.DeliveryDate ?? l.DateDelivery ?? l.DateExpected ?? "",
+    })),
+  };
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -100,14 +147,17 @@ export default async function handler(req, res) {
       return res.status(502).json({ ...result, error: "All status fetches failed" });
     }
 
-    // 2. Dedup by PoNumber/OrderNumber. A PO that flips status mid-walk
-    //    can appear under more than one status bucket; keep the first
-    //    occurrence (Open before Released before Partially Received).
+    // 2. Flatten Xoro's wrapped shape (poHeader + poLines) into the flat
+    //    PO shape useSyncOps writes. Then dedup by PoNumber. A PO that
+    //    flips status mid-walk can appear under more than one status
+    //    bucket; keep the first occurrence (Open before Released before
+    //    Partially Received).
     const byPo = new Map();
     for (const raw of allRaw) {
-      const poNumber = String(raw.OrderNumber ?? raw.PoNumber ?? "").trim();
+      const flat = flattenXoroPo(raw);
+      const poNumber = String(flat.PoNumber ?? "").trim();
       if (!poNumber) { result.skipped_no_po_number++; continue; }
-      if (!byPo.has(poNumber)) byPo.set(poNumber, raw);
+      if (!byPo.has(poNumber)) byPo.set(poNumber, flat);
     }
     result.pos_unique_after_dedup = byPo.size;
     if (byPo.size === 0) {
@@ -145,27 +195,21 @@ export default async function handler(req, res) {
     //    UI's PoNumber → row lookup keeps working.
     const now = new Date().toISOString();
     const rows = [];
-    for (const [poNumber, raw] of byPo) {
-      // OrderNumber is the canonical Xoro field; useSyncOps remaps it
-      // to PoNumber via mapXoroRaw. We persist the raw shape (with
-      // OrderNumber + PoNumber both present) so existing readers
-      // expecting either form keep working.
+    for (const [poNumber, flat] of byPo) {
+      // flat is already in the canonical shape (PoNumber/Items/etc.).
+      // Preserve user-set buyer_po overrides — clearing the override
+      // re-opens the field to Xoro's value.
       const userBuyerPo = existingBuyerPo.get(poNumber) || "";
-      const xoroBuyerPo = raw.ReferenceNumber ?? raw.RefNumber ?? raw.BuyerOrderNumber ?? raw.BuyerPo ?? "";
-      const buyerPo = userBuyerPo || xoroBuyerPo || "";
+      const buyerPo = userBuyerPo || flat.BuyerPo || "";
       if (userBuyerPo) result.buyer_po_preserved++;
       rows.push({
         po_number: poNumber,
-        vendor: raw.VendorName ?? "",
-        date_order: raw.DateOrder ?? null,
-        date_expected: raw.DateExpectedDelivery ?? null,
-        status: raw.StatusName ?? "",
+        vendor: flat.VendorName ?? "",
+        date_order: flat.DateOrder || null,
+        date_expected: flat.DateExpectedDelivery || null,
+        status: flat.StatusName ?? "",
         buyer_po: buyerPo || null,
-        // PoNumber is the field syncOpenPosFromTandaPos reads from
-        // (planning-sync.js:535). Always set it from the canonical
-        // poNumber so older rows whose data was written without it get
-        // back-filled on the next sync.
-        data: { ...raw, PoNumber: poNumber, BuyerPo: buyerPo },
+        data: { ...flat, BuyerPo: buyerPo },
         synced_at: now,
       });
     }
