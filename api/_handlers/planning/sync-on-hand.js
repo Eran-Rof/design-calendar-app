@@ -48,6 +48,18 @@ export default async function handler(req, res) {
       skipped: r.skipped,
       scanned: r.scanned,
       chunks: r.chunks,
+      // SO promote counters (added 2026-05-13 after the "$4M instead
+      // of $9M" SO promote bug). so_skipped_no_sku_id is the canary —
+      // should always be 0 after planning-sync.js's SO-SKU expand+stub
+      // runs cleanly. Non-zero means the lookup path silently dropped
+      // SOs again — daily email + verify_ats_totals.py both watch this.
+      so_lines_total: r.so_lines_total,
+      so_lines_inserted: r.so_lines_inserted,
+      so_lines_pruned: r.so_lines_pruned,
+      so_skus_auto_created: r.so_skus_auto_created,
+      so_skipped_no_sku: r.so_skipped_no_sku,
+      so_skipped_no_sku_id: r.so_skipped_no_sku_id,
+      so_customers_created: r.so_customers_created,
       errors: r.errors,
     });
   } catch (e) {
