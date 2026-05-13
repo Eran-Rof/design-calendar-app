@@ -95,7 +95,18 @@ export async function applyPOWIPDataToExcel(data: ExcelData): Promise<ExcelData>
         const nextDesc = prev.description || itemDesc;
         nextSkus[existingIdx] = { ...prev, onPO: (prev.onPO || 0) + qty, description: nextDesc };
       }
-      if (date) nextPos.push({ sku, date, qty, poNumber: poNum, vendor, store, unitCost });
+      // Always push the PO event, even when the vendor hasn't filled in a
+      // delivery date. Empty-date events:
+      //   - are EXCLUDED from time-period columns by getEventsInPeriod
+      //     (date "" < any periodStart → never matches a period)
+      //   - are INCLUDED in the $ on PO total at ATS.tsx:941 (sums by
+      //     qty * unitCost, no date filter)
+      // Mirrors the design intent documented in parseExcelClient.ts:332
+      // "these POs ... are still counted in the On PO total." Without
+      // this, undated POs (often Macy's EDI orders that arrive without
+      // a DDP) silently dropped from $ on PO while still contributing
+      // to the qty stat — confusing low-by-$X numbers.
+      nextPos.push({ sku, date, qty, poNumber: poNum, vendor, store, unitCost });
     }
   }
 
