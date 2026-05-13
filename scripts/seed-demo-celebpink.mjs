@@ -425,6 +425,79 @@ styleSample.forEach(([styleCode, info], si) => {
   });
 });
 
+// ── Build ats_excel_data blob (app_data) ───────────────────────────────
+// The ATS app reads from app_data['ats_excel_data'] — a single jsonb row
+// holding skus[], pos[], sos[] arrays + meta. Shape matches src/ats/types.ts
+// ExcelData. PO events are derived from our openPos rows; SO events are
+// synthesised across the next 90 days for realism.
+const atsSkus = ipItems.map(it => {
+  const snap = ipSnapshots.find(s => s.sku_id === it.id);
+  const posForSku = openPos.filter(p => p.sku_id === it.id);
+  const onPO = posForSku.reduce((n, p) => n + Number(p.qty_open || 0), 0);
+  return {
+    sku: it.sku_code,
+    description: it.description,
+    category: it.attributes?.product_type || "",
+    gender: "Women",
+    store: "DEMO-WH1",
+    onHand: Number(snap?.qty_on_hand || 0),
+    onPO,
+    onOrder: Number(snap?.qty_on_order || 0),
+    lastReceiptDate: addDays(TODAY, -rngInt(`rcpt-${it.sku_code}`, 5, 90)),
+    totalAmount: Number(snap?.qty_on_hand || 0) * Number(it.unit_cost || 0),
+    avgCost: Number(it.unit_cost || 0),
+  };
+});
+
+const atsPos = [];
+openPos.forEach((po) => {
+  const item = ipItems.find(i => i.id === po.sku_id);
+  if (!item || !po.qty_open) return;
+  atsPos.push({
+    sku: item.sku_code,
+    date: po.expected_date,
+    qty: Number(po.qty_open),
+    poNumber: po.po_number,
+    vendor: ipVendors.find(v => v.id === po.vendor_id)?.name || "Unknown",
+    store: "DEMO-WH1",
+    unitCost: Number(po.unit_cost || 0),
+  });
+});
+
+// Synthesise SO commitments. ~25% of SKUs get a near-future SO so the demo
+// grid shows on-SO bars in the next few months.
+const atsSos = [];
+ipItems.forEach((it, i) => {
+  const hasSo = rngInt(`hasso-${it.sku_code}`, 0, 3) === 0;
+  if (!hasSo) return;
+  const qty = rngInt(`soq-${it.sku_code}`, 4, 80);
+  const daysOut = rngInt(`sod-${it.sku_code}`, 14, 90);
+  atsSos.push({
+    sku: it.sku_code,
+    date: addDays(TODAY, daysOut),
+    qty,
+    orderNumber: `DEMO-SO-${String(3000 + i).padStart(5, "0")}`,
+    customerName: pick(`cust-${it.sku_code}`, ["Demo Wholesale Co.", "Acme Boutique", "Northshore Apparel", "Pacific Retail Group"]),
+    unitPrice: Number(it.unit_price || 0),
+    totalPrice: qty * Number(it.unit_price || 0),
+    store: "DEMO-WH1",
+  });
+});
+
+const atsExcelData = {
+  syncedAt: new Date().toISOString(),
+  skus: atsSkus,
+  pos: atsPos,
+  sos: atsSos,
+  warnings: [],
+  columnNames: {
+    inventory: ["sku", "description", "category", "store", "onHand", "onPO", "onOrder", "avgCost"],
+    purchases: ["sku", "date", "qty", "poNumber", "vendor", "store", "unitCost"],
+    orders:    ["sku", "date", "qty", "orderNumber", "customerName", "unitPrice", "store"],
+  },
+  _demo: true,
+};
+
 // Collections payload (rows in collections table — id + data jsonb)
 const collectionRows = DEMO_COLLECTIONS.map(c => ({
   id: c.key,
@@ -480,6 +553,9 @@ const bundle = {
       tasks: tasks.length,
       collections: collectionRows.length,
       users: usersBlob.length,
+      atsSkus: atsExcelData.skus.length,
+      atsPos: atsExcelData.pos.length,
+      atsSos: atsExcelData.sos.length,
     },
   },
   vendors:          portalVendors,
@@ -493,6 +569,7 @@ const bundle = {
   tasks:            tasks,
   collections:      collectionRows,
   app_data_users:   usersBlob,
+  app_data_ats_excel_data: atsExcelData,
 };
 
 if (!APPLY) {
@@ -595,5 +672,11 @@ const kept = existing.filter(u => !seededUsernames.has((u.username || "").toLowe
 const merged = [...kept, ...usersBlob];
 await upsert("app_data", [{ key: "users", value: JSON.stringify(merged) }], "key");
 console.log(`  ✓ users blob: ${kept.length} existing kept + ${usersBlob.length} demo = ${merged.length} total`);
+
+// ats_excel_data: single jsonb row keyed by 'ats_excel_data'. Replaces
+// any existing value — that's intentional, demo's ATS state is canonical.
+console.log("Writing app_data['ats_excel_data']…");
+await upsert("app_data", [{ key: "ats_excel_data", value: JSON.stringify(atsExcelData) }], "key");
+console.log(`  ✓ ats_excel_data: ${atsExcelData.skus.length} skus, ${atsExcelData.pos.length} POs, ${atsExcelData.sos.length} SOs`);
 
 console.log("\n✓ Apply complete.");
