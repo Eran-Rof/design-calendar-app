@@ -17,6 +17,8 @@ CREATE INDEX IF NOT EXISTS audit_logs_entity_id_idx   ON audit_logs (entity_id);
 CREATE INDEX IF NOT EXISTS audit_logs_created_at_idx  ON audit_logs (created_at DESC);
 
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "anon select audit_logs" ON audit_logs;
+DROP POLICY IF EXISTS "anon insert audit_logs" ON audit_logs;
 CREATE POLICY "anon select audit_logs" ON audit_logs FOR SELECT USING (true);
 CREATE POLICY "anon insert audit_logs" ON audit_logs FOR INSERT WITH CHECK (true);
 
@@ -41,6 +43,10 @@ CREATE INDEX IF NOT EXISTS dqi_entity_type_idx ON data_quality_issues (entity_ty
 CREATE INDEX IF NOT EXISTS dqi_created_at_idx  ON data_quality_issues (created_at DESC);
 
 ALTER TABLE data_quality_issues ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "anon select data_quality_issues" ON data_quality_issues;
+DROP POLICY IF EXISTS "anon insert data_quality_issues" ON data_quality_issues;
+DROP POLICY IF EXISTS "anon update data_quality_issues" ON data_quality_issues;
+DROP POLICY IF EXISTS "anon delete data_quality_issues" ON data_quality_issues;
 CREATE POLICY "anon select data_quality_issues" ON data_quality_issues FOR SELECT USING (true);
 CREATE POLICY "anon insert data_quality_issues" ON data_quality_issues FOR INSERT WITH CHECK (true);
 CREATE POLICY "anon update data_quality_issues" ON data_quality_issues FOR UPDATE USING (true);
