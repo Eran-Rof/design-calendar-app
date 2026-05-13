@@ -350,15 +350,15 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   const [explodePpk, setExplodePpk] = usePersistedBool("explodePpk", true);
 
   // Freeze-through-column. Combined with table-layout: fixed +
-  // explicit per-column widths (see COL_WIDTHS at module scope and
-  // the Th component below) so column widths are deterministic
-  // regardless of row content. This makes position: sticky on <td>
-  // cells stable across sort / filter / page changes (auto-layout
-  // recomputed widths after each re-render and broke the freeze
-  // visually).
+  // explicit per-column widths (see dynamicColWidths inside the
+  // component and the Th component below) so column widths are
+  // deterministic regardless of row content. This makes
+  // position: sticky on <td> cells stable across sort / filter / page
+  // changes (auto-layout recomputed widths after each re-render and
+  // broke the freeze visually).
   //
   // Cumulative left offsets are derived synchronously from
-  // COL_WIDTHS, no runtime measurement needed.
+  // dynamicColWidths, no runtime measurement needed.
   const FREEZABLE_COLS = ["category", "subCat", "style", "description", "color", "customer", "period"] as const;
   type FreezeKey = typeof FREEZABLE_COLS[number];
   const FREEZE_LABELS: Record<FreezeKey, string> = {
@@ -1644,12 +1644,35 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
             childRows.unshift(pinnedRow);
           }
         }
-        for (const child of childRows) {
+        // Chain children through applyRollingPool starting from the
+        // parent aggregate's rolled incoming on-hand (set by `filtered`
+        // above). Receipts dedupe per (sku, period) so multi-customer
+        // children of the same SKU don't multiply receipts into the
+        // pool. Because mergeBucket's parent on_so / receipts / buy
+        // exactly equal the sum of children's contributions to the
+        // pool, the final child's outgoing ATS lands on the parent's
+        // displayed ATS — no parent/child mismatch when the planner
+        // expands a group. projected_shortage / projected_excess stay
+        // sourced from the per-(sku, period) math map (they're
+        // SKU-grain truths, not depleted by the customer-row walk).
+        const childFacts = childRows.map((c) => ({
+          on_so_qty: c.on_so_qty,
+          receipts_due_qty: c.receipts_due_qty ?? 0,
+          planned_buy_qty: c.planned_buy_qty ?? 0,
+          final_forecast_qty: c.final_forecast_qty,
+          dedupeKey: `${c.sku_id}:${c.period_start}`,
+        }));
+        const childRolled = applyRollingPool(childFacts, r.on_hand_qty ?? 0);
+        for (let i = 0; i < childRows.length; i++) {
+          const child = childRows[i];
           const fid = child.forecast_id;
           const m = skuPeriodMath.get(`${child.sku_id}:${child.period_start}`);
-          const projected = m
-            ? { on_hand_qty: m.onHand, available_supply_qty: m.ats, projected_excess_qty: m.excess, projected_shortage_qty: m.shortage }
-            : {};
+          const projected = {
+            on_hand_qty: childRolled[i].on_hand_qty,
+            available_supply_qty: childRolled[i].available_supply_qty,
+            projected_excess_qty: m?.excess ?? 0,
+            projected_shortage_qty: m?.shortage ?? 0,
+          };
           // Keep the real forecast_id so edit handlers continue to save
           // against the underlying row. _displayKey gives React a unique
           // key when the same child appears under multiple expanded
@@ -1740,6 +1763,89 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     }
     return t;
   }, [mutedRows, skuPeriodMath]);
+
+  // Auto-shrink columns to fit the widest content currently displayed
+  // plus ~2 chars of breathing room each side. table-layout: fixed
+  // (required for the freeze-through-column feature) takes the width
+  // assigned to each <Th>, so widths computed here become the actual
+  // column widths every render. Per-column FLOOR values protect cells
+  // that wrap an <input> (BuyCell etc.) from being crushed below their
+  // input's intrinsic width; CAP values keep one outlier description
+  // from blowing the whole row out.
+  const dynamicColWidths = useMemo(() => {
+    const CHAR_PX = 7.4;            // safe avg for mixed sans/mono at 11–12px
+    const PADDING_CHARS = 4;        // ~2 chars each side
+    const FLOOR_PX = 44;
+    const CAP: Record<string, number> = {
+      description: 320, customer: 240, color: 200, style: 160,
+      subCat: 160, category: 160, method: 160,
+    };
+    const FLOOR: Record<string, number> = {
+      system: 84, buyer: 84, override: 84, buy: 84,
+      unitCost: 88, avgCost: 84, buyDollars: 92,
+      confidence: 84, action: 96, period: 84,
+    };
+    const LABEL: Record<string, string> = {
+      category: "Category", subCat: "Sub Cat", style: "Style",
+      description: "Description", color: "Color", customer: "Customer",
+      period: "Period", class: "Class", histT3: "Hist T3",
+      histLY: "SP/LY", system: "System", buyer: "Buyer",
+      override: "Override", final: "Final", confidence: "Conf.",
+      method: "Method", onHand: "On hand", onSo: "On SO",
+      receipts: "Receipts", histRecv: "Hist Recv", ats: "ATS",
+      buy: "Buy", avgCost: "Avg Cost", unitCost: "Unit Cost",
+      buyDollars: "Buy $", shortage: "Short", excess: "Excess",
+      action: "Action",
+    };
+    const lenByCol: Record<string, number> = {};
+    // +1 reserves room for the sort-arrow glyph the header renders next to its label.
+    for (const k of Object.keys(LABEL)) lenByCol[k] = LABEL[k].length + 1;
+    const numFmt = (v: number | null | undefined) => (v == null ? "—" : formatQty(v));
+    const moneyFmt = (v: number | null | undefined) => (v == null ? "—" : `$${v.toFixed(2)}`);
+    const set = (k: string, t: string | null | undefined) => {
+      const len = (t ?? "—").length;
+      if (len > lenByCol[k]) lenByCol[k] = len;
+    };
+    for (const r of displayRows) {
+      set("category", r.group_name);
+      set("subCat", r.sub_category_name);
+      set("style", r.sku_style ?? r.sku_code);
+      set("description", r.sku_description);
+      set("color", r.sku_color);
+      set("customer", r.customer_name);
+      set("period", formatPeriodCode(r.period_code));
+      set("class", `${r.abc_class ?? ""}${r.xyz_class ?? ""}`);
+      set("histT3", numFmt(r.historical_trailing_qty));
+      set("histLY", numFmt(r.ly_reference_qty));
+      set("system", numFmt(r.system_forecast_qty));
+      set("buyer", numFmt(r.buyer_request_qty));
+      set("override", numFmt(r.override_qty));
+      set("final", numFmt(r.final_forecast_qty));
+      set("confidence", r.confidence_level);
+      set("method", METHOD_LABEL[r.forecast_method] ?? r.forecast_method);
+      set("onHand", numFmt(r.on_hand_qty));
+      set("onSo", numFmt(r.on_so_qty));
+      set("receipts", numFmt(r.receipts_due_qty));
+      set("histRecv", numFmt(r.historical_receipts_qty));
+      set("ats", numFmt(r.available_supply_qty));
+      set("buy", numFmt(r.planned_buy_qty));
+      set("avgCost", moneyFmt(r.avg_cost));
+      set("unitCost", moneyFmt(r.unit_cost));
+      set("buyDollars", moneyFmt((r.planned_buy_qty ?? 0) * (r.unit_cost ?? 0)));
+      set("shortage", numFmt(r.projected_shortage_qty));
+      set("excess", numFmt(r.projected_excess_qty));
+      set("action", r.recommended_action);
+    }
+    const widths: Record<string, number> = {};
+    for (const k of Object.keys(LABEL)) {
+      let px = Math.ceil((lenByCol[k] + PADDING_CHARS) * CHAR_PX);
+      if (k in CAP) px = Math.min(px, CAP[k]);
+      if (k in FLOOR) px = Math.max(px, FLOOR[k]);
+      px = Math.max(px, FLOOR_PX);
+      widths[k] = px;
+    }
+    return widths;
+  }, [displayRows]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -2416,9 +2522,8 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
           regular cells but stays below the top-sticky thead. */}
       {/* Freeze CSS — pins leftmost columns sticky-left when the
           planner scrolls horizontally. Cumulative left offsets are
-          derived from COL_WIDTHS at module scope so they're
-          deterministic and don't drift on re-render (the bug the
-          previous runtime-measurement approach hit). Header cells
+          derived from dynamicColWidths so the freeze stays aligned
+          when columns auto-shrink/grow to content. Header cells
           use z-index 5 so the corner stays on top during both-axis
           scroll; body cells use z-index 1 so they slide UNDER the
           top-sticky header on vertical scroll. */}
@@ -2428,7 +2533,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
         for (let i = 0; i < freezeIdxDom; i++) {
           offsets.push(acc);
           const k = FREEZABLE_COLS[i];
-          acc += hiddenColumns.has(k) ? 0 : (COL_WIDTHS[k] ?? 0);
+          acc += hiddenColumns.has(k) ? 0 : (dynamicColWidths[k] ?? 0);
         }
         return (
           <style>{[
@@ -2445,34 +2550,34 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
         <table style={{ ...S.table, tableLayout: "fixed" as const }}>
           <thead>
             <tr className="planning-grid-row">
-              <Th label="Category"    k="category"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("category")} />
-              <Th label="Sub Cat"     k="subCat"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("subCat")} />
-              <Th label="Style"       k="style"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("style")} />
-              <Th label="Description" k="description" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("description")} />
-              <Th label="Color"       k="color"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("color")} />
-              <Th label="Customer"    k="customer"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("customer")} />
-              <Th label="Period"      k="period"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("period")} />
-              <Th label="Class"       k="class"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="ABC volume rank × XYZ demand variability" hidden={hiddenColumns.has("class")} />
-              <Th label="Hist T3"     k="histT3"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("histT3")} />
-              <Th label="SP/LY"       k="histLY"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="Same Period Last Year" numeric hidden={hiddenColumns.has("histLY")} />
-              <Th label="System"      k="system"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("system")} />
-              <Th label="Buyer"       k="buyer"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("buyer")} />
-              <Th label="Override"    k="override"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("override")} />
-              <Th label="Final"       k="final"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("final")} />
-              <Th label="Conf."       k="confidence"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("confidence")} />
-              <Th label="Method"      k="method"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("method")} />
-              <Th label="On hand"     k="onHand"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("onHand")} />
-              <Th label="On SO"       k="onSo"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("onSo")} />
-              <Th label="Receipts"    k="receipts"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric title="Open POs scheduled to land in this period (drives supply math)" hidden={hiddenColumns.has("receipts")} />
-              <Th label="Hist Recv"   k="histRecv"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.textMuted} title="Past actual receipts in this period — display only, already in On hand" hidden={hiddenColumns.has("histRecv")} />
-              <Th label="ATS"         k="ats"         sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("ats")} />
-              <Th label="Buy"         k="buy"         sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.green} hidden={hiddenColumns.has("buy")} />
-              <Th label="Avg Cost"    k="avgCost"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.textMuted} title="From ip_item_avg_cost (Xoro / Excel ingest)" hidden={hiddenColumns.has("avgCost")} />
-              <Th label="Unit Cost"   k="unitCost"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.accent2} title="Auto-filled from Avg Cost — editable" hidden={hiddenColumns.has("unitCost")} />
-              <Th label="Buy $"       k="buyDollars"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.green} hidden={hiddenColumns.has("buyDollars")} />
-              <Th label="Short"       k="shortage"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("shortage")} />
-              <Th label="Excess"      k="excess"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("excess")} />
-              <Th label="Action"      k="action"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("action")} />
+              <Th widths={dynamicColWidths} label="Category"    k="category"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("category")} />
+              <Th widths={dynamicColWidths} label="Sub Cat"     k="subCat"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("subCat")} />
+              <Th widths={dynamicColWidths} label="Style"       k="style"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("style")} />
+              <Th widths={dynamicColWidths} label="Description" k="description" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("description")} />
+              <Th widths={dynamicColWidths} label="Color"       k="color"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("color")} />
+              <Th widths={dynamicColWidths} label="Customer"    k="customer"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("customer")} />
+              <Th widths={dynamicColWidths} label="Period"      k="period"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("period")} />
+              <Th widths={dynamicColWidths} label="Class"       k="class"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="ABC volume rank × XYZ demand variability" hidden={hiddenColumns.has("class")} />
+              <Th widths={dynamicColWidths} label="Hist T3"     k="histT3"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("histT3")} />
+              <Th widths={dynamicColWidths} label="SP/LY"       k="histLY"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="Same Period Last Year" numeric hidden={hiddenColumns.has("histLY")} />
+              <Th widths={dynamicColWidths} label="System"      k="system"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("system")} />
+              <Th widths={dynamicColWidths} label="Buyer"       k="buyer"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("buyer")} />
+              <Th widths={dynamicColWidths} label="Override"    k="override"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("override")} />
+              <Th widths={dynamicColWidths} label="Final"       k="final"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("final")} />
+              <Th widths={dynamicColWidths} label="Conf."       k="confidence"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("confidence")} />
+              <Th widths={dynamicColWidths} label="Method"      k="method"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("method")} />
+              <Th widths={dynamicColWidths} label="On hand"     k="onHand"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("onHand")} />
+              <Th widths={dynamicColWidths} label="On SO"       k="onSo"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("onSo")} />
+              <Th widths={dynamicColWidths} label="Receipts"    k="receipts"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric title="Open POs scheduled to land in this period (drives supply math)" hidden={hiddenColumns.has("receipts")} />
+              <Th widths={dynamicColWidths} label="Hist Recv"   k="histRecv"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.textMuted} title="Past actual receipts in this period — display only, already in On hand" hidden={hiddenColumns.has("histRecv")} />
+              <Th widths={dynamicColWidths} label="ATS"         k="ats"         sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("ats")} />
+              <Th widths={dynamicColWidths} label="Buy"         k="buy"         sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.green} hidden={hiddenColumns.has("buy")} />
+              <Th widths={dynamicColWidths} label="Avg Cost"    k="avgCost"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.textMuted} title="From ip_item_avg_cost (Xoro / Excel ingest)" hidden={hiddenColumns.has("avgCost")} />
+              <Th widths={dynamicColWidths} label="Unit Cost"   k="unitCost"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.accent2} title="Auto-filled from Avg Cost — editable" hidden={hiddenColumns.has("unitCost")} />
+              <Th widths={dynamicColWidths} label="Buy $"       k="buyDollars"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.green} hidden={hiddenColumns.has("buyDollars")} />
+              <Th widths={dynamicColWidths} label="Short"       k="shortage"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("shortage")} />
+              <Th widths={dynamicColWidths} label="Excess"      k="excess"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("excess")} />
+              <Th widths={dynamicColWidths} label="Action"      k="action"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("action")} />
             </tr>
           </thead>
           <tbody>
@@ -2717,7 +2822,17 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
                 >
                   {r.abc_class && r.xyz_class ? `${r.abc_class}${r.xyz_class}` : "—"}
                 </td>
-                <td style={{ ...S.tdNum, ...colHide("histT3") }}>{formatQty(r.historical_trailing_qty)}</td>
+                <td
+                  style={{ ...S.tdNum, ...colHide("histT3") }}
+                  title={((): string => {
+                    const breakdown = r.historical_trailing_breakdown;
+                    if (!breakdown || breakdown.length === 0) {
+                      return "No sales in the trailing 3-month window for this customer + SKU";
+                    }
+                    const lines = breakdown.map((b) => `${formatPeriodCode(b.month)}: ${formatQty(b.qty)}`);
+                    return `Trailing 3 months\n${lines.join("\n")}`;
+                  })()}
+                >{formatQty(r.historical_trailing_qty)}</td>
                 <td style={{ ...S.tdNum, color: r.forecast_method === "ly_sales" && r.ly_reference_qty != null ? PAL.accent2 : PAL.textMuted, ...colHide("histLY") }}>
                   {r.ly_reference_qty != null ? formatQty(r.ly_reference_qty) : "—"}
                 </td>
@@ -2855,41 +2970,24 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   );
 }
 
-// Per-column widths used by the table-layout: fixed shape of the
-// planning grid. Required for the freeze-through-column feature to
-// be stable: with auto-layout, each re-render recomputed widths
-// based on cell contents, and applying position: sticky to <td>
-// cells caused widths to drift after every sort / filter / page
-// change. Fixed widths give the freeze CSS a stable target.
-//
-// Tuned to fit the most-common content per column. Description
-// stays at 240px with text-overflow: ellipsis so long titles
-// truncate cleanly. Numeric columns at 80–100px. Identifier
-// columns at 90–160px depending on common content length. Tweak
-// here if the planner reports a column truncating frequently.
-const COL_WIDTHS: Record<string, number> = {
-  category: 100,    subCat: 110,        style: 110,
-  description: 240, color: 140,         customer: 160,
-  period: 96,       class: 70,
-  histT3: 80,       histLY: 80,
-  system: 90,       buyer: 90,          override: 90,    final: 90,
-  confidence: 80,   method: 110,
-  onHand: 80,       onSo: 80,
-  receipts: 80,     histRecv: 80,
-  ats: 70,
-  buy: 80,
-  avgCost: 90,      unitCost: 90,
-  buyDollars: 100,
-  shortage: 80,     excess: 80,         action: 110,
-};
+// Column widths are now computed per-render inside WholesalePlanningGrid
+// (see dynamicColWidths) from the current displayRows content set, then
+// threaded through Th + the freeze-through-column CSS IIFE via the
+// `widths` prop. The static COL_WIDTHS table that used to live here was
+// removed because it was permanently wider than necessary on most
+// columns and required hand-tuning every time a content shape changed.
 
-function Th({ label, k, sortKey, sortDir, onSort, numeric, tint, title, hidden }: {
+function Th({ label, k, sortKey, sortDir, onSort, numeric, tint, title, hidden, widths }: {
   label: string; k: SortKey; sortKey: SortKey; sortDir: "asc" | "desc";
   onSort: (k: SortKey) => void; numeric?: boolean; tint?: string; title?: string; hidden?: boolean;
+  // Per-column widths computed by the grid component from the current
+  // displayRows content set. Drives the freeze-through-column CSS
+  // offsets too (see the IIFE that emits the sticky-left style block).
+  widths: Record<string, number>;
 }) {
   const active = sortKey === k;
   const baseColor = tint ?? (active ? PAL.text : PAL.textMuted);
-  const width = COL_WIDTHS[k];
+  const width = widths[k];
   return (
     <th
       style={{

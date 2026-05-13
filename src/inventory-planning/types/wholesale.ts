@@ -239,6 +239,12 @@ export interface IpPlanningGridRow {
   period_start: IpIsoDate;
   period_end: IpIsoDate;
   historical_trailing_qty: number;
+  // Per-month split of the same trailing window. Surfaced on the T3
+  // cell's hover tooltip so the planner can tell whether the trailing
+  // total is concentrated in one month or spread evenly. Months are
+  // emitted oldest-first in "YYYY-MM" form so the grid can apply
+  // formatPeriodCode at render time.
+  historical_trailing_breakdown?: Array<{ month: string; qty: number }> | null;
   // ABC/XYZ classification computed at build time from trailing-12mo
   // sales. abc = volume rank (A/B/C), xyz = demand variability (X/Y/Z).
   // Optional — TBD rows and SKUs with no sales history don't carry one.

@@ -815,12 +815,22 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
   // Trailing-3 per (customer, sku). The sales fetch was widened to
   // 12 months for classification, so filter in-place here to keep
   // the Hist T3 column at exactly the prior quarter.
+  //
+  // Also build a per-month split of the same window so the grid's T3
+  // tooltip can show the breakdown by calendar month — drives the
+  // planner's intuition on whether the trailing total is concentrated
+  // in a single month or spread evenly.
   const t3Cutoff = historySince(run.source_snapshot_date, 3);
   const trailing = new Map<string, number>();
+  const trailingByMonth = new Map<string, Map<string, number>>();
   for (const s of sales) {
     if (s.txn_date < t3Cutoff) continue;
     const key = `${s.customer_id}:${s.sku_id}`;
     trailing.set(key, (trailing.get(key) ?? 0) + s.qty);
+    const ym = s.txn_date.slice(0, 7);
+    let byMonth = trailingByMonth.get(key);
+    if (!byMonth) { byMonth = new Map(); trailingByMonth.set(key, byMonth); }
+    byMonth.set(ym, (byMonth.get(ym) ?? 0) + s.qty);
   }
 
   // ABC / XYZ classification per SKU, using the full 12-month window.
@@ -927,6 +937,13 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       period_start: f.period_start,
       period_end: f.period_end,
       historical_trailing_qty: trailing.get(`${f.customer_id}:${f.sku_id}`) ?? 0,
+      historical_trailing_breakdown: ((): Array<{ month: string; qty: number }> | null => {
+        const byMonth = trailingByMonth.get(`${f.customer_id}:${f.sku_id}`);
+        if (!byMonth || byMonth.size === 0) return null;
+        return Array.from(byMonth.entries())
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([month, qty]) => ({ month, qty }));
+      })(),
       abc_class: classBySku.get(f.sku_id)?.abc,
       xyz_class: classBySku.get(f.sku_id)?.xyz,
       // Effective system: override wins when set, otherwise the

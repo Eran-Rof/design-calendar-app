@@ -247,6 +247,19 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes, b
     sub_category_name: subCatOverride !== undefined ? subCatOverride : head.sub_category_name,
     group_name: groupOverride !== undefined ? groupOverride : head.group_name,
     historical_trailing_qty: sum("historical_trailing_qty"),
+    historical_trailing_breakdown: ((): Array<{ month: string; qty: number }> | null => {
+      const months = new Map<string, number>();
+      for (const r of bucket) {
+        if (!r.historical_trailing_breakdown) continue;
+        for (const b of r.historical_trailing_breakdown) {
+          months.set(b.month, (months.get(b.month) ?? 0) + b.qty);
+        }
+      }
+      if (months.size === 0) return null;
+      return Array.from(months.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([month, qty]) => ({ month, qty }));
+    })(),
     system_forecast_qty: sum("system_forecast_qty"),
     buyer_request_qty: sum("buyer_request_qty"),
     override_qty: sum("override_qty"),
