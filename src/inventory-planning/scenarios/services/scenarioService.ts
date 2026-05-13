@@ -327,14 +327,24 @@ export async function cloneBaseIntoSavedBuild(args: {
   return scenario;
 }
 
-// Drops a saved build entirely: deletes the scenario row and the
-// underlying planning_run (cascade clears forecast / recs / TBD /
-// buckets via the FKs declared in the Phase 1 + 4 migrations). The
-// scenario row is dropped first so a partial delete leaves no orphan.
+// Drops a saved build entirely: deletes the scenario row, then clears
+// every child row tied to its planning_run, then drops the planning_run.
+//
+// Why three steps instead of relying on FK cascade: a single DELETE on
+// ip_planning_runs cascades into forecast / recs / TBD / buckets /
+// overrides — easily 7,000+ rows per saved build — and that one
+// statement reliably trips Supabase's 8s timeout (57014). wipePlanningRunData
+// already does the chunked id-in-list deletes (DELETE_CHUNK=500), so by
+// the time the final deletePlanningRun runs there are no children left
+// and it's a single-row delete that completes instantly.
+//
+// Scenario row dropped first so a partial delete leaves no orphan
+// scenario pointing at a still-live planning_run.
 export async function deleteSavedBuild(scenarioId: string): Promise<void> {
   const scenario = await scenarioRepo.getScenario(scenarioId);
   if (!scenario) return;
   await scenarioRepo.deleteScenario(scenarioId);
+  await wholesaleRepo.wipePlanningRunData(scenario.planning_run_id);
   await wholesaleRepo.deletePlanningRun(scenario.planning_run_id);
 }
 
