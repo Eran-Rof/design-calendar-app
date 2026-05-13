@@ -46,6 +46,7 @@ import { DashboardPanel } from "./dc/dashboardPanel";
 import TaskCard from "./components/TaskCard";
 import { TimelinePanel } from "./dc/timelinePanel";
 import { CalendarPanel } from "./dc/calendarPanel";
+import { TrendBriefPanel } from "./dc/trendBriefPanel";
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 
@@ -558,7 +559,7 @@ function App() {
             alignItems: "center",
           }}
         >
-          {[["dashboard","Dashboard"],["timeline","Timeline"],["calendar","Calendar"]].map(([v,label]) =>
+          {[["dashboard","Dashboard"],["timeline","Timeline"],["calendar","Calendar"],["trend-briefs","Trend Briefs"]].map(([v,label]) =>
             navBtn(v, label)
           )}
           {currentUser && (
@@ -742,6 +743,7 @@ function App() {
         {view === "dashboard" && <DashboardPanel ctx={dashboardCtx} />}
         {view === "timeline" && <TimelinePanel />}
         {view === "calendar" && <CalendarPanel />}
+        {view === "trend-briefs" && <TrendBriefPanel />}
         {view === "notifications" && supabaseClient && (
           <NotificationsPage
             embed
