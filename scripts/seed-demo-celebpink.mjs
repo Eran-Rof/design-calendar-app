@@ -267,6 +267,43 @@ products.forEach((p, pi) => {
   });
 });
 
+// ── Add style-level master rows ──────────────────────────────────────────
+// ATS's PO WIP fold (applyPOWIPDataToExcel + xoroSkuToExcel) reformats Xoro
+// SKUs as "STYLE - COLOR" (no size suffix) and pushes them into ATS as new
+// rows. Those rows then fail to match ip_item_master via the size-suffixed
+// SKUs alone, so a style-level row per (style, color) gives them something
+// to resolve against — exactly how prod's master is structured. Without
+// these, the "N styles not in item master" banner reappears for every
+// style+color combo seen in tanda_pos.
+const styleLevelMap = new Map();
+ipItems.forEach((it) => {
+  const baseSku = `${it.sku_code.split("-").slice(0, -1).join("-")}`;
+  if (!styleLevelMap.has(baseSku)) {
+    styleLevelMap.set(baseSku, {
+      id: uuidFrom(`style-level-${baseSku}`),
+      sku_code: baseSku,
+      style_code: baseSku,
+      description: `${it.attributes?.product_title || ""} — style-level`.trim(),
+      category_id: it.category_id,
+      vendor_id: it.vendor_id,
+      color: it.color,
+      size: null,
+      uom: "each",
+      unit_cost: it.unit_cost,
+      unit_price: it.unit_price,
+      lead_time_days: it.lead_time_days,
+      moq_units: it.moq_units,
+      lifecycle_status: "active",
+      planning_class: it.planning_class,
+      active: true,
+      external_refs: { demo: true, style_level: true },
+      attributes: it.attributes,
+    });
+  }
+});
+const styleLevelItems = [...styleLevelMap.values()];
+ipItems.push(...styleLevelItems);
+
 // ── Build customer master ───────────────────────────────────────────────
 // 5 demo customers across tiers so the planning grid shows real customer
 // names (instead of "(Supply Only)" everywhere) and ABC analysis has data.
@@ -596,7 +633,10 @@ styleSample.forEach(([styleCode, info], si) => {
 // holding skus[], pos[], sos[] arrays + meta. Shape matches src/ats/types.ts
 // ExcelData. PO events are derived from our openPos rows; SO events are
 // synthesised across the next 90 days for realism.
-const atsSkus = ipItems.map(it => {
+// ATS skus: exclude style-level rows — those exist only to satisfy
+// resolveStyle() lookups from the PO WIP fold; they don't represent real
+// inventory units.
+const atsSkus = ipItems.filter(it => !it.external_refs?.style_level).map(it => {
   const snap = ipSnapshots.find(s => s.sku_id === it.id);
   const posForSku = openPos.filter(p => p.sku_id === it.id);
   const onPO = posForSku.reduce((n, p) => n + Number(p.qty_open || 0), 0);
@@ -636,6 +676,7 @@ openPos.forEach((po) => {
 // multiple customers × multiple period buckets per SKU (not "Supply Only").
 const ipOpenSos = [];
 ipItems.forEach((it, idx) => {
+  if (it.external_refs?.style_level) return;  // skip style-level rows
   const skuId = it.id;
   const hasSo = rngInt(`hasipso-${it.sku_code}`, 0, 9) >= 3; // ~70%
   if (!hasSo) return;
@@ -675,6 +716,7 @@ ipItems.forEach((it, idx) => {
 const ipSalesHistory = [];
 const monthsBack = 14;
 ipItems.forEach((it, idx) => {
+  if (it.external_refs?.style_level) return;  // history is per-variant
   for (let m = 1; m <= monthsBack; m++) {
     // 1-2 transactions per month, ~3 of the 5 customers buying per SKU
     const customer = ipCustomers[(idx + m) % ipCustomers.length];
@@ -718,6 +760,7 @@ ipItems.forEach((it, idx) => {
 // above, which feeds the planning grid).
 const atsSos = [];
 ipItems.forEach((it, i) => {
+  if (it.external_refs?.style_level) return;
   const hasSo = rngInt(`hasso-${it.sku_code}`, 0, 3) === 0;
   if (!hasSo) return;
   const qty = rngInt(`soq-${it.sku_code}`, 4, 80);
