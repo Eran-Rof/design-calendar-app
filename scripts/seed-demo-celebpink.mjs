@@ -168,10 +168,22 @@ const ipItems = [];
 const ipSnapshots = [];
 const styleToItems = new Map();
 
+// Strip celebpink's "copy-of-" prefixes (some duplicated 2-3 deep) and
+// trailing underscores; collapse separators to dashes. Keeps style codes
+// short enough to fit the planning grid's STYLE column without overflowing
+// into DESCRIPTION.
+function cleanStyleHandle(handle) {
+  let s = String(handle || "").toLowerCase();
+  while (s.startsWith("copy-of-")) s = s.slice("copy-of-".length);
+  s = s.replace(/[_\s]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  return s.slice(0, 20).toUpperCase();
+}
+
 products.forEach((p, pi) => {
   const cat = categoryByType.get(p.product_type);
   const vendor = vendorByIdx(pi);
-  const styleCode = `DEMO-${p.handle.toUpperCase().slice(0, 50)}`;
+  const styleSlug = cleanStyleHandle(p.handle);
+  const styleCode = `DEMO-${styleSlug}`;
   const firstImage = p.images?.[0]?.src || null;
 
   p.variants.forEach((v) => {
@@ -188,7 +200,10 @@ products.forEach((p, pi) => {
     // DEMO-{stylepart}-{colorpart}-{size}. The last dash-separated token
     // must pass isSizeToken (numeric or XS/S/M/L/XL etc.) so the PO
     // detail matrix renders correctly. See itemSizeLabel in GridView.tsx.
-    const stylePart = String(p.handle || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 20) || "STYLE";
+    // stylePart uses the same cleanStyleHandle helper so the SKU's style
+    // segment matches style_code (modulo internal dashes that we strip
+    // here so the size segment can still be parsed by its position).
+    const stylePart = styleSlug.replace(/-/g, "") || "STYLE";
     const colorPart = String(color || "X").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 12) || "X";
     const sizePart  = String(size  || "OS").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 6) || "OS";
     const sku = `DEMO-${stylePart}-${colorPart}-${sizePart}`;
@@ -292,7 +307,8 @@ ppkSourceProducts.forEach((p, idx) => {
   const def = PPK_DEFINITIONS[idx];
   const cat = categoryByType.get(p.product_type);
   const vendor = vendorByIdx(idx);
-  const stylePart = String(p.handle || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 20) || "STYLE";
+  const styleSlug = cleanStyleHandle(p.handle);
+  const stylePart = styleSlug.replace(/-/g, "") || "STYLE";
   // First color of this product, slugified
   const firstColor = p.options.find(o => /color|wash/i.test(o.name))?.values[0] || "BLACK";
   const colorPart = String(firstColor).replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 12);
@@ -310,7 +326,7 @@ ppkSourceProducts.forEach((p, idx) => {
   const prepackItem = {
     id: itemId,
     sku_code: sku,
-    style_code: `DEMO-${stylePart}-PPK`,
+    style_code: `DEMO-${styleSlug}-PPK`,
     description: `${p.title} ${def.label} — ${firstColor} — ${def.desc}`,
     category_id: cat?.id || null,
     vendor_id: vendor.id,
