@@ -379,7 +379,97 @@ export function exportToExcel(
     s: { ...totalNumStyle, fill: { patternType: "none" } },
   };
   dataRows.push(totalRow);
+  const totalRowExcelNum = nextExcelRow;
   nextExcelRow++;
+
+  // ── Totals PPK row ─────────────────────────────────────────────────────
+  // Mirrors the per-data-row PPK follower: shows total pack count per
+  // numeric column for prepack rows, formatted "PPK<mult> × <packs>"
+  // to match the on-screen grid hint. If prepack rows in this export
+  // share one ppkMult (the common case — RYB153330PPK + RYB147730PPK
+  // are both PPK24), the dominant mult is used; mixed-mult exports
+  // get the most common mult and the packs sum is approximate.
+  const prepackRows = rows.filter(r => (r.ppkMult ?? 1) > 1);
+  if (prepackRows.length > 0) {
+    // Dominant ppkMult — the one with the most prepack rows behind it.
+    const multCounts = new Map<number, number>();
+    for (const r of prepackRows) {
+      const m = r.ppkMult ?? 1;
+      multCounts.set(m, (multCounts.get(m) ?? 0) + 1);
+    }
+    const dominantMult = Array.from(multCounts.entries())
+      .sort((a, b) => b[1] - a[1])[0][0];
+
+    // Sum total packs across prepack rows for one column. qty / mult
+    // per row, then sum. Excel formula won't help here because the
+    // mult varies per row — compute up front and emit a string cell.
+    function totalPacksForColumn(colKey: "onHand" | "onOrder" | "onPO" | { kind: "period"; idx: number }): number {
+      let totalPacks = 0;
+      for (const r of prepackRows) {
+        let qty = 0;
+        if (colKey === "onHand") qty = r.onHand ?? 0;
+        else if (colKey === "onOrder") qty = r.onOrder ?? 0;
+        else if (colKey === "onPO") qty = r.onPO ?? 0;
+        else qty = periodValueOf(r, periods[colKey.idx].endDate);
+        const mult = r.ppkMult ?? 1;
+        if (qty > 0 && mult > 1) totalPacks += Math.round(qty / mult);
+      }
+      return totalPacks;
+    }
+    function packsCellValue(packs: number): string {
+      if (packs === 0) return "";
+      return `PPK${dominantMult} × ${packs.toLocaleString()}`;
+    }
+
+    const ppkTotalRow: any[] = new Array(totalColumnCount);
+    // A-E: empty, same fill as the Total row above (FILL_EVEN) so the
+    // pair reads as one block.
+    for (const ci of [COL.category, COL.subCat, COL.style, COL.description, COL.color]) {
+      ppkTotalRow[ci - 1] = { v: "", t: "s", s: ppkSuffixTextStyle(FILL_EVEN) };
+    }
+    // Spacers as everywhere.
+    ppkTotalRow[COL.spacerF - 1] = { v: "", t: "s", s: spacerCellStyle() };
+    ppkTotalRow[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
+    ppkTotalRow[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
+    ppkTotalRow[COL.spacerL - 1] = { v: "", t: "s", s: spacerCellStyle() };
+    // PPK pack totals for each numeric column.
+    ppkTotalRow[COL.onHand  - 1] = { v: packsCellValue(totalPacksForColumn("onHand")),  t: "s", s: ppkSuffixStyle(FILL_EVEN) };
+    ppkTotalRow[COL.onOrder - 1] = { v: packsCellValue(totalPacksForColumn("onOrder")), t: "s", s: ppkSuffixStyle(FILL_EVEN) };
+    ppkTotalRow[COL.onPO    - 1] = { v: packsCellValue(totalPacksForColumn("onPO")),    t: "s", s: ppkSuffixStyle(FILL_EVEN) };
+    for (let i = 0; i < numPeriods; i++) {
+      const ci = COL.firstPeriod + i;
+      ppkTotalRow[ci - 1] = {
+        v: packsCellValue(totalPacksForColumn({ kind: "period", idx: i })),
+        t: "s",
+        s: ppkSuffixStyle(FILL_EVEN),
+      };
+    }
+    // Total column also gets a packs sum (sum of all period pack
+    // counts for that row equivalent — but for the Totals PPK row we
+    // sum across periods of the prepack subset).
+    let grandPacks = 0;
+    for (let i = 0; i < numPeriods; i++) {
+      grandPacks += totalPacksForColumn({ kind: "period", idx: i });
+    }
+    ppkTotalRow[COL.total - 1] = {
+      v: packsCellValue(grandPacks),
+      t: "s",
+      s: ppkSuffixStyle(FILL_EVEN),
+    };
+    dataRows.push(ppkTotalRow);
+    const ppkTotalExcelNum = nextExcelRow;
+    nextExcelRow++;
+
+    // Merge non-qty cells across the (Total, Totals PPK) pair, same
+    // pattern as the data prepack pairs — text cols + spacers + Total
+    // col span both rows; quantity columns stay split.
+    for (const ci of MERGED_PAIR_COLS) {
+      merges.push({
+        s: { r: totalRowExcelNum - 1, c: ci - 1 },
+        e: { r: ppkTotalExcelNum - 1, c: ci - 1 },
+      });
+    }
+  }
 
   // ── Build worksheet ─────────────────────────────────────────────────────
   const aoa = [headerRow, ...dataRows];
@@ -430,8 +520,8 @@ export function exportToExcel(
   }
 
   // Row heights — header taller; qty rows default; PPK follower rows
-  // shorter (they only carry 5.5pt suffix text); bottom Total row
-  // matches header height.
+  // (data + totals) shorter since they only carry 5.5pt suffix text;
+  // bottom Total row matches header height.
   const HEADER_HPT = 22;
   const QTY_ROW_HPT = 15;
   const PPK_ROW_HPT = 11;     // just enough for 5.5pt with breathing room
@@ -442,6 +532,10 @@ export function exportToExcel(
     if ((r.ppkMult ?? 1) > 1) rowsHeight.push({ hpt: PPK_ROW_HPT });
   }
   rowsHeight.push({ hpt: TOTAL_ROW_HPT });
+  // Totals PPK row only added when the dataset has prepack rows.
+  if (rows.some(r => (r.ppkMult ?? 1) > 1)) {
+    rowsHeight.push({ hpt: PPK_ROW_HPT });
+  }
   ws["!rows"] = rowsHeight;
 
   // Merged cells for the prepack pairs (text cols + spacers + Total
