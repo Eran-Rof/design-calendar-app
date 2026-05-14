@@ -7,7 +7,8 @@ export interface RowFilterOpts {
   // ONE of the listed categories (set membership). The legacy "All"
   // sentinel was dropped — callers pass [] for the unfiltered case.
   filterCategory: string[];
-  filterSubCategory: string;
+  // Multi-select on master_sub_category. Empty array = no filter.
+  filterSubCategory: string[];
   // Multi-select on master_style. Empty array = no filter; otherwise the
   // row must match ONE of the listed styles (set membership).
   filterStyle: string[];
@@ -73,6 +74,9 @@ export function filterRows(rows: ATSRow[], opts: RowFilterOpts): ATSRow[] {
   const wantCategory = opts.filterCategory.length === 0
     ? null
     : new Set(opts.filterCategory);
+  const wantSubCategory = opts.filterSubCategory.length === 0
+    ? null
+    : new Set(opts.filterSubCategory);
   const wantStyle = opts.filterStyle.length === 0
     ? null
     : new Set(opts.filterStyle);
@@ -85,8 +89,8 @@ export function filterRows(rows: ATSRow[], opts: RowFilterOpts): ATSRow[] {
       const cat = r.master_category ?? r.category ?? "";
       if (!wantCategory.has(cat)) return false;
     }
-    if (opts.filterSubCategory !== "All") {
-      if ((r.master_sub_category ?? "") !== opts.filterSubCategory) return false;
+    if (wantSubCategory !== null) {
+      if (!wantSubCategory.has(r.master_sub_category ?? "")) return false;
     }
     if (wantStyle !== null) {
       if (!wantStyle.has(r.master_style ?? "")) return false;

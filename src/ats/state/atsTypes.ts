@@ -15,7 +15,11 @@ export interface ATSState {
   // dropped — a clean array is easier to reason about and serializes
   // straight to localStorage if we add persistence later.
   filterCategory: string[];
-  filterSubCategory: string;
+  // Multi-select. Empty array = no filter. Each entry is a sub-category
+  // (master_sub_category) name. Scoped at toolbar build time to whichever
+  // categories are currently active so the dropdown shows only valid
+  // sub-cats for that narrowing.
+  filterSubCategory: string[];
   // Multi-select. Empty array = no filter. Each entry is a master_style
   // code (the upper-case style identifier the grid renders in the Style
   // column). Scoped at toolbar build time to whichever categories /
@@ -141,8 +145,8 @@ export function createInitialState(startDate: string): ATSState {
     rangeValue: 6,
     search: "",
     filterCategory: [],
+    filterSubCategory: [],
     filterStyle: [],
-    filterSubCategory: "All",
     filterGender: "All",
     filterStatus: "All",
     minATS: "",

@@ -873,28 +873,29 @@ function ATSReport() {
 
   // Style dropdown is dependent on the active Category + Sub Cat scope so
   // the planner doesn't scroll through thousands of unrelated styles to
-  // find the one they want. Empty filterCategory means "all categories";
-  // filterSubCategory === "All" means "all sub cats".
+  // find the one they want. Empty filter array on either dimension =
+  // "no narrowing on that dimension".
   const styles = useMemo(() => {
     let pool = matchedRows;
     if (filterCategory.length > 0) {
       pool = pool.filter(r => filterCategory.includes(r.master_category ?? ""));
     }
-    if (filterSubCategory !== "All") {
-      pool = pool.filter(r => (r.master_sub_category ?? "") === filterSubCategory);
+    if (filterSubCategory.length > 0) {
+      pool = pool.filter(r => filterSubCategory.includes(r.master_sub_category ?? ""));
     }
     return Array.from(new Set(
       pool.map(r => r.master_style).filter(Boolean) as string[]
     )).sort();
   }, [matchedRows, filterCategory, filterSubCategory]);
 
-  // Reset Sub Cat selection when the chosen value is no longer valid for
-  // the active Category (e.g. user changes Category and the previous Sub
-  // Cat doesn't exist under the new one).
+  // Prune sub-cat selections that are no longer valid for the active
+  // Category narrowing (e.g. user picks DENIM, then clears the JOGGERS
+  // category and a "TWILL JOGGER" selection has no rows anymore).
   useEffect(() => {
-    if (filterSubCategory !== "All" && !subCategories.includes(filterSubCategory)) {
-      setFilterSubCategory("All");
-    }
+    if (filterSubCategory.length === 0) return;
+    const valid = new Set(subCategories);
+    const next = filterSubCategory.filter(v => valid.has(v));
+    if (next.length !== filterSubCategory.length) setFilterSubCategory(next);
   }, [subCategories, filterSubCategory]);
 
   // Build SKU sets keyed by store for fast row filtering

@@ -185,8 +185,8 @@ interface ToolbarProps {
   filterCategory: string[];
   setFilterCategory: (v: string[]) => void;
   categories: string[];
-  filterSubCategory: string;
-  setFilterSubCategory: (v: string) => void;
+  filterSubCategory: string[];
+  setFilterSubCategory: (v: string[]) => void;
   subCategories: string[];
   // Multi-select Style filter. styles[] is scoped at build time to
   // whichever Category / Sub Cat narrowing is active so the dropdown
@@ -309,7 +309,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const handleClearFilters = () => {
     setSearch("");
     setFilterCategory([]);
-    setFilterSubCategory("All");
+    setFilterSubCategory([]);
     setFilterStyle([]);
     setFilterGender("All");
     setFilterStatus("All");
@@ -374,7 +374,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       options={categories.filter(c => c !== "All")}
       onChange={setFilterCategory}
     />
-    <SearchableDropdown label="Sub Cat"  value={filterSubCategory} options={subCategories} onChange={setFilterSubCategory} />
+    <MultiSelectDropdown
+      label="Sub Cat"
+      value={filterSubCategory}
+      options={subCategories.filter(c => c !== "All")}
+      onChange={setFilterSubCategory}
+    />
     <MultiSelectDropdown
       label="Style"
       value={filterStyle}

@@ -8,7 +8,7 @@ interface UseRowFilteringOpts {
   excelData: ExcelData | null;
   search: string;
   filterCategory: string[];
-  filterSubCategory: string;
+  filterSubCategory: string[];
   filterStyle: string[];
   filterGender: string;
   filterStatus: string;
