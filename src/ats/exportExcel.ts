@@ -178,62 +178,95 @@ export function exportToExcel(
     return typeof v === "number" ? v : 0;
   };
 
-  // PPK rich-text suffix builder — same shape as the on-screen grid.
-  // Returns null when the row isn't a prepack or qty is zero.
-  function buildNumericCell(r: ATSRow, n: number, baseStyle: any): any {
-    const mult = r.ppkMult ?? 1;
-    const showPpk = mult > 1 && n !== 0;
-    if (!showPpk) {
-      return { v: n, t: "n", s: baseStyle };
-    }
-    const packs = Math.round(n / mult);
-    const suffix = `PPK${mult} × ${packs.toLocaleString()}`;
-    // Rich text: line 1 inherits the cell's font (bold/color may have
-    // been overridden by conditional highlight). Line 2 is the faded
-    // slate hint at ~7pt to match the grid's faded-9px-at-75% look.
-    const baseFont = baseStyle.font ?? { sz: 11, name: "Calibri" };
+  // Plain numeric cell — qty cells stay clean (no rich text). The PPK
+  // suffix lives on its own follower row directly below the prepack
+  // row so its half-size faded font renders reliably without fighting
+  // Excel's row-height + wrap-text quirks.
+  function buildNumericCell(_r: ATSRow, n: number, baseStyle: any): any {
+    return { v: n, t: "n", s: baseStyle };
+  }
+
+  // Style for a PPK suffix cell on the follower row (5.5pt = exact
+  // half of the qty cell's 11pt, faded slate, right-aligned, same
+  // fill as the qty row above so the pair reads as one unit).
+  function ppkSuffixStyle(fill: string): any {
     return {
-      v: `${n.toLocaleString()}\n${suffix}`,
-      t: "s",
-      s: baseStyle,
-      r: [
-        { t: n.toLocaleString(), s: { font: baseFont } },
-        { t: "\n" + suffix, s: { font: { sz: 7, color: { rgb: "B0BAC9" }, name: "Calibri" } } },
-      ],
+      font:      { sz: 5.5, color: { rgb: "B0BAC9" }, name: "Calibri" },
+      fill:      { fgColor: { rgb: fill }, patternType: "solid" },
+      alignment: { horizontal: "right", vertical: "center", wrapText: false },
     };
+  }
+  function ppkSuffixTextStyle(fill: string): any {
+    // Empty A-E cells on the PPK row keep the same fill so the row
+    // reads as a single visual unit with the qty row above.
+    return {
+      font:      { sz: 5.5, color: { rgb: "B0BAC9" }, name: "Calibri" },
+      fill:      { fgColor: { rgb: fill }, patternType: "solid" },
+      alignment: { horizontal: "left", vertical: "center" },
+    };
+  }
+  function ppkSuffix(qty: number, mult: number): string {
+    if (!mult || mult <= 1 || qty == null || qty === 0) return "";
+    const packs = Math.round(qty / mult);
+    return `PPK${mult} × ${packs.toLocaleString()}`;
   }
 
   // ── Data rows ──────────────────────────────────────────────────────────
-  // Even data rows (Excel rows 2, 4, 6...) get the EVEN fill per spec —
-  // i.e. the FIRST data row (Excel row 2) is the EVEN one. We count
-  // from data-row-index 0 inclusive.
-  const dataRows: any[][] = rows.map((r, ri) => {
-    const isEvenDataRow = (ri % 2) === 0; // ri 0 → Excel row 2 → "even"
-    const fill = isEvenDataRow ? FILL_EVEN : FILL_ODD;
-    const excelRow = ri + 2; // header is row 1; data starts at row 2
+  // Each input row produces one numeric data row. Prepack rows ALSO
+  // produce a PPK suffix row immediately below — half-size faded text
+  // showing the per-cell pack count. For the prepack pair, every
+  // NON-QUANTITY cell (text cols A-E, spacers F/H/J/L, Total col R)
+  // is MERGED across both rows so they render as one tall cell that
+  // visually spans qty + PPK. Quantity cells (G, I, K, M-Q) stay
+  // separate so qty value is on the top row, PPK suffix below.
+  const dataRows: any[][] = [];
+  // Track the Excel row number each input row's qty cells live on,
+  // so the bottom Total row's SUM formulas can hit the right range.
+  let nextExcelRow = 2; // header is row 1
+  const qtyRowExcelNumbers: number[] = [];
+  const sumStartLetter = colLetter(COL.spacerL);   // L (empty spacer)
+  const sumEndLetter = colLetter(COL.lastPeriod);  // last period letter
+  // Merge ranges accumulated as we emit prepack pairs. Each range:
+  // { s: { r: startRowIdx, c: colIdx }, e: { r: endRowIdx, c: colIdx } }
+  // both 0-based — xlsx-js-style consumes this shape on ws["!merges"].
+  const merges: Array<{ s: { r: number; c: number }; e: { r: number; c: number } }> = [];
+  // Cols that get merged across the qty+PPK pair. Quantity cols
+  // (onHand/onOrder/onPO/periods) are EXCLUDED — those carry distinct
+  // values on each row.
+  const MERGED_PAIR_COLS = [
+    COL.category, COL.subCat, COL.style, COL.description, COL.color,
+    COL.spacerF, COL.spacerH, COL.spacerJ, COL.spacerL,
+    COL.total,
+  ];
 
-    const cells: any[] = new Array(totalColumnCount);
-    cells[COL.category    - 1] = { v: r.master_category ?? r.category ?? "", t: "s", s: bodyTextStyle(fill) };
-    cells[COL.subCat      - 1] = { v: r.master_sub_category ?? "",            t: "s", s: bodyTextStyle(fill) };
-    cells[COL.style       - 1] = { v: r.master_style ?? "",                   t: "s", s: bodyStyleStyle(fill) };
-    cells[COL.description - 1] = { v: r.description ?? "",                    t: "s", s: bodyTextStyle(fill) };
-    cells[COL.color       - 1] = { v: displayColor(r),                        t: "s", s: bodyTextStyle(fill) };
+  rows.forEach((r, ri) => {
+    const isEvenInputRow = (ri % 2) === 0; // input row 0 → "even" → tinted
+    const fill = isEvenInputRow ? FILL_EVEN : FILL_ODD;
+    const qtyExcelRow = nextExcelRow;
+    qtyRowExcelNumbers.push(qtyExcelRow);
+
+    // ── Qty row ──────────────────────────────────────────────────────────
+    const qtyRow: any[] = new Array(totalColumnCount);
+    qtyRow[COL.category    - 1] = { v: r.master_category ?? r.category ?? "", t: "s", s: bodyTextStyle(fill) };
+    qtyRow[COL.subCat      - 1] = { v: r.master_sub_category ?? "",            t: "s", s: bodyTextStyle(fill) };
+    qtyRow[COL.style       - 1] = { v: r.master_style ?? "",                   t: "s", s: bodyStyleStyle(fill) };
+    qtyRow[COL.description - 1] = { v: r.description ?? "",                    t: "s", s: bodyTextStyle(fill) };
+    qtyRow[COL.color       - 1] = { v: displayColor(r),                        t: "s", s: bodyTextStyle(fill) };
 
     // Spacers — always #3278CC, no value, regardless of zebra row.
-    cells[COL.spacerF - 1] = { v: "", t: "s", s: spacerCellStyle() };
-    cells[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
-    cells[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
-    cells[COL.spacerL - 1] = { v: "", t: "s", s: spacerCellStyle() };
+    qtyRow[COL.spacerF - 1] = { v: "", t: "s", s: spacerCellStyle() };
+    qtyRow[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
+    qtyRow[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
+    qtyRow[COL.spacerL - 1] = { v: "", t: "s", s: spacerCellStyle() };
 
     // On Hand — value 0 triggers red highlight per spec.
     {
       const n = r.onHand ?? 0;
       const base = n === 0 ? onHandZeroStyle(bodyNumStyle(fill)) : bodyNumStyle(fill);
-      cells[COL.onHand - 1] = buildNumericCell(r, n, base);
+      qtyRow[COL.onHand - 1] = buildNumericCell(r, n, base);
     }
-    // On Order, On PO — plain numeric.
-    cells[COL.onOrder - 1] = buildNumericCell(r, r.onOrder ?? 0, bodyNumStyle(fill));
-    cells[COL.onPO    - 1] = buildNumericCell(r, r.onPO    ?? 0, bodyNumStyle(fill));
+    qtyRow[COL.onOrder - 1] = buildNumericCell(r, r.onOrder ?? 0, bodyNumStyle(fill));
+    qtyRow[COL.onPO    - 1] = buildNumericCell(r, r.onPO    ?? 0, bodyNumStyle(fill));
 
     // Period cells — low-stock highlight when 0 < qty <= 10. Zero
     // values render as blank (matches the planning-grid aesthetic).
@@ -241,27 +274,112 @@ export function exportToExcel(
       const ci = COL.firstPeriod + i;
       const n = periodValueOf(r, periods[i].endDate);
       if (n === 0) {
-        cells[ci - 1] = { v: "", t: "s", s: bodyNumStyle(fill) };
+        qtyRow[ci - 1] = { v: "", t: "s", s: bodyNumStyle(fill) };
         continue;
       }
       const base = (n > 0 && n <= 10) ? lowStockStyle(bodyNumStyle(fill)) : bodyNumStyle(fill);
-      cells[ci - 1] = buildNumericCell(r, n, base);
+      qtyRow[ci - 1] = buildNumericCell(r, n, base);
     }
 
-    // Total — Excel formula so the workbook recalculates if the
-    // planner edits any period cell. Range starts at the spacer
-    // before the periods (L) which is empty, so SUM ignores it and
-    // effectively sums the period range.
-    const sumStart = colLetter(COL.spacerL);  // L (empty spacer)
-    const sumEnd = colLetter(COL.lastPeriod); // last period letter
-    cells[COL.total - 1] = {
-      f: `SUM(${sumStart}${excelRow}:${sumEnd}${excelRow})`,
+    // Total — formula so Excel recalculates on edits. Range starts at
+    // the empty spacer L (SUM ignores it) through the last period.
+    qtyRow[COL.total - 1] = {
+      f: `SUM(${sumStartLetter}${qtyExcelRow}:${sumEndLetter}${qtyExcelRow})`,
       t: "n",
       s: bodyTotalStyle(),
     };
 
-    return cells;
+    dataRows.push(qtyRow);
+    nextExcelRow++;
+
+    // ── PPK suffix follower row (only for prepack rows) ──────────────────
+    const mult = r.ppkMult ?? 1;
+    if (mult > 1) {
+      const ppkRow: any[] = new Array(totalColumnCount);
+      // A-E carry the SAME fill as the qty row above so the pair
+      // visually merges. Empty values, half-size faded font.
+      for (const ci of [COL.category, COL.subCat, COL.style, COL.description, COL.color]) {
+        ppkRow[ci - 1] = { v: "", t: "s", s: ppkSuffixTextStyle(fill) };
+      }
+      // Spacers — same blue as everywhere.
+      ppkRow[COL.spacerF - 1] = { v: "", t: "s", s: spacerCellStyle() };
+      ppkRow[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
+      ppkRow[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
+      ppkRow[COL.spacerL - 1] = { v: "", t: "s", s: spacerCellStyle() };
+      // PPK suffix per qty cell (only where qty > 0).
+      ppkRow[COL.onHand  - 1] = { v: ppkSuffix(r.onHand  ?? 0, mult), t: "s", s: ppkSuffixStyle(fill) };
+      ppkRow[COL.onOrder - 1] = { v: ppkSuffix(r.onOrder ?? 0, mult), t: "s", s: ppkSuffixStyle(fill) };
+      ppkRow[COL.onPO    - 1] = { v: ppkSuffix(r.onPO    ?? 0, mult), t: "s", s: ppkSuffixStyle(fill) };
+      for (let i = 0; i < numPeriods; i++) {
+        const ci = COL.firstPeriod + i;
+        const n = periodValueOf(r, periods[i].endDate);
+        ppkRow[ci - 1] = { v: ppkSuffix(n, mult), t: "s", s: ppkSuffixStyle(fill) };
+      }
+      // Total column on PPK row stays empty — it's the total of the
+      // qty row above; repeating it here would clutter. SUM in the
+      // bottom Total row will skip this empty cell automatically.
+      ppkRow[COL.total - 1] = { v: "", t: "s", s: ppkSuffixStyle(fill) };
+      dataRows.push(ppkRow);
+      const ppkExcelRow = nextExcelRow;
+      nextExcelRow++;
+
+      // Merge non-qty columns across the (qty, ppk) pair so they read
+      // as one tall cell. xlsx-js-style merges use 0-based indexes.
+      for (const ci of MERGED_PAIR_COLS) {
+        merges.push({
+          s: { r: qtyExcelRow - 1, c: ci - 1 },
+          e: { r: ppkExcelRow - 1, c: ci - 1 },
+        });
+      }
+    }
   });
+
+  // ── Bottom Total row ───────────────────────────────────────────────────
+  // Formulas (not hardcoded sums) so the workbook recalculates if the
+  // planner edits any cell. SUM ignores text cells, so PPK follower
+  // rows are skipped automatically.
+  const lastDataExcelRow = nextExcelRow - 1;
+  const totalRow: any[] = new Array(totalColumnCount);
+  // Label "Total" goes in the Color column (E) per the planner's CSV.
+  for (const ci of [COL.category, COL.subCat, COL.style, COL.description]) {
+    totalRow[ci - 1] = { v: "", t: "s", s: { ...bodyTextStyle(FILL_EVEN), font: { bold: true, sz: 11, name: "Calibri" } } };
+  }
+  totalRow[COL.color - 1] = {
+    v: "Total",
+    t: "s",
+    s: { ...bodyTextStyle(FILL_EVEN), font: { bold: true, sz: 11, name: "Calibri" } },
+  };
+  // Spacers stay #3278CC top to bottom.
+  totalRow[COL.spacerF - 1] = { v: "", t: "s", s: spacerCellStyle() };
+  totalRow[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
+  totalRow[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
+  totalRow[COL.spacerL - 1] = { v: "", t: "s", s: spacerCellStyle() };
+  // Numeric column sums — bold, no fill (light wash from FILL_EVEN to
+  // visually anchor the row without competing with the data above).
+  const totalNumStyle: any = {
+    font:      { bold: true, sz: 11, name: "Calibri" },
+    fill:      { fgColor: { rgb: FILL_EVEN }, patternType: "solid" },
+    alignment: { horizontal: "right", vertical: "center" },
+  };
+  function colSumFormula(colIdx1: number): string {
+    const letter = colLetter(colIdx1);
+    return `SUM(${letter}2:${letter}${lastDataExcelRow})`;
+  }
+  totalRow[COL.onHand  - 1] = { f: colSumFormula(COL.onHand),  t: "n", s: totalNumStyle };
+  totalRow[COL.onOrder - 1] = { f: colSumFormula(COL.onOrder), t: "n", s: totalNumStyle };
+  totalRow[COL.onPO    - 1] = { f: colSumFormula(COL.onPO),    t: "n", s: totalNumStyle };
+  for (let i = 0; i < numPeriods; i++) {
+    const ci = COL.firstPeriod + i;
+    totalRow[ci - 1] = { f: colSumFormula(ci), t: "n", s: totalNumStyle };
+  }
+  // Grand total — sum of every per-row Total in column R.
+  totalRow[COL.total - 1] = {
+    f: colSumFormula(COL.total),
+    t: "n",
+    s: { ...totalNumStyle, fill: { patternType: "none" } },
+  };
+  dataRows.push(totalRow);
+  nextExcelRow++;
 
   // ── Build worksheet ─────────────────────────────────────────────────────
   const aoa = [headerRow, ...dataRows];
@@ -311,18 +429,29 @@ export function exportToExcel(
     ws["!cols"][ci - 1] = { wch: widthForColumn(ci) };
   }
 
-  // Header row a touch taller; PPK data rows need extra room for the
-  // wrap so the second-line suffix doesn't clip.
-  const PREPACK_ROW_HPT = 26;
-  const NORMAL_ROW_HPT = 15;
+  // Row heights — header taller; qty rows default; PPK follower rows
+  // shorter (they only carry 5.5pt suffix text); bottom Total row
+  // matches header height.
   const HEADER_HPT = 22;
+  const QTY_ROW_HPT = 15;
+  const PPK_ROW_HPT = 11;     // just enough for 5.5pt with breathing room
+  const TOTAL_ROW_HPT = 18;
   const rowsHeight: any[] = [{ hpt: HEADER_HPT }];
   for (const r of rows) {
-    rowsHeight.push({ hpt: (r.ppkMult ?? 1) > 1 ? PREPACK_ROW_HPT : NORMAL_ROW_HPT });
+    rowsHeight.push({ hpt: QTY_ROW_HPT });
+    if ((r.ppkMult ?? 1) > 1) rowsHeight.push({ hpt: PPK_ROW_HPT });
   }
+  rowsHeight.push({ hpt: TOTAL_ROW_HPT });
   ws["!rows"] = rowsHeight;
 
-  // Per spec: no frozen panes, no autofilter, no merged cells.
+  // Merged cells for the prepack pairs (text cols + spacers + Total
+  // span both the qty row and its PPK follower row). Quantity cells
+  // stay separate so qty above / PPK below.
+  if (merges.length > 0) {
+    ws["!merges"] = merges;
+  }
+  // No frozen panes, no autofilter — only merges are intentional, and
+  // only on prepack pairs.
 
   const wb = XLSXStyle.utils.book_new();
   XLSXStyle.utils.book_append_sheet(wb, ws, "ATS Report");
