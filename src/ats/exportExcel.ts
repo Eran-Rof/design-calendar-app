@@ -319,7 +319,10 @@ export function exportToExcel(
       s: cellStyle,
       r: [
         { t: n.toLocaleString(), s: { font: { sz: 11, bold, color: { rgb: fontColor }, name: "Calibri" } } },
-        { t: "\n" + suffix, s: { font: { sz: 8, color: { rgb: "6B7280" }, name: "Calibri" } } },
+        // Faded slate to match the on-screen grid (which uses #6B7280
+        // at 75% opacity — Excel has no font opacity, so picking the
+        // pre-blended equivalent).
+        { t: "\n" + suffix, s: { font: { sz: 8, color: { rgb: "94A3B8" }, name: "Calibri" } } },
       ],
     };
   }
