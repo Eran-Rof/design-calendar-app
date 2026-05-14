@@ -253,17 +253,16 @@ interface NavBarProps {
     totals?: import("../computeTotals").GridTotals | null,
   ) => void;
   filtered: ATSRow[];
-  // Full display periods with the same key/periodStart/endDate/label shape
-  // the grid uses. computeGridTotals needs key + periodStart to map
-  // totals back onto period columns; the exporter just needs endDate +
-  // label, so we ship the wider shape and let each consumer pick.
+  // Full display periods carry the key+periodStart needed by
+  // computeGridTotals. The exporter itself only needs endDate + label,
+  // so we ship the wider shape and let each consumer pick.
   displayPeriods: Array<{ key: string; periodStart: string; endDate: string; label: string }>;
   atShip: boolean;
   hiddenColumns: string[];
-  // When ON, the export appends a TOTALS block under the data (same
-  // five lines the grid shows in its sticky header when the TOTALS
-  // toggle is on). Passed as a flag so the heavy computeGridTotals
-  // call only runs at click time, not on every NavBar render.
+  // When TOTALS toggle is on, the export drops the right-side Total
+  // column + simple bottom Total row and emits a 5-row Cost/Sale/Mrgn
+  // stack instead. Passed as a flag so the resolve chain only runs at
+  // click time, not on every NavBar render.
   showTotalsRow: boolean;
   eventIndex: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null;
   viewMode: "ats" | "so" | "po";
@@ -460,9 +459,10 @@ export const NavBar: React.FC<NavBarProps> = ({
                 sub: "Download the visible grid (filtered + sorted)",
                 onClick: () => {
                   const rowsForExport = filtered.filter(r => !r.__collapsed);
-                  // Compute totals only when the toggle is on — otherwise
-                  // we'd run the (mildly expensive) full resolution chain
-                  // every time the planner exports without wanting totals.
+                  // Compute the rich totals only when the TOTALS toggle
+                  // is on — when it's off, the export uses the simpler
+                  // Total-column + 1-row format and no resolve chain
+                  // needs to run.
                   const totals = showTotalsRow
                     ? computeGridTotals({
                         filtered: rowsForExport,
