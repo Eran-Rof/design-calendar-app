@@ -54,11 +54,16 @@ export function exportToExcel(
   //   - Numeric cells (On Hand rightward) center-align; text cells
   //     left-align.
   const BORDER_THICK: any = { style: "medium", color: { rgb: "1F497D" } };
+  const BORDER_THIN: any = { style: "thin", color: { rgb: "B4C7E7" } };
   const NO_BORDER: any = { style: "none" };
 
-  // Header colors.
-  const HDR_BLUE_FILL = "1F497D";
-  const HDR_ORANGE_FILL = "E97132";
+  // Header fills — three-tier gradient matching the body tier system,
+  // plus orange anchors for On Hand + the right-side Total.
+  const HDR_TEXT_FILL   = "1F497D"; // tier 1 — darkest
+  const HDR_QTY_FILL    = "305496"; // tier 2 — one notch lighter
+  const HDR_PERIOD_FILL = "4472C4"; // tier 3 — lighter still
+  const HDR_ORANGE_FILL = "E97132"; // anchor on On Hand + Total
+  const HDR_BLUE_FILL   = HDR_TEXT_FILL; // alias used by separator columns
 
   // Body cell fills — three tiers, getting lighter rightward.
   const FILL_TEXT   = "D9E1F2"; // tier 1 — darkest blue tint (still light)
@@ -74,9 +79,12 @@ export function exportToExcel(
     return { top: BORDER_THICK, bottom: BORDER_THICK, left: BORDER_THICK, right: BORDER_THICK };
   }
   function bordersForDataMiddle(): any {
-    // No top/bottom — data rows flow into each other inside the column
-    // outline. Only left + right are thick.
-    return { top: NO_BORDER, bottom: NO_BORDER, left: BORDER_THICK, right: BORDER_THICK };
+    // Thin top + bottom between data rows so the worksheet still reads
+    // as a gridded table, plus thick left + right to honour the
+    // column-outline rule. The thin horizontal lines are pale (B4C7E7)
+    // so they recede into the background and don't fight the thick
+    // column outline visually.
+    return { top: BORDER_THIN, bottom: BORDER_THIN, left: BORDER_THICK, right: BORDER_THICK };
   }
   function bordersForTotalRow(): any {
     return { top: BORDER_THICK, bottom: BORDER_THICK, left: BORDER_THICK, right: BORDER_THICK };
@@ -250,18 +258,27 @@ export function exportToExcel(
   const totalLabelIdx = colorIdx >= 0 ? colorIdx : lastTextIdx;
 
   // ── Header row ──────────────────────────────────────────────────────────
-  // Orange fill on On Hand + the right-side Total header (matches the
-  // reference image — those two are the planner's eye anchors).
-  // Everything else stays blue. Text columns left-align their header
-  // label; numeric columns from On Hand onward center-align. Separator
-  // columns carry the dark-blue fill with no label.
+  // Three-tier gradient on header fills, matching the body tier
+  // system: text cols (darkest), qty cols (one shade lighter),
+  // period cols (lighter still). Orange on On Hand + the right-side
+  // Total header so the two eye-anchor columns stand out.
+  // Text columns left-align their header label; numeric columns from
+  // On Hand onward center-align. Separator columns carry the dark
+  // tier-1 blue with no label.
   const headerRow = cols.map((c) => {
     if (c.kind === "spacer") {
       return { v: "", t: "s", s: separatorStyle(bordersForSeparatorHeader()) };
     }
-    if (c.kind === "text") return { v: c.label, t: "s", s: headerStyle(HDR_BLUE_FILL, "left") };
-    const orange = (c.kind === "qty" && c.key === "onHand") || c.kind === "rowTotal";
-    return { v: c.label, t: "s", s: headerStyle(orange ? HDR_ORANGE_FILL : HDR_BLUE_FILL, "center") };
+    if (c.kind === "text") return { v: c.label, t: "s", s: headerStyle(HDR_TEXT_FILL, "left") };
+    if (c.kind === "qty") {
+      const fill = c.key === "onHand" ? HDR_ORANGE_FILL : HDR_QTY_FILL;
+      return { v: c.label, t: "s", s: headerStyle(fill, "center") };
+    }
+    if (c.kind === "period") {
+      return { v: c.label, t: "s", s: headerStyle(HDR_PERIOD_FILL, "center") };
+    }
+    // rowTotal — orange anchor like On Hand.
+    return { v: c.label, t: "s", s: headerStyle(HDR_ORANGE_FILL, "center") };
   });
 
   // Format helper for the PPK suffix line. Mirrors renderQty in
@@ -302,7 +319,7 @@ export function exportToExcel(
       s: cellStyle,
       r: [
         { t: n.toLocaleString(), s: { font: { sz: 11, bold, color: { rgb: fontColor }, name: "Calibri" } } },
-        { t: "\n" + suffix, s: { font: { sz: 6, color: { rgb: "94A3B8" }, name: "Calibri" } } },
+        { t: "\n" + suffix, s: { font: { sz: 8, color: { rgb: "6B7280" }, name: "Calibri" } } },
       ],
     };
   }
