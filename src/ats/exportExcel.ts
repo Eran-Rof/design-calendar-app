@@ -34,47 +34,65 @@ export function exportToExcel(
   rows = rows.filter(hasAnyAvailability);
 
   // ── Styles ──────────────────────────────────────────────────────────────
-  const HDR: any = {
+  // Match the planner's reference image:
+  //   - All headers carry a heavy blue border around each cell.
+  //   - Text-column + period-column + On Order / On PO headers are
+  //     blue background with white text.
+  //   - On Hand header AND the right-side Total header use the same
+  //     orange/peach fill so the planner spots the inventory anchor
+  //     and the row-sum column at a glance.
+  //   - From On Hand rightward, headers AND data cells center-align.
+  //   - Body cells keep alternating-row tint with thin blue borders
+  //     so the gridlines read like the on-screen grid.
+  const BORDER_BLUE_THIN: any   = { style: "thin",   color: { rgb: "4472C4" } };
+  const BORDER_BLUE_MEDIUM: any = { style: "medium", color: { rgb: "4472C4" } };
+  const FULL_BORDER_THIN: any   = { top: BORDER_BLUE_THIN, bottom: BORDER_BLUE_THIN, left: BORDER_BLUE_THIN, right: BORDER_BLUE_THIN };
+  const FULL_BORDER_HEADER: any = { top: BORDER_BLUE_THIN, bottom: BORDER_BLUE_MEDIUM, left: BORDER_BLUE_THIN, right: BORDER_BLUE_THIN };
+
+  // Headers — blue for most columns, orange for On Hand + Total.
+  const HDR_BLUE: any = {
     font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
     fill:      { fgColor: { rgb: "1F497D" }, patternType: "solid" },
     alignment: { horizontal: "center", vertical: "center", wrapText: false },
-    border: {
-      top:    { style: "thin", color: { rgb: "4472C4" } },
-      bottom: { style: "medium", color: { rgb: "4472C4" } },
-      left:   { style: "thin", color: { rgb: "4472C4" } },
-      right:  { style: "thin", color: { rgb: "4472C4" } },
-    },
+    border:    FULL_BORDER_HEADER,
   };
-  const HDR_LEFT: any = { ...HDR, alignment: { horizontal: "left", vertical: "center" } };
-  const HDR_NUM:  any = { ...HDR, alignment: { horizontal: "right", vertical: "center" } };
+  const HDR_BLUE_LEFT: any = { ...HDR_BLUE, alignment: { horizontal: "left", vertical: "center" } };
+  const HDR_ORANGE: any = {
+    font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
+    fill:      { fgColor: { rgb: "E97132" }, patternType: "solid" },
+    alignment: { horizontal: "center", vertical: "center", wrapText: false },
+    border:    FULL_BORDER_HEADER,
+  };
 
+  // Body cells — alternating tint with thin blue borders ALL around
+  // (image shows a clean grid, not just left/right rules).
   const cellEven: any = {
     fill:      { fgColor: { rgb: "EEF3FA" }, patternType: "solid" },
     alignment: { horizontal: "left", vertical: "center" },
-    border: { left: { style: "thin", color: { rgb: "D0D8E4" } }, right: { style: "thin", color: { rgb: "D0D8E4" } } },
+    border:    FULL_BORDER_THIN,
   };
   const cellOdd: any = {
     fill:      { fgColor: { rgb: "FFFFFF" }, patternType: "solid" },
     alignment: { horizontal: "left", vertical: "center" },
-    border: { left: { style: "thin", color: { rgb: "D0D8E4" } }, right: { style: "thin", color: { rgb: "D0D8E4" } } },
+    border:    FULL_BORDER_THIN,
   };
-  const numEven: any = { ...cellEven, alignment: { horizontal: "right", vertical: "center" } };
-  const numOdd:  any = { ...cellOdd,  alignment: { horizontal: "right", vertical: "center" } };
+  // Numeric cells from On Hand rightward — CENTER aligned per spec.
+  const numEven: any = { ...cellEven, alignment: { horizontal: "center", vertical: "center" } };
+  const numOdd:  any = { ...cellOdd,  alignment: { horizontal: "center", vertical: "center" } };
+
   const negStyle = (base: any): any => ({ ...base, font: { bold: true, color: { rgb: "C00000" }, sz: 11, name: "Calibri" } });
   const lowStyle = (base: any): any => ({ ...base, font: { bold: true, color: { rgb: "7F6000" }, sz: 11, name: "Calibri" }, fill: { fgColor: { rgb: "FFEB9C" }, patternType: "solid" } });
   const outStyle = (base: any): any => ({ ...base, font: { bold: true, color: { rgb: "9C0006" }, sz: 11, name: "Calibri" }, fill: { fgColor: { rgb: "FFC7CE" }, patternType: "solid" } });
+
+  // Bottom Total row — bold values, light tint, blue borders. Label
+  // stays left-aligned; numeric cells center-align like the body.
   const TOTAL_LABEL_STYLE: any = {
-    font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
-    fill:      { fgColor: { rgb: "1F497D" }, patternType: "solid" },
+    font:      { bold: true, color: { rgb: "1F497D" }, sz: 11, name: "Calibri" },
+    fill:      { fgColor: { rgb: "DCE6F2" }, patternType: "solid" },
     alignment: { horizontal: "left", vertical: "center" },
-    border: {
-      top:    { style: "medium", color: { rgb: "4472C4" } },
-      bottom: { style: "thin",   color: { rgb: "4472C4" } },
-      left:   { style: "thin",   color: { rgb: "4472C4" } },
-      right:  { style: "thin",   color: { rgb: "4472C4" } },
-    },
+    border: { top: BORDER_BLUE_MEDIUM, bottom: BORDER_BLUE_THIN, left: BORDER_BLUE_THIN, right: BORDER_BLUE_THIN },
   };
-  const TOTAL_NUM_STYLE: any = { ...TOTAL_LABEL_STYLE, alignment: { horizontal: "right", vertical: "center" } };
+  const TOTAL_NUM_STYLE: any = { ...TOTAL_LABEL_STYLE, alignment: { horizontal: "center", vertical: "center" } };
   const TOTAL_BLANK_STYLE: any = { ...TOTAL_LABEL_STYLE };
 
   // ── Column model ────────────────────────────────────────────────────────
@@ -158,18 +176,14 @@ export function exportToExcel(
   });
 
   const totalsMode = totals !== null;
-  const cols: Col[] = [];
-  cols.push(...TEXT_COLS);
-  if (TEXT_COLS.length && (QTY_COLS.length || PERIOD_COLS.length)) cols.push(SPACER("_sp_after_text"));
-  for (let i = 0; i < QTY_COLS.length; i++) {
-    cols.push(QTY_COLS[i]);
-    // Spacer after every qty col — including the last one if periods
-    // follow, matching the attached layout exactly.
-    if (i < QTY_COLS.length - 1 || PERIOD_COLS.length > 0) {
-      cols.push(SPACER(`_sp_after_${QTY_COLS[i].key}`));
-    }
-  }
-  cols.push(...PERIOD_COLS);
+  // No spacer columns — matches the planner's reference image. Each
+  // group flows directly into the next; the blue cell borders provide
+  // the visual separation that the previous spacer columns gave.
+  const cols: Col[] = [
+    ...TEXT_COLS,
+    ...QTY_COLS,
+    ...PERIOD_COLS,
+  ];
   // Row Total column is for the simple-totals layout only — the rich
   // 5-row stack carries totals on its own rows, so the right-side
   // column is redundant when totals are on.
@@ -188,12 +202,15 @@ export function exportToExcel(
   const totalLabelIdx = colorIdx >= 0 ? colorIdx : lastTextIdx;
 
   // ── Header row ──────────────────────────────────────────────────────────
+  // Orange fill on On Hand + the right-side Total header (matches the
+  // reference image — those two are the planner's eye anchors).
+  // Everything else stays blue. Text columns left-align their header
+  // label; numeric columns from On Hand onward center-align (data row
+  // alignment follows the same rule).
   const headerRow = cols.map((c) => {
-    let s: any;
-    if (c.kind === "spacer") s = HDR;
-    else if (c.kind === "text") s = HDR_LEFT;
-    else s = HDR_NUM; // qty / period / rowTotal
-    return { v: c.label, t: "s", s };
+    if (c.kind === "text") return { v: c.label, t: "s", s: HDR_BLUE_LEFT };
+    const orange = (c.kind === "qty" && c.key === "onHand") || c.kind === "rowTotal";
+    return { v: c.label, t: "s", s: orange ? HDR_ORANGE : HDR_BLUE };
   });
 
   // ── Data rows ───────────────────────────────────────────────────────────
@@ -201,8 +218,12 @@ export function exportToExcel(
     const isEven = ri % 2 === 0;
     const base = isEven ? cellEven : cellOdd;
     const numB = isEven ? numEven : numOdd;
-    const todayQ = r.dates[today] ?? r.onHand;
-    const onHandStyle = todayQ <= 0 ? outStyle(numB) : todayQ <= 10 ? lowStyle(numB) : numB;
+    // On Hand DATA cells stay plain (no out/low heat-map). Per user
+    // spec the pink/red tint on the 0 rows was just an artifact of the
+    // previous "qty <= 0 → outStyle" rule — it confused the visual
+    // because the header is already the planner's "this is On Hand"
+    // anchor. Reserving heat-map coloring for the period columns only.
+    const onHandStyle = numB;
 
     return cols.map((c) => {
       const v = c.getValue(r);
