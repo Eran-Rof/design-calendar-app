@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import S from "../styles";
-import type { ATSRow, ATSSoEvent, ExcelData } from "../types";
+import type { ATSRow, ATSPoEvent, ATSSoEvent, ExcelData } from "../types";
+import { computeGridTotals } from "../computeTotals";
 import { XoroSyncOverlay, type XoroSyncProgress } from "./StatusOverlays";
 import { normalizeXoroSos, type XoroSoRecord } from "../normalizeXoroSos";
 
@@ -249,11 +250,24 @@ interface NavBarProps {
     periods: Array<{ endDate: string; label: string }>,
     atShip: boolean,
     hiddenColumns: string[],
+    totals?: import("../computeTotals").GridTotals | null,
   ) => void;
   filtered: ATSRow[];
-  displayPeriods: Array<{ endDate: string; label: string }>;
+  // Full display periods with the same key/periodStart/endDate/label shape
+  // the grid uses. computeGridTotals needs key + periodStart to map
+  // totals back onto period columns; the exporter just needs endDate +
+  // label, so we ship the wider shape and let each consumer pick.
+  displayPeriods: Array<{ key: string; periodStart: string; endDate: string; label: string }>;
   atShip: boolean;
   hiddenColumns: string[];
+  // When ON, the export appends a TOTALS block under the data (same
+  // five lines the grid shows in its sticky header when the TOTALS
+  // toggle is on). Passed as a flag so the heavy computeGridTotals
+  // call only runs at click time, not on every NavBar render.
+  showTotalsRow: boolean;
+  eventIndex: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null;
+  viewMode: "ats" | "so" | "po";
+  generalMarginPct: number;
   onNegInven: () => void;
   onAgedInven: (days: number, category: string) => "ok" | "empty";
   onDownloadIncompleteSkus: () => void;
@@ -278,7 +292,7 @@ interface NavBarProps {
 export const NavBar: React.FC<NavBarProps> = ({
   mergeHistory, undoLastMerge, onNavigateHome, setShowUpload,
   uploadingFile, invFile, purFile, ordFile,
-  exportToExcel, filtered, displayPeriods, atShip, hiddenColumns, onNegInven, onAgedInven, onDownloadIncompleteSkus, onDownloadStockVsSo,
+  exportToExcel, filtered, displayPeriods, atShip, hiddenColumns, showTotalsRow, eventIndex, viewMode, generalMarginPct, onNegInven, onAgedInven, onDownloadIncompleteSkus, onDownloadStockVsSo,
   categories, filterCategory,
   unreadNotifs, showingNotifications, onToggleNotifications,
   excelData, setExcelData,
@@ -444,12 +458,29 @@ export const NavBar: React.FC<NavBarProps> = ({
                 key: "exportExcel",
                 label: "Export Excel",
                 sub: "Download the visible grid (filtered + sorted)",
-                onClick: () => exportToExcel(
-                  filtered.filter(r => !r.__collapsed),
-                  displayPeriods.map(p => ({ endDate: p.endDate, label: p.label })),
-                  atShip,
-                  hiddenColumns,
-                ),
+                onClick: () => {
+                  const rowsForExport = filtered.filter(r => !r.__collapsed);
+                  // Compute totals only when the toggle is on — otherwise
+                  // we'd run the (mildly expensive) full resolution chain
+                  // every time the planner exports without wanting totals.
+                  const totals = showTotalsRow
+                    ? computeGridTotals({
+                        filtered: rowsForExport,
+                        displayPeriods,
+                        atShip,
+                        viewMode,
+                        eventIndex,
+                        generalMarginPct,
+                      })
+                    : null;
+                  exportToExcel(
+                    rowsForExport,
+                    displayPeriods.map(p => ({ endDate: p.endDate, label: p.label })),
+                    atShip,
+                    hiddenColumns,
+                    totals,
+                  );
+                },
               },
               {
                 key: "negInven",

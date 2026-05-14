@@ -100,7 +100,13 @@ interface ATSDerivedCtx {
   loadFromSupabase: () => Promise<void>;
   saveUploadData: (data: ExcelData) => Promise<void>;
   toggleStore: (current: string[], set: (v: string[]) => void, store: string) => void;
-  exportToExcel: (rows: ATSRow[], periods: Array<{ endDate: string; label: string }>, atShip: boolean, hiddenColumns: string[]) => void;
+  exportToExcel: (
+    rows: ATSRow[],
+    periods: Array<{ endDate: string; label: string }>,
+    atShip: boolean,
+    hiddenColumns: string[],
+    totals?: import("./computeTotals").GridTotals | null,
+  ) => void;
   repositionCtxMenu: () => void;
   repositionSummaryCtx: () => void;
   cancelUpload: () => void;
@@ -173,6 +179,10 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         displayPeriods={displayPeriods}
         atShip={atShip}
         hiddenColumns={hiddenColumns ?? []}
+        showTotalsRow={showTotalsRow ?? false}
+        eventIndex={eventIndex}
+        viewMode={viewMode ?? "ats"}
+        generalMarginPct={generalMarginPct ?? 21}
         onNegInven={onNegInven}
         onAgedInven={onAgedInven}
         onDownloadIncompleteSkus={() => exportIncompleteSkus(filtered, eventIndex)}

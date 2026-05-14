@@ -1,12 +1,18 @@
 import XLSXStyle from "xlsx-js-style";
 import type { ATSRow } from "./types";
 import { fmtDate, displayColor } from "./helpers";
+import type { GridTotals } from "./computeTotals";
 
 export function exportToExcel(
   rows: ATSRow[],
   periods: Array<{ endDate: string; label: string }>,
   atShip = false,
   hiddenColumns: string[] = [],
+  // When provided, append 5 totals rows (Qty / Cost $ / Sale $ / Mrgn $ /
+  // Mrgn %) at the bottom of the sheet — same numbers the grid's totals
+  // header shows when TOTALS toggle is on. `null` / undefined = no
+  // totals appended.
+  totals: GridTotals | null = null,
 ) {
   // Skip rows whose availability is zero across every visible period —
   // they contribute nothing to a planning conversation. Negatives are
@@ -134,8 +140,93 @@ export function exportToExcel(
     return [...fixedCells, ...dateCells];
   });
 
+  // ── Totals rows ─────────────────────────────────────────────────────────
+  // When the grid's TOTALS toggle is on (caller passes `totals`), append
+  // 5 summary rows below the data: Qty / Cost $ / Sale $ / Mrgn $ / Mrgn %.
+  // The label sits in the first non-hidden text column so the row reads
+  // like a section header. Numbers go into the corresponding column
+  // positions: On Hand / On Order / On PO + every visible period.
+  const totalsRows: any[][] = [];
+  if (totals) {
+    const TOTAL_HDR: any = {
+      font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
+      fill: { fgColor: { rgb: "31506F" }, patternType: "solid" },
+      alignment: { horizontal: "right", vertical: "center" },
+      border: {
+        top: { style: "medium", color: { rgb: "4472C4" } },
+        bottom: { style: "thin", color: { rgb: "4472C4" } },
+        left: { style: "thin", color: { rgb: "4472C4" } },
+        right: { style: "thin", color: { rgb: "4472C4" } },
+      },
+    };
+    const TOTAL_HDR_LEFT: any = { ...TOTAL_HDR, alignment: { horizontal: "left", vertical: "center" } };
+    const TOTAL_BLANK: any = { ...TOTAL_HDR_LEFT, fill: { fgColor: { rgb: "31506F" }, patternType: "solid" } };
+
+    const fmtUSD = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const safePct = (n: number, d: number) => d > 0 ? `${((n / d) * 100).toFixed(1)}%` : "—";
+
+    const onHandT = totals.onHand;
+    const onOrderT = totals.onOrder;
+    const onPOT = totals.onPO;
+
+    // Each row gets a label cell + cells for every visible fixed col
+    // (most blank, the three qty cols carry the value) + period cells.
+    const labelColIdx = fixedCols.findIndex((c) => c.numeric === false);
+    const onHandColIdx = fixedCols.findIndex((c) => c.key === "onHand");
+    const onOrderColIdx = fixedCols.findIndex((c) => c.key === "onOrder");
+    const onPOColIdx = fixedCols.findIndex((c) => c.key === "onPO");
+
+    function buildTotalRow(label: string, valueFn: (slot: typeof onHandT) => string | number, periodFn: (key: string) => string | number) {
+      const cells: any[] = [];
+      for (let i = 0; i < fixedCols.length; i++) {
+        if (i === labelColIdx) {
+          cells.push({ v: label, t: "s", s: TOTAL_HDR_LEFT });
+        } else if (i === onHandColIdx) {
+          cells.push({ v: valueFn(onHandT), t: typeof valueFn(onHandT) === "number" ? "n" : "s", s: TOTAL_HDR });
+        } else if (i === onOrderColIdx) {
+          cells.push({ v: valueFn(onOrderT), t: typeof valueFn(onOrderT) === "number" ? "n" : "s", s: TOTAL_HDR });
+        } else if (i === onPOColIdx) {
+          cells.push({ v: valueFn(onPOT), t: typeof valueFn(onPOT) === "number" ? "n" : "s", s: TOTAL_HDR });
+        } else {
+          cells.push({ v: "", t: "s", s: TOTAL_BLANK });
+        }
+      }
+      for (const p of periods) {
+        const v = periodFn(p.endDate);
+        cells.push({ v, t: typeof v === "number" ? "n" : "s", s: TOTAL_HDR });
+      }
+      return cells;
+    }
+
+    totalsRows.push(buildTotalRow(
+      "TOTAL Qty",
+      (slot) => slot.qty,
+      (k) => totals.periodQty[k] ?? 0,
+    ));
+    totalsRows.push(buildTotalRow(
+      "TOTAL Cost",
+      (slot) => fmtUSD(slot.cost),
+      (k) => fmtUSD(totals.periodCost[k] ?? 0),
+    ));
+    totalsRows.push(buildTotalRow(
+      "TOTAL Sale",
+      (slot) => fmtUSD(slot.sale),
+      (k) => fmtUSD(totals.periodSale[k] ?? 0),
+    ));
+    totalsRows.push(buildTotalRow(
+      "TOTAL Mrgn $",
+      (slot) => fmtUSD(slot.sale - slot.cost),
+      (k) => fmtUSD((totals.periodSale[k] ?? 0) - (totals.periodCost[k] ?? 0)),
+    ));
+    totalsRows.push(buildTotalRow(
+      "TOTAL Mrgn %",
+      (slot) => safePct(slot.sale - slot.cost, slot.sale),
+      (k) => safePct((totals.periodSale[k] ?? 0) - (totals.periodCost[k] ?? 0), totals.periodSale[k] ?? 0),
+    ));
+  }
+
   // ── Build worksheet ─────────────────────────────────────────────────────
-  const aoa = [headerRow, ...dataRows];
+  const aoa = [headerRow, ...dataRows, ...totalsRows];
   const ws  = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
 
   // Column widths

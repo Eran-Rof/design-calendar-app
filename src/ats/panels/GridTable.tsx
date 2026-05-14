@@ -4,6 +4,7 @@ import { getQtyColor, getQtyBg, displayColor } from "../helpers";
 import { useArrowKeyScroll } from "../../shared/grid/useArrowKeyScroll";
 import { GridScrollbarStyles } from "../../shared/grid/GridScrollbarStyles";
 import type { ATSRow, ATSPoEvent, ATSSoEvent, CtxMenu } from "../types";
+import { computeGridTotals } from "../computeTotals";
 
 // Renders a qty cell that shows either the unit-grain or pack-grain
 // number based on the EXPLODE PPK toggle, with a small faded hint
@@ -219,172 +220,17 @@ export const GridTable: React.FC<GridTableProps> = ({
       : { position: "static" as const, left: undefined, zIndex: undefined }
   );
 
-  // Totals across the filtered set (not just the current page).
-  //
-  // Per-SKU resolution chain (drives Cost and Sale):
-  //   sale: SO avg price from events  →  cost / (1 − margin%)  if no SO
-  //   cost: row.avgCost (inventory)   →  PO avg unitCost       →  sale × (1 − margin%) if no SO either
-  //   skip: SKU with no SO, no avgCost, AND no PO cost → ignored
-  //         and counted in `incompleteSkus` so the Mrgn label can
-  //         show a `*`.
-  const sums = useMemo(() => {
-    const m = Math.max(0, Math.min(99, generalMarginPct ?? 50)) / 100;
-    const oneMinusM = 1 - m;
-
-    // Per-SKU PPK multiplier from filtered rows. Raw Xoro PO/SO events
-    // come at PACK grain — soVal/soQty and poVal/poQty are per-pack
-    // dollars. The qty fields on r (onHand / onOrder / onPO / dates)
-    // are unit-grain (compute.ts already multiplies by ppkMult), so
-    // multiplying unit qty × per-pack price would inflate cost/sale
-    // totals by ppkMult on prepacks. Divide the per-pack price by
-    // ppkMult here so soPriceBySku / poCostBySku land in per-unit
-    // grain — matching avgCostBySku, which is already per-unit
-    // because compute.ts divides r.avgCost by ppkMult on ingest.
-    const ppkMultBySku = new Map<string, number>();
-    for (const r of filtered) {
-      const m = r.ppkMult ?? 1;
-      if (m > 1) ppkMultBySku.set(r.sku, m);
-    }
-
-    // Per-SKU SO avg price + PO avg unit cost from event index.
-    const soPriceBySku = new Map<string, number>();
-    const poCostBySku  = new Map<string, number>();
-    if (eventIndex) {
-      for (const sku of Object.keys(eventIndex)) {
-        let soQty = 0, soVal = 0, poQty = 0, poVal = 0;
-        for (const buckets of Object.values(eventIndex[sku])) {
-          for (const so of buckets.sos) {
-            const v = so.totalPrice || (so.unitPrice * so.qty) || 0;
-            if (so.qty > 0 && v > 0) { soQty += so.qty; soVal += v; }
-          }
-          for (const po of buckets.pos) {
-            if (po.qty > 0 && po.unitCost > 0) { poQty += po.qty; poVal += po.qty * po.unitCost; }
-          }
-        }
-        const mult = ppkMultBySku.get(sku) ?? 1;
-        if (soQty > 0) soPriceBySku.set(sku, (soVal / soQty) / mult);
-        if (poQty > 0) poCostBySku.set(sku, (poVal / poQty) / mult);
-      }
-    }
-
-    // First pass: capture the BEST avgCost per SKU across every store
-    // row in the filtered set. avgCost is per (sku, store) so a SKU
-    // can have a $5 cost on its ROF row but $0 on its ROF ECOM row;
-    // resolving on whichever row appears first would mis-skip half
-    // the inventory.
-    const avgCostBySku = new Map<string, number>();
-    for (const r of filtered) {
-      if (r.avgCost && r.avgCost > 0) {
-        const cur = avgCostBySku.get(r.sku);
-        if (cur == null || r.avgCost > cur) avgCostBySku.set(r.sku, r.avgCost);
-      }
-    }
-
-    // Resolve cost + sale for each filtered SKU, returning null when
-    // there's no signal at all (SO, avgCost, and PO cost all missing).
-    type Resolved = { cost: number; sale: number };
-    const resolved = new Map<string, Resolved | null>();
-    for (const r of filtered) {
-      if (resolved.has(r.sku)) continue;
-      const so   = soPriceBySku.get(r.sku);
-      const po   = poCostBySku.get(r.sku);
-      const ac   = avgCostBySku.get(r.sku);
-      const costKnown = ac ?? po ?? null;
-      if (so == null && costKnown == null) {
-        resolved.set(r.sku, null); // skip
-        continue;
-      }
-      let cost: number, sale: number;
-      if (so != null && costKnown != null) {
-        cost = costKnown;
-        sale = so;
-      } else if (so != null) {
-        // Have sale, no cost basis → derive cost from margin.
-        cost = so * oneMinusM;
-        sale = so;
-      } else {
-        // Have cost, no SO → derive sale from margin.
-        cost = costKnown!;
-        sale = oneMinusM > 0 ? costKnown! / oneMinusM : costKnown!;
-      }
-      resolved.set(r.sku, { cost, sale });
-    }
-
-    // Qty totals match the stat cards / row aggregates — every
-    // filtered SKU contributes regardless of whether it has cost/sale
-    // signals. Cost / Sale / Mrgn $ / Mrgn % only sum the resolvable
-    // SKUs, with `skipped` counting how many were left out so the
-    // cell can render the red * next to those labels.
-    let onHandQty  = 0, onHandCost  = 0, onHandSale  = 0,  onHandSkipped  = 0;
-    let onOrderQty = 0, onOrderCost = 0, onOrderSale = 0,  onOrderSkipped = 0;
-    let onPOQty    = 0, onPOCost    = 0, onPOSale    = 0,  onPOSkipped    = 0;
-    for (const r of filtered) {
-      onHandQty  += r.onHand  || 0;
-      onOrderQty += r.onOrder || 0;
-      onPOQty    += r.onPO    || 0;
-      const res = resolved.get(r.sku);
-      if (!res) {
-        if ((r.onHand  || 0) > 0) onHandSkipped++;
-        if ((r.onOrder || 0) > 0) onOrderSkipped++;
-        if ((r.onPO    || 0) > 0) onPOSkipped++;
-        continue;
-      }
-      onHandCost  += (r.onHand  || 0) * res.cost; onHandSale  += (r.onHand  || 0) * res.sale;
-      onOrderCost += (r.onOrder || 0) * res.cost; onOrderSale += (r.onOrder || 0) * res.sale;
-      onPOCost    += (r.onPO    || 0) * res.cost; onPOSale    += (r.onPO    || 0) * res.sale;
-    }
-
-    const periodQty:     Record<string, number> = {};
-    const periodCost:    Record<string, number> = {};
-    const periodSale:    Record<string, number> = {};
-    const periodSkipped: Record<string, number> = {};
-    for (const p of displayPeriods) {
-      let q = 0, c = 0, s = 0, skipped = 0;
-      for (const r of filtered) {
-        let v: number | undefined;
-        if (viewMode === "ats") {
-          v = atShip ? (r.freeMap?.[p.endDate] ?? r.dates[p.endDate]) : r.dates[p.endDate];
-        } else if (!r.__collapsed && eventIndex) {
-          // SO / PO mode — sum event qty whose date falls inside the
-          // period bucket [periodStart, endDate], scoped to the row's
-          // store. Reads eventIndex directly to keep this memo free of
-          // a function-identity dep that would invalidate every render.
-          const skuIdx = eventIndex[r.sku];
-          if (skuIdx) {
-            let sum = 0;
-            const rowStore = r.store;
-            for (const date of Object.keys(skuIdx)) {
-              if (date < p.periodStart || date > p.endDate) continue;
-              const list = viewMode === "so" ? skuIdx[date].sos : skuIdx[date].pos;
-              for (const e of list) {
-                if (rowStore && (e.store ?? "ROF") !== rowStore) continue;
-                sum += e.qty || 0;
-              }
-            }
-            v = sum;
-          } else {
-            v = 0;
-          }
-        }
-        if (v == null) continue;
-        q += v;
-        const res = resolved.get(r.sku);
-        if (!res) { if (v !== 0) skipped++; continue; }
-        c += v * res.cost;
-        s += v * res.sale;
-      }
-      periodQty[p.key]     = q;
-      periodCost[p.key]    = c;
-      periodSale[p.key]    = s;
-      periodSkipped[p.key] = skipped;
-    }
-    return {
-      onHand:  { qty: onHandQty,  cost: onHandCost,  sale: onHandSale,  skipped: onHandSkipped  },
-      onOrder: { qty: onOrderQty, cost: onOrderCost, sale: onOrderSale, skipped: onOrderSkipped },
-      onPO:    { qty: onPOQty,    cost: onPOCost,    sale: onPOSale,    skipped: onPOSkipped    },
-      periodQty, periodCost, periodSale, periodSkipped,
-    };
-  }, [filtered, displayPeriods, atShip, viewMode, eventIndex, generalMarginPct]);
+  // Totals across the filtered set (not just the current page). The
+  // computation lives in ./computeTotals so the Excel export can reuse
+  // it — the two views always see the same numbers.
+  const sums = useMemo(() => computeGridTotals({
+    filtered,
+    displayPeriods,
+    atShip,
+    viewMode,
+    eventIndex,
+    generalMarginPct: generalMarginPct ?? 50,
+  }), [filtered, displayPeriods, atShip, viewMode, eventIndex, generalMarginPct]);
 
   // Per-column widths. Auto-fit columns (numeric: onHand/onOrder/onPO)
   // compute width from the largest content + 2 char-widths padding on
