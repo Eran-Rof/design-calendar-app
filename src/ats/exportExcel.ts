@@ -79,12 +79,10 @@ export function exportToExcel(
     return { top: BORDER_THICK, bottom: BORDER_THICK, left: BORDER_THICK, right: BORDER_THICK };
   }
   function bordersForDataMiddle(): any {
-    // Thin top + bottom between data rows so the worksheet still reads
-    // as a gridded table, plus thick left + right to honour the
-    // column-outline rule. The thin horizontal lines are pale (B4C7E7)
-    // so they recede into the background and don't fight the thick
-    // column outline visually.
-    return { top: BORDER_THIN, bottom: BORDER_THIN, left: BORDER_THICK, right: BORDER_THICK };
+    // Thick blue borders on every side per the planner's spec — the
+    // worksheet reads as a heavy gridded table where every cell is
+    // outlined in the same blue as the column rules.
+    return { top: BORDER_THICK, bottom: BORDER_THICK, left: BORDER_THICK, right: BORDER_THICK };
   }
   function bordersForTotalRow(): any {
     return { top: BORDER_THICK, bottom: BORDER_THICK, left: BORDER_THICK, right: BORDER_THICK };
