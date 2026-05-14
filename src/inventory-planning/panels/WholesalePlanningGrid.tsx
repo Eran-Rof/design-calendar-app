@@ -2,7 +2,7 @@
 // so planners can scan a row end-to-end without scrolling. Click a row to
 // open the detail drawer.
 
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ppkMultiplier } from "../../shared/prepack";
 import { useArrowKeyScroll } from "../../shared/grid/useArrowKeyScroll";
@@ -1873,16 +1873,18 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     else { setSortKey(key); setSortDir("asc"); }
   }
 
-  // Open the ATS-style right-click context menu for an On SO or
-  // Receipts (On PO) cell. type="onOrder" → SO menu (yellow); type="onPO"
-  // → PO menu (green). Resolves the row's SKU set (aggregates expand to
-  // their underlying mutedRows sku_ids; leaf rows use their own
-  // sku_id), then lazy-fetches ip_open_sales_orders / ip_open_purchase_orders
-  // for that (sku_ids[], period, customer_id) grain and maps each line to
-  // the ATSPoEvent / ATSSoEvent shape the menu component expects.
+  // Open the ATS-style right-click context menu for an On Hand,
+  // On SO or Receipts (On PO) cell. type="onHand" → blue stock detail
+  // (no fetch needed, render synchronously); type="onOrder" → SO menu
+  // (yellow); type="onPO" → PO menu (green). Resolves the row's SKU
+  // set (aggregates expand to their underlying mutedRows sku_ids; leaf
+  // rows use their own sku_id), then lazy-fetches the relevant
+  // ip_open_sales_orders / ip_open_purchase_orders for that
+  // (sku_ids[], period, customer_id) grain and maps each line to the
+  // ATSPoEvent / ATSSoEvent shape the menu component expects.
   async function openSummaryCtx(
     e: React.MouseEvent,
-    type: "onOrder" | "onPO",
+    type: "onHand" | "onOrder" | "onPO",
     row: IpPlanningGridRow,
   ) {
     e.preventDefault();
@@ -1916,6 +1918,28 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       ? Array.from(customerIdSet)[0]
       : null;
 
+    // Raw on-hand from the mutedRows pre-rolling-pool snapshot. The
+    // displayed row.on_hand_qty has been overwritten to the rolled
+    // beginning-balance value by `filtered`, but the menu's "On Hand"
+    // section should show the actual Xoro snapshot for the SKU(s).
+    // Dedupe across underlying ids by sku_id so multi-period buckets
+    // don't multiply the on-hand by N.
+    let rawOnHand = 0;
+    {
+      const seenSkus = new Set<string>();
+      if (row.is_aggregate && row.aggregate_underlying_ids?.length) {
+        for (const fid of row.aggregate_underlying_ids) {
+          const u = mutedById.get(fid);
+          if (!u || seenSkus.has(u.sku_id)) continue;
+          seenSkus.add(u.sku_id);
+          rawOnHand += u.on_hand_qty ?? 0;
+        }
+      } else {
+        const u = mutedById.get(row.forecast_id);
+        rawOnHand = u?.on_hand_qty ?? row.on_hand_qty ?? 0;
+      }
+    }
+
     // Build a fake ATSRow from the planning row so SummaryContextMenu's
     // header pills (SKU code, On Hand chip, Avg Cost) render with the
     // right values. ppkMult=1 keeps the menu's prepack math a no-op.
@@ -1925,13 +1949,30 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     const atsRow: ATSRow = {
       sku: skuLabel,
       description: row.sku_description ?? "",
-      onHand: row.on_hand_qty ?? 0,
+      onHand: rawOnHand,
       onPO: row.receipts_due_qty ?? 0,
       onOrder: row.on_so_qty ?? 0,
       avgCost: row.avg_cost ?? 0,
-      totalAmount: (row.on_hand_qty ?? 0) * (row.avg_cost ?? 0),
+      totalAmount: rawOnHand * (row.avg_cost ?? 0),
       store: "ROF",
     } as ATSRow;
+
+    // On Hand is a fact already on the row — render synchronously, no
+    // network fetch. The menu's onHand panel reads atsRow.{onHand,
+    // avgCost, totalAmount, description, store} directly.
+    if (type === "onHand") {
+      setSummaryCtx({
+        type: "onHand",
+        row: atsRow,
+        pos: [],
+        sos: [],
+        cellEl,
+        initialX,
+        initialY,
+      });
+      setSummaryCtxLoading(false);
+      return;
+    }
 
     // Render an empty menu immediately so the user gets feedback that
     // the click registered. The fetch fills in the events below.
@@ -2016,6 +2057,78 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       window.removeEventListener("keydown", onKey);
     };
   }, [summaryCtx]);
+
+  // Keep the right-click menu pinned to its source cell as the planner
+  // scrolls the grid or the page. Without this the menu uses its
+  // initial click-time position and visibly drifts away from the cell
+  // (the bug we hit after shipping the first version). Mutates
+  // el.style.top/left directly via the ref so we don't churn React
+  // state on every scroll frame. Also flips the menu above the cell
+  // when the cell is closer to the viewport bottom, and dismisses
+  // when the cell scrolls behind the sticky header. Same shape as
+  // ATS's repositionSummaryCtx.
+  const repositionSummaryCtx = useCallback(() => {
+    if (!summaryCtx?.cellEl || !summaryCtxRef.current) return;
+    const el = summaryCtxRef.current;
+    const cell = summaryCtx.cellEl.getBoundingClientRect();
+    const wrap = tableWrapRef.current;
+    // Hide when the cell scrolls behind the sticky table header or
+    // off the bottom of the visible region. Mirrors the ATS check
+    // (top sticky thead bottom vs cell.bottom) so the menu doesn't
+    // hover over a cell the planner can no longer see.
+    const theadEl = wrap?.querySelector("thead th") as HTMLElement | null;
+    const theadBottom = theadEl?.getBoundingClientRect().bottom ?? 0;
+    if (cell.bottom <= theadBottom + 2 || cell.top >= window.innerHeight) {
+      setSummaryCtx(null);
+      return;
+    }
+    const vh = window.innerHeight;
+    const vw = window.innerWidth;
+    const pad = 8;
+    const ARROW_OVERLAP = 12;
+    const ARROW_DIV_H = 8;
+    const belowSpace = vh - cell.bottom + ARROW_OVERLAP - pad;
+    const aboveSpace = cell.top + ARROW_OVERLAP - pad;
+    const flipped = aboveSpace > belowSpace;
+    const space = flipped ? aboveSpace : belowSpace;
+    const bodyMax = Math.max(120, space - ARROW_DIV_H);
+    const bodyEl = el.querySelector("[data-popup-body]") as HTMLElement | null;
+    if (bodyEl) bodyEl.style.maxHeight = `${bodyMax}px`;
+    const ph = el.offsetHeight;
+    let top: number;
+    if (flipped) {
+      top = (cell.top + ARROW_OVERLAP) - ph;
+    } else {
+      top = cell.bottom - ARROW_OVERLAP;
+    }
+    const pw = el.offsetWidth;
+    const left = Math.max(pad, Math.min(vw - pw - pad, cell.left));
+    el.style.top = `${Math.max(pad, top)}px`;
+    el.style.left = `${left}px`;
+    const arrowLeft = Math.max(10, Math.min(cell.left + cell.width / 2 - left - 9, pw - 28));
+    const upEl = el.querySelector("[data-arrow='up']") as HTMLElement | null;
+    const downEl = el.querySelector("[data-arrow='down']") as HTMLElement | null;
+    if (upEl) { upEl.style.display = flipped ? "none" : "block"; upEl.style.left = `${arrowLeft}px`; }
+    if (downEl) { downEl.style.display = flipped ? "block" : "none"; downEl.style.left = `${arrowLeft}px`; }
+  }, [summaryCtx]);
+
+  useLayoutEffect(() => { repositionSummaryCtx(); }, [repositionSummaryCtx]);
+
+  useEffect(() => {
+    if (!summaryCtx) return;
+    // Listen for scroll on window AND the grid wrap — the wrap has its
+    // own scroll container (overflow set on S.tableWrap) so window
+    // scroll alone misses internal grid scrolling. capture=true so
+    // nested scrollable parents (e.g. layout containers) also fire.
+    const targets: EventTarget[] = [window];
+    if (tableWrapRef.current) targets.push(tableWrapRef.current);
+    targets.forEach((t) => t.addEventListener("scroll", repositionSummaryCtx, { passive: true, capture: true } as AddEventListenerOptions));
+    window.addEventListener("resize", repositionSummaryCtx);
+    return () => {
+      targets.forEach((t) => t.removeEventListener("scroll", repositionSummaryCtx, { capture: true } as EventListenerOptions));
+      window.removeEventListener("resize", repositionSummaryCtx);
+    };
+  }, [summaryCtx, repositionSummaryCtx]);
 
   return (
     <div>
@@ -3045,7 +3158,11 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
                     {METHOD_LABEL[r.forecast_method] ?? r.forecast_method}
                   </span>
                 </td>
-                <td style={{ ...S.tdNum, ...colHide("onHand") }}>{formatQty(r.on_hand_qty)}</td>
+                <td
+                  style={{ ...S.tdNum, cursor: (r.on_hand_qty ?? 0) !== 0 ? "context-menu" : "default", ...colHide("onHand") }}
+                  title={(r.on_hand_qty ?? 0) !== 0 ? "Right-click for inventory details" : undefined}
+                  onContextMenu={(e) => { if ((r.on_hand_qty ?? 0) !== 0) void openSummaryCtx(e, "onHand", r); }}
+                >{formatQty(r.on_hand_qty)}</td>
                 <td
                   style={{ ...S.tdNum, color: r.on_so_qty > 0 ? PAL.yellow : PAL.textMuted, cursor: r.on_so_qty > 0 ? "context-menu" : "default", ...colHide("onSo") }}
                   title={r.on_so_qty > 0 ? "Right-click for SO line details" : undefined}
