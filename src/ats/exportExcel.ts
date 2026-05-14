@@ -57,19 +57,28 @@ export function exportToExcel(
   const BORDER_THIN: any = { style: "thin", color: { rgb: "B4C7E7" } };
   const NO_BORDER: any = { style: "none" };
 
-  // Header fills — three-tier gradient matching the body tier system,
-  // plus orange anchors for On Hand + the right-side Total.
-  const HDR_TEXT_FILL   = "1F497D"; // tier 1 — darkest
-  const HDR_QTY_FILL    = "305496"; // tier 2 — one notch lighter
-  const HDR_PERIOD_FILL = "4472C4"; // tier 3 — lighter still
-  const HDR_ORANGE_FILL = "E97132"; // anchor on On Hand + Total
+  // Header fills — three-tier gradient with markedly more contrast
+  // between tiers so the groups read at a glance. On Hand sits in the
+  // qty tier; the right-side Total header sits one shade DARKER than
+  // qty so the planner can spot the row-summary column at a glance
+  // without it blending into the qty tier.
+  const HDR_TEXT_FILL   = "1F3864"; // tier 1 — deep navy
+  const HDR_QTY_FILL    = "4472C4"; // tier 2 — clearly lighter mid-blue
+  const HDR_PERIOD_FILL = "8FAADC"; // tier 3 — distinctly lighter
+  const HDR_TOTAL_FILL  = "2F5496"; // a notch darker than qty, visibly distinct
   const HDR_BLUE_FILL   = HDR_TEXT_FILL; // alias used by separator columns
 
-  // Body cell fills — three tiers, getting lighter rightward.
-  const FILL_TEXT   = "D9E1F2"; // tier 1 — darkest blue tint (still light)
-  const FILL_QTY    = "EAEFF7"; // tier 2 — three shades lighter
-  const FILL_PERIOD = "F4F7FB"; // tier 3 — three shades lighter again
-  const FILL_TOTAL  = "DCE6F2"; // total-row tint, sits between text + qty tier visually
+  // Body cell fills — three tiers with the same widened contrast as
+  // the headers. Each tier has TWO shades to drive alternating-row
+  // stripes (matches the original ATS export look the user wants
+  // back). _ODD = white-ish; _EVEN = the tier's tint.
+  const FILL_TEXT_ODD     = "FFFFFF"; // white stripe
+  const FILL_TEXT_EVEN    = "D9E1F2"; // light navy tint
+  const FILL_QTY_ODD      = "FFFFFF";
+  const FILL_QTY_EVEN     = "DEEBF7"; // light mid-blue tint
+  const FILL_PERIOD_ODD   = "FFFFFF";
+  const FILL_PERIOD_EVEN  = "F2F8FD"; // very light sky tint
+  const FILL_TOTAL  = "BDD7EE"; // total-row tint — distinct from any data tier
 
   // Border builders. A cell's borders depend on (a) where it sits in
   // the column (header / middle data / total) and (b) what kind of
@@ -257,9 +266,11 @@ export function exportToExcel(
 
   // ── Header row ──────────────────────────────────────────────────────────
   // Three-tier gradient on header fills, matching the body tier
-  // system: text cols (darkest), qty cols (one shade lighter),
-  // period cols (lighter still). Orange on On Hand + the right-side
-  // Total header so the two eye-anchor columns stand out.
+  // system: text cols (darkest navy), qty cols incl. On Hand
+  // (mid-blue), period cols (lightest blue). The right-side Total
+  // header sits in the qty tier — anchors-via-orange were removed
+  // per the planner's latest spec because the gradient itself is
+  // strong enough to read at a glance.
   // Text columns left-align their header label; numeric columns from
   // On Hand onward center-align. Separator columns carry the dark
   // tier-1 blue with no label.
@@ -268,15 +279,11 @@ export function exportToExcel(
       return { v: "", t: "s", s: separatorStyle(bordersForSeparatorHeader()) };
     }
     if (c.kind === "text") return { v: c.label, t: "s", s: headerStyle(HDR_TEXT_FILL, "left") };
-    if (c.kind === "qty") {
-      const fill = c.key === "onHand" ? HDR_ORANGE_FILL : HDR_QTY_FILL;
-      return { v: c.label, t: "s", s: headerStyle(fill, "center") };
-    }
-    if (c.kind === "period") {
-      return { v: c.label, t: "s", s: headerStyle(HDR_PERIOD_FILL, "center") };
-    }
-    // rowTotal — orange anchor like On Hand.
-    return { v: c.label, t: "s", s: headerStyle(HDR_ORANGE_FILL, "center") };
+    if (c.kind === "qty") return { v: c.label, t: "s", s: headerStyle(HDR_QTY_FILL, "center") };
+    if (c.kind === "period") return { v: c.label, t: "s", s: headerStyle(HDR_PERIOD_FILL, "center") };
+    // rowTotal — slightly darker than qty so the planner can see it
+    // as a distinct column, not a sibling of On Hand / On Order / On PO.
+    return { v: c.label, t: "s", s: headerStyle(HDR_TOTAL_FILL, "center") };
   });
 
   // Format helper for the PPK suffix line. Mirrors renderQty in
@@ -317,23 +324,31 @@ export function exportToExcel(
       s: cellStyle,
       r: [
         { t: n.toLocaleString(), s: { font: { sz: 11, bold, color: { rgb: fontColor }, name: "Calibri" } } },
-        // Faded slate to match the on-screen grid (which uses #6B7280
-        // at 75% opacity — Excel has no font opacity, so picking the
-        // pre-blended equivalent).
-        { t: "\n" + suffix, s: { font: { sz: 8, color: { rgb: "94A3B8" }, name: "Calibri" } } },
+        // PPK suffix — matches the on-screen grid hint (9px at 75%
+        // opacity over white). Excel has no font opacity, so picking
+        // the pre-blended slate value and sizing it ~64% of the qty
+        // line. #B0BAC9 is the pre-blended "ghosted" gray that reads
+        // as the faded hint the planner sees on screen.
+        { t: "\n" + suffix, s: { font: { sz: 7, color: { rgb: "B0BAC9" }, name: "Calibri" } } },
       ],
     };
   }
 
   // ── Data rows ───────────────────────────────────────────────────────────
-  const dataRows = rows.map((r) => {
+  // Alternating-row stripes: even rows carry the tier's tint, odd
+  // rows are white. Stripe pattern matches the original ATS export.
+  const dataRows = rows.map((r, ri) => {
+    const isEven = ri % 2 === 0;
+    const textFill   = isEven ? FILL_TEXT_EVEN   : FILL_TEXT_ODD;
+    const qtyFill    = isEven ? FILL_QTY_EVEN    : FILL_QTY_ODD;
+    const periodFill = isEven ? FILL_PERIOD_EVEN : FILL_PERIOD_ODD;
     return cols.map((c) => {
       const v = c.getValue(r);
       if (c.kind === "spacer") {
         return { v: "", t: "s", s: separatorStyle(bordersForSeparatorDataMiddle()) };
       }
       if (c.kind === "text") {
-        const textStyle = bodyStyle(FILL_TEXT, "left");
+        const textStyle = bodyStyle(textFill, "left");
         const styleForText = c.key === "style"
           ? { ...textStyle, font: { bold: true, color: { rgb: "1F497D" }, sz: 11, name: "Calibri" } }
           : textStyle;
@@ -342,15 +357,15 @@ export function exportToExcel(
       // qty / period / rowTotal — numeric
       const n = typeof v === "number" ? v : 0;
       if (c.kind === "qty") {
-        return numericCell(r, n, bodyStyle(FILL_QTY, "center"));
+        return numericCell(r, n, bodyStyle(qtyFill, "center"));
       }
       if (c.kind === "period") {
         // Blank-out zero period cells so the export reads like a
         // planning grid (matches the attached file's empty cells).
         if (v == null || n === 0) {
-          return { v: "", t: "s", s: bodyStyle(FILL_PERIOD, "center") };
+          return { v: "", t: "s", s: bodyStyle(periodFill, "center") };
         }
-        let baseStyle = bodyStyle(FILL_PERIOD, "center");
+        let baseStyle = bodyStyle(periodFill, "center");
         let color = "000000";
         let bold = false;
         if (n < 0) { color = "C00000"; bold = true; }
@@ -361,8 +376,8 @@ export function exportToExcel(
         }
         return numericCell(r, n, baseStyle, color, bold);
       }
-      // rowTotal — bold blue
-      return numericCell(r, n, bodyStyle(FILL_QTY, "center"), "1F497D", true);
+      // rowTotal — bold blue, sits in the qty tier visually
+      return numericCell(r, n, bodyStyle(qtyFill, "center"), "1F497D", true);
     });
   });
 
@@ -484,6 +499,21 @@ export function exportToExcel(
       : String(v);
     return s.length;
   };
+  // For prepack rows the column also has to fit the PPK suffix
+  // ("PPK24 × N,NNN") on one line — without bumping width for that,
+  // Excel wraps the suffix and the planner sees "PPK24 ×" + "4,272"
+  // split across two visual lines inside the cell. Compute the PPK
+  // suffix for each (row, col) where applicable and include it in
+  // the width calc.
+  const ppkSuffixForCell = (r: ATSRow, c: Col): string => {
+    const mult = r.ppkMult ?? 1;
+    if (mult <= 1) return "";
+    if (c.kind !== "qty" && c.kind !== "period" && c.kind !== "rowTotal") return "";
+    const n = Number(c.getValue(r)) || 0;
+    if (n === 0) return "";
+    return `PPK${mult} × ${Math.round(n / mult).toLocaleString()}`;
+  };
+
   ws["!cols"] = cols.map((c) => {
     if (c.kind === "spacer") return { wch: SPACER_WIDTH };
     let maxLen = widthOf(c.label);
@@ -491,6 +521,8 @@ export function exportToExcel(
       const v = c.getValue(r);
       const len = widthOf(v);
       if (len > maxLen) maxLen = len;
+      const ppkLen = ppkSuffixForCell(r, c).length;
+      if (ppkLen > maxLen) maxLen = ppkLen;
     }
     const sum = c.totalValue(rows);
     if (sum !== "") {
