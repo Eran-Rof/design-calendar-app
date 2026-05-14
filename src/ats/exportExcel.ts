@@ -34,66 +34,110 @@ export function exportToExcel(
   rows = rows.filter(hasAnyAvailability);
 
   // ── Styles ──────────────────────────────────────────────────────────────
-  // Match the planner's reference image:
-  //   - All headers carry a heavy blue border around each cell.
-  //   - Text-column + period-column + On Order / On PO headers are
-  //     blue background with white text.
-  //   - On Hand header AND the right-side Total header use the same
-  //     orange/peach fill so the planner spots the inventory anchor
-  //     and the row-sum column at a glance.
-  //   - From On Hand rightward, headers AND data cells center-align.
-  //   - Body cells keep alternating-row tint with thin blue borders
-  //     so the gridlines read like the on-screen grid.
-  const BORDER_BLUE_THIN: any   = { style: "thin",   color: { rgb: "4472C4" } };
-  const BORDER_BLUE_MEDIUM: any = { style: "medium", color: { rgb: "4472C4" } };
-  const FULL_BORDER_THIN: any   = { top: BORDER_BLUE_THIN, bottom: BORDER_BLUE_THIN, left: BORDER_BLUE_THIN, right: BORDER_BLUE_THIN };
-  const FULL_BORDER_HEADER: any = { top: BORDER_BLUE_THIN, bottom: BORDER_BLUE_MEDIUM, left: BORDER_BLUE_THIN, right: BORDER_BLUE_THIN };
+  // Reference image specifies:
+  //   - Each column gets a thick blue outline (border around the
+  //     COLUMN, not individual cells). So every cell's left+right are
+  //     thick; tops + bottoms are thick only on the header and total
+  //     rows. Data rows have NO horizontal borders between them —
+  //     each column reads as one continuous block.
+  //   - Three tiered fill colors getting lighter as you go right:
+  //     text cols (darkest blue tint) → On Hand/Order/PO (3 shades
+  //     lighter) → period cols (3 shades lighter still).
+  //   - Two separator columns: dark blue fill from top to bottom, no
+  //     text, no internal borders — only the thick column outline.
+  //     One between Color and On Hand, one between On PO and the
+  //     first period.
+  //   - On Hand + right-side Total headers in orange; every other
+  //     header in dark blue. Every header cell gets bold borders all
+  //     around (the column-outline rule applies AND header adds its
+  //     own thick top/bottom).
+  //   - Numeric cells (On Hand rightward) center-align; text cells
+  //     left-align.
+  const BORDER_THICK: any = { style: "medium", color: { rgb: "1F497D" } };
+  const NO_BORDER: any = { style: "none" };
 
-  // Headers — blue for most columns, orange for On Hand + Total.
-  const HDR_BLUE: any = {
-    font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
-    fill:      { fgColor: { rgb: "1F497D" }, patternType: "solid" },
-    alignment: { horizontal: "center", vertical: "center", wrapText: false },
-    border:    FULL_BORDER_HEADER,
-  };
-  const HDR_BLUE_LEFT: any = { ...HDR_BLUE, alignment: { horizontal: "left", vertical: "center" } };
-  const HDR_ORANGE: any = {
-    font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
-    fill:      { fgColor: { rgb: "E97132" }, patternType: "solid" },
-    alignment: { horizontal: "center", vertical: "center", wrapText: false },
-    border:    FULL_BORDER_HEADER,
-  };
+  // Header colors.
+  const HDR_BLUE_FILL = "1F497D";
+  const HDR_ORANGE_FILL = "E97132";
 
-  // Body cells — alternating tint with thin blue borders ALL around
-  // (image shows a clean grid, not just left/right rules).
-  const cellEven: any = {
-    fill:      { fgColor: { rgb: "EEF3FA" }, patternType: "solid" },
-    alignment: { horizontal: "left", vertical: "center" },
-    border:    FULL_BORDER_THIN,
-  };
-  const cellOdd: any = {
-    fill:      { fgColor: { rgb: "FFFFFF" }, patternType: "solid" },
-    alignment: { horizontal: "left", vertical: "center" },
-    border:    FULL_BORDER_THIN,
-  };
-  // Numeric cells from On Hand rightward — CENTER aligned per spec.
-  const numEven: any = { ...cellEven, alignment: { horizontal: "center", vertical: "center" } };
-  const numOdd:  any = { ...cellOdd,  alignment: { horizontal: "center", vertical: "center" } };
+  // Body cell fills — three tiers, getting lighter rightward.
+  const FILL_TEXT   = "D9E1F2"; // tier 1 — darkest blue tint (still light)
+  const FILL_QTY    = "EAEFF7"; // tier 2 — three shades lighter
+  const FILL_PERIOD = "F4F7FB"; // tier 3 — three shades lighter again
+  const FILL_TOTAL  = "DCE6F2"; // total-row tint, sits between text + qty tier visually
 
+  // Border builders. A cell's borders depend on (a) where it sits in
+  // the column (header / middle data / total) and (b) what kind of
+  // column it is (regular vs separator). The column-outline rule is
+  // always "thick left + thick right"; the rest varies.
+  function bordersForHeader(): any {
+    return { top: BORDER_THICK, bottom: BORDER_THICK, left: BORDER_THICK, right: BORDER_THICK };
+  }
+  function bordersForDataMiddle(): any {
+    // No top/bottom — data rows flow into each other inside the column
+    // outline. Only left + right are thick.
+    return { top: NO_BORDER, bottom: NO_BORDER, left: BORDER_THICK, right: BORDER_THICK };
+  }
+  function bordersForTotalRow(): any {
+    return { top: BORDER_THICK, bottom: BORDER_THICK, left: BORDER_THICK, right: BORDER_THICK };
+  }
+  function bordersForSeparatorHeader(): any {
+    // Separator block has no internal cell borders — just the column
+    // outline. So header gets thick top + left + right, NO bottom (the
+    // fill continues into the data area uninterrupted).
+    return { top: BORDER_THICK, bottom: NO_BORDER, left: BORDER_THICK, right: BORDER_THICK };
+  }
+  function bordersForSeparatorDataMiddle(): any {
+    return { top: NO_BORDER, bottom: NO_BORDER, left: BORDER_THICK, right: BORDER_THICK };
+  }
+  function bordersForSeparatorTotalRow(): any {
+    // Bottom edge of the column outline lives here.
+    return { top: NO_BORDER, bottom: BORDER_THICK, left: BORDER_THICK, right: BORDER_THICK };
+  }
+
+  // Header cell factory.
+  function headerStyle(fill: string, align: "left" | "center"): any {
+    return {
+      font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
+      fill:      { fgColor: { rgb: fill }, patternType: "solid" },
+      alignment: { horizontal: align, vertical: "center", wrapText: false },
+      border:    bordersForHeader(),
+    };
+  }
+  // Body cell factory. The wrap flag is on so PPK rich-text cells
+  // render their second line correctly without needing per-cell
+  // overrides; rows without a "\n" just show one line of content.
+  function bodyStyle(fill: string, align: "left" | "center"): any {
+    return {
+      fill:      { fgColor: { rgb: fill }, patternType: "solid" },
+      alignment: { horizontal: align, vertical: "center", wrapText: true },
+      border:    bordersForDataMiddle(),
+    };
+  }
+  function totalStyle(align: "left" | "center"): any {
+    return {
+      font:      { bold: true, color: { rgb: "1F497D" }, sz: 11, name: "Calibri" },
+      fill:      { fgColor: { rgb: FILL_TOTAL }, patternType: "solid" },
+      alignment: { horizontal: align, vertical: "center", wrapText: false },
+      border:    bordersForTotalRow(),
+    };
+  }
+  // Separator cells — solid dark blue rectangle, no text, no internal
+  // borders. Header / middle / total each carry a different border
+  // portion of the column outline.
+  function separatorStyle(borders: any): any {
+    return {
+      fill:      { fgColor: { rgb: HDR_BLUE_FILL }, patternType: "solid" },
+      alignment: { horizontal: "center", vertical: "center" },
+      border:    borders,
+    };
+  }
+
+  // Heat-map overlays for the period cells (low / out of stock / neg).
+  // These ride on top of the base fill — fill replacement, not blend —
+  // because Excel doesn't support blending.
   const negStyle = (base: any): any => ({ ...base, font: { bold: true, color: { rgb: "C00000" }, sz: 11, name: "Calibri" } });
   const lowStyle = (base: any): any => ({ ...base, font: { bold: true, color: { rgb: "7F6000" }, sz: 11, name: "Calibri" }, fill: { fgColor: { rgb: "FFEB9C" }, patternType: "solid" } });
-  const outStyle = (base: any): any => ({ ...base, font: { bold: true, color: { rgb: "9C0006" }, sz: 11, name: "Calibri" }, fill: { fgColor: { rgb: "FFC7CE" }, patternType: "solid" } });
-
-  // Bottom Total row — bold values, light tint, blue borders. Label
-  // stays left-aligned; numeric cells center-align like the body.
-  const TOTAL_LABEL_STYLE: any = {
-    font:      { bold: true, color: { rgb: "1F497D" }, sz: 11, name: "Calibri" },
-    fill:      { fgColor: { rgb: "DCE6F2" }, patternType: "solid" },
-    alignment: { horizontal: "left", vertical: "center" },
-    border: { top: BORDER_BLUE_MEDIUM, bottom: BORDER_BLUE_THIN, left: BORDER_BLUE_THIN, right: BORDER_BLUE_THIN },
-  };
-  const TOTAL_NUM_STYLE: any = { ...TOTAL_LABEL_STYLE, alignment: { horizontal: "center", vertical: "center" } };
-  const TOTAL_BLANK_STYLE: any = { ...TOTAL_LABEL_STYLE };
 
   // ── Column model ────────────────────────────────────────────────────────
   // Build one ordered list that drives header, data, total row, and the
@@ -176,14 +220,18 @@ export function exportToExcel(
   });
 
   const totalsMode = totals !== null;
-  // No spacer columns — matches the planner's reference image. Each
-  // group flows directly into the next; the blue cell borders provide
-  // the visual separation that the previous spacer columns gave.
-  const cols: Col[] = [
-    ...TEXT_COLS,
-    ...QTY_COLS,
-    ...PERIOD_COLS,
-  ];
+  // Two separator columns (dark blue, no data, no internal borders):
+  // one between the text-column block and the qty block, one between
+  // the qty block and the period block. They serve as visual gutters
+  // matching the reference image. If a flanking group is empty
+  // (operator hid every text or qty col), the corresponding separator
+  // is skipped so the worksheet doesn't carry an orphan stripe.
+  const cols: Col[] = [];
+  cols.push(...TEXT_COLS);
+  if (TEXT_COLS.length && QTY_COLS.length) cols.push(SPACER("_sep_text_qty"));
+  cols.push(...QTY_COLS);
+  if (QTY_COLS.length && PERIOD_COLS.length) cols.push(SPACER("_sep_qty_periods"));
+  cols.push(...PERIOD_COLS);
   // Row Total column is for the simple-totals layout only — the rich
   // 5-row stack carries totals on its own rows, so the right-side
   // column is redundant when totals are on.
@@ -205,51 +253,98 @@ export function exportToExcel(
   // Orange fill on On Hand + the right-side Total header (matches the
   // reference image — those two are the planner's eye anchors).
   // Everything else stays blue. Text columns left-align their header
-  // label; numeric columns from On Hand onward center-align (data row
-  // alignment follows the same rule).
+  // label; numeric columns from On Hand onward center-align. Separator
+  // columns carry the dark-blue fill with no label.
   const headerRow = cols.map((c) => {
-    if (c.kind === "text") return { v: c.label, t: "s", s: HDR_BLUE_LEFT };
+    if (c.kind === "spacer") {
+      return { v: "", t: "s", s: separatorStyle(bordersForSeparatorHeader()) };
+    }
+    if (c.kind === "text") return { v: c.label, t: "s", s: headerStyle(HDR_BLUE_FILL, "left") };
     const orange = (c.kind === "qty" && c.key === "onHand") || c.kind === "rowTotal";
-    return { v: c.label, t: "s", s: orange ? HDR_ORANGE : HDR_BLUE };
+    return { v: c.label, t: "s", s: headerStyle(orange ? HDR_ORANGE_FILL : HDR_BLUE_FILL, "center") };
   });
 
-  // ── Data rows ───────────────────────────────────────────────────────────
-  const dataRows = rows.map((r, ri) => {
-    const isEven = ri % 2 === 0;
-    const base = isEven ? cellEven : cellOdd;
-    const numB = isEven ? numEven : numOdd;
-    // On Hand DATA cells stay plain (no out/low heat-map). Per user
-    // spec the pink/red tint on the 0 rows was just an artifact of the
-    // previous "qty <= 0 → outStyle" rule — it confused the visual
-    // because the header is already the planner's "this is On Hand"
-    // anchor. Reserving heat-map coloring for the period columns only.
-    const onHandStyle = numB;
+  // Format helper for the PPK suffix line. Mirrors renderQty in
+  // GridTable.tsx (unit-grain mode): "PPK24 × 15" for prepack rows.
+  // The grid's "pack-grain" mode ("PPK24 = 120") is only relevant when
+  // explodePpk is off in the UI, and the export rows already carry
+  // unit-grain values, so this single form covers the common case.
+  function ppkSuffix(qty: number, mult: number): string {
+    if (!mult || mult <= 1 || qty == null) return "";
+    const packs = Math.round(qty / mult);
+    return `PPK${mult} × ${packs.toLocaleString()}`;
+  }
 
+  // Build a numeric cell. If the row is a prepack (ppkMult > 1) AND
+  // the value is non-zero, render rich text: line 1 is the qty, line 2
+  // is the PPK suffix at half size and muted color. Otherwise plain
+  // number. Single style for all qty / period / rowTotal cells.
+  function numericCell(r: ATSRow, n: number, cellStyle: any, fontColor: string = "000000", bold: boolean = false): any {
+    const mult = r.ppkMult ?? 1;
+    const showPpk = mult > 1 && n !== 0;
+    if (!showPpk) {
+      return {
+        v: n,
+        t: "n",
+        s: {
+          ...cellStyle,
+          font: { bold, color: { rgb: fontColor }, sz: 11, name: "Calibri" },
+        },
+      };
+    }
+    const suffix = ppkSuffix(n, mult);
+    // Rich text: SheetJS / xlsx-js-style use the `r` array of text
+    // runs with per-run font. The plain `v` is kept as a fallback for
+    // consumers that can't parse rich text.
+    return {
+      v: `${n.toLocaleString()}\n${suffix}`,
+      t: "s",
+      s: cellStyle,
+      r: [
+        { t: n.toLocaleString(), s: { font: { sz: 11, bold, color: { rgb: fontColor }, name: "Calibri" } } },
+        { t: "\n" + suffix, s: { font: { sz: 6, color: { rgb: "94A3B8" }, name: "Calibri" } } },
+      ],
+    };
+  }
+
+  // ── Data rows ───────────────────────────────────────────────────────────
+  const dataRows = rows.map((r) => {
     return cols.map((c) => {
       const v = c.getValue(r);
-      if (c.kind === "spacer") return { v: "", t: "s", s: base };
+      if (c.kind === "spacer") {
+        return { v: "", t: "s", s: separatorStyle(bordersForSeparatorDataMiddle()) };
+      }
       if (c.kind === "text") {
+        const textStyle = bodyStyle(FILL_TEXT, "left");
         const styleForText = c.key === "style"
-          ? { ...base, font: { bold: true, color: { rgb: "1F497D" }, sz: 11, name: "Calibri" } }
-          : base;
+          ? { ...textStyle, font: { bold: true, color: { rgb: "1F497D" }, sz: 11, name: "Calibri" } }
+          : textStyle;
         return { v, t: "s", s: styleForText };
       }
-      // qty / period / rowTotal — all numeric
+      // qty / period / rowTotal — numeric
       const n = typeof v === "number" ? v : 0;
-      // Blank-out zero period cells so the export reads like a planning
-      // grid (matches the attached file's empty cells), but keep zeros
-      // on the qty cols since "On Hand 0" is signal not noise.
-      if (c.kind === "period" && (v == null || n === 0)) {
-        return { v: "", t: "s", s: base };
+      if (c.kind === "qty") {
+        return numericCell(r, n, bodyStyle(FILL_QTY, "center"));
       }
-      let style = numB;
-      if (c.kind === "qty" && c.key === "onHand") style = onHandStyle;
-      else if (c.kind === "period") {
-        style = n < 0 ? negStyle(numB) : n <= 10 ? lowStyle(numB) : numB;
-      } else if (c.kind === "rowTotal") {
-        style = { ...numB, font: { bold: true, color: { rgb: "1F497D" }, sz: 11, name: "Calibri" } };
+      if (c.kind === "period") {
+        // Blank-out zero period cells so the export reads like a
+        // planning grid (matches the attached file's empty cells).
+        if (v == null || n === 0) {
+          return { v: "", t: "s", s: bodyStyle(FILL_PERIOD, "center") };
+        }
+        let baseStyle = bodyStyle(FILL_PERIOD, "center");
+        let color = "000000";
+        let bold = false;
+        if (n < 0) { color = "C00000"; bold = true; }
+        else if (n <= 10) {
+          baseStyle = { ...baseStyle, fill: { fgColor: { rgb: "FFEB9C" }, patternType: "solid" } };
+          color = "7F6000";
+          bold = true;
+        }
+        return numericCell(r, n, baseStyle, color, bold);
       }
-      return { v: n, t: "n", s: style };
+      // rowTotal — bold blue
+      return numericCell(r, n, bodyStyle(FILL_QTY, "center"), "1F497D", true);
     });
   });
 
@@ -264,30 +359,35 @@ export function exportToExcel(
   const totalsRows: any[][] = [];
 
   function buildSummaryRow(label: string, periodFn: (key: string) => string | number, qtyFns: { onHand: () => string | number; onOrder: () => string | number; onPO: () => string | number }) {
+    const totalLabel = totalStyle("left");
+    const totalNum = totalStyle("center");
     return cols.map((c, idx) => {
-      if (idx === totalLabelIdx) {
-        return { v: label, t: "s", s: TOTAL_LABEL_STYLE };
+      if (c.kind === "spacer") {
+        return { v: "", t: "s", s: separatorStyle(bordersForSeparatorTotalRow()) };
       }
-      if (c.kind === "spacer" || c.kind === "text") {
-        return { v: "", t: "s", s: TOTAL_BLANK_STYLE };
+      if (idx === totalLabelIdx) {
+        return { v: label, t: "s", s: totalLabel };
+      }
+      if (c.kind === "text") {
+        return { v: "", t: "s", s: totalLabel };
       }
       if (c.kind === "qty") {
         const v = c.key === "onHand" ? qtyFns.onHand() : c.key === "onOrder" ? qtyFns.onOrder() : qtyFns.onPO();
-        return { v, t: typeof v === "number" ? "n" : "s", s: TOTAL_NUM_STYLE };
+        return { v, t: typeof v === "number" ? "n" : "s", s: totalNum };
       }
       if (c.kind === "period") {
         // c.key is "period:<endDate>" — strip the prefix to match the
         // GridTotals map (keyed by period.endDate, same as period.key).
         const endDate = c.key.replace(/^period:/, "");
         const v = periodFn(endDate);
-        return { v, t: typeof v === "number" ? "n" : "s", s: TOTAL_NUM_STYLE };
+        return { v, t: typeof v === "number" ? "n" : "s", s: totalNum };
       }
       // rowTotal — only present in no-totals mode. Use the column's
       // declared totalValue so the right-side Total reads the same as
       // the in-row Total column.
       const sum = c.totalValue(rows);
-      if (typeof sum === "number") return { v: sum, t: "n", s: TOTAL_NUM_STYLE };
-      return { v: sum, t: "s", s: TOTAL_NUM_STYLE };
+      if (typeof sum === "number") return { v: sum, t: "n", s: totalNum };
+      return { v: sum, t: "s", s: totalNum };
     });
   }
 
@@ -383,8 +483,20 @@ export function exportToExcel(
     return { wch };
   });
 
-  // Header row height
-  ws["!rows"] = [{ hpt: 20 }];
+  // Row heights — header is taller, prepack data rows get extra room
+  // so the rich-text "PPKn × packs" suffix line doesn't clip when
+  // Excel wraps. Default ~15pt isn't enough for a 6pt second line +
+  // padding; 26pt comfortably fits both lines without crowding.
+  const PREPACK_ROW_HPT = 26;
+  const NORMAL_ROW_HPT = 15;
+  const HEADER_HPT = 22;
+  const rowsHeight: any[] = [{ hpt: HEADER_HPT }];
+  for (const r of rows) {
+    rowsHeight.push({ hpt: (r.ppkMult ?? 1) > 1 ? PREPACK_ROW_HPT : NORMAL_ROW_HPT });
+  }
+  // Total row(s) at the end — same height as header for visual weight.
+  for (let i = 0; i < totalsRows.length; i++) rowsHeight.push({ hpt: HEADER_HPT });
+  ws["!rows"] = rowsHeight;
 
   // Freeze: row 1 (header) + through the Style column so the planner
   // can scroll right while keeping row identity on screen.
