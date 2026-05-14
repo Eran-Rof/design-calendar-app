@@ -23,7 +23,7 @@ function row(p: Partial<ATSRow> & { sku: string; store: string; master_category:
 
 const TODAY = new Date("2026-05-04T12:00:00Z");
 const filtDefaults = {
-  search: "", filterCategory: "All", filterSubCategory: "All", filterGender: "All",
+  search: "", filterCategory: [] as string[], filterSubCategory: "All", filterStyle: [] as string[], filterGender: "All",
   filterStatus: "All", minATS: "" as const, customerSkuSet: null, today: TODAY,
 };
 

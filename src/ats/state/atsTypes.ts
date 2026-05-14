@@ -9,8 +9,18 @@ export interface ATSState {
   rangeValue: number;
   // Filters
   search: string;
-  filterCategory: string;
+  // Multi-select: empty array = no filter (every category passes). Each
+  // entry is a category name as it appears in master_category. The
+  // single-string "All" sentinel from the prior single-select shape was
+  // dropped — a clean array is easier to reason about and serializes
+  // straight to localStorage if we add persistence later.
+  filterCategory: string[];
   filterSubCategory: string;
+  // Multi-select. Empty array = no filter. Each entry is a master_style
+  // code (the upper-case style identifier the grid renders in the Style
+  // column). Scoped at toolbar build time to whichever categories /
+  // sub-cats are currently active so the dropdown stays manageable.
+  filterStyle: string[];
   filterGender: string;
   filterStatus: string;
   minATS: number | "";
@@ -130,7 +140,8 @@ export function createInitialState(startDate: string): ATSState {
     rangeUnit: "months",
     rangeValue: 6,
     search: "",
-    filterCategory: "All",
+    filterCategory: [],
+    filterStyle: [],
     filterSubCategory: "All",
     filterGender: "All",
     filterStatus: "All",

@@ -3,8 +3,14 @@ import { fmtDate, displayColor } from "./helpers";
 
 export interface RowFilterOpts {
   search: string;
-  filterCategory: string;
+  // Multi-select. Empty array = no filter; otherwise the row must match
+  // ONE of the listed categories (set membership). The legacy "All"
+  // sentinel was dropped — callers pass [] for the unfiltered case.
+  filterCategory: string[];
   filterSubCategory: string;
+  // Multi-select on master_style. Empty array = no filter; otherwise the
+  // row must match ONE of the listed styles (set membership).
+  filterStyle: string[];
   filterGender: string;
   filterStatus: string;
   minATS: number | "";
@@ -63,17 +69,27 @@ export function filterRows(rows: ATSRow[], opts: RowFilterOpts): ATSRow[] {
     ? null
     : new Set(opts.storeFilter.map(normForCompare));
   const wantGender = opts.filterGender === "All" ? null : normForCompare(opts.filterGender);
+  // Empty array = no filter; otherwise build a set for O(1) membership.
+  const wantCategory = opts.filterCategory.length === 0
+    ? null
+    : new Set(opts.filterCategory);
+  const wantStyle = opts.filterStyle.length === 0
+    ? null
+    : new Set(opts.filterStyle);
   return rows.filter(r => {
     if (!rowMatchesSearch(r, tokens)) return false;
     // Category filter pulls from master_category (the truth) with a fallback
     // to legacy r.category so rows from older code paths still filter sanely
     // — at 100% master coverage the fallback is unused.
-    if (opts.filterCategory !== "All") {
+    if (wantCategory !== null) {
       const cat = r.master_category ?? r.category ?? "";
-      if (cat !== opts.filterCategory) return false;
+      if (!wantCategory.has(cat)) return false;
     }
     if (opts.filterSubCategory !== "All") {
       if ((r.master_sub_category ?? "") !== opts.filterSubCategory) return false;
+    }
+    if (wantStyle !== null) {
+      if (!wantStyle.has(r.master_style ?? "")) return false;
     }
     if (wantGender !== null && normForCompare(r.gender) !== wantGender) return false;
     const todayQty = r.dates[todayKey] ?? r.onHand;

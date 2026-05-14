@@ -62,6 +62,9 @@ interface ATSDerivedCtx {
   totalPages: number;
   categories: string[];
   subCategories: string[];
+  // master_style values scoped to the active Category + Sub Cat filters
+  // (see ATS.tsx). Drives the Style multi-select dropdown in the toolbar.
+  styles: string[];
   unmatchedRows: ATSRow[];
   filteredSkuSet: Set<string>;
   todayKey: string;
@@ -97,7 +100,7 @@ interface ATSDerivedCtx {
   loadFromSupabase: () => Promise<void>;
   saveUploadData: (data: ExcelData) => Promise<void>;
   toggleStore: (current: string[], set: (v: string[]) => void, store: string) => void;
-  exportToExcel: (rows: ATSRow[], periods: Array<{ endDate: string; label: string }>, atShip: boolean) => void;
+  exportToExcel: (rows: ATSRow[], periods: Array<{ endDate: string; label: string }>, atShip: boolean, hiddenColumns: string[]) => void;
   repositionCtxMenu: () => void;
   repositionSummaryCtx: () => void;
   cancelUpload: () => void;
@@ -123,7 +126,7 @@ interface ATSDerivedCtx {
 export type ATSRenderCtx = ATSState & ATSStateSetters & ATSDerivedCtx;
 
 export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
-  const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterGender, setFilterGender, filterStatus, setFilterStatus, minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, syncing, syncStatus, lastSync, syncError, setSyncError, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, sortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
+  const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterStyle, setFilterStyle, styles, filterGender, setFilterGender, filterStatus, setFilterStatus, minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, syncing, syncStatus, lastSync, syncError, setSyncError, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, sortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
   mergeHistory, undoLastMerge, clearMergeAndNavigate,
   atShip, setAtShip, viewMode, setViewMode, onNegInven, onAgedInven,
   showTotalsRow, setShowTotalsRow,
@@ -169,12 +172,13 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         filtered={sortedFiltered}
         displayPeriods={displayPeriods}
         atShip={atShip}
+        hiddenColumns={hiddenColumns ?? []}
         onNegInven={onNegInven}
         onAgedInven={onAgedInven}
         onDownloadIncompleteSkus={() => exportIncompleteSkus(filtered, eventIndex)}
         onDownloadStockVsSo={() => exportStockVsSo(filtered, eventIndex)}
         categories={categories}
-        filterCategory={filterCategory}
+        filterCategory={filterCategory.length === 1 ? filterCategory[0] : "All"}
         unreadNotifs={unreadNotifs}
         showingNotifications={showingNotifications}
         onToggleNotifications={onToggleNotifications}
@@ -248,6 +252,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           search={search} setSearch={setSearch}
           filterCategory={filterCategory} setFilterCategory={setFilterCategory} categories={categories}
           filterSubCategory={filterSubCategory} setFilterSubCategory={setFilterSubCategory} subCategories={subCategories}
+          filterStyle={filterStyle ?? []} setFilterStyle={setFilterStyle!} styles={styles ?? []}
           filterGender={filterGender} setFilterGender={setFilterGender}
           setFilterStatus={setFilterStatus}
           STORES={STORES} storeFilter={storeFilter} setStoreFilter={setStoreFilter}

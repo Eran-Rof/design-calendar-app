@@ -7,8 +7,9 @@ interface UseRowFilteringOpts {
   rows: ATSRow[];
   excelData: ExcelData | null;
   search: string;
-  filterCategory: string;
+  filterCategory: string[];
   filterSubCategory: string;
+  filterStyle: string[];
   filterGender: string;
   filterStatus: string;
   minATS: number | "";
@@ -41,6 +42,7 @@ export function useRowFiltering(opts: UseRowFilteringOpts) {
     search: opts.search,
     filterCategory: opts.filterCategory,
     filterSubCategory: opts.filterSubCategory,
+    filterStyle: opts.filterStyle,
     filterGender: opts.filterGender,
     filterStatus: opts.filterStatus,
     minATS: opts.minATS,
@@ -48,7 +50,7 @@ export function useRowFiltering(opts: UseRowFilteringOpts) {
     customerSkuSet,
     today: opts.today,
   }), [
-    opts.rows, opts.search, opts.filterCategory, opts.filterSubCategory, opts.filterGender, opts.filterStatus,
+    opts.rows, opts.search, opts.filterCategory, opts.filterSubCategory, opts.filterStyle, opts.filterGender, opts.filterStatus,
     opts.minATS, opts.storeFilter, customerSkuSet, opts.today,
   ]);
 

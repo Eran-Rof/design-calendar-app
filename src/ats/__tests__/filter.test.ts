@@ -55,7 +55,7 @@ describe("filterRows", () => {
     row({ sku: "C", category: "red",  store: "PT",       dates: { "2026-04-10": 50 }, onHand: 50 }),
   ];
   const defaults = {
-    search: "", filterCategory: "All", filterSubCategory: "All", filterGender: "All", filterStatus: "All", minATS: "" as const,
+    search: "", filterCategory: [] as string[], filterSubCategory: "All", filterStyle: [] as string[], filterGender: "All", filterStatus: "All", minATS: "" as const,
     storeFilter: ["All"], customerSkuSet: null, today: TODAY,
   };
 
@@ -63,9 +63,14 @@ describe("filterRows", () => {
     expect(filterRows(base, defaults)).toHaveLength(3);
   });
 
-  it("category filter", () => {
-    const out = filterRows(base, { ...defaults, filterCategory: "red" });
+  it("single-category filter", () => {
+    const out = filterRows(base, { ...defaults, filterCategory: ["red"] });
     expect(out.map(r => r.sku)).toEqual(["A", "C"]);
+  });
+
+  it("multi-category filter", () => {
+    const out = filterRows(base, { ...defaults, filterCategory: ["red", "blue"] });
+    expect(out.map(r => r.sku)).toEqual(["A", "B", "C"]);
   });
 
   it("status Low filter (1–10 today)", () => {

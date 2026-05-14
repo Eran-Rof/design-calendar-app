@@ -13,6 +13,109 @@ interface SearchableDropdownProps {
   minWidth?: number;
   placeholder?: string;
 }
+
+// Multi-select variant. Empty array = no filter (renders "All"). Picking
+// one or more options narrows the row set to that set. The "All" option
+// at the top clears the array; tapping an already-selected option
+// removes it. Header label shows "All" / "<name>" / "N selected" so
+// the toolbar stays readable even with many filters active.
+interface MultiSelectDropdownProps {
+  label: string;
+  value: string[];          // selected categories; empty = no filter
+  options: string[];        // does NOT include "All" — caller passes real options
+  onChange: (v: string[]) => void;
+  minWidth?: number;
+  placeholder?: string;
+}
+const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({ label, value, options, onChange, minWidth = 140, placeholder }) => {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+  const q = search.toLowerCase();
+  const shown = q ? options.filter(o => o.toLowerCase().includes(q)) : options;
+  const selected = new Set(value);
+  const headerText = value.length === 0
+    ? "All"
+    : value.length === 1
+      ? value[0]
+      : `${value.length} selected`;
+  const toggle = (opt: string) => {
+    if (selected.has(opt)) {
+      onChange(value.filter(v => v !== opt));
+    } else {
+      onChange([...value, opt]);
+    }
+  };
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        style={{ ...S.select, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", minWidth, justifyContent: "space-between" }}
+        onClick={() => setOpen(o => !o)}
+      >
+        <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, marginRight: 2 }}>{label}:</span>
+        <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {headerText}
+        </span>
+        <span style={{ fontSize: 9, color: "#6B7280" }}>▼</span>
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, background: "#1E293B", border: "1px solid #334155", borderRadius: 8, zIndex: 100, width: 260, maxHeight: 380, display: "flex", flexDirection: "column", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+          <div style={{ padding: "8px 10px", borderBottom: "1px solid #334155" }}>
+            <input
+              type="text"
+              placeholder={placeholder ?? `Search ${label.toLowerCase()}…`}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              autoFocus
+              style={{ width: "100%", boxSizing: "border-box", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, padding: "6px 10px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit", outline: "none" }}
+            />
+          </div>
+          <div style={{ overflowY: "auto", flex: 1 }}>
+            {/* "All" entry — clears the array. Distinct visual from
+                checkboxes because it's a one-shot reset, not a toggleable
+                row. */}
+            <div
+              style={{ padding: "8px 14px", cursor: "pointer", fontSize: 12, color: value.length === 0 ? "#6EE7B7" : "#CBD5E1", background: value.length === 0 ? "rgba(16,185,129,0.08)" : "transparent", fontWeight: value.length === 0 ? 600 : 400, borderBottom: "1px solid #2D3748" }}
+              onClick={() => { onChange([]); }}
+              onMouseEnter={e => (e.currentTarget.style.background = "rgba(16,185,129,0.12)")}
+              onMouseLeave={e => (e.currentTarget.style.background = value.length === 0 ? "rgba(16,185,129,0.08)" : "transparent")}
+            >All</div>
+            {shown.map(opt => {
+              const active = selected.has(opt);
+              return (
+                <label
+                  key={opt}
+                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", cursor: "pointer", fontSize: 12, color: active ? "#6EE7B7" : "#CBD5E1", background: active ? "rgba(16,185,129,0.08)" : "transparent", fontWeight: active ? 600 : 400 }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(16,185,129,0.12)")}
+                  onMouseLeave={e => (e.currentTarget.style.background = active ? "rgba(16,185,129,0.08)" : "transparent")}
+                >
+                  <input
+                    type="checkbox"
+                    checked={active}
+                    onChange={() => toggle(opt)}
+                    style={{ accentColor: "#10B981", cursor: "pointer" }}
+                  />
+                  <span>{opt}</span>
+                </label>
+              );
+            })}
+            {shown.length === 0 && (
+              <div style={{ padding: "10px 14px", fontSize: 12, color: "#6B7280" }}>No matches</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 const SearchableDropdown: React.FC<SearchableDropdownProps> = ({ label, value, options, onChange, minWidth = 140, placeholder }) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -79,12 +182,18 @@ interface ToolbarProps {
   // Search + filters
   search: string;
   setSearch: (v: string) => void;
-  filterCategory: string;
-  setFilterCategory: (v: string) => void;
+  filterCategory: string[];
+  setFilterCategory: (v: string[]) => void;
   categories: string[];
   filterSubCategory: string;
   setFilterSubCategory: (v: string) => void;
   subCategories: string[];
+  // Multi-select Style filter. styles[] is scoped at build time to
+  // whichever Category / Sub Cat narrowing is active so the dropdown
+  // stays manageable as the catalog grows.
+  filterStyle: string[];
+  setFilterStyle: (v: string[]) => void;
+  styles: string[];
   filterGender: string;
   setFilterGender: (v: string) => void;
   // Status filter — driven by the colored stat-card pills (Negative ATS,
@@ -159,6 +268,7 @@ interface ToolbarProps {
 export const Toolbar: React.FC<ToolbarProps> = ({
   search, setSearch, filterCategory, setFilterCategory, categories,
   filterSubCategory, setFilterSubCategory, subCategories,
+  filterStyle, setFilterStyle, styles,
   filterGender, setFilterGender, setFilterStatus,
   STORES, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, setSoDropOpen,
   poDropRef, toggleStore,
@@ -198,8 +308,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   // describe the planning horizon, not a filter.
   const handleClearFilters = () => {
     setSearch("");
-    setFilterCategory("All");
+    setFilterCategory([]);
     setFilterSubCategory("All");
+    setFilterStyle([]);
     setFilterGender("All");
     setFilterStatus("All");
     setStoreFilter(["ROF"]);
@@ -257,8 +368,20 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       value={search}
       onChange={e => setSearch(e.target.value)}
     />
-    <SearchableDropdown label="Category" value={filterCategory} options={categories} onChange={setFilterCategory} />
+    <MultiSelectDropdown
+      label="Category"
+      value={filterCategory}
+      options={categories.filter(c => c !== "All")}
+      onChange={setFilterCategory}
+    />
     <SearchableDropdown label="Sub Cat"  value={filterSubCategory} options={subCategories} onChange={setFilterSubCategory} />
+    <MultiSelectDropdown
+      label="Style"
+      value={filterStyle}
+      options={styles}
+      onChange={setFilterStyle}
+      minWidth={150}
+    />
     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
       <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Gender:</span>
       <select style={S.select} value={filterGender} onChange={e => setFilterGender(e.target.value)}>

@@ -71,7 +71,7 @@ function ATSReport() {
   const today = new Date();
   // ── State → useATSState() + useATSDispatch() (see ats/state/) ──
   const {
-    startDate, rangeUnit, rangeValue, search, filterCategory, filterSubCategory, filterGender, filterStatus,
+    startDate, rangeUnit, rangeValue, search, filterCategory, filterSubCategory, filterStyle, filterGender, filterStatus,
     minATS, storeFilter, poDropOpen, soDropOpen, rows, loading, mockMode,
     page, excelData, uploadingFile, uploadProgress, uploadSuccess, uploadError,
     uploadWarnings, pendingUploadData, showUpload, invFile, purFile, ordFile,
@@ -86,6 +86,7 @@ function ATSReport() {
   const setSearch            = mk("search");
   const setFilterCategory    = mk("filterCategory");
   const setFilterSubCategory = mk("filterSubCategory");
+  const setFilterStyle       = mk("filterStyle");
   const setFilterGender      = mk("filterGender");
   const setFilterStatus      = mk("filterStatus");
   const setMinATS            = mk("minATS");
@@ -858,16 +859,34 @@ function ATSReport() {
         .map(r => r.master_category).filter(Boolean) as string[]
   )).sort()], [matchedRows]);
 
-  // Sub Cat dropdown is dependent: when a Category is picked, list only
-  // sub cats that exist within that category. "All" shows every sub cat.
+  // Sub Cat dropdown is dependent: when one or more Categories are
+  // picked, list only sub cats that exist within that set. Empty
+  // filterCategory ([]) = "All categories" → every sub cat.
   const subCategories = useMemo(() => {
-    const pool = filterCategory === "All"
+    const pool = filterCategory.length === 0
       ? matchedRows
-      : matchedRows.filter(r => r.master_category === filterCategory);
+      : matchedRows.filter(r => filterCategory.includes(r.master_category ?? ""));
     return ["All", ...Array.from(new Set(
       pool.map(r => r.master_sub_category).filter(Boolean) as string[]
     )).sort()];
   }, [matchedRows, filterCategory]);
+
+  // Style dropdown is dependent on the active Category + Sub Cat scope so
+  // the planner doesn't scroll through thousands of unrelated styles to
+  // find the one they want. Empty filterCategory means "all categories";
+  // filterSubCategory === "All" means "all sub cats".
+  const styles = useMemo(() => {
+    let pool = matchedRows;
+    if (filterCategory.length > 0) {
+      pool = pool.filter(r => filterCategory.includes(r.master_category ?? ""));
+    }
+    if (filterSubCategory !== "All") {
+      pool = pool.filter(r => (r.master_sub_category ?? "") === filterSubCategory);
+    }
+    return Array.from(new Set(
+      pool.map(r => r.master_style).filter(Boolean) as string[]
+    )).sort();
+  }, [matchedRows, filterCategory, filterSubCategory]);
 
   // Reset Sub Cat selection when the chosen value is no longer valid for
   // the active Category (e.g. user changes Category and the previous Sub
@@ -916,7 +935,7 @@ function ATSReport() {
   const {
     customerSkuSet, filtered, statFiltered, sortedFiltered, pageRows, totalPages, filteredSkuSet,
   } = useRowFiltering({
-    rows: matchedRows, excelData, search, filterCategory, filterSubCategory, filterGender, filterStatus, minATS, storeFilter,
+    rows: matchedRows, excelData, search, filterCategory, filterSubCategory, filterStyle, filterGender, filterStatus, minATS, storeFilter,
     customerFilter, activeSort, sortCol, sortDir, displayPeriods, today,
     pageSize: PAGE_SIZE, page,
     collapseLevel, expandedGroups: expandedGroupSet,
@@ -980,7 +999,7 @@ function ATSReport() {
   }
 
   // Reset to page 0 whenever filters/search/sort change
-  useEffect(() => { setPage(0); }, [search, filterCategory, filterSubCategory, filterGender, filterStatus, minATS, poStores, soStores, rows, activeSort, sortCol, sortDir, customerFilter, collapseLevel]);
+  useEffect(() => { setPage(0); }, [search, filterCategory, filterSubCategory, filterStyle, filterGender, filterStatus, minATS, poStores, soStores, rows, activeSort, sortCol, sortDir, customerFilter, collapseLevel]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Notifications: in-app view + bell badge (ATS-relevant events only)
@@ -1008,7 +1027,7 @@ function ATSReport() {
   // RENDER — see ats/renderPanel.tsx
   return atsRenderPanel({
     startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue,
-    search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterGender, setFilterGender, filterStatus, setFilterStatus,
+    search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterStyle, setFilterStyle, styles, filterGender, setFilterGender, filterStatus, setFilterStatus,
     minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen,
     soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage,
     excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess,

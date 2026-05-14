@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import S from "../styles";
 import type { ATSRow, ATSSoEvent, ExcelData } from "../types";
 import { XoroSyncOverlay, type XoroSyncProgress } from "./StatusOverlays";
@@ -244,15 +244,26 @@ interface NavBarProps {
   invFile: File | null;
   purFile: File | null;
   ordFile: File | null;
-  exportToExcel: (rows: ATSRow[], periods: Array<{ endDate: string; label: string }>, atShip: boolean) => void;
+  exportToExcel: (
+    rows: ATSRow[],
+    periods: Array<{ endDate: string; label: string }>,
+    atShip: boolean,
+    hiddenColumns: string[],
+  ) => void;
   filtered: ATSRow[];
   displayPeriods: Array<{ endDate: string; label: string }>;
   atShip: boolean;
+  hiddenColumns: string[];
   onNegInven: () => void;
   onAgedInven: (days: number, category: string) => "ok" | "empty";
   onDownloadIncompleteSkus: () => void;
   onDownloadStockVsSo: () => void;
   categories: string[];
+  // Single-string copy of the active Category filter, fed in only for
+  // the Aged Inven modal's category dropdown — that flow is still
+  // single-select per-report. Pass the first selected category if the
+  // top-level filter has one, else "All". Callers should not rely on
+  // this for general filter state — that's now an array in atsTypes.
   filterCategory: string;
   unreadNotifs: number;
   showingNotifications: boolean;
@@ -267,7 +278,7 @@ interface NavBarProps {
 export const NavBar: React.FC<NavBarProps> = ({
   mergeHistory, undoLastMerge, onNavigateHome, setShowUpload,
   uploadingFile, invFile, purFile, ordFile,
-  exportToExcel, filtered, displayPeriods, atShip, onNegInven, onAgedInven, onDownloadIncompleteSkus, onDownloadStockVsSo,
+  exportToExcel, filtered, displayPeriods, atShip, hiddenColumns, onNegInven, onAgedInven, onDownloadIncompleteSkus, onDownloadStockVsSo,
   categories, filterCategory,
   unreadNotifs, showingNotifications, onToggleNotifications,
   excelData, setExcelData,
@@ -276,6 +287,23 @@ export const NavBar: React.FC<NavBarProps> = ({
   const [agedDays, setAgedDays] = useState("365");
   const [agedCategory, setAgedCategory] = useState(filterCategory);
   const [agedEmpty, setAgedEmpty] = useState(false);
+  // Reports dropdown — collapses the previous five always-visible green
+  // export buttons (Export Excel / Neg Inven / Aged Inven / NO Mrgn Data /
+  // Stock Vs SO) into one button + popover menu. Each menu entry fires the
+  // same handler that the dedicated buttons used to fire; the Aged Inven
+  // entry still opens the days/category modal before downloading.
+  const [reportsOpen, setReportsOpen] = useState(false);
+  const reportsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!reportsOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (reportsRef.current && !reportsRef.current.contains(e.target as Node)) {
+        setReportsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [reportsOpen]);
 
   // Open-SOs sync state. The centered overlay is the primary UX while
   // the sync runs; the success/error toast appears briefly afterward.
@@ -372,60 +400,110 @@ export const NavBar: React.FC<NavBarProps> = ({
       >
         ↓ Sync Open SOs (disabled)
       </button>
-      <button
-        style={{ ...S.navBtn, background: "#1D6F42", border: "1px solid #155734", color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 7px" }}
-        onClick={() => exportToExcel(filtered.filter(r => !r.__collapsed), displayPeriods.map(p => ({ endDate: p.endDate, label: p.label })), atShip)}
-      >
-        <svg width="13" height="13" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="20" height="20" rx="3" fill="#1D6F42" />
-          <path d="M11 10l3-4.5h-2.1L10 8.3 8.1 5.5H6l3 4.5L6 14.5h2.1L10 11.7l1.9 2.8H14L11 10z" fill="white" />
-        </svg>
-        Export Excel
-      </button>
-      <button
-        style={{ ...S.navBtn, background: "#1D6F42", border: "1px solid #155734", color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 7px" }}
-        onClick={onNegInven}
-        title="Select Neg ATS filter and download Neg Inventory report"
-      >
-        <svg width="13" height="13" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="20" height="20" rx="3" fill="#1D6F42" />
-          <path d="M11 10l3-4.5h-2.1L10 8.3 8.1 5.5H6l3 4.5L6 14.5h2.1L10 11.7l1.9 2.8H14L11 10z" fill="white" />
-        </svg>
-        Neg Inven
-      </button>
-      <button
-        style={{ ...S.navBtn, background: "#1D6F42", border: "1px solid #155734", color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 7px" }}
-        onClick={() => { setAgedCategory(filterCategory); setAgedEmpty(false); setAgedOpen(true); }}
-        title="Download Aged Inventory report"
-      >
-        <svg width="13" height="13" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="20" height="20" rx="3" fill="#1D6F42" />
-          <path d="M11 10l3-4.5h-2.1L10 8.3 8.1 5.5H6l3 4.5L6 14.5h2.1L10 11.7l1.9 2.8H14L11 10z" fill="white" />
-        </svg>
-        Aged Inven
-      </button>
-      <button
-        style={{ ...S.navBtn, background: "#1D6F42", border: "1px solid #155734", color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 7px" }}
-        onClick={onDownloadIncompleteSkus}
-        title="Download styles with no open SOs, no avg cost, and no PO unit cost — these are the SKUs the red Mrgn:* asterisk in the totals row refers to"
-      >
-        <svg width="13" height="13" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="20" height="20" rx="3" fill="#1D6F42" />
-          <path d="M11 10l3-4.5h-2.1L10 8.3 8.1 5.5H6l3 4.5L6 14.5h2.1L10 11.7l1.9 2.8H14L11 10z" fill="white" />
-        </svg>
-        NO Mrgn Data
-      </button>
-      <button
-        style={{ ...S.navBtn, background: "#1D6F42", border: "1px solid #155734", color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 7px" }}
-        onClick={onDownloadStockVsSo}
-        title="Per-SO breakdown: how much fills from current stock, how much from incoming POs (PO arrival ≤ ship date), how much needs a new PO"
-      >
-        <svg width="13" height="13" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="20" height="20" rx="3" fill="#1D6F42" />
-          <path d="M11 10l3-4.5h-2.1L10 8.3 8.1 5.5H6l3 4.5L6 14.5h2.1L10 11.7l1.9 2.8H14L11 10z" fill="white" />
-        </svg>
-        Stock Vs SO
-      </button>
+      <div ref={reportsRef} style={{ position: "relative" }}>
+        <button
+          style={{
+            ...S.navBtn,
+            background: "#1D6F42",
+            border: "1px solid #155734",
+            color: "#fff",
+            fontWeight: 600,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "5px 10px",
+            cursor: "pointer",
+          }}
+          onClick={() => setReportsOpen(o => !o)}
+          title="Excel exports + special reports"
+        >
+          <svg width="13" height="13" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="20" height="20" rx="3" fill="#1D6F42" />
+            <path d="M11 10l3-4.5h-2.1L10 8.3 8.1 5.5H6l3 4.5L6 14.5h2.1L10 11.7l1.9 2.8H14L11 10z" fill="white" />
+          </svg>
+          Reports
+          <span style={{ fontSize: 9, marginLeft: 2 }}>▼</span>
+        </button>
+        {reportsOpen && (
+          <div
+            style={{
+              position: "absolute",
+              top: "calc(100% + 4px)",
+              right: 0,
+              minWidth: 260,
+              background: "#1E293B",
+              border: "1px solid #334155",
+              borderRadius: 8,
+              zIndex: 200,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+              padding: "4px 0",
+            }}
+          >
+            {([
+              {
+                key: "exportExcel",
+                label: "Export Excel",
+                sub: "Download the visible grid (filtered + sorted)",
+                onClick: () => exportToExcel(
+                  filtered.filter(r => !r.__collapsed),
+                  displayPeriods.map(p => ({ endDate: p.endDate, label: p.label })),
+                  atShip,
+                  hiddenColumns,
+                ),
+              },
+              {
+                key: "negInven",
+                label: "Neg Inven",
+                sub: "Select Neg ATS filter + download the negative-inventory report",
+                onClick: onNegInven,
+              },
+              {
+                key: "agedInven",
+                label: "Aged Inven…",
+                sub: "Pick a days threshold + category, then download",
+                onClick: () => { setAgedCategory(filterCategory); setAgedEmpty(false); setAgedOpen(true); },
+              },
+              {
+                key: "noMrgnData",
+                label: "NO Mrgn Data",
+                sub: "Styles with no open SO, no avg cost, no PO cost (the red Mrgn:* asterisks)",
+                onClick: onDownloadIncompleteSkus,
+              },
+              {
+                key: "stockVsSo",
+                label: "Stock Vs SO",
+                sub: "Per-SO breakdown: stock-fill vs incoming PO vs needs-new-PO",
+                onClick: onDownloadStockVsSo,
+              },
+            ] as const).map((item) => (
+              <button
+                key={item.key}
+                onClick={() => { item.onClick(); setReportsOpen(false); }}
+                title={item.sub}
+                style={{
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "8px 14px",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "#F1F5F9",
+                  fontSize: 13,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 2,
+                  fontFamily: "inherit",
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = "rgba(16,185,129,0.12)")}
+                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+              >
+                <span style={{ fontWeight: 600, color: "#6EE7B7" }}>{item.label}</span>
+                <span style={{ fontSize: 11, color: "#94A3B8", whiteSpace: "normal", lineHeight: 1.3 }}>{item.sub}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <button
         style={{
           ...S.navBtn,
