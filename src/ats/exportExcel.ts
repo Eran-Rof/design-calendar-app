@@ -3,31 +3,6 @@ import type { ATSRow } from "./types";
 import { fmtDate, displayColor } from "./helpers";
 import type { GridTotals } from "./computeTotals";
 import { periodAvail } from "./compute";
-
-// Excel export — fixed 18-column layout matching the planner's
-// reference CSV exactly. NO PPK rows, NO merges, NO rich text. Plain
-// numbers everywhere. The on-screen grid still shows the PPK hint;
-// the export is a clean tabular dump.
-//
-// Layout (18 cols when periods=5):
-//   A  Category               header #3278CC, body left
-//   B  Sub Cat                header #3278CC, body left
-//   C  Style                  header #3278CC, body BOLD #1F497D, left
-//   D  Description            header #3278CC, body left
-//   E  Color                  header #3278CC, body left
-//   F  spacer (1.57 wch)      header + body always #3278CC, no value
-//   G  On Hand                header #4081D0, body right; =0 → #FFC7CE/#9C0006
-//   H  spacer (1.57)          as F
-//   I  On Order               header #1F497D, body right
-//   J  spacer (1.57)          as F
-//   K  On PO                  header #1F497D, body right
-//   L  spacer (1.57)          as F
-//   M+ monthly periods        header #1F497D, body right; low-stock → #FFEB9C/#7F6000
-//   R  Total                  =SUM(L<row>:Q<row>), BOLD, no fill, right
-//
-// Plus a bottom Total row with =SUM formulas in every numeric column.
-// Calibri 11 everywhere. Zebra body rows (even #EEF3FA, odd #FFFFFF).
-// Spacers always #3278CC top to bottom regardless of zebra.
 // Autofit non-spacer cols: max(len(value)) + 2, capped at 80.
 // No frozen panes, no autofilter, no merged cells.
 export function exportToExcel(

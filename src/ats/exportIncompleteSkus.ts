@@ -3,9 +3,13 @@
 // open PO cost data. The planner uses this to chase down items that
 // can't be costed or priced and therefore distort margin reporting.
 
-import XLSXStyle from "xlsx-js-style";
 import type { ATSRow, ATSPoEvent, ATSSoEvent } from "./types";
 import { fmtDate } from "./helpers";
+import {
+  PALETTE, ROW_HEIGHTS,
+  headerStyle, bodyTextStyle, bodyNumStyle, bodyStyleStyle,
+  autofitColumns, applyOutlines, downloadWorkbook, zebraFill,
+} from "./exportTheme";
 
 type EventIndex = Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>>;
 
@@ -55,76 +59,79 @@ export function exportIncompleteSkus(
     }
   }
 
-  // Empty result is still a download. Operators kept clicking expecting
-  // a workbook and getting a blocking alert; replace it with a one-row
-  // status sheet so the click always produces the expected file. Caller
-  // can still react to count===0 if it wants to surface a softer toast.
-  const HDR: any = {
-    font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
-    fill: { fgColor: { rgb: "B91C1C" }, patternType: "solid" },
-    alignment: { horizontal: "center", vertical: "center" },
-    border: {
-      top: { style: "thin", color: { rgb: "7F1D1D" } },
-      bottom: { style: "medium", color: { rgb: "7F1D1D" } },
-      left: { style: "thin", color: { rgb: "7F1D1D" } },
-      right: { style: "thin", color: { rgb: "7F1D1D" } },
-    },
-  };
-  const cell: any = {
-    alignment: { horizontal: "left", vertical: "center" },
-    border: { left: { style: "thin", color: { rgb: "D0D8E4" } }, right: { style: "thin", color: { rgb: "D0D8E4" } } },
-  };
-  const cellNum: any = { ...cell, alignment: { horizontal: "right", vertical: "center" } };
+  // Column layout — SKU (treated as the "style" col with bold navy
+  // accent), Description, Category, Sub Cat, Color, Store, On Hand,
+  // On Order, On PO. The first six get the standard text-header tier;
+  // the three quantity cols get the dark tier matching the family.
+  const headers = [
+    { label: "SKU",         fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
+    { label: "Description", fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
+    { label: "Category",    fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
+    { label: "Sub Cat",     fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
+    { label: "Color",       fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
+    { label: "Store",       fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
+    { label: "On Hand",     fill: PALETTE.HEADER_ONHAND, align: "center" as const },
+    { label: "On Order",    fill: PALETTE.HEADER_DARK,   align: "center" as const },
+    { label: "On PO",       fill: PALETTE.HEADER_DARK,   align: "center" as const },
+  ];
+  const headerRow: any[] = headers.map((h) => ({
+    v: h.label, t: "s", s: headerStyle(h.fill, h.align),
+  }));
 
-  const headers = ["SKU", "Description", "Category", "Sub Cat", "Color", "Store", "On Hand", "On Order", "On PO"];
-  const aoa: any[][] = [headers.map((h) => ({ v: h, s: HDR }))];
+  const bodyRows: any[][] = [];
+
   if (incomplete.length === 0) {
-    // Single status row spanning into the SKU column so the workbook
-    // is never empty. Lets the operator file/share the run even on
-    // a clean snapshot.
+    // Single status row so the workbook is never empty — operators
+    // expect a download every time they click.
+    const fill = zebraFill(0);
     const okStyle: any = {
-      ...cell,
-      font: { italic: true, color: { rgb: "047857" } },
-      alignment: { horizontal: "left", vertical: "center" },
+      ...bodyTextStyle(fill, "left"),
+      font: { sz: 11, italic: true, color: { rgb: "047857" }, name: "Calibri" },
     };
-    aoa.push([
-      { v: "— None —", s: okStyle },
-      { v: "All filtered SKUs have an SO, avg cost, or PO cost.", s: okStyle },
-      { v: "", s: cell }, { v: "", s: cell }, { v: "", s: cell },
-      { v: "", s: cell }, { v: "", s: cellNum }, { v: "", s: cellNum }, { v: "", s: cellNum },
+    bodyRows.push([
+      { v: "— None —",                                           t: "s", s: okStyle },
+      { v: "All filtered SKUs have an SO, avg cost, or PO cost.", t: "s", s: okStyle },
+      { v: "", t: "s", s: bodyTextStyle(fill, "left") },
+      { v: "", t: "s", s: bodyTextStyle(fill, "left") },
+      { v: "", t: "s", s: bodyTextStyle(fill, "left") },
+      { v: "", t: "s", s: bodyTextStyle(fill, "left") },
+      { v: "", t: "s", s: bodyNumStyle(PALETTE.QTY_BAND) },
+      { v: "", t: "s", s: bodyNumStyle(PALETTE.QTY_BAND) },
+      { v: "", t: "s", s: bodyNumStyle(PALETTE.QTY_BAND) },
     ]);
   } else {
-    for (const r of incomplete) {
-      aoa.push([
-        { v: r.sku, s: cell },
-        { v: r.description ?? "", s: cell },
-        { v: r.master_category ?? r.category ?? "", s: cell },
-        { v: r.master_sub_category ?? "", s: cell },
-        { v: r.master_color ?? "", s: cell },
-        { v: r.store ?? "ROF", s: cell },
-        { v: r.onHand ?? 0, s: cellNum },
-        { v: r.onOrder ?? 0, s: cellNum },
-        { v: r.onPO ?? 0, s: cellNum },
+    incomplete.forEach((r, ri) => {
+      const fill = zebraFill(ri);
+      bodyRows.push([
+        { v: r.sku,                                          t: "s", s: bodyStyleStyle(fill) },
+        { v: r.description ?? "",                            t: "s", s: bodyTextStyle(fill, "left") },
+        { v: r.master_category ?? r.category ?? "",          t: "s", s: bodyTextStyle(fill, "left") },
+        { v: r.master_sub_category ?? "",                    t: "s", s: bodyTextStyle(fill, "left") },
+        { v: r.master_color ?? "",                           t: "s", s: bodyTextStyle(fill, "left") },
+        { v: r.store ?? "ROF",                               t: "s", s: bodyTextStyle(fill, "left") },
+        { v: r.onHand  ?? 0,                                 t: "n", s: bodyNumStyle(PALETTE.QTY_BAND) },
+        { v: r.onOrder ?? 0,                                 t: "n", s: bodyNumStyle(PALETTE.QTY_BAND) },
+        { v: r.onPO    ?? 0,                                 t: "n", s: bodyNumStyle(PALETTE.QTY_BAND) },
       ]);
-    }
+    });
   }
 
-  const ws = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
-  ws["!cols"] = [
-    { wch: 22 }, { wch: 36 }, { wch: 16 }, { wch: 16 }, { wch: 14 },
-    { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
-  ];
-  ws["!freeze"] = { xSplit: 0, ySplit: 1 };
+  const allRows = [headerRow, ...bodyRows];
+  applyOutlines({ allRows, totalColCount: headers.length });
 
-  const wb = XLSXStyle.utils.book_new();
-  XLSXStyle.utils.book_append_sheet(wb, ws, "Incomplete Styles");
-  const buf = XLSXStyle.write(wb, { bookType: "xlsx", type: "array" });
-  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `Incomplete_Styles_${fmtDate(new Date())}.xlsx`;
-  a.click();
-  URL.revokeObjectURL(url);
+  const cols = autofitColumns({ headerRow, bodyRows });
+  const rowHeights = [
+    { hpt: ROW_HEIGHTS.HEADER },
+    ...bodyRows.map(() => ({ hpt: ROW_HEIGHTS.BODY })),
+  ];
+
+  downloadWorkbook({
+    allRows,
+    sheetName: "Incomplete Styles",
+    filename: `Incomplete_Styles_${fmtDate(new Date())}.xlsx`,
+    cols,
+    rowHeights,
+  });
+
   return { count: incomplete.length };
 }
