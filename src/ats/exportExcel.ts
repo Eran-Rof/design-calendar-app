@@ -111,7 +111,10 @@ export function exportToExcel(
   const THICK: any = { style: "medium", color: { rgb: "1F497D" } };
   const THIN: any  = { style: "thin",   color: { rgb: "4472C4" } };
   const BORDER_BODY: any   = { top: THIN,  bottom: THIN,  left: THICK, right: THICK };
-  const BORDER_HEADER: any = { top: THICK, bottom: THICK, left: THICK, right: THICK };
+  // Header column dividers use THIN so the joints between period header
+  // cells read lighter (planner asked for lighter / less heavy header
+  // dividers); top + bottom stay thick so the header band frames clearly.
+  const BORDER_HEADER: any = { top: THICK, bottom: THICK, left: THIN, right: THIN };
   const BORDER_TOTAL: any  = { top: THICK, bottom: THICK, left: THICK, right: THICK };
 
   // ── Style factories ────────────────────────────────────────────────────
@@ -178,12 +181,12 @@ export function exportToExcel(
     alignment: { horizontal: "center", vertical: "center" },
     border:    BORDER_BODY,
   });
-  // Spacer cell — always #3278CC top to bottom, no value. Same column-
-  // outline border treatment as data cells so the spacer reads as
-  // part of the column-outlined grid.
+  // Spacer cell — always #3278CC top to bottom, no value. NO borders —
+  // spacers read as a clean colored gap between column groups (planner
+  // asked for the spacer-column vertical borders to be removed).
   const spacerCellStyle = (): any => ({
     fill:   { fgColor: { rgb: HDR_TEXT_FILL }, patternType: "solid" },
-    border: BORDER_BODY,
+    border: {},
   });
 
   // ── Header row ─────────────────────────────────────────────────────────
@@ -632,6 +635,11 @@ export function exportToExcel(
     for (let c = 0; c <= lastColIdx; c++) {
       const cell = allRows[r]?.[c];
       if (!cell || !cell.s) continue;
+      // Spacer columns stay border-less — never paint EXTRA_THICK on
+      // the spacer cells, otherwise the style-group horizontal outline
+      // re-introduces the very vertical/horizontal lines we just stripped.
+      const colIdx1 = c + 1;
+      if (SPACER_COLS.has(colIdx1)) continue;
       // Clone the border block so we don't mutate any shared style.
       const border: any = { ...(cell.s.border ?? {}) };
 
