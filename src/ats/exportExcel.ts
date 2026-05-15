@@ -91,11 +91,28 @@ export function exportToExcel(
   const FILL_EVEN = "EEF3FA";       // zebra even data rows
   const FILL_ODD  = "FFFFFF";       // zebra odd data rows
 
+  // ── Borders ────────────────────────────────────────────────────────────
+  // Per planner: thin border around every cell PLUS a thick blue outline
+  // around each column AND around each header. Implementation:
+  //   - Body cells: thin top + bottom (the "regular border around each
+  //     cell"), thick left + right (the "thick border around each
+  //     column" — adjacent cells share the thick edge).
+  //   - Header cells: thick on all four sides.
+  //   - Bottom Total row cells: thick top (separator from data) and
+  //     thick bottom (closes the table); thick left + right for the
+  //     column outline.
+  const THICK: any = { style: "medium", color: { rgb: "1F497D" } };
+  const THIN: any  = { style: "thin",   color: { rgb: "4472C4" } };
+  const BORDER_BODY: any   = { top: THIN,  bottom: THIN,  left: THICK, right: THICK };
+  const BORDER_HEADER: any = { top: THICK, bottom: THICK, left: THICK, right: THICK };
+  const BORDER_TOTAL: any  = { top: THICK, bottom: THICK, left: THICK, right: THICK };
+
   // ── Style factories ────────────────────────────────────────────────────
   const headerStyle = (fill: string, align: "left" | "center"): any => ({
     font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
     fill:      { fgColor: { rgb: fill }, patternType: "solid" },
     alignment: { horizontal: align, vertical: "center", wrapText: false },
+    border:    BORDER_HEADER,
   });
   // For non-merged rows, alignment is left/center. For prepack pairs,
   // text + qty cols are merged across the pair so the value sits in
@@ -105,29 +122,36 @@ export function exportToExcel(
     font:      { sz: 11, name: "Calibri" },
     fill:      { fgColor: { rgb: fill }, patternType: "solid" },
     alignment: { horizontal: "left", vertical: "center" },
+    border:    BORDER_BODY,
   });
   const bodyStyleStyle = (fill: string): any => ({
     // Style col: bold blue text, left-aligned.
     font:      { sz: 11, bold: true, color: { rgb: "1F497D" }, name: "Calibri" },
     fill:      { fgColor: { rgb: fill }, patternType: "solid" },
     alignment: { horizontal: "left", vertical: "center" },
+    border:    BORDER_BODY,
   });
   const bodyNumStyle = (fill: string): any => ({
     font:      { sz: 11, name: "Calibri" },
     fill:      { fgColor: { rgb: fill }, patternType: "solid" },
     alignment: { horizontal: "center", vertical: "center" },
+    border:    BORDER_BODY,
   });
   // Centered numeric (used in the period cells where qty + PPK split).
-  // Both qty (top row of pair) and PPK suffix (bottom row) center-align.
+  // Qty sits at the bottom of its cell, PPK suffix at the top of the
+  // cell directly below — visually flush.
   const periodQtyStyle = (fill: string): any => ({
     font:      { sz: 11, name: "Calibri" },
     fill:      { fgColor: { rgb: fill }, patternType: "solid" },
     alignment: { horizontal: "center", vertical: "bottom" },
+    border:    BORDER_BODY,
   });
+  // PPK suffix font: 6.6pt = 5.5pt × 1.2 per planner's "+20%" request.
   const periodPpkStyle = (fill: string): any => ({
-    font:      { sz: 5.5, color: { rgb: "B0BAC9" }, name: "Calibri" },
+    font:      { sz: 6.6, color: { rgb: "B0BAC9" }, name: "Calibri" },
     fill:      { fgColor: { rgb: fill }, patternType: "solid" },
     alignment: { horizontal: "center", vertical: "top" },
+    border:    BORDER_BODY,
   });
   const onHandZeroStyle = (base: any): any => ({
     ...base,
@@ -141,11 +165,15 @@ export function exportToExcel(
   });
   const bodyTotalStyle = (): any => ({
     font:      { bold: true, sz: 11, name: "Calibri" },
-    alignment: { horizontal: "right", vertical: "center" },
+    alignment: { horizontal: "center", vertical: "center" },
+    border:    BORDER_BODY,
   });
-  // Spacer cell — always #3278CC top to bottom, no value.
+  // Spacer cell — always #3278CC top to bottom, no value. Same column-
+  // outline border treatment as data cells so the spacer reads as
+  // part of the column-outlined grid.
   const spacerCellStyle = (): any => ({
-    fill: { fgColor: { rgb: HDR_TEXT_FILL }, patternType: "solid" },
+    fill:   { fgColor: { rgb: HDR_TEXT_FILL }, patternType: "solid" },
+    border: BORDER_BODY,
   });
 
   // ── Header row ─────────────────────────────────────────────────────────
@@ -245,9 +273,16 @@ export function exportToExcel(
       qtyRow[ci - 1] = { v: n, t: "n", s: style };
     }
 
-    // Total — formula. Range L<row>:Q<row> covers spacer L (empty) +
-    // every period.
+    // Total — formula PLUS pre-computed cached value so the cell
+    // shows the number immediately (Excel won't recalc until the
+    // user opens the workbook with calc enabled; without `v`, the
+    // cell renders empty until recalc runs).
+    let rowPeriodTotal = 0;
+    for (let i = 0; i < numPeriods; i++) {
+      rowPeriodTotal += periodValueOf(r, periods[i].endDate);
+    }
     qtyRow[COL.total - 1] = {
+      v: rowPeriodTotal,
       f: `SUM(${sumStartLetter}${qtyExcelRow}:${sumEndLetter}${qtyExcelRow})`,
       t: "n",
       s: bodyTotalStyle(),
@@ -341,23 +376,37 @@ export function exportToExcel(
   const totalNumStyle: any = {
     font:      { bold: true, sz: 11, name: "Calibri" },
     fill:      { fgColor: { rgb: FILL_EVEN }, patternType: "solid" },
-    alignment: { horizontal: "right", vertical: "center" },
+    alignment: { horizontal: "center", vertical: "center" },
+    border:    BORDER_TOTAL,
   };
   function colSumFormula(colIdx1: number): string {
     const letter = colLetter(colIdx1);
     return `SUM(${letter}2:${letter}${lastDataExcelRow})`;
   }
-  totalRow[COL.onHand  - 1] = { f: colSumFormula(COL.onHand),  t: "n", s: totalNumStyle };
-  totalRow[COL.onOrder - 1] = { f: colSumFormula(COL.onOrder), t: "n", s: totalNumStyle };
-  totalRow[COL.onPO    - 1] = { f: colSumFormula(COL.onPO),    t: "n", s: totalNumStyle };
+  // Pre-computed cached sums so the cells display the value
+  // immediately when the workbook opens. Excel will replace these
+  // with the formula's recalculated value on any cell edit, but
+  // without `v` set the cells render empty until a forced recalc.
+  const onHandSum = rows.reduce((acc, r) => acc + (r.onHand ?? 0), 0);
+  const onOrderSum = rows.reduce((acc, r) => acc + (r.onOrder ?? 0), 0);
+  const onPOSum = rows.reduce((acc, r) => acc + (r.onPO ?? 0), 0);
+  const periodSums: number[] = periods.map((p) =>
+    rows.reduce((acc, r) => acc + periodValueOf(r, p.endDate), 0),
+  );
+  const grandTotal = periodSums.reduce((a, b) => a + b, 0);
+
+  totalRow[COL.onHand  - 1] = { v: onHandSum,  f: colSumFormula(COL.onHand),  t: "n", s: totalNumStyle };
+  totalRow[COL.onOrder - 1] = { v: onOrderSum, f: colSumFormula(COL.onOrder), t: "n", s: totalNumStyle };
+  totalRow[COL.onPO    - 1] = { v: onPOSum,    f: colSumFormula(COL.onPO),    t: "n", s: totalNumStyle };
   for (let i = 0; i < numPeriods; i++) {
     const ci = COL.firstPeriod + i;
-    totalRow[ci - 1] = { f: colSumFormula(ci), t: "n", s: totalNumStyle };
+    totalRow[ci - 1] = { v: periodSums[i], f: colSumFormula(ci), t: "n", s: totalNumStyle };
   }
   totalRow[COL.total - 1] = {
+    v: grandTotal,
     f: colSumFormula(COL.total),
     t: "n",
-    s: { ...totalNumStyle, fill: { patternType: "none" } },
+    s: totalNumStyle,
   };
   dataRows.push(totalRow);
 
