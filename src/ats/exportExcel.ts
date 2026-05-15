@@ -90,9 +90,16 @@ export function exportToExcel(
   const totalColumnCount = COL.total;
 
   // ── Style fills ────────────────────────────────────────────────────────
-  const HDR_TEXT_FILL  = "3278CC"; // text headers + every spacer
+  const HDR_TEXT_FILL  = "3278CC"; // text headers (Category…Color)
   const HDR_ONHAND_FILL = "4081D0"; // On Hand only
   const HDR_DARK_FILL  = "1F497D"; // On Order, On PO, periods, Total
+  // Spacer columns get their own darker fill so the four narrow gaps
+  // read as a strong visual separator between column groups (planner
+  // asked for the spacer band to be darker / more visible than the
+  // text-header fill it used to share). Picks a navy noticeably
+  // darker than HDR_DARK_FILL so the spacers stand out even when
+  // adjacent to the dark-blue On Order / On PO / period headers.
+  const SPACER_FILL    = "12325E";
   const FILL_EVEN = "EEF3FA";       // zebra even data rows (text + period cols)
   const FILL_ODD  = "FFFFFF";       // zebra odd data rows (text + period cols)
   // Single fill for the three qty-col data cells (On Hand, On Order,
@@ -168,11 +175,6 @@ export function exportToExcel(
     alignment: { horizontal: "center", vertical: "top" },
     border:    BORDER_BODY,
   });
-  const onHandZeroStyle = (base: any): any => ({
-    ...base,
-    font: { ...base.font, bold: true, color: { rgb: "9C0006" } },
-    fill: { fgColor: { rgb: "FFC7CE" }, patternType: "solid" },
-  });
   const lowStockStyle = (base: any): any => ({
     ...base,
     font: { ...base.font, bold: true, color: { rgb: "7F6000" } },
@@ -186,11 +188,11 @@ export function exportToExcel(
     alignment: { horizontal: "center", vertical: "center" },
     border:    BORDER_BODY,
   });
-  // Spacer cell — always #3278CC top to bottom, no value. NO borders —
-  // spacers read as a clean colored gap between column groups (planner
-  // asked for the spacer-column vertical borders to be removed).
+  // Spacer cell — uses its own darker SPACER_FILL top to bottom so the
+  // four narrow gap columns read as strong visual separators between
+  // column groups. NO borders — spacers stay as clean colored gaps.
   const spacerCellStyle = (): any => ({
-    fill:   { fgColor: { rgb: HDR_TEXT_FILL }, patternType: "solid" },
+    fill:   { fgColor: { rgb: SPACER_FILL }, patternType: "solid" },
     border: {},
   });
 
@@ -201,10 +203,10 @@ export function exportToExcel(
   headerRow[COL.style       - 1] = { v: "Style",       t: "s", s: headerStyle(HDR_TEXT_FILL, "left") };
   headerRow[COL.description - 1] = { v: "Description", t: "s", s: headerStyle(HDR_TEXT_FILL, "left") };
   headerRow[COL.color       - 1] = { v: "Color",       t: "s", s: headerStyle(HDR_TEXT_FILL, "left") };
-  headerRow[COL.spacerF - 1] = { v: "", t: "s", s: headerStyle(HDR_TEXT_FILL, "center") };
-  headerRow[COL.spacerH - 1] = { v: "", t: "s", s: headerStyle(HDR_TEXT_FILL, "center") };
-  headerRow[COL.spacerJ - 1] = { v: "", t: "s", s: headerStyle(HDR_TEXT_FILL, "center") };
-  headerRow[COL.spacerL - 1] = { v: "", t: "s", s: headerStyle(HDR_TEXT_FILL, "center") };
+  headerRow[COL.spacerF - 1] = { v: "", t: "s", s: headerStyle(SPACER_FILL, "center") };
+  headerRow[COL.spacerH - 1] = { v: "", t: "s", s: headerStyle(SPACER_FILL, "center") };
+  headerRow[COL.spacerJ - 1] = { v: "", t: "s", s: headerStyle(SPACER_FILL, "center") };
+  headerRow[COL.spacerL - 1] = { v: "", t: "s", s: headerStyle(SPACER_FILL, "center") };
   headerRow[COL.onHand  - 1] = { v: "On Hand",  t: "s", s: headerStyle(HDR_ONHAND_FILL, "center") };
   headerRow[COL.onOrder - 1] = { v: "On Order", t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
   headerRow[COL.onPO    - 1] = { v: "On PO",    t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
@@ -347,14 +349,12 @@ export function exportToExcel(
 
     // On Hand / On Order / On PO — single shared fill (FILL_QTY_COL),
     // not zebra. Reads as a coherent qty band between the zebra text
-    // cols on the left and the period cols on the right. On Hand
-    // value 0 still triggers the red highlight overlay.
-    {
-      const n = r.onHand ?? 0;
-      const base = bodyNumStyle(FILL_QTY_COL);
-      const style = n === 0 ? onHandZeroStyle(base) : base;
-      qtyRow[COL.onHand - 1] = { v: n, t: "n", s: style };
-    }
+    // cols on the left and the period cols on the right. Per planner,
+    // zero values in any of the three qty cols render with the SAME
+    // blue fill + same font as non-zero cells — no red highlight on
+    // On Hand zeros (the live grid has its own visual cues for zero
+    // stock; the export stays uniform).
+    qtyRow[COL.onHand  - 1] = { v: r.onHand  ?? 0, t: "n", s: bodyNumStyle(FILL_QTY_COL) };
     qtyRow[COL.onOrder - 1] = { v: r.onOrder ?? 0, t: "n", s: bodyNumStyle(FILL_QTY_COL) };
     qtyRow[COL.onPO    - 1] = { v: r.onPO    ?? 0, t: "n", s: bodyNumStyle(FILL_QTY_COL) };
 
@@ -641,25 +641,32 @@ export function exportToExcel(
     for (let c = 0; c <= lastColIdx; c++) {
       const cell = allRows[r]?.[c];
       if (!cell || !cell.s) continue;
-      // Spacer columns stay border-less — never paint EXTRA_THICK on
-      // the spacer cells, otherwise the style-group horizontal outline
-      // re-introduces the very vertical/horizontal lines we just stripped.
       const colIdx1 = c + 1;
-      if (SPACER_COLS.has(colIdx1)) continue;
+      const isSpacer = SPACER_COLS.has(colIdx1);
       // Clone the border block so we don't mutate any shared style.
       const border: any = { ...(cell.s.border ?? {}) };
 
-      // (a) Outer table outline.
+      // (a) Outer table outline — applies to BOTH spacers and non-
+      // spacers so the heavy frame around the table reads as one
+      // continuous line. Without this, the spacer header cells kept
+      // their lighter THICK top while neighbors picked up EXTRA_THICK,
+      // producing visible "joint" marks at every spacer/data boundary
+      // at the top of the header row.
       if (c === 0) border.left = EXTRA_THICK;                     // left edge of A
       if (c === lastColIdx) border.right = EXTRA_THICK;            // right edge of last col
       if (r === 0) border.top = EXTRA_THICK;                       // top of header
       if (r === lastAoaRow) border.bottom = EXTRA_THICK;           // bottom of total row
 
-      // (b) Style-group outline. dataIdx = r - 1 (since aoa[0] is header).
-      const dataIdx = r - 1;
-      if (dataIdx >= 0 && dataIdx < rowMeta.length) {
-        if (styleStartDataIdx.has(dataIdx)) border.top = EXTRA_THICK;
-        if (styleEndDataIdx.has(dataIdx)) border.bottom = EXTRA_THICK;
+      // (b) Style-group outline — only on non-spacer columns.
+      // Painting horizontal EXTRA_THICK across the spacer band would
+      // chop the dark spacer column into bricks, which is exactly the
+      // visual the planner asked us to remove.
+      if (!isSpacer) {
+        const dataIdx = r - 1;
+        if (dataIdx >= 0 && dataIdx < rowMeta.length) {
+          if (styleStartDataIdx.has(dataIdx)) border.top = EXTRA_THICK;
+          if (styleEndDataIdx.has(dataIdx)) border.bottom = EXTRA_THICK;
+        }
       }
 
       cell.s = { ...cell.s, border };
