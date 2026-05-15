@@ -270,43 +270,84 @@ export const CellContextMenu: React.FC<CellContextMenuProps> = ({ ctxMenu, ctxRe
           const unitCost = ctxMenu.unitCost ?? 0;
           const ppkMult = ctxMenu.ppkMult ?? 1;
           const isPrepack = ppkMult > 1;
-          const tQtyPacks = ctxMenu.sos.reduce((s, o) => s + o.qty, 0);
+          // Group raw SO line items by orderNumber. A single SO can
+          // arrive as multiple rows (one per allocation / size / ship-
+          // line) and the cell popup was rendering each separately —
+          // 13 line items showed as 13 rows even when they belonged to
+          // 2 underlying orders. Collapse by orderNumber: sum qty +
+          // totalPrice, weighted-avg unitPrice (totalPrice / qty),
+          // earliest cancel date, first non-empty customer/store.
+          type SoGroup = {
+            orderNumber: string;
+            qty: number;            // packs
+            totalPrice: number;
+            customerName: string;
+            store: string;
+            date: string;
+            lineCount: number;
+          };
+          const soGrp: Record<string, SoGroup> = {};
+          for (const o of ctxMenu.sos) {
+            const k = o.orderNumber || "Unknown";
+            if (!soGrp[k]) {
+              soGrp[k] = {
+                orderNumber: o.orderNumber,
+                qty: 0,
+                totalPrice: 0,
+                customerName: o.customerName ?? "",
+                store: o.store ?? "",
+                date: o.date ?? "",
+                lineCount: 0,
+              };
+            }
+            const g = soGrp[k];
+            g.qty += o.qty || 0;
+            g.totalPrice += (o.totalPrice ?? (o.unitPrice ?? 0) * (o.qty ?? 0)) || 0;
+            g.lineCount += 1;
+            if (!g.customerName && o.customerName) g.customerName = o.customerName;
+            if (!g.store && o.store) g.store = o.store;
+            if (o.date && (!g.date || o.date < g.date)) g.date = o.date;
+          }
+          const soList = Object.values(soGrp);
+          const tQtyPacks = soList.reduce((s, o) => s + o.qty, 0);
           const tQtyUnits = tQtyPacks * ppkMult;
-          const tVal = ctxMenu.sos.reduce((s, o) => s + (o.totalPrice || o.unitPrice * o.qty || 0), 0);
+          const tVal = soList.reduce((s, o) => s + o.totalPrice, 0);
           const tCost = unitCost > 0 ? unitCost * tQtyUnits : 0;
           const headerMarginPct = tVal > 0 && tCost > 0 ? ((tVal - tCost) / tVal) * 100 : null;
           return (
             <div>
               <div style={{ background: "rgba(59,130,246,0.15)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#93C5FD", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #1E3A5F" }}>
-                Sales Orders ({ctxMenu.sos.length}) · {isPrepack
+                Sales Orders ({soList.length}) · {isPrepack
                   ? `${tQtyPacks.toLocaleString()} pack${tQtyPacks !== 1 ? "s" : ""} (${tQtyUnits.toLocaleString()} units)`
                   : `${tQtyPacks.toLocaleString()} units`}{tVal > 0 ? ` · $${tVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(tVal / tQtyPacks).toFixed(2)}/${isPrepack ? "pack" : "unit"}` : ""}{headerMarginPct !== null ? ` · Margin ${headerMarginPct >= 0 ? "" : "-"}${Math.abs(headerMarginPct).toFixed(1)}%` : ""}
               </div>
-              {ctxMenu.sos.map((s, i) => {
-                // s.unitPrice is per-pack; unitCost is per-unit. Bring
-                // unitCost up to per-pack via ppkMult to compute margin
-                // in pack grain.
-                const lineMargin = (unitCost > 0 && s.unitPrice > 0)
-                  ? ((s.unitPrice - unitCost * ppkMult) / s.unitPrice) * 100
+              {soList.map((g, i) => {
+                // Weighted-avg unit price across the collapsed lines.
+                const grpUnitPrice = g.qty > 0 ? g.totalPrice / g.qty : 0;
+                const lineMargin = (unitCost > 0 && grpUnitPrice > 0)
+                  ? ((grpUnitPrice - unitCost * ppkMult) / grpUnitPrice) * 100
                   : null;
                 const marginColor = lineMargin === null ? "#94A3B8" : lineMargin >= 30 ? "#6EE7B7" : lineMargin >= 10 ? "#FCD34D" : "#FCA5A5";
                 const lineQtyDisplay = isPrepack
-                  ? `${s.qty.toLocaleString()} pack${s.qty !== 1 ? "s" : ""} (${(s.qty * ppkMult).toLocaleString()} units)`
-                  : `${s.qty.toLocaleString()} units`;
+                  ? `${g.qty.toLocaleString()} pack${g.qty !== 1 ? "s" : ""} (${(g.qty * ppkMult).toLocaleString()} units)`
+                  : `${g.qty.toLocaleString()} units`;
                 return (
                   <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                      <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700 }}>{s.orderNumber || "—"}</span>
+                      <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700 }}>
+                        {g.orderNumber || "—"}
+                        {g.lineCount > 1 && <span style={{ color: "#64748B", fontWeight: 400, marginLeft: 6 }}>({g.lineCount} lines)</span>}
+                      </span>
                       <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        {s.store && storeTag(s.store)}
+                        {g.store && storeTag(g.store)}
                         <span style={{ color: "#10B981", fontWeight: 700 }}>{lineQtyDisplay}</span>
                       </span>
                     </div>
-                    <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{s.customerName || "—"}</div>
+                    <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{g.customerName || "—"}</div>
                     <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-                      <span style={{ color: "#94A3B8", fontSize: 11 }}>Cancel: {fmtDateDisplay(s.date)}</span>
-                      <span style={{ color: "#94A3B8", fontSize: 11 }}>{isPrepack ? "Pack" : "Unit"}: ${s.unitPrice?.toFixed(2) ?? "—"}</span>
-                      <span style={{ color: "#94A3B8", fontSize: 11 }}>Total: ${s.totalPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "—"}</span>
+                      <span style={{ color: "#94A3B8", fontSize: 11 }}>Cancel: {fmtDateDisplay(g.date)}</span>
+                      {grpUnitPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>{isPrepack ? "Pack" : "Unit"}: ${grpUnitPrice.toFixed(2)}</span>}
+                      {g.totalPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Total: ${g.totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
                       {lineMargin !== null && <span style={{ color: marginColor, fontSize: 11, fontWeight: 600 }}>Margin {lineMargin >= 0 ? "" : "-"}{Math.abs(lineMargin).toFixed(1)}%</span>}
                     </div>
                   </div>

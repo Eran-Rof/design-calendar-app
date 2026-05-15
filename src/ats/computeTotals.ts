@@ -1,4 +1,5 @@
 import type { ATSRow, ATSPoEvent, ATSSoEvent } from "./types";
+import { periodAvail } from "./compute";
 
 // Per-slot totals: Qty + Cost ($) + Sale ($) + skipped (SKUs we couldn't
 // resolve a cost/sale for, surfaced as the red asterisk on the grid's
@@ -144,12 +145,13 @@ export function computeGridTotals(opts: ComputeTotalsOpts): GridTotals {
   const periodCost: Record<string, number> = {};
   const periodSale: Record<string, number> = {};
   const periodSkipped: Record<string, number> = {};
-  for (const p of displayPeriods) {
+  for (let pi = 0; pi < displayPeriods.length; pi++) {
+    const p = displayPeriods[pi];
     let q = 0, c = 0, s = 0, skipped = 0;
     for (const r of filtered) {
       let v: number | undefined;
       if (viewMode === "ats") {
-        v = atShip ? (r.freeMap?.[p.endDate] ?? r.dates[p.endDate]) : r.dates[p.endDate];
+        v = periodAvail(r, displayPeriods, pi, atShip);
       } else if (!r.__collapsed && eventIndex) {
         const skuIdx = eventIndex[r.sku];
         if (skuIdx) {

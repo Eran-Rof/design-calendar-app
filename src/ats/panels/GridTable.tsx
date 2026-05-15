@@ -5,6 +5,7 @@ import { useArrowKeyScroll } from "../../shared/grid/useArrowKeyScroll";
 import { GridScrollbarStyles } from "../../shared/grid/GridScrollbarStyles";
 import type { ATSRow, ATSPoEvent, ATSSoEvent, CtxMenu } from "../types";
 import { computeGridTotals } from "../computeTotals";
+import { periodAvail } from "../compute";
 
 // Renders a qty cell that shows either the unit-grain or pack-grain
 // number based on the EXPLODE PPK toggle, with a small faded hint
@@ -665,7 +666,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                 </td>
                 )}
                 {/* Period cells */}
-                {displayPeriods.map(p => {
+                {displayPeriods.map((p, periodIdx) => {
                   const ev = eventIndex ? getEventsInPeriod(row.sku, p.periodStart, p.endDate, row.store) : null;
                   const hasPO = (ev?.pos.length ?? 0) > 0;
                   const hasSO = (ev?.sos.length ?? 0) > 0;
@@ -675,8 +676,14 @@ export const GridTable: React.FC<GridTableProps> = ({
                   // and fall back to undefined → renders as "—".
                   let qty: number | undefined;
                   if (viewMode === "ats") {
-                    const fullQty = row.dates[p.endDate];
-                    qty = atShip ? (row.freeMap?.[p.endDate] ?? fullQty) : fullQty;
+                    if (atShip) {
+                      // First period: cumulative free-to-sell. Subsequent
+                      // periods: only the additional qty available since
+                      // the prior period (delta from new receipts).
+                      qty = periodAvail(row, displayPeriods, periodIdx, true);
+                    } else {
+                      qty = row.dates[p.endDate];
+                    }
                   } else if (!row.__collapsed && ev) {
                     const list = viewMode === "so" ? ev.sos : ev.pos;
                     qty = list.reduce((a, e) => a + (e.qty || 0), 0);

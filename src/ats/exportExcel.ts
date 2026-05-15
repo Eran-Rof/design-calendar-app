@@ -2,6 +2,7 @@ import XLSXStyle from "xlsx-js-style";
 import type { ATSRow } from "./types";
 import { fmtDate, displayColor } from "./helpers";
 import type { GridTotals } from "./computeTotals";
+import { periodAvail } from "./compute";
 
 // Excel export — fixed 18-column layout matching the planner's
 // reference CSV exactly. NO PPK rows, NO merges, NO rich text. Plain
@@ -40,11 +41,15 @@ export function exportToExcel(
   _totals: GridTotals | null = null,
 ) {
   // Skip rows whose availability is zero across every visible period.
-  // Negatives (shortages) and positives are kept.
+  // Negatives (shortages) and positives are kept. Uses periodAvail so
+  // the "any availability" test honors the same delta-when-atShip
+  // semantic the cells render with — a row whose only non-zero free is
+  // carried-over (no new receipts) still counts as having availability
+  // because period-0 is cumulative under that helper.
   const hasAnyAvailability = (r: ATSRow): boolean => {
-    for (const p of periods) {
-      const v = atShip ? (r.freeMap?.[p.endDate] ?? r.dates[p.endDate]) : r.dates[p.endDate];
-      if (v !== 0 && v != null) return true;
+    for (let i = 0; i < periods.length; i++) {
+      const v = periodAvail(r, periods, i, atShip);
+      if (v !== 0) return true;
     }
     return false;
   };
@@ -214,9 +219,10 @@ export function exportToExcel(
   headerRow[COL.total - 1] = { v: "Total", t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
 
   // ── Helpers ────────────────────────────────────────────────────────────
-  const periodValueOf = (r: ATSRow, endDate: string): number => {
-    const v = atShip ? (r.freeMap?.[endDate] ?? r.dates[endDate]) : r.dates[endDate];
-    return typeof v === "number" ? v : 0;
+  // Index-aware accessor — periodAvail handles the atShip=delta case
+  // (cumulative free at period 0; per-period new-receipt delta after).
+  const periodValueOf = (r: ATSRow, i: number): number => {
+    return periodAvail(r, periods, i, atShip);
   };
   const sumStartLetter = colLetter(COL.spacerL);   // L (empty spacer)
   const sumEndLetter = colLetter(COL.lastPeriod);  // last period letter
@@ -273,7 +279,7 @@ export function exportToExcel(
     const onH = group.reduce((a, x) => a + (x.onHand ?? 0), 0);
     const onO = group.reduce((a, x) => a + (x.onOrder ?? 0), 0);
     const onP = group.reduce((a, x) => a + (x.onPO ?? 0), 0);
-    const perPeriod = periods.map((p) => group.reduce((a, x) => a + periodValueOf(x, p.endDate), 0));
+    const perPeriod = periods.map((_p, i) => group.reduce((a, x) => a + periodValueOf(x, i), 0));
     const grand = perPeriod.reduce((a, b) => a + b, 0);
 
     const r2: any[] = new Array(totalColumnCount);
@@ -358,7 +364,7 @@ export function exportToExcel(
     // standard center alignment.
     for (let i = 0; i < numPeriods; i++) {
       const ci = COL.firstPeriod + i;
-      const n = periodValueOf(r, periods[i].endDate);
+      const n = periodValueOf(r, i);
       const baseStyle = isPrepack ? periodQtyStyle(fill) : bodyNumStyle(fill);
       if (n === 0) {
         qtyRow[ci - 1] = { v: "", t: "s", s: baseStyle };
@@ -374,7 +380,7 @@ export function exportToExcel(
     // cell renders empty until recalc runs).
     let rowPeriodTotal = 0;
     for (let i = 0; i < numPeriods; i++) {
-      rowPeriodTotal += periodValueOf(r, periods[i].endDate);
+      rowPeriodTotal += periodValueOf(r, i);
     }
     qtyRow[COL.total - 1] = {
       v: rowPeriodTotal,
@@ -420,7 +426,7 @@ export function exportToExcel(
       // Period cells: PPK suffix only where qty > 0; otherwise blank.
       for (let i = 0; i < numPeriods; i++) {
         const ci = COL.firstPeriod + i;
-        const n = periodValueOf(r, periods[i].endDate);
+        const n = periodValueOf(r, i);
         if (n === 0) {
           ppkRow[ci - 1] = { v: "", t: "s", s: periodPpkStyle(fill) };
           continue;
@@ -477,8 +483,8 @@ export function exportToExcel(
   const onHandSum = rows.reduce((acc, r) => acc + (r.onHand ?? 0), 0);
   const onOrderSum = rows.reduce((acc, r) => acc + (r.onOrder ?? 0), 0);
   const onPOSum = rows.reduce((acc, r) => acc + (r.onPO ?? 0), 0);
-  const periodSums: number[] = periods.map((p) =>
-    rows.reduce((acc, r) => acc + periodValueOf(r, p.endDate), 0),
+  const periodSums: number[] = periods.map((_p, i) =>
+    rows.reduce((acc, r) => acc + periodValueOf(r, i), 0),
   );
   const grandTotal = periodSums.reduce((a, b) => a + b, 0);
 

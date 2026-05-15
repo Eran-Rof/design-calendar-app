@@ -3,6 +3,34 @@ import { dedupeSkuEntries } from "./merge";
 import { ppkMultiplier } from "../shared/prepack";
 import { resolveStyle } from "./itemMasterLookup";
 
+// Per-period qty resolver shared by the grid, the export, and totals.
+// In Avail-to-Ship mode the FIRST period shows the cumulative
+// free-to-sell as-is; each SUBSEQUENT period shows only the
+// additional qty that became available since the prior period
+// (typically new PO receipts). Negative deltas (more reservations
+// stealing earlier free stock) clamp to 0 — those aren't "new
+// availability". When atShip is off, every period shows the running
+// ATS balance straight from row.dates (existing behavior).
+export function periodAvail(
+  row: ATSRow,
+  periods: Array<{ endDate: string }>,
+  i: number,
+  atShip: boolean,
+): number {
+  if (!atShip) {
+    const v = row.dates[periods[i].endDate];
+    return typeof v === "number" ? v : 0;
+  }
+  const free = (date: string): number => {
+    const v = row.freeMap?.[date] ?? row.dates[date];
+    return typeof v === "number" ? v : 0;
+  };
+  const cur = free(periods[i].endDate);
+  if (i === 0) return cur;
+  const prev = free(periods[i - 1].endDate);
+  return Math.max(0, cur - prev);
+}
+
 /** Apply the PPK pack→unit multiplier to a single ATSRow. Used by the
  *  snapshot-path loader (loadFromSupabase fallback to ats_snapshots)
  *  and by the master-ready recovery effect — both build rows without
