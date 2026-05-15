@@ -212,7 +212,7 @@ export function exportToExcel(
     qtyRow[COL.category    - 1] = { v: r.master_category ?? r.category ?? "", t: "s", s: bodyTextStyle(fill) };
     qtyRow[COL.subCat      - 1] = { v: r.master_sub_category ?? "",            t: "s", s: bodyTextStyle(fill) };
     qtyRow[COL.style       - 1] = { v: r.master_style ?? "",                   t: "s", s: bodyStyleStyle(fill) };
-    qtyRow[COL.description - 1] = { v: r.description ?? "",                    t: "s", s: bodyTextStyle(fill) };
+    qtyRow[COL.description - 1] = { v: r.master_description ?? r.description ?? "", t: "s", s: bodyTextStyle(fill) };
     qtyRow[COL.color       - 1] = { v: displayColor(r),                        t: "s", s: bodyTextStyle(fill) };
 
     qtyRow[COL.spacerF - 1] = { v: "", t: "s", s: spacerCellStyle() };

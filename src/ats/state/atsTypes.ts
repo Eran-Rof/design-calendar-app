@@ -150,15 +150,15 @@ export function createInitialState(startDate: string): ATSState {
     filterGender: "All",
     filterStatus: "All",
     minATS: "",
-    // Default to ROF + PT (both are real customer-facing inventory).
-    // ROF ECOM is intentionally OFF by default — it's a small ecom-only
-    // pool the operator flips on when looking at ecom-specific buys.
-    // Confirmed with user 2026-05-12.
+    // Default to ROF only (the primary customer-facing inventory).
+    // PT and ROF ECOM stay OFF by default — operator flips them on
+    // when they want to look at the secondary or ecom pool. Updated
+    // 2026-05-14 per planner.
     // In demo mode the seed uses DEMO-WH1 as the only store, so default
     // to ["All"] — that's the sentinel filter.ts checks for to bypass
     // store filtering entirely. Empty [] would mean "no stores selected"
     // and hide every row.
-    storeFilter: appConfig.demoMode ? ["All"] : ["ROF", "PT"],
+    storeFilter: appConfig.demoMode ? ["All"] : ["ROF"],
     poDropOpen: false,
     soDropOpen: false,
     rows: [],

@@ -49,6 +49,7 @@ export function enrichRowsWithItemMaster(rows: ATSRow[]): { rows: ATSRow[]; summ
       master_sub_category: resolved.sub_category,
       master_style: resolved.style,
       master_color: resolved.color,
+      master_description: resolved.description,
       master_match_source: resolved.match_source,
     };
   });

@@ -43,6 +43,12 @@ export interface ResolvedStyle {
   style: string | null;          // style_code
   color: string | null;          // color
   size: string | null;           // size — primary PPK location (e.g. "PPK24")
+  // Clean style-level description ("LAIDBACK Baggy Fit"). Variant rows
+  // in Xoro carry a dirty composite ("LAIDBACK Baggy Fi RYB...-Harbor
+  // - Med Wash-32-OCEAN HUT") that's the SKU code packed into the
+  // description field. Resolver always returns the style-level row's
+  // description so the grid + export show the clean form.
+  description: string | null;
   match_source: "sku" | "style" | null; // null = unmatched
 }
 
@@ -57,8 +63,23 @@ const NULL_RESULT: ResolvedStyle = {
   style: null,
   color: null,
   size: null,
+  description: null,
   match_source: null,
 };
+
+// Look up the clean description for a style. Variant rows
+// (sku_code !== style_code) get their description from the style-
+// level row when one exists; the variant's own description is the
+// dirty composite Xoro packs in there. Returns null when no clean
+// description exists anywhere.
+function resolveCleanDescription(rec: ItemMasterRecord): string | null {
+  if (rec.style_code) {
+    const styleRow = byStyleCode?.get(rec.style_code.toUpperCase());
+    const fromStyle = styleRow?.description?.trim();
+    if (fromStyle) return fromStyle;
+  }
+  return rec.description?.trim() || null;
+}
 
 // A record is the "canonical" style-level row when its sku_code equals its
 // style_code. Those rows carry the populated attributes (group_name etc.);
@@ -216,6 +237,7 @@ export function resolveStyle(sku: string, stylePart?: string | null): ResolvedSt
       style: skuHit.style_code ?? null,
       color: skuHit.color ?? null,
       size: skuHit.size ?? null,
+      description: resolveCleanDescription(skuHit),
       match_source: "sku",
     };
   }
@@ -245,6 +267,7 @@ export function resolveStyle(sku: string, stylePart?: string | null): ResolvedSt
           // Style-level master row typically has no size — variant rows
           // do. PPK detection will fall back to SKU/desc for these.
           size: styleHit.size ?? null,
+          description: resolveCleanDescription(styleHit),
           match_source: "style",
         };
       }

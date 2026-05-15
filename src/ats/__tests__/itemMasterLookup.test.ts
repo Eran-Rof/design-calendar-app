@@ -59,6 +59,7 @@ describe("itemMasterLookup.resolveStyle", () => {
       style: "RYB100",
       color: "Black",
       size: null,
+      description: null,
       match_source: "sku",
     });
   });
@@ -102,6 +103,7 @@ describe("itemMasterLookup.resolveStyle", () => {
       style: "S100",
       color: "Black",
       size: null,
+      description: null,
       match_source: "style",
     });
   });
@@ -118,6 +120,7 @@ describe("itemMasterLookup.resolveStyle", () => {
       style: null,
       color: null,
       size: null,
+      description: null,
       match_source: null,
     });
   });
@@ -131,6 +134,7 @@ describe("itemMasterLookup.resolveStyle", () => {
       style: null,
       color: null,
       size: null,
+      description: null,
       match_source: null,
     });
   });

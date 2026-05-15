@@ -26,6 +26,12 @@ export interface ATSRow {
   master_sub_category?: string | null;
   master_style?: string | null;
   master_color?: string | null;
+  // Clean style-level description from ip_item_master, e.g.
+  // "LAIDBACK Baggy Fit". Falls back to the row's own dirty Xoro
+  // description when the master has nothing. Display layer should
+  // prefer this over `description` to avoid showing the SKU + color +
+  // size composite Xoro packs into variant descriptions.
+  master_description?: string | null;
   master_match_source?: "sku" | "style" | null;
   // Phase 3 collapse mode: present on synthetic aggregate rows produced by
   // collapseRows(). Leaf rows from compute.ts never set this. UI uses it to

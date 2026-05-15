@@ -622,10 +622,13 @@ export const GridTable: React.FC<GridTableProps> = ({
                   )}
                 </td>
                 )}
-                {/* Description */}
+                {/* Description — prefer the clean style-level master
+                    description (e.g. "LAIDBACK Baggy Fit") over the
+                    Xoro variant description, which packs SKU + color
+                    + size into the field and reads as garbage. */}
                 {!isHidden("description") && (
                 <td style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("description", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.description, background: stickyBg, color: isAggregate ? "#94A3B8" : "#D1D5DB", fontSize: 13, fontStyle: isAggregate ? "italic" : "normal", ...unfreezeStyle("description") }}>
-                  {row.description}
+                  {row.master_description ?? row.description}
                 </td>
                 )}
                 {/* Color */}
