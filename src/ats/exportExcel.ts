@@ -90,16 +90,9 @@ export function exportToExcel(
   const totalColumnCount = COL.total;
 
   // ── Style fills ────────────────────────────────────────────────────────
-  const HDR_TEXT_FILL  = "3278CC"; // text headers (Category…Color)
+  const HDR_TEXT_FILL  = "3278CC"; // text headers + every spacer
   const HDR_ONHAND_FILL = "4081D0"; // On Hand only
   const HDR_DARK_FILL  = "1F497D"; // On Order, On PO, periods, Total
-  // Spacer columns get their own darker fill so the four narrow gaps
-  // read as a strong visual separator between column groups (planner
-  // asked for the spacer band to be darker / more visible than the
-  // text-header fill it used to share). Picks a navy noticeably
-  // darker than HDR_DARK_FILL so the spacers stand out even when
-  // adjacent to the dark-blue On Order / On PO / period headers.
-  const SPACER_FILL    = "12325E";
   const FILL_EVEN = "EEF3FA";       // zebra even data rows (text + period cols)
   const FILL_ODD  = "FFFFFF";       // zebra odd data rows (text + period cols)
   // Single fill for the three qty-col data cells (On Hand, On Order,
@@ -188,11 +181,11 @@ export function exportToExcel(
     alignment: { horizontal: "center", vertical: "center" },
     border:    BORDER_BODY,
   });
-  // Spacer cell — uses its own darker SPACER_FILL top to bottom so the
-  // four narrow gap columns read as strong visual separators between
-  // column groups. NO borders — spacers stay as clean colored gaps.
+  // Spacer cell — always #3278CC top to bottom, no value. NO borders —
+  // spacers read as a clean colored gap between column groups (planner
+  // asked for the spacer-column vertical borders to be removed).
   const spacerCellStyle = (): any => ({
-    fill:   { fgColor: { rgb: SPACER_FILL }, patternType: "solid" },
+    fill:   { fgColor: { rgb: HDR_TEXT_FILL }, patternType: "solid" },
     border: {},
   });
 
@@ -203,10 +196,10 @@ export function exportToExcel(
   headerRow[COL.style       - 1] = { v: "Style",       t: "s", s: headerStyle(HDR_TEXT_FILL, "left") };
   headerRow[COL.description - 1] = { v: "Description", t: "s", s: headerStyle(HDR_TEXT_FILL, "left") };
   headerRow[COL.color       - 1] = { v: "Color",       t: "s", s: headerStyle(HDR_TEXT_FILL, "left") };
-  headerRow[COL.spacerF - 1] = { v: "", t: "s", s: headerStyle(SPACER_FILL, "center") };
-  headerRow[COL.spacerH - 1] = { v: "", t: "s", s: headerStyle(SPACER_FILL, "center") };
-  headerRow[COL.spacerJ - 1] = { v: "", t: "s", s: headerStyle(SPACER_FILL, "center") };
-  headerRow[COL.spacerL - 1] = { v: "", t: "s", s: headerStyle(SPACER_FILL, "center") };
+  headerRow[COL.spacerF - 1] = { v: "", t: "s", s: headerStyle(HDR_TEXT_FILL, "center") };
+  headerRow[COL.spacerH - 1] = { v: "", t: "s", s: headerStyle(HDR_TEXT_FILL, "center") };
+  headerRow[COL.spacerJ - 1] = { v: "", t: "s", s: headerStyle(HDR_TEXT_FILL, "center") };
+  headerRow[COL.spacerL - 1] = { v: "", t: "s", s: headerStyle(HDR_TEXT_FILL, "center") };
   headerRow[COL.onHand  - 1] = { v: "On Hand",  t: "s", s: headerStyle(HDR_ONHAND_FILL, "center") };
   headerRow[COL.onOrder - 1] = { v: "On Order", t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
   headerRow[COL.onPO    - 1] = { v: "On PO",    t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
@@ -456,18 +449,13 @@ export function exportToExcel(
   flushGroupSubtotal();
 
   // ── Bottom totals ──────────────────────────────────────────────────────
-  // Two modes:
-  //   - totals == null (TOTALS toggle off): one simple Total row with
-  //     column sums via =SUM formulas and pre-computed cached values.
-  //   - totals != null (TOTALS toggle on): a 5-row stack at the bottom
-  //     showing TOTAL Qty / Cost $ / Sale $ / Mrgn $ / Mrgn %, sourced
-  //     from the GridTotals data the caller passed in. The simple
-  //     Total row is REPLACED by this stack — no double-summing.
-  const lastDataExcelRow = nextExcelRow - 1;
-  function colSumFormula(colIdx1: number): string {
-    const letter = colLetter(colIdx1);
-    return `SUM(${letter}2:${letter}${lastDataExcelRow})`;
-  }
+  // Mirrors the on-screen TOTALS row exactly: when the planner has the
+  // toggle on, the export emits a 5-row stack (TOTAL Qty / Cost $ /
+  // Sale $ / Mrgn $ / Mrgn %) AFTER the last data row. When the toggle
+  // is off, no bottom totals row is added at all — the export ends on
+  // the last data row (or per-style subtotal). The previous "always
+  // emit a simple Total row" path was dropped per planner: the toggle
+  // controls visibility for both surfaces uniformly.
   const totalNumStyle: any = {
     font:      { bold: true, sz: 11, name: "Calibri" },
     fill:      { fgColor: { rgb: FILL_EVEN }, patternType: "solid" },
@@ -478,37 +466,11 @@ export function exportToExcel(
     ...bodyTextStyle(FILL_EVEN),
     font: { bold: true, sz: 11, name: "Calibri" },
   };
-  // Pre-computed cached sums (used in BOTH modes — totals stack
-  // ignores them, simple mode uses them).
-  const onHandSum = rows.reduce((acc, r) => acc + (r.onHand ?? 0), 0);
-  const onOrderSum = rows.reduce((acc, r) => acc + (r.onOrder ?? 0), 0);
-  const onPOSum = rows.reduce((acc, r) => acc + (r.onPO ?? 0), 0);
   const periodSums: number[] = periods.map((_p, i) =>
     rows.reduce((acc, r) => acc + periodValueOf(r, i), 0),
   );
-  const grandTotal = periodSums.reduce((a, b) => a + b, 0);
 
-  if (_totals === null) {
-    // Simple Total row.
-    const totalRow: any[] = new Array(totalColumnCount);
-    for (const ci of [COL.category, COL.subCat, COL.style, COL.description]) {
-      totalRow[ci - 1] = { v: "", t: "s", s: totalLabelStyle };
-    }
-    totalRow[COL.color - 1] = { v: "Total", t: "s", s: totalLabelStyle };
-    totalRow[COL.spacerF - 1] = { v: "", t: "s", s: spacerCellStyle() };
-    totalRow[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
-    totalRow[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
-    totalRow[COL.spacerL - 1] = { v: "", t: "s", s: spacerCellStyle() };
-    totalRow[COL.onHand  - 1] = { v: onHandSum,  f: colSumFormula(COL.onHand),  t: "n", s: totalNumStyle };
-    totalRow[COL.onOrder - 1] = { v: onOrderSum, f: colSumFormula(COL.onOrder), t: "n", s: totalNumStyle };
-    totalRow[COL.onPO    - 1] = { v: onPOSum,    f: colSumFormula(COL.onPO),    t: "n", s: totalNumStyle };
-    for (let i = 0; i < numPeriods; i++) {
-      const ci = COL.firstPeriod + i;
-      totalRow[ci - 1] = { v: periodSums[i], f: colSumFormula(ci), t: "n", s: totalNumStyle };
-    }
-    totalRow[COL.total - 1] = { v: grandTotal, f: colSumFormula(COL.total), t: "n", s: totalNumStyle };
-    dataRows.push(totalRow);
-  } else {
+  if (_totals !== null) {
     // Totals stack: 5 rows pulled from the supplied GridTotals.
     const t = _totals;
     const fmtUSD = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -538,12 +500,6 @@ export function exportToExcel(
       return cells;
     }
 
-    const onHandTotalCost = t.onHand.cost;
-    const onOrderTotalCost = t.onOrder.cost;
-    const onPOTotalCost = t.onPO.cost;
-    const onHandTotalSale = t.onHand.sale;
-    const onOrderTotalSale = t.onOrder.sale;
-    const onPOTotalSale = t.onPO.sale;
     const periodCostSum = periods.reduce((a, p) => a + (t.periodCost[p.endDate] ?? 0), 0);
     const periodSaleSum = periods.reduce((a, p) => a + (t.periodSale[p.endDate] ?? 0), 0);
 
@@ -577,9 +533,6 @@ export function exportToExcel(
       (key) => safePct(t.periodSale[key] ?? 0, (t.periodSale[key] ?? 0) - (t.periodCost[key] ?? 0)),
       () => safePct(periodSaleSum, periodSaleSum - periodCostSum),
     ));
-    // Suppress unused-var warnings for the per-qty pre-computes.
-    void onHandTotalCost; void onOrderTotalCost; void onPOTotalCost;
-    void onHandTotalSale; void onOrderTotalSale; void onPOTotalSale;
   }
 
   // ── Outer + style-group thick borders ──────────────────────────────────
