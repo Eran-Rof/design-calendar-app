@@ -88,8 +88,15 @@ export function exportToExcel(
   const HDR_TEXT_FILL  = "3278CC"; // text headers + every spacer
   const HDR_ONHAND_FILL = "4081D0"; // On Hand only
   const HDR_DARK_FILL  = "1F497D"; // On Order, On PO, periods, Total
-  const FILL_EVEN = "EEF3FA";       // zebra even data rows
-  const FILL_ODD  = "FFFFFF";       // zebra odd data rows
+  const FILL_EVEN = "EEF3FA";       // zebra even data rows (text + period cols)
+  const FILL_ODD  = "FFFFFF";       // zebra odd data rows (text + period cols)
+  // Single fill for the three qty-col data cells (On Hand, On Order,
+  // On PO). Sits between the very-light zebra (FILL_EVEN/FILL_ODD)
+  // and the Color column header (#3278CC) — clearly darker than the
+  // body zebra, well lighter than the text headers, and no zebra
+  // alternation in those cols so the qty block reads as a coherent
+  // band.
+  const FILL_QTY_COL = "B4C7E7";    // medium-light blue (Accent 1 Lighter 60%)
 
   // ── Borders ────────────────────────────────────────────────────────────
   // Per planner: thin border around every cell PLUS a thick blue outline
@@ -163,8 +170,11 @@ export function exportToExcel(
     font: { ...base.font, bold: true, color: { rgb: "7F6000" } },
     fill: { fgColor: { rgb: "FFEB9C" }, patternType: "solid" },
   });
-  const bodyTotalStyle = (): any => ({
+  // Total column body cells now zebra-stripe like the text + period
+  // cols — same row's zebra fill applied to col R per planner.
+  const bodyTotalStyle = (fill: string): any => ({
     font:      { bold: true, sz: 11, name: "Calibri" },
+    fill:      { fgColor: { rgb: fill }, patternType: "solid" },
     alignment: { horizontal: "center", vertical: "center" },
     border:    BORDER_BODY,
   });
@@ -228,7 +238,85 @@ export function exportToExcel(
     COL.total,
   ];
 
+  // Detect whether the export spans more than one style. When yes,
+  // we'll emit a subtotal row at the end of each style group; when
+  // no (single style), the bottom Total row alone is enough.
+  const distinctStyles = new Set<string>();
+  for (const r of rows) {
+    const s = (r.master_style ?? "").trim();
+    if (s) distinctStyles.add(s);
+  }
+  const multiStyle = distinctStyles.size > 1;
+
+  // Subtotal row factory. Sums the given qty / period totals across a
+  // style group; styled blue + bold + 12.1pt (= 11pt qty × 1.1, the
+  // planner's "+10%" request).
+  function buildSubtotalRow(styleLabel: string, group: ATSRow[]): any[] {
+    const subtotalFontSize = 12.1;
+    const SUB_FILL = FILL_QTY_COL;  // sit on the qty band so the row
+                                    // anchors visually against the qty cols
+    const subTextStyle: any = {
+      font:      { bold: true, sz: subtotalFontSize, color: { rgb: "1F497D" }, name: "Calibri" },
+      fill:      { fgColor: { rgb: SUB_FILL }, patternType: "solid" },
+      alignment: { horizontal: "left", vertical: "center" },
+      border:    BORDER_BODY,
+    };
+    const subNumStyle: any = {
+      font:      { bold: true, sz: subtotalFontSize, color: { rgb: "1F497D" }, name: "Calibri" },
+      fill:      { fgColor: { rgb: SUB_FILL }, patternType: "solid" },
+      alignment: { horizontal: "center", vertical: "center" },
+      border:    BORDER_BODY,
+    };
+    const onH = group.reduce((a, x) => a + (x.onHand ?? 0), 0);
+    const onO = group.reduce((a, x) => a + (x.onOrder ?? 0), 0);
+    const onP = group.reduce((a, x) => a + (x.onPO ?? 0), 0);
+    const perPeriod = periods.map((p) => group.reduce((a, x) => a + periodValueOf(x, p.endDate), 0));
+    const grand = perPeriod.reduce((a, b) => a + b, 0);
+
+    const r2: any[] = new Array(totalColumnCount);
+    for (const ci of [COL.category, COL.subCat, COL.style, COL.description]) {
+      r2[ci - 1] = { v: "", t: "s", s: subTextStyle };
+    }
+    r2[COL.color - 1] = { v: `${styleLabel} Subtotal`, t: "s", s: subTextStyle };
+    r2[COL.spacerF - 1] = { v: "", t: "s", s: spacerCellStyle() };
+    r2[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
+    r2[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
+    r2[COL.spacerL - 1] = { v: "", t: "s", s: spacerCellStyle() };
+    r2[COL.onHand  - 1] = { v: onH, t: "n", s: subNumStyle };
+    r2[COL.onOrder - 1] = { v: onO, t: "n", s: subNumStyle };
+    r2[COL.onPO    - 1] = { v: onP, t: "n", s: subNumStyle };
+    for (let i = 0; i < numPeriods; i++) {
+      const ci = COL.firstPeriod + i;
+      r2[ci - 1] = { v: perPeriod[i], t: "n", s: subNumStyle };
+    }
+    r2[COL.total - 1] = { v: grand, t: "n", s: subNumStyle };
+    return r2;
+  }
+
+  // Track the rows in the current style group so the subtotal row at
+  // the boundary can sum across them.
+  let currentGroup: ATSRow[] = [];
+  let currentGroupStyle = "";
+
+  function flushGroupSubtotal() {
+    if (!multiStyle) { currentGroup = []; return; }
+    if (currentGroup.length === 0) return;
+    dataRows.push(buildSubtotalRow(currentGroupStyle, currentGroup));
+    nextExcelRow++;
+    currentGroup = [];
+  }
+
   rows.forEach((r, ri) => {
+    const rowStyle = (r.master_style ?? "").trim();
+    // If style changed from the previous row, close the previous
+    // group with a subtotal (when applicable) before emitting this
+    // row into the new group.
+    if (multiStyle && currentGroup.length > 0 && rowStyle !== currentGroupStyle) {
+      flushGroupSubtotal();
+    }
+    currentGroupStyle = rowStyle;
+    currentGroup.push(r);
+
     const isEvenInputRow = (ri % 2) === 0;
     const fill = isEvenInputRow ? FILL_EVEN : FILL_ODD;
     const qtyExcelRow = nextExcelRow;
@@ -248,14 +336,18 @@ export function exportToExcel(
     qtyRow[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
     qtyRow[COL.spacerL - 1] = { v: "", t: "s", s: spacerCellStyle() };
 
-    // On Hand — value 0 triggers red highlight.
+    // On Hand / On Order / On PO — single shared fill (FILL_QTY_COL),
+    // not zebra. Reads as a coherent qty band between the zebra text
+    // cols on the left and the period cols on the right. On Hand
+    // value 0 still triggers the red highlight overlay.
     {
       const n = r.onHand ?? 0;
-      const style = n === 0 ? onHandZeroStyle(bodyNumStyle(fill)) : bodyNumStyle(fill);
+      const base = bodyNumStyle(FILL_QTY_COL);
+      const style = n === 0 ? onHandZeroStyle(base) : base;
       qtyRow[COL.onHand - 1] = { v: n, t: "n", s: style };
     }
-    qtyRow[COL.onOrder - 1] = { v: r.onOrder ?? 0, t: "n", s: bodyNumStyle(fill) };
-    qtyRow[COL.onPO    - 1] = { v: r.onPO    ?? 0, t: "n", s: bodyNumStyle(fill) };
+    qtyRow[COL.onOrder - 1] = { v: r.onOrder ?? 0, t: "n", s: bodyNumStyle(FILL_QTY_COL) };
+    qtyRow[COL.onPO    - 1] = { v: r.onPO    ?? 0, t: "n", s: bodyNumStyle(FILL_QTY_COL) };
 
     // Period cells. For prepack rows the qty sits at the BOTTOM of
     // its cell (anchored to the bottom edge) so the PPK suffix on the
@@ -285,7 +377,7 @@ export function exportToExcel(
       v: rowPeriodTotal,
       f: `SUM(${sumStartLetter}${qtyExcelRow}:${sumEndLetter}${qtyExcelRow})`,
       t: "n",
-      s: bodyTotalStyle(),
+      s: bodyTotalStyle(fill),
     };
 
     dataRows.push(qtyRow);
@@ -318,9 +410,9 @@ export function exportToExcel(
       ppkRow[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
       ppkRow[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
       ppkRow[COL.spacerL - 1] = { v: "", t: "s", s: spacerCellStyle() };
-      ppkRow[COL.onHand  - 1] = blankFill(bodyNumStyle(fill));
-      ppkRow[COL.onOrder - 1] = blankFill(bodyNumStyle(fill));
-      ppkRow[COL.onPO    - 1] = blankFill(bodyNumStyle(fill));
+      ppkRow[COL.onHand  - 1] = blankFill(bodyNumStyle(FILL_QTY_COL));
+      ppkRow[COL.onOrder - 1] = blankFill(bodyNumStyle(FILL_QTY_COL));
+      ppkRow[COL.onPO    - 1] = blankFill(bodyNumStyle(FILL_QTY_COL));
 
       // Period cells: PPK suffix only where qty > 0; otherwise blank.
       for (let i = 0; i < numPeriods; i++) {
@@ -337,7 +429,7 @@ export function exportToExcel(
           s: periodPpkStyle(fill),
         };
       }
-      ppkRow[COL.total - 1] = { v: "", t: "s", s: bodyTotalStyle() };
+      ppkRow[COL.total - 1] = { v: "", t: "s", s: bodyTotalStyle(fill) };
 
       dataRows.push(ppkRow);
       const ppkExcelRow = nextExcelRow;
@@ -351,42 +443,34 @@ export function exportToExcel(
       }
     }
   });
+  // Final group's subtotal (no next-row to trigger the boundary).
+  flushGroupSubtotal();
 
-  // ── Bottom Total row ───────────────────────────────────────────────────
+  // ── Bottom totals ──────────────────────────────────────────────────────
+  // Two modes:
+  //   - totals == null (TOTALS toggle off): one simple Total row with
+  //     column sums via =SUM formulas and pre-computed cached values.
+  //   - totals != null (TOTALS toggle on): a 5-row stack at the bottom
+  //     showing TOTAL Qty / Cost $ / Sale $ / Mrgn $ / Mrgn %, sourced
+  //     from the GridTotals data the caller passed in. The simple
+  //     Total row is REPLACED by this stack — no double-summing.
   const lastDataExcelRow = nextExcelRow - 1;
-  const totalRow: any[] = new Array(totalColumnCount);
-  // Label "Total" goes in the Color column (E) per file 1.
-  for (const ci of [COL.category, COL.subCat, COL.style, COL.description]) {
-    totalRow[ci - 1] = {
-      v: "",
-      t: "s",
-      s: { ...bodyTextStyle(FILL_EVEN), font: { bold: true, sz: 11, name: "Calibri" } },
-    };
+  function colSumFormula(colIdx1: number): string {
+    const letter = colLetter(colIdx1);
+    return `SUM(${letter}2:${letter}${lastDataExcelRow})`;
   }
-  totalRow[COL.color - 1] = {
-    v: "Total",
-    t: "s",
-    s: { ...bodyTextStyle(FILL_EVEN), font: { bold: true, sz: 11, name: "Calibri" } },
-  };
-  totalRow[COL.spacerF - 1] = { v: "", t: "s", s: spacerCellStyle() };
-  totalRow[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
-  totalRow[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
-  totalRow[COL.spacerL - 1] = { v: "", t: "s", s: spacerCellStyle() };
-
   const totalNumStyle: any = {
     font:      { bold: true, sz: 11, name: "Calibri" },
     fill:      { fgColor: { rgb: FILL_EVEN }, patternType: "solid" },
     alignment: { horizontal: "center", vertical: "center" },
     border:    BORDER_TOTAL,
   };
-  function colSumFormula(colIdx1: number): string {
-    const letter = colLetter(colIdx1);
-    return `SUM(${letter}2:${letter}${lastDataExcelRow})`;
-  }
-  // Pre-computed cached sums so the cells display the value
-  // immediately when the workbook opens. Excel will replace these
-  // with the formula's recalculated value on any cell edit, but
-  // without `v` set the cells render empty until a forced recalc.
+  const totalLabelStyle: any = {
+    ...bodyTextStyle(FILL_EVEN),
+    font: { bold: true, sz: 11, name: "Calibri" },
+  };
+  // Pre-computed cached sums (used in BOTH modes — totals stack
+  // ignores them, simple mode uses them).
   const onHandSum = rows.reduce((acc, r) => acc + (r.onHand ?? 0), 0);
   const onOrderSum = rows.reduce((acc, r) => acc + (r.onOrder ?? 0), 0);
   const onPOSum = rows.reduce((acc, r) => acc + (r.onPO ?? 0), 0);
@@ -395,20 +479,99 @@ export function exportToExcel(
   );
   const grandTotal = periodSums.reduce((a, b) => a + b, 0);
 
-  totalRow[COL.onHand  - 1] = { v: onHandSum,  f: colSumFormula(COL.onHand),  t: "n", s: totalNumStyle };
-  totalRow[COL.onOrder - 1] = { v: onOrderSum, f: colSumFormula(COL.onOrder), t: "n", s: totalNumStyle };
-  totalRow[COL.onPO    - 1] = { v: onPOSum,    f: colSumFormula(COL.onPO),    t: "n", s: totalNumStyle };
-  for (let i = 0; i < numPeriods; i++) {
-    const ci = COL.firstPeriod + i;
-    totalRow[ci - 1] = { v: periodSums[i], f: colSumFormula(ci), t: "n", s: totalNumStyle };
+  if (_totals === null) {
+    // Simple Total row.
+    const totalRow: any[] = new Array(totalColumnCount);
+    for (const ci of [COL.category, COL.subCat, COL.style, COL.description]) {
+      totalRow[ci - 1] = { v: "", t: "s", s: totalLabelStyle };
+    }
+    totalRow[COL.color - 1] = { v: "Total", t: "s", s: totalLabelStyle };
+    totalRow[COL.spacerF - 1] = { v: "", t: "s", s: spacerCellStyle() };
+    totalRow[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
+    totalRow[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
+    totalRow[COL.spacerL - 1] = { v: "", t: "s", s: spacerCellStyle() };
+    totalRow[COL.onHand  - 1] = { v: onHandSum,  f: colSumFormula(COL.onHand),  t: "n", s: totalNumStyle };
+    totalRow[COL.onOrder - 1] = { v: onOrderSum, f: colSumFormula(COL.onOrder), t: "n", s: totalNumStyle };
+    totalRow[COL.onPO    - 1] = { v: onPOSum,    f: colSumFormula(COL.onPO),    t: "n", s: totalNumStyle };
+    for (let i = 0; i < numPeriods; i++) {
+      const ci = COL.firstPeriod + i;
+      totalRow[ci - 1] = { v: periodSums[i], f: colSumFormula(ci), t: "n", s: totalNumStyle };
+    }
+    totalRow[COL.total - 1] = { v: grandTotal, f: colSumFormula(COL.total), t: "n", s: totalNumStyle };
+    dataRows.push(totalRow);
+  } else {
+    // Totals stack: 5 rows pulled from the supplied GridTotals.
+    const t = _totals;
+    const fmtUSD = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const safePct = (sale: number, mrgn: number) =>
+      sale > 0 ? `${((mrgn / sale) * 100).toFixed(1)}%` : "—";
+
+    function buildStackRow(label: string, getQty: (k: "onHand" | "onOrder" | "onPO") => string | number, getPeriod: (key: string) => string | number, getRowTotal: () => string | number) {
+      const cells: any[] = new Array(totalColumnCount);
+      for (const ci of [COL.category, COL.subCat, COL.style, COL.description]) {
+        cells[ci - 1] = { v: "", t: "s", s: totalLabelStyle };
+      }
+      cells[COL.color - 1] = { v: label, t: "s", s: totalLabelStyle };
+      cells[COL.spacerF - 1] = { v: "", t: "s", s: spacerCellStyle() };
+      cells[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
+      cells[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
+      cells[COL.spacerL - 1] = { v: "", t: "s", s: spacerCellStyle() };
+      const cellFor = (v: string | number) => ({ v, t: typeof v === "number" ? "n" : "s", s: totalNumStyle });
+      cells[COL.onHand  - 1] = cellFor(getQty("onHand"));
+      cells[COL.onOrder - 1] = cellFor(getQty("onOrder"));
+      cells[COL.onPO    - 1] = cellFor(getQty("onPO"));
+      for (let i = 0; i < numPeriods; i++) {
+        const ci = COL.firstPeriod + i;
+        // GridTotals.periodQty is keyed by period.endDate (== key).
+        cells[ci - 1] = cellFor(getPeriod(periods[i].endDate));
+      }
+      cells[COL.total - 1] = cellFor(getRowTotal());
+      return cells;
+    }
+
+    const onHandTotalCost = t.onHand.cost;
+    const onOrderTotalCost = t.onOrder.cost;
+    const onPOTotalCost = t.onPO.cost;
+    const onHandTotalSale = t.onHand.sale;
+    const onOrderTotalSale = t.onOrder.sale;
+    const onPOTotalSale = t.onPO.sale;
+    const periodCostSum = periods.reduce((a, p) => a + (t.periodCost[p.endDate] ?? 0), 0);
+    const periodSaleSum = periods.reduce((a, p) => a + (t.periodSale[p.endDate] ?? 0), 0);
+
+    dataRows.push(buildStackRow(
+      "TOTAL Qty",
+      (k) => t[k].qty,
+      (key) => t.periodQty[key] ?? 0,
+      () => periodSums.reduce((a, b) => a + b, 0),
+    ));
+    dataRows.push(buildStackRow(
+      "TOTAL Cost",
+      (k) => fmtUSD(t[k].cost),
+      (key) => fmtUSD(t.periodCost[key] ?? 0),
+      () => fmtUSD(periodCostSum),
+    ));
+    dataRows.push(buildStackRow(
+      "TOTAL Sale",
+      (k) => fmtUSD(t[k].sale),
+      (key) => fmtUSD(t.periodSale[key] ?? 0),
+      () => fmtUSD(periodSaleSum),
+    ));
+    dataRows.push(buildStackRow(
+      "TOTAL Mrgn $",
+      (k) => fmtUSD(t[k].sale - t[k].cost),
+      (key) => fmtUSD((t.periodSale[key] ?? 0) - (t.periodCost[key] ?? 0)),
+      () => fmtUSD(periodSaleSum - periodCostSum),
+    ));
+    dataRows.push(buildStackRow(
+      "TOTAL Mrgn %",
+      (k) => safePct(t[k].sale, t[k].sale - t[k].cost),
+      (key) => safePct(t.periodSale[key] ?? 0, (t.periodSale[key] ?? 0) - (t.periodCost[key] ?? 0)),
+      () => safePct(periodSaleSum, periodSaleSum - periodCostSum),
+    ));
+    // Suppress unused-var warnings for the per-qty pre-computes.
+    void onHandTotalCost; void onOrderTotalCost; void onPOTotalCost;
+    void onHandTotalSale; void onOrderTotalSale; void onPOTotalSale;
   }
-  totalRow[COL.total - 1] = {
-    v: grandTotal,
-    f: colSumFormula(COL.total),
-    t: "n",
-    s: totalNumStyle,
-  };
-  dataRows.push(totalRow);
 
   // ── Outer + style-group thick borders ──────────────────────────────────
   // Two extra-heavy outlines on top of the per-cell base borders:
@@ -518,18 +681,34 @@ export function exportToExcel(
     ws["!cols"][ci - 1] = { wch: widthForColumn(ci) };
   }
 
-  // Row heights — header taller; qty rows default; PPK follower rows
-  // shorter (5.5pt suffix only); bottom Total row.
+  // Row heights — set per Excel row index after we've already pushed
+  // every dataRow (variants + PPK pairs + style subtotals + bottom
+  // Total / stack). Header taller; PPK follower rows shorter; subtotal
+  // and total rows a touch taller for visual weight.
   const HEADER_HPT = 22;
   const ROW_HPT = 15;
   const PPK_ROW_HPT = 11;
+  const SUBTOTAL_HPT = 19;
   const TOTAL_HPT = 18;
   const rowsHeight: any[] = [{ hpt: HEADER_HPT }];
-  for (const r of rows) {
-    rowsHeight.push({ hpt: ROW_HPT });
-    if ((r.ppkMult ?? 1) > 1) rowsHeight.push({ hpt: PPK_ROW_HPT });
+  // Walk the dataRows we actually built. A subtotal / bottom Total row
+  // is identifiable by a "Subtotal" or "Total" label in the Color col;
+  // a PPK follower has an empty Style cell; everything else is a qty
+  // row. Mapping by content keeps the height aligned even after the
+  // multi-feature row insertion.
+  for (const row of dataRows) {
+    const colorVal = row[COL.color - 1]?.v;
+    const styleVal = row[COL.style - 1]?.v;
+    if (typeof colorVal === "string" && /Subtotal$/i.test(colorVal)) {
+      rowsHeight.push({ hpt: SUBTOTAL_HPT });
+    } else if (typeof colorVal === "string" && (colorVal === "Total" || /^TOTAL /i.test(colorVal))) {
+      rowsHeight.push({ hpt: TOTAL_HPT });
+    } else if (typeof styleVal === "string" && styleVal.trim() === "") {
+      rowsHeight.push({ hpt: PPK_ROW_HPT });
+    } else {
+      rowsHeight.push({ hpt: ROW_HPT });
+    }
   }
-  rowsHeight.push({ hpt: TOTAL_HPT });
   ws["!rows"] = rowsHeight;
 
   // Merged cells for prepack pairs — text + spacers + qty cols + Total

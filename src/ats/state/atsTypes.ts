@@ -194,7 +194,7 @@ export function createInitialState(startDate: string): ATSState {
     sortCol: null,
     sortDir: "asc",
     mergeHistory: [],
-    atShip: false,
+    atShip: true,
     viewMode: "ats",
     showTotalsRow: false,
     showStatsCards: true,
