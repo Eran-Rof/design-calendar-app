@@ -313,17 +313,17 @@ export interface DownloadInput {
   freeze?: { xSplit: number; ySplit: number };
 }
 
-export function downloadWorkbook({ allRows, sheetName, filename, cols, rowHeights, merges, autofilter, freeze }: DownloadInput) {
+function buildSheet({ allRows, cols, rowHeights, merges, autofilter, freeze }: Omit<DownloadInput, "sheetName" | "filename">) {
   const ws = (XLSXStyle.utils.aoa_to_sheet as any)(allRows, { skipHeader: true });
   ws["!cols"] = cols;
   ws["!rows"] = rowHeights;
   if (merges && merges.length > 0) ws["!merges"] = merges;
   if (autofilter) ws["!autofilter"] = { ref: autofilter };
   if (freeze) ws["!freeze"] = freeze;
+  return ws;
+}
 
-  const wb = XLSXStyle.utils.book_new();
-  XLSXStyle.utils.book_append_sheet(wb, ws, sheetName);
-
+function triggerDownload(wb: any, filename: string) {
   const buf  = XLSXStyle.write(wb, { bookType: "xlsx", type: "array" });
   const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url  = URL.createObjectURL(blob);
@@ -332,4 +332,24 @@ export function downloadWorkbook({ allRows, sheetName, filename, cols, rowHeight
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+export function downloadWorkbook({ sheetName, filename, ...sheetSpec }: DownloadInput) {
+  const wb = XLSXStyle.utils.book_new();
+  XLSXStyle.utils.book_append_sheet(wb, buildSheet(sheetSpec), sheetName);
+  triggerDownload(wb, filename);
+}
+
+// Multi-sheet variant — each entry produces one tab. Use the same
+// sheet spec shape minus the top-level filename.
+export interface MultiSheetSpec extends Omit<DownloadInput, "filename"> {}
+export function downloadMultiSheet(filename: string, sheets: MultiSheetSpec[]) {
+  const wb = XLSXStyle.utils.book_new();
+  for (const sheet of sheets) {
+    const { sheetName, ...spec } = sheet;
+    // Sanitize sheet name — Excel max 31 chars; no \\/*?:[]
+    const safe = sheetName.replace(/[\\/*?:[\]]/g, "-").slice(0, 31);
+    XLSXStyle.utils.book_append_sheet(wb, buildSheet(spec), safe);
+  }
+  triggerDownload(wb, filename);
 }

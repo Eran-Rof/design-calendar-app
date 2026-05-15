@@ -1,27 +1,16 @@
 import XLSXStyle from "xlsx-js-style";
 import type { ATSRow, ATSPoEvent, ATSSoEvent } from "./types";
 import { fmtDate } from "./helpers";
+import {
+  PALETTE, ROW_HEIGHTS, BORDER_BODY, BORDER_HEADER, EXTRA_THICK,
+  headerStyle, bodyTextStyle, bodyStyleStyle, bodyNumStyle,
+  autofitColumns, downloadWorkbook, zebraFill,
+} from "./exportTheme";
 
-// ── Palette ───────────────────────────────────────────────────────────────────
-const NAVY    = "1F3864";
-const SLATE   = "2E4A7A";
-const TEAL    = "1D6B74";
-const LGRAY   = "F2F4F7";
-const WHITE   = "FFFFFF";
-const SKU_COL = "1F3864";
-const MUTED   = "5F5E5A";
-const NEG_RED = "C0392B";
-const NEG_BG  = "FDECEA";
-const GRY_BRD = "D9DCE3";
-// PO supply line — matches the app's emerald accent. Bright enough on
-// the alt-row LGRAY backgrounds to read at a glance.
+// Semantic accents (kept out of the theme — Neg Inven owns the meaning).
+const NEG_RED  = "C0392B";
+const NEG_BG   = "FDECEA";
 const PO_GREEN = "059669";
-
-const fl = (rgb: string) => ({ patternType: "solid" as const, fgColor: { rgb } });
-const ft = (bold: boolean, sz: number, rgb: string) =>
-  ({ bold, sz, name: "Arial", color: { rgb } });
-const MED  = (rgb: string) => ({ style: "medium" as const, color: { rgb } });
-const THIN = (rgb: string) => ({ style: "thin"   as const, color: { rgb } });
 
 // Per-period PO arrival qty for one SKU. Walks the eventIndex's
 // per-date PO buckets and sums anything whose receive date falls in
@@ -53,28 +42,25 @@ export function exportNegInven(
   const today = new Date();
   const todayStr = `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
 
-  // Helper: get the effective ATS value for a row+period
   function atsVal(r: ATSRow, p: { endDate: string }): number | null {
     const v = atShip ? (r.freeMap?.[p.endDate] ?? r.dates[p.endDate]) : r.dates[p.endDate];
     return v ?? null;
   }
 
-  // ── Step 1: Filter rows where any of the first 6 display periods is negative ──
+  // ── Step 1: filter rows where any of the first 6 display periods is negative ──
   const filterPeriods = displayPeriods.slice(0, 6);
   const filtered = rows.filter(r =>
     filterPeriods.some(p => { const v = atsVal(r, p); return v !== null && v < 0; })
   );
   if (filtered.length === 0) return;
 
-  // ── Step 2: Per-row pipeline ──────────────────────────────────────────────────
+  // ── Step 2: per-row pipeline ──────────────────────────────────────────────
   const processed = filtered.map(r => {
-    // Step 3a: get all display-period values, remove positives / zeros
     const vals: (number | null)[] = displayPeriods.map(p => {
       const v = atsVal(r, p);
       return v !== null && v >= 0 ? null : v;
     });
 
-    // Step 3b: find first negative whose ALL subsequent negatives equal it (≥1 sub)
     const negs: [number, number][] = [];
     for (let i = 0; i < vals.length; i++) {
       const v = vals[i];
@@ -89,7 +75,6 @@ export function exportNegInven(
         break;
       }
     }
-    // Delete all negatives except the qualifying one
     const periodVals: (number | null)[] = vals.map((v, i) =>
       v !== null && v < 0 && i !== keepIdx ? null : v
     );
@@ -97,85 +82,108 @@ export function exportNegInven(
     return { row: r, periodVals, keepIdx };
   });
 
-  // ── Step 3d: drop display-period columns with no surviving data ───────────────
+  // Drop period columns where no row has surviving data.
   const livePeriodIdxs = displayPeriods
     .map((_, i) => i)
     .filter(i => processed.some(d => d.periodVals[i] !== null));
   const livePeriods = livePeriodIdxs.map(i => displayPeriods[i]);
-  const TC = 7 + livePeriods.length;
 
-  // ── Build AOA (array-of-arrays) for xlsx ──────────────────────────────────────
+  // ── Column layout ─────────────────────────────────────────────────────────
+  // Same 7-fixed-col + N-period layout as before; no spacer cols (would
+  // break the existing 3-row banner merges and add no value at this
+  // width). Group separation reads via header tier color + thick group
+  // bottom-borders on the column header row.
+  const FIXED_COLS = 7;          // SKU / Desc / Cat / Store / On Hand / On Order / On PO
+  const TC = FIXED_COLS + livePeriods.length;
+  const COL = {
+    sku: 0, desc: 1, cat: 2, store: 3,
+    onHand: 4, onOrder: 5, onPO: 6,
+    firstPeriod: 7,
+    lastPeriod: 7 + livePeriods.length - 1,
+  };
+
   const aoa: any[][] = [];
 
-  // Row 0 — title banner
+  // ── Title banner row ─────────────────────────────────────────────────────
+  const titleStyle: any = {
+    font:      { bold: true, sz: 13, color: { rgb: "FFFFFF" }, name: "Calibri" },
+    fill:      { fgColor: { rgb: PALETTE.HEADER_DARK }, patternType: "solid" },
+    alignment: { horizontal: "center", vertical: "center" },
+    border:    BORDER_HEADER,
+  };
   aoa.push([
-    { v: `NEG INVENTORY REPORT    ${todayStr}`, t: "s",
-      s: { font: ft(true, 13, WHITE), fill: fl(NAVY),
-           alignment: { horizontal: "center", vertical: "center" } } },
-    ...Array(TC - 1).fill({ v: "", t: "s", s: { fill: fl(NAVY) } }),
+    { v: `NEG INVENTORY REPORT    ${todayStr}`, t: "s", s: titleStyle },
+    ...Array(TC - 1).fill(null).map(() => ({ v: "", t: "s", s: titleStyle })),
   ]);
 
-  // Row 1 — group labels
+  // ── Group label row ──────────────────────────────────────────────────────
+  // A-D: HEADER_TEXT band (SKU group, no group label needed).
+  // E-G: HEADER_ONHAND band labelled "INVENTORY".
+  // H+:  HEADER_DARK  band labelled "ATS BY MONTH".
+  const groupSku: any = { v: "", t: "s", s: headerStyle(PALETTE.HEADER_TEXT, "center") };
+  const groupInvL: any = { v: "INVENTORY",     t: "s", s: headerStyle(PALETTE.HEADER_ONHAND, "center") };
+  const groupInvF: any = { v: "",              t: "s", s: headerStyle(PALETTE.HEADER_ONHAND, "center") };
+  const groupAtsL: any = { v: "ATS BY MONTH",  t: "s", s: headerStyle(PALETTE.HEADER_DARK,   "center") };
+  const groupAtsF: any = { v: "",              t: "s", s: headerStyle(PALETTE.HEADER_DARK,   "center") };
   aoa.push([
-    ...Array(4).fill({ v: "", t: "s", s: { fill: fl(NAVY) } }),
-    { v: "INVENTORY", t: "s",
-      s: { font: ft(true, 9, WHITE), fill: fl(SLATE),
-           alignment: { horizontal: "center", vertical: "center" } } },
-    ...Array(2).fill({ v: "", t: "s", s: { fill: fl(SLATE) } }),
-    ...(livePeriods.length > 0 ? [
-      { v: "ATS BY MONTH", t: "s",
-        s: { font: ft(true, 9, WHITE), fill: fl(TEAL),
-             alignment: { horizontal: "center", vertical: "center" } } },
-      ...Array(Math.max(0, livePeriods.length - 1)).fill({ v: "", t: "s", s: { fill: fl(TEAL) } }),
-    ] : []),
+    groupSku, groupSku, groupSku, groupSku,
+    groupInvL, groupInvF, groupInvF,
+    ...(livePeriods.length > 0
+      ? [groupAtsL, ...Array(Math.max(0, livePeriods.length - 1)).fill(groupAtsF)]
+      : []),
   ]);
 
-  // Row 2 — column headers
-  const COL_HDRS = ["SKU", "Description", "Category", "Store",
-                    "On Hand", "On Order (SO)", "On PO"];
+  // ── Column header row ────────────────────────────────────────────────────
+  const colHdrs = [
+    { label: "SKU",           fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
+    { label: "Description",   fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
+    { label: "Category",      fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
+    { label: "Store",         fill: PALETTE.HEADER_TEXT,   align: "center" as const },
+    { label: "On Hand",       fill: PALETTE.HEADER_ONHAND, align: "center" as const },
+    { label: "On Order (SO)", fill: PALETTE.HEADER_ONHAND, align: "center" as const },
+    { label: "On PO",         fill: PALETTE.HEADER_ONHAND, align: "center" as const },
+  ];
   aoa.push([
-    ...COL_HDRS.map((h, i) => ({
-      v: h, t: "s",
-      s: { font: ft(true, 9, WHITE),
-           fill: fl(i < 4 ? NAVY : SLATE),
-           alignment: { horizontal: "center", vertical: "center" },
-           border: { bottom: MED(NAVY) } },
+    ...colHdrs.map((h) => ({ v: h.label, t: "s", s: headerStyle(h.fill, h.align) })),
+    ...livePeriods.map((p) => ({
+      v: p.label.replace(/\n/g, " "),
+      t: "s",
+      s: headerStyle(PALETTE.HEADER_DARK, "center"),
     })),
-    ...livePeriods.map(p => ({
-      v: p.label.replace(/\n/g, " "), t: "s",
-      s: { font: ft(true, 9, WHITE), fill: fl(TEAL),
-           alignment: { horizontal: "center", vertical: "center" },
-           border: { bottom: MED(NAVY) } },
-    })),
   ]);
 
-  // Track which AOA-row indexes are PO sub-rows so the merge / border
-  // logic below can color the row's first columns as a "+ PO" label
-  // span instead of inheriting the SKU border treatment.
+  const HEADER_ROW_COUNT = 3;
   const poSubRowIndexes: number[] = [];
 
-  // Data rows. Each SKU produces its main row, plus an optional "+ PO"
-  // sub-row showing incoming PO qty per period in green — supply that
-  // may cover the negs in adjacent or later periods.
+  // ── Data rows ────────────────────────────────────────────────────────────
   processed.forEach(({ row, periodVals, keepIdx }, ri) => {
-    const rf = ri % 2 === 0 ? WHITE : LGRAY;
+    const fill = zebraFill(ri);
     aoa.push([
-      { v: row.sku ?? "",         t: "s", s: { font: ft(true,  9, SKU_COL), fill: fl(rf), alignment: { horizontal: "left",   vertical: "center" } } },
-      { v: row.description ?? "", t: "s", s: { font: ft(false, 9, "000000"), fill: fl(rf), alignment: { horizontal: "left",   vertical: "center" } } },
-      { v: row.category ?? "",    t: "s", s: { font: ft(false, 9, MUTED),   fill: fl(rf), alignment: { horizontal: "center", vertical: "center" } } },
-      { v: row.store ?? "",       t: "s", s: { font: ft(false, 9, MUTED),   fill: fl(rf), alignment: { horizontal: "center", vertical: "center" } } },
-      { v: row.onHand       ?? 0, t: "n", s: { font: ft(false, 9, "000000"), fill: fl(rf), alignment: { horizontal: "right",  vertical: "center" }, numFmt: "#,##0" } },
-      { v: row.onOrder  ?? 0, t: "n", s: { font: ft(false, 9, "000000"), fill: fl(rf), alignment: { horizontal: "right",  vertical: "center" }, numFmt: "#,##0" } },
-      { v: row.onPO      ?? 0, t: "n", s: { font: ft(false, 9, "000000"), fill: fl(rf), alignment: { horizontal: "right",  vertical: "center" }, numFmt: "#,##0" } },
-      ...livePeriodIdxs.map(pi => {
+      { v: row.sku ?? "",         t: "s", s: bodyStyleStyle(fill) },
+      { v: row.description ?? "", t: "s", s: bodyTextStyle(fill, "left") },
+      { v: row.category ?? "",    t: "s", s: bodyTextStyle(fill, "left") },
+      { v: row.store ?? "",       t: "s", s: bodyTextStyle(fill, "center") },
+      { v: row.onHand  ?? 0,      t: "n", s: { ...bodyNumStyle(PALETTE.QTY_BAND), numFmt: "#,##0" } },
+      { v: row.onOrder ?? 0,      t: "n", s: { ...bodyNumStyle(PALETTE.QTY_BAND), numFmt: "#,##0" } },
+      { v: row.onPO    ?? 0,      t: "n", s: { ...bodyNumStyle(PALETTE.QTY_BAND), numFmt: "#,##0" } },
+      ...livePeriodIdxs.map((pi) => {
         const val = periodVals[pi];
         const neg = val !== null && val < 0;
+        if (neg) {
+          return {
+            v: val,
+            t: "n" as const,
+            s: {
+              ...bodyNumStyle(NEG_BG),
+              font: { bold: true, sz: 11, color: { rgb: NEG_RED }, name: "Calibri" },
+              numFmt: "#,##0",
+            },
+          };
+        }
         return {
-          v: val ?? "", t: val !== null ? "n" as const : "s" as const,
-          s: { font: ft(neg, 9, neg ? NEG_RED : "000000"),
-               fill: fl(neg ? NEG_BG : rf),
-               alignment: { horizontal: "right", vertical: "center" },
-               numFmt: "#,##0" },
+          v: val ?? "",
+          t: val !== null ? "n" as const : "s" as const,
+          s: { ...bodyNumStyle(fill), numFmt: "#,##0" },
         };
       }),
     ]);
@@ -188,95 +196,102 @@ export function exportNegInven(
     // (keepIdx). PO arrivals in/before the neg period are already
     // baked into the displayed ATS value at that period — surfacing
     // them again on the sub-row was double-counting from the
-    // operator's POV. The PO qty that matters for "filling the
-    // negative" is the supply that lands AFTER the neg shows up,
-    // not the supply that already came in.
-    const poByPeriod = livePeriodIdxs.map(pi => {
+    // operator's POV.
+    const poByPeriod = livePeriodIdxs.map((pi) => {
       if (keepIdx === null || pi <= keepIdx) return 0;
       return poQtyInPeriod(eventIndex, row.sku, displayPeriods[pi].periodStart, displayPeriods[pi].endDate);
     });
-    if (poByPeriod.some(q => q > 0)) {
+    if (poByPeriod.some((q) => q > 0)) {
       poSubRowIndexes.push(aoa.length);
+      const poLabelStyle: any = {
+        ...bodyTextStyle(fill, "right"),
+        font: { bold: true, sz: 9, color: { rgb: PO_GREEN }, name: "Calibri" },
+      };
+      const poQtyStyle: any = {
+        ...bodyNumStyle(fill),
+        font: { bold: true, sz: 11, color: { rgb: PO_GREEN }, name: "Calibri" },
+        // "+#,##0" prefixes positives; ";;" silences zero and negative.
+        numFmt: '"+"#,##0;;',
+      };
       aoa.push([
-        { v: "+ PO", t: "s", s: { font: ft(true, 8, PO_GREEN), fill: fl(rf), alignment: { horizontal: "right", vertical: "center" } } },
-        { v: "",     t: "s", s: { fill: fl(rf) } },
-        { v: "",     t: "s", s: { fill: fl(rf) } },
-        { v: "",     t: "s", s: { fill: fl(rf) } },
-        { v: "",     t: "s", s: { fill: fl(rf) } },
-        { v: "",     t: "s", s: { fill: fl(rf) } },
-        { v: "",     t: "s", s: { fill: fl(rf) } },
-        ...poByPeriod.map(q => ({
+        { v: "+ PO", t: "s", s: poLabelStyle },
+        ...Array(FIXED_COLS - 1).fill(null).map(() => ({
+          v: "", t: "s", s: bodyTextStyle(fill, "left"),
+        })),
+        ...poByPeriod.map((q) => ({
           v: q > 0 ? q : "",
           t: q > 0 ? "n" as const : "s" as const,
-          s: {
-            font: ft(true, 9, PO_GREEN),
-            fill: fl(rf),
-            alignment: { horizontal: "right", vertical: "center" },
-            // "+#,##0" prefixes positive numbers with a literal +,
-            // ";;" silences zeros and negatives.
-            numFmt: '"+"#,##0;;',
-          },
+          s: poQtyStyle,
         })),
       ]);
     }
   });
 
+  // ── Build worksheet ──────────────────────────────────────────────────────
   const ws: any = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
 
-  // ── Merges ────────────────────────────────────────────────────────────────────
+  // ── Merges (title banner + group label spans) ────────────────────────────
   ws["!merges"] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: TC - 1 } },          // title
-    { s: { r: 1, c: 0 }, e: { r: 1, c: 3 } },                // A-D navy
-    { s: { r: 1, c: 4 }, e: { r: 1, c: 6 } },                // INVENTORY
+    { s: { r: 0, c: 0 }, e: { r: 0, c: TC - 1 } },              // title
+    { s: { r: 1, c: COL.sku },     e: { r: 1, c: COL.store } }, // SKU group span
+    { s: { r: 1, c: COL.onHand },  e: { r: 1, c: COL.onPO } },  // INVENTORY span
     ...(livePeriods.length > 1
-      ? [{ s: { r: 1, c: 7 }, e: { r: 1, c: TC - 1 } }]     // ATS BY MONTH
+      ? [{ s: { r: 1, c: COL.firstPeriod }, e: { r: 1, c: COL.lastPeriod } }]
       : []),
   ];
 
-  // ── Group outer borders (rows 1–last, skip title row 0) ───────────────────────
-  const GROUPS: [number, number][] = [[0, 3], [4, 6]];
-  if (livePeriods.length > 0) GROUPS.push([7, TC - 1]);
+  // ── Outer + group-column outlines ───────────────────────────────────────
+  // Three column groups: A-D (SKU info), E-G (Inventory qty), H+ (ATS
+  // periods). Each gets a thick LEFT/RIGHT outline; outer rectangle
+  // closes the whole sheet.
+  const GROUPS: [number, number][] = [
+    [COL.sku, COL.store],
+    [COL.onHand, COL.onPO],
+  ];
+  if (livePeriods.length > 0) GROUPS.push([COL.firstPeriod, COL.lastPeriod]);
 
-  const getGroup = (c: number): [number, number] =>
-    GROUPS.find(([g0, g1]) => g0 <= c && c <= g1) ?? [c, c];
-
-  // 0-indexed last row — accounts for header (3 rows) + each SKU's
-  // main row + its optional PO sub-row.
   const LAST_R = aoa.length - 1;
-
-  for (let r = 1; r <= LAST_R; r++) {
+  for (let r = 0; r <= LAST_R; r++) {
     for (let c = 0; c < TC; c++) {
       const addr = XLSXStyle.utils.encode_cell({ r, c });
       if (!ws[addr]) ws[addr] = { v: "", t: "s", s: {} };
       const cell = ws[addr];
-      const [g0, g1] = getGroup(c);
-      const isHdr = r === 2;
-      cell.s = {
-        ...(cell.s ?? {}),
-        border: {
-          left:   c === g0            ? MED(NAVY)   : THIN(GRY_BRD),
-          right:  c === g1            ? MED(NAVY)   : THIN(GRY_BRD),
-          top:    r === 1             ? MED(NAVY)   : THIN(GRY_BRD),
-          bottom: r === LAST_R || isHdr ? MED(NAVY) : THIN(GRY_BRD),
-        },
-      };
+      const existing = cell.s?.border ?? { ...BORDER_BODY };
+      const border: any = { ...existing };
+      // Outer rectangle.
+      if (c === 0)      border.left   = EXTRA_THICK;
+      if (c === TC - 1) border.right  = EXTRA_THICK;
+      if (r === 0)      border.top    = EXTRA_THICK;
+      if (r === LAST_R) border.bottom = EXTRA_THICK;
+      // Group left/right thick separators (between the three groups).
+      for (const [g0, g1] of GROUPS) {
+        if (c === g0 && c !== 0) border.left = EXTRA_THICK;
+        if (c === g1 && c !== TC - 1) border.right = EXTRA_THICK;
+      }
+      // Thick bottom under the column header row (visually closes the
+      // 3-row header band).
+      if (r === HEADER_ROW_COUNT - 1) border.bottom = EXTRA_THICK;
+      cell.s = { ...cell.s, border };
     }
   }
 
-  // ── Column widths & row heights ───────────────────────────────────────────────
-  ws["!cols"] = [
-    { wch: 28 }, { wch: 28 }, { wch: 16 }, { wch: 8 },
-    { wch: 11 }, { wch: 13 }, { wch: 10 },
-    ...livePeriods.map(() => ({ wch: 11 })),
-  ];
+  // ── Col widths + row heights ────────────────────────────────────────────
+  // Run autofit so newly-introduced theme padding doesn't truncate
+  // existing labels (e.g. "ATS BY MONTH" + period names).
+  const headerForFit = aoa[2];          // col-headers row drives most widths
+  const bodyForFit = aoa.slice(3);
+  ws["!cols"] = autofitColumns({ headerRow: headerForFit, bodyRows: bodyForFit });
+
   ws["!rows"] = [
-    { hpt: 24 }, { hpt: 16 }, { hpt: 16 },
-    ...Array(aoa.length - 3).fill(null).map((_, i) =>
-      poSubRowIndexes.includes(i + 3) ? { hpt: 13 } : { hpt: 15 }
+    { hpt: ROW_HEIGHTS.HEADER },
+    { hpt: ROW_HEIGHTS.BODY },
+    { hpt: ROW_HEIGHTS.HEADER },
+    ...Array(aoa.length - HEADER_ROW_COUNT).fill(null).map((_, i) =>
+      poSubRowIndexes.includes(i + HEADER_ROW_COUNT) ? { hpt: ROW_HEIGHTS.PPK } : { hpt: ROW_HEIGHTS.BODY }
     ),
   ];
 
-  ws["!freeze"] = { xSplit: 0, ySplit: 3 };
+  ws["!freeze"] = { xSplit: 0, ySplit: HEADER_ROW_COUNT };
 
   const wb = XLSXStyle.utils.book_new();
   XLSXStyle.utils.book_append_sheet(wb, ws, "Neg Inventory Report");
