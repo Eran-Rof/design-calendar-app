@@ -13,9 +13,14 @@
 // ("From Stock" / "From Incoming PO" / "Needs New PO" / a mix), the
 // quantity break-down, and which PO numbers contribute when relevant.
 
-import XLSXStyle from "xlsx-js-style";
 import type { ATSRow, ATSPoEvent, ATSSoEvent } from "./types";
 import { fmtDate } from "./helpers";
+import {
+  PALETTE, ROW_HEIGHTS, colLetter,
+  headerStyle, bodyTextStyle, bodyNumStyle, bodyStyleStyle,
+  subtotalTextStyle, subtotalNumStyle,
+  autofitColumns, applyOutlines, downloadWorkbook, zebraFill,
+} from "./exportTheme";
 
 type EventIndex = Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>>;
 
@@ -53,23 +58,13 @@ export function exportStockVsSo(
     return { rows: 0 };
   }
 
-  // Index filtered rows by SKU::store so we can read on_hand / metadata.
-  const rowKey = (r: ATSRow) => `${r.sku}::${r.store ?? "ROF"}`;
-  const rowByKey = new Map<string, ATSRow>();
-  for (const r of filtered) rowByKey.set(rowKey(r), r);
-
   const reports: SoLineReport[] = [];
 
-  // Walk every (SKU, store) bucket the user has in scope. Allocation is
-  // bucket-local: stock and POs for store=ROF cover SOs for store=ROF
-  // but not for ROF ECOM (which has its own pool — same constraint the
-  // grid uses).
   for (const r of filtered) {
     const skuEvents = eventIndex[r.sku];
     if (!skuEvents) continue;
     const store = r.store ?? "ROF";
 
-    // Gather all POs and SOs for this SKU+store, sorted by date.
     const allPOs: ATSPoEvent[] = [];
     const allSOs: ATSSoEvent[] = [];
     for (const buckets of Object.values(skuEvents)) {
@@ -87,8 +82,6 @@ export function exportStockVsSo(
     allSOs.sort((a, b) => a.date.localeCompare(b.date));
     allPOs.sort((a, b) => a.date.localeCompare(b.date));
 
-    // Mutable supply pools — `stockLeft` is the current inventory; each
-    // PO has a remaining qty that gets drawn down as it covers SOs.
     let stockLeft = r.onHand || 0;
     const poRemaining = allPOs.map((po) => ({ po, left: po.qty }));
 
@@ -100,7 +93,6 @@ export function exportStockVsSo(
       let fromPO = 0;
       const contributingPOSet = new Set<string>();
 
-      // 1. Burn stock first.
       if (stockLeft > 0 && need > 0) {
         const take = Math.min(stockLeft, need);
         stockLeft -= take;
@@ -108,11 +100,10 @@ export function exportStockVsSo(
         need -= take;
       }
 
-      // 2. Burn POs that land on or before this SO's ship date.
       if (need > 0) {
         for (const slot of poRemaining) {
           if (slot.left <= 0) continue;
-          if (slot.po.date > so.date) break; // sorted, nothing later qualifies either
+          if (slot.po.date > so.date) break;
           const take = Math.min(slot.left, need);
           slot.left -= take;
           fromPO += take;
@@ -122,7 +113,7 @@ export function exportStockVsSo(
         }
       }
 
-      const newPO = need; // anything still uncovered
+      const newPO = need;
       const status: SoLineReport["status"] =
         fromStock > 0 && fromPO === 0 && newPO === 0 ? "From Stock"
         : fromStock === 0 && fromPO > 0 && newPO === 0 ? "From Incoming PO"
@@ -169,81 +160,86 @@ export function exportStockVsSo(
     return a.shipDate.localeCompare(b.shipDate);
   });
 
-  // ── Workbook ───────────────────────────────────────────────────────
-  const HDR: any = {
-    font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
-    fill: { fgColor: { rgb: "1F497D" }, patternType: "solid" },
-    alignment: { horizontal: "center", vertical: "center", wrapText: true },
-    border: {
-      top:    { style: "thin",   color: { rgb: "1F497D" } },
-      bottom: { style: "medium", color: { rgb: "1F497D" } },
-      left:   { style: "thin",   color: { rgb: "1F497D" } },
-      right:  { style: "thin",   color: { rgb: "1F497D" } },
-    },
-  };
-  const cellEvenL: any = {
-    font: { sz: 10, name: "Calibri" },
-    fill: { fgColor: { rgb: "EEF3FA" }, patternType: "solid" },
-    alignment: { horizontal: "left", vertical: "center" },
-    border: { left: { style: "thin", color: { rgb: "D0D8E4" } }, right: { style: "thin", color: { rgb: "D0D8E4" } } },
-  };
-  const cellOddL: any = {
-    font: { sz: 10, name: "Calibri" },
-    fill: { fgColor: { rgb: "FFFFFF" }, patternType: "solid" },
-    alignment: { horizontal: "left", vertical: "center" },
-    border: { left: { style: "thin", color: { rgb: "D0D8E4" } }, right: { style: "thin", color: { rgb: "D0D8E4" } } },
-  };
-  const cellEvenN: any = { ...cellEvenL, alignment: { horizontal: "right", vertical: "center" } };
-  const cellOddN:  any = { ...cellOddL,  alignment: { horizontal: "right", vertical: "center" } };
+  // ── Status fill / font (semantic — kept) ─────────────────────────────────
+  // Green / yellow / orange / red triage colors. The body cells around
+  // the Status cell still pick up the zebra fill — only the Status cell
+  // itself flashes the triage color.
   const statusFill = (status: SoLineReport["status"]): string =>
     status === "From Stock"        ? "C6EFCE" :
     status === "From Incoming PO"  ? "FFF2CC" :
     status === "Mixed"             ? "FCE4D6" :
-                                     "FFC7CE";  // Needs New PO
+                                     "FFC7CE";
   const statusFont = (status: SoLineReport["status"]): string =>
     status === "From Stock"        ? "006100" :
     status === "From Incoming PO"  ? "9C5700" :
     status === "Mixed"             ? "9C4D00" :
-                                     "9C0006";  // Needs New PO
+                                     "9C0006";
+  const NEEDS_PO_RED = "9C0006";
 
+  // ── Header row ──────────────────────────────────────────────────────────
   const headers = [
-    "Status", "Base Part", "Color", "SKU", "Description", "Category", "Store",
-    "Customer", "Order #", "Ship Date", "Qty Ordered",
-    "From Stock", "From Incoming PO", "Needs New PO", "Contributing POs",
+    { label: "Status",            fill: PALETTE.HEADER_DARK,   align: "center" as const },
+    { label: "Base Part",         fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
+    { label: "Color",             fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
+    { label: "SKU",               fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
+    { label: "Description",       fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
+    { label: "Category",          fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
+    { label: "Store",             fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
+    { label: "Customer",          fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
+    { label: "Order #",           fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
+    { label: "Ship Date",         fill: PALETTE.HEADER_TEXT,   align: "center" as const },
+    { label: "Qty Ordered",       fill: PALETTE.HEADER_ONHAND, align: "center" as const },
+    { label: "From Stock",        fill: PALETTE.HEADER_DARK,   align: "center" as const },
+    { label: "From Incoming PO",  fill: PALETTE.HEADER_DARK,   align: "center" as const },
+    { label: "Needs New PO",      fill: PALETTE.HEADER_DARK,   align: "center" as const },
+    { label: "Contributing POs",  fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
   ];
-  const aoa: any[][] = [headers.map((h) => ({ v: h, s: HDR }))];
+  const headerRow: any[] = headers.map((h) => ({
+    v: h.label, t: "s", s: headerStyle(h.fill, h.align),
+  }));
 
-  for (let i = 0; i < reports.length; i++) {
-    const r = reports[i];
-    const even = i % 2 === 0;
-    const L = even ? cellEvenL : cellOddL;
-    const N = even ? cellEvenN : cellOddN;
+  // ── Body rows ───────────────────────────────────────────────────────────
+  const bodyRows: any[][] = [];
+  reports.forEach((r, ri) => {
+    const fill = zebraFill(ri);
     const statusStyle: any = {
-      ...L,
-      font: { ...L.font, bold: true, color: { rgb: statusFont(r.status) } },
+      ...bodyTextStyle(fill, "center"),
+      font: { sz: 11, bold: true, color: { rgb: statusFont(r.status) }, name: "Calibri" },
       fill: { fgColor: { rgb: statusFill(r.status) }, patternType: "solid" },
-      alignment: { horizontal: "center", vertical: "center" },
     };
-    aoa.push([
-      { v: r.status, s: statusStyle },
-      { v: r.basePart, s: L },
-      { v: r.color, s: L },
-      { v: r.sku, s: L },
-      { v: r.description, s: L },
-      { v: r.category, s: L },
-      { v: r.store, s: L },
-      { v: r.customerName, s: L },
-      { v: r.orderNumber, s: L },
-      { v: r.shipDate, s: L },
-      { v: r.qtyOrdered, s: N, t: "n" },
-      { v: r.qtyFromStock, s: N, t: "n" },
-      { v: r.qtyFromPO, s: N, t: "n" },
-      { v: r.qtyNewPO, s: { ...N, font: { ...N.font, bold: r.qtyNewPO > 0, color: r.qtyNewPO > 0 ? { rgb: "9C0006" } : undefined } }, t: "n" },
-      { v: r.contributingPOs, s: L },
-    ]);
-  }
+    // Highlight Needs-New-PO qty cell in red when > 0 so it pops in the
+    // triage scan even before the analyst sorts.
+    const newPoStyle: any = r.qtyNewPO > 0
+      ? {
+          ...bodyNumStyle(PALETTE.QTY_BAND),
+          font: { sz: 11, bold: true, color: { rgb: NEEDS_PO_RED }, name: "Calibri" },
+        }
+      : bodyNumStyle(PALETTE.QTY_BAND);
 
-  // ── Summary block at the bottom (one row per status) ────────────
+    bodyRows.push([
+      { v: r.status,          t: "s", s: statusStyle },
+      { v: r.basePart,        t: "s", s: bodyStyleStyle(fill) },
+      { v: r.color,           t: "s", s: bodyTextStyle(fill, "left") },
+      { v: r.sku,             t: "s", s: bodyTextStyle(fill, "left") },
+      { v: r.description,     t: "s", s: bodyTextStyle(fill, "left") },
+      { v: r.category,        t: "s", s: bodyTextStyle(fill, "left") },
+      { v: r.store,           t: "s", s: bodyTextStyle(fill, "left") },
+      { v: r.customerName,    t: "s", s: bodyTextStyle(fill, "left") },
+      { v: r.orderNumber,     t: "s", s: bodyTextStyle(fill, "left") },
+      { v: r.shipDate,        t: "s", s: bodyTextStyle(fill, "center") },
+      { v: r.qtyOrdered,      t: "n", s: bodyNumStyle(PALETTE.QTY_BAND) },
+      { v: r.qtyFromStock,    t: "n", s: bodyNumStyle(PALETTE.QTY_BAND) },
+      { v: r.qtyFromPO,       t: "n", s: bodyNumStyle(PALETTE.QTY_BAND) },
+      { v: r.qtyNewPO,        t: "n", s: newPoStyle },
+      { v: r.contributingPOs, t: "s", s: bodyTextStyle(fill, "left") },
+    ]);
+  });
+
+  // ── Summary block ──────────────────────────────────────────────────────
+  // Single empty separator row, then a "Summary" sub-header (HEADER_DARK
+  // band spanning the full width), then a stack of label/value rows.
+  // Status-counted lines pick up their triage color; the "needs new"
+  // metrics render in red bold (semantic).
   const totals = reports.reduce(
     (acc, r) => {
       acc.qtyOrdered += r.qtyOrdered;
@@ -257,67 +253,78 @@ export function exportStockVsSo(
     { qtyOrdered: 0, fromStock: 0, fromPO: 0, newPO: 0, lines: 0, byStatus: {} as Record<string, number> },
   );
 
-  const summaryHdr: any = { ...HDR, fill: { fgColor: { rgb: "305496" }, patternType: "solid" } };
-  const sumLabel: any  = { ...cellEvenL, font: { sz: 11, bold: true, color: { rgb: "1F497D" } } };
-  const sumValue: any  = { ...cellEvenN, font: { sz: 11, bold: true, color: { rgb: "1F497D" } } };
+  const blankRow: any[] = new Array(headers.length).fill(null).map(() => ({ v: "", t: "s", s: bodyTextStyle(PALETTE.ZEBRA_ODD) }));
+  bodyRows.push(blankRow);
 
-  aoa.push([]);
-  aoa.push([{ v: "Summary", s: summaryHdr }]);
-  aoa.push([
-    { v: "Total SO lines",         s: sumLabel },
-    { v: totals.lines,             s: sumValue, t: "n" },
-  ]);
-  aoa.push([
-    { v: "From Stock (lines)",     s: sumLabel },
-    { v: totals.byStatus["From Stock"]       ?? 0, s: sumValue, t: "n" },
-  ]);
-  aoa.push([
-    { v: "From Incoming PO (lines)", s: sumLabel },
-    { v: totals.byStatus["From Incoming PO"] ?? 0, s: sumValue, t: "n" },
-  ]);
-  aoa.push([
-    { v: "Mixed (lines)",          s: sumLabel },
-    { v: totals.byStatus["Mixed"]            ?? 0, s: sumValue, t: "n" },
-  ]);
-  aoa.push([
-    { v: "Needs New PO (lines)",   s: { ...sumLabel, font: { ...sumLabel.font, color: { rgb: "9C0006" } } } },
-    { v: totals.byStatus["Needs New PO"]     ?? 0, s: { ...sumValue, font: { ...sumValue.font, color: { rgb: "9C0006" } } }, t: "n" },
-  ]);
-  aoa.push([
-    { v: "Total Qty Ordered",      s: sumLabel },
-    { v: totals.qtyOrdered, s: sumValue, t: "n" },
-  ]);
-  aoa.push([
-    { v: "Qty fillable from Stock", s: sumLabel },
-    { v: totals.fromStock,         s: sumValue, t: "n" },
-  ]);
-  aoa.push([
-    { v: "Qty fillable from incoming POs", s: sumLabel },
-    { v: totals.fromPO,            s: sumValue, t: "n" },
-  ]);
-  aoa.push([
-    { v: "Qty needing new POs",    s: { ...sumLabel, font: { ...sumLabel.font, color: { rgb: "9C0006" } } } },
-    { v: totals.newPO,             s: { ...sumValue, font: { ...sumValue.font, color: { rgb: "9C0006" } } }, t: "n" },
-  ]);
+  const summaryHeaderRow: any[] = new Array(headers.length).fill(null).map((_, ci) => ({
+    v: ci === 0 ? "Summary" : "",
+    t: "s",
+    s: headerStyle(PALETTE.HEADER_DARK, "left"),
+  }));
+  bodyRows.push(summaryHeaderRow);
 
-  const ws = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
-  ws["!cols"] = [
-    { wch: 18 }, { wch: 16 }, { wch: 14 }, { wch: 22 }, { wch: 32 }, { wch: 14 }, { wch: 10 },
-    { wch: 26 }, { wch: 14 }, { wch: 12 }, { wch: 12 },
-    { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 24 },
-  ];
-  ws["!freeze"] = { xSplit: 0, ySplit: 1 };
-  ws["!autofilter"] = { ref: `A1:O${reports.length + 1}` };
+  function pushSummary(label: string, value: number, red = false) {
+    const row: any[] = new Array(headers.length).fill(null).map(() => ({ v: "", t: "s", s: subtotalTextStyle() }));
+    const labelStyle: any = red
+      ? { ...subtotalTextStyle(), font: { sz: 12.1, bold: true, color: { rgb: NEEDS_PO_RED }, name: "Calibri" } }
+      : subtotalTextStyle();
+    const valueStyle: any = red
+      ? { ...subtotalNumStyle(), font: { sz: 12.1, bold: true, color: { rgb: NEEDS_PO_RED }, name: "Calibri" } }
+      : subtotalNumStyle();
+    row[0] = { v: label,  t: "s", s: labelStyle };
+    row[1] = { v: value,  t: "n", s: valueStyle };
+    bodyRows.push(row);
+  }
 
-  const wb = XLSXStyle.utils.book_new();
-  XLSXStyle.utils.book_append_sheet(wb, ws, "Stock Vs SO");
-  const buf = XLSXStyle.write(wb, { bookType: "xlsx", type: "array" });
-  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `Stock_Vs_SO_${fmtDate(new Date())}.xlsx`;
-  a.click();
-  URL.revokeObjectURL(url);
+  pushSummary("Total SO lines",                  totals.lines);
+  pushSummary("From Stock (lines)",              totals.byStatus["From Stock"]       ?? 0);
+  pushSummary("From Incoming PO (lines)",        totals.byStatus["From Incoming PO"] ?? 0);
+  pushSummary("Mixed (lines)",                   totals.byStatus["Mixed"]            ?? 0);
+  pushSummary("Needs New PO (lines)",            totals.byStatus["Needs New PO"]     ?? 0, true);
+  pushSummary("Total Qty Ordered",               totals.qtyOrdered);
+  pushSummary("Qty fillable from Stock",         totals.fromStock);
+  pushSummary("Qty fillable from incoming POs",  totals.fromPO);
+  pushSummary("Qty needing new POs",             totals.newPO, true);
+
+  // ── Outlines ──────────────────────────────────────────────────────────
+  // Outer rectangle around the whole sheet; no style-group outlining
+  // (each report row is its own thing — no aggregation).
+  const allRows = [headerRow, ...bodyRows];
+  applyOutlines({ allRows, totalColCount: headers.length });
+
+  // ── Cols + row heights ────────────────────────────────────────────────
+  const cols = autofitColumns({ headerRow, bodyRows });
+  const rowHeights: Array<{ hpt: number }> = [{ hpt: ROW_HEIGHTS.HEADER }];
+  for (let i = 0; i < bodyRows.length; i++) {
+    // Summary block lines (after the blank row + summary header) get
+    // SUBTOTAL height for the value rows; the summary header itself
+    // gets HEADER height; blank separator gets BODY height.
+    const r = bodyRows[i];
+    const isBlank = r.every((c) => !c?.v);
+    const isSummaryHdr = r[0]?.v === "Summary";
+    const isSummaryRow = i > reports.length + 1; // after data rows + blank + summary hdr
+    if (isBlank) rowHeights.push({ hpt: ROW_HEIGHTS.BODY });
+    else if (isSummaryHdr) rowHeights.push({ hpt: ROW_HEIGHTS.HEADER });
+    else if (isSummaryRow) rowHeights.push({ hpt: ROW_HEIGHTS.SUBTOTAL });
+    else rowHeights.push({ hpt: ROW_HEIGHTS.BODY });
+  }
+
+  // Autofilter spans only the report table (header + data rows), not
+  // the summary block — applying filter past the table boundary in
+  // Excel produces awkward dropdown behavior on the summary key/value
+  // rows.
+  const lastDataAoaRow = 1 + reports.length;  // Excel 1-based: header row 1, data rows 2..N+1
+  const lastColLetter = colLetter(headers.length);
+
+  downloadWorkbook({
+    allRows,
+    sheetName: "Stock Vs SO",
+    filename: `Stock_Vs_SO_${fmtDate(new Date())}.xlsx`,
+    cols,
+    rowHeights,
+    autofilter: `A1:${lastColLetter}${lastDataAoaRow}`,
+    freeze: { xSplit: 0, ySplit: 1 },
+  });
+
   return { rows: reports.length };
 }
