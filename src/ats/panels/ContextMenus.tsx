@@ -108,8 +108,52 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
           const avgCostPerUnit = ppkMult > 0 ? avgCost / ppkMult : avgCost;
           const effectiveCost = blendedCost > 0 ? blendedCost : avgCostPerUnit;
 
-          // SO totals — explode raw pack qtys to unit grain so the cost
-          // multiplication matches the per-unit effectiveCost.
+          // Collapse raw SO line items by orderNumber. A single SO can
+          // arrive as multiple rows (one per allocation / size / ship-
+          // line) — the menu was rendering each separately so a 4-line
+          // order showed as 4 rows. Match the cell-menu behavior:
+          // group by orderNumber and sum qty + totalPrice, weighted-avg
+          // unit price, earliest cancel date, first non-empty customer
+          // / customerPo / store.
+          type SoGroup = {
+            orderNumber: string;
+            qty: number;          // packs
+            totalPrice: number;
+            customerName: string;
+            customerPo: string;
+            store: string;
+            date: string;
+            lineCount: number;
+          };
+          const soGrp: Record<string, SoGroup> = {};
+          for (const o of sos) {
+            const k = o.orderNumber || "Unknown";
+            if (!soGrp[k]) {
+              soGrp[k] = {
+                orderNumber: o.orderNumber,
+                qty: 0,
+                totalPrice: 0,
+                customerName: o.customerName ?? "",
+                customerPo: o.customerPo ?? "",
+                store: o.store ?? "",
+                date: o.date ?? "",
+                lineCount: 0,
+              };
+            }
+            const g = soGrp[k];
+            g.qty += o.qty || 0;
+            g.totalPrice += (o.totalPrice ?? (o.unitPrice ?? 0) * (o.qty ?? 0)) || 0;
+            g.lineCount += 1;
+            if (!g.customerName && o.customerName) g.customerName = o.customerName;
+            if (!g.customerPo && o.customerPo) g.customerPo = o.customerPo;
+            if (!g.store && o.store) g.store = o.store;
+            if (o.date && (!g.date || o.date < g.date)) g.date = o.date;
+          }
+          const soList = Object.values(soGrp);
+
+          // Header totals run off the raw `sos` (pre-collapse) so the
+          // dollar / qty / margin numbers don't change — only the
+          // per-row rendering compresses.
           const totalSoQtyPacks = sos.reduce((s, o) => s + (o.qty || 0), 0);
           const totalSoQtyUnits = totalSoQtyPacks * ppkMult;
           const totalSoVal = sos.reduce((s, o) => s + (o.totalPrice || 0), 0);
@@ -119,7 +163,7 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
           return (
             <div>
               <div style={{ background: "rgba(245,158,11,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#FCD34D", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #3D2E00" }}>
-                Committed Sales Orders — {sos.length} line{sos.length !== 1 ? "s" : ""} · {isPrepack
+                Committed Sales Orders — {soList.length} order{soList.length !== 1 ? "s" : ""} · {isPrepack
                   ? `${totalSoQtyPacks.toLocaleString()} pack${totalSoQtyPacks !== 1 ? "s" : ""} (${totalSoQtyUnits.toLocaleString()} units)`
                   : `${totalSoQtyPacks.toLocaleString()} units`}{totalSoVal > 0 ? ` · $${totalSoVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(totalSoVal / totalSoQtyPacks).toFixed(2)}/${isPrepack ? "pack" : "unit"}` : ""}{headerMarginPct !== null ? ` · Margin ${headerMarginPct >= 0 ? "" : "-"}${Math.abs(headerMarginPct).toFixed(1)}%` : ""}
               </div>
@@ -130,29 +174,41 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
                   ))}
                 </div>
               )}
-              {sos.map((s, i) => {
-                // Per-line margin: s.unitPrice is per-pack (raw Xoro);
+              {soList.map((g, i) => {
+                // Weighted-avg unit price across the collapsed lines.
+                const grpUnitPrice = g.qty > 0 ? g.totalPrice / g.qty : 0;
+                // Per-line margin: grpUnitPrice is per-pack (raw Xoro);
                 // effectiveCost is per-unit. Multiply effectiveCost by
                 // ppkMult to land both in pack grain. For non-prepacks
                 // ppkMult=1 so the math is unchanged.
-                const lineMargin = (effectiveCost > 0 && s.unitPrice > 0)
-                  ? ((s.unitPrice - effectiveCost * ppkMult) / s.unitPrice) * 100
+                const lineMargin = (effectiveCost > 0 && grpUnitPrice > 0)
+                  ? ((grpUnitPrice - effectiveCost * ppkMult) / grpUnitPrice) * 100
                   : null;
                 const marginColor = lineMargin === null ? "#94A3B8" : lineMargin >= 30 ? "#6EE7B7" : lineMargin >= 10 ? "#FCD34D" : "#FCA5A5";
                 const lineQtyDisplay = isPrepack
-                  ? `${s.qty.toLocaleString()} pack${s.qty !== 1 ? "s" : ""} (${(s.qty * ppkMult).toLocaleString()} units)`
-                  : `${s.qty.toLocaleString()} units`;
+                  ? `${g.qty.toLocaleString()} pack${g.qty !== 1 ? "s" : ""} (${(g.qty * ppkMult).toLocaleString()} units)`
+                  : `${g.qty.toLocaleString()} units`;
                 return (
                   <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                      <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700 }}>{s.orderNumber || "—"}</span>
-                      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>{s.store && storeTag(s.store)}<span style={{ color: "#F59E0B", fontWeight: 700 }}>{lineQtyDisplay}</span></span>
+                      <span style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                        <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700 }}>
+                          {g.orderNumber || "—"}
+                          {g.lineCount > 1 && <span style={{ color: "#64748B", fontWeight: 400, marginLeft: 6 }}>({g.lineCount} lines)</span>}
+                        </span>
+                        {g.customerPo && (
+                          <span style={{ fontSize: 11, color: "#94A3B8" }}>
+                            Cust PO: <span style={{ color: "#CBD5E1", fontFamily: "monospace", fontWeight: 600 }}>{g.customerPo}</span>
+                          </span>
+                        )}
+                      </span>
+                      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>{g.store && storeTag(g.store)}<span style={{ color: "#F59E0B", fontWeight: 700 }}>{lineQtyDisplay}</span></span>
                     </div>
-                    <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{s.customerName || "—"}</div>
+                    <div style={{ color: "#CBD5E1", marginBottom: 2 }}>{g.customerName || "—"}</div>
                     <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-                      <span style={{ color: "#94A3B8", fontSize: 11 }}>Cancel: {fmtDateDisplay(s.date)}</span>
-                      {s.unitPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>{isPrepack ? "Pack" : "Unit"}: ${s.unitPrice.toFixed(2)}</span>}
-                      {s.totalPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Total: ${s.totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
+                      <span style={{ color: "#94A3B8", fontSize: 11 }}>Cancel: {fmtDateDisplay(g.date)}</span>
+                      {grpUnitPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>{isPrepack ? "Pack" : "Unit"}: ${grpUnitPrice.toFixed(2)}</span>}
+                      {g.totalPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Total: ${g.totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
                       {lineMargin !== null && <span style={{ color: marginColor, fontSize: 11, fontWeight: 600 }}>Margin {lineMargin >= 0 ? "" : "-"}{Math.abs(lineMargin).toFixed(1)}%</span>}
                     </div>
                   </div>
@@ -282,6 +338,7 @@ export const CellContextMenu: React.FC<CellContextMenuProps> = ({ ctxMenu, ctxRe
             qty: number;            // packs
             totalPrice: number;
             customerName: string;
+            customerPo: string;
             store: string;
             date: string;
             lineCount: number;
@@ -295,6 +352,7 @@ export const CellContextMenu: React.FC<CellContextMenuProps> = ({ ctxMenu, ctxRe
                 qty: 0,
                 totalPrice: 0,
                 customerName: o.customerName ?? "",
+                customerPo: o.customerPo ?? "",
                 store: o.store ?? "",
                 date: o.date ?? "",
                 lineCount: 0,
@@ -305,6 +363,7 @@ export const CellContextMenu: React.FC<CellContextMenuProps> = ({ ctxMenu, ctxRe
             g.totalPrice += (o.totalPrice ?? (o.unitPrice ?? 0) * (o.qty ?? 0)) || 0;
             g.lineCount += 1;
             if (!g.customerName && o.customerName) g.customerName = o.customerName;
+            if (!g.customerPo && o.customerPo) g.customerPo = o.customerPo;
             if (!g.store && o.store) g.store = o.store;
             if (o.date && (!g.date || o.date < g.date)) g.date = o.date;
           }
@@ -334,9 +393,16 @@ export const CellContextMenu: React.FC<CellContextMenuProps> = ({ ctxMenu, ctxRe
                 return (
                   <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                      <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700 }}>
-                        {g.orderNumber || "—"}
-                        {g.lineCount > 1 && <span style={{ color: "#64748B", fontWeight: 400, marginLeft: 6 }}>({g.lineCount} lines)</span>}
+                      <span style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                        <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700 }}>
+                          {g.orderNumber || "—"}
+                          {g.lineCount > 1 && <span style={{ color: "#64748B", fontWeight: 400, marginLeft: 6 }}>({g.lineCount} lines)</span>}
+                        </span>
+                        {g.customerPo && (
+                          <span style={{ fontSize: 11, color: "#94A3B8" }}>
+                            Cust PO: <span style={{ color: "#CBD5E1", fontFamily: "monospace", fontWeight: 600 }}>{g.customerPo}</span>
+                          </span>
+                        )}
                       </span>
                       <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         {g.store && storeTag(g.store)}
