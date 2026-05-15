@@ -305,6 +305,9 @@ export function exportToExcel(
   function flushGroupSubtotal() {
     if (!multiStyle) { currentGroup = []; return; }
     if (currentGroup.length === 0) return;
+    // Skip single-row style groups — the lone qty row already shows the
+    // totals, so a subtotal would just repeat the same numbers.
+    if (currentGroup.length === 1) { currentGroup = []; return; }
     dataRows.push(buildSubtotalRow(currentGroupStyle, currentGroup));
     nextExcelRow++;
     currentGroup = [];
