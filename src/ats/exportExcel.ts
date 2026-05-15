@@ -452,13 +452,15 @@ export function exportToExcel(
   flushGroupSubtotal();
 
   // ── Bottom totals ──────────────────────────────────────────────────────
-  // Mirrors the on-screen TOTALS row exactly: when the planner has the
-  // toggle on, the export emits a 5-row stack (TOTAL Qty / Cost $ /
-  // Sale $ / Mrgn $ / Mrgn %) AFTER the last data row. When the toggle
-  // is off, no bottom totals row is added at all — the export ends on
-  // the last data row (or per-style subtotal). The previous "always
-  // emit a simple Total row" path was dropped per planner: the toggle
-  // controls visibility for both surfaces uniformly.
+  // Two modes, depending on whether the on-screen totals toggle is on:
+  //   - Toggle ON  → 5-row stack (TOTAL Qty / Cost $ / Sale $ / Mrgn $ /
+  //                  Mrgn %) using the supplied GridTotals.
+  //   - Toggle OFF → single Total row with per-column qty sums (On Hand,
+  //                  On Order, On PO, every period, grand total). No
+  //                  Cost / Sale / Margin lines (those need GridTotals
+  //                  which is only computed when the toggle is on).
+  // Either way, the export always closes with at least one bottom row
+  // so the column totals are readable at a glance.
   const totalNumStyle: any = {
     font:      { bold: true, sz: 11, name: "Calibri" },
     fill:      { fgColor: { rgb: FILL_EVEN }, patternType: "solid" },
@@ -473,35 +475,35 @@ export function exportToExcel(
     rows.reduce((acc, r) => acc + periodValueOf(r, i), 0),
   );
 
+  function buildStackRow(label: string, getQty: (k: "onHand" | "onOrder" | "onPO") => string | number, getPeriod: (key: string) => string | number, getRowTotal: () => string | number) {
+    const cells: any[] = new Array(totalColumnCount);
+    for (const ci of [COL.category, COL.subCat, COL.style, COL.description]) {
+      cells[ci - 1] = { v: "", t: "s", s: totalLabelStyle };
+    }
+    cells[COL.color - 1] = { v: label, t: "s", s: totalLabelStyle };
+    cells[COL.spacerF - 1] = { v: "", t: "s", s: spacerCellStyle() };
+    cells[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
+    cells[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
+    cells[COL.spacerL - 1] = { v: "", t: "s", s: spacerCellStyle() };
+    const cellFor = (v: string | number) => ({ v, t: typeof v === "number" ? "n" : "s", s: totalNumStyle });
+    cells[COL.onHand  - 1] = cellFor(getQty("onHand"));
+    cells[COL.onOrder - 1] = cellFor(getQty("onOrder"));
+    cells[COL.onPO    - 1] = cellFor(getQty("onPO"));
+    for (let i = 0; i < numPeriods; i++) {
+      const ci = COL.firstPeriod + i;
+      // GridTotals.periodQty is keyed by period.endDate (== key).
+      cells[ci - 1] = cellFor(getPeriod(periods[i].endDate));
+    }
+    cells[COL.total - 1] = cellFor(getRowTotal());
+    return cells;
+  }
+
   if (_totals !== null) {
-    // Totals stack: 5 rows pulled from the supplied GridTotals.
+    // Toggle ON — 5-row stack from the supplied GridTotals.
     const t = _totals;
     const fmtUSD = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const safePct = (sale: number, mrgn: number) =>
       sale > 0 ? `${((mrgn / sale) * 100).toFixed(1)}%` : "—";
-
-    function buildStackRow(label: string, getQty: (k: "onHand" | "onOrder" | "onPO") => string | number, getPeriod: (key: string) => string | number, getRowTotal: () => string | number) {
-      const cells: any[] = new Array(totalColumnCount);
-      for (const ci of [COL.category, COL.subCat, COL.style, COL.description]) {
-        cells[ci - 1] = { v: "", t: "s", s: totalLabelStyle };
-      }
-      cells[COL.color - 1] = { v: label, t: "s", s: totalLabelStyle };
-      cells[COL.spacerF - 1] = { v: "", t: "s", s: spacerCellStyle() };
-      cells[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
-      cells[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
-      cells[COL.spacerL - 1] = { v: "", t: "s", s: spacerCellStyle() };
-      const cellFor = (v: string | number) => ({ v, t: typeof v === "number" ? "n" : "s", s: totalNumStyle });
-      cells[COL.onHand  - 1] = cellFor(getQty("onHand"));
-      cells[COL.onOrder - 1] = cellFor(getQty("onOrder"));
-      cells[COL.onPO    - 1] = cellFor(getQty("onPO"));
-      for (let i = 0; i < numPeriods; i++) {
-        const ci = COL.firstPeriod + i;
-        // GridTotals.periodQty is keyed by period.endDate (== key).
-        cells[ci - 1] = cellFor(getPeriod(periods[i].endDate));
-      }
-      cells[COL.total - 1] = cellFor(getRowTotal());
-      return cells;
-    }
 
     const periodCostSum = periods.reduce((a, p) => a + (t.periodCost[p.endDate] ?? 0), 0);
     const periodSaleSum = periods.reduce((a, p) => a + (t.periodSale[p.endDate] ?? 0), 0);
@@ -535,6 +537,19 @@ export function exportToExcel(
       (k) => safePct(t[k].sale, t[k].sale - t[k].cost),
       (key) => safePct(t.periodSale[key] ?? 0, (t.periodSale[key] ?? 0) - (t.periodCost[key] ?? 0)),
       () => safePct(periodSaleSum, periodSaleSum - periodCostSum),
+    ));
+  } else {
+    // Toggle OFF — single Total row of per-column qty sums.
+    const onHandSum  = rows.reduce((a, r) => a + (r.onHand  ?? 0), 0);
+    const onOrderSum = rows.reduce((a, r) => a + (r.onOrder ?? 0), 0);
+    const onPOSum    = rows.reduce((a, r) => a + (r.onPO    ?? 0), 0);
+    const periodSumByKey: Record<string, number> = {};
+    periods.forEach((p, i) => { periodSumByKey[p.endDate] = periodSums[i]; });
+    dataRows.push(buildStackRow(
+      "Total",
+      (k) => k === "onHand" ? onHandSum : k === "onOrder" ? onOrderSum : onPOSum,
+      (key) => periodSumByKey[key] ?? 0,
+      () => periodSums.reduce((a, b) => a + b, 0),
     ));
   }
 
