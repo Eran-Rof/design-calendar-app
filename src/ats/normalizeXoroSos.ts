@@ -38,6 +38,13 @@ interface XoroSoHeader {
   StoreName?: string | null;
   SaleStoreName?: string | null;
   DateToBeShipped?: string | null;
+  // Xoro labels the customer's PO inconsistently across endpoints —
+  // cover the common variants. Surfaces in the right-click menu next
+  // to the SO number when present.
+  CustomerPONumber?: string | null;
+  CustomerPoNumber?: string | null;
+  CustomerPO?: string | null;
+  CustomerPo?: string | null;
 }
 export interface XoroSoRecord {
   SoEstimateHeader: XoroSoHeader;
@@ -83,6 +90,7 @@ export function normalizeXoroSos(records: XoroSoRecord[]): {
 
     const orderNumber = String(h.OrderNumber ?? "").trim();
     const customerName = String(h.CustomerFullName ?? h.CustomerName ?? "").trim();
+    const customerPo = String(h.CustomerPONumber ?? h.CustomerPoNumber ?? h.CustomerPO ?? h.CustomerPo ?? "").trim();
     // StoreName is the canonical bare name; SaleStoreName carries the
     // sales-channel prefix that varies by department (Prebook, Psycho
     // Tuna, etc.). Use the bare name.
@@ -105,7 +113,7 @@ export function normalizeXoroSos(records: XoroSoRecord[]): {
       const unitPrice = toNum(ln.UnitPrice);
       const totalPrice = toNum(ln.LineAmount) || unitPrice * qty;
 
-      events.push({ sku, date, qty, orderNumber, customerName, unitPrice, totalPrice, store });
+      events.push({ sku, date, qty, orderNumber, customerName, unitPrice, totalPrice, store, customerPo: customerPo || undefined });
     }
   }
 

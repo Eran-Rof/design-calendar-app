@@ -284,6 +284,14 @@ export async function parseExcelFiles(
       const rawDate = r["Date to be Cancelled"] || r["Cancel Date"] || r["Order Date to be Shipped"] || r["Ship Date"] || r["Requested Ship Date"];
       const date = parseDate(rawDate);
       const customerName = str(r["Customer Name"] || r["Customer"] || r["Bill To Name"] || r["Ship To Name"] || r["Client Name"]);
+      // Customer's own PO number (the customer-side reference; distinct
+      // from our SO number and our PO-to-vendor number). Optional —
+      // shown in the right-click menu when present.
+      const customerPo = str(
+        r["Customer PO"] || r["Cust PO"] || r["Customer PO #"] || r["Customer PO Number"]
+        || r["Customer PO Num"] || r["CustomerPONumber"] || r["CustomerPO"]
+        || r["Customer Purchase Order"] || r["Cust PO #"]
+      );
       const unitPrice = parseFloat(String(
         r["Unit Price"] || r["Unit Cost"] || r["Price"] ||
         r["Total Average of Unit Price"] || r["Total Sum of Unit Price"] ||
@@ -307,7 +315,7 @@ export async function parseExcelFiles(
       if (unitPrice <= 0 && totalPrice <= 0) soNoUnitPrice++;
       // Always push — see ats-parse.js for the rationale. Undated SOs
       // count toward $ on SO total but stay out of time-period columns.
-      sos.push({ sku, date, qty, orderNumber, customerName, unitPrice, totalPrice, store: soStore });
+      sos.push({ sku, date, qty, orderNumber, customerName, unitPrice, totalPrice, store: soStore, customerPo: customerPo || undefined });
     }
   }
   console.warn(`[ATS parse] orders: ${ordRows.length} rows in file, ${ordParsed} parsed (${ordRows.length - ordParsed} skipped — likely missing base-part column). Order column names: ${columnNames.orders.join(", ")}`);

@@ -59,7 +59,7 @@ export interface ATSSnapshot {
 
 export interface ATSSkuData { sku: string; description: string; category?: string; gender?: string; store?: string; onHand: number; onPO: number; onOrder: number; lastReceiptDate?: string; totalAmount?: number; avgCost?: number; }
 export interface ATSPoEvent { sku: string; date: string; qty: number; poNumber: string; vendor: string; store: string; unitCost: number; }
-export interface ATSSoEvent { sku: string; date: string; qty: number; orderNumber: string; customerName: string; unitPrice: number; totalPrice: number; store: string; }
+export interface ATSSoEvent { sku: string; date: string; qty: number; orderNumber: string; customerName: string; unitPrice: number; totalPrice: number; store: string; customerPo?: string; }
 export interface UploadWarningItem { sku: string; qty: number; orderNumber?: string; poNumber?: string; customerName?: string; vendor?: string; }
 export interface UploadWarning { severity: "error" | "warn"; field: string; affected: number; total: number; message: string; items?: UploadWarningItem[]; }
 export interface ExcelData { syncedAt: string; skus: ATSSkuData[]; pos: ATSPoEvent[]; sos: ATSSoEvent[]; warnings?: UploadWarning[]; columnNames?: { inventory: string[]; purchases: string[]; orders: string[] }; }
