@@ -410,6 +410,85 @@ export function exportToExcel(
   };
   dataRows.push(totalRow);
 
+  // ── Outer + style-group thick borders ──────────────────────────────────
+  // Two extra-heavy outlines on top of the per-cell base borders:
+  //   (a) one EXTRA-THICK rectangle around the entire output —
+  //       top of header, bottom of total row, left of col A, right
+  //       of last column.
+  //   (b) one EXTRA-THICK rectangle around each STYLE group's row
+  //       block (e.g. all variants of RYB153330PPK) spanning every
+  //       column from Category to Total.
+  // Excel's "thick" border style is the heaviest single line —
+  // visibly heavier than the "medium" we use for the column
+  // outline + header / total borders, so the outer + style outlines
+  // stand out clearly.
+  const EXTRA_THICK: any = { style: "thick", color: { rgb: "1F497D" } };
+
+  // Identify style-group boundaries from the qty-row Style cells.
+  // Walk all data rows (excluding the bottom Total row), pull each
+  // row's style value from col C, and mark transitions.
+  type RowKind = "qty" | "ppk";
+  // Build an array describing each data row's kind + its qty row's
+  // style. PPK rows inherit the previous qty row's style so they
+  // never trigger a boundary.
+  const rowMeta: Array<{ kind: RowKind; style: string }> = [];
+  let lastQtyStyle = "";
+  for (let i = 0; i < dataRows.length - 1; i++) { // skip bottom Total row
+    const r = dataRows[i];
+    const styleVal = r[COL.style - 1]?.v;
+    if (typeof styleVal === "string" && styleVal.trim() !== "") {
+      lastQtyStyle = styleVal.trim();
+      rowMeta.push({ kind: "qty", style: lastQtyStyle });
+    } else {
+      // Empty style cell = follower row (PPK) inheriting previous style.
+      rowMeta.push({ kind: "ppk", style: lastQtyStyle });
+    }
+  }
+  // First/last data row (in the dataRows array) of each style group.
+  // Indexes here are into dataRows (0-based), so the corresponding
+  // Excel row is dataRows-index + 1 (since header is excelRow=0).
+  const styleStartDataIdx = new Set<number>();
+  const styleEndDataIdx = new Set<number>();
+  let prevStyle = "";
+  for (let i = 0; i < rowMeta.length; i++) {
+    const meta = rowMeta[i];
+    if (meta.style !== prevStyle) {
+      styleStartDataIdx.add(i);
+      if (i > 0) styleEndDataIdx.add(i - 1); // close the previous group
+      prevStyle = meta.style;
+    }
+  }
+  if (rowMeta.length > 0) styleEndDataIdx.add(rowMeta.length - 1); // close the last group
+
+  // Convert to aoa-row indexes (0 = header, 1+ = dataRows[0]+).
+  const lastAoaRow = dataRows.length;       // header + all dataRows incl. total
+  const lastColIdx = totalColumnCount - 1;
+  const allRows: any[][] = [headerRow, ...dataRows];
+
+  for (let r = 0; r <= lastAoaRow; r++) {
+    for (let c = 0; c <= lastColIdx; c++) {
+      const cell = allRows[r]?.[c];
+      if (!cell || !cell.s) continue;
+      // Clone the border block so we don't mutate any shared style.
+      const border: any = { ...(cell.s.border ?? {}) };
+
+      // (a) Outer table outline.
+      if (c === 0) border.left = EXTRA_THICK;                     // left edge of A
+      if (c === lastColIdx) border.right = EXTRA_THICK;            // right edge of last col
+      if (r === 0) border.top = EXTRA_THICK;                       // top of header
+      if (r === lastAoaRow) border.bottom = EXTRA_THICK;           // bottom of total row
+
+      // (b) Style-group outline. dataIdx = r - 1 (since aoa[0] is header).
+      const dataIdx = r - 1;
+      if (dataIdx >= 0 && dataIdx < rowMeta.length) {
+        if (styleStartDataIdx.has(dataIdx)) border.top = EXTRA_THICK;
+        if (styleEndDataIdx.has(dataIdx)) border.bottom = EXTRA_THICK;
+      }
+
+      cell.s = { ...cell.s, border };
+    }
+  }
+
   // ── Build worksheet ─────────────────────────────────────────────────────
   const aoa = [headerRow, ...dataRows];
   const ws  = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
