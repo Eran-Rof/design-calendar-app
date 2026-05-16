@@ -193,6 +193,17 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         categories={categories}
         filterCategory={filterCategory.length === 1 ? filterCategory[0] : "All"}
         customerFilter={customerFilter ?? ""}
+        exportFilterOpts={{
+          search,
+          filterCategory,
+          filterSubCategory,
+          filterStyle,
+          filterGender,
+          filterStatus,
+          minATS,
+          storeFilter,
+          today: new Date(),
+        }}
         unreadNotifs={unreadNotifs}
         showingNotifications={showingNotifications}
         onToggleNotifications={onToggleNotifications}
