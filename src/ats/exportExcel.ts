@@ -100,7 +100,26 @@ export function buildExportPayload(
     }
     return false;
   };
-  rows = rows.filter(hasAnyAvailability);
+  // Cross-grid synthetic rows (added in NavBar.prepareExportArgs when
+  // a customer is selected + Trailing 3 / SP LY is on) carry empty
+  // dates / zero qty fields — their value lives entirely in the T3/LY
+  // columns, which come from salesAggregates rather than this row.
+  // Don't filter them out: a row that has either past sales (t3 / ly
+  // maps) qualifies even if no future-period activity exists.
+  const _filterT3 = salesAggregates?.t3;
+  const _filterLY = salesAggregates?.ly;
+  const hasSalesHistory = (r: ATSRow): boolean => {
+    if (_filterT3) {
+      const a = _filterT3.get(r.sku);
+      if (a && (a.qty > 0 || a.totalPrice > 0)) return true;
+    }
+    if (_filterLY) {
+      const a = _filterLY.get(r.sku);
+      if (a && (a.qty > 0 || a.totalPrice > 0)) return true;
+    }
+    return false;
+  };
+  rows = rows.filter(r => hasAnyAvailability(r) || hasSalesHistory(r));
 
   // Column letter helper (1-based: A=1, AA=27, ...).
   const colLetter = (idx1: number): string => {
