@@ -194,3 +194,9 @@ Format:
 - **Why:** Keeps the logic visible and testable; aligns with other cron-driven cleanup jobs in this codebase. No DB trigger = simpler migration surface.
 - **Rejected alternatives:** Postgres `pg_cron` / trigger — adds infra complexity without clear benefit when a weekly job already runs.
 
+
+## 2026-05-16 — ATS Ask AI: tool-use over grid context only (phase 1)
+- **Question:** How to expose "Ask Claude" in the ATS grid — free-form text Q&A, structured grid actions, or full DB query access?
+- **Choice:** Phase 1 ships a slide-in panel with three tools — `apply_filters`, `set_sort`, `clear_filters` — plus `answer_text` for read-only questions. Claude sees only a snapshot of the current grid (active filters, sort, row count, totals, distinct category/style/gender/store values, 20 sample rows). Model is `claude-haiku-4-5` (cheap + fast); call is budget-gated through the existing `_lib/ai-budget.js` ceiling and logged to `ip_ai_call_log`.
+- **Why:** Smallest demo-able surface — covers "filter to X", "sort by Y", "what's the on-order total" without the safety surface of letting Claude run arbitrary Supabase queries. Snapshot is built fresh per Send so the AI always sees live grid state. The same panel can be reused on other grids by supplying a different `buildContext()` closure + setter bundle.
+- **Rejected alternatives:** (1) Free-form text only — no actions, much less useful for "narrow this grid" requests. (2) Full DB query tools at v1 — bigger blast radius, prompt-injection / data-exfiltration risk, more handler scaffolding. Worth doing in phase 2 once we see what users actually ask. (3) Inline answer in the toolbar — no room for chat history or sample prompts.

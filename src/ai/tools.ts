@@ -1,0 +1,168 @@
+// Action shapes returned by /api/ai/ask-grid. Mirror of the tool schema
+// declared on the server. Keep both sides in lockstep — if a new tool is
+// added to the handler, add the matching variant here.
+
+export interface ApplyFiltersAction {
+  type: "apply_filters";
+  params: {
+    search?: string;
+    category?: string[];
+    sub_category?: string[];
+    style?: string[];
+    gender?: string;
+    status?: string;
+    min_ats?: number | null;
+    store?: string[];
+  };
+}
+
+export interface SetSortAction {
+  type: "set_sort";
+  params: { col: string; dir: "asc" | "desc" };
+}
+
+export interface ClearFiltersAction {
+  type: "clear_filters";
+  params: Record<string, never>;
+}
+
+export type AIAction = ApplyFiltersAction | SetSortAction | ClearFiltersAction;
+
+export interface AskAIResponse {
+  text: string;
+  actions: AIAction[];
+  token_usage?: {
+    input_tokens: number | null;
+    output_tokens: number | null;
+    cost_usd: number;
+  };
+}
+
+export interface AskAIHistoryTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+
+// Snapshot of the live grid state passed to the API on every question.
+// Keep the shape narrow — the server caps row counts + distinct lengths,
+// but we still want to avoid wiring giant blobs into the request body.
+export interface GridContextSnapshot {
+  columns: string[];
+  active_filters: {
+    search?: string;
+    category?: string[];
+    sub_category?: string[];
+    style?: string[];
+    gender?: string;
+    status?: string;
+    min_ats?: number | null;
+    store?: string[];
+    customer?: string;
+  };
+  sort?: { col: string; dir: "asc" | "desc" } | null;
+  row_count: number;
+  totals?: {
+    total_on_hand?: number;
+    total_on_po?: number;
+    total_on_order?: number;
+    total_so_value?: number;
+    total_po_value?: number;
+    margin_pct?: number;
+  };
+  distinct: {
+    categories: string[];
+    sub_categories: string[];
+    styles: string[];
+    genders: string[];
+    stores: string[];
+  };
+  sample_rows?: Array<Record<string, unknown>>;
+}
+
+// Setters the panel needs to apply actions. All optional so callers only
+// have to wire what they use; missing setters silently no-op.
+export interface AIGridSetters {
+  setSearch?: (v: string | ((p: string) => string)) => void;
+  setFilterCategory?: (v: string[] | ((p: string[]) => string[])) => void;
+  setFilterSubCategory?: (v: string[] | ((p: string[]) => string[])) => void;
+  setFilterStyle?: (v: string[] | ((p: string[]) => string[])) => void;
+  setFilterGender?: (v: string | ((p: string) => string)) => void;
+  setFilterStatus?: (v: string | ((p: string) => string)) => void;
+  setMinATS?: (v: number | "" | ((p: number | "") => number | "")) => void;
+  setStoreFilter?: (v: string[] | ((p: string[]) => string[])) => void;
+  setSortCol?: (v: string | null | ((p: string | null) => string | null)) => void;
+  setSortDir?: (v: "asc" | "desc" | ((p: "asc" | "desc") => "asc" | "desc")) => void;
+  setActiveSort?: (v: string | null | ((p: string | null) => string | null)) => void;
+}
+
+// Default filter values used by clear_filters. Lifted verbatim from
+// atsTypes.ts initial state so the AI "reset" matches the toolbar Reset.
+const FILTER_DEFAULTS = {
+  search: "",
+  category: [] as string[],
+  sub_category: [] as string[],
+  style: [] as string[],
+  gender: "All",
+  status: "All",
+  min_ats: "" as number | "",
+  store: ["All"] as string[],
+};
+
+export function applyAction(action: AIAction, setters: AIGridSetters): void {
+  switch (action.type) {
+    case "apply_filters": {
+      const p = action.params || {};
+      if (typeof p.search === "string"     && setters.setSearch)            setters.setSearch(p.search);
+      if (Array.isArray(p.category)        && setters.setFilterCategory)    setters.setFilterCategory(p.category);
+      if (Array.isArray(p.sub_category)    && setters.setFilterSubCategory) setters.setFilterSubCategory(p.sub_category);
+      if (Array.isArray(p.style)           && setters.setFilterStyle)       setters.setFilterStyle(p.style);
+      if (typeof p.gender === "string"     && setters.setFilterGender)      setters.setFilterGender(p.gender);
+      if (typeof p.status === "string"     && setters.setFilterStatus)      setters.setFilterStatus(p.status);
+      if ("min_ats" in p && setters.setMinATS) {
+        setters.setMinATS(p.min_ats == null ? "" : p.min_ats);
+      }
+      if (Array.isArray(p.store)           && setters.setStoreFilter)       setters.setStoreFilter(p.store);
+      return;
+    }
+    case "set_sort": {
+      const { col, dir } = action.params;
+      if (setters.setSortCol)    setters.setSortCol(col);
+      if (setters.setSortDir)    setters.setSortDir(dir);
+      if (setters.setActiveSort) setters.setActiveSort(col);
+      return;
+    }
+    case "clear_filters": {
+      if (setters.setSearch)            setters.setSearch(FILTER_DEFAULTS.search);
+      if (setters.setFilterCategory)    setters.setFilterCategory(FILTER_DEFAULTS.category);
+      if (setters.setFilterSubCategory) setters.setFilterSubCategory(FILTER_DEFAULTS.sub_category);
+      if (setters.setFilterStyle)       setters.setFilterStyle(FILTER_DEFAULTS.style);
+      if (setters.setFilterGender)      setters.setFilterGender(FILTER_DEFAULTS.gender);
+      if (setters.setFilterStatus)      setters.setFilterStatus(FILTER_DEFAULTS.status);
+      if (setters.setMinATS)            setters.setMinATS(FILTER_DEFAULTS.min_ats);
+      if (setters.setStoreFilter)       setters.setStoreFilter(FILTER_DEFAULTS.store);
+      return;
+    }
+  }
+}
+
+// Human-readable summary of an action, shown inline in the chat panel so
+// the operator sees what the AI just did to the grid.
+export function describeAction(action: AIAction): string {
+  switch (action.type) {
+    case "apply_filters": {
+      const parts: string[] = [];
+      const p = action.params;
+      if (typeof p.search === "string")           parts.push(`search="${p.search}"`);
+      if (Array.isArray(p.category))              parts.push(`category=${p.category.length ? p.category.join(",") : "(any)"}`);
+      if (Array.isArray(p.sub_category))          parts.push(`sub=${p.sub_category.length ? p.sub_category.join(",") : "(any)"}`);
+      if (Array.isArray(p.style))                 parts.push(`style=${p.style.length ? p.style.join(",") : "(any)"}`);
+      if (typeof p.gender === "string")           parts.push(`gender=${p.gender}`);
+      if (typeof p.status === "string")           parts.push(`status=${p.status}`);
+      if ("min_ats" in p)                          parts.push(`min ATS=${p.min_ats ?? "(any)"}`);
+      if (Array.isArray(p.store))                 parts.push(`stores=${p.store.join(",") || "(any)"}`);
+      return parts.length ? `Applied filters: ${parts.join(", ")}` : "Applied filters (no changes)";
+    }
+    case "set_sort":     return `Sorted by ${action.params.col} ${action.params.dir}`;
+    case "clear_filters": return "Cleared all filters";
+  }
+}

@@ -1041,7 +1041,7 @@ function ATSReport() {
     setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile,
     ordFile, setOrdFile, syncing, syncStatus, lastSync, syncError, setSyncError,
     hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu,
-    summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, sortDir,
+    summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, setSortCol, sortDir, setSortDir,
     STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef,
     ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered,
     statFiltered, sortedFiltered, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct,
