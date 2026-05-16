@@ -40,6 +40,41 @@ async function fetchMissingMasterRows(ids: string[]): Promise<Array<{ id: string
   }
 }
 
+// Fetch open-PO unit costs grouped by sku_code. Third step in the
+// cost-cascade — used when neither ip_item_avg_cost nor a sibling SKU has
+// a value. ip_open_purchase_orders keys by sku_id (uuid), so the caller
+// passes an id-to-sku_code translation map; we return only rows with a
+// positive unit_cost AND positive qty_open (so closed-out PO lines that
+// happen to still be in the table don't skew the average).
+async function fetchOpenPoCostsBySkuCode(
+  ids: string[],
+  idToSkuCode: Map<string, string>,
+): Promise<Map<string, number[]>> {
+  const out = new Map<string, number[]>();
+  if (!SB_URL || ids.length === 0) return out;
+  const inList = ids.map((id) => `"${id}"`).join(",");
+  const url = `${SB_URL}/rest/v1/ip_open_purchase_orders?select=sku_id,unit_cost,qty_open&sku_id=in.(${encodeURIComponent(inList)})&unit_cost=not.is.null&qty_open=gt.0&limit=${ids.length * 8}`;
+  try {
+    const r = await fetch(url, { headers: SB_HEADERS });
+    if (!r.ok) {
+      console.warn(`[ATS export] fetchOpenPoCostsBySkuCode failed: ${r.status}`);
+      return out;
+    }
+    const rows: Array<{ sku_id: string; unit_cost: number | null; qty_open: number | null }> = await r.json();
+    for (const row of rows) {
+      const sku = idToSkuCode.get(row.sku_id);
+      if (!sku) continue;
+      if (typeof row.unit_cost !== "number" || row.unit_cost <= 0) continue;
+      const list = out.get(sku) ?? [];
+      list.push(row.unit_cost);
+      out.set(sku, list);
+    }
+  } catch (e) {
+    console.warn("[ATS export] fetchOpenPoCostsBySkuCode error:", e);
+  }
+  return out;
+}
+
 // Fetch ip_item_avg_cost rows for a batch of sku_codes. This is the
 // Xoro-authoritative avg unit cost (populated nightly by the Item Costing
 // Report via /api/xoro/sync-item-costing). Used in the cross-grid synthetic
@@ -558,7 +593,18 @@ export const NavBar: React.FC<NavBarProps> = ({
           const skuCodes = [...cached.values()]
             .map((r) => r?.sku_code)
             .filter((s): s is string => typeof s === "string" && s.length > 0);
-          const avgCostMap = await fetchAvgCostBySkuCodes(skuCodes);
+          // ip_open_purchase_orders keys by sku_id (uuid). Pass an
+          // id→sku_code translation so the cost map comes back in the
+          // grain resolveCost expects.
+          const idToSkuCode = new Map<string, string>();
+          for (const [id, rec] of cached) {
+            if (rec?.sku_code) idToSkuCode.set(id, rec.sku_code);
+          }
+          const cachedIds = [...idToSkuCode.keys()];
+          const [avgCostMap, openPoCostsBySku] = await Promise.all([
+            fetchAvgCostBySkuCodes(skuCodes),
+            fetchOpenPoCostsBySkuCode(cachedIds, idToSkuCode),
+          ]);
           const siblingsBySku = buildSiblingMap(
             [...cached.values()].map((r) => ({
               sku: r?.sku_code ?? "",
@@ -614,6 +660,7 @@ export const NavBar: React.FC<NavBarProps> = ({
               const resolved = resolveCost(rec.sku_code, {
                 avgCostMap,
                 siblingsBySku,
+                openPoCostsBySku,
                 generalMarginPct,
                 salePrice,
               });
