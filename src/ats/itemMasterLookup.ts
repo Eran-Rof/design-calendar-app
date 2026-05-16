@@ -96,9 +96,18 @@ function hasMetadata(rec: ItemMasterRecord): boolean {
   return !!(a.group_name || a.category_name || a.product_category);
 }
 
+// Index: style_code (uppercase) → every variant id under that style.
+// Used by callers that need to aggregate across all variants of a
+// style (e.g. ATS export's T3 / SP-LY sales lookup, where the user's
+// row might be at style grain while sales history is at variant
+// grain). Distinct from `byStyleCode` which holds ONE preferred
+// record per style for description / attribute lookup.
+let idsByStyle: Map<string, string[]> | null = null;
+
 function buildIndexes(records: ItemMasterRecord[]): void {
   const sku = new Map<string, ItemMasterRecord>();
   const style = new Map<string, ItemMasterRecord>();
+  const idsByStyleLocal = new Map<string, string[]>();
   for (const rec of records) {
     if (rec.sku_code) {
       // Index under three forms so the lookup hits regardless of
@@ -147,10 +156,23 @@ function buildIndexes(records: ItemMasterRecord[]): void {
       if (styleKeyNoSpace !== styleKey && !style.has(styleKeyNoSpace)) {
         style.set(styleKeyNoSpace, style.get(styleKey)!);
       }
+      // Collect every variant id under the style for cross-variant
+      // aggregations.
+      if (rec.id) {
+        const list = idsByStyleLocal.get(styleKey);
+        if (list) list.push(rec.id);
+        else idsByStyleLocal.set(styleKey, [rec.id]);
+        if (styleKeyNoSpace !== styleKey) {
+          const list2 = idsByStyleLocal.get(styleKeyNoSpace);
+          if (list2) list2.push(rec.id);
+          else idsByStyleLocal.set(styleKeyNoSpace, [rec.id]);
+        }
+      }
     }
   }
   bySkuCode = sku;
   byStyleCode = style;
+  idsByStyle = idsByStyleLocal;
 }
 
 // Decide whether `cand` should replace `incumbent` for a style key. Priority:
@@ -285,6 +307,43 @@ export function isItemMasterLoaded(): boolean {
   return bySkuCode !== null && byStyleCode !== null;
 }
 
+/**
+ * Returns every ip_item_master.id that could be the underlying record
+ * for an ATS row. Use this when looking up data keyed by sku_id
+ * (sales history, snapshots, etc.) — at variant grain you get one id
+ * back; at style grain you get one id per color/size variant of that
+ * style so the caller can sum across them.
+ *
+ * Lookup order:
+ *   1. Variant-level by canonical sku_code (then normalized fallback)
+ *   2. Style-level: every variant id under stylePart's uppercase key
+ *
+ * Returns [] if the cache isn't loaded or nothing matched.
+ */
+export function resolveItemMasterIds(sku: string, stylePart?: string | null): string[] {
+  if (!bySkuCode || !idsByStyle) return [];
+
+  const canonicalSku = canonSku(sku);
+  const normalizedSku = normalizeSku(sku);
+  const skuHit = bySkuCode.get(canonicalSku) ?? bySkuCode.get(normalizedSku);
+  if (skuHit?.id) return [skuHit.id];
+
+  if (stylePart) {
+    const trimmedUpper = stylePart.trim().toUpperCase();
+    if (trimmedUpper) {
+      const direct = idsByStyle.get(trimmedUpper);
+      if (direct && direct.length) return direct;
+      const noSpace = trimmedUpper.replace(/\s+/g, "");
+      if (noSpace !== trimmedUpper) {
+        const stripped = idsByStyle.get(noSpace);
+        if (stripped && stripped.length) return stripped;
+      }
+    }
+  }
+
+  return [];
+}
+
 /** Visible for tests + cache invalidation after the user adds new
  *  master rows in the planning app. Next `loadItemMasterCache()` call
  *  refetches. */
@@ -292,6 +351,7 @@ export function clearItemMasterCache(): void {
   cachePromise = null;
   bySkuCode = null;
   byStyleCode = null;
+  idsByStyle = null;
 }
 
 /** Visible for tests — inject a pre-built cache without hitting
