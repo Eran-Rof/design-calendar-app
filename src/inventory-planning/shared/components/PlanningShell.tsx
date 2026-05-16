@@ -13,6 +13,8 @@ import NotificationsShell from "../../../components/notifications/NotificationsS
 import { useAppUnreadCount } from "../../../components/notifications/useAppUnreadCount";
 import { supabaseClient } from "../../../utils/supabase";
 import { PAL } from "../../components/styles";
+import { AskAIPanel } from "../../../ai/AskAIPanel";
+import type { GridContextSnapshot } from "../../../ai/tools";
 
 function readPlmUserId(): string | null {
   try {
@@ -30,6 +32,7 @@ interface Props {
 export default function PlanningShell({ title, children }: Props) {
   const userId = readPlmUserId();
   const [showNotifs, setShowNotifs] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const unread = useAppUnreadCount({
     supabase: supabaseClient,
     userId,
@@ -52,33 +55,55 @@ export default function PlanningShell({ title, children }: Props) {
           <a href="/" style={{ color: PAL.textMuted, textDecoration: "none", fontSize: 13 }}>← PLM</a>
           <span style={{ fontWeight: 700, fontSize: 14, color: PAL.text }}>{title}</span>
         </div>
-        <button
-          onClick={() => setShowNotifs((v) => !v)}
-          title="Notifications"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "6px 12px",
-            borderRadius: 6,
-            border: `1px solid ${PAL.border}`,
-            background: showNotifs ? `${PAL.accent}15` : "transparent",
-            color: showNotifs ? PAL.accent : PAL.textDim,
-            cursor: "pointer",
-            fontSize: 13,
-            fontWeight: showNotifs ? 600 : 500,
-            fontFamily: "inherit",
-          }}
-        >
-          🔔 Notifications
-          {unread > 0 && (
-            <span style={{
-              minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
-              background: PAL.red, color: "#fff", fontSize: 10, fontWeight: 700,
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-            }}>{unread > 9 ? "9+" : unread}</span>
-          )}
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            onClick={() => setAiOpen(true)}
+            title="Ask Claude about forecasts, allocations, recommendations — anything ROF"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "6px 12px",
+              borderRadius: 6,
+              border: "1px solid #5B21B6",
+              background: "#7C3AED",
+              color: "#fff",
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: "inherit",
+            }}
+          >
+            ✨ Ask AI
+          </button>
+          <button
+            onClick={() => setShowNotifs((v) => !v)}
+            title="Notifications"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "6px 12px",
+              borderRadius: 6,
+              border: `1px solid ${PAL.border}`,
+              background: showNotifs ? `${PAL.accent}15` : "transparent",
+              color: showNotifs ? PAL.accent : PAL.textDim,
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: showNotifs ? 600 : 500,
+              fontFamily: "inherit",
+            }}
+          >
+            🔔 Notifications
+            {unread > 0 && (
+              <span style={{
+                minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
+                background: PAL.red, color: "#fff", fontSize: 10, fontWeight: 700,
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+              }}>{unread > 9 ? "9+" : unread}</span>
+            )}
+          </button>
+        </div>
       </header>
 
       {showNotifs && supabaseClient && userId ? (
@@ -109,6 +134,33 @@ export default function PlanningShell({ title, children }: Props) {
           appFilter="planning"
         />
       )}
+
+      <AskAIPanel
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        buildContext={(): GridContextSnapshot => ({
+          columns: ["sku", "channel", "customer", "period", "forecast", "shortage", "excess"],
+          active_filters: { search: title },
+          sort: null,
+          row_count: 0,
+          distinct: {
+            categories: [],
+            sub_categories: [],
+            styles: [],
+            genders: [],
+            stores: [],
+          },
+        })}
+        setters={{}}
+        samplePrompts={[
+          "Which SKUs are projected to stock out next month?",
+          "Forecast accuracy MAPE by method last quarter",
+          "Open buy recommendations grouped by priority",
+          "Top 10 SKUs by shortage qty this period",
+          "How many execution batches are pending approval?",
+          "Average lead time by vendor for active SKUs",
+        ]}
+      />
     </div>
   );
 }
