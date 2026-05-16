@@ -82,6 +82,11 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
 
   const [custDropOpen, setCustDropOpen] = useState(false);
   const [custSearch, setCustSearch]     = useState("");
+  // Inline warning when the operator clicks View / Export with the
+  // customer checkbox on but no customer name selected. Replaces the
+  // previous "disable the button" UX — explicit warning is clearer
+  // (the disabled state didn't tell the operator WHY).
+  const [missingCustomerWarn, setMissingCustomerWarn] = useState(false);
 
   // Customers come from SO events — that's the set the trailing /
   // SPLY columns actually filter against. Dedupe + sort.
@@ -117,8 +122,14 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
     hideZeroColumns,
   });
 
-  const handleConfirm = () => { onConfirm(collectOptions()); };
-  const handleView = () => { onView(collectOptions()); };
+  const handleConfirm = () => {
+    if (customerEnabled && !customer) { setMissingCustomerWarn(true); return; }
+    onConfirm(collectOptions());
+  };
+  const handleView = () => {
+    if (customerEnabled && !customer) { setMissingCustomerWarn(true); return; }
+    onView(collectOptions());
+  };
 
   // Reset every option to its initial-open default. Doesn't close the
   // modal — operator can keep configuring after wiping.
@@ -287,16 +298,52 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
           <button
             style={{ background: "transparent", border: "1px solid #60A5FA", borderRadius: 6, padding: "7px 16px", color: "#60A5FA", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
             onClick={handleView}
-            disabled={customerEnabled && !customer}
-            title={customerEnabled && !customer ? "Pick a customer first" : "Preview the workbook before downloading"}
+            title="Preview the workbook before downloading"
           >View</button>
           <button
             style={{ background: "#10B981", border: "1px solid #10B981", borderRadius: 6, padding: "7px 16px", color: "#0F172A", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
             onClick={handleConfirm}
-            disabled={customerEnabled && !customer}
-            title={customerEnabled && !customer ? "Pick a customer first" : ""}
           >Export</button>
         </div>
+
+        {missingCustomerWarn && (
+          <div
+            style={{
+              position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1100,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}
+            onClick={() => setMissingCustomerWarn(false)}
+          >
+            <div
+              style={{
+                background: "#1E293B", border: "1px solid #F59E0B", borderRadius: 12,
+                minWidth: 360, maxWidth: 420, color: "#F1F5F9",
+                fontFamily: "inherit", boxShadow: "0 16px 48px rgba(0,0,0,0.6)",
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div style={{ padding: "12px 16px", borderBottom: "1px solid #334155", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#F59E0B", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  Missing customer selection
+                </div>
+                <button
+                  style={{ background: "none", border: "none", color: "#64748B", fontSize: 18, cursor: "pointer", padding: "2px 6px", borderRadius: 4 }}
+                  onClick={() => setMissingCustomerWarn(false)}
+                  title="Dismiss"
+                >✕</button>
+              </div>
+              <div style={{ padding: "16px 18px", fontSize: 13, lineHeight: 1.5, color: "#CBD5E1" }}>
+                The <strong style={{ color: "#F1F5F9" }}>By Customer</strong> checkbox is on but no customer has been picked yet. Open the dropdown and select a customer, then try again — or uncheck "By Customer" to run the report across every customer.
+              </div>
+              <div style={{ padding: "10px 16px", borderTop: "1px solid #334155", display: "flex", justifyContent: "flex-end" }}>
+                <button
+                  style={{ background: "#F59E0B", border: "1px solid #F59E0B", borderRadius: 6, padding: "7px 18px", color: "#0F172A", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
+                  onClick={() => setMissingCustomerWarn(false)}
+                >Close</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
