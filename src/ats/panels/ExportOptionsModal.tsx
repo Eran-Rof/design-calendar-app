@@ -100,6 +100,22 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
     });
   };
 
+  // Reset every option to its initial-open default. Doesn't close the
+  // modal — operator can keep configuring after wiping.
+  const handleClear = () => {
+    setSubtotals(true);
+    setAvgCost(false);
+    setSlsPrcAtMrgn(false);
+    setSlsMarginPct(21);
+    setTrailing3(false);
+    setSpLY(false);
+    setCustomerEnabled(false);
+    setCustomer(defaultCustomer);
+    setShowCustMrgn(true);
+    setCustDropOpen(false);
+    setCustSearch("");
+  };
+
   return (
     <div
       style={{
@@ -218,6 +234,11 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
             style={{ background: "transparent", border: "1px solid #334155", borderRadius: 6, padding: "7px 14px", color: "#CBD5E1", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
             onClick={onClose}
           >Cancel</button>
+          <button
+            style={{ background: "transparent", border: "1px solid #334155", borderRadius: 6, padding: "7px 14px", color: "#CBD5E1", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
+            onClick={handleClear}
+            title="Reset all options to defaults"
+          >Clear</button>
           <button
             style={{ background: "#10B981", border: "1px solid #10B981", borderRadius: 6, padding: "7px 16px", color: "#0F172A", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
             onClick={handleConfirm}
