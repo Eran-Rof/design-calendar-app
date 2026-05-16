@@ -1006,6 +1006,17 @@ export function buildExportPayload(
       m.e.r += titleRowCount;
     }
   }
+  // Title-row merge: span A1 across every column so the 22pt customer
+  // name has room to render. Without this the adjacent cells (which
+  // we wrote as { v: "", t: "s" } so the row width stays correct)
+  // block Excel's text-overflow into neighbouring empty cells —
+  // operator only sees the first ~8 chars in column A's narrow width.
+  if (titleRow) {
+    merges.push({
+      s: { r: 0, c: 0 },
+      e: { r: 0, c: lastColIdx },
+    });
+  }
 
   // ── Build worksheet ─────────────────────────────────────────────────────
   const aoa = allRows;

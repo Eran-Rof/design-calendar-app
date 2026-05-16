@@ -103,11 +103,22 @@ function hasMetadata(rec: ItemMasterRecord): boolean {
 // grain). Distinct from `byStyleCode` which holds ONE preferred
 // record per style for description / attribute lookup.
 let idsByStyle: Map<string, string[]> | null = null;
+// Reverse lookup: ip_item_master.id → ItemMasterRecord. Used by the
+// ATS export's cross-grid sales flow — when a customer has historical
+// sales for a SKU that isn't currently visible in the grid, we need
+// the master row's metadata (sku_code, style_code, color, description)
+// to render a synthetic export row.
+let byId: Map<string, ItemMasterRecord> | null = null;
 
 function buildIndexes(records: ItemMasterRecord[]): void {
   const sku = new Map<string, ItemMasterRecord>();
   const style = new Map<string, ItemMasterRecord>();
   const idsByStyleLocal = new Map<string, string[]>();
+  const byIdLocal = new Map<string, ItemMasterRecord>();
+  for (const rec of records) {
+    if (rec.id) byIdLocal.set(rec.id, rec);
+  }
+  byId = byIdLocal;
   for (const rec of records) {
     if (rec.sku_code) {
       // Index under three forms so the lookup hits regardless of
@@ -352,6 +363,17 @@ export function clearItemMasterCache(): void {
   bySkuCode = null;
   byStyleCode = null;
   idsByStyle = null;
+  byId = null;
+}
+
+/**
+ * Returns the cached ItemMasterRecord for an ip_item_master.id, or
+ * null if the cache isn't loaded or the id isn't known. Used by the
+ * ATS export to build synthetic rows for SKUs that have customer
+ * sales history but no presence in the current grid.
+ */
+export function getItemMasterById(id: string): ItemMasterRecord | null {
+  return byId?.get(id) ?? null;
 }
 
 /** Visible for tests — inject a pre-built cache without hitting
