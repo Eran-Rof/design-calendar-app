@@ -13,6 +13,7 @@ import { filterRows } from "../filter";
 import { ppkMultiplier } from "../../shared/prepack";
 import { resolveCost, buildSiblingMap } from "../../shared/costResolution";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
+import { canonSku, canonStyleColor } from "../../inventory-planning/utils/skuCanon";
 import { AskAIPanel } from "../../ai/AskAIPanel";
 import type { AIGridSetters, GridContextSnapshot } from "../../ai/tools";
 
@@ -534,7 +535,80 @@ export const NavBar: React.FC<NavBarProps> = ({
   // sales pre-fetch failed catastrophically (the modal stays open so
   // the operator can retry or adjust).
   async function prepareExportArgs(opts: ExportOptions) {
-    const rowsForExport = filtered.filter(r => !r.__collapsed);
+    let rowsForExport = filtered.filter(r => !r.__collapsed);
+
+    // Hydrate avgCost for rows the ATS snapshot left blank — typically
+    // SKUs that are currently out-of-stock but have incoming POs (the
+    // inventory snapshot only carries an Avg Cost column for on-hand
+    // items). The Xoro Item Costing Report (ingested nightly into
+    // ip_item_avg_cost) is the authoritative source. Without this,
+    // the export's Avg Cost / Total Cost / Sls Prc @ N% columns
+    // render blank for any out-of-stock SKU even when its margin is
+    // perfectly computable.
+    //
+    // Cascade: direct hit from ip_item_avg_cost → sibling SKU in the
+    // same base style → user-selected general margin (currently not
+    // applied here as there's no per-row sale price to derive from).
+    const needsHydrate = rowsForExport.filter((r) => !(typeof r.avgCost === "number" && r.avgCost > 0));
+    if (needsHydrate.length > 0 && SB_URL) {
+      const canonByRow = new Map<typeof rowsForExport[number], string>();
+      for (const r of needsHydrate) {
+        const c = canonStyleColor(r.sku);
+        if (c) canonByRow.set(r, c);
+      }
+      const wanted = Array.from(new Set([...canonByRow.values()]));
+      const hydrateAvgCostMap = await fetchAvgCostBySkuCodes(wanted);
+      // Sibling map across ALL rowsForExport canonical style codes so a
+      // missing row can borrow cost from its in-stock variants.
+      const siblingRecords = rowsForExport.map((r) => {
+        const canonical = canonStyleColor(r.sku);
+        const style = canonical ? canonical.split("-")[0] : null;
+        return { sku: canonical, basePart: style };
+      }).filter((x) => x.sku);
+      // Also include the in-stock rows' avgCost in the sibling cost map
+      // — they're not in ip_item_avg_cost but are equally valid for
+      // the cascade.
+      const inStockAvgCost = new Map<string, number>();
+      for (const r of rowsForExport) {
+        const c = canonSku(r.sku);
+        if (c && typeof r.avgCost === "number" && r.avgCost > 0) {
+          inStockAvgCost.set(c, r.avgCost);
+        }
+      }
+      const mergedAvgCostMap = new Map<string, number>(hydrateAvgCostMap);
+      for (const [k, v] of inStockAvgCost) {
+        if (!mergedAvgCostMap.has(k)) mergedAvgCostMap.set(k, v);
+      }
+      const siblingsBySku = buildSiblingMap(
+        siblingRecords.map((x) => ({ sku: x.sku, basePart: x.basePart })),
+      );
+
+      let hydrated = 0;
+      const sourceCounts = { direct: 0, sibling: 0, margin: 0, unknown: 0 };
+      rowsForExport = rowsForExport.map((r) => {
+        if (typeof r.avgCost === "number" && r.avgCost > 0) return r;
+        const canonical = canonByRow.get(r);
+        if (!canonical) return r;
+        const resolved = resolveCost(canonical, {
+          avgCostMap: mergedAvgCostMap,
+          siblingsBySku,
+          generalMarginPct,
+        });
+        if (resolved.source === "direct") sourceCounts.direct++;
+        else if (resolved.source === "sibling") sourceCounts.sibling++;
+        else if (resolved.source === "margin") sourceCounts.margin++;
+        else sourceCounts.unknown++;
+        if (resolved.cost && resolved.cost > 0) {
+          hydrated++;
+          return { ...r, avgCost: resolved.cost };
+        }
+        return r;
+      });
+      console.info(
+        `[ATS export] hydrate avgCost: ${hydrated}/${needsHydrate.length} resolved (direct=${sourceCounts.direct} sibling=${sourceCounts.sibling} margin=${sourceCounts.margin} unknown=${sourceCounts.unknown})`,
+      );
+    }
+
     const periods = displayPeriods.map(p => ({ endDate: p.endDate, label: p.label }));
     const totals = showTotalsRow
       ? computeGridTotals({
