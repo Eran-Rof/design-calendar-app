@@ -11,6 +11,7 @@ import {
   type GridSuggestion,
   type ToolTraceEntry,
 } from "./tools";
+import { supabaseClient } from "../utils/supabase";
 
 // Slide-in chat panel anchored to the right edge. Built as a standalone
 // component so any grid (ATS today, others later) can drop it in by
@@ -107,9 +108,21 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
     }
 
     try {
+      // The server validates the caller via Supabase JWT (see
+      // api/_handlers/ai/ask-grid.js → authenticateCaller). Operators
+      // are already signed in, so we just forward the active session's
+      // access_token. If for some reason there's no session, the call
+      // still fires and surfaces a 401 from the server.
+      let bearer = "";
+      try {
+        const { data } = await supabaseClient.auth.getSession();
+        bearer = data?.session?.access_token || "";
+      } catch { /* fall through — server returns 401 */ }
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (bearer) headers["Authorization"] = `Bearer ${bearer}`;
       const resp = await fetch("/api/ai/ask-grid", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ question: trimmed, history, grid_context: context }),
       });
       const body: AskAIResponse & { error?: string } = await resp.json().catch(() => ({} as AskAIResponse & { error?: string }));
@@ -188,7 +201,7 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
             <span style={{ fontSize: 18 }}>✨</span>
             <div>
               <div style={{ fontWeight: 700, fontSize: 14, color: "#F1F5F9" }}>Ask Claude</div>
-              <div style={{ fontSize: 11, color: "#64748B" }}>Ask about the grid, or tell it what to filter</div>
+              <div style={{ fontSize: 11, color: "#64748B" }}>Ask me anything ROF related</div>
             </div>
           </div>
           <button
@@ -327,7 +340,7 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={onKeyDown}
-              placeholder="Ask anything about the grid…"
+              placeholder="Ask anything ROF related…"
               rows={2}
               disabled={busy}
               style={{
