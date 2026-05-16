@@ -158,6 +158,19 @@ export function zebraFill(rowIndex: number): string {
   return rowIndex % 2 === 0 ? PALETTE.ZEBRA_EVEN : PALETTE.ZEBRA_ODD;
 }
 
+// ── Numeric cell with blank-on-zero ────────────────────────────────────────
+// Operators don't want "0" cluttering quantity columns — render a blank
+// string cell instead. The style is still applied so borders / fills
+// stay consistent with neighboring numeric cells. Pass an existing
+// numFmt through `extra` if the caller needs it (e.g. "#,##0.00").
+export function numOrBlank(value: number, style: any, extra?: { numFmt?: string }): any {
+  if (!Number.isFinite(value) || value === 0) {
+    return { v: "", t: "s", s: style };
+  }
+  const s = extra?.numFmt ? { ...style, numFmt: extra.numFmt } : style;
+  return { v: value, t: "n", s };
+}
+
 // ── Column letter (1-based: A=1, AA=27, ...) ───────────────────────────────
 export function colLetter(idx1: number): string {
   let s = "";

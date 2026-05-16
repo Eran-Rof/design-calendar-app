@@ -8,7 +8,7 @@ import { fmtDate } from "./helpers";
 import {
   PALETTE, ROW_HEIGHTS,
   headerStyle, bodyTextStyle, bodyNumStyle, bodyStyleStyle,
-  autofitColumns, applyOutlines, downloadWorkbook, zebraFill,
+  autofitColumns, applyOutlines, downloadWorkbook, zebraFill, numOrBlank,
 } from "./exportTheme";
 
 type EventIndex = Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>>;
@@ -109,9 +109,9 @@ export function exportIncompleteSkus(
         { v: r.master_sub_category ?? "",                    t: "s", s: bodyTextStyle(fill, "left") },
         { v: r.master_color ?? "",                           t: "s", s: bodyTextStyle(fill, "left") },
         { v: r.store ?? "ROF",                               t: "s", s: bodyTextStyle(fill, "left") },
-        { v: r.onHand  ?? 0,                                 t: "n", s: bodyNumStyle(PALETTE.QTY_BAND) },
-        { v: r.onOrder ?? 0,                                 t: "n", s: bodyNumStyle(PALETTE.QTY_BAND) },
-        { v: r.onPO    ?? 0,                                 t: "n", s: bodyNumStyle(PALETTE.QTY_BAND) },
+        numOrBlank(r.onHand  ?? 0, bodyNumStyle(PALETTE.QTY_BAND)),
+        numOrBlank(r.onOrder ?? 0, bodyNumStyle(PALETTE.QTY_BAND)),
+        numOrBlank(r.onPO    ?? 0, bodyNumStyle(PALETTE.QTY_BAND)),
       ]);
     });
   }

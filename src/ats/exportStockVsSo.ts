@@ -19,7 +19,7 @@ import {
   PALETTE, ROW_HEIGHTS, colLetter,
   headerStyle, bodyTextStyle, bodyNumStyle, bodyStyleStyle,
   subtotalTextStyle, subtotalNumStyle,
-  autofitColumns, applyOutlines, downloadWorkbook, zebraFill,
+  autofitColumns, applyOutlines, downloadWorkbook, zebraFill, numOrBlank,
 } from "./exportTheme";
 
 type EventIndex = Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>>;
@@ -227,10 +227,10 @@ export function exportStockVsSo(
       { v: r.customerName,    t: "s", s: bodyTextStyle(fill, "left") },
       { v: r.orderNumber,     t: "s", s: bodyTextStyle(fill, "left") },
       { v: r.shipDate,        t: "s", s: bodyTextStyle(fill, "center") },
-      { v: r.qtyOrdered,      t: "n", s: bodyNumStyle(PALETTE.QTY_BAND) },
-      { v: r.qtyFromStock,    t: "n", s: bodyNumStyle(PALETTE.QTY_BAND) },
-      { v: r.qtyFromPO,       t: "n", s: bodyNumStyle(PALETTE.QTY_BAND) },
-      { v: r.qtyNewPO,        t: "n", s: newPoStyle },
+      numOrBlank(r.qtyOrdered,   bodyNumStyle(PALETTE.QTY_BAND)),
+      numOrBlank(r.qtyFromStock, bodyNumStyle(PALETTE.QTY_BAND)),
+      numOrBlank(r.qtyFromPO,    bodyNumStyle(PALETTE.QTY_BAND)),
+      numOrBlank(r.qtyNewPO,     newPoStyle),
       { v: r.contributingPOs, t: "s", s: bodyTextStyle(fill, "left") },
     ]);
   });
@@ -271,8 +271,8 @@ export function exportStockVsSo(
     const valueStyle: any = red
       ? { ...subtotalNumStyle(), font: { sz: 12.1, bold: true, color: { rgb: NEEDS_PO_RED }, name: "Calibri" } }
       : subtotalNumStyle();
-    row[0] = { v: label,  t: "s", s: labelStyle };
-    row[1] = { v: value,  t: "n", s: valueStyle };
+    row[0] = { v: label, t: "s", s: labelStyle };
+    row[1] = numOrBlank(value, valueStyle);
     bodyRows.push(row);
   }
 

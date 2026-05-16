@@ -261,14 +261,19 @@ export function exportToExcel(
     r2[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
     r2[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
     r2[COL.spacerL - 1] = { v: "", t: "s", s: spacerCellStyle() };
-    r2[COL.onHand  - 1] = { v: onH, t: "n", s: subNumStyle };
-    r2[COL.onOrder - 1] = { v: onO, t: "n", s: subNumStyle };
-    r2[COL.onPO    - 1] = { v: onP, t: "n", s: subNumStyle };
+    // Zero subtotal values render as blank — same policy as the body
+    // quantity cells.
+    const subCell = (v: number) => v === 0
+      ? { v: "", t: "s" as const, s: subNumStyle }
+      : { v, t: "n" as const, s: subNumStyle };
+    r2[COL.onHand  - 1] = subCell(onH);
+    r2[COL.onOrder - 1] = subCell(onO);
+    r2[COL.onPO    - 1] = subCell(onP);
     for (let i = 0; i < numPeriods; i++) {
       const ci = COL.firstPeriod + i;
-      r2[ci - 1] = { v: perPeriod[i], t: "n", s: subNumStyle };
+      r2[ci - 1] = subCell(perPeriod[i]);
     }
-    r2[COL.total - 1] = { v: grand, t: "n", s: subNumStyle };
+    r2[COL.total - 1] = subCell(grand);
     return r2;
   }
 
@@ -325,9 +330,15 @@ export function exportToExcel(
     // blue fill + same font as non-zero cells — no red highlight on
     // On Hand zeros (the live grid has its own visual cues for zero
     // stock; the export stays uniform).
-    qtyRow[COL.onHand  - 1] = { v: r.onHand  ?? 0, t: "n", s: bodyNumStyle(FILL_QTY_COL) };
-    qtyRow[COL.onOrder - 1] = { v: r.onOrder ?? 0, t: "n", s: bodyNumStyle(FILL_QTY_COL) };
-    qtyRow[COL.onPO    - 1] = { v: r.onPO    ?? 0, t: "n", s: bodyNumStyle(FILL_QTY_COL) };
+    // Zero qty → blank string cell (the planner doesn't want "0"
+    // cluttering quantity columns). Style stays so borders / fills
+    // remain consistent.
+    const onHandV  = r.onHand  ?? 0;
+    const onOrderV = r.onOrder ?? 0;
+    const onPOV    = r.onPO    ?? 0;
+    qtyRow[COL.onHand  - 1] = onHandV  === 0 ? { v: "", t: "s", s: bodyNumStyle(FILL_QTY_COL) } : { v: onHandV,  t: "n", s: bodyNumStyle(FILL_QTY_COL) };
+    qtyRow[COL.onOrder - 1] = onOrderV === 0 ? { v: "", t: "s", s: bodyNumStyle(FILL_QTY_COL) } : { v: onOrderV, t: "n", s: bodyNumStyle(FILL_QTY_COL) };
+    qtyRow[COL.onPO    - 1] = onPOV    === 0 ? { v: "", t: "s", s: bodyNumStyle(FILL_QTY_COL) } : { v: onPOV,    t: "n", s: bodyNumStyle(FILL_QTY_COL) };
 
     // Period cells. For prepack rows the qty sits at the BOTTOM of
     // its cell (anchored to the bottom edge) so the PPK suffix on the
@@ -353,12 +364,16 @@ export function exportToExcel(
     for (let i = 0; i < numPeriods; i++) {
       rowPeriodTotal += periodValueOf(r, i);
     }
-    qtyRow[COL.total - 1] = {
-      v: rowPeriodTotal,
-      f: `SUM(${sumStartLetter}${qtyExcelRow}:${sumEndLetter}${qtyExcelRow})`,
-      t: "n",
-      s: bodyTotalStyle(fill),
-    };
+    // Zero row total → blank cell (no formula either — keeping the
+    // SUM formula would still render "0" on recalc in Excel).
+    qtyRow[COL.total - 1] = rowPeriodTotal === 0
+      ? { v: "", t: "s", s: bodyTotalStyle(fill) }
+      : {
+          v: rowPeriodTotal,
+          f: `SUM(${sumStartLetter}${qtyExcelRow}:${sumEndLetter}${qtyExcelRow})`,
+          t: "n",
+          s: bodyTotalStyle(fill),
+        };
 
     dataRows.push(qtyRow);
     nextExcelRow++;
@@ -460,7 +475,11 @@ export function exportToExcel(
     cells[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
     cells[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
     cells[COL.spacerL - 1] = { v: "", t: "s", s: spacerCellStyle() };
-    const cellFor = (v: string | number) => ({ v, t: typeof v === "number" ? "n" : "s", s: totalNumStyle });
+    // Zero-value cells render as blank. Handles numeric zeros and
+    // empty strings from fmtUSD / safePct (which return "" for n=0).
+    const cellFor = (v: string | number) => (v === 0 || v === "")
+      ? { v: "", t: "s" as const, s: totalNumStyle }
+      : { v, t: typeof v === "number" ? "n" as const : "s" as const, s: totalNumStyle };
     cells[COL.onHand  - 1] = cellFor(getQty("onHand"));
     cells[COL.onOrder - 1] = cellFor(getQty("onOrder"));
     cells[COL.onPO    - 1] = cellFor(getQty("onPO"));
@@ -476,9 +495,14 @@ export function exportToExcel(
   if (_totals !== null) {
     // Toggle ON — 5-row stack from the supplied GridTotals.
     const t = _totals;
-    const fmtUSD = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    // Zero $ values render as blank ("$0.00" cells were noise).
+    const fmtUSD = (n: number) => n === 0
+      ? ""
+      : `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    // sale=0 → "—" sentinel (genuinely no margin computable, distinct
+    // from "margin is 0"). mrgn=0 → blank (a real zero margin).
     const safePct = (sale: number, mrgn: number) =>
-      sale > 0 ? `${((mrgn / sale) * 100).toFixed(1)}%` : "—";
+      sale > 0 ? (mrgn === 0 ? "" : `${((mrgn / sale) * 100).toFixed(1)}%`) : "—";
 
     const periodCostSum = periods.reduce((a, p) => a + (t.periodCost[p.endDate] ?? 0), 0);
     const periodSaleSum = periods.reduce((a, p) => a + (t.periodSale[p.endDate] ?? 0), 0);

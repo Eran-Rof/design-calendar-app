@@ -4,7 +4,7 @@ import { fmtDate } from "./helpers";
 import {
   PALETTE, ROW_HEIGHTS, BORDER_BODY, BORDER_HEADER, EXTRA_THICK,
   headerStyle, bodyTextStyle, bodyStyleStyle, bodyNumStyle,
-  autofitColumns, downloadWorkbook, zebraFill,
+  autofitColumns, downloadWorkbook, zebraFill, numOrBlank,
 } from "./exportTheme";
 
 // Semantic accents (kept out of the theme — Neg Inven owns the meaning).
@@ -163,9 +163,9 @@ export function exportNegInven(
       { v: row.description ?? "", t: "s", s: bodyTextStyle(fill, "left") },
       { v: row.category ?? "",    t: "s", s: bodyTextStyle(fill, "left") },
       { v: row.store ?? "",       t: "s", s: bodyTextStyle(fill, "center") },
-      { v: row.onHand  ?? 0,      t: "n", s: { ...bodyNumStyle(PALETTE.QTY_BAND), numFmt: "#,##0" } },
-      { v: row.onOrder ?? 0,      t: "n", s: { ...bodyNumStyle(PALETTE.QTY_BAND), numFmt: "#,##0" } },
-      { v: row.onPO    ?? 0,      t: "n", s: { ...bodyNumStyle(PALETTE.QTY_BAND), numFmt: "#,##0" } },
+      numOrBlank(row.onHand  ?? 0, bodyNumStyle(PALETTE.QTY_BAND), { numFmt: "#,##0" }),
+      numOrBlank(row.onOrder ?? 0, bodyNumStyle(PALETTE.QTY_BAND), { numFmt: "#,##0" }),
+      numOrBlank(row.onPO    ?? 0, bodyNumStyle(PALETTE.QTY_BAND), { numFmt: "#,##0" }),
       ...livePeriodIdxs.map((pi) => {
         const val = periodVals[pi];
         const neg = val !== null && val < 0;
