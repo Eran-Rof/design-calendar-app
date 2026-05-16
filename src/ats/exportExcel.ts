@@ -29,8 +29,15 @@ export function exportToExcel(
   // Empty maps when neither trailing3 nor spLY is on, or when fetch
   // failed / no rows. NavBar pre-fetches before calling exportToExcel.
   salesAggregates?: SalesFetchResult,
+  // Grid's current "Explode PPK" toggle. When true (default) the grid
+  // shows everything in UNIT grain — qty cols and avg cost are
+  // displayed as units. When false the grid shows packs — qty cols
+  // divided by ppkMult, avg cost multiplied by ppkMult. The export
+  // mirrors the grid so what the operator sees on screen is what the
+  // download (and View preview) shows.
+  explodePpk?: boolean,
 ) {
-  const payload = buildExportPayload(rows, periods, atShip, _hiddenColumns, _totals, options, _eventIndex, salesAggregates);
+  const payload = buildExportPayload(rows, periods, atShip, _hiddenColumns, _totals, options, _eventIndex, salesAggregates, explodePpk);
   if (!payload) return;
   triggerXlsxDownload(payload.wb, payload.filename);
 }
@@ -66,6 +73,7 @@ export function buildExportPayload(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _eventIndex?: EventIndex | null,
   salesAggregates?: SalesFetchResult,
+  explodePpk: boolean = true,
 ): ExportPayload | null {
   // Default options — keeps the export's pre-modal behavior when
   // exportToExcel is called without a modal (e.g. legacy tests).
@@ -529,6 +537,14 @@ export function buildExportPayload(
     const qtyExcelRow = nextExcelRow;
     const mult = r.ppkMult ?? 1;
     const isPrepack = mult > 1;
+    // Grain divisor for display. Row qty fields + period values come
+    // in at UNIT grain (computeRowsFromExcelData stores onHand*ppkMult);
+    // costs come in at per-UNIT. When the grid's Explode-PPK toggle is
+    // OFF we render the row in PACK grain — divide qty fields by mult,
+    // multiply cost fields by mult. Non-prepack rows (mult=1) are a
+    // no-op either way.
+    const qtyDiv  = explodePpk ? 1 : mult;
+    const costMul = explodePpk ? 1 : mult;
 
     // ── Qty row ──────────────────────────────────────────────────────────
     const qtyRow: any[] = new Array(totalColumnCount);
@@ -553,9 +569,9 @@ export function buildExportPayload(
     // Zero qty → blank string cell (the planner doesn't want "0"
     // cluttering quantity columns). Style stays so borders / fills
     // remain consistent.
-    const onHandV  = r.onHand  ?? 0;
-    const onOrderV = r.onOrder ?? 0;
-    const onPOV    = r.onPO    ?? 0;
+    const onHandV  = (r.onHand  ?? 0) / qtyDiv;
+    const onOrderV = (r.onOrder ?? 0) / qtyDiv;
+    const onPOV    = (r.onPO    ?? 0) / qtyDiv;
     qtyRow[COL.onHand  - 1] = onHandV  === 0 ? { v: "", t: "s", s: bodyNumStyle(FILL_QTY_COL) } : { v: onHandV,  t: "n", s: bodyNumStyle(FILL_QTY_COL) };
     qtyRow[COL.onOrder - 1] = onOrderV === 0 ? { v: "", t: "s", s: bodyNumStyle(FILL_QTY_COL) } : { v: onOrderV, t: "n", s: bodyNumStyle(FILL_QTY_COL) };
     qtyRow[COL.onPO    - 1] = onPOV    === 0 ? { v: "", t: "s", s: bodyNumStyle(FILL_QTY_COL) } : { v: onPOV,    t: "n", s: bodyNumStyle(FILL_QTY_COL) };
@@ -566,7 +582,7 @@ export function buildExportPayload(
     // standard center alignment.
     for (let i = 0; i < numPeriods; i++) {
       const ci = COL.firstPeriod + i;
-      const n = periodValueOf(r, i);
+      const n = periodValueOf(r, i) / qtyDiv;
       const baseStyle = isPrepack ? periodQtyStyle(fill) : bodyNumStyle(fill);
       if (n === 0) {
         qtyRow[ci - 1] = { v: "", t: "s", s: baseStyle };
@@ -582,7 +598,7 @@ export function buildExportPayload(
     // cell renders empty until recalc runs).
     let rowPeriodTotal = 0;
     for (let i = 0; i < numPeriods; i++) {
-      rowPeriodTotal += periodValueOf(r, i);
+      rowPeriodTotal += periodValueOf(r, i) / qtyDiv;
     }
     // Zero row total → blank cell (no formula either — keeping the
     // SUM formula would still render "0" on recalc in Excel).
@@ -596,9 +612,13 @@ export function buildExportPayload(
         };
 
     // ── Optional extra columns ─────────────────────────────────────────
-    const avgCostV = r.avgCost ?? 0;
+    // avgCost on the row is per-UNIT. When the grid is in pack mode
+    // (explodePpk=false) we display it per-PACK by multiplying by
+    // ppkMult so the operator sees the same grain as the grid.
+    const avgCostV = (r.avgCost ?? 0) * costMul;
     // Total cost = avgCost × the row's total qty across periods.
-    // (Same Total the spreadsheet displays in COL.total.)
+    // Both avgCostV and rowPeriodTotal have already been scaled by
+    // costMul / qtyDiv (inverses); the product is grain-invariant.
     const totalCostV = avgCostV > 0 ? avgCostV * rowPeriodTotal : 0;
     // Implied sale price needed to hit `slsMarginPct` against avgCost.
     // price = avgCost / (1 - margin). Guard against margin >= 100.
@@ -616,21 +636,20 @@ export function buildExportPayload(
       : { v: slsPrcV, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
 
     // Trailing 3 — sales over the last 3 months from today, optionally
-    // narrowed to one customer. Both sides of the margin formula
-    // operate at UNIT grain: ip_sales_history_wholesale.qty is the
-    // invoice's per-unit qty (not pack count) per xoro-sales-sync.js,
-    // and avgCost on the row is per-unit. Do NOT multiply by ppkMult
-    // — that's a leftover assumption from the right-click menu, which
-    // reads pack-grain SOs from the operator upload.
+    // narrowed to one customer. ip_sales_history_wholesale.qty is at
+    // UNIT grain. Convert to PACK grain for display when the grid is
+    // in pack mode so the report matches the on-screen rendering.
+    // Margin % is grain-invariant; price + qty both scale.
     if (opts.trailing3) {
       const t3 = t3Of(r.sku);
-      const t3Price = t3.qty > 0 ? t3.totalPrice / t3.qty : 0;
+      const t3QtyDisp = t3.qty / qtyDiv;
+      const t3Price   = t3QtyDisp > 0 ? t3.totalPrice / t3QtyDisp : 0;
       const t3MrgnPct = (avgCostV > 0 && t3Price > 0)
         ? ((t3Price - avgCostV) / t3Price) * 100
         : 0;
-      if (COL_T3_QTY)     qtyRow[COL_T3_QTY     - 1] = t3.qty === 0
+      if (COL_T3_QTY)     qtyRow[COL_T3_QTY     - 1] = t3QtyDisp === 0
         ? { v: "", t: "s", s: bodyNumStyle(fill) }
-        : { v: t3.qty, t: "n", s: bodyNumStyle(fill) };
+        : { v: t3QtyDisp, t: "n", s: bodyNumStyle(fill) };
       if (COL_T3_PRICE)   qtyRow[COL_T3_PRICE   - 1] = t3Price === 0
         ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
         : { v: t3Price, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
@@ -642,18 +661,17 @@ export function buildExportPayload(
         : { v: t3MrgnPct / 100, t: "n", s: { ...bodyNumStyle(fill), numFmt: "0.0%" } };
     }
 
-    // Same-Period Last Year — same window 12 months ago. Same
-    // unit-grain math as T3 (sales history is per-unit, avgCost is
-    // per-unit, no ppkMult adjustment).
+    // Same-Period Last Year — same grain rules as T3.
     if (opts.spLY) {
       const ly = lyOf(r.sku);
-      const lyPrice = ly.qty > 0 ? ly.totalPrice / ly.qty : 0;
+      const lyQtyDisp = ly.qty / qtyDiv;
+      const lyPrice   = lyQtyDisp > 0 ? ly.totalPrice / lyQtyDisp : 0;
       const lyMrgnPct = (avgCostV > 0 && lyPrice > 0)
         ? ((lyPrice - avgCostV) / lyPrice) * 100
         : 0;
-      if (COL_LY_QTY)     qtyRow[COL_LY_QTY     - 1] = ly.qty === 0
+      if (COL_LY_QTY)     qtyRow[COL_LY_QTY     - 1] = lyQtyDisp === 0
         ? { v: "", t: "s", s: bodyNumStyle(fill) }
-        : { v: ly.qty, t: "n", s: bodyNumStyle(fill) };
+        : { v: lyQtyDisp, t: "n", s: bodyNumStyle(fill) };
       if (COL_LY_PRICE)   qtyRow[COL_LY_PRICE   - 1] = lyPrice === 0
         ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
         : { v: lyPrice, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
