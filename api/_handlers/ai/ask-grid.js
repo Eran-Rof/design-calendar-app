@@ -34,7 +34,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
-import { authenticateInternalCaller } from "../../_lib/auth.js";
+import { authenticateCaller } from "../../_lib/auth.js";
 import {
   assertWithinBudget,
   estimateClaudeCost,
@@ -1010,14 +1010,22 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST")    return res.status(405).json({ error: "Method not allowed" });
 
-  const auth = authenticateInternalCaller(req);
-  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
-
   const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
   const SB_URL        = process.env.VITE_SUPABASE_URL;
   const SERVICE_KEY   = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!ANTHROPIC_KEY) return res.status(500).json({ error: "ANTHROPIC_API_KEY not configured" });
   if (!SB_URL || !SERVICE_KEY) return res.status(500).json({ error: "Supabase not configured" });
+
+  // Admin client needed for both budget check + JWT validation (auth.getUser
+  // requires a real Supabase client; we already have the service role key).
+  const db = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
+
+  // Auth via Supabase JWT — every signed-in operator already has a session,
+  // so the browser passes `Authorization: Bearer <access_token>`. This
+  // replaces the static INTERNAL_API_TOKEN gate, which was unreachable from
+  // a browser bundle (would need to be baked in, defeating the point).
+  const auth = await authenticateCaller(req, db);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
   const body = req.body || {};
   const question = typeof body.question === "string" ? body.question.trim() : "";
@@ -1027,8 +1035,6 @@ export default async function handler(req, res) {
   }
   const gridContext = body.grid_context && typeof body.grid_context === "object" ? body.grid_context : {};
   const history     = sanitizeHistory(body.history);
-
-  const db = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
   try {
     await assertWithinBudget(db);
