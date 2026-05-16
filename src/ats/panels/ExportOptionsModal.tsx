@@ -46,13 +46,16 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onConfirm: (opts: ExportOptions) => void;
+  // Build the workbook but show a preview instead of downloading.
+  // Operator can choose to download from the preview screen.
+  onView: (opts: ExportOptions) => void;
   excelData: ExcelData | null;
   // Auto-default value for the customer dropdown — whatever the grid
   // toolbar currently has selected. Empty string = "no customer".
   defaultCustomer: string;
 }
 
-export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, excelData, defaultCustomer }) => {
+export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, onView, excelData, defaultCustomer }) => {
   const [subtotals, setSubtotals]             = useState(true);
   const [avgCost, setAvgCost]                 = useState(false);
   const [slsPrcAtMrgn, setSlsPrcAtMrgn]       = useState(false);
@@ -86,19 +89,20 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
 
   if (!open) return null;
 
-  const handleConfirm = () => {
-    onConfirm({
-      subtotals,
-      avgCost,
-      slsPrcAtMrgn,
-      slsMarginPct: Number.isFinite(slsMarginPct) ? slsMarginPct : 21,
-      trailing3,
-      spLY,
-      customerEnabled,
-      customer: customerEnabled ? customer : "",
-      showCustomerMargin,
-    });
-  };
+  const collectOptions = (): ExportOptions => ({
+    subtotals,
+    avgCost,
+    slsPrcAtMrgn,
+    slsMarginPct: Number.isFinite(slsMarginPct) ? slsMarginPct : 21,
+    trailing3,
+    spLY,
+    customerEnabled,
+    customer: customerEnabled ? customer : "",
+    showCustomerMargin,
+  });
+
+  const handleConfirm = () => { onConfirm(collectOptions()); };
+  const handleView = () => { onView(collectOptions()); };
 
   // Reset every option to its initial-open default. Doesn't close the
   // modal — operator can keep configuring after wiping.
@@ -239,6 +243,12 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
             onClick={handleClear}
             title="Reset all options to defaults"
           >Clear</button>
+          <button
+            style={{ background: "transparent", border: "1px solid #60A5FA", borderRadius: 6, padding: "7px 16px", color: "#60A5FA", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
+            onClick={handleView}
+            disabled={customerEnabled && !customer}
+            title={customerEnabled && !customer ? "Pick a customer first" : "Preview the workbook before downloading"}
+          >View</button>
           <button
             style={{ background: "#10B981", border: "1px solid #10B981", borderRadius: 6, padding: "7px 16px", color: "#0F172A", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
             onClick={handleConfirm}

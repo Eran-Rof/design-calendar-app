@@ -5,7 +5,9 @@ import { computeGridTotals } from "../computeTotals";
 import { XoroSyncOverlay, type XoroSyncProgress } from "./StatusOverlays";
 import { normalizeXoroSos, type XoroSoRecord } from "../normalizeXoroSos";
 import { ExportOptionsModal, type ExportOptions } from "./ExportOptionsModal";
+import { ExportPreviewModal } from "./ExportPreviewModal";
 import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
+import { buildExportPayload, triggerXlsxDownload, type ExportPayload } from "../exportExcel";
 
 // Sync architecture (rewritten 2026-05-06 after discovering Xoro's
 // pagination overlaps — same SOs appear on multiple pages, and the
@@ -314,6 +316,12 @@ export const NavBar: React.FC<NavBarProps> = ({
   // operator knows something is happening (fetch can take several
   // seconds for a 15-month window over thousands of SKUs).
   const [exportLoading, setExportLoading] = useState(false);
+  // Built workbook payload for the preview modal. null when preview
+  // isn't open. Operator can click Download from inside the preview
+  // to flush the same payload to a file.
+  const [previewPayload, setPreviewPayload] = useState<ExportPayload | null>(null);
+  // Body row count for the preview header (header row excluded).
+  const [previewBodyCount, setPreviewBodyCount] = useState(0);
   const [agedOpen, setAgedOpen] = useState(false);
   const [agedDays, setAgedDays] = useState("365");
   const [agedCategory, setAgedCategory] = useState(filterCategory);
@@ -387,6 +395,47 @@ export const NavBar: React.FC<NavBarProps> = ({
     setTimeout(() => setSyncSosToast(null), 10000);
   };
   const handleCancelSync = () => { cancelRef.current = true; };
+
+  // Shared pre-flight for both Export and View. Drops collapsed rows,
+  // optionally builds GridTotals, and fetches sales aggregates from the
+  // nightly DB when trailing3 / SP-LY is on. Returns null when the
+  // sales pre-fetch failed catastrophically (the modal stays open so
+  // the operator can retry or adjust).
+  async function prepareExportArgs(opts: ExportOptions) {
+    const rowsForExport = filtered.filter(r => !r.__collapsed);
+    const periods = displayPeriods.map(p => ({ endDate: p.endDate, label: p.label }));
+    const totals = showTotalsRow
+      ? computeGridTotals({
+          filtered: rowsForExport,
+          displayPeriods,
+          atShip,
+          viewMode,
+          eventIndex,
+          generalMarginPct,
+        })
+      : null;
+
+    let salesAggregates: SalesFetchResult | undefined;
+    if (opts.trailing3 || opts.spLY) {
+      setExportLoading(true);
+      try {
+        salesAggregates = await fetchSalesAggregates({
+          rows: rowsForExport,
+          needT3: opts.trailing3,
+          needLY: opts.spLY,
+          customer: opts.customer,
+        });
+      } catch (e) {
+        console.error("[ATS export] sales fetch failed:", e);
+        // Fall through with undefined — T3/LY columns render blank
+        // rather than blocking the rest of the export.
+      } finally {
+        setExportLoading(false);
+      }
+    }
+
+    return { rowsForExport, periods, totals, salesAggregates };
+  }
 
   return (
   <nav style={S.nav}>
@@ -640,57 +689,52 @@ export const NavBar: React.FC<NavBarProps> = ({
       excelData={excelData}
       defaultCustomer={customerFilter}
       onConfirm={async (opts) => {
-        const rowsForExport = filtered.filter(r => !r.__collapsed);
-        // GridTotals are only useful when subtotals are on AND the
-        // user wants the 5-row Cost/Sale/Mrgn bottom stack. We keep
-        // those gated on showTotalsRow as before — the modal's
-        // "subtotals" flag is about per-style subtotal ROWS, distinct
-        // from the bottom-totals stack.
-        const totals = showTotalsRow
-          ? computeGridTotals({
-              filtered: rowsForExport,
-              displayPeriods,
-              atShip,
-              viewMode,
-              eventIndex,
-              generalMarginPct,
-            })
-          : null;
-
-        // Pre-fetch T3 + SP-LY sales from ip_sales_history_wholesale
-        // (the nightly Xoro-synced sales DB) — the in-app eventIndex
-        // is forward-only and can't satisfy these windows.
-        let salesAggregates: SalesFetchResult | undefined;
-        if (opts.trailing3 || opts.spLY) {
-          setExportLoading(true);
-          try {
-            salesAggregates = await fetchSalesAggregates({
-              rows: rowsForExport,
-              needT3: opts.trailing3,
-              needLY: opts.spLY,
-              customer: opts.customer,
-            });
-          } catch (e) {
-            console.error("[ATS export] sales fetch failed:", e);
-            // Fall through with undefined — T3/LY columns render blank
-            // rather than blocking the rest of the export.
-          } finally {
-            setExportLoading(false);
-          }
-        }
-
+        const prep = await prepareExportArgs(opts);
+        if (!prep) return;
         exportToExcel(
-          rowsForExport,
-          displayPeriods.map(p => ({ endDate: p.endDate, label: p.label })),
+          prep.rowsForExport,
+          prep.periods,
           atShip,
           hiddenColumns,
-          totals,
+          prep.totals,
           opts,
           eventIndex,
-          salesAggregates,
+          prep.salesAggregates,
         );
         setExportOptsOpen(false);
       }}
+      onView={async (opts) => {
+        const prep = await prepareExportArgs(opts);
+        if (!prep) return;
+        const payload = buildExportPayload(
+          prep.rowsForExport,
+          prep.periods,
+          atShip,
+          hiddenColumns,
+          prep.totals,
+          opts,
+          eventIndex,
+          prep.salesAggregates,
+        );
+        if (!payload) return;
+        setPreviewPayload(payload);
+        setPreviewBodyCount(Math.max(0, payload.aoa.length - 1));
+        // Leave the options modal mounted but hidden behind the
+        // preview — clicking Back returns to it without re-fetching.
+        setExportOptsOpen(false);
+      }}
+    />
+    <ExportPreviewModal
+      open={previewPayload !== null}
+      aoa={previewPayload?.aoa ?? null}
+      filename={previewPayload?.filename ?? ""}
+      rowCount={previewBodyCount}
+      onDownload={() => {
+        if (!previewPayload) return;
+        triggerXlsxDownload(previewPayload.wb, previewPayload.filename);
+        setPreviewPayload(null);
+      }}
+      onClose={() => { setPreviewPayload(null); setExportOptsOpen(true); }}
     />
     {exportLoading && (
       <div style={{

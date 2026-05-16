@@ -30,6 +30,43 @@ export function exportToExcel(
   // failed / no rows. NavBar pre-fetches before calling exportToExcel.
   salesAggregates?: SalesFetchResult,
 ) {
+  const payload = buildExportPayload(rows, periods, atShip, _hiddenColumns, _totals, options, _eventIndex, salesAggregates);
+  if (!payload) return;
+  triggerXlsxDownload(payload.wb, payload.filename);
+}
+
+// ── Trigger a browser download for a built workbook. ─────────────────
+export function triggerXlsxDownload(wb: any, filename: string): void {
+  const buf  = XLSXStyle.write(wb, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export interface ExportPayload {
+  aoa: any[][];     // the array-of-arrays the worksheet was built from
+  wb: any;          // XLSXStyle workbook ready to write
+  filename: string; // download filename
+}
+
+// Same as exportToExcel but returns the workbook + AOA without
+// triggering a download. Used by the "View" flow so the preview modal
+// can render the AOA before the operator decides whether to download.
+export function buildExportPayload(
+  rows: ATSRow[],
+  periods: Array<{ endDate: string; label: string }>,
+  atShip = false,
+  _hiddenColumns: string[] = [],
+  _totals: GridTotals | null = null,
+  options?: ExportOptions,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _eventIndex?: EventIndex | null,
+  salesAggregates?: SalesFetchResult,
+): ExportPayload | null {
   // Default options — keeps the export's pre-modal behavior when
   // exportToExcel is called without a modal (e.g. legacy tests).
   const opts: ExportOptions = {
@@ -1009,12 +1046,5 @@ export function exportToExcel(
   const wb = XLSXStyle.utils.book_new();
   XLSXStyle.utils.book_append_sheet(wb, ws, "ATS Report");
 
-  const buf  = XLSXStyle.write(wb, { bookType: "xlsx", type: "array" });
-  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href     = url;
-  a.download = `ATS_Report_${fmtDate(new Date())}.xlsx`;
-  a.click();
-  URL.revokeObjectURL(url);
+  return { aoa, wb, filename: `ATS_Report_${fmtDate(new Date())}.xlsx` };
 }
