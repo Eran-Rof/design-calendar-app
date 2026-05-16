@@ -11,6 +11,7 @@ import { buildExportPayload, triggerXlsxDownload, type ExportPayload } from "../
 import { getItemMasterById } from "../itemMasterLookup";
 import { filterRows } from "../filter";
 import { ppkMultiplier } from "../../shared/prepack";
+import { resolveCost, buildSiblingMap } from "../../shared/costResolution";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
 import { AskAIPanel } from "../../ai/AskAIPanel";
 import type { AIGridSetters, GridContextSnapshot } from "../../ai/tools";
@@ -37,6 +38,35 @@ async function fetchMissingMasterRows(ids: string[]): Promise<Array<{ id: string
     console.warn("[ATS export] fetchMissingMasterRows error:", e);
     return [];
   }
+}
+
+// Fetch ip_item_avg_cost rows for a batch of sku_codes. This is the
+// Xoro-authoritative avg unit cost (populated nightly by the Item Costing
+// Report via /api/xoro/sync-item-costing). Used in the cross-grid synthetic
+// rows in preference to ip_item_master.unit_cost — the latter is poisoned
+// for some prepack SKUs (carries StandardUnitCost × MasterCaseQty from
+// legacy Excel uploads, e.g. RYB059430 reads as $160.80 instead of $6.70).
+async function fetchAvgCostBySkuCodes(skus: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (!SB_URL || skus.length === 0) return out;
+  const inList = skus.map((s) => `"${s.replace(/"/g, '\\"')}"`).join(",");
+  const url = `${SB_URL}/rest/v1/ip_item_avg_cost?select=sku_code,avg_cost&sku_code=in.(${encodeURIComponent(inList)})&limit=${skus.length}`;
+  try {
+    const r = await fetch(url, { headers: SB_HEADERS });
+    if (!r.ok) {
+      console.warn(`[ATS export] fetchAvgCostBySkuCodes failed: ${r.status}`);
+      return out;
+    }
+    const rows: Array<{ sku_code: string; avg_cost: number | null }> = await r.json();
+    for (const row of rows) {
+      if (row.sku_code && typeof row.avg_cost === "number" && row.avg_cost > 0) {
+        out.set(row.sku_code, row.avg_cost);
+      }
+    }
+  } catch (e) {
+    console.warn("[ATS export] fetchAvgCostBySkuCodes error:", e);
+  }
+  return out;
 }
 
 // Sync architecture (rewritten 2026-05-06 after discovering Xoro's
@@ -516,6 +546,26 @@ export const NavBar: React.FC<NavBarProps> = ({
             }
           }
 
+          // Hydrate the Xoro-authoritative avg unit cost for every SKU
+          // in the cached set BEFORE building groups. ip_item_avg_cost
+          // is the source of truth (populated nightly by the Item
+          // Costing Report); preferring it over ip_item_master.unit_cost
+          // dodges the legacy-poison bug where some prepack rows carry
+          // StandardUnitCost × MasterCaseQty (e.g. RYB059430 reads
+          // $160.80 instead of the real $6.70 per-unit). The resolver
+          // also handles sibling + open-PO + margin fallbacks for SKUs
+          // not yet covered by the Xoro report.
+          const skuCodes = [...cached.values()]
+            .map((r) => r?.sku_code)
+            .filter((s): s is string => typeof s === "string" && s.length > 0);
+          const avgCostMap = await fetchAvgCostBySkuCodes(skuCodes);
+          const siblingsBySku = buildSiblingMap(
+            [...cached.values()].map((r) => ({
+              sku: r?.sku_code ?? "",
+              basePart: r?.style_code ?? null,
+            })),
+          );
+
           // Group extra sku_ids by (style, color) so the report
           // surfaces ONE row per color block instead of one per
           // size — matches the grid's style+color grain.
@@ -526,10 +576,12 @@ export const NavBar: React.FC<NavBarProps> = ({
             description: string | null;
             category: string | null;
             subCategory: string | null;
-            // Sum + count for weighted-avg unit_cost across all ip_item_master
-            // rows that landed in this (style, color) group. Used as the
-            // "avg cost at time of sale" proxy for margin %.
-            unitCostSum: number; unitCostCount: number;
+            // Resolved per-unit cost from the cost-cascade helper (direct
+            // → sibling → open PO → margin). Tracked per group so the
+            // first variant's resolution wins and we don't average across
+            // different fallback sources for the same family.
+            resolvedCost: number | null;
+            costSource: string;
             // Largest ppkMult seen across the group's variants. Size variants
             // of a prepack family share the same multiplier in practice; we
             // take the max so a missing/unparseable size on one variant
@@ -551,6 +603,20 @@ export const NavBar: React.FC<NavBarProps> = ({
               : rec.sku_code;
             let g = groups.get(key);
             if (!g) {
+              // Cascade resolve cost for this (style, color) family. The
+              // sale-price proxy for the margin fallback is the average T3
+              // price across the family if available, else LY; null when
+              // neither sales window has data (cascade falls through to
+              // 'unknown' rather than guessing).
+              const t3Agg = agg.t3Qty > 0 ? agg.t3Total / agg.t3Qty : null;
+              const lyAgg = agg.lyQty > 0 ? agg.lyTotal / agg.lyQty : null;
+              const salePrice = t3Agg ?? lyAgg ?? null;
+              const resolved = resolveCost(rec.sku_code, {
+                avgCostMap,
+                siblingsBySku,
+                generalMarginPct,
+                salePrice,
+              });
               g = {
                 sku: groupSku,
                 style: rec.style_code ?? null,
@@ -558,16 +624,13 @@ export const NavBar: React.FC<NavBarProps> = ({
                 description: rec.description ?? null,
                 category: rec.attributes?.group_name ?? null,
                 subCategory: rec.attributes?.category_name ?? null,
-                unitCostSum: 0, unitCostCount: 0,
+                resolvedCost: resolved.cost,
+                costSource: resolved.source,
                 ppkMult: 1,
                 t3Qty: 0, t3Total: 0, lyQty: 0, lyTotal: 0,
               };
               groups.set(key, g);
             }
-            // Pull unit_cost for the family (size variants share it
-            // most of the time but average defensively).
-            const uc = typeof rec.unit_cost === "number" && rec.unit_cost > 0 ? rec.unit_cost : 0;
-            if (uc > 0) { g.unitCostSum += uc; g.unitCostCount += 1; }
             // Resolve the PPK multiplier from the variant's fields. Same
             // priority chain compute.ts uses for upload-derived rows so
             // the grain conversion stays consistent.
@@ -580,13 +643,18 @@ export const NavBar: React.FC<NavBarProps> = ({
           }
 
           const synthetic: ATSRow[] = [];
+          let perSourceCounts = { direct: 0, sibling: 0, po: 0, margin: 0, unknown: 0 };
           for (const g of groups.values()) {
-            // ip_item_master.unit_cost is pack-grain for prepacks (Xoro
-            // ingests it that way). compute.ts divides upload-derived
-            // avgCost by mult to land at per-unit cost; mirror that
-            // here so synthetic rows match the body-row grain.
-            const synthPackCost = g.unitCostCount > 0 ? g.unitCostSum / g.unitCostCount : 0;
-            const synthAvgCost  = g.ppkMult > 0 ? synthPackCost / g.ppkMult : synthPackCost;
+            // The resolver returns per-unit cost from ip_item_avg_cost
+            // (the Xoro-authoritative source) when available — that's
+            // already at unit grain, no ppkMult adjustment needed. The
+            // sibling / open-PO / margin fallback values are also
+            // per-unit by construction. The legacy ip_item_master.unit_cost
+            // path that needed mult-division for prepacks is intentionally
+            // dropped here.
+            const synthAvgCost = g.resolvedCost ?? 0;
+            const sourceKey = (g.costSource as keyof typeof perSourceCounts) || "unknown";
+            perSourceCounts[sourceKey] = (perSourceCounts[sourceKey] ?? 0) + 1;
             synthetic.push({
               sku: g.sku,
               description: g.description ?? "",
@@ -596,10 +664,9 @@ export const NavBar: React.FC<NavBarProps> = ({
               onOrder: 0,
               onPO: 0,
               ppkMult: g.ppkMult,
-              // Use ip_item_master.unit_cost as the cost basis for
-              // T3/LY margin calc — that's the closest "avg cost at
-              // time of sale" proxy we have (sales history doesn't
-              // carry a cost column).
+              // Cascade-resolved cost; see resolveCost() — direct from
+              // ip_item_avg_cost first, then sibling/PO/margin. Replaces
+              // the legacy pack-grain ip_item_master.unit_cost path.
               avgCost: synthAvgCost,
               master_category:     g.category,
               master_sub_category: g.subCategory,
@@ -626,6 +693,9 @@ export const NavBar: React.FC<NavBarProps> = ({
             });
             finalRows = [...rowsForExport, ...filteredSynthetic];
             console.info(`[ATS export] cross-grid: added ${filteredSynthetic.length} synthetic rows (of ${synthetic.length} candidates) by (style, color) from ${salesAggregates.extraBySkuId.size} unmapped sku_ids (${unresolved} unresolved, ${synthetic.length - filteredSynthetic.length} dropped by grid filters)`);
+            console.info(
+              `[ATS export] cross-grid cost cascade: direct=${perSourceCounts.direct} sibling=${perSourceCounts.sibling} po=${perSourceCounts.po} margin=${perSourceCounts.margin} unknown=${perSourceCounts.unknown}`,
+            );
           } else {
             console.warn(`[ATS export] cross-grid: extraBySkuId had ${salesAggregates.extraBySkuId.size} entries but none could be resolved to a master record — verify ip_item_master coverage`);
           }
