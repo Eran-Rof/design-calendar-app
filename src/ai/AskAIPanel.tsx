@@ -1,12 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   applyAction,
+  applySuggestion,
   describeAction,
   type AIAction,
   type AIGridSetters,
   type AskAIHistoryTurn,
   type AskAIResponse,
   type GridContextSnapshot,
+  type GridSuggestion,
+  type ToolTraceEntry,
 } from "./tools";
 
 // Slide-in chat panel anchored to the right edge. Built as a standalone
@@ -30,6 +33,12 @@ interface ChatMessage {
   role: "user" | "assistant" | "system";
   text: string;
   actionLabel?: string;
+  // Pending suggestion the user can opt into. Cleared once they push.
+  suggestion?: GridSuggestion | null;
+  suggestionPushed?: boolean;
+  // Dim trace of server-side DB tool calls (find_customer / query_*),
+  // shown under the reply so operators can see what was looked up.
+  trace?: ToolTraceEntry[];
   pending?: boolean;
   error?: boolean;
 }
@@ -39,6 +48,7 @@ const DEFAULT_SAMPLES = [
   "Filter to category Tops",
   "Sort by on-order descending",
   "What's the total on-order value?",
+  "How many Edge did Ross order June 2026 vs ship same period last year?",
   "Clear all filters",
 ];
 
@@ -118,6 +128,8 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
       const finalText = body.text?.trim() || (actionLabel ? "Done." : "(no response)");
       setMessages(prev => prev.map(m => m.id === pendingMsg.id ? {
         ...m, pending: false, text: finalText, actionLabel,
+        suggestion: body.suggestion ?? null,
+        trace: Array.isArray(body.trace) ? body.trace : undefined,
       } : m));
     } catch (err) {
       setMessages(prev => prev.map(m => m.id === pendingMsg.id ? {
@@ -253,6 +265,49 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
                   fontStyle: "italic",
                 }}>
                   → {m.actionLabel}
+                </div>
+              )}
+              {m.suggestion && !m.suggestionPushed && (
+                <button
+                  onClick={() => {
+                    try { applySuggestion(m.suggestion!, setters); }
+                    catch (err) { console.warn("[AskAI] applySuggestion failed", err); }
+                    setMessages(prev => prev.map(x => x.id === m.id ? { ...x, suggestionPushed: true } : x));
+                  }}
+                  style={{
+                    marginTop: 8,
+                    background: "#10B981",
+                    border: "1px solid #047857",
+                    color: "#fff",
+                    borderRadius: 6,
+                    padding: "6px 10px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  ↳ {m.suggestion.label}
+                </button>
+              )}
+              {m.suggestionPushed && (
+                <div style={{ marginTop: 6, fontSize: 11, color: "#6EE7B7", fontStyle: "italic" }}>
+                  ✓ Applied to grid
+                </div>
+              )}
+              {m.trace && m.trace.length > 0 && (
+                <div style={{
+                  marginTop: 8,
+                  paddingTop: 6,
+                  borderTop: "1px dashed rgba(148,163,184,0.25)",
+                  fontSize: 10,
+                  color: "#64748B",
+                  fontFamily: "ui-monospace, SFMono-Regular, monospace",
+                  lineHeight: 1.4,
+                }}>
+                  {m.trace.map((t, i) => (
+                    <div key={i}>· {t.summary}</div>
+                  ))}
                 </div>
               )}
             </div>
