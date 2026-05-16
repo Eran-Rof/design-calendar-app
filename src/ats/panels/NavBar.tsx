@@ -41,6 +41,39 @@ async function fetchMissingMasterRows(ids: string[]): Promise<Array<{ id: string
   }
 }
 
+// Fetch open-PO unit costs grouped by canonical sku_code, given the
+// canonical SKUs themselves (no caller-provided id map needed). Two-step:
+// 1. Look up ip_item_master.id for each sku_code.
+// 2. Fetch ip_open_purchase_orders by sku_id (positive unit_cost,
+//    qty_open > 0 so closed lines don't skew the avg).
+// Used by the regular-grid hydration path where rows have a display SKU
+// but no master.id readily available.
+async function fetchOpenPoCostsByCanonicalSku(skus: string[]): Promise<Map<string, number[]>> {
+  const out = new Map<string, number[]>();
+  if (!SB_URL || skus.length === 0) return out;
+
+  // Step 1: sku_code → id
+  const inSkus = skus.map((s) => `"${s.replace(/"/g, '\\"')}"`).join(",");
+  const masterUrl = `${SB_URL}/rest/v1/ip_item_master?select=id,sku_code&sku_code=in.(${encodeURIComponent(inSkus)})&limit=${skus.length}`;
+  let idToSkuCode = new Map<string, string>();
+  try {
+    const r = await fetch(masterUrl, { headers: SB_HEADERS });
+    if (!r.ok) {
+      console.warn(`[ATS export] fetchOpenPoCostsByCanonicalSku master lookup failed: ${r.status}`);
+      return out;
+    }
+    const rows: Array<{ id: string; sku_code: string }> = await r.json();
+    for (const row of rows) idToSkuCode.set(row.id, row.sku_code);
+  } catch (e) {
+    console.warn("[ATS export] fetchOpenPoCostsByCanonicalSku master error:", e);
+    return out;
+  }
+  if (idToSkuCode.size === 0) return out;
+
+  // Step 2: ids → open PO rows. Reuse the existing id-based fetcher.
+  return await fetchOpenPoCostsBySkuCode([...idToSkuCode.keys()], idToSkuCode);
+}
+
 // Fetch open-PO unit costs grouped by sku_code. Third step in the
 // cost-cascade — used when neither ip_item_avg_cost nor a sibling SKU has
 // a value. ip_open_purchase_orders keys by sku_id (uuid), so the caller
@@ -540,15 +573,16 @@ export const NavBar: React.FC<NavBarProps> = ({
     // Hydrate avgCost for rows the ATS snapshot left blank — typically
     // SKUs that are currently out-of-stock but have incoming POs (the
     // inventory snapshot only carries an Avg Cost column for on-hand
-    // items). The Xoro Item Costing Report (ingested nightly into
-    // ip_item_avg_cost) is the authoritative source. Without this,
-    // the export's Avg Cost / Total Cost / Sls Prc @ N% columns
-    // render blank for any out-of-stock SKU even when its margin is
-    // perfectly computable.
+    // items). Without this, the export's Avg Cost / Total Cost /
+    // Sls Prc @ N% columns render blank for those rows even when their
+    // cost is perfectly computable elsewhere.
     //
-    // Cascade: direct hit from ip_item_avg_cost → sibling SKU in the
-    // same base style → user-selected general margin (currently not
-    // applied here as there's no per-row sale price to derive from).
+    // Cascade (per the planner's rule, 2026-05-16):
+    //   1. direct  — ip_item_avg_cost (Xoro Item Costing Report)
+    //   2. sibling — another child SKU in the same base style
+    //   3. po      — avg unit_cost across the SKU's open POs
+    //   4. margin  — generalMarginPct against a sale price (not
+    //                applied here; no per-row sale price in this flow)
     const needsHydrate = rowsForExport.filter((r) => !(typeof r.avgCost === "number" && r.avgCost > 0));
     if (needsHydrate.length > 0 && SB_URL) {
       const canonByRow = new Map<typeof rowsForExport[number], string>();
@@ -557,17 +591,23 @@ export const NavBar: React.FC<NavBarProps> = ({
         if (c) canonByRow.set(r, c);
       }
       const wanted = Array.from(new Set([...canonByRow.values()]));
-      const hydrateAvgCostMap = await fetchAvgCostBySkuCodes(wanted);
+      // Parallel-fetch the two backing maps. avgCostMap covers steps 1 + 2
+      // (direct + sibling, since siblings are looked up via the same map).
+      // openPoCostsBySku covers step 3.
+      const [hydrateAvgCostMap, openPoCostsBySku] = await Promise.all([
+        fetchAvgCostBySkuCodes(wanted),
+        fetchOpenPoCostsByCanonicalSku(wanted),
+      ]);
       // Sibling map across ALL rowsForExport canonical style codes so a
-      // missing row can borrow cost from its in-stock variants.
+      // missing row can borrow cost from its in-stock variants too.
       const siblingRecords = rowsForExport.map((r) => {
         const canonical = canonStyleColor(r.sku);
         const style = canonical ? canonical.split("-")[0] : null;
         return { sku: canonical, basePart: style };
       }).filter((x) => x.sku);
-      // Also include the in-stock rows' avgCost in the sibling cost map
+      // Also include the in-stock rows' avgCost in the avg-cost map
       // — they're not in ip_item_avg_cost but are equally valid for
-      // the cascade.
+      // sibling-step lookups.
       const inStockAvgCost = new Map<string, number>();
       for (const r of rowsForExport) {
         const c = canonSku(r.sku);
@@ -584,7 +624,7 @@ export const NavBar: React.FC<NavBarProps> = ({
       );
 
       let hydrated = 0;
-      const sourceCounts = { direct: 0, sibling: 0, margin: 0, unknown: 0 };
+      const sourceCounts = { direct: 0, sibling: 0, po: 0, margin: 0, unknown: 0 };
       rowsForExport = rowsForExport.map((r) => {
         if (typeof r.avgCost === "number" && r.avgCost > 0) return r;
         const canonical = canonByRow.get(r);
@@ -592,12 +632,10 @@ export const NavBar: React.FC<NavBarProps> = ({
         const resolved = resolveCost(canonical, {
           avgCostMap: mergedAvgCostMap,
           siblingsBySku,
+          openPoCostsBySku,
           generalMarginPct,
         });
-        if (resolved.source === "direct") sourceCounts.direct++;
-        else if (resolved.source === "sibling") sourceCounts.sibling++;
-        else if (resolved.source === "margin") sourceCounts.margin++;
-        else sourceCounts.unknown++;
+        sourceCounts[resolved.source]++;
         if (resolved.cost && resolved.cost > 0) {
           hydrated++;
           return { ...r, avgCost: resolved.cost };
@@ -605,7 +643,7 @@ export const NavBar: React.FC<NavBarProps> = ({
         return r;
       });
       console.info(
-        `[ATS export] hydrate avgCost: ${hydrated}/${needsHydrate.length} resolved (direct=${sourceCounts.direct} sibling=${sourceCounts.sibling} margin=${sourceCounts.margin} unknown=${sourceCounts.unknown})`,
+        `[ATS export] hydrate avgCost: ${hydrated}/${needsHydrate.length} resolved (direct=${sourceCounts.direct} sibling=${sourceCounts.sibling} po=${sourceCounts.po} margin=${sourceCounts.margin} unknown=${sourceCounts.unknown})`,
       );
     }
 
