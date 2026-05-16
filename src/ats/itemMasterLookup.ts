@@ -23,6 +23,12 @@ export interface ItemMasterRecord {
   color: string | null;
   size: string | null;
   description: string | null;
+  // Per-unit cost from ip_item_master. Used by the ATS export's
+  // cross-grid synthetic rows as the "avg cost at time of sale"
+  // proxy when computing T3 / SP-LY margin %. ip_sales_history_
+  // wholesale doesn't carry a cost column, so this is the closest
+  // value we have on record.
+  unit_cost?: number | null;
   // Master schema (verified against live ip_item_master): the planning side
   // labels `group_name` as "Category" and `category_name` as "Sub Cat".
   // `product_category` is a higher-level rollup (e.g. BOTTOMS / TOPS) we

@@ -40,6 +40,12 @@ export interface ExportOptions {
   // trailing/SPLY blocks drop the margin column. When customer is OFF
   // the margin column is always included.
   showCustomerMargin: boolean;
+  // Customer-facing report mode. When true, strips every column that
+  // reveals our cost basis or margin (Avg Cost, Total Cost, Sls Prc
+  // @ Margin, T3 Mrgn %, LY Mrgn %) plus the Cost / Mrgn $ / Mrgn %
+  // rows from the bottom totals stack. Use when the workbook will be
+  // shared with the customer themselves.
+  customerFacing: boolean;
 }
 
 interface Props {
@@ -65,6 +71,7 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
   const [customerEnabled, setCustomerEnabled] = useState(false);
   const [customer, setCustomer]               = useState(defaultCustomer);
   const [showCustomerMargin, setShowCustMrgn] = useState(true);
+  const [customerFacing, setCustomerFacing]   = useState(false);
 
   const [custDropOpen, setCustDropOpen] = useState(false);
   const [custSearch, setCustSearch]     = useState("");
@@ -99,6 +106,7 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
     customerEnabled,
     customer: customerEnabled ? customer : "",
     showCustomerMargin,
+    customerFacing,
   });
 
   const handleConfirm = () => { onConfirm(collectOptions()); };
@@ -116,6 +124,7 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
     setCustomerEnabled(false);
     setCustomer(defaultCustomer);
     setShowCustMrgn(true);
+    setCustomerFacing(false);
     setCustDropOpen(false);
     setCustSearch("");
   };
@@ -181,6 +190,12 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
             label="Trailing 3 & SP LY sales (Qty / Sls Price / Mrgn % for both windows)"
             checked={trailing3 && spLY}
             onChange={(v) => { setTrailing3(v); setSpLY(v); }}
+          />
+
+          <CheckRow
+            label="Customer Facing (hide all cost + margin data — Avg Cost, Total Cost, Sls Prc @ Mrgn, T3/LY Mrgn %)"
+            checked={customerFacing}
+            onChange={setCustomerFacing}
           />
 
           <div>

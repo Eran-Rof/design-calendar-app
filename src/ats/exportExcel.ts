@@ -79,11 +79,20 @@ export function buildExportPayload(
     customerEnabled:     options?.customerEnabled     ?? false,
     customer:            options?.customer            ?? "",
     showCustomerMargin:  options?.showCustomerMargin  ?? true,
+    customerFacing:      options?.customerFacing      ?? false,
   };
+  // Customer-facing mode strips every column that exposes our cost
+  // basis or margin. Applied here so all downstream column-existence
+  // checks (header / body / subtotal / bottom-total) honor it.
+  if (opts.customerFacing) {
+    opts.avgCost = false;
+    opts.slsPrcAtMrgn = false;
+  }
   // Margin column appears in trailing/SPLY blocks always when no
   // customer is selected; when a customer IS selected, only when the
-  // operator opted in.
-  const showT3Margin   = !opts.customerEnabled || opts.showCustomerMargin;
+  // operator opted in. Customer-facing mode forces the margin column
+  // off regardless.
+  const showT3Margin   = !opts.customerFacing && (!opts.customerEnabled || opts.showCustomerMargin);
   const customerFilter = opts.customerEnabled ? opts.customer : "";
   // Sales-margin fraction shared by body / subtotal / total calcs.
   const slsMargin = opts.slsMarginPct / 100;
@@ -167,9 +176,11 @@ export function buildExportPayload(
   const COL_SLS_PRC:     number | undefined = opts.slsPrcAtMrgn ? nextCol++ : undefined;
   const COL_T3_QTY:      number | undefined = opts.trailing3    ? nextCol++ : undefined;
   const COL_T3_PRICE:    number | undefined = opts.trailing3    ? nextCol++ : undefined;
+  const COL_T3_TTL_SLS:  number | undefined = opts.trailing3    ? nextCol++ : undefined;
   const COL_T3_MRGN:     number | undefined = (opts.trailing3 && showT3Margin) ? nextCol++ : undefined;
   const COL_LY_QTY:      number | undefined = opts.spLY         ? nextCol++ : undefined;
   const COL_LY_PRICE:    number | undefined = opts.spLY         ? nextCol++ : undefined;
+  const COL_LY_TTL_SLS:  number | undefined = opts.spLY         ? nextCol++ : undefined;
   const COL_LY_MRGN:     number | undefined = (opts.spLY && showT3Margin) ? nextCol++ : undefined;
 
   const SPACER_COLS = new Set([COL.spacerF, COL.spacerH, COL.spacerJ, COL.spacerL]);
@@ -308,12 +319,14 @@ export function buildExportPayload(
   // T3/LY column labels reflect the customer narrowing so the
   // spreadsheet is self-documenting. Format: "T3 Qty" / "T3 Qty (Acme)".
   const custTag = customerFilter ? ` (${customerFilter})` : "";
-  if (COL_T3_QTY)   headerRow[COL_T3_QTY   - 1] = { v: `T3 Qty${custTag}`,   t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_T3_PRICE) headerRow[COL_T3_PRICE - 1] = { v: `T3 Sls Price`,       t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_T3_MRGN)  headerRow[COL_T3_MRGN  - 1] = { v: `T3 Mrgn %`,          t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_LY_QTY)   headerRow[COL_LY_QTY   - 1] = { v: `S/P LY${custTag}`,   t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_LY_PRICE) headerRow[COL_LY_PRICE - 1] = { v: `LY Sls Price`,       t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_LY_MRGN)  headerRow[COL_LY_MRGN  - 1] = { v: `LY Mrgn %`,          t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_T3_QTY)     headerRow[COL_T3_QTY     - 1] = { v: `T3 Qty${custTag}`, t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_T3_PRICE)   headerRow[COL_T3_PRICE   - 1] = { v: `T3 Sls Price`,     t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_T3_TTL_SLS) headerRow[COL_T3_TTL_SLS - 1] = { v: `T3 Ttl Sls`,       t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_T3_MRGN)    headerRow[COL_T3_MRGN    - 1] = { v: `T3 Mrgn %`,        t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_LY_QTY)     headerRow[COL_LY_QTY     - 1] = { v: `S/P LY${custTag}`, t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_LY_PRICE)   headerRow[COL_LY_PRICE   - 1] = { v: `LY Sls Price`,     t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_LY_TTL_SLS) headerRow[COL_LY_TTL_SLS - 1] = { v: `LY Ttl Sls`,       t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_LY_MRGN)    headerRow[COL_LY_MRGN    - 1] = { v: `LY Mrgn %`,        t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
 
   // ── Trailing-3 / SP-LY aggregate lookups ──────────────────────────────
   // Pre-fetched maps keyed by ATS-row sku (variant grain). The fetcher
@@ -353,8 +366,8 @@ export function buildExportPayload(
     COL.total,
     ...([
       COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC,
-      COL_T3_QTY, COL_T3_PRICE, COL_T3_MRGN,
-      COL_LY_QTY, COL_LY_PRICE, COL_LY_MRGN,
+      COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN,
+      COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN,
     ].filter((c): c is number => c !== undefined)),
   ];
 
@@ -457,9 +470,10 @@ export function buildExportPayload(
       }
       const price = qty > 0 ? totalPrice / qty : 0;
       const mrgnPct = totalPrice > 0 && totalCost > 0 ? ((totalPrice - totalCost) / totalPrice) * 100 : 0;
-      if (COL_T3_QTY)   r2[COL_T3_QTY   - 1] = subCell(qty);
-      if (COL_T3_PRICE) r2[COL_T3_PRICE - 1] = subCurr(price);
-      if (COL_T3_MRGN)  r2[COL_T3_MRGN  - 1] = subPct(mrgnPct / 100);
+      if (COL_T3_QTY)     r2[COL_T3_QTY     - 1] = subCell(qty);
+      if (COL_T3_PRICE)   r2[COL_T3_PRICE   - 1] = subCurr(price);
+      if (COL_T3_TTL_SLS) r2[COL_T3_TTL_SLS - 1] = subCurr(totalPrice);
+      if (COL_T3_MRGN)    r2[COL_T3_MRGN    - 1] = subPct(mrgnPct / 100);
     }
     if (opts.spLY) {
       let qty = 0, totalPrice = 0, totalCost = 0;
@@ -471,9 +485,10 @@ export function buildExportPayload(
       }
       const price = qty > 0 ? totalPrice / qty : 0;
       const mrgnPct = totalPrice > 0 && totalCost > 0 ? ((totalPrice - totalCost) / totalPrice) * 100 : 0;
-      if (COL_LY_QTY)   r2[COL_LY_QTY   - 1] = subCell(qty);
-      if (COL_LY_PRICE) r2[COL_LY_PRICE - 1] = subCurr(price);
-      if (COL_LY_MRGN)  r2[COL_LY_MRGN  - 1] = subPct(mrgnPct / 100);
+      if (COL_LY_QTY)     r2[COL_LY_QTY     - 1] = subCell(qty);
+      if (COL_LY_PRICE)   r2[COL_LY_PRICE   - 1] = subCurr(price);
+      if (COL_LY_TTL_SLS) r2[COL_LY_TTL_SLS - 1] = subCurr(totalPrice);
+      if (COL_LY_MRGN)    r2[COL_LY_MRGN    - 1] = subPct(mrgnPct / 100);
     }
 
     return r2;
@@ -600,20 +615,26 @@ export function buildExportPayload(
       : { v: slsPrcV, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
 
     // Trailing 3 — sales over the last 3 months from today, optionally
-    // narrowed to one customer. Margin uses avgCost as the cost basis.
+    // narrowed to one customer. Margin uses avgCost as the cost basis,
+    // adjusted for pack grain: SO totalPrice / qty is at PACK grain for
+    // prepacks (Xoro stores per-pack), while avgCost is per-unit, so
+    // multiply by ppkMult to align.
     if (opts.trailing3) {
       const t3 = t3Of(r.sku);
       const t3Price = t3.qty > 0 ? t3.totalPrice / t3.qty : 0;
       const t3MrgnPct = (avgCostV > 0 && t3Price > 0)
-        ? ((t3Price - avgCostV) / t3Price) * 100
+        ? ((t3Price - avgCostV * mult) / t3Price) * 100
         : 0;
-      if (COL_T3_QTY)   qtyRow[COL_T3_QTY   - 1] = t3.qty === 0
+      if (COL_T3_QTY)     qtyRow[COL_T3_QTY     - 1] = t3.qty === 0
         ? { v: "", t: "s", s: bodyNumStyle(fill) }
         : { v: t3.qty, t: "n", s: bodyNumStyle(fill) };
-      if (COL_T3_PRICE) qtyRow[COL_T3_PRICE - 1] = t3Price === 0
+      if (COL_T3_PRICE)   qtyRow[COL_T3_PRICE   - 1] = t3Price === 0
         ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
         : { v: t3Price, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
-      if (COL_T3_MRGN)  qtyRow[COL_T3_MRGN  - 1] = t3MrgnPct === 0
+      if (COL_T3_TTL_SLS) qtyRow[COL_T3_TTL_SLS - 1] = t3.totalPrice === 0
+        ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
+        : { v: t3.totalPrice, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
+      if (COL_T3_MRGN)    qtyRow[COL_T3_MRGN    - 1] = t3MrgnPct === 0
         ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "0.0%" } }
         : { v: t3MrgnPct / 100, t: "n", s: { ...bodyNumStyle(fill), numFmt: "0.0%" } };
     }
@@ -623,15 +644,18 @@ export function buildExportPayload(
       const ly = lyOf(r.sku);
       const lyPrice = ly.qty > 0 ? ly.totalPrice / ly.qty : 0;
       const lyMrgnPct = (avgCostV > 0 && lyPrice > 0)
-        ? ((lyPrice - avgCostV) / lyPrice) * 100
+        ? ((lyPrice - avgCostV * mult) / lyPrice) * 100
         : 0;
-      if (COL_LY_QTY)   qtyRow[COL_LY_QTY   - 1] = ly.qty === 0
+      if (COL_LY_QTY)     qtyRow[COL_LY_QTY     - 1] = ly.qty === 0
         ? { v: "", t: "s", s: bodyNumStyle(fill) }
         : { v: ly.qty, t: "n", s: bodyNumStyle(fill) };
-      if (COL_LY_PRICE) qtyRow[COL_LY_PRICE - 1] = lyPrice === 0
+      if (COL_LY_PRICE)   qtyRow[COL_LY_PRICE   - 1] = lyPrice === 0
         ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
         : { v: lyPrice, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
-      if (COL_LY_MRGN)  qtyRow[COL_LY_MRGN  - 1] = lyMrgnPct === 0
+      if (COL_LY_TTL_SLS) qtyRow[COL_LY_TTL_SLS - 1] = ly.totalPrice === 0
+        ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
+        : { v: ly.totalPrice, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
+      if (COL_LY_MRGN)    qtyRow[COL_LY_MRGN    - 1] = lyMrgnPct === 0
         ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "0.0%" } }
         : { v: lyMrgnPct / 100, t: "n", s: { ...bodyNumStyle(fill), numFmt: "0.0%" } };
     }
@@ -690,7 +714,7 @@ export function buildExportPayload(
       // Optional extra cols on the PPK follower row — blank with the
       // same style as the qty row's matching cell so the merge looks
       // clean and the outline finalizer sees a real cell to border.
-      for (const ci of [COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_T3_QTY, COL_T3_PRICE, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_MRGN]) {
+      for (const ci of [COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN]) {
         if (ci !== undefined) ppkRow[ci - 1] = blankFill(bodyNumStyle(fill));
       }
 
@@ -761,7 +785,7 @@ export function buildExportPayload(
     // outline finalizer + autofit see real cells and the bottom row
     // closes the table cleanly across its full width. Callers that
     // want real aggregates patch these in after.
-    const optCols = [COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_T3_QTY, COL_T3_PRICE, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_MRGN];
+    const optCols = [COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN];
     for (const ci of optCols) {
       if (ci !== undefined) cells[ci - 1] = { v: "", t: "s", s: totalNumStyle };
     }
@@ -806,7 +830,7 @@ export function buildExportPayload(
     const t3Mrgn  = t3Tot > 0 && t3CostBasis > 0 ? (t3Tot - t3CostBasis) / t3Tot : 0;
     const lyMrgn  = lyTot > 0 && lyCostBasis > 0 ? (lyTot - lyCostBasis) / lyTot : 0;
 
-    return { avgCostW, totalCostW: costSum, slsPrcW, t3Qty, t3Price, t3Mrgn, lyQty, lyPrice, lyMrgn };
+    return { avgCostW, totalCostW: costSum, slsPrcW, t3Qty, t3Price, t3Tot, t3Mrgn, lyQty, lyPrice, lyTot, lyMrgn };
   }
 
   // Overlay the optional-col aggregates onto a stack row in-place. Used
@@ -830,15 +854,17 @@ export function buildExportPayload(
         ? { v: "", t: "s", s: { ...totalNumStyle, numFmt: "0.0%" } }
         : { v, t: "n", s: { ...totalNumStyle, numFmt: "0.0%" } };
     };
-    setCurr(COL_AVG_COST, agg.avgCostW);
-    setCurr(COL_TOT_COST, agg.totalCostW);
-    setCurr(COL_SLS_PRC,  agg.slsPrcW);
-    setQty (COL_T3_QTY,   agg.t3Qty);
-    setCurr(COL_T3_PRICE, agg.t3Price);
-    setPct (COL_T3_MRGN,  agg.t3Mrgn);
-    setQty (COL_LY_QTY,   agg.lyQty);
-    setCurr(COL_LY_PRICE, agg.lyPrice);
-    setPct (COL_LY_MRGN,  agg.lyMrgn);
+    setCurr(COL_AVG_COST,    agg.avgCostW);
+    setCurr(COL_TOT_COST,    agg.totalCostW);
+    setCurr(COL_SLS_PRC,     agg.slsPrcW);
+    setQty (COL_T3_QTY,      agg.t3Qty);
+    setCurr(COL_T3_PRICE,    agg.t3Price);
+    setCurr(COL_T3_TTL_SLS,  agg.t3Tot);
+    setPct (COL_T3_MRGN,     agg.t3Mrgn);
+    setQty (COL_LY_QTY,      agg.lyQty);
+    setCurr(COL_LY_PRICE,    agg.lyPrice);
+    setCurr(COL_LY_TTL_SLS,  agg.lyTot);
+    setPct (COL_LY_MRGN,     agg.lyMrgn);
   }
 
   if (_totals !== null) {
@@ -864,30 +890,37 @@ export function buildExportPayload(
     );
     patchOptColAggregates(totalQtyRow, computeOptColAggregates());
     dataRows.push(totalQtyRow);
-    dataRows.push(buildStackRow(
-      "TOTAL Cost",
-      (k) => fmtUSD(t[k].cost),
-      (key) => fmtUSD(t.periodCost[key] ?? 0),
-      () => fmtUSD(periodCostSum),
-    ));
+    // Customer-facing mode drops Cost / Mrgn rows from the stack
+    // (operator doesn't want our cost or margin visible to the
+    // customer).
+    if (!opts.customerFacing) {
+      dataRows.push(buildStackRow(
+        "TOTAL Cost",
+        (k) => fmtUSD(t[k].cost),
+        (key) => fmtUSD(t.periodCost[key] ?? 0),
+        () => fmtUSD(periodCostSum),
+      ));
+    }
     dataRows.push(buildStackRow(
       "TOTAL Sale",
       (k) => fmtUSD(t[k].sale),
       (key) => fmtUSD(t.periodSale[key] ?? 0),
       () => fmtUSD(periodSaleSum),
     ));
-    dataRows.push(buildStackRow(
-      "TOTAL Mrgn $",
-      (k) => fmtUSD(t[k].sale - t[k].cost),
-      (key) => fmtUSD((t.periodSale[key] ?? 0) - (t.periodCost[key] ?? 0)),
-      () => fmtUSD(periodSaleSum - periodCostSum),
-    ));
-    dataRows.push(buildStackRow(
-      "TOTAL Mrgn %",
-      (k) => safePct(t[k].sale, t[k].sale - t[k].cost),
-      (key) => safePct(t.periodSale[key] ?? 0, (t.periodSale[key] ?? 0) - (t.periodCost[key] ?? 0)),
-      () => safePct(periodSaleSum, periodSaleSum - periodCostSum),
-    ));
+    if (!opts.customerFacing) {
+      dataRows.push(buildStackRow(
+        "TOTAL Mrgn $",
+        (k) => fmtUSD(t[k].sale - t[k].cost),
+        (key) => fmtUSD((t.periodSale[key] ?? 0) - (t.periodCost[key] ?? 0)),
+        () => fmtUSD(periodSaleSum - periodCostSum),
+      ));
+      dataRows.push(buildStackRow(
+        "TOTAL Mrgn %",
+        (k) => safePct(t[k].sale, t[k].sale - t[k].cost),
+        (key) => safePct(t.periodSale[key] ?? 0, (t.periodSale[key] ?? 0) - (t.periodCost[key] ?? 0)),
+        () => safePct(periodSaleSum, periodSaleSum - periodCostSum),
+      ));
+    }
   } else {
     // Toggle OFF — single Total row of per-column qty sums.
     const onHandSum  = rows.reduce((a, r) => a + (r.onHand  ?? 0), 0);
