@@ -138,7 +138,7 @@ interface ATSDerivedCtx {
 export type ATSRenderCtx = ATSState & ATSStateSetters & ATSDerivedCtx;
 
 export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
-  const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterStyle, setFilterStyle, styles, filterGender, setFilterGender, filterStatus, setFilterStatus, minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, syncing, syncStatus, lastSync, syncError, setSyncError, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, sortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
+  const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterStyle, setFilterStyle, styles, filterGender, setFilterGender, filterStatus, setFilterStatus, minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, syncing, syncStatus, lastSync, syncError, setSyncError, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, setSortCol, sortDir, setSortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
   mergeHistory, undoLastMerge, clearMergeAndNavigate,
   atShip, setAtShip, viewMode, setViewMode, onNegInven, onAgedInven,
   showTotalsRow, setShowTotalsRow,
@@ -206,6 +206,71 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
     };
   }, [soDetailLineItems]);
 
+  // Ask AI: build a fresh snapshot of grid context every time the user
+  // hits Send. Snapshot is computed inside the closure so it always
+  // reflects live filter/sort/row state (renderPanel re-runs on every
+  // ATS state change, so the captured variables are current).
+  const aiBuildContext = () => {
+    const rowsForSnapshot = sortedFiltered;
+    const SAMPLE_LIMIT = 20;
+    const sample = rowsForSnapshot.slice(0, SAMPLE_LIMIT).map(r => ({
+      sku: r.sku,
+      description: r.master_description ?? r.description ?? "",
+      category: r.master_category ?? r.category ?? null,
+      sub_category: r.master_sub_category ?? null,
+      style: r.master_style ?? null,
+      color: r.master_color ?? null,
+      gender: r.gender ?? null,
+      store: r.store ?? null,
+      onHand: r.onHand,
+      onPO: r.onPO,
+      onOrder: r.onOrder,
+      avgCost: r.avgCost ?? null,
+    }));
+    const totalOnHand  = rowsForSnapshot.reduce((s, r) => s + (r.onHand  || 0), 0);
+    const totalOnPO    = rowsForSnapshot.reduce((s, r) => s + (r.onPO    || 0), 0);
+    const totalOnOrder = rowsForSnapshot.reduce((s, r) => s + (r.onOrder || 0), 0);
+    const distinctSet = (vals: Array<string | null | undefined>) =>
+      Array.from(new Set(vals.filter((v): v is string => !!v && v.length > 0))).sort();
+    return {
+      columns: ["sku","description","category","sub_category","style","color","gender","store","onHand","onPO","onOrder","avgCost"],
+      active_filters: {
+        search: search || undefined,
+        category: filterCategory,
+        sub_category: filterSubCategory,
+        style: filterStyle,
+        gender: filterGender,
+        status: filterStatus,
+        min_ats: minATS === "" ? null : minATS,
+        store: storeFilter,
+        customer: customerFilter || undefined,
+      },
+      sort: sortCol ? { col: sortCol, dir: sortDir } : null,
+      row_count: rowsForSnapshot.length,
+      totals: {
+        total_on_hand:  totalOnHand,
+        total_on_po:    totalOnPO,
+        total_on_order: totalOnOrder,
+        total_so_value: totalSoValue,
+        total_po_value: totalPoValue,
+        margin_pct:     marginPct,
+      },
+      distinct: {
+        categories:     distinctSet(rows.map(r => r.master_category ?? r.category)),
+        sub_categories: distinctSet(rows.map(r => r.master_sub_category)),
+        styles:         distinctSet(rows.map(r => r.master_style)),
+        genders:        distinctSet(rows.map(r => r.gender)),
+        stores:         distinctSet(rows.map(r => r.store)),
+      },
+      sample_rows: sample,
+    };
+  };
+  const aiSetters = {
+    setSearch, setFilterCategory, setFilterSubCategory, setFilterStyle,
+    setFilterGender, setFilterStatus, setMinATS, setStoreFilter,
+    setSortCol, setSortDir, setActiveSort,
+  };
+
   return (
     <div style={S.app}>
       <style>{`
@@ -269,6 +334,8 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         onToggleNotifications={onToggleNotifications}
         excelData={excelData}
         setExcelData={setExcelData}
+        aiBuildContext={aiBuildContext}
+        aiSetters={aiSetters}
       />
       <SyncProgressBanner syncProgress={syncProgress} />
       <UnmatchedBanner

@@ -11,6 +11,8 @@ import { buildExportPayload, triggerXlsxDownload, type ExportPayload } from "../
 import { getItemMasterById } from "../itemMasterLookup";
 import { filterRows } from "../filter";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
+import { AskAIPanel } from "../../ai/AskAIPanel";
+import type { AIGridSetters, GridContextSnapshot } from "../../ai/tools";
 
 // Fetch ip_item_master rows for sku_ids the local cache doesn't
 // already have. Used by the cross-grid synthetic-row flow when a
@@ -345,6 +347,12 @@ interface NavBarProps {
   // intact (Excel is still the source for those until we have endpoints).
   excelData: ExcelData | null;
   setExcelData: (v: ExcelData | null | ((prev: ExcelData | null) => ExcelData | null)) => void;
+  // Ask AI panel — closure captures live grid state so the AI gets a
+  // fresh snapshot per question. Setters are forwarded so the AI can
+  // mutate filters/sort directly. Both optional — when omitted, the
+  // Ask AI button stays hidden (useful for read-only embeds).
+  aiBuildContext?: () => GridContextSnapshot;
+  aiSetters?: AIGridSetters;
 }
 
 export const NavBar: React.FC<NavBarProps> = ({
@@ -355,7 +363,9 @@ export const NavBar: React.FC<NavBarProps> = ({
   customerFilter, exportFilterOpts, explodePpk,
   unreadNotifs, showingNotifications, onToggleNotifications,
   excelData, setExcelData,
+  aiBuildContext, aiSetters,
 }) => {
+  const [aiOpen, setAiOpen] = useState(false);
   // Export-options modal — opens when the user picks "Export Excel"
   // from the Reports menu. Confirm callback fires exportToExcel with
   // the chosen options.
@@ -757,6 +767,25 @@ export const NavBar: React.FC<NavBarProps> = ({
           </div>
         )}
       </div>
+      {aiBuildContext && aiSetters && (
+        <button
+          style={{
+            ...S.navBtn,
+            background: "#7C3AED",
+            border: "1px solid #5B21B6",
+            color: "#fff",
+            fontWeight: 600,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            cursor: "pointer",
+          }}
+          onClick={() => setAiOpen(true)}
+          title="Ask Claude about the grid — filter, sort, or get a quick answer"
+        >
+          ✨ Ask AI
+        </button>
+      )}
       <button
         style={{
           ...S.navBtn,
@@ -780,6 +809,18 @@ export const NavBar: React.FC<NavBarProps> = ({
       </button>
       <button style={{ ...S.navBtn, cursor: "pointer" }} onClick={onNavigateHome}>← PLM Home</button>
     </div>
+
+    {/* Ask AI slide-in panel — only mounted when caller wired the closure +
+        setters. Closure is captured fresh on every send so the AI gets
+        live filter/sort state. */}
+    {aiBuildContext && aiSetters && (
+      <AskAIPanel
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        buildContext={aiBuildContext}
+        setters={aiSetters}
+      />
+    )}
 
     {/* Sync Open SOs centered progress modal — matches UploadProgressOverlay format */}
     <XoroSyncOverlay progress={syncProgress} onCancel={handleCancelSync} />
