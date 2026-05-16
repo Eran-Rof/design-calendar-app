@@ -46,6 +46,12 @@ export interface ExportOptions {
   // rows from the bottom totals stack. Use when the workbook will be
   // shared with the customer themselves.
   customerFacing: boolean;
+  // After the workbook is built, drop any column whose body cells are
+  // all empty/zero. Always-kept columns: the text identity cols
+  // (Category / Sub Cat / Style / Description / Color) plus the
+  // spacer cols. Useful when periods or optional cols have nothing
+  // to show and would otherwise add visual noise.
+  hideZeroColumns: boolean;
 }
 
 interface Props {
@@ -72,6 +78,7 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
   const [customer, setCustomer]               = useState(defaultCustomer);
   const [showCustomerMargin, setShowCustMrgn] = useState(true);
   const [customerFacing, setCustomerFacing]   = useState(false);
+  const [hideZeroColumns, setHideZeroColumns] = useState(false);
 
   const [custDropOpen, setCustDropOpen] = useState(false);
   const [custSearch, setCustSearch]     = useState("");
@@ -107,6 +114,7 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
     customer: customerEnabled ? customer : "",
     showCustomerMargin,
     customerFacing,
+    hideZeroColumns,
   });
 
   const handleConfirm = () => { onConfirm(collectOptions()); };
@@ -125,6 +133,7 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
     setCustomer(defaultCustomer);
     setShowCustMrgn(true);
     setCustomerFacing(false);
+    setHideZeroColumns(false);
     setCustDropOpen(false);
     setCustSearch("");
   };
@@ -196,6 +205,12 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
             label="Customer Facing (hide all cost + margin data — Avg Cost, Total Cost, Sls Prc @ Mrgn, T3/LY Mrgn %)"
             checked={customerFacing}
             onChange={setCustomerFacing}
+          />
+
+          <CheckRow
+            label="Hide zero columns (drop any data column whose body is empty / all zero)"
+            checked={hideZeroColumns}
+            onChange={setHideZeroColumns}
           />
 
           <div>

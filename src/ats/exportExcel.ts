@@ -80,6 +80,7 @@ export function buildExportPayload(
     customer:            options?.customer            ?? "",
     showCustomerMargin:  options?.showCustomerMargin  ?? true,
     customerFacing:      options?.customerFacing      ?? false,
+    hideZeroColumns:     options?.hideZeroColumns     ?? false,
   };
   // Customer-facing mode strips every column that exposes our cost
   // basis or margin. Applied here so all downstream column-existence
@@ -1070,8 +1071,62 @@ export function buildExportPayload(
     });
   }
 
+  // ── Optional pass: drop columns whose body is entirely empty ──────────
+  // Always-keep columns: the text identity block + every spacer.
+  // Everything else stays only if at least one body row has a
+  // non-empty value (numbers we'd render as blanks under the
+  // zero-blanks policy are already stored as { v: "" }, so a true
+  // "all zero" column has no v's to find here).
+  let effectiveAllRows = allRows;
+  let effectiveMerges  = merges;
+  let columnIndexMap: Map<number, number> | null = null; // old 1-based → new 1-based
+  if (opts.hideZeroColumns) {
+    const alwaysKeep = new Set<number>([
+      COL.category, COL.subCat, COL.style, COL.description, COL.color,
+      COL.spacerF, COL.spacerH, COL.spacerJ, COL.spacerL,
+    ]);
+    const hasData = new Set<number>();
+    const scanFrom = tableTopRow + 1; // skip title (if any) + header
+    for (let r = scanFrom; r <= lastAoaRow; r++) {
+      const row = allRows[r];
+      if (!row) continue;
+      for (let c = 0; c < totalColumnCount; c++) {
+        const cell = row[c];
+        if (!cell) continue;
+        const v = cell.v;
+        if (v !== undefined && v !== null && v !== "") {
+          hasData.add(c + 1);
+        }
+      }
+    }
+    const keptList: number[] = [];
+    for (let c = 1; c <= totalColumnCount; c++) {
+      if (alwaysKeep.has(c) || hasData.has(c)) keptList.push(c);
+    }
+    if (keptList.length < totalColumnCount) {
+      // Build the new AOA by projecting each row to the kept columns.
+      effectiveAllRows = allRows.map(row => keptList.map(c => row?.[c - 1]));
+      // Remap merges: drop those whose anchor or end column was
+      // removed; shift the remaining ones to the new column indexes.
+      columnIndexMap = new Map();
+      keptList.forEach((origCol, newIdx) => columnIndexMap!.set(origCol, newIdx + 1));
+      const oldToNew0 = (origC0: number): number | null => {
+        const newCol = columnIndexMap!.get(origC0 + 1);
+        return newCol === undefined ? null : newCol - 1;
+      };
+      effectiveMerges = merges
+        .map(m => {
+          const sc = oldToNew0(m.s.c);
+          const ec = oldToNew0(m.e.c);
+          if (sc === null || ec === null) return null;
+          return { s: { r: m.s.r, c: sc }, e: { r: m.e.r, c: ec } };
+        })
+        .filter((m): m is { s: { r: number; c: number }; e: { r: number; c: number } } => m !== null);
+    }
+  }
+
   // ── Build worksheet ─────────────────────────────────────────────────────
-  const aoa = allRows;
+  const aoa = effectiveAllRows;
   const ws  = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
 
   // ── Auto-fit column widths ──────────────────────────────────────────────
@@ -1094,9 +1149,18 @@ export function buildExportPayload(
     }
     return Math.min(MAX_WCH, maxLen + PAD);
   }
+  // Width array follows the same projection as the AOA when hideZero
+  // is on: only emit widths for kept columns, in the same order.
   ws["!cols"] = [];
-  for (let ci = 1; ci <= totalColumnCount; ci++) {
-    ws["!cols"][ci - 1] = { wch: widthForColumn(ci) };
+  if (columnIndexMap) {
+    const keptOrigCols = [...columnIndexMap.keys()].sort((a, b) => (columnIndexMap!.get(a)! - columnIndexMap!.get(b)!));
+    keptOrigCols.forEach((origCol, i) => {
+      ws["!cols"][i] = { wch: widthForColumn(origCol) };
+    });
+  } else {
+    for (let ci = 1; ci <= totalColumnCount; ci++) {
+      ws["!cols"][ci - 1] = { wch: widthForColumn(ci) };
+    }
   }
 
   // Row heights — set per Excel row index after we've already pushed
@@ -1133,8 +1197,8 @@ export function buildExportPayload(
 
   // Merged cells for prepack pairs — text + spacers + qty cols + Total
   // span both rows; only period cols stay split (qty top, PPK bottom).
-  if (merges.length > 0) {
-    ws["!merges"] = merges;
+  if (effectiveMerges.length > 0) {
+    ws["!merges"] = effectiveMerges;
   }
   // No frozen panes, no autofilter.
 
