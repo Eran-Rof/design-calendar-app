@@ -93,39 +93,59 @@ function toNum(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-async function resolveCustomerId(name: string): Promise<string | null> {
+// Canonicalize a customer name the way the Xoro sales-invoice sync
+// does (uppercase + collapse whitespace). Used to compare the
+// operator-typed dropdown value against ip_customer_master.name when
+// the punctuation/case/whitespace doesn't line up.
+function canonCustomerName(raw: string): string {
+  return raw.trim().toUpperCase().replace(/\s+/g, " ");
+}
+
+// Returns every ip_customer_master.id whose name matches the given
+// dropdown value under any reasonable interpretation. Worth being
+// aggressive: the dropdown's source is the operator's upload
+// (excelData.sos.customerName), and ip_customer_master.name was
+// written by the Xoro sales sync after its own canonicalization —
+// they often diverge ("Ross Procurement" vs "ROSS PROCUREMENT" vs
+// "Ross Procurement, Inc."). Returns empty array if no candidate
+// passes the canonicalized comparison.
+async function resolveCustomerIds(name: string): Promise<string[]> {
   const trimmed = name.trim();
-  if (!trimmed) return null;
-  // ip_customer_master.name comes from the Xoro sales-invoice sync.
-  // The dropdown source is excelData.sos.customerName (operator
-  // upload) — case + trailing-punctuation can differ ("Ross
-  // Procurement" vs "ROSS PROCUREMENT" vs "Ross Procurement, Inc.").
-  // First try exact match (fast index hit); fall back to ilike if
-  // exact returns nothing, then to a leading-prefix ilike. Anything
-  // beyond that is genuinely a name mismatch the operator needs to
-  // resolve at the data layer.
-  const encExact = encodeURIComponent(trimmed);
-  const exact = await sbGet<{ id: string }>(
-    `ip_customer_master?select=id&name=eq.${encExact}&limit=1`,
+  if (!trimmed) return [];
+  const target = canonCustomerName(trimmed);
+
+  // Pull a candidate pool with a generous ILIKE on the first
+  // meaningful token (Xoro often appends ", Inc." or "DC #..." to
+  // the same logical customer). limit=50 is plenty — duplicate
+  // names in the master rarely exceed a handful.
+  const firstWord = trimmed.split(/\s+/)[0] || trimmed;
+  const enc = encodeURIComponent(`${firstWord}%`);
+  const rows = await sbGet<{ id: string; name: string }>(
+    `ip_customer_master?select=id,name&name=ilike.${enc}&limit=50`,
   );
-  if (exact[0]?.id) return exact[0].id;
-  const encIlike = encodeURIComponent(trimmed);
-  const ilike = await sbGet<{ id: string }>(
-    `ip_customer_master?select=id&name=ilike.${encIlike}&limit=1`,
-  );
-  if (ilike[0]?.id) {
-    console.info(`[ATS export] customer "${trimmed}" matched case-insensitively in ip_customer_master`);
-    return ilike[0].id;
+
+  const out: string[] = [];
+  for (const r of rows) {
+    if (!r.id || !r.name) continue;
+    const candidate = canonCustomerName(r.name);
+    if (
+      candidate === target
+      || candidate.startsWith(target)
+      || target.startsWith(candidate)
+    ) {
+      out.push(r.id);
+    }
   }
-  const encPrefix = encodeURIComponent(`${trimmed}%`);
-  const prefix = await sbGet<{ id: string }>(
-    `ip_customer_master?select=id&name=ilike.${encPrefix}&limit=1`,
-  );
-  if (prefix[0]?.id) {
-    console.info(`[ATS export] customer "${trimmed}" matched prefix-ilike in ip_customer_master`);
-    return prefix[0].id;
+  // Also try an exact match in case the first-word pool missed it
+  // (e.g. operator typed the full name verbatim).
+  if (out.length === 0) {
+    const encExact = encodeURIComponent(trimmed);
+    const exact = await sbGet<{ id: string }>(
+      `ip_customer_master?select=id&name=eq.${encExact}&limit=5`,
+    );
+    for (const r of exact) if (r.id) out.push(r.id);
   }
-  return null;
+  return out;
 }
 
 // Build the variant-id → ATS-sku reverse map. Walks each ATS row,
@@ -236,15 +256,19 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer }: F
   else if (needT3)      { fetchStart = t3Start; fetchEnd = today; }
   else                  { fetchStart = lyStart; fetchEnd = lyEnd; }
 
-  // Resolve customer name → id (one round trip, separate from the
-  // sales fetch so the cached sales rows can serve every customer).
-  let customerId: string | null = null;
+  // Resolve customer name → all matching ip_customer_master.ids (one
+  // round trip, separate from the sales fetch). Empty array = name
+  // doesn't match anything; an explicit customer filter that finds
+  // zero ids means "no rows", not "all customers".
+  let customerIdSet: Set<string> | null = null;
   if (customer) {
-    customerId = await resolveCustomerId(customer);
-    if (!customerId) {
+    const ids = await resolveCustomerIds(customer);
+    if (ids.length === 0) {
       console.warn(`[ATS export] customer "${customer}" not in ip_customer_master — T3/LY will be empty.`);
       return { t3: new Map(), ly: new Map(), extraBySkuId: new Map() };
     }
+    customerIdSet = new Set(ids);
+    console.info(`[ATS export] customer "${customer}" matched ${ids.length} ip_customer_master row${ids.length === 1 ? "" : "s"}: ${ids.join(", ")}`);
   }
 
   const { idToSku, matched, unmatched } = buildIdToSkuMap(rows);
@@ -278,9 +302,13 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer }: F
   }
 
   // In-memory customer filter (the sales-row cache is unfiltered so
-  // it can serve every customer's view).
-  if (customerId) {
-    salesRows = salesRows.filter(r => r.customer_id === customerId);
+  // it can serve every customer's view). Match on any id in the
+  // resolved set — a single dropdown name can correspond to multiple
+  // ip_customer_master rows (Xoro variant spellings).
+  if (customerIdSet) {
+    const before = salesRows.length;
+    salesRows = salesRows.filter(r => r.customer_id != null && customerIdSet!.has(r.customer_id));
+    console.info(`[ATS export] customer filter: ${salesRows.length}/${before} sales rows match`);
   }
 
   const t3: SalesAggMap = new Map();
@@ -290,7 +318,7 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer }: F
   // report is intended to surface "everything this customer bought"
   // not "every SKU in the master ever sold to anyone".
   const extraBySkuId: SalesFetchResult["extraBySkuId"] = new Map();
-  const shouldCollectExtras = !!customerId;
+  const shouldCollectExtras = !!customerIdSet;
 
   for (const r of salesRows) {
     const inT3 = needT3 && r.txn_date >= t3Start && r.txn_date <= today;
@@ -357,10 +385,10 @@ export async function getSkuSalesAggregates(sku: string, customer: string): Prom
   if (ids.length === 0) return null;
   const idSet = new Set(ids);
 
-  let customerId: string | null = null;
+  let customerIdSet: Set<string> | null = null;
   if (customer) {
-    customerId = await resolveCustomerId(customer);
-    if (!customerId) {
+    const ids = await resolveCustomerIds(customer);
+    if (ids.length === 0) {
       // Customer doesn't match the master — empty aggregates rather
       // than fall back to all-customer data (would be misleading
       // given the operator explicitly selected one).
@@ -372,6 +400,7 @@ export async function getSkuSalesAggregates(sku: string, customer: string): Prom
         lyWindow: { start: isoMinusMonths(today, 15), end: isoMinusMonths(today, 12) },
       };
     }
+    customerIdSet = new Set(ids);
   }
 
   // Use the cache if warm; otherwise await the preload Promise; if
@@ -393,7 +422,7 @@ export async function getSkuSalesAggregates(sku: string, customer: string): Prom
   let lyQty = 0, lyTotal = 0;
   for (const r of salesRows) {
     if (!idSet.has(r.sku_id)) continue;
-    if (customerId && r.customer_id !== customerId) continue;
+    if (customerIdSet && (r.customer_id == null || !customerIdSet.has(r.customer_id))) continue;
     const qty = toNum(r.qty);
     let rev = toNum(r.net_amount);
     if (rev <= 0) rev = toNum(r.unit_price) * qty;

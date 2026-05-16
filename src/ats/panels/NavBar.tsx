@@ -9,6 +9,31 @@ import { ExportPreviewModal } from "./ExportPreviewModal";
 import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
 import { buildExportPayload, triggerXlsxDownload, type ExportPayload } from "../exportExcel";
 import { getItemMasterById } from "../itemMasterLookup";
+import { SB_URL, SB_HEADERS } from "../../utils/supabase";
+
+// Fetch ip_item_master rows for sku_ids the local cache doesn't
+// already have. Used by the cross-grid synthetic-row flow when a
+// customer's sales reference SKUs that haven't been cached (newly
+// added, never carried inventory locally, etc.).
+async function fetchMissingMasterRows(ids: string[]): Promise<Array<{ id: string; sku_code: string; style_code: string | null; color: string | null; description: string | null; attributes: any }>> {
+  if (!SB_URL || ids.length === 0) return [];
+  // PostgREST `in.(...)` URL — quote each id (uuids are safe but
+  // be defensive). encodeURIComponent the whole comma-joined string
+  // so commas become %2C and PostgREST sees a single in-clause.
+  const inList = ids.map(id => `"${id}"`).join(",");
+  const url = `${SB_URL}/rest/v1/ip_item_master?select=id,sku_code,style_code,color,description,attributes&id=in.(${encodeURIComponent(inList)})&limit=${ids.length}`;
+  try {
+    const r = await fetch(url, { headers: SB_HEADERS });
+    if (!r.ok) {
+      console.warn(`[ATS export] fetchMissingMasterRows failed: ${r.status}`);
+      return [];
+    }
+    return await r.json();
+  } catch (e) {
+    console.warn("[ATS export] fetchMissingMasterRows error:", e);
+    return [];
+  }
+}
 
 // Sync architecture (rewritten 2026-05-06 after discovering Xoro's
 // pagination overlaps — same SOs appear on multiple pages, and the
@@ -431,23 +456,38 @@ export const NavBar: React.FC<NavBarProps> = ({
         // Cross-grid: when a customer is selected, also surface SKUs
         // the customer historically bought that aren't visible in
         // the current grid (shipped through, no open commitments).
-        // The fetcher already collected those as extraBySkuId keyed
-        // by ip_item_master.id; build synthetic ATS rows from the
-        // master cache and append + re-aggregate so T3/LY columns
-        // show real numbers next to the existing zero qty fields.
+        // The fetcher collected those as extraBySkuId keyed by
+        // ip_item_master.id. Resolve each id via the cache first;
+        // for any not in the local cache, hit Supabase once for the
+        // batch so newly-added or never-carried styles also surface.
         if (opts.customerEnabled && salesAggregates.extraBySkuId.size > 0) {
+          const allIds = [...salesAggregates.extraBySkuId.keys()];
+          const cached = new Map<string, ReturnType<typeof getItemMasterById>>();
+          const missingIds: string[] = [];
+          for (const id of allIds) {
+            const rec = getItemMasterById(id);
+            if (rec) cached.set(id, rec);
+            else missingIds.push(id);
+          }
+          if (missingIds.length > 0) {
+            const fetched = await fetchMissingMasterRows(missingIds);
+            console.info(`[ATS export] cross-grid: fetched ${fetched.length}/${missingIds.length} missing master rows from Supabase`);
+            for (const r of fetched) {
+              cached.set(r.id, {
+                id: r.id, sku_code: r.sku_code, style_code: r.style_code,
+                color: r.color, description: r.description,
+                attributes: r.attributes ?? {}, size: null,
+              });
+            }
+          }
+
           const synthetic: ATSRow[] = [];
           const extraT3: Array<[string, { qty: number; totalPrice: number }]> = [];
           const extraLY: Array<[string, { qty: number; totalPrice: number }]> = [];
           for (const [id, agg] of salesAggregates.extraBySkuId) {
-            const rec = getItemMasterById(id);
+            const rec = cached.get(id);
             if (!rec || !rec.sku_code) continue;
             const synthSku = rec.sku_code;
-            // Use the style code as the displayable sku when one
-            // exists — matches the grid's variant grain (e.g.
-            // "RYB0412 - Sahara Camo" vs "RYB0412-SAHARA-CAMO").
-            // We keep the canonical form here; the export reads
-            // master_* fields for the visible labels regardless.
             synthetic.push({
               sku: synthSku,
               description: rec.description ?? "",
@@ -472,7 +512,9 @@ export const NavBar: React.FC<NavBarProps> = ({
             finalRows = [...rowsForExport, ...synthetic];
             for (const [k, v] of extraT3) salesAggregates.t3.set(k, v);
             for (const [k, v] of extraLY) salesAggregates.ly.set(k, v);
-            console.info(`[ATS export] cross-grid: added ${synthetic.length} synthetic rows for SKUs with customer sales but no grid presence`);
+            console.info(`[ATS export] cross-grid: added ${synthetic.length} synthetic rows (from ${salesAggregates.extraBySkuId.size} unmapped sku_ids with customer sales)`);
+          } else {
+            console.warn(`[ATS export] cross-grid: extraBySkuId had ${salesAggregates.extraBySkuId.size} entries but none could be resolved to a master record — verify ip_item_master coverage`);
           }
         }
       } catch (e) {
