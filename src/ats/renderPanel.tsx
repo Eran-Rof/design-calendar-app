@@ -108,6 +108,7 @@ interface ATSDerivedCtx {
     totals?: import("./computeTotals").GridTotals | null,
     options?: import("./panels/ExportOptionsModal").ExportOptions,
     eventIndex?: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null,
+    salesAggregates?: import("./exportSalesFetch").SalesFetchResult,
   ) => void;
   repositionCtxMenu: () => void;
   repositionSummaryCtx: () => void;

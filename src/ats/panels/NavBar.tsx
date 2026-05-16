@@ -5,6 +5,7 @@ import { computeGridTotals } from "../computeTotals";
 import { XoroSyncOverlay, type XoroSyncProgress } from "./StatusOverlays";
 import { normalizeXoroSos, type XoroSoRecord } from "../normalizeXoroSos";
 import { ExportOptionsModal, type ExportOptions } from "./ExportOptionsModal";
+import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
 
 // Sync architecture (rewritten 2026-05-06 after discovering Xoro's
 // pagination overlaps — same SOs appear on multiple pages, and the
@@ -254,6 +255,7 @@ interface NavBarProps {
     totals?: import("../computeTotals").GridTotals | null,
     options?: ExportOptions,
     eventIndex?: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null,
+    salesAggregates?: SalesFetchResult,
   ) => void;
   filtered: ATSRow[];
   // Auto-default for the export-options modal's customer dropdown.
@@ -307,6 +309,11 @@ export const NavBar: React.FC<NavBarProps> = ({
   // from the Reports menu. Confirm callback fires exportToExcel with
   // the chosen options.
   const [exportOptsOpen, setExportOptsOpen] = useState(false);
+  // While the modal's Export button is awaiting a sales pre-fetch we
+  // render a small blocking "Loading sales history…" overlay so the
+  // operator knows something is happening (fetch can take several
+  // seconds for a 15-month window over thousands of SKUs).
+  const [exportLoading, setExportLoading] = useState(false);
   const [agedOpen, setAgedOpen] = useState(false);
   const [agedDays, setAgedDays] = useState("365");
   const [agedCategory, setAgedCategory] = useState(filterCategory);
@@ -632,7 +639,7 @@ export const NavBar: React.FC<NavBarProps> = ({
       onClose={() => setExportOptsOpen(false)}
       excelData={excelData}
       defaultCustomer={customerFilter}
-      onConfirm={(opts) => {
+      onConfirm={async (opts) => {
         const rowsForExport = filtered.filter(r => !r.__collapsed);
         // GridTotals are only useful when subtotals are on AND the
         // user wants the 5-row Cost/Sale/Mrgn bottom stack. We keep
@@ -649,6 +656,29 @@ export const NavBar: React.FC<NavBarProps> = ({
               generalMarginPct,
             })
           : null;
+
+        // Pre-fetch T3 + SP-LY sales from ip_sales_history_wholesale
+        // (the nightly Xoro-synced sales DB) — the in-app eventIndex
+        // is forward-only and can't satisfy these windows.
+        let salesAggregates: SalesFetchResult | undefined;
+        if (opts.trailing3 || opts.spLY) {
+          setExportLoading(true);
+          try {
+            salesAggregates = await fetchSalesAggregates({
+              rows: rowsForExport,
+              needT3: opts.trailing3,
+              needLY: opts.spLY,
+              customer: opts.customer,
+            });
+          } catch (e) {
+            console.error("[ATS export] sales fetch failed:", e);
+            // Fall through with undefined — T3/LY columns render blank
+            // rather than blocking the rest of the export.
+          } finally {
+            setExportLoading(false);
+          }
+        }
+
         exportToExcel(
           rowsForExport,
           displayPeriods.map(p => ({ endDate: p.endDate, label: p.label })),
@@ -657,10 +687,22 @@ export const NavBar: React.FC<NavBarProps> = ({
           totals,
           opts,
           eventIndex,
+          salesAggregates,
         );
         setExportOptsOpen(false);
       }}
     />
+    {exportLoading && (
+      <div style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1100,
+        display: "flex", alignItems: "center", justifyContent: "center", color: "#F1F5F9",
+        fontFamily: "inherit", fontSize: 14, fontWeight: 600,
+      }}>
+        <div style={{ background: "#1E293B", padding: "18px 26px", borderRadius: 10, border: "1px solid #334155", boxShadow: "0 16px 48px rgba(0,0,0,0.6)" }}>
+          Loading sales history…
+        </div>
+      </div>
+    )}
   </nav>
   );
 };
