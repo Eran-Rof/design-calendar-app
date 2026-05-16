@@ -231,22 +231,21 @@ import h225 from "./edi/inbound/index.js";
 import h226 from "./master/sync.js";
 import h227 from "./vendor/bulk/index.js";
 import h228 from "./vendor/rfqs/index.js";
-import h229 from "./ai/_schema.js";
-import h230 from "./ats/upload.js";
-import h231 from "./vendor/erp.js";
-import h232 from "./xoro/items.js";
-import h233 from "./xoro-items-missing-sync.js";
-import h234 from "./xoro-receipts-sync.js";
-import h235 from "./send-notification.js";
-import h236 from "./ats-supply-sync.js";
-import h237 from "./xoro-sales-sync.js";
-import h238 from "./searates-proxy.js";
-import h239 from "./tanda-pos-sync.js";
-import h240 from "./dropbox-proxy.js";
-import h241 from "./vendor-invite.js";
-import h242 from "./xoro-ap-sync.js";
-import h243 from "./parse-excel.js";
-import h244 from "./xoro-proxy.js";
+import h229 from "./ats/upload.js";
+import h230 from "./vendor/erp.js";
+import h231 from "./xoro/items.js";
+import h232 from "./xoro-items-missing-sync.js";
+import h233 from "./xoro-receipts-sync.js";
+import h234 from "./send-notification.js";
+import h235 from "./ats-supply-sync.js";
+import h236 from "./xoro-sales-sync.js";
+import h237 from "./searates-proxy.js";
+import h238 from "./tanda-pos-sync.js";
+import h239 from "./dropbox-proxy.js";
+import h240 from "./vendor-invite.js";
+import h241 from "./xoro-ap-sync.js";
+import h242 from "./parse-excel.js";
+import h243 from "./xoro-proxy.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -478,22 +477,21 @@ export const ROUTES = [
   { pattern: "/api/master/sync", handler: h226 },
   { pattern: "/api/vendor/bulk", handler: h227 },
   { pattern: "/api/vendor/rfqs", handler: h228 },
-  { pattern: "/api/ai/_schema", handler: h229 },
-  { pattern: "/api/ats/upload", handler: h230 },
-  { pattern: "/api/vendor/erp", handler: h231 },
-  { pattern: "/api/xoro/items", handler: h232 },
-  { pattern: "/api/xoro-items-missing-sync", handler: h233 },
-  { pattern: "/api/xoro-receipts-sync", handler: h234 },
-  { pattern: "/api/send-notification", handler: h235 },
-  { pattern: "/api/ats-supply-sync", handler: h236 },
-  { pattern: "/api/xoro-sales-sync", handler: h237 },
-  { pattern: "/api/searates-proxy", handler: h238 },
-  { pattern: "/api/tanda-pos-sync", handler: h239 },
-  { pattern: "/api/dropbox-proxy", handler: h240 },
-  { pattern: "/api/vendor-invite", handler: h241 },
-  { pattern: "/api/xoro-ap-sync", handler: h242 },
-  { pattern: "/api/parse-excel", handler: h243 },
-  { pattern: "/api/xoro-proxy", handler: h244 },
+  { pattern: "/api/ats/upload", handler: h229 },
+  { pattern: "/api/vendor/erp", handler: h230 },
+  { pattern: "/api/xoro/items", handler: h231 },
+  { pattern: "/api/xoro-items-missing-sync", handler: h232 },
+  { pattern: "/api/xoro-receipts-sync", handler: h233 },
+  { pattern: "/api/send-notification", handler: h234 },
+  { pattern: "/api/ats-supply-sync", handler: h235 },
+  { pattern: "/api/xoro-sales-sync", handler: h236 },
+  { pattern: "/api/searates-proxy", handler: h237 },
+  { pattern: "/api/tanda-pos-sync", handler: h238 },
+  { pattern: "/api/dropbox-proxy", handler: h239 },
+  { pattern: "/api/vendor-invite", handler: h240 },
+  { pattern: "/api/xoro-ap-sync", handler: h241 },
+  { pattern: "/api/parse-excel", handler: h242 },
+  { pattern: "/api/xoro-proxy", handler: h243 },
 ];
 
 export function compileRoutes(routes) {
