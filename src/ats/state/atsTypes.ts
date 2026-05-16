@@ -191,7 +191,11 @@ export function createInitialState(startDate: string): ATSState {
     ctxMenu: null,
     summaryCtx: null,
     activeSort: null,
-    sortCol: null,
+    // Default sort: style number ascending. Operators want the grid
+    // to come up grouped by style so variants of the same style sit
+    // together without needing to click the column header first.
+    // Clicking another column still re-sorts as before.
+    sortCol: "style",
     sortDir: "asc",
     mergeHistory: [],
     atShip: true,
