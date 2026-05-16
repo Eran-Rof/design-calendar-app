@@ -52,7 +52,7 @@ import {
   ALLOWED_AGGS,
   lookupTable,
   publicColumns,
-} from "./_schema.js";
+} from "../../_lib/ai-schema.js";
 
 export const config = { maxDuration: 60 };
 
