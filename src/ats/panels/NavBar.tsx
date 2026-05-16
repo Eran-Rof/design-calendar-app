@@ -9,6 +9,7 @@ import { ExportPreviewModal } from "./ExportPreviewModal";
 import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
 import { buildExportPayload, triggerXlsxDownload, type ExportPayload } from "../exportExcel";
 import { getItemMasterById } from "../itemMasterLookup";
+import { filterRows } from "../filter";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
 
 // Fetch ip_item_master rows for sku_ids the local cache doesn't
@@ -289,6 +290,24 @@ interface NavBarProps {
   // Auto-default for the export-options modal's customer dropdown.
   // Picks up whatever the grid toolbar currently has selected.
   customerFilter: string;
+  // Grid-level filter state — applied to cross-grid synthetic rows so
+  // the customer-history rows respect the same Category / Sub Cat /
+  // Style / Gender / Status / search filters the operator has on
+  // the grid. customerSkuSet is omitted because synthetic rows are
+  // by definition NOT in the upload's open-order set (that's the
+  // whole point of cross-grid) — the customer narrowing is already
+  // enforced at the sales-history-fetch layer via customer_id.
+  exportFilterOpts: {
+    search: string;
+    filterCategory: string[];
+    filterSubCategory: string[];
+    filterStyle: string[];
+    filterGender: string;
+    filterStatus: string;
+    minATS: number | "";
+    storeFilter: string[];
+    today: Date;
+  };
   // Full display periods carry the key+periodStart needed by
   // computeGridTotals. The exporter itself only needs endDate + label,
   // so we ship the wider shape and let each consumer pick.
@@ -329,7 +348,7 @@ export const NavBar: React.FC<NavBarProps> = ({
   uploadingFile, invFile, purFile, ordFile,
   exportToExcel, filtered, displayPeriods, atShip, hiddenColumns, showTotalsRow, eventIndex, viewMode, generalMarginPct, onNegInven, onAgedInven, onDownloadIncompleteSkus, onDownloadStockVsSo,
   categories, filterCategory,
-  customerFilter,
+  customerFilter, exportFilterOpts,
   unreadNotifs, showingNotifications, onToggleNotifications,
   excelData, setExcelData,
 }) => {
@@ -547,8 +566,20 @@ export const NavBar: React.FC<NavBarProps> = ({
             if (g.lyQty > 0 || g.lyTotal > 0) salesAggregates.ly.set(g.sku, { qty: g.lyQty, totalPrice: g.lyTotal });
           }
           if (synthetic.length > 0) {
-            finalRows = [...rowsForExport, ...synthetic];
-            console.info(`[ATS export] cross-grid: added ${synthetic.length} synthetic rows by (style, color) from ${salesAggregates.extraBySkuId.size} unmapped sku_ids (${unresolved} unresolved)`);
+            // Apply the grid's filter state to the synthetic rows so
+            // category / sub-cat / style / gender / status / search
+            // narrowing applies uniformly. customerSkuSet is null
+            // here — synthetic rows are by definition outside the
+            // upload's open-order set (their inclusion is justified
+            // by sales history, not current commitments). The
+            // customer narrowing is already enforced upstream by the
+            // sales-history fetch's customer_id filter.
+            const filteredSynthetic = filterRows(synthetic, {
+              ...exportFilterOpts,
+              customerSkuSet: null,
+            });
+            finalRows = [...rowsForExport, ...filteredSynthetic];
+            console.info(`[ATS export] cross-grid: added ${filteredSynthetic.length} synthetic rows (of ${synthetic.length} candidates) by (style, color) from ${salesAggregates.extraBySkuId.size} unmapped sku_ids (${unresolved} unresolved, ${synthetic.length - filteredSynthetic.length} dropped by grid filters)`);
           } else {
             console.warn(`[ATS export] cross-grid: extraBySkuId had ${salesAggregates.extraBySkuId.size} entries but none could be resolved to a master record — verify ip_item_master coverage`);
           }
