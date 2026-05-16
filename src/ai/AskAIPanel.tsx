@@ -11,7 +11,6 @@ import {
   type GridSuggestion,
   type ToolTraceEntry,
 } from "./tools";
-import { supabaseClient } from "../utils/supabase";
 
 // Slide-in chat panel anchored to the right edge. Built as a standalone
 // component so any grid (ATS today, others later) can drop it in by
@@ -108,21 +107,11 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
     }
 
     try {
-      // The server validates the caller via Supabase JWT (see
-      // api/_handlers/ai/ask-grid.js → authenticateCaller). Operators
-      // are already signed in, so we just forward the active session's
-      // access_token. If for some reason there's no session, the call
-      // still fires and surfaces a 401 from the server.
-      let bearer = "";
-      try {
-        const { data } = await supabaseClient.auth.getSession();
-        bearer = data?.session?.access_token || "";
-      } catch { /* fall through — server returns 401 */ }
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (bearer) headers["Authorization"] = `Bearer ${bearer}`;
+      // No bearer needed: the server gates on same-origin + budget cap.
+      // See api/_handlers/ai/ask-grid.js for the rationale.
       const resp = await fetch("/api/ai/ask-grid", {
         method: "POST",
-        headers,
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: trimmed, history, grid_context: context }),
       });
       const body: AskAIResponse & { error?: string } = await resp.json().catch(() => ({} as AskAIResponse & { error?: string }));
