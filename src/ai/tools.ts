@@ -28,9 +28,26 @@ export interface ClearFiltersAction {
 
 export type AIAction = ApplyFiltersAction | SetSortAction | ClearFiltersAction;
 
+// Optional follow-up the server can return alongside an answer. Used
+// when Claude wants to propose a grid filter the user can opt into
+// with one click (per phase-2 "ask first, push on confirm" UX).
+export interface GridSuggestion {
+  label: string;
+  filters: ApplyFiltersAction["params"];
+}
+
+// One row in the server-side tool-call trace. Surfaced in the panel as
+// dim text under the AI reply so operators can see what was looked up.
+export interface ToolTraceEntry {
+  tool: string;
+  summary: string;
+}
+
 export interface AskAIResponse {
   text: string;
   actions: AIAction[];
+  suggestion?: GridSuggestion | null;
+  trace?: ToolTraceEntry[];
   token_usage?: {
     input_tokens: number | null;
     output_tokens: number | null;
@@ -143,6 +160,14 @@ export function applyAction(action: AIAction, setters: AIGridSetters): void {
       return;
     }
   }
+}
+
+// Apply an AI-suggested grid view. Same effect as apply_filters but
+// scoped behind the user clicking the "Push to grid" button, so the
+// AI never mutates the grid without explicit confirmation when going
+// through the suggestion path.
+export function applySuggestion(suggestion: GridSuggestion, setters: AIGridSetters): void {
+  applyAction({ type: "apply_filters", params: suggestion.filters }, setters);
 }
 
 // Human-readable summary of an action, shown inline in the chat panel so
