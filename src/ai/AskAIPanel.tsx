@@ -58,6 +58,43 @@ function genId() {
   return Math.random().toString(36).slice(2, 10);
 }
 
+// Minimal markdown-to-React renderer. The system prompt restricts Claude
+// to plain prose + **bold**, so we only need to handle that one inline
+// token. Anything else passes through as literal text. Keeps the bundle
+// tiny vs pulling in react-markdown.
+function renderInline(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  let i = 0;
+  let key = 0;
+  while (i < text.length) {
+    const open = text.indexOf("**", i);
+    if (open === -1) { parts.push(text.slice(i)); break; }
+    const close = text.indexOf("**", open + 2);
+    if (close === -1) { parts.push(text.slice(i)); break; }
+    if (open > i) parts.push(text.slice(i, open));
+    parts.push(<strong key={key++} style={{ color: "#F1F5F9" }}>{text.slice(open + 2, close)}</strong>);
+    i = close + 2;
+  }
+  return parts;
+}
+
+function RenderedMessage({ text }: { text: string }) {
+  // Split on blank lines to give each paragraph its own block. Inside a
+  // paragraph, single newlines are preserved (whiteSpace: pre-wrap on the
+  // outer bubble would handle it, but paragraphs read cleaner with
+  // explicit spacing).
+  const paragraphs = text.split(/\n{2,}/);
+  return (
+    <>
+      {paragraphs.map((para, idx) => (
+        <div key={idx} style={{ marginTop: idx === 0 ? 0 : 8, whiteSpace: "pre-wrap" }}>
+          {renderInline(para)}
+        </div>
+      ))}
+    </>
+  );
+}
+
 export const AskAIPanel: React.FC<AskAIPanelProps> = ({
   open, onClose, buildContext, setters, samplePrompts,
 }) => {
@@ -255,12 +292,13 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
                 padding: "8px 12px",
                 borderRadius: 10,
                 fontSize: 13,
-                lineHeight: 1.4,
-                whiteSpace: "pre-wrap",
+                lineHeight: 1.5,
                 opacity: m.pending ? 0.7 : 1,
               }}
             >
-              {m.text}
+              {m.role === "assistant" && !m.pending && !m.error
+                ? <RenderedMessage text={m.text} />
+                : <div style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>}
               {m.actionLabel && (
                 <div style={{
                   marginTop: 6,
@@ -297,21 +335,6 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
               {m.suggestionPushed && (
                 <div style={{ marginTop: 6, fontSize: 11, color: "#6EE7B7", fontStyle: "italic" }}>
                   ✓ Applied to grid
-                </div>
-              )}
-              {m.trace && m.trace.length > 0 && (
-                <div style={{
-                  marginTop: 8,
-                  paddingTop: 6,
-                  borderTop: "1px dashed rgba(148,163,184,0.25)",
-                  fontSize: 10,
-                  color: "#64748B",
-                  fontFamily: "ui-monospace, SFMono-Regular, monospace",
-                  lineHeight: 1.4,
-                }}>
-                  {m.trace.map((t, i) => (
-                    <div key={i}>· {t.summary}</div>
-                  ))}
                 </div>
               )}
             </div>
