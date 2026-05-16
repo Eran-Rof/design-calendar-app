@@ -56,11 +56,12 @@ import {
 
 export const config = { maxDuration: 60 };
 
-// Sonnet handles multi-step tool plans much better than Haiku — the
-// extra cost (~$0.01 / question typical) is worth it for cross-table
-// queries. Budget cap still applies.
-const MODEL = "claude-sonnet-4-6";
-const MAX_TOKENS = 2048;
+// Haiku 4.5 picked for latency. For tool-orchestration questions (which
+// is what this endpoint does), Sonnet's stronger reasoning wasn't paying
+// for the ~3-5× per-call latency hit operators were complaining about.
+// Budget cap still applies; falls back fine if Anthropic changes pricing.
+const MODEL = "claude-haiku-4-5";
+const MAX_TOKENS = 1024;
 // Cross-app questions can chain list_domains → list_tables →
 // describe_table → query_table, sometimes for two different tables in
 // one conversation. 10 gives headroom without runaway cost (each
@@ -70,7 +71,7 @@ const HANDLER = "ai/ask-grid";
 
 const MAX_QUESTION_LEN  = 1000;
 const MAX_HISTORY_TURNS = 8;
-const MAX_SAMPLE_ROWS   = 20;
+const MAX_SAMPLE_ROWS   = 8;   // was 20 — trimmed for input-token cost on every turn
 const MAX_DISTINCT_VALS = 200;
 
 // Per-query row caps. Aggregated tools sum/group before returning so
@@ -1081,14 +1082,27 @@ export default async function handler(req, res) {
   let totalCost = 0;
   let finalMessage = null;
 
+  // Prompt-caching markers. System prompt + tool definitions are
+  // identical on every iteration of the loop AND across requests, so
+  // marking the last system block + last tool as cache_control hints
+  // Anthropic to cache up to (and including) those segments. Cache
+  // hits cost ~1/10th the input tokens and shave noticeable latency
+  // off iteration 2+ inside the same conversation.
+  const SYSTEM_CACHED = [
+    { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
+  ];
+  const TOOLS_CACHED = TOOLS.map((t, i) =>
+    i === TOOLS.length - 1 ? { ...t, cache_control: { type: "ephemeral" } } : t
+  );
+
   for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
     let resp;
     try {
       resp = await client.messages.create({
         model: MODEL,
         max_tokens: MAX_TOKENS,
-        system: SYSTEM_PROMPT,
-        tools: TOOLS,
+        system: SYSTEM_CACHED,
+        tools: TOOLS_CACHED,
         messages,
       });
     } catch (err) {
@@ -1109,17 +1123,13 @@ export default async function handler(req, res) {
     const hasNonTerminal = toolUses.some(t => !TERMINAL_TOOLS.has(t.name));
     if (!hasNonTerminal) break;
 
-    // Run the non-terminal (DB query) tools server-side and feed their
-    // results back to Claude. Terminal tools in the same turn are passed
-    // through unchanged — but Claude doesn't usually mix them.
-    const toolResults = [];
-    for (const tu of toolUses) {
+    // Run the non-terminal (DB query) tools server-side in PARALLEL —
+    // Claude often emits 2-3 lookups per turn (find_customer + find_style,
+    // or two query_* in one go) and serial execution was wasting 100-500ms
+    // per extra call. Terminal tools just need an empty ack block.
+    const toolResults = await Promise.all(toolUses.map(async (tu) => {
       if (TERMINAL_TOOLS.has(tu.name)) {
-        // Terminal tools don't need a result; if Claude mixed them with
-        // queries we still need to send a tool_result block so the
-        // assistant turn validates. Use an empty ack.
-        toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: "ok" });
-        continue;
+        return { type: "tool_result", tool_use_id: tu.id, content: "ok" };
       }
       const exec = TOOL_EXECUTORS[tu.name];
       let result;
@@ -1131,12 +1141,12 @@ export default async function handler(req, res) {
         result = { error: String(err?.message || err) };
       }
       trace.push({ tool: tu.name, summary: summarizeToolResult(tu.name, result) });
-      toolResults.push({
+      return {
         type: "tool_result",
         tool_use_id: tu.id,
         content: JSON.stringify(result).slice(0, 16000),
-      });
-    }
+      };
+    }));
 
     messages.push({ role: "assistant", content: resp.content });
     messages.push({ role: "user",      content: toolResults });
