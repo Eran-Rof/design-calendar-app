@@ -8,7 +8,7 @@ import {
   PALETTE, ROW_HEIGHTS, BORDER_BODY, BORDER_HEADER, EXTRA_THICK,
   headerStyle, bodyTextStyle, bodyNumStyle, bodyStyleStyle,
   subtotalTextStyle, subtotalNumStyle,
-  autofitColumns, downloadMultiSheet, zebraFill,
+  autofitColumns, downloadMultiSheet, zebraFill, numOrBlank,
 } from "./exportTheme";
 
 // ── Semantic cost-group colors (operators read the workbook by group) ────
@@ -222,10 +222,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
     // Data rows (zebra)
     summaryRows.forEach((row, ri) => {
       const fill = zebraFill(ri);
-      const num  = (v: number, fmt: string): any => ({
-        v, t: "n",
-        s: { ...bodyNumStyle(fill), numFmt: fmt },
-      });
+      const num = (v: number, fmt: string): any => numOrBlank(v, bodyNumStyle(fill), { numFmt: fmt });
       aoa.push([
         { v: row.store,                       t: "s", s: bodyStyleStyle(fill) },
         { v: row.gender,                      t: "s", s: bodyTextStyle(fill, "center") },
@@ -253,10 +250,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
       const gtStoA  = summaryRows.reduce((s, r) => s + r.stoAnnual,  0);
       const gtPct   = gtVal > 0 ? (gtIntA + gtStoA) / gtVal : 0;
       const gtDol   = gtQty > 0 ? (gtIntA + gtStoA) / gtQty : 0;
-      const gtN = (v: number, fmt: string): any => ({
-        v, t: "n",
-        s: { ...grandTotalStyle(true), numFmt: fmt },
-      });
+      const gtN = (v: number, fmt: string): any => numOrBlank(v, grandTotalStyle(true), { numFmt: fmt });
       aoa.push([
         { v: "GRAND TOTAL", t: "s", s: grandTotalStyle(false) },
         { v: "", t: "s", s: grandTotalStyle(false) },
@@ -394,10 +388,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
         baseQty += r.qty;
         baseVal += val;
         const fill = zebraFill(rowIdx);
-        const num = (v: number, fmt: string): any => ({
-          v, t: "n",
-          s: { ...bodyNumStyle(fill), numFmt: fmt },
-        });
+        const num = (v: number, fmt: string): any => numOrBlank(v, bodyNumStyle(fill), { numFmt: fmt });
         aoa.push([
           { v: gender,                      t: "s", s: bodyTextStyle(fill, "center") },
           { v: store,                       t: "s", s: bodyTextStyle(fill, "left") },
@@ -415,10 +406,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
       }
 
       // Subtotal row — teal band (semantic, matches Storage Cost group color)
-      const stN = (v: number, fmt: string): any => ({
-        v, t: "n",
-        s: { ...teallSubtotalStyle(true), numFmt: fmt },
-      });
+      const stN = (v: number, fmt: string): any => numOrBlank(v, teallSubtotalStyle(true), { numFmt: fmt });
       aoa.push([
         { v: `Subtotal: ${base}`, t: "s", s: teallSubtotalStyle(false) },
         ...Array(7).fill(null).map(() => ({ v: "", t: "s", s: teallSubtotalStyle(false) })),
@@ -433,10 +421,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
     }
 
     // Grand total row (Navy)
-    const gtN = (v: number, fmt: string): any => ({
-      v, t: "n",
-      s: { ...grandTotalStyle(true), numFmt: fmt },
-    });
+    const gtN = (v: number, fmt: string): any => numOrBlank(v, grandTotalStyle(true), { numFmt: fmt });
     aoa.push([
       { v: "GRAND TOTAL", t: "s", s: grandTotalStyle(false) },
       ...Array(7).fill(null).map(() => ({ v: "", t: "s", s: grandTotalStyle(false) })),
