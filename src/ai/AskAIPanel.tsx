@@ -45,10 +45,12 @@ interface ChatMessage {
 
 const DEFAULT_SAMPLES = [
   "Show me only Mens",
-  "Filter to category Tops",
   "Sort by on-order descending",
-  "What's the total on-order value?",
   "How many Edge did Ross order June 2026 vs ship same period last year?",
+  "What compliance docs expire in the next 30 days?",
+  "Open AR by status — sum total per status",
+  "Which vendors had the most disputes this quarter?",
+  "Forecast accuracy MAPE by method last quarter",
   "Clear all filters",
 ];
 
