@@ -616,15 +616,17 @@ export function buildExportPayload(
       : { v: slsPrcV, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
 
     // Trailing 3 — sales over the last 3 months from today, optionally
-    // narrowed to one customer. Margin uses avgCost as the cost basis,
-    // adjusted for pack grain: SO totalPrice / qty is at PACK grain for
-    // prepacks (Xoro stores per-pack), while avgCost is per-unit, so
-    // multiply by ppkMult to align.
+    // narrowed to one customer. Both sides of the margin formula
+    // operate at UNIT grain: ip_sales_history_wholesale.qty is the
+    // invoice's per-unit qty (not pack count) per xoro-sales-sync.js,
+    // and avgCost on the row is per-unit. Do NOT multiply by ppkMult
+    // — that's a leftover assumption from the right-click menu, which
+    // reads pack-grain SOs from the operator upload.
     if (opts.trailing3) {
       const t3 = t3Of(r.sku);
       const t3Price = t3.qty > 0 ? t3.totalPrice / t3.qty : 0;
       const t3MrgnPct = (avgCostV > 0 && t3Price > 0)
-        ? ((t3Price - avgCostV * mult) / t3Price) * 100
+        ? ((t3Price - avgCostV) / t3Price) * 100
         : 0;
       if (COL_T3_QTY)     qtyRow[COL_T3_QTY     - 1] = t3.qty === 0
         ? { v: "", t: "s", s: bodyNumStyle(fill) }
@@ -640,12 +642,14 @@ export function buildExportPayload(
         : { v: t3MrgnPct / 100, t: "n", s: { ...bodyNumStyle(fill), numFmt: "0.0%" } };
     }
 
-    // Same-Period Last Year — same window 12 months ago.
+    // Same-Period Last Year — same window 12 months ago. Same
+    // unit-grain math as T3 (sales history is per-unit, avgCost is
+    // per-unit, no ppkMult adjustment).
     if (opts.spLY) {
       const ly = lyOf(r.sku);
       const lyPrice = ly.qty > 0 ? ly.totalPrice / ly.qty : 0;
       const lyMrgnPct = (avgCostV > 0 && lyPrice > 0)
-        ? ((lyPrice - avgCostV * mult) / lyPrice) * 100
+        ? ((lyPrice - avgCostV) / lyPrice) * 100
         : 0;
       if (COL_LY_QTY)     qtyRow[COL_LY_QTY     - 1] = ly.qty === 0
         ? { v: "", t: "s", s: bodyNumStyle(fill) }
