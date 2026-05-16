@@ -20,10 +20,16 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import formidable from "formidable";
-import * as XLSX from "xlsx";
 import { createClient } from "@supabase/supabase-js";
 import { canonSku } from "../../_lib/sku-canon.js";
 import { authenticateDesignCalendarCaller, rateLimit } from "../../_lib/auth.js";
+
+// NOTE: We intentionally do NOT use the `xlsx` package here. The Vercel
+// dispatcher static-imports every handler under api/_handlers/ at cold
+// start, and `xlsx` (CJS) triggers a Node ESM/CJS interop assertion
+// failure ("ERR_INTERNAL_ASSERTION: module imported again after being
+// required") when this handler's import path is added to the graph.
+// The input is CSV, so the small RFC-4180 parser below avoids the dep.
 
 export const config = { api: { bodyParser: false }, maxDuration: 300 };
 
@@ -53,10 +59,89 @@ function decompressIfGzipped(file) {
   return outPath;
 }
 
+// Minimal RFC-4180 CSV parser. Returns Array<Record<headerName,string>>.
+// Handles: leading UTF-8 BOM, CRLF / LF / CR line endings, quoted fields,
+// embedded commas inside quoted fields, escaped quotes (""), trailing
+// blank rows (Xoro pads ItemCostingReport with hundreds of empty rows).
+function parseCsv(text) {
+  if (!text) return [];
+  // Strip UTF-8 BOM if present (Xoro CSVs start with ﻿).
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+
+  const rows = [];
+  let field = "";
+  let row = [];
+  let inQuotes = false;
+  let i = 0;
+  const len = text.length;
+  while (i < len) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (i + 1 < len && text[i + 1] === '"') {
+          field += '"';
+          i += 2;
+          continue;
+        }
+        inQuotes = false;
+        i += 1;
+        continue;
+      }
+      field += ch;
+      i += 1;
+      continue;
+    }
+    if (ch === '"') { inQuotes = true; i += 1; continue; }
+    if (ch === ",") { row.push(field); field = ""; i += 1; continue; }
+    if (ch === "\r") {
+      // CRLF or lone CR — end of line either way.
+      row.push(field); field = "";
+      rows.push(row); row = [];
+      if (i + 1 < len && text[i + 1] === "\n") i += 2;
+      else i += 1;
+      continue;
+    }
+    if (ch === "\n") {
+      row.push(field); field = "";
+      rows.push(row); row = [];
+      i += 1;
+      continue;
+    }
+    field += ch;
+    i += 1;
+  }
+  // Flush final field/row if the file doesn't end with a newline.
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+  if (rows.length === 0) return [];
+
+  // First non-empty row is the header.
+  let headerIdx = 0;
+  while (headerIdx < rows.length && rows[headerIdx].every((c) => c.trim() === "")) {
+    headerIdx += 1;
+  }
+  if (headerIdx >= rows.length) return [];
+  const header = rows[headerIdx].map((h) => h.trim());
+
+  const out = [];
+  for (let r = headerIdx + 1; r < rows.length; r++) {
+    const cells = rows[r];
+    // Skip completely blank rows (Xoro's CSV has hundreds of these at the end).
+    if (cells.every((c) => c.trim() === "")) continue;
+    const rec = {};
+    for (let c = 0; c < header.length; c++) {
+      rec[header[c]] = cells[c] ?? "";
+    }
+    out.push(rec);
+  }
+  return out;
+}
+
 function readCsvRows(filepath) {
   const buffer = readFileSync(filepath);
-  const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
-  return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
+  return parseCsv(buffer.toString("utf8"));
 }
 
 function str(v) {
