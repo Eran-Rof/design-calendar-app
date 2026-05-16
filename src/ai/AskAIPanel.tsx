@@ -144,33 +144,104 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
     }
 
     try {
-      // No bearer needed: the server gates on same-origin + budget cap.
-      // See api/_handlers/ai/ask-grid.js for the rationale.
+      // SSE stream — opt in via Accept header. Server emits stage labels,
+      // text deltas, and a terminal complete event. No bearer needed (the
+      // server gates on same-origin + budget cap).
       const resp = await fetch("/api/ai/ask-grid", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Accept": "text/event-stream" },
         body: JSON.stringify({ question: trimmed, history, grid_context: context }),
       });
-      const body: AskAIResponse & { error?: string } = await resp.json().catch(() => ({} as AskAIResponse & { error?: string }));
-      if (!resp.ok) {
-        const errMsg = body?.error || `HTTP ${resp.status}`;
+      if (!resp.ok || !resp.body) {
+        let errMsg = `HTTP ${resp.status}`;
+        try { const j = await resp.json(); if (j?.error) errMsg = j.error; } catch {}
         setMessages(prev => prev.map(m => m.id === pendingMsg.id ? {
           ...m, pending: false, error: true, text: `Error: ${errMsg}`,
         } : m));
         return;
       }
 
-      const actions: AIAction[] = Array.isArray(body.actions) ? body.actions : [];
+      // Iterate the SSE stream. Each `\n\n` separates an event. Events
+      // look like:
+      //   event: stage\n
+      //   data: {"label":"Searching customers…"}\n
+      //   \n
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let streamedText = "";
+      let stage = "Thinking…";
+      let done = false;
+      let finalPayload: AskAIResponse | null = null;
+      let errorPayload: string | null = null;
+
+      // First flip the pending bubble out of "Thinking…" mode so live
+      // updates render in the normal styling.
+      setMessages(prev => prev.map(m => m.id === pendingMsg.id ? {
+        ...m, pending: false, text: stage,
+      } : m));
+
+      while (!done) {
+        const { value, done: streamDone } = await reader.read();
+        if (streamDone) break;
+        buf += decoder.decode(value, { stream: true });
+
+        let eventEnd;
+        while ((eventEnd = buf.indexOf("\n\n")) !== -1) {
+          const raw = buf.slice(0, eventEnd);
+          buf = buf.slice(eventEnd + 2);
+          let evt = "message";
+          let dataLines: string[] = [];
+          for (const line of raw.split("\n")) {
+            if (line.startsWith("event:")) evt = line.slice(6).trim();
+            else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+          }
+          if (dataLines.length === 0) continue;
+          let payload: any;
+          try { payload = JSON.parse(dataLines.join("\n")); } catch { continue; }
+
+          if (evt === "stage") {
+            stage = String(payload.label || "");
+            if (!streamedText) {
+              setMessages(prev => prev.map(m => m.id === pendingMsg.id ? {
+                ...m, text: stage,
+              } : m));
+            }
+          } else if (evt === "text_delta") {
+            streamedText += String(payload.text || "");
+            setMessages(prev => prev.map(m => m.id === pendingMsg.id ? {
+              ...m, text: streamedText,
+            } : m));
+          } else if (evt === "complete") {
+            finalPayload = payload;
+            done = true;
+            break;
+          } else if (evt === "error") {
+            errorPayload = String(payload.error || "Unknown error");
+            done = true;
+            break;
+          }
+        }
+      }
+
+      if (errorPayload) {
+        setMessages(prev => prev.map(m => m.id === pendingMsg.id ? {
+          ...m, pending: false, error: true, text: `Error: ${errorPayload}`,
+        } : m));
+        return;
+      }
+
+      const actions: AIAction[] = Array.isArray(finalPayload?.actions) ? finalPayload!.actions : [];
       for (const action of actions) {
         try { applyAction(action, setters); }
         catch (err) { console.warn("[AskAI] applyAction failed", err); }
       }
       const actionLabel = actions.length > 0 ? actions.map(describeAction).join(" · ") : undefined;
-      const finalText = body.text?.trim() || (actionLabel ? "Done." : "(no response)");
+      const finalText = (finalPayload?.text || streamedText || "").trim() || (actionLabel ? "Done." : "(no response)");
       setMessages(prev => prev.map(m => m.id === pendingMsg.id ? {
         ...m, pending: false, text: finalText, actionLabel,
-        suggestion: body.suggestion ?? null,
-        trace: Array.isArray(body.trace) ? body.trace : undefined,
+        suggestion: finalPayload?.suggestion ?? null,
+        trace: Array.isArray(finalPayload?.trace) ? finalPayload!.trace : undefined,
       } : m));
     } catch (err) {
       setMessages(prev => prev.map(m => m.id === pendingMsg.id ? {
