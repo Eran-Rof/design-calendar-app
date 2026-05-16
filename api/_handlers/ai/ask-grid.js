@@ -41,6 +41,13 @@ import {
   logAICall,
   BudgetExceededError,
 } from "../../_lib/ai-budget.js";
+import {
+  DOMAINS,
+  ALLOWED_FILTER_OPS,
+  ALLOWED_AGGS,
+  lookupTable,
+  publicColumns,
+} from "./_schema.js";
 
 export const config = { maxDuration: 60 };
 
@@ -49,7 +56,11 @@ export const config = { maxDuration: 60 };
 // queries. Budget cap still applies.
 const MODEL = "claude-sonnet-4-6";
 const MAX_TOKENS = 2048;
-const MAX_TOOL_ITERATIONS = 6;
+// Cross-app questions can chain list_domains → list_tables →
+// describe_table → query_table, sometimes for two different tables in
+// one conversation. 10 gives headroom without runaway cost (each
+// iteration is one Claude turn; the budget cap is still authoritative).
+const MAX_TOOL_ITERATIONS = 10;
 const HANDLER = "ai/ask-grid";
 
 const MAX_QUESTION_LEN  = 1000;
@@ -218,27 +229,134 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+
+  // ── Cross-app discovery + generic query (looped) ─────────────────────
+  {
+    name: "list_domains",
+    description: "List the four app domains the AI can query (po_wip, vendor_portal, planning, design_calendar) with a one-line description. Use this first when the user asks a question outside ATS sales/PO/inventory and you're not sure which tables exist.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "list_tables",
+    description: "List the readable tables inside a domain (table_name + description). Use this after list_domains when narrowing in on a domain.",
+    input_schema: {
+      type: "object",
+      properties: {
+        domain: { type: "string", description: "One of: po_wip, vendor_portal, planning, design_calendar." },
+      },
+      required: ["domain"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "describe_table",
+    description: "Return the columns + types + flags (filterable / groupable / aggregatable / date) for a single table so you know what's safe to use as a filter / group_by / aggregation. PII columns are silently excluded.",
+    input_schema: {
+      type: "object",
+      properties: {
+        table: { type: "string", description: "Table name, e.g. 'invoices' or 'compliance_documents'." },
+        domain: { type: "string", description: "Optional. Provide if the table name is ambiguous." },
+      },
+      required: ["table"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "query_table",
+    description: "Run a safe parameterised aggregation against any AI-readable table. Supply filters + optional group_by columns + optional aggregations. Returns up to 50 grouped rows. Use describe_table first if you're unsure which columns are valid.",
+    input_schema: {
+      type: "object",
+      properties: {
+        table:  { type: "string", description: "Table name from list_tables." },
+        domain: { type: "string", description: "Optional. Use when table name is ambiguous." },
+        filters: {
+          type: "array",
+          description: "List of { col, op, value } filters. op is one of: eq, neq, gt, gte, lt, lte, in, ilike, is_null, not_is_null. For 'in', pass an array of values. For 'is_null' / 'not_is_null', value is ignored.",
+          items: {
+            type: "object",
+            properties: {
+              col:   { type: "string" },
+              op:    { type: "string", enum: ["eq","neq","gt","gte","lt","lte","in","ilike","is_null","not_is_null"] },
+              value: {},
+            },
+            required: ["col", "op"],
+            additionalProperties: false,
+          },
+        },
+        date_range: {
+          type: "object",
+          description: "Convenience filter on a date column: { col, from?, to? } with YYYY-MM-DD bounds (inclusive).",
+          properties: {
+            col:  { type: "string" },
+            from: { type: "string" },
+            to:   { type: "string" },
+          },
+          required: ["col"],
+          additionalProperties: false,
+        },
+        group_by: {
+          type: "array",
+          description: "Columns to group by. Up to 3.",
+          items: { type: "string" },
+        },
+        aggregations: {
+          type: "array",
+          description: "List of { fn, col?, as? }. fn is one of sum, count, avg, min, max. col is required for sum/avg/min/max; ignored for count.",
+          items: {
+            type: "object",
+            properties: {
+              fn:  { type: "string", enum: ALLOWED_AGGS },
+              col: { type: "string" },
+              as:  { type: "string", description: "Optional alias for the output column." },
+            },
+            required: ["fn"],
+            additionalProperties: false,
+          },
+        },
+        order_by: {
+          type: "object",
+          description: "Optional order. col must be a group_by column or an aggregation alias.",
+          properties: {
+            col: { type: "string" },
+            dir: { type: "string", enum: ["asc", "desc"] },
+          },
+          required: ["col"],
+          additionalProperties: false,
+        },
+        limit: { type: "integer", description: "Max rows returned (default 50, max 200)." },
+      },
+      required: ["table"],
+      additionalProperties: false,
+    },
+  },
 ];
 
-const SYSTEM_PROMPT = `You are an analyst assistant embedded in the Ring of Fire ATS (Available-to-Sell) grid for internal operators.
+const SYSTEM_PROMPT = `You are an analyst assistant embedded in the Ring of Fire ATS (Available-to-Sell) grid for internal operators. You have read-only access to four app domains: ATS (the visible grid), PO WIP, Vendor Portal, Planning, and Design Calendar.
 
-You have two modes:
+You have three modes:
 
-1. **Grid-state Q&A** — questions answerable from the grid snapshot you're given (active filters, totals, sample rows, distinct values). For these, call answer_text directly, or apply_filters / set_sort / clear_filters if the user wants the grid changed.
+1. **Grid-state Q&A** — questions answerable from the grid snapshot (active filters, totals, sample rows, distinct values). Call answer_text directly, or apply_filters / set_sort / clear_filters if the user wants the grid changed.
 
-2. **Cross-table Q&A** — questions about historical shipments, open SOs, or open POs that aren't in the visible grid (e.g. "how many Edge did Ross order June 2026 vs ship same period last year"). For these:
-   a. Resolve names → IDs first with find_customer and/or find_style.
-   b. Run the appropriate query_* tool (query_shipments / query_open_sos / query_open_pos) with the resolved IDs and a date range.
-   c. Answer with answer_text using the actual numbers returned.
-   d. If the answer ties to a grid subset, ALSO call suggest_grid_view so the user can push the filter to the grid with one click.
+2. **Hot-path cross-table Q&A** (ATS history / open orders / open POs) — for "how many Edge did Ross order June 2026 vs ship same period last year" style questions:
+   a. Resolve names → IDs with find_customer / find_style.
+   b. Run query_shipments / query_open_sos / query_open_pos with the resolved IDs and a date range.
+   c. Answer with answer_text using the actual numbers.
+   d. If the answer ties to a grid subset, ALSO call suggest_grid_view.
+
+3. **Cross-app Q&A** (PO WIP / Vendor Portal / Planning / Design Calendar) — for anything not covered by the hot-path tools:
+   a. Use list_domains → list_tables → describe_table to find the right table.
+   b. Use query_table with filters + group_by + aggregations to get the answer.
+   c. Examples: "what compliance docs expire in the next 30 days" → query compliance_documents. "what's our total AR open right now" → query invoices grouped by status. "which vendors had the most disputes this quarter" → query disputes grouped by vendor_id.
+   d. Always answer in text. Only call suggest_grid_view if the answer ties to a filter on the ATS grid (rarely the case for cross-app questions).
 
 Rules:
 - Tool selection is yours — pick the smallest set that answers the question.
-- NEVER make up customer/style names, IDs, qty, or revenue. If a tool returns nothing, say so.
-- Date ranges: when the user says "June 2026", use 2026-06-01 → 2026-06-30. "Last year same period" = the same month/range one calendar year earlier.
-- The user's current date is in the grid context — use it for relative phrases ("last quarter", "YTD", etc.).
+- NEVER make up names, IDs, qty, dollars, or any other data. If a tool returns nothing, say so.
+- Date ranges: when the user says "June 2026", use 2026-06-01 → 2026-06-30. "Last year same period" = same month/range one calendar year earlier. "This quarter" = the calendar quarter containing today.
+- Today's date is in the grid context — use it for relative phrases.
 - Keep answer_text under 4 sentences unless the user explicitly asks for more.
-- When a customer name resolves to multiple candidates, query against all returned IDs (pass them one at a time if needed) and mention which match you used.`;
+- When a name resolves to multiple candidates, mention which match you used.
+- PII (bank account numbers, encrypted card data, etc.) is silently excluded from every response — you literally cannot see those columns.`;
 
 // ─────────────────────────────────────────────────────────────────────────
 // Tool executors — every read tool here MUST be allowlisted, parameterised,
@@ -553,12 +671,259 @@ async function tool_query_open_pos(db, input) {
   };
 }
 
+// ── Generic cross-app discovery + query tools ────────────────────────
+
+function tool_list_domains() {
+  return {
+    domains: Object.values(DOMAINS).map(d => ({
+      domain: d.domain,
+      description: d.description,
+      table_count: Object.keys(d.tables).length,
+    })),
+  };
+}
+
+function tool_list_tables(input) {
+  const domain = DOMAINS[input?.domain];
+  if (!domain) return { error: `Unknown domain: ${input?.domain}. Valid: ${Object.keys(DOMAINS).join(", ")}` };
+  return {
+    domain: domain.domain,
+    tables: Object.entries(domain.tables).map(([name, t]) => ({
+      table: name,
+      description: t.description,
+      column_count: Object.keys(publicColumns(t)).length,
+    })),
+  };
+}
+
+function tool_describe_table(input) {
+  const tableName = String(input?.table || "").trim();
+  if (!tableName) return { error: "table required" };
+  let found = null;
+  if (input?.domain) {
+    found = lookupTable(input.domain, tableName);
+    if (!found) return { error: `Table '${tableName}' not in domain '${input.domain}' (or domain unknown).` };
+  } else {
+    for (const d of Object.values(DOMAINS)) {
+      if (d.tables[tableName]) { found = { domain: d, table: d.tables[tableName], tableName, domainName: d.domain }; break; }
+    }
+    if (!found) return { error: `Unknown table: ${tableName}. Use list_tables(domain) to discover.` };
+  }
+  const cols = publicColumns(found.table);
+  return {
+    domain: found.domainName,
+    table: tableName,
+    description: found.table.description,
+    columns: Object.entries(cols).map(([name, meta]) => ({
+      name,
+      type: meta.type,
+      filterable: !!meta.filterable,
+      groupable:  !!meta.groupable,
+      aggregatable: !!meta.aggregatable,
+      date: !!meta.date,
+    })),
+  };
+}
+
+// Validate + apply a single filter to a PostgREST query builder. Returns
+// { ok, error? }. Op + column must be in the allowlist for that column
+// type, and `in` values must be a non-empty array.
+function applyFilter(q, table, { col, op, value }) {
+  const meta = publicColumns(table)[col];
+  if (!meta) return { ok: false, error: `Column '${col}' is not readable.` };
+  if (!meta.filterable) return { ok: false, error: `Column '${col}' is not filterable.` };
+  const allowed = ALLOWED_FILTER_OPS[meta.type] || [];
+  if (!allowed.includes(op)) {
+    return { ok: false, error: `Op '${op}' not allowed on '${col}' (type ${meta.type}). Allowed: ${allowed.join(", ")}.` };
+  }
+  switch (op) {
+    case "eq":   q = q.eq(col, value); break;
+    case "neq":  q = q.neq(col, value); break;
+    case "gt":   q = q.gt(col, value); break;
+    case "gte":  q = q.gte(col, value); break;
+    case "lt":   q = q.lt(col, value); break;
+    case "lte":  q = q.lte(col, value); break;
+    case "in":
+      if (!Array.isArray(value) || value.length === 0) return { ok: false, error: `'in' requires non-empty array for '${col}'.` };
+      if (value.length > 50) return { ok: false, error: `'in' list capped at 50 values.` };
+      q = q.in(col, value);
+      break;
+    case "ilike": q = q.ilike(col, String(value)); break;
+    case "is_null":     q = q.is(col, null); break;
+    case "not_is_null": q = q.not(col, "is", null); break;
+  }
+  return { ok: true, q };
+}
+
+async function tool_query_table(db, input) {
+  // ── Validate table ──
+  const tableName = String(input?.table || "").trim();
+  if (!tableName) return { error: "table required" };
+  let found = null;
+  if (input?.domain) {
+    found = lookupTable(input.domain, tableName);
+    if (!found) return { error: `Table '${tableName}' not in domain '${input.domain}'.` };
+  } else {
+    for (const d of Object.values(DOMAINS)) {
+      if (d.tables[tableName]) { found = { domain: d, table: d.tables[tableName], tableName, domainName: d.domain }; break; }
+    }
+    if (!found) return { error: `Unknown table: ${tableName}.` };
+  }
+  const table   = found.table;
+  const colMeta = publicColumns(table);
+
+  // ── Validate group_by ──
+  const groupBy = Array.isArray(input?.group_by) ? input.group_by.slice(0, 3) : [];
+  for (const g of groupBy) {
+    if (!colMeta[g]) return { error: `group_by column '${g}' not readable on '${tableName}'.` };
+    if (!colMeta[g].groupable) return { error: `Column '${g}' is not groupable.` };
+  }
+
+  // ── Validate aggregations ──
+  const aggs = Array.isArray(input?.aggregations) ? input.aggregations : [];
+  for (const a of aggs) {
+    if (!ALLOWED_AGGS.includes(a.fn)) return { error: `Unknown aggregation: ${a.fn}` };
+    if (a.fn !== "count") {
+      if (!a.col) return { error: `aggregation ${a.fn} requires a col.` };
+      if (!colMeta[a.col]) return { error: `agg col '${a.col}' not readable on '${tableName}'.` };
+      if (!colMeta[a.col].aggregatable) return { error: `Column '${a.col}' is not aggregatable.` };
+    }
+  }
+
+  // ── Build column selector. We only fetch what we need: group_by cols
+  // + agg target cols. PostgREST doesn't do SQL GROUP BY without RPC,
+  // so we pull the rows (capped) and aggregate in-memory.
+  const selectCols = new Set();
+  for (const g of groupBy) selectCols.add(g);
+  for (const a of aggs) if (a.col) selectCols.add(a.col);
+  // If neither group_by nor aggs, pull all readable cols (capped).
+  if (selectCols.size === 0) {
+    for (const c of Object.keys(colMeta).slice(0, 12)) selectCols.add(c);
+  }
+  const selectStr = Array.from(selectCols).join(", ");
+
+  // ── Build query ──
+  let q = db.from(tableName).select(selectStr).limit(QUERY_ROW_LIMIT);
+
+  // Filters
+  const filters = Array.isArray(input?.filters) ? input.filters : [];
+  if (filters.length > 20) return { error: "Too many filters (cap 20)." };
+  for (const f of filters) {
+    const r = applyFilter(q, table, f);
+    if (!r.ok) return { error: r.error };
+    q = r.q;
+  }
+
+  // Date range convenience
+  if (input?.date_range && input.date_range.col) {
+    const dr = input.date_range;
+    const meta = colMeta[dr.col];
+    if (!meta) return { error: `date_range.col '${dr.col}' not readable.` };
+    if (!meta.date) return { error: `Column '${dr.col}' is not a date column.` };
+    if (dr.from) {
+      const d = clampDate(dr.from);
+      if (!d) return { error: "date_range.from must be YYYY-MM-DD." };
+      q = q.gte(dr.col, d);
+    }
+    if (dr.to) {
+      const d = clampDate(dr.to);
+      if (!d) return { error: "date_range.to must be YYYY-MM-DD." };
+      q = q.lte(dr.col, d);
+    }
+  }
+
+  const { data, error } = await q;
+  if (error) return { error: error.message };
+  const rows = data || [];
+
+  // ── Aggregate in-memory ──
+  if (groupBy.length === 0 && aggs.length === 0) {
+    // Plain rows mode
+    const limit = Math.min(Math.max(1, Number(input?.limit) || 50), 200);
+    return {
+      mode: "rows",
+      row_count: rows.length,
+      capped: rows.length >= QUERY_ROW_LIMIT,
+      rows: rows.slice(0, limit),
+    };
+  }
+
+  // Group rows
+  const groups = new Map();
+  for (const r of rows) {
+    const key = groupBy.map(g => String(r[g] ?? "(null)")).join(" | ");
+    if (!groups.has(key)) {
+      const seed = { _group: {} };
+      for (const g of groupBy) seed._group[g] = r[g] ?? null;
+      groups.set(key, { ...seed, _rows: [] });
+    }
+    groups.get(key)._rows.push(r);
+  }
+
+  // Compute aggregations per group
+  const outRows = [];
+  for (const g of groups.values()) {
+    const out = { ...g._group };
+    for (const a of aggs) {
+      const alias = a.as || (a.fn === "count" ? "count" : `${a.fn}_${a.col}`);
+      if (a.fn === "count") {
+        out[alias] = g._rows.length;
+        continue;
+      }
+      const vals = g._rows.map(r => Number(r[a.col] || 0));
+      switch (a.fn) {
+        case "sum": out[alias] = vals.reduce((s, v) => s + v, 0); break;
+        case "avg": out[alias] = vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : 0; break;
+        case "min": out[alias] = vals.length ? Math.min(...vals) : null; break;
+        case "max": out[alias] = vals.length ? Math.max(...vals) : null; break;
+      }
+    }
+    outRows.push(out);
+  }
+
+  // Order
+  if (input?.order_by?.col) {
+    const c = input.order_by.col;
+    const dir = input.order_by.dir === "asc" ? 1 : -1;
+    outRows.sort((a, b) => {
+      const av = a[c]; const bv = b[c];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
+      return String(av).localeCompare(String(bv)) * dir;
+    });
+  } else if (aggs.length > 0) {
+    // Default: order by the first aggregation desc.
+    const a0 = aggs[0];
+    const alias = a0.as || (a0.fn === "count" ? "count" : `${a0.fn}_${a0.col}`);
+    outRows.sort((a, b) => (Number(b[alias]) || 0) - (Number(a[alias]) || 0));
+  }
+
+  const limit = Math.min(Math.max(1, Number(input?.limit) || 50), 200);
+  return {
+    mode: "groups",
+    domain: found.domainName,
+    table: tableName,
+    group_count: outRows.length,
+    row_count: rows.length,
+    capped: rows.length >= QUERY_ROW_LIMIT,
+    group_by: groupBy,
+    aggregations: aggs,
+    groups: outRows.slice(0, limit),
+  };
+}
+
 const TOOL_EXECUTORS = {
   find_customer:    tool_find_customer,
   find_style:       tool_find_style,
   query_shipments:  tool_query_shipments,
   query_open_sos:   tool_query_open_sos,
   query_open_pos:   tool_query_open_pos,
+  list_domains:     async () => tool_list_domains(),
+  list_tables:      async (_db, input) => tool_list_tables(input),
+  describe_table:   async (_db, input) => tool_describe_table(input),
+  query_table:      tool_query_table,
 };
 
 const TERMINAL_TOOLS = new Set([
@@ -622,8 +987,14 @@ function buildGridContextBlock(ctx) {
 function summarizeToolResult(name, result) {
   if (!result || typeof result !== "object") return `${name}: ok`;
   if (result.error) return `${name}: error — ${String(result.error).slice(0, 120)}`;
-  if (name === "find_customer") return `find_customer: ${result.count ?? 0} match(es)`;
-  if (name === "find_style")    return `find_style: ${result.count ?? 0} style(s)`;
+  if (name === "find_customer")  return `find_customer: ${result.count ?? 0} match(es)`;
+  if (name === "find_style")     return `find_style: ${result.count ?? 0} style(s)`;
+  if (name === "list_domains")   return `list_domains: ${result.domains?.length ?? 0} domains`;
+  if (name === "list_tables")    return `list_tables(${result.domain}): ${result.tables?.length ?? 0} tables`;
+  if (name === "describe_table") return `describe_table(${result.table}): ${result.columns?.length ?? 0} cols`;
+  if (name === "query_table") {
+    return `query_table(${result.table ?? "?"}): ${result.mode === "rows" ? `${result.rows?.length ?? 0} rows` : `${result.group_count ?? 0} group(s)`} from ${result.row_count ?? 0}${result.capped ? " (CAPPED)" : ""}`;
+  }
   if (name.startsWith("query_")) {
     const t = result.totals;
     const sums = t ? ` totals=qty:${t.qty?.toFixed?.(0) ?? "?"} amt:${t.net_amount?.toFixed?.(0) ?? "?"}` : "";
