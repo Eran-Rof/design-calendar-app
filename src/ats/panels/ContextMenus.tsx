@@ -20,11 +20,15 @@ interface SummaryContextMenuProps {
   // shown beneath On Order so the right-click context matches the
   // operator's grid scope. Empty string = no customer narrow.
   customerFilter?: string;
+  // Click handler for the SO order number in the On Order block.
+  // Opens the SOLineItemsModal at the renderPanel level with every
+  // line on that sales order.
+  onOpenSoDetails?: (orderNumber: string) => void;
 }
 
 // Right-click popup for the sticky On Hand / On Order / On PO columns.
 // Shows per-SKU detail with events grouped by PO / store.
-export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryCtx, summaryCtxRef, setSummaryCtx, customerFilter }) => {
+export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryCtx, summaryCtxRef, setSummaryCtx, customerFilter, onOpenSoDetails }) => {
   // T3 / SP-LY aggregates for the On Order surface. Loaded async from
   // the preloaded sales-history cache. null while loading / unloaded;
   // the empty-zero object means the fetch ran but found nothing.
@@ -215,10 +219,27 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
                   <div key={i} style={{ padding: "8px 14px", borderBottom: "1px solid #1a2030", fontSize: 12 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                       <span style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                        <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700 }}>
-                          {g.orderNumber || "—"}
-                          {g.lineCount > 1 && <span style={{ color: "#64748B", fontWeight: 400, marginLeft: 6 }}>({g.lineCount} lines)</span>}
-                        </span>
+                        {g.orderNumber && onOpenSoDetails ? (
+                          <button
+                            type="button"
+                            onClick={() => onOpenSoDetails(g.orderNumber)}
+                            style={{
+                              background: "none", border: "none", padding: 0,
+                              color: "#60A5FA", fontFamily: "monospace", fontWeight: 700,
+                              cursor: "pointer", textDecoration: "underline",
+                              textUnderlineOffset: 2, fontSize: "inherit",
+                            }}
+                            title="Open full sales order detail"
+                          >
+                            {g.orderNumber}
+                            {g.lineCount > 1 && <span style={{ color: "#64748B", fontWeight: 400, marginLeft: 6, textDecoration: "none" }}>({g.lineCount} lines)</span>}
+                          </button>
+                        ) : (
+                          <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700 }}>
+                            {g.orderNumber || "—"}
+                            {g.lineCount > 1 && <span style={{ color: "#64748B", fontWeight: 400, marginLeft: 6 }}>({g.lineCount} lines)</span>}
+                          </span>
+                        )}
                         {g.customerPo && (
                           <span style={{ fontSize: 11, color: "#94A3B8" }}>
                             Cust PO: <span style={{ color: "#CBD5E1", fontFamily: "monospace", fontWeight: 600 }}>{g.customerPo}</span>
