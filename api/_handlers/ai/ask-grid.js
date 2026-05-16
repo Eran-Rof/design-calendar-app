@@ -34,7 +34,12 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
-import { authenticateCaller } from "../../_lib/auth.js";
+// No bearer auth on this endpoint: internal staff in this app live in
+// sessionStorage.plm_user (not Supabase Auth), so there's no JWT to send.
+// Static INTERNAL_API_TOKEN can't ride in a browser bundle without being
+// trivially extractable. Guards instead: same-origin Origin/Referer check
+// + the assertWithinBudget ceiling — caps damage at AI_MONTHLY_BUDGET_USD
+// (default $200/month) regardless of caller identity.
 import {
   assertWithinBudget,
   estimateClaudeCost,
@@ -1016,16 +1021,22 @@ export default async function handler(req, res) {
   if (!ANTHROPIC_KEY) return res.status(500).json({ error: "ANTHROPIC_API_KEY not configured" });
   if (!SB_URL || !SERVICE_KEY) return res.status(500).json({ error: "Supabase not configured" });
 
-  // Admin client needed for both budget check + JWT validation (auth.getUser
-  // requires a real Supabase client; we already have the service role key).
-  const db = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
+  // Same-origin guard. The endpoint is internal — only the deployed app
+  // domain should be calling it. Anyone hitting it from a different origin
+  // is either misconfigured or hostile; reject early. Allowed origins
+  // come from ALLOWED_AI_ORIGINS (comma-separated) with a sensible
+  // default for the production Vercel URL + localhost dev.
+  const origin  = req.headers?.origin  || "";
+  const referer = req.headers?.referer || "";
+  const allowedOrigins = (process.env.ALLOWED_AI_ORIGINS || "https://design-calendar-app.vercel.app,http://localhost:5173,http://localhost:3000")
+    .split(",").map(s => s.trim()).filter(Boolean);
+  const fromOrigin = origin && allowedOrigins.includes(origin);
+  const fromReferer = referer && allowedOrigins.some(o => referer.startsWith(o));
+  if (!fromOrigin && !fromReferer) {
+    return res.status(403).json({ error: "Request must come from an allowed origin." });
+  }
 
-  // Auth via Supabase JWT — every signed-in operator already has a session,
-  // so the browser passes `Authorization: Bearer <access_token>`. This
-  // replaces the static INTERNAL_API_TOKEN gate, which was unreachable from
-  // a browser bundle (would need to be baked in, defeating the point).
-  const auth = await authenticateCaller(req, db);
-  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+  const db = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
   const body = req.body || {};
   const question = typeof body.question === "string" ? body.question.trim() : "";
