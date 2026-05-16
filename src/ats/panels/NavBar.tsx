@@ -735,6 +735,7 @@ export const NavBar: React.FC<NavBarProps> = ({
         setPreviewPayload(null);
       }}
       onClose={() => { setPreviewPayload(null); setExportOptsOpen(true); }}
+      onCloseAll={() => { setPreviewPayload(null); }}
     />
     {exportLoading && (
       <div style={{

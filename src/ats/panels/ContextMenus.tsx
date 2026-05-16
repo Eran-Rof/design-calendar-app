@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { fmtDateDisplay } from "../helpers";
 import type { CtxMenu, SummaryCtxMenu } from "../types";
+import { getSkuSalesAggregates, type SkuSalesAggregates } from "../exportSalesFetch";
 
 // Shared store pill — used by both summary and cell menus
 const storeTag = (store: string) => (
@@ -15,11 +16,33 @@ interface SummaryContextMenuProps {
   summaryCtx: SummaryCtxMenu | null;
   summaryCtxRef: React.RefObject<HTMLDivElement>;
   setSummaryCtx: (v: SummaryCtxMenu | null) => void;
+  // Grid's current customer filter — narrows the T3 / SP-LY blocks
+  // shown beneath On Order so the right-click context matches the
+  // operator's grid scope. Empty string = no customer narrow.
+  customerFilter?: string;
 }
 
 // Right-click popup for the sticky On Hand / On Order / On PO columns.
 // Shows per-SKU detail with events grouped by PO / store.
-export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryCtx, summaryCtxRef, setSummaryCtx }) => {
+export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryCtx, summaryCtxRef, setSummaryCtx, customerFilter }) => {
+  // T3 / SP-LY aggregates for the On Order surface. Loaded async from
+  // the preloaded sales-history cache. null while loading / unloaded;
+  // the empty-zero object means the fetch ran but found nothing.
+  const [salesAgg, setSalesAgg] = useState<SkuSalesAggregates | null>(null);
+  const [salesLoading, setSalesLoading] = useState(false);
+
+  useEffect(() => {
+    setSalesAgg(null);
+    if (!summaryCtx || summaryCtx.type !== "onOrder") return;
+    let cancelled = false;
+    setSalesLoading(true);
+    getSkuSalesAggregates(summaryCtx.row.sku, customerFilter ?? "")
+      .then(r => { if (!cancelled) setSalesAgg(r); })
+      .catch(e => { if (!cancelled) { console.error("[ats-summary-menu] sales fetch failed:", e); setSalesAgg(null); } })
+      .finally(() => { if (!cancelled) setSalesLoading(false); });
+    return () => { cancelled = true; };
+  }, [summaryCtx, customerFilter]);
+
   if (!summaryCtx) return null;
   const { type, row, pos, sos } = summaryCtx;
 
@@ -214,6 +237,15 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
                   </div>
                 );
               })}
+
+              {/* T3 + SP-LY blocks (same windows as the Excel export) */}
+              <SalesHistorySection
+                salesAgg={salesAgg}
+                loading={salesLoading}
+                avgCost={effectiveCost}
+                ppkMult={ppkMult}
+                customerFilter={customerFilter ?? ""}
+              />
             </div>
           );
         })()}
@@ -468,6 +500,104 @@ export const CellContextMenu: React.FC<CellContextMenuProps> = ({ ctxMenu, ctxRe
         <div style={{ position: "relative", height: 8, overflow: "visible" }}>
           <div style={{ position: "absolute", top: 0, left: ctxMenu.arrowLeft, width: 0, height: 0, borderLeft: "9px solid transparent", borderRight: "9px solid transparent", borderTop: "9px solid #334155", pointerEvents: "none" }} />
           <div style={{ position: "absolute", top: 0, left: ctxMenu.arrowLeft + 1, width: 0, height: 0, borderLeft: "8px solid transparent", borderRight: "8px solid transparent", borderTop: "8px solid #1E293B", pointerEvents: "none" }} />
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── T3 / SP-LY block ─────────────────────────────────────────────────
+// Rendered at the bottom of the On Order right-click menu. Same date
+// windows as the Excel export's Trailing-3 / SP-LY columns:
+//   T3: last 3 months from today
+//   LY: same 3-month window one year ago (today − 15 mo .. today − 12 mo)
+// Optionally narrowed by the grid's customer filter. Margin uses the
+// row's effective unit cost (already in unit grain in the parent
+// scope) — for prepacks we surface pack-grain math like the rest of
+// the menu (avg pack price ÷ cost-per-pack).
+interface SalesHistorySectionProps {
+  salesAgg: SkuSalesAggregates | null;
+  loading: boolean;
+  avgCost: number;          // per-unit (effectiveCost from parent)
+  ppkMult: number;
+  customerFilter: string;
+}
+
+const SalesHistorySection: React.FC<SalesHistorySectionProps> = ({ salesAgg, loading, avgCost, ppkMult, customerFilter }) => {
+  if (loading && !salesAgg) {
+    return (
+      <div style={{ padding: "8px 14px", borderTop: "1px solid #1a2030", fontSize: 11, color: "#64748B", fontStyle: "italic" }}>
+        Loading sales history…
+      </div>
+    );
+  }
+  if (!salesAgg) return null;
+  const { t3, ly, t3Window, lyWindow } = salesAgg;
+  const isPrepack = ppkMult > 1;
+  return (
+    <>
+      <SalesHistoryBlock
+        label="T3 (last 3 months)"
+        windowLabel={`${fmtDateDisplay(t3Window.start)} → ${fmtDateDisplay(t3Window.end)}`}
+        agg={t3}
+        avgCost={avgCost}
+        ppkMult={ppkMult}
+        isPrepack={isPrepack}
+        customerFilter={customerFilter}
+      />
+      <SalesHistoryBlock
+        label="SP LY (same 3 months last year)"
+        windowLabel={`${fmtDateDisplay(lyWindow.start)} → ${fmtDateDisplay(lyWindow.end)}`}
+        agg={ly}
+        avgCost={avgCost}
+        ppkMult={ppkMult}
+        isPrepack={isPrepack}
+        customerFilter={customerFilter}
+      />
+    </>
+  );
+};
+
+interface SalesHistoryBlockProps {
+  label: string;
+  windowLabel: string;
+  agg: { qty: number; totalPrice: number };
+  avgCost: number;
+  ppkMult: number;
+  isPrepack: boolean;
+  customerFilter: string;
+}
+
+const SalesHistoryBlock: React.FC<SalesHistoryBlockProps> = ({ label, windowLabel, agg, avgCost, ppkMult, isPrepack, customerFilter }) => {
+  const empty = agg.qty === 0 && agg.totalPrice === 0;
+  const unitPrice = agg.qty > 0 ? agg.totalPrice / agg.qty : 0;
+  // Margin: unitPrice and avgCost are per-pack and per-unit respectively
+  // for prepacks. Multiply avgCost by ppkMult to land both in the same
+  // grain (pack). Non-prepacks: ppkMult=1, no-op.
+  const margin = (unitPrice > 0 && avgCost > 0)
+    ? ((unitPrice - avgCost * ppkMult) / unitPrice) * 100
+    : null;
+  const marginColor = margin === null ? "#94A3B8" : margin >= 30 ? "#6EE7B7" : margin >= 10 ? "#FCD34D" : "#FCA5A5";
+  const qtyDisplay = isPrepack
+    ? `${agg.qty.toLocaleString()} pack${agg.qty !== 1 ? "s" : ""} (${(agg.qty * ppkMult).toLocaleString()} units)`
+    : `${agg.qty.toLocaleString()} units`;
+
+  return (
+    <div style={{ padding: "8px 14px", borderTop: "1px solid #1a2030", fontSize: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 3, gap: 8 }}>
+        <span style={{ color: "#93C5FD", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+          {label}{customerFilter ? <span style={{ color: "#94A3B8", fontWeight: 400, textTransform: "none", letterSpacing: 0, marginLeft: 6 }}>· {customerFilter}</span> : null}
+        </span>
+        <span style={{ color: "#64748B", fontSize: 10 }}>{windowLabel}</span>
+      </div>
+      {empty ? (
+        <div style={{ color: "#64748B", fontSize: 11, fontStyle: "italic" }}>No sales in this window.</div>
+      ) : (
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", color: "#CBD5E1" }}>
+          <span style={{ color: "#F59E0B", fontWeight: 700 }}>{qtyDisplay}</span>
+          {agg.totalPrice > 0 && <span>${agg.totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
+          {unitPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Avg ${unitPrice.toFixed(2)}/{isPrepack ? "pack" : "unit"}</span>}
+          {margin !== null && <span style={{ color: marginColor, fontWeight: 600, fontSize: 11 }}>Margin {margin >= 0 ? "" : "-"}{Math.abs(margin).toFixed(1)}%</span>}
         </div>
       )}
     </div>

@@ -20,7 +20,11 @@ interface Props {
   filename: string;
   rowCount: number;       // body rows (excludes header)
   onDownload: () => void;
+  // Back to the options modal — operator can adjust selections + re-view.
   onClose: () => void;
+  // Full dismiss — used by the header X and the footer Close button.
+  // Closes everything (preview + options) without re-opening anything.
+  onCloseAll: () => void;
 }
 
 function formatCell(cell: Cell | undefined): string {
@@ -52,7 +56,7 @@ function isNumeric(cell: Cell | undefined): boolean {
   return cell?.t === "n" || typeof cell?.v === "number";
 }
 
-export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCount, onDownload, onClose }) => {
+export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCount, onDownload, onClose, onCloseAll }) => {
   const headerRow = useMemo(() => aoa && aoa.length > 0 ? aoa[0] : null, [aoa]);
   const bodyRows = useMemo(() => aoa && aoa.length > 1 ? aoa.slice(1) : [], [aoa]);
 
@@ -64,7 +68,7 @@ export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCo
         position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1200,
         display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
       }}
-      onClick={onClose}
+      onClick={onCloseAll}
     >
       <div
         style={{
@@ -82,15 +86,22 @@ export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCo
               {filename} · {rowCount.toLocaleString()} row{rowCount === 1 ? "" : "s"} · {headerRow.length} column{headerRow.length === 1 ? "" : "s"}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button
               style={{ background: "transparent", border: "1px solid #334155", borderRadius: 6, padding: "7px 14px", color: "#CBD5E1", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
               onClick={onClose}
+              title="Back to export options"
             >Back</button>
             <button
               style={{ background: "#10B981", border: "1px solid #10B981", borderRadius: 6, padding: "7px 16px", color: "#0F172A", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
               onClick={onDownload}
             >Download</button>
+            <button
+              style={{ background: "none", border: "none", color: "#64748B", fontSize: 22, cursor: "pointer", padding: "2px 8px", borderRadius: 4, lineHeight: 1, marginLeft: 4 }}
+              onClick={onCloseAll}
+              title="Close"
+              aria-label="Close"
+            >×</button>
           </div>
         </div>
 
@@ -148,7 +159,12 @@ export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCo
             <button
               style={{ background: "transparent", border: "1px solid #334155", borderRadius: 6, padding: "7px 14px", color: "#CBD5E1", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
               onClick={onClose}
+              title="Back to export options"
             >Back</button>
+            <button
+              style={{ background: "transparent", border: "1px solid #334155", borderRadius: 6, padding: "7px 14px", color: "#CBD5E1", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
+              onClick={onCloseAll}
+            >Close</button>
             <button
               style={{ background: "#10B981", border: "1px solid #10B981", borderRadius: 6, padding: "7px 16px", color: "#0F172A", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
               onClick={onDownload}

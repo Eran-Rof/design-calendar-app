@@ -292,7 +292,7 @@ export function buildExportPayload(
   if (COL_T3_QTY)   headerRow[COL_T3_QTY   - 1] = { v: `T3 Qty${custTag}`,   t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
   if (COL_T3_PRICE) headerRow[COL_T3_PRICE - 1] = { v: `T3 Sls Price`,       t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
   if (COL_T3_MRGN)  headerRow[COL_T3_MRGN  - 1] = { v: `T3 Mrgn %`,          t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_LY_QTY)   headerRow[COL_LY_QTY   - 1] = { v: `LY Qty${custTag}`,   t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_LY_QTY)   headerRow[COL_LY_QTY   - 1] = { v: `S/P LY${custTag}`,   t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
   if (COL_LY_PRICE) headerRow[COL_LY_PRICE - 1] = { v: `LY Sls Price`,       t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
   if (COL_LY_MRGN)  headerRow[COL_LY_MRGN  - 1] = { v: `LY Mrgn %`,          t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
 
