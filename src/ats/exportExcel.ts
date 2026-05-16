@@ -712,16 +712,18 @@ export function buildExportPayload(
       const t3 = t3Of(r.sku);
       const t3QtyDisp = t3.qty / qtyDiv;
       const t3Price   = t3QtyDisp > 0 ? t3.totalPrice / t3QtyDisp : 0;
-      const t3MrgnPct = (avgCostV > 0 && t3Price > 0)
+      // Sanity gate: if cost > 2× sale price, the cost basis is almost
+      // certainly wrong (typically a pack cost stored as unit cost in
+      // ip_item_master.unit_cost — Xoro doesn't carry an "avg cost"
+      // field so the column relies on operator-uploaded data, which
+      // occasionally has master-case math baked in). Suppress the
+      // margin cell rather than show a misleading -1700%.
+      const costImplausible = avgCostV > 0 && t3Price > 0 && avgCostV > t3Price * 2;
+      const t3MrgnPct = (avgCostV > 0 && t3Price > 0 && !costImplausible)
         ? ((t3Price - avgCostV) / t3Price) * 100
         : 0;
-      // Diagnostic: dump inputs whenever margin lands worse than
-      // -100% (a real signal something's off — at worst-case loss the
-      // cost equals price → 0% margin; -100% would mean cost is 2x
-      // price; -1700% means cost is ~18x price). Helps trace
-      // mismatched grain or bad avgCost without a debugger.
-      if (t3MrgnPct < -100) {
-        console.warn(`[ATS export DBG] T3 mrgn ${t3MrgnPct.toFixed(0)}% for sku="${r.sku}" ppkMult=${mult} explodePpk=${explodePpk} avgCost=${r.avgCost} avgCostV=${avgCostV} t3.qty=${t3.qty} t3QtyDisp=${t3QtyDisp} t3.totalPrice=${t3.totalPrice} t3Price=${t3Price}`);
+      if (costImplausible) {
+        console.warn(`[ATS export] T3 margin suppressed for sku="${r.sku}" — avgCost=$${r.avgCost} > 2× t3Price=$${t3Price.toFixed(2)} (ppkMult=${mult}). Cost basis likely stale or wrong-grain.`);
       }
       if (COL_T3_QTY)     qtyRow[COL_T3_QTY     - 1] = t3QtyDisp === 0
         ? { v: "", t: "s", s: bodyNumStyle(fill) }
@@ -742,7 +744,11 @@ export function buildExportPayload(
       const ly = lyOf(r.sku);
       const lyQtyDisp = ly.qty / qtyDiv;
       const lyPrice   = lyQtyDisp > 0 ? ly.totalPrice / lyQtyDisp : 0;
-      const lyMrgnPct = (avgCostV > 0 && lyPrice > 0)
+      // Same cost-implausibility gate as T3 — suppress margin when
+      // avgCost is > 2× lyPrice. Prevents a stale / wrong-grain cost
+      // basis from producing a misleading negative margin.
+      const lyCostImplausible = avgCostV > 0 && lyPrice > 0 && avgCostV > lyPrice * 2;
+      const lyMrgnPct = (avgCostV > 0 && lyPrice > 0 && !lyCostImplausible)
         ? ((lyPrice - avgCostV) / lyPrice) * 100
         : 0;
       if (COL_LY_QTY)     qtyRow[COL_LY_QTY     - 1] = lyQtyDisp === 0
