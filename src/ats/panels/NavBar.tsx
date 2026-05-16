@@ -4,6 +4,7 @@ import type { ATSRow, ATSPoEvent, ATSSoEvent, ExcelData } from "../types";
 import { computeGridTotals } from "../computeTotals";
 import { XoroSyncOverlay, type XoroSyncProgress } from "./StatusOverlays";
 import { normalizeXoroSos, type XoroSoRecord } from "../normalizeXoroSos";
+import { ExportOptionsModal, type ExportOptions } from "./ExportOptionsModal";
 
 // Sync architecture (rewritten 2026-05-06 after discovering Xoro's
 // pagination overlaps — same SOs appear on multiple pages, and the
@@ -251,8 +252,13 @@ interface NavBarProps {
     atShip: boolean,
     hiddenColumns: string[],
     totals?: import("../computeTotals").GridTotals | null,
+    options?: ExportOptions,
+    eventIndex?: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null,
   ) => void;
   filtered: ATSRow[];
+  // Auto-default for the export-options modal's customer dropdown.
+  // Picks up whatever the grid toolbar currently has selected.
+  customerFilter: string;
   // Full display periods carry the key+periodStart needed by
   // computeGridTotals. The exporter itself only needs endDate + label,
   // so we ship the wider shape and let each consumer pick.
@@ -293,9 +299,14 @@ export const NavBar: React.FC<NavBarProps> = ({
   uploadingFile, invFile, purFile, ordFile,
   exportToExcel, filtered, displayPeriods, atShip, hiddenColumns, showTotalsRow, eventIndex, viewMode, generalMarginPct, onNegInven, onAgedInven, onDownloadIncompleteSkus, onDownloadStockVsSo,
   categories, filterCategory,
+  customerFilter,
   unreadNotifs, showingNotifications, onToggleNotifications,
   excelData, setExcelData,
 }) => {
+  // Export-options modal — opens when the user picks "Export Excel"
+  // from the Reports menu. Confirm callback fires exportToExcel with
+  // the chosen options.
+  const [exportOptsOpen, setExportOptsOpen] = useState(false);
   const [agedOpen, setAgedOpen] = useState(false);
   const [agedDays, setAgedDays] = useState("365");
   const [agedCategory, setAgedCategory] = useState(filterCategory);
@@ -455,32 +466,9 @@ export const NavBar: React.FC<NavBarProps> = ({
             {([
               {
                 key: "exportExcel",
-                label: "Export Excel",
-                sub: "Download the visible grid (filtered + sorted)",
-                onClick: () => {
-                  const rowsForExport = filtered.filter(r => !r.__collapsed);
-                  // Compute the rich totals only when the TOTALS toggle
-                  // is on — when it's off, the export uses the simpler
-                  // Total-column + 1-row format and no resolve chain
-                  // needs to run.
-                  const totals = showTotalsRow
-                    ? computeGridTotals({
-                        filtered: rowsForExport,
-                        displayPeriods,
-                        atShip,
-                        viewMode,
-                        eventIndex,
-                        generalMarginPct,
-                      })
-                    : null;
-                  exportToExcel(
-                    rowsForExport,
-                    displayPeriods.map(p => ({ endDate: p.endDate, label: p.label })),
-                    atShip,
-                    hiddenColumns,
-                    totals,
-                  );
-                },
+                label: "Export Excel…",
+                sub: "Pick subtotals / cost / trailing options, then download",
+                onClick: () => { setExportOptsOpen(true); setReportsOpen(false); },
               },
               {
                 key: "negInven",
@@ -638,6 +626,41 @@ export const NavBar: React.FC<NavBarProps> = ({
         </div>
       </div>
     )}
+
+    <ExportOptionsModal
+      open={exportOptsOpen}
+      onClose={() => setExportOptsOpen(false)}
+      excelData={excelData}
+      defaultCustomer={customerFilter}
+      onConfirm={(opts) => {
+        const rowsForExport = filtered.filter(r => !r.__collapsed);
+        // GridTotals are only useful when subtotals are on AND the
+        // user wants the 5-row Cost/Sale/Mrgn bottom stack. We keep
+        // those gated on showTotalsRow as before — the modal's
+        // "subtotals" flag is about per-style subtotal ROWS, distinct
+        // from the bottom-totals stack.
+        const totals = showTotalsRow
+          ? computeGridTotals({
+              filtered: rowsForExport,
+              displayPeriods,
+              atShip,
+              viewMode,
+              eventIndex,
+              generalMarginPct,
+            })
+          : null;
+        exportToExcel(
+          rowsForExport,
+          displayPeriods.map(p => ({ endDate: p.endDate, label: p.label })),
+          atShip,
+          hiddenColumns,
+          totals,
+          opts,
+          eventIndex,
+        );
+        setExportOptsOpen(false);
+      }}
+    />
   </nav>
   );
 };

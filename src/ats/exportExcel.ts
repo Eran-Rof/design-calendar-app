@@ -1,8 +1,46 @@
 import XLSXStyle from "xlsx-js-style";
-import type { ATSRow } from "./types";
+import type { ATSRow, ATSPoEvent, ATSSoEvent } from "./types";
 import { fmtDate, displayColor } from "./helpers";
 import type { GridTotals } from "./computeTotals";
 import { periodAvail } from "./compute";
+import type { ExportOptions } from "./panels/ExportOptionsModal";
+
+type EventIndex = Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>>;
+
+// Compute per-SKU sales aggregates over a date window. Optionally
+// narrows by customer name. Returns { qty, totalPrice } summed across
+// every SO event whose date falls in [startIso, endIso] (inclusive).
+function aggregateSalesWindow(
+  eventIndex: EventIndex | null | undefined,
+  sku: string,
+  startIso: string,
+  endIso: string,
+  customer: string,
+): { qty: number; totalPrice: number } {
+  if (!eventIndex) return { qty: 0, totalPrice: 0 };
+  const byDate = eventIndex[sku];
+  if (!byDate) return { qty: 0, totalPrice: 0 };
+  let qty = 0;
+  let totalPrice = 0;
+  for (const [date, bucket] of Object.entries(byDate)) {
+    if (date < startIso || date > endIso) continue;
+    for (const so of bucket.sos) {
+      if (customer && so.customerName !== customer) continue;
+      qty += so.qty || 0;
+      totalPrice += so.totalPrice || ((so.unitPrice || 0) * (so.qty || 0));
+    }
+  }
+  return { qty, totalPrice };
+}
+
+// Subtract `months` calendar months from an ISO YYYY-MM-DD date.
+// Uses Date arithmetic so day-of-month roll-over (Mar 31 - 1 month
+// = Feb 28/29) is handled by the runtime.
+function isoMinusMonths(iso: string, months: number): string {
+  const d = new Date(iso + "T00:00:00");
+  d.setMonth(d.getMonth() - months);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 // Autofit non-spacer cols: max(len(value)) + 2, capped at 80.
 // No frozen panes, no autofilter, no merged cells.
 export function exportToExcel(
@@ -14,7 +52,29 @@ export function exportToExcel(
   // arg if the planner's intent shifts.
   _hiddenColumns: string[] = [],
   _totals: GridTotals | null = null,
+  options?: ExportOptions,
+  eventIndex?: EventIndex | null,
 ) {
+  // Default options — keeps the export's pre-modal behavior when
+  // exportToExcel is called without a modal (e.g. legacy tests).
+  const opts: ExportOptions = {
+    subtotals:           options?.subtotals           ?? true,
+    avgCost:             options?.avgCost             ?? false,
+    slsPrcAtMrgn:        options?.slsPrcAtMrgn        ?? false,
+    slsMarginPct:        options?.slsMarginPct        ?? 21,
+    trailing3:           options?.trailing3           ?? false,
+    spLY:                options?.spLY                ?? false,
+    customerEnabled:     options?.customerEnabled     ?? false,
+    customer:            options?.customer            ?? "",
+    showCustomerMargin:  options?.showCustomerMargin  ?? true,
+  };
+  // Margin column appears in trailing/SPLY blocks always when no
+  // customer is selected; when a customer IS selected, only when the
+  // operator opted in.
+  const showT3Margin   = !opts.customerEnabled || opts.showCustomerMargin;
+  const customerFilter = opts.customerEnabled ? opts.customer : "";
+  // Sales-margin fraction shared by body / subtotal / total calcs.
+  const slsMargin = opts.slsMarginPct / 100;
   // Skip rows whose availability is zero across every visible period.
   // Negatives (shortages) and positives are kept. Uses periodAvail so
   // the "any availability" test honors the same delta-when-atShip
@@ -43,26 +103,46 @@ export function exportToExcel(
   };
 
   // ── Layout (1-based column indexes) ────────────────────────────────────
+  // Base 18-col layout (when numPeriods=5). The modal can append extra
+  // numeric columns on the right: Avg Cost / Total Cost / Sls Prc @
+  // Mrgn / T3 Qty / T3 Sls Price / T3 Mrgn % / LY Qty / LY Sls Price /
+  // LY Mrgn %. The optional columns slot in after `total` in the order
+  // requested by the user; we record their indexes here so the data /
+  // header / subtotal / outline loops can pick them up uniformly.
   const numPeriods = periods.length;
+  let nextCol = 1;
   const COL = {
-    category:    1,   // A
-    subCat:      2,   // B
-    style:       3,   // C
-    description: 4,   // D
-    color:       5,   // E
-    spacerF:     6,   // F
-    onHand:      7,   // G
-    spacerH:     8,   // H
-    onOrder:     9,   // I
-    spacerJ:     10,  // J
-    onPO:        11,  // K
-    spacerL:     12,  // L
-    firstPeriod: 13,  // M
-    lastPeriod:  13 + numPeriods - 1,
-    total:       13 + numPeriods,
-  };
+    category:    nextCol++,
+    subCat:      nextCol++,
+    style:       nextCol++,
+    description: nextCol++,
+    color:       nextCol++,
+    spacerF:     nextCol++,
+    onHand:      nextCol++,
+    spacerH:     nextCol++,
+    onOrder:     nextCol++,
+    spacerJ:     nextCol++,
+    onPO:        nextCol++,
+    spacerL:     nextCol++,
+    firstPeriod: nextCol,
+    lastPeriod:  nextCol + numPeriods - 1,
+    total:       nextCol + numPeriods,
+  } as Record<string, number>;
+  nextCol = (COL.total as number) + 1;
+  // Optional extra columns. Each is either a 1-based col index or
+  // undefined (column not present).
+  const COL_AVG_COST:    number | undefined = opts.avgCost      ? nextCol++ : undefined;
+  const COL_TOT_COST:    number | undefined = opts.avgCost      ? nextCol++ : undefined;
+  const COL_SLS_PRC:     number | undefined = opts.slsPrcAtMrgn ? nextCol++ : undefined;
+  const COL_T3_QTY:      number | undefined = opts.trailing3    ? nextCol++ : undefined;
+  const COL_T3_PRICE:    number | undefined = opts.trailing3    ? nextCol++ : undefined;
+  const COL_T3_MRGN:     number | undefined = (opts.trailing3 && showT3Margin) ? nextCol++ : undefined;
+  const COL_LY_QTY:      number | undefined = opts.spLY         ? nextCol++ : undefined;
+  const COL_LY_PRICE:    number | undefined = opts.spLY         ? nextCol++ : undefined;
+  const COL_LY_MRGN:     number | undefined = (opts.spLY && showT3Margin) ? nextCol++ : undefined;
+
   const SPACER_COLS = new Set([COL.spacerF, COL.spacerH, COL.spacerJ, COL.spacerL]);
-  const totalColumnCount = COL.total;
+  const totalColumnCount = nextCol - 1;
 
   // ── Style fills ────────────────────────────────────────────────────────
   const HDR_TEXT_FILL  = "3278CC"; // text headers + every spacer
@@ -188,6 +268,32 @@ export function exportToExcel(
   }
   headerRow[COL.total - 1] = { v: "Total", t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
 
+  // Optional extra-column headers. Slls Prc col header carries the
+  // user-chosen margin pct so the spreadsheet documents the
+  // calculation (e.g. "Sls Prc @ 21%").
+  if (COL_AVG_COST) headerRow[COL_AVG_COST - 1] = { v: "Avg Cost",   t: "s", s: headerStyle(HDR_ONHAND_FILL, "center") };
+  if (COL_TOT_COST) headerRow[COL_TOT_COST - 1] = { v: "Total Cost", t: "s", s: headerStyle(HDR_ONHAND_FILL, "center") };
+  if (COL_SLS_PRC)  headerRow[COL_SLS_PRC  - 1] = { v: `Sls Prc @ ${opts.slsMarginPct}%`, t: "s", s: headerStyle(HDR_ONHAND_FILL, "center") };
+  // T3/LY column labels reflect the customer narrowing so the
+  // spreadsheet is self-documenting. Format: "T3 Qty" / "T3 Qty (Acme)".
+  const custTag = customerFilter ? ` (${customerFilter})` : "";
+  if (COL_T3_QTY)   headerRow[COL_T3_QTY   - 1] = { v: `T3 Qty${custTag}`,   t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_T3_PRICE) headerRow[COL_T3_PRICE - 1] = { v: `T3 Sls Price`,       t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_T3_MRGN)  headerRow[COL_T3_MRGN  - 1] = { v: `T3 Mrgn %`,          t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_LY_QTY)   headerRow[COL_LY_QTY   - 1] = { v: `LY Qty${custTag}`,   t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_LY_PRICE) headerRow[COL_LY_PRICE - 1] = { v: `LY Sls Price`,       t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_LY_MRGN)  headerRow[COL_LY_MRGN  - 1] = { v: `LY Mrgn %`,          t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+
+  // ── Trailing-3 and Same-Period-Last-Year date windows ─────────────────
+  // T3: today − 3 months ... today (inclusive).
+  // LY: today − 15 months ... today − 12 months (the same 3-month
+  // window shifted back a year, so YoY comparisons line up).
+  const todayDate = new Date();
+  const todayIso  = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, "0")}-${String(todayDate.getDate()).padStart(2, "0")}`;
+  const t3Start   = isoMinusMonths(todayIso, 3);
+  const lyEnd     = isoMinusMonths(todayIso, 12);
+  const lyStart   = isoMinusMonths(todayIso, 15);
+
   // ── Helpers ────────────────────────────────────────────────────────────
   // Index-aware accessor — periodAvail handles the atShip=delta case
   // (cumulative free at period 0; per-period new-receipt delta after).
@@ -215,6 +321,11 @@ export function exportToExcel(
     COL.category, COL.subCat, COL.style, COL.description, COL.color,
     COL.spacerF, COL.onHand, COL.spacerH, COL.onOrder, COL.spacerJ, COL.onPO, COL.spacerL,
     COL.total,
+    ...([
+      COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC,
+      COL_T3_QTY, COL_T3_PRICE, COL_T3_MRGN,
+      COL_LY_QTY, COL_LY_PRICE, COL_LY_MRGN,
+    ].filter((c): c is number => c !== undefined)),
   ];
 
   // Detect whether the export spans more than one style. When yes,
@@ -274,6 +385,67 @@ export function exportToExcel(
       r2[ci - 1] = subCell(perPeriod[i]);
     }
     r2[COL.total - 1] = subCell(grand);
+
+    // Optional extra columns at subtotal level.
+    const subCurr = (v: number) => v === 0
+      ? { v: "", t: "s" as const, s: { ...subNumStyle, numFmt: "$#,##0.00" } }
+      : { v, t: "n" as const, s: { ...subNumStyle, numFmt: "$#,##0.00" } };
+    const subPct = (v: number) => v === 0
+      ? { v: "", t: "s" as const, s: { ...subNumStyle, numFmt: "0.0%" } }
+      : { v, t: "n" as const, s: { ...subNumStyle, numFmt: "0.0%" } };
+
+    // For avg cost / sls price, weighted-avg across the group (cost
+    // weighted by Total qty; sls price is unweighted avg of avgCost-
+    // derived prices — there's no qty multiplier on the implied price).
+    if (COL_AVG_COST || COL_TOT_COST || COL_SLS_PRC) {
+      let totalQtyForCost = 0;
+      let totalCostSum = 0;
+      for (const x of group) {
+        const xAvg = x.avgCost ?? 0;
+        if (xAvg <= 0) continue;
+        let xRowTotal = 0;
+        for (let i = 0; i < numPeriods; i++) xRowTotal += periodValueOf(x, i);
+        totalQtyForCost += xRowTotal;
+        totalCostSum += xAvg * xRowTotal;
+      }
+      const weightedAvgCost = totalQtyForCost > 0 ? totalCostSum / totalQtyForCost : 0;
+      const slsPrcW = (weightedAvgCost > 0 && slsMargin < 1)
+        ? weightedAvgCost / (1 - slsMargin)
+        : 0;
+      if (COL_AVG_COST) r2[COL_AVG_COST - 1] = subCurr(weightedAvgCost);
+      if (COL_TOT_COST) r2[COL_TOT_COST - 1] = subCurr(totalCostSum);
+      if (COL_SLS_PRC)  r2[COL_SLS_PRC  - 1] = subCurr(slsPrcW);
+    }
+
+    if (opts.trailing3) {
+      let qty = 0, totalPrice = 0, totalCost = 0;
+      for (const x of group) {
+        const xT3 = aggregateSalesWindow(eventIndex, x.sku, t3Start, todayIso, customerFilter);
+        qty += xT3.qty;
+        totalPrice += xT3.totalPrice;
+        totalCost += (x.avgCost ?? 0) * xT3.qty;
+      }
+      const price = qty > 0 ? totalPrice / qty : 0;
+      const mrgnPct = totalPrice > 0 && totalCost > 0 ? ((totalPrice - totalCost) / totalPrice) * 100 : 0;
+      if (COL_T3_QTY)   r2[COL_T3_QTY   - 1] = subCell(qty);
+      if (COL_T3_PRICE) r2[COL_T3_PRICE - 1] = subCurr(price);
+      if (COL_T3_MRGN)  r2[COL_T3_MRGN  - 1] = subPct(mrgnPct / 100);
+    }
+    if (opts.spLY) {
+      let qty = 0, totalPrice = 0, totalCost = 0;
+      for (const x of group) {
+        const xLY = aggregateSalesWindow(eventIndex, x.sku, lyStart, lyEnd, customerFilter);
+        qty += xLY.qty;
+        totalPrice += xLY.totalPrice;
+        totalCost += (x.avgCost ?? 0) * xLY.qty;
+      }
+      const price = qty > 0 ? totalPrice / qty : 0;
+      const mrgnPct = totalPrice > 0 && totalCost > 0 ? ((totalPrice - totalCost) / totalPrice) * 100 : 0;
+      if (COL_LY_QTY)   r2[COL_LY_QTY   - 1] = subCell(qty);
+      if (COL_LY_PRICE) r2[COL_LY_PRICE - 1] = subCurr(price);
+      if (COL_LY_MRGN)  r2[COL_LY_MRGN  - 1] = subPct(mrgnPct / 100);
+    }
+
     return r2;
   }
 
@@ -285,6 +457,8 @@ export function exportToExcel(
   function flushGroupSubtotal() {
     if (!multiStyle) { currentGroup = []; return; }
     if (currentGroup.length === 0) return;
+    // Modal opt-out: operator can disable subtotal rows entirely.
+    if (!opts.subtotals) { currentGroup = []; return; }
     // Skip single-row style groups — the lone qty row already shows the
     // totals, so a subtotal would just repeat the same numbers.
     if (currentGroup.length === 1) { currentGroup = []; return; }
@@ -375,6 +549,63 @@ export function exportToExcel(
           s: bodyTotalStyle(fill),
         };
 
+    // ── Optional extra columns ─────────────────────────────────────────
+    const avgCostV = r.avgCost ?? 0;
+    // Total cost = avgCost × the row's total qty across periods.
+    // (Same Total the spreadsheet displays in COL.total.)
+    const totalCostV = avgCostV > 0 ? avgCostV * rowPeriodTotal : 0;
+    // Implied sale price needed to hit `slsMarginPct` against avgCost.
+    // price = avgCost / (1 - margin). Guard against margin >= 100.
+    const slsPrcV = (avgCostV > 0 && slsMargin < 1)
+      ? avgCostV / (1 - slsMargin)
+      : 0;
+    if (COL_AVG_COST) qtyRow[COL_AVG_COST - 1] = avgCostV === 0
+      ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
+      : { v: avgCostV, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
+    if (COL_TOT_COST) qtyRow[COL_TOT_COST - 1] = totalCostV === 0
+      ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
+      : { v: totalCostV, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
+    if (COL_SLS_PRC) qtyRow[COL_SLS_PRC - 1] = slsPrcV === 0
+      ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
+      : { v: slsPrcV, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
+
+    // Trailing 3 — sales over the last 3 months from today, optionally
+    // narrowed to one customer. Margin uses avgCost as the cost basis.
+    if (opts.trailing3) {
+      const t3 = aggregateSalesWindow(eventIndex, r.sku, t3Start, todayIso, customerFilter);
+      const t3Price = t3.qty > 0 ? t3.totalPrice / t3.qty : 0;
+      const t3MrgnPct = (avgCostV > 0 && t3Price > 0)
+        ? ((t3Price - avgCostV) / t3Price) * 100
+        : 0;
+      if (COL_T3_QTY)   qtyRow[COL_T3_QTY   - 1] = t3.qty === 0
+        ? { v: "", t: "s", s: bodyNumStyle(fill) }
+        : { v: t3.qty, t: "n", s: bodyNumStyle(fill) };
+      if (COL_T3_PRICE) qtyRow[COL_T3_PRICE - 1] = t3Price === 0
+        ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
+        : { v: t3Price, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
+      if (COL_T3_MRGN)  qtyRow[COL_T3_MRGN  - 1] = t3MrgnPct === 0
+        ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "0.0%" } }
+        : { v: t3MrgnPct / 100, t: "n", s: { ...bodyNumStyle(fill), numFmt: "0.0%" } };
+    }
+
+    // Same-Period Last Year — same window 12 months ago.
+    if (opts.spLY) {
+      const ly = aggregateSalesWindow(eventIndex, r.sku, lyStart, lyEnd, customerFilter);
+      const lyPrice = ly.qty > 0 ? ly.totalPrice / ly.qty : 0;
+      const lyMrgnPct = (avgCostV > 0 && lyPrice > 0)
+        ? ((lyPrice - avgCostV) / lyPrice) * 100
+        : 0;
+      if (COL_LY_QTY)   qtyRow[COL_LY_QTY   - 1] = ly.qty === 0
+        ? { v: "", t: "s", s: bodyNumStyle(fill) }
+        : { v: ly.qty, t: "n", s: bodyNumStyle(fill) };
+      if (COL_LY_PRICE) qtyRow[COL_LY_PRICE - 1] = lyPrice === 0
+        ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
+        : { v: lyPrice, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
+      if (COL_LY_MRGN)  qtyRow[COL_LY_MRGN  - 1] = lyMrgnPct === 0
+        ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "0.0%" } }
+        : { v: lyMrgnPct / 100, t: "n", s: { ...bodyNumStyle(fill), numFmt: "0.0%" } };
+    }
+
     dataRows.push(qtyRow);
     nextExcelRow++;
 
@@ -425,6 +656,13 @@ export function exportToExcel(
         };
       }
       ppkRow[COL.total - 1] = { v: "", t: "s", s: bodyTotalStyle(fill) };
+
+      // Optional extra cols on the PPK follower row — blank with the
+      // same style as the qty row's matching cell so the merge looks
+      // clean and the outline finalizer sees a real cell to border.
+      for (const ci of [COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_T3_QTY, COL_T3_PRICE, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_MRGN]) {
+        if (ci !== undefined) ppkRow[ci - 1] = blankFill(bodyNumStyle(fill));
+      }
 
       dataRows.push(ppkRow);
       const ppkExcelRow = nextExcelRow;
@@ -489,7 +727,88 @@ export function exportToExcel(
       cells[ci - 1] = cellFor(getPeriod(periods[i].endDate));
     }
     cells[COL.total - 1] = cellFor(getRowTotal());
+    // Fill any optional extra columns with blank styled cells so the
+    // outline finalizer + autofit see real cells and the bottom row
+    // closes the table cleanly across its full width. Callers that
+    // want real aggregates patch these in after.
+    const optCols = [COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_T3_QTY, COL_T3_PRICE, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_MRGN];
+    for (const ci of optCols) {
+      if (ci !== undefined) cells[ci - 1] = { v: "", t: "s", s: totalNumStyle };
+    }
     return cells;
+  }
+
+  // Aggregate helper for the bottom Total row's optional cols. Computes
+  // weighted avgs / sums across every visible row.
+  function computeOptColAggregates() {
+    let qtyForCost = 0;
+    let costSum = 0;
+    for (const r of rows) {
+      const a = r.avgCost ?? 0;
+      if (a <= 0) continue;
+      let q = 0;
+      for (let i = 0; i < numPeriods; i++) q += periodValueOf(r, i);
+      qtyForCost += q;
+      costSum    += a * q;
+    }
+    const avgCostW = qtyForCost > 0 ? costSum / qtyForCost : 0;
+    const slsPrcW = (avgCostW > 0 && slsMargin < 1) ? avgCostW / (1 - slsMargin) : 0;
+
+    let t3Qty = 0, t3Tot = 0, t3CostBasis = 0;
+    let lyQty = 0, lyTot = 0, lyCostBasis = 0;
+    for (const r of rows) {
+      const a = r.avgCost ?? 0;
+      if (opts.trailing3) {
+        const t = aggregateSalesWindow(eventIndex, r.sku, t3Start, todayIso, customerFilter);
+        t3Qty += t.qty;
+        t3Tot += t.totalPrice;
+        t3CostBasis += a * t.qty;
+      }
+      if (opts.spLY) {
+        const l = aggregateSalesWindow(eventIndex, r.sku, lyStart, lyEnd, customerFilter);
+        lyQty += l.qty;
+        lyTot += l.totalPrice;
+        lyCostBasis += a * l.qty;
+      }
+    }
+    const t3Price = t3Qty > 0 ? t3Tot / t3Qty : 0;
+    const lyPrice = lyQty > 0 ? lyTot / lyQty : 0;
+    const t3Mrgn  = t3Tot > 0 && t3CostBasis > 0 ? (t3Tot - t3CostBasis) / t3Tot : 0;
+    const lyMrgn  = lyTot > 0 && lyCostBasis > 0 ? (lyTot - lyCostBasis) / lyTot : 0;
+
+    return { avgCostW, totalCostW: costSum, slsPrcW, t3Qty, t3Price, t3Mrgn, lyQty, lyPrice, lyMrgn };
+  }
+
+  // Overlay the optional-col aggregates onto a stack row in-place. Used
+  // for the toggle-OFF Total row and the toggle-ON "TOTAL Qty" row.
+  function patchOptColAggregates(cells: any[], agg: ReturnType<typeof computeOptColAggregates>) {
+    const setCurr = (ci: number | undefined, v: number) => {
+      if (!ci) return;
+      cells[ci - 1] = v === 0
+        ? { v: "", t: "s", s: { ...totalNumStyle, numFmt: "$#,##0.00" } }
+        : { v, t: "n", s: { ...totalNumStyle, numFmt: "$#,##0.00" } };
+    };
+    const setQty = (ci: number | undefined, v: number) => {
+      if (!ci) return;
+      cells[ci - 1] = v === 0
+        ? { v: "", t: "s", s: totalNumStyle }
+        : { v, t: "n", s: totalNumStyle };
+    };
+    const setPct = (ci: number | undefined, v: number) => {
+      if (!ci) return;
+      cells[ci - 1] = v === 0
+        ? { v: "", t: "s", s: { ...totalNumStyle, numFmt: "0.0%" } }
+        : { v, t: "n", s: { ...totalNumStyle, numFmt: "0.0%" } };
+    };
+    setCurr(COL_AVG_COST, agg.avgCostW);
+    setCurr(COL_TOT_COST, agg.totalCostW);
+    setCurr(COL_SLS_PRC,  agg.slsPrcW);
+    setQty (COL_T3_QTY,   agg.t3Qty);
+    setCurr(COL_T3_PRICE, agg.t3Price);
+    setPct (COL_T3_MRGN,  agg.t3Mrgn);
+    setQty (COL_LY_QTY,   agg.lyQty);
+    setCurr(COL_LY_PRICE, agg.lyPrice);
+    setPct (COL_LY_MRGN,  agg.lyMrgn);
   }
 
   if (_totals !== null) {
@@ -507,12 +826,14 @@ export function exportToExcel(
     const periodCostSum = periods.reduce((a, p) => a + (t.periodCost[p.endDate] ?? 0), 0);
     const periodSaleSum = periods.reduce((a, p) => a + (t.periodSale[p.endDate] ?? 0), 0);
 
-    dataRows.push(buildStackRow(
+    const totalQtyRow = buildStackRow(
       "TOTAL Qty",
       (k) => t[k].qty,
       (key) => t.periodQty[key] ?? 0,
       () => periodSums.reduce((a, b) => a + b, 0),
-    ));
+    );
+    patchOptColAggregates(totalQtyRow, computeOptColAggregates());
+    dataRows.push(totalQtyRow);
     dataRows.push(buildStackRow(
       "TOTAL Cost",
       (k) => fmtUSD(t[k].cost),
@@ -544,12 +865,14 @@ export function exportToExcel(
     const onPOSum    = rows.reduce((a, r) => a + (r.onPO    ?? 0), 0);
     const periodSumByKey: Record<string, number> = {};
     periods.forEach((p, i) => { periodSumByKey[p.endDate] = periodSums[i]; });
-    dataRows.push(buildStackRow(
+    const totalRow = buildStackRow(
       "Total",
       (k) => k === "onHand" ? onHandSum : k === "onOrder" ? onOrderSum : onPOSum,
       (key) => periodSumByKey[key] ?? 0,
       () => periodSums.reduce((a, b) => a + b, 0),
-    ));
+    );
+    patchOptColAggregates(totalRow, computeOptColAggregates());
+    dataRows.push(totalRow);
   }
 
   // ── Outer + style-group thick borders ──────────────────────────────────

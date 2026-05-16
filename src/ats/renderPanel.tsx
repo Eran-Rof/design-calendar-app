@@ -106,6 +106,8 @@ interface ATSDerivedCtx {
     atShip: boolean,
     hiddenColumns: string[],
     totals?: import("./computeTotals").GridTotals | null,
+    options?: import("./panels/ExportOptionsModal").ExportOptions,
+    eventIndex?: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null,
   ) => void;
   repositionCtxMenu: () => void;
   repositionSummaryCtx: () => void;
@@ -189,6 +191,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         onDownloadStockVsSo={() => exportStockVsSo(filtered, eventIndex)}
         categories={categories}
         filterCategory={filterCategory.length === 1 ? filterCategory[0] : "All"}
+        customerFilter={customerFilter ?? ""}
         unreadNotifs={unreadNotifs}
         showingNotifications={showingNotifications}
         onToggleNotifications={onToggleNotifications}
