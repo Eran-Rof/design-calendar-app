@@ -9,6 +9,7 @@ import { addDays, fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday,
 import { computeRowsFromExcelData, applyPpkMultiplierToRow } from "./ats/compute";
 import { enrichRowsWithItemMaster } from "./ats/enrichWithItemMaster";
 import { loadItemMasterCache } from "./ats/itemMasterLookup";
+import { preloadSalesHistory } from "./ats/exportSalesFetch";
 import { mergeExcelDataSkus, mergeRows, dedupeExcelData } from "./ats/merge";
 import { useMergeHistory } from "./ats/hooks/useMergeHistory";
 import { usePOWIPSync } from "./ats/hooks/usePOWIPSync";
@@ -197,6 +198,10 @@ function ATSReport() {
     loadItemMasterCache()
       .catch(e => console.error("[ats master] cache load failed:", e))
       .finally(() => { if (!cancelled) setMasterReady(true); });
+    // Kick off the 15-month sales-history preload in parallel so the
+    // first Export Excel View / Download doesn't pay the round trip.
+    // Errors are logged inside preloadSalesHistory — non-blocking.
+    preloadSalesHistory().catch(() => { /* already logged */ });
     return () => { cancelled = true; };
   }, []);
 

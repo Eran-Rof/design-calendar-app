@@ -35,6 +35,16 @@ export interface SalesFetchResult {
   ly: SalesAggMap;
 }
 
+// ── Module-level cache of the wide (15-month) sales-history window ───
+// Primed at app start by preloadSalesHistory() so the first export
+// View / Download doesn't pay the multi-second round trip. fetched
+// rows are reused across customer / window combinations — the
+// aggregation step is in-memory and cheap.
+let salesCachePromise: Promise<SalesRow[]> | null = null;
+let salesCacheRows: SalesRow[] | null = null;
+let salesCacheStart: string | null = null;
+let salesCacheEnd: string | null = null;
+
 function isoMinusMonths(iso: string, months: number): string {
   const d = new Date(iso + "T00:00:00");
   d.setMonth(d.getMonth() - months);
@@ -137,6 +147,53 @@ export interface FetchSalesArgs {
   customer: string;
 }
 
+// Kick off (or return the in-flight Promise for) the 15-month sales-
+// history fetch. Safe to call multiple times — concurrent callers
+// share one round trip. Failures clear the cached Promise so the
+// next call retries.
+//
+// Called from ATS.tsx mount alongside loadItemMasterCache so the data
+// is warm by the time the operator clicks Export Excel.
+export function preloadSalesHistory(): Promise<SalesRow[]> {
+  if (salesCachePromise) return salesCachePromise;
+  if (!SB_URL) {
+    console.warn("[sales preload] Supabase not configured — skipping.");
+    return Promise.resolve([]);
+  }
+
+  const today = todayIso();
+  const start = isoMinusMonths(today, 15);
+  const path = `ip_sales_history_wholesale?select=sku_id,customer_id,txn_date,qty,net_amount,unit_price&txn_date=gte.${start}&txn_date=lte.${today}&order=txn_date.asc`;
+
+  salesCachePromise = (async () => {
+    const t0 = performance.now();
+    try {
+      const rows = await sbGetAll<SalesRow>(path, 500);
+      salesCacheRows  = rows;
+      salesCacheStart = start;
+      salesCacheEnd   = today;
+      const ms = Math.round(performance.now() - t0);
+      console.info(`[sales preload] cached ${rows.length} rows for ${start}..${today} in ${ms}ms`);
+      return rows;
+    } catch (e) {
+      salesCachePromise = null;
+      console.error("[sales preload] failed:", e);
+      throw e;
+    }
+  })();
+  return salesCachePromise;
+}
+
+// True when the cached window covers the requested range. Cache is
+// pinned to "today" at preload time so a fetcher invoked the next day
+// might find the cache stale by one day — still usable for T3/LY
+// (whose windows shift only at month boundaries in practice). We
+// invalidate only when the cache's window actually doesn't cover.
+function cacheCovers(start: string, end: string): boolean {
+  if (!salesCacheRows || !salesCacheStart || !salesCacheEnd) return false;
+  return start >= salesCacheStart && end <= salesCacheEnd;
+}
+
 export async function fetchSalesAggregates({ rows, needT3, needLY, customer }: FetchSalesArgs): Promise<SalesFetchResult> {
   if (!needT3 && !needLY) return { t3: new Map(), ly: new Map() };
   if (!SB_URL) {
@@ -165,14 +222,15 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer }: F
   else if (needT3)      { fetchStart = t3Start; fetchEnd = today; }
   else                  { fetchStart = lyStart; fetchEnd = lyEnd; }
 
-  let customerClause = "";
+  // Resolve customer name → id (one round trip, separate from the
+  // sales fetch so the cached sales rows can serve every customer).
+  let customerId: string | null = null;
   if (customer) {
-    const cid = await resolveCustomerId(customer);
-    if (!cid) {
+    customerId = await resolveCustomerId(customer);
+    if (!customerId) {
       console.warn(`[ATS export] customer "${customer}" not in ip_customer_master — T3/LY will be empty.`);
       return { t3: new Map(), ly: new Map() };
     }
-    customerClause = `&customer_id=eq.${cid}`;
   }
 
   const { idToSku, matched, unmatched } = buildIdToSkuMap(rows);
@@ -182,9 +240,34 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer }: F
     return { t3: new Map(), ly: new Map() };
   }
 
-  const path = `ip_sales_history_wholesale?select=sku_id,customer_id,txn_date,qty,net_amount,unit_price&txn_date=gte.${fetchStart}&txn_date=lte.${fetchEnd}${customerClause}&order=txn_date.asc`;
-  const salesRows = await sbGetAll<SalesRow>(path, 500);
-  console.info(`[ATS export] fetched ${salesRows.length} sales rows for window ${fetchStart}..${fetchEnd}${customer ? ` (customer=${customer})` : ""}`);
+  // Cache-first path: when the preloaded 15-month window covers the
+  // requested range, slice in-memory instead of round-tripping. The
+  // preload is kicked off at app start (ATS.tsx) so this is usually
+  // warm by the time the operator clicks Export.
+  let salesRows: SalesRow[];
+  if (cacheCovers(fetchStart, fetchEnd)) {
+    salesRows = salesCacheRows!;
+    console.info(`[ATS export] using cached sales (${salesRows.length} rows, window ${salesCacheStart}..${salesCacheEnd})`);
+  } else {
+    // Cache miss (preload not finished / not running) — wait for it
+    // if in flight, otherwise fetch directly.
+    if (salesCachePromise) {
+      try {
+        salesRows = await salesCachePromise;
+        console.info(`[ATS export] awaited preload (${salesRows.length} rows)`);
+      } catch {
+        salesRows = await directFetch(fetchStart, fetchEnd);
+      }
+    } else {
+      salesRows = await directFetch(fetchStart, fetchEnd);
+    }
+  }
+
+  // In-memory customer filter (the sales-row cache is unfiltered so
+  // it can serve every customer's view).
+  if (customerId) {
+    salesRows = salesRows.filter(r => r.customer_id === customerId);
+  }
 
   const t3Rows: SalesRow[] = [];
   const lyRows: SalesRow[] = [];
@@ -195,6 +278,15 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer }: F
 
   const t3 = needT3 ? aggregate(t3Rows, idToSku) : new Map();
   const ly = needLY ? aggregate(lyRows, idToSku) : new Map();
-  console.info(`[ATS export] aggregated → t3:${t3.size} SKUs, ly:${ly.size} SKUs`);
+  console.info(`[ATS export] aggregated → t3:${t3.size} SKUs, ly:${ly.size} SKUs (customer=${customer || "all"})`);
   return { t3, ly };
+}
+
+// Direct (un-cached) fetch for the requested window. Used on cache
+// miss when the preload hasn't run.
+async function directFetch(start: string, end: string): Promise<SalesRow[]> {
+  const path = `ip_sales_history_wholesale?select=sku_id,customer_id,txn_date,qty,net_amount,unit_price&txn_date=gte.${start}&txn_date=lte.${end}&order=txn_date.asc`;
+  const rows = await sbGetAll<SalesRow>(path, 500);
+  console.info(`[ATS export] direct fetch ${rows.length} sales rows for window ${start}..${end}`);
+  return rows;
 }
