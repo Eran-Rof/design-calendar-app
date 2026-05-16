@@ -285,7 +285,11 @@ interface NavBarProps {
     options?: ExportOptions,
     eventIndex?: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null,
     salesAggregates?: SalesFetchResult,
+    explodePpk?: boolean,
   ) => void;
+  // Grid's current Explode PPK toggle — passed through so the export
+  // mirrors the grain the operator is looking at on screen.
+  explodePpk: boolean;
   filtered: ATSRow[];
   // Auto-default for the export-options modal's customer dropdown.
   // Picks up whatever the grid toolbar currently has selected.
@@ -348,7 +352,7 @@ export const NavBar: React.FC<NavBarProps> = ({
   uploadingFile, invFile, purFile, ordFile,
   exportToExcel, filtered, displayPeriods, atShip, hiddenColumns, showTotalsRow, eventIndex, viewMode, generalMarginPct, onNegInven, onAgedInven, onDownloadIncompleteSkus, onDownloadStockVsSo,
   categories, filterCategory,
-  customerFilter, exportFilterOpts,
+  customerFilter, exportFilterOpts, explodePpk,
   unreadNotifs, showingNotifications, onToggleNotifications,
   excelData, setExcelData,
 }) => {
@@ -874,6 +878,7 @@ export const NavBar: React.FC<NavBarProps> = ({
           opts,
           eventIndex,
           prep.salesAggregates,
+          explodePpk,
         );
         setExportOptsOpen(false);
       }}
@@ -889,6 +894,7 @@ export const NavBar: React.FC<NavBarProps> = ({
           opts,
           eventIndex,
           prep.salesAggregates,
+          explodePpk,
         );
         if (!payload) return;
         setPreviewPayload(payload);

@@ -111,6 +111,7 @@ interface ATSDerivedCtx {
     options?: import("./panels/ExportOptionsModal").ExportOptions,
     eventIndex?: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null,
     salesAggregates?: import("./exportSalesFetch").SalesFetchResult,
+    explodePpk?: boolean,
   ) => void;
   repositionCtxMenu: () => void;
   repositionSummaryCtx: () => void;
@@ -262,6 +263,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           storeFilter,
           today: new Date(),
         }}
+        explodePpk={explodePpk ?? true}
         unreadNotifs={unreadNotifs}
         showingNotifications={showingNotifications}
         onToggleNotifications={onToggleNotifications}
