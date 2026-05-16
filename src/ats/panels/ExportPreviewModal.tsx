@@ -127,15 +127,18 @@ export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCo
           </div>
         </div>
 
+        {titleRow && (
+          <div style={{
+            padding: "12px 18px", background: "#fff", borderBottom: "1px solid #C7D2DE",
+            display: "flex", alignItems: "center", justifyContent: "flex-start",
+          }}>
+            <span style={{ fontSize: 22, fontWeight: 700, color: cellFontColor(titleRow[0]) ?? "#1F497D", lineHeight: 1.1 }}>
+              {formatCell(titleRow[0])}
+            </span>
+          </div>
+        )}
         <div style={{ flex: 1, overflow: "auto", padding: 0, background: "#fff" }}>
           <table style={{ borderCollapse: "collapse", fontSize: 11, fontFamily: "Calibri, Arial, sans-serif", color: "#1f2937", width: "100%" }}>
-            {titleRow && (
-              <caption style={{ captionSide: "top", padding: "10px 14px", textAlign: "left", background: "#fff" }}>
-                <span style={{ fontSize: 22, fontWeight: 700, color: cellFontColor(titleRow[0]) ?? "#1F497D" }}>
-                  {formatCell(titleRow[0])}
-                </span>
-              </caption>
-            )}
             <thead style={{ position: "sticky", top: 0, zIndex: 2 }}>
               <tr>
                 {headerRow.map((cell, ci) => (

@@ -96,11 +96,36 @@ function toNum(v: unknown): number {
 async function resolveCustomerId(name: string): Promise<string | null> {
   const trimmed = name.trim();
   if (!trimmed) return null;
-  const enc = encodeURIComponent(trimmed);
-  const rows = await sbGet<{ id: string }>(
-    `ip_customer_master?select=id&name=eq.${enc}&limit=1`,
+  // ip_customer_master.name comes from the Xoro sales-invoice sync.
+  // The dropdown source is excelData.sos.customerName (operator
+  // upload) — case + trailing-punctuation can differ ("Ross
+  // Procurement" vs "ROSS PROCUREMENT" vs "Ross Procurement, Inc.").
+  // First try exact match (fast index hit); fall back to ilike if
+  // exact returns nothing, then to a leading-prefix ilike. Anything
+  // beyond that is genuinely a name mismatch the operator needs to
+  // resolve at the data layer.
+  const encExact = encodeURIComponent(trimmed);
+  const exact = await sbGet<{ id: string }>(
+    `ip_customer_master?select=id&name=eq.${encExact}&limit=1`,
   );
-  return rows[0]?.id ?? null;
+  if (exact[0]?.id) return exact[0].id;
+  const encIlike = encodeURIComponent(trimmed);
+  const ilike = await sbGet<{ id: string }>(
+    `ip_customer_master?select=id&name=ilike.${encIlike}&limit=1`,
+  );
+  if (ilike[0]?.id) {
+    console.info(`[ATS export] customer "${trimmed}" matched case-insensitively in ip_customer_master`);
+    return ilike[0].id;
+  }
+  const encPrefix = encodeURIComponent(`${trimmed}%`);
+  const prefix = await sbGet<{ id: string }>(
+    `ip_customer_master?select=id&name=ilike.${encPrefix}&limit=1`,
+  );
+  if (prefix[0]?.id) {
+    console.info(`[ATS export] customer "${trimmed}" matched prefix-ilike in ip_customer_master`);
+    return prefix[0].id;
+  }
+  return null;
 }
 
 // Build the variant-id → ATS-sku reverse map. Walks each ATS row,
