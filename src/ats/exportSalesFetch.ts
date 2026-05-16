@@ -282,6 +282,91 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer }: F
   return { t3, ly };
 }
 
+// Resolve sales aggregates for one ATS-row SKU, narrowed by customer
+// if provided. Used by the grid's right-click SO menu so the operator
+// can see T3 / SP-LY in context. Awaits the preload cache; resolves
+// customer + master-id lookups from in-memory state.
+//
+// Returns null when something fundamental is missing (no Supabase, no
+// item-master cache, customer name doesn't resolve, etc.) — caller
+// shows a friendly "no data" cell.
+export interface SkuSalesAggregates {
+  t3: SalesAggregate;
+  ly: SalesAggregate;
+  t3Window: { start: string; end: string };
+  lyWindow: { start: string; end: string };
+}
+
+export async function getSkuSalesAggregates(sku: string, customer: string): Promise<SkuSalesAggregates | null> {
+  if (!SB_URL) return null;
+  if (!isItemMasterLoaded()) {
+    try { await loadItemMasterCache(); } catch { return null; }
+  }
+
+  const spaceDelim = sku.indexOf(" - ");
+  const stylePart = spaceDelim !== -1 ? sku.slice(0, spaceDelim).trim() : sku.trim();
+  const ids = resolveItemMasterIds(sku, stylePart || null);
+  if (ids.length === 0) return null;
+  const idSet = new Set(ids);
+
+  let customerId: string | null = null;
+  if (customer) {
+    customerId = await resolveCustomerId(customer);
+    if (!customerId) {
+      // Customer doesn't match the master — empty aggregates rather
+      // than fall back to all-customer data (would be misleading
+      // given the operator explicitly selected one).
+      const today = todayIso();
+      return {
+        t3: { qty: 0, totalPrice: 0 },
+        ly: { qty: 0, totalPrice: 0 },
+        t3Window: { start: isoMinusMonths(today, 3), end: today },
+        lyWindow: { start: isoMinusMonths(today, 15), end: isoMinusMonths(today, 12) },
+      };
+    }
+  }
+
+  // Use the cache if warm; otherwise await the preload Promise; if
+  // neither is available, fetch directly for the wide window.
+  let salesRows: SalesRow[];
+  const today = todayIso();
+  const t3Start = isoMinusMonths(today, 3);
+  const lyEnd   = isoMinusMonths(today, 12);
+  const lyStart = isoMinusMonths(today, 15);
+  if (cacheCovers(lyStart, today)) {
+    salesRows = salesCacheRows!;
+  } else if (salesCachePromise) {
+    try { salesRows = await salesCachePromise; } catch { salesRows = await directFetch(lyStart, today); }
+  } else {
+    salesRows = await directFetch(lyStart, today);
+  }
+
+  let t3Qty = 0, t3Total = 0;
+  let lyQty = 0, lyTotal = 0;
+  for (const r of salesRows) {
+    if (!idSet.has(r.sku_id)) continue;
+    if (customerId && r.customer_id !== customerId) continue;
+    const qty = toNum(r.qty);
+    let rev = toNum(r.net_amount);
+    if (rev <= 0) rev = toNum(r.unit_price) * qty;
+    if (r.txn_date >= t3Start && r.txn_date <= today) {
+      t3Qty += qty;
+      t3Total += rev;
+    }
+    if (r.txn_date >= lyStart && r.txn_date <= lyEnd) {
+      lyQty += qty;
+      lyTotal += rev;
+    }
+  }
+
+  return {
+    t3: { qty: t3Qty, totalPrice: t3Total },
+    ly: { qty: lyQty, totalPrice: lyTotal },
+    t3Window: { start: t3Start, end: today },
+    lyWindow: { start: lyStart, end: lyEnd },
+  };
+}
+
 // Direct (un-cached) fetch for the requested window. Used on cache
 // miss when the preload hasn't run.
 async function directFetch(start: string, end: string): Promise<SalesRow[]> {

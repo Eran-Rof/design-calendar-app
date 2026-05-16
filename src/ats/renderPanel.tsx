@@ -337,7 +337,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
       </div>
       )}
 
-      <SummaryContextMenu summaryCtx={summaryCtx} summaryCtxRef={summaryCtxRef} setSummaryCtx={setSummaryCtx} />
+      <SummaryContextMenu summaryCtx={summaryCtx} summaryCtxRef={summaryCtxRef} setSummaryCtx={setSummaryCtx} customerFilter={customerFilter ?? ""} />
       <CellContextMenu ctxMenu={ctxMenu} ctxRef={ctxRef} setCtxMenu={setCtxMenu} />
 
       <UploadWarningsModal
