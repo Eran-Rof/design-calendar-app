@@ -481,16 +481,54 @@ export const NavBar: React.FC<NavBarProps> = ({
             }
           }
 
-          const synthetic: ATSRow[] = [];
-          const extraT3: Array<[string, { qty: number; totalPrice: number }]> = [];
-          const extraLY: Array<[string, { qty: number; totalPrice: number }]> = [];
+          // Group extra sku_ids by (style, color) so the report
+          // surfaces ONE row per color block instead of one per
+          // size — matches the grid's style+color grain.
+          interface CrossGroup {
+            sku: string;
+            style: string | null;
+            color: string | null;
+            description: string | null;
+            category: string | null;
+            subCategory: string | null;
+            t3Qty: number; t3Total: number;
+            lyQty: number; lyTotal: number;
+          }
+          const groups = new Map<string, CrossGroup>();
+          let unresolved = 0;
           for (const [id, agg] of salesAggregates.extraBySkuId) {
             const rec = cached.get(id);
-            if (!rec || !rec.sku_code) continue;
-            const synthSku = rec.sku_code;
+            if (!rec || !rec.sku_code) { unresolved++; continue; }
+            const styleU = (rec.style_code ?? "").toUpperCase();
+            const colorU = (rec.color ?? "").trim().toUpperCase();
+            const key = styleU && colorU ? `${styleU}|${colorU}` : `id|${id}`;
+            const groupSku = (rec.style_code && rec.color)
+              ? `${rec.style_code} - ${rec.color}`
+              : rec.sku_code;
+            let g = groups.get(key);
+            if (!g) {
+              g = {
+                sku: groupSku,
+                style: rec.style_code ?? null,
+                color: rec.color ?? null,
+                description: rec.description ?? null,
+                category: rec.attributes?.group_name ?? null,
+                subCategory: rec.attributes?.category_name ?? null,
+                t3Qty: 0, t3Total: 0, lyQty: 0, lyTotal: 0,
+              };
+              groups.set(key, g);
+            }
+            g.t3Qty   += agg.t3Qty;
+            g.t3Total += agg.t3Total;
+            g.lyQty   += agg.lyQty;
+            g.lyTotal += agg.lyTotal;
+          }
+
+          const synthetic: ATSRow[] = [];
+          for (const g of groups.values()) {
             synthetic.push({
-              sku: synthSku,
-              description: rec.description ?? "",
+              sku: g.sku,
+              description: g.description ?? "",
               dates: {},
               freeMap: {},
               onHand: 0,
@@ -498,21 +536,19 @@ export const NavBar: React.FC<NavBarProps> = ({
               onPO: 0,
               ppkMult: 1,
               avgCost: 0,
-              master_category:     rec.attributes?.group_name ?? null,
-              master_sub_category: rec.attributes?.category_name ?? null,
-              master_style:        rec.style_code ?? null,
-              master_color:        rec.color ?? null,
-              master_description:  rec.description ?? null,
+              master_category:     g.category,
+              master_sub_category: g.subCategory,
+              master_style:        g.style,
+              master_color:        g.color,
+              master_description:  g.description,
               master_match_source: "sku",
             });
-            if (agg.t3Qty > 0 || agg.t3Total > 0) extraT3.push([synthSku, { qty: agg.t3Qty, totalPrice: agg.t3Total }]);
-            if (agg.lyQty > 0 || agg.lyTotal > 0) extraLY.push([synthSku, { qty: agg.lyQty, totalPrice: agg.lyTotal }]);
+            if (g.t3Qty > 0 || g.t3Total > 0) salesAggregates.t3.set(g.sku, { qty: g.t3Qty, totalPrice: g.t3Total });
+            if (g.lyQty > 0 || g.lyTotal > 0) salesAggregates.ly.set(g.sku, { qty: g.lyQty, totalPrice: g.lyTotal });
           }
           if (synthetic.length > 0) {
             finalRows = [...rowsForExport, ...synthetic];
-            for (const [k, v] of extraT3) salesAggregates.t3.set(k, v);
-            for (const [k, v] of extraLY) salesAggregates.ly.set(k, v);
-            console.info(`[ATS export] cross-grid: added ${synthetic.length} synthetic rows (from ${salesAggregates.extraBySkuId.size} unmapped sku_ids with customer sales)`);
+            console.info(`[ATS export] cross-grid: added ${synthetic.length} synthetic rows by (style, color) from ${salesAggregates.extraBySkuId.size} unmapped sku_ids (${unresolved} unresolved)`);
           } else {
             console.warn(`[ATS export] cross-grid: extraBySkuId had ${salesAggregates.extraBySkuId.size} entries but none could be resolved to a master record — verify ip_item_master coverage`);
           }
