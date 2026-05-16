@@ -441,6 +441,13 @@ export const NavBar: React.FC<NavBarProps> = ({
   // operator knows something is happening (fetch can take several
   // seconds for a 15-month window over thousands of SKUs).
   const [exportLoading, setExportLoading] = useState(false);
+  // Cancel flag for the "Loading sales history…" overlay. useRef instead
+  // of useState so the awaited code path can read it synchronously without
+  // a render cycle. The in-flight fetch itself isn't aborted (the
+  // background promise keeps populating the module-level sales cache so
+  // the next attempt is free) — the cancel just frees the UI and skips
+  // the rest of the export pipeline (no preview, no download).
+  const exportCancelledRef = useRef(false);
   // Built workbook payload for the preview modal. null when preview
   // isn't open. Operator can click Download from inside the preview
   // to flush the same payload to a file.
@@ -543,6 +550,9 @@ export const NavBar: React.FC<NavBarProps> = ({
     let salesAggregates: SalesFetchResult | undefined;
     let finalRows = rowsForExport;
     if (opts.trailing3 || opts.spLY) {
+      // Reset the cancel flag at the start of each export attempt so a
+      // prior cancel doesn't poison the next run.
+      exportCancelledRef.current = false;
       setExportLoading(true);
       try {
         salesAggregates = await fetchSalesAggregates({
@@ -753,6 +763,13 @@ export const NavBar: React.FC<NavBarProps> = ({
         // rather than blocking the rest of the export.
       } finally {
         setExportLoading(false);
+      }
+      // Operator clicked Cancel on the loading overlay — bail out before
+      // building the preview / triggering the download. The background
+      // sales preload keeps running so the next attempt benefits.
+      if (exportCancelledRef.current) {
+        console.info("[ATS export] cancelled by operator after sales fetch");
+        return null;
       }
     }
 
@@ -1098,8 +1115,24 @@ export const NavBar: React.FC<NavBarProps> = ({
         display: "flex", alignItems: "center", justifyContent: "center", color: "#F1F5F9",
         fontFamily: "inherit", fontSize: 14, fontWeight: 600,
       }}>
-        <div style={{ background: "#1E293B", padding: "18px 26px", borderRadius: 10, border: "1px solid #334155", boxShadow: "0 16px 48px rgba(0,0,0,0.6)" }}>
-          Loading sales history…
+        <div style={{ background: "#1E293B", padding: "18px 26px", borderRadius: 10, border: "1px solid #334155", boxShadow: "0 16px 48px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column", alignItems: "center", gap: 14, minWidth: 260 }}>
+          <div>Loading sales history…</div>
+          <div style={{ fontSize: 11, fontWeight: 400, color: "#94A3B8", textAlign: "center", maxWidth: 320 }}>
+            First export of the session fetches the 15-month window. Once it finishes, subsequent exports use the cache instantly.
+          </div>
+          <button
+            onClick={() => {
+              exportCancelledRef.current = true;
+              setExportLoading(false);
+            }}
+            style={{
+              background: "#334155", color: "#F1F5F9", border: "1px solid #475569",
+              padding: "6px 16px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
         </div>
       </div>
     )}
