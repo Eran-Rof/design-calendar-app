@@ -936,12 +936,34 @@ export function buildExportPayload(
   }
   if (rowMeta.length > 0) styleEndDataIdx.add(rowMeta.length - 1); // close the last group
 
-  // Convert to aoa-row indexes (0 = header, 1+ = dataRows[0]+).
-  const lastAoaRow = dataRows.length;       // header + all dataRows incl. total
-  const lastColIdx = totalColumnCount - 1;
-  const allRows: any[][] = [headerRow, ...dataRows];
+  // ── Optional customer title row ────────────────────────────────────────
+  // When the operator narrowed by customer, prepend a single text row
+  // with the customer name in cell A, 22pt, left-justified. The row
+  // sits OUTSIDE the bordered table — the outer rectangle still frames
+  // header + data rows below it.
+  let titleRow: any[] | null = null;
+  if (customerFilter) {
+    titleRow = new Array(totalColumnCount).fill(null).map(() => ({ v: "", t: "s" as const }));
+    titleRow[0] = {
+      v: customerFilter,
+      t: "s",
+      s: {
+        font: { sz: 22, bold: true, color: { rgb: "1F497D" }, name: "Calibri" },
+        alignment: { horizontal: "left", vertical: "center" },
+      },
+    };
+  }
 
-  for (let r = 0; r <= lastAoaRow; r++) {
+  // Convert to aoa-row indexes. Outline indexes from where the table's
+  // header row lives in the final AOA; if a title row was prepended it
+  // gets row 0 and the rest shift down by 1.
+  const titleRowCount = titleRow ? 1 : 0;
+  const tableTopRow   = titleRowCount;             // header row's AOA index
+  const lastAoaRow    = titleRowCount + dataRows.length; // last data row index
+  const lastColIdx = totalColumnCount - 1;
+  const allRows: any[][] = titleRow ? [titleRow, headerRow, ...dataRows] : [headerRow, ...dataRows];
+
+  for (let r = tableTopRow; r <= lastAoaRow; r++) {
     for (let c = 0; c <= lastColIdx; c++) {
       const cell = allRows[r]?.[c];
       if (!cell || !cell.s) continue;
@@ -958,7 +980,7 @@ export function buildExportPayload(
       // at the top of the header row.
       if (c === 0) border.left = EXTRA_THICK;                     // left edge of A
       if (c === lastColIdx) border.right = EXTRA_THICK;            // right edge of last col
-      if (r === 0) border.top = EXTRA_THICK;                       // top of header
+      if (r === tableTopRow) border.top = EXTRA_THICK;             // top of header
       if (r === lastAoaRow) border.bottom = EXTRA_THICK;           // bottom of total row
 
       // (b) Style-group outline — only on non-spacer columns.
@@ -966,7 +988,7 @@ export function buildExportPayload(
       // chop the dark spacer column into bricks, which is exactly the
       // visual the planner asked us to remove.
       if (!isSpacer) {
-        const dataIdx = r - 1;
+        const dataIdx = r - tableTopRow - 1;
         if (dataIdx >= 0 && dataIdx < rowMeta.length) {
           if (styleStartDataIdx.has(dataIdx)) border.top = EXTRA_THICK;
           if (styleEndDataIdx.has(dataIdx)) border.bottom = EXTRA_THICK;
@@ -977,8 +999,16 @@ export function buildExportPayload(
     }
   }
 
+  // Shift PPK merges to account for the prepended title row.
+  if (titleRowCount > 0 && merges.length > 0) {
+    for (const m of merges) {
+      m.s.r += titleRowCount;
+      m.e.r += titleRowCount;
+    }
+  }
+
   // ── Build worksheet ─────────────────────────────────────────────────────
-  const aoa = [headerRow, ...dataRows];
+  const aoa = allRows;
   const ws  = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
 
   // ── Auto-fit column widths ──────────────────────────────────────────────
@@ -1015,7 +1045,9 @@ export function buildExportPayload(
   const PPK_ROW_HPT = 11;
   const SUBTOTAL_HPT = 19;
   const TOTAL_HPT = 18;
-  const rowsHeight: any[] = [{ hpt: HEADER_HPT }];
+  const rowsHeight: any[] = [];
+  if (titleRow) rowsHeight.push({ hpt: 30 }); // taller for the 22pt customer name
+  rowsHeight.push({ hpt: HEADER_HPT });
   // Walk the dataRows we actually built. A subtotal / bottom Total row
   // is identifiable by a "Subtotal" or "Total" label in the Color col;
   // a PPK follower has an empty Style cell; everything else is a qty

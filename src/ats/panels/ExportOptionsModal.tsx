@@ -169,8 +169,19 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
             )}
           </div>
 
-          <CheckRow label="Trailing 3 months sales (Qty / Sls Price / Mrgn %)" checked={trailing3} onChange={setTrailing3} />
-          <CheckRow label="SP LY — same 3-month window last year (Qty / Sls Price / Mrgn %)" checked={spLY} onChange={setSpLY} />
+          {/*
+            One checkbox drives both Trailing-3 and SP-LY together —
+            they're rarely meaningful in isolation (the YoY comparison
+            is the point) and the operator wanted a single toggle.
+            The underlying ExportOptions still carries two booleans
+            so the export's column emission can stay column-by-column;
+            we just flip them as a pair.
+          */}
+          <CheckRow
+            label="Trailing 3 & SP LY sales (Qty / Sls Price / Mrgn % for both windows)"
+            checked={trailing3 && spLY}
+            onChange={(v) => { setTrailing3(v); setSpLY(v); }}
+          />
 
           <div>
             <CheckRow label="By Customer (narrow trailing / SPLY to one customer)" checked={customerEnabled} onChange={setCustomerEnabled} />
