@@ -469,32 +469,41 @@ export function buildExportPayload(
       if (COL_SLS_PRC)  r2[COL_SLS_PRC  - 1] = subCurr(slsPrcW);
     }
 
+    // Subtotal T3 / LY: respect each row's Explode-PPK grain so the
+    // sum tracks what the body rows display. qty is divided by the
+    // row's ppkMult when packs are showing; totalPrice + totalCost
+    // are grain-invariant (avgCost is per-unit, sales qty is unit-
+    // grain, so their product cancels).
     if (opts.trailing3) {
-      let qty = 0, totalPrice = 0, totalCost = 0;
+      let qtyDisp = 0, totalPrice = 0, totalCost = 0;
       for (const x of group) {
+        const mult = x.ppkMult ?? 1;
+        const qtyDiv = explodePpk ? 1 : mult;
         const xT3 = t3Of(x.sku);
-        qty += xT3.qty;
+        qtyDisp += xT3.qty / qtyDiv;
         totalPrice += xT3.totalPrice;
         totalCost += (x.avgCost ?? 0) * xT3.qty;
       }
-      const price = qty > 0 ? totalPrice / qty : 0;
+      const price = qtyDisp > 0 ? totalPrice / qtyDisp : 0;
       const mrgnPct = totalPrice > 0 && totalCost > 0 ? ((totalPrice - totalCost) / totalPrice) * 100 : 0;
-      if (COL_T3_QTY)     r2[COL_T3_QTY     - 1] = subCell(qty);
+      if (COL_T3_QTY)     r2[COL_T3_QTY     - 1] = subCell(qtyDisp);
       if (COL_T3_PRICE)   r2[COL_T3_PRICE   - 1] = subCurr(price);
       if (COL_T3_TTL_SLS) r2[COL_T3_TTL_SLS - 1] = subCurr(totalPrice);
       if (COL_T3_MRGN)    r2[COL_T3_MRGN    - 1] = subPct(mrgnPct / 100);
     }
     if (opts.spLY) {
-      let qty = 0, totalPrice = 0, totalCost = 0;
+      let qtyDisp = 0, totalPrice = 0, totalCost = 0;
       for (const x of group) {
+        const mult = x.ppkMult ?? 1;
+        const qtyDiv = explodePpk ? 1 : mult;
         const xLY = lyOf(x.sku);
-        qty += xLY.qty;
+        qtyDisp += xLY.qty / qtyDiv;
         totalPrice += xLY.totalPrice;
         totalCost += (x.avgCost ?? 0) * xLY.qty;
       }
-      const price = qty > 0 ? totalPrice / qty : 0;
+      const price = qtyDisp > 0 ? totalPrice / qtyDisp : 0;
       const mrgnPct = totalPrice > 0 && totalCost > 0 ? ((totalPrice - totalCost) / totalPrice) * 100 : 0;
-      if (COL_LY_QTY)     r2[COL_LY_QTY     - 1] = subCell(qty);
+      if (COL_LY_QTY)     r2[COL_LY_QTY     - 1] = subCell(qtyDisp);
       if (COL_LY_PRICE)   r2[COL_LY_PRICE   - 1] = subCurr(price);
       if (COL_LY_TTL_SLS) r2[COL_LY_TTL_SLS - 1] = subCurr(totalPrice);
       if (COL_LY_MRGN)    r2[COL_LY_MRGN    - 1] = subPct(mrgnPct / 100);
@@ -831,29 +840,36 @@ export function buildExportPayload(
     const avgCostW = qtyForCost > 0 ? costSum / qtyForCost : 0;
     const slsPrcW = (avgCostW > 0 && slsMargin < 1) ? avgCostW / (1 - slsMargin) : 0;
 
-    let t3Qty = 0, t3Tot = 0, t3CostBasis = 0;
-    let lyQty = 0, lyTot = 0, lyCostBasis = 0;
+    // T3 / LY totals: same Explode-PPK grain convention as the body
+    // rows. qty cell shows the sum of per-row displayed qty (raw qty
+    // divided by ppkMult in pack mode). totalPrice + cost basis are
+    // grain-invariant since avgCost is per-unit and sales qty is
+    // unit-grain — their product stays unit dollars regardless.
+    let t3QtyDisp = 0, t3Tot = 0, t3CostBasis = 0;
+    let lyQtyDisp = 0, lyTot = 0, lyCostBasis = 0;
     for (const r of rows) {
       const a = r.avgCost ?? 0;
+      const mult = r.ppkMult ?? 1;
+      const qtyDiv = explodePpk ? 1 : mult;
       if (opts.trailing3) {
         const t = t3Of(r.sku);
-        t3Qty += t.qty;
+        t3QtyDisp += t.qty / qtyDiv;
         t3Tot += t.totalPrice;
         t3CostBasis += a * t.qty;
       }
       if (opts.spLY) {
         const l = lyOf(r.sku);
-        lyQty += l.qty;
+        lyQtyDisp += l.qty / qtyDiv;
         lyTot += l.totalPrice;
         lyCostBasis += a * l.qty;
       }
     }
-    const t3Price = t3Qty > 0 ? t3Tot / t3Qty : 0;
-    const lyPrice = lyQty > 0 ? lyTot / lyQty : 0;
+    const t3Price = t3QtyDisp > 0 ? t3Tot / t3QtyDisp : 0;
+    const lyPrice = lyQtyDisp > 0 ? lyTot / lyQtyDisp : 0;
     const t3Mrgn  = t3Tot > 0 && t3CostBasis > 0 ? (t3Tot - t3CostBasis) / t3Tot : 0;
     const lyMrgn  = lyTot > 0 && lyCostBasis > 0 ? (lyTot - lyCostBasis) / lyTot : 0;
 
-    return { avgCostW, totalCostW: costSum, slsPrcW, t3Qty, t3Price, t3Tot, t3Mrgn, lyQty, lyPrice, lyTot, lyMrgn };
+    return { avgCostW, totalCostW: costSum, slsPrcW, t3Qty: t3QtyDisp, t3Price, t3Tot, t3Mrgn, lyQty: lyQtyDisp, lyPrice, lyTot, lyMrgn };
   }
 
   // Overlay the optional-col aggregates onto a stack row in-place. Used

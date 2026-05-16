@@ -10,6 +10,7 @@ import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch
 import { buildExportPayload, triggerXlsxDownload, type ExportPayload } from "../exportExcel";
 import { getItemMasterById } from "../itemMasterLookup";
 import { filterRows } from "../filter";
+import { ppkMultiplier } from "../../shared/prepack";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
 import { AskAIPanel } from "../../ai/AskAIPanel";
 import type { AIGridSetters, GridContextSnapshot } from "../../ai/tools";
@@ -18,13 +19,13 @@ import type { AIGridSetters, GridContextSnapshot } from "../../ai/tools";
 // already have. Used by the cross-grid synthetic-row flow when a
 // customer's sales reference SKUs that haven't been cached (newly
 // added, never carried inventory locally, etc.).
-async function fetchMissingMasterRows(ids: string[]): Promise<Array<{ id: string; sku_code: string; style_code: string | null; color: string | null; description: string | null; unit_cost: number | null; attributes: any }>> {
+async function fetchMissingMasterRows(ids: string[]): Promise<Array<{ id: string; sku_code: string; style_code: string | null; color: string | null; size: string | null; description: string | null; unit_cost: number | null; attributes: any }>> {
   if (!SB_URL || ids.length === 0) return [];
   // PostgREST `in.(...)` URL — quote each id (uuids are safe but
   // be defensive). encodeURIComponent the whole comma-joined string
   // so commas become %2C and PostgREST sees a single in-clause.
   const inList = ids.map(id => `"${id}"`).join(",");
-  const url = `${SB_URL}/rest/v1/ip_item_master?select=id,sku_code,style_code,color,description,unit_cost,attributes&id=in.(${encodeURIComponent(inList)})&limit=${ids.length}`;
+  const url = `${SB_URL}/rest/v1/ip_item_master?select=id,sku_code,style_code,color,size,description,unit_cost,attributes&id=in.(${encodeURIComponent(inList)})&limit=${ids.length}`;
   try {
     const r = await fetch(url, { headers: SB_HEADERS });
     if (!r.ok) {
@@ -508,9 +509,9 @@ export const NavBar: React.FC<NavBarProps> = ({
             for (const r of fetched) {
               cached.set(r.id, {
                 id: r.id, sku_code: r.sku_code, style_code: r.style_code,
-                color: r.color, description: r.description,
+                color: r.color, size: r.size, description: r.description,
                 unit_cost: r.unit_cost,
-                attributes: r.attributes ?? {}, size: null,
+                attributes: r.attributes ?? {},
               });
             }
           }
@@ -529,6 +530,11 @@ export const NavBar: React.FC<NavBarProps> = ({
             // rows that landed in this (style, color) group. Used as the
             // "avg cost at time of sale" proxy for margin %.
             unitCostSum: number; unitCostCount: number;
+            // Largest ppkMult seen across the group's variants. Size variants
+            // of a prepack family share the same multiplier in practice; we
+            // take the max so a missing/unparseable size on one variant
+            // doesn't downgrade the group to mult=1.
+            ppkMult: number;
             t3Qty: number; t3Total: number;
             lyQty: number; lyTotal: number;
           }
@@ -553,6 +559,7 @@ export const NavBar: React.FC<NavBarProps> = ({
                 category: rec.attributes?.group_name ?? null,
                 subCategory: rec.attributes?.category_name ?? null,
                 unitCostSum: 0, unitCostCount: 0,
+                ppkMult: 1,
                 t3Qty: 0, t3Total: 0, lyQty: 0, lyTotal: 0,
               };
               groups.set(key, g);
@@ -561,6 +568,11 @@ export const NavBar: React.FC<NavBarProps> = ({
             // most of the time but average defensively).
             const uc = typeof rec.unit_cost === "number" && rec.unit_cost > 0 ? rec.unit_cost : 0;
             if (uc > 0) { g.unitCostSum += uc; g.unitCostCount += 1; }
+            // Resolve the PPK multiplier from the variant's fields. Same
+            // priority chain compute.ts uses for upload-derived rows so
+            // the grain conversion stays consistent.
+            const mult = ppkMultiplier(rec.color, rec.size, rec.description, rec.style_code, rec.sku_code);
+            if (mult > g.ppkMult) g.ppkMult = mult;
             g.t3Qty   += agg.t3Qty;
             g.t3Total += agg.t3Total;
             g.lyQty   += agg.lyQty;
@@ -569,7 +581,12 @@ export const NavBar: React.FC<NavBarProps> = ({
 
           const synthetic: ATSRow[] = [];
           for (const g of groups.values()) {
-            const synthAvgCost = g.unitCostCount > 0 ? g.unitCostSum / g.unitCostCount : 0;
+            // ip_item_master.unit_cost is pack-grain for prepacks (Xoro
+            // ingests it that way). compute.ts divides upload-derived
+            // avgCost by mult to land at per-unit cost; mirror that
+            // here so synthetic rows match the body-row grain.
+            const synthPackCost = g.unitCostCount > 0 ? g.unitCostSum / g.unitCostCount : 0;
+            const synthAvgCost  = g.ppkMult > 0 ? synthPackCost / g.ppkMult : synthPackCost;
             synthetic.push({
               sku: g.sku,
               description: g.description ?? "",
@@ -578,7 +595,7 @@ export const NavBar: React.FC<NavBarProps> = ({
               onHand: 0,
               onOrder: 0,
               onPO: 0,
-              ppkMult: 1,
+              ppkMult: g.ppkMult,
               // Use ip_item_master.unit_cost as the cost basis for
               // T3/LY margin calc — that's the closest "avg cost at
               // time of sale" proxy we have (sales history doesn't
