@@ -4,43 +4,11 @@ import { fmtDate, displayColor } from "./helpers";
 import type { GridTotals } from "./computeTotals";
 import { periodAvail } from "./compute";
 import type { ExportOptions } from "./panels/ExportOptionsModal";
+import type { SalesFetchResult, SalesAggregate } from "./exportSalesFetch";
 
 type EventIndex = Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>>;
 
-// Compute per-SKU sales aggregates over a date window. Optionally
-// narrows by customer name. Returns { qty, totalPrice } summed across
-// every SO event whose date falls in [startIso, endIso] (inclusive).
-function aggregateSalesWindow(
-  eventIndex: EventIndex | null | undefined,
-  sku: string,
-  startIso: string,
-  endIso: string,
-  customer: string,
-): { qty: number; totalPrice: number } {
-  if (!eventIndex) return { qty: 0, totalPrice: 0 };
-  const byDate = eventIndex[sku];
-  if (!byDate) return { qty: 0, totalPrice: 0 };
-  let qty = 0;
-  let totalPrice = 0;
-  for (const [date, bucket] of Object.entries(byDate)) {
-    if (date < startIso || date > endIso) continue;
-    for (const so of bucket.sos) {
-      if (customer && so.customerName !== customer) continue;
-      qty += so.qty || 0;
-      totalPrice += so.totalPrice || ((so.unitPrice || 0) * (so.qty || 0));
-    }
-  }
-  return { qty, totalPrice };
-}
-
-// Subtract `months` calendar months from an ISO YYYY-MM-DD date.
-// Uses Date arithmetic so day-of-month roll-over (Mar 31 - 1 month
-// = Feb 28/29) is handled by the runtime.
-function isoMinusMonths(iso: string, months: number): string {
-  const d = new Date(iso + "T00:00:00");
-  d.setMonth(d.getMonth() - months);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
+const EMPTY_AGG: SalesAggregate = { qty: 0, totalPrice: 0 };
 // Autofit non-spacer cols: max(len(value)) + 2, capped at 80.
 // No frozen panes, no autofilter, no merged cells.
 export function exportToExcel(
@@ -53,7 +21,14 @@ export function exportToExcel(
   _hiddenColumns: string[] = [],
   _totals: GridTotals | null = null,
   options?: ExportOptions,
-  eventIndex?: EventIndex | null,
+  // eventIndex retained on the signature for any legacy caller; T3/LY
+  // now read from the pre-fetched salesAggregates (database-sourced).
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _eventIndex?: EventIndex | null,
+  // Pre-fetched per-SKU sales aggregates from ip_sales_history_wholesale.
+  // Empty maps when neither trailing3 nor spLY is on, or when fetch
+  // failed / no rows. NavBar pre-fetches before calling exportToExcel.
+  salesAggregates?: SalesFetchResult,
 ) {
   // Default options — keeps the export's pre-modal behavior when
   // exportToExcel is called without a modal (e.g. legacy tests).
@@ -284,15 +259,14 @@ export function exportToExcel(
   if (COL_LY_PRICE) headerRow[COL_LY_PRICE - 1] = { v: `LY Sls Price`,       t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
   if (COL_LY_MRGN)  headerRow[COL_LY_MRGN  - 1] = { v: `LY Mrgn %`,          t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
 
-  // ── Trailing-3 and Same-Period-Last-Year date windows ─────────────────
-  // T3: today − 3 months ... today (inclusive).
-  // LY: today − 15 months ... today − 12 months (the same 3-month
-  // window shifted back a year, so YoY comparisons line up).
-  const todayDate = new Date();
-  const todayIso  = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, "0")}-${String(todayDate.getDate()).padStart(2, "0")}`;
-  const t3Start   = isoMinusMonths(todayIso, 3);
-  const lyEnd     = isoMinusMonths(todayIso, 12);
-  const lyStart   = isoMinusMonths(todayIso, 15);
+  // ── Trailing-3 / SP-LY aggregate lookups ──────────────────────────────
+  // Pre-fetched maps keyed by ATS-row sku (variant grain). The fetcher
+  // queried ip_sales_history_wholesale for the relevant windows already
+  // and honored the customer narrow.
+  const t3Map = salesAggregates?.t3 ?? new Map<string, SalesAggregate>();
+  const lyMap = salesAggregates?.ly ?? new Map<string, SalesAggregate>();
+  const t3Of = (sku: string): SalesAggregate => t3Map.get(sku) ?? EMPTY_AGG;
+  const lyOf = (sku: string): SalesAggregate => lyMap.get(sku) ?? EMPTY_AGG;
 
   // ── Helpers ────────────────────────────────────────────────────────────
   // Index-aware accessor — periodAvail handles the atShip=delta case
@@ -420,7 +394,7 @@ export function exportToExcel(
     if (opts.trailing3) {
       let qty = 0, totalPrice = 0, totalCost = 0;
       for (const x of group) {
-        const xT3 = aggregateSalesWindow(eventIndex, x.sku, t3Start, todayIso, customerFilter);
+        const xT3 = t3Of(x.sku);
         qty += xT3.qty;
         totalPrice += xT3.totalPrice;
         totalCost += (x.avgCost ?? 0) * xT3.qty;
@@ -434,7 +408,7 @@ export function exportToExcel(
     if (opts.spLY) {
       let qty = 0, totalPrice = 0, totalCost = 0;
       for (const x of group) {
-        const xLY = aggregateSalesWindow(eventIndex, x.sku, lyStart, lyEnd, customerFilter);
+        const xLY = lyOf(x.sku);
         qty += xLY.qty;
         totalPrice += xLY.totalPrice;
         totalCost += (x.avgCost ?? 0) * xLY.qty;
@@ -572,7 +546,7 @@ export function exportToExcel(
     // Trailing 3 — sales over the last 3 months from today, optionally
     // narrowed to one customer. Margin uses avgCost as the cost basis.
     if (opts.trailing3) {
-      const t3 = aggregateSalesWindow(eventIndex, r.sku, t3Start, todayIso, customerFilter);
+      const t3 = t3Of(r.sku);
       const t3Price = t3.qty > 0 ? t3.totalPrice / t3.qty : 0;
       const t3MrgnPct = (avgCostV > 0 && t3Price > 0)
         ? ((t3Price - avgCostV) / t3Price) * 100
@@ -590,7 +564,7 @@ export function exportToExcel(
 
     // Same-Period Last Year — same window 12 months ago.
     if (opts.spLY) {
-      const ly = aggregateSalesWindow(eventIndex, r.sku, lyStart, lyEnd, customerFilter);
+      const ly = lyOf(r.sku);
       const lyPrice = ly.qty > 0 ? ly.totalPrice / ly.qty : 0;
       const lyMrgnPct = (avgCostV > 0 && lyPrice > 0)
         ? ((lyPrice - avgCostV) / lyPrice) * 100
@@ -759,13 +733,13 @@ export function exportToExcel(
     for (const r of rows) {
       const a = r.avgCost ?? 0;
       if (opts.trailing3) {
-        const t = aggregateSalesWindow(eventIndex, r.sku, t3Start, todayIso, customerFilter);
+        const t = t3Of(r.sku);
         t3Qty += t.qty;
         t3Tot += t.totalPrice;
         t3CostBasis += a * t.qty;
       }
       if (opts.spLY) {
-        const l = aggregateSalesWindow(eventIndex, r.sku, lyStart, lyEnd, customerFilter);
+        const l = lyOf(r.sku);
         lyQty += l.qty;
         lyTot += l.totalPrice;
         lyCostBasis += a * l.qty;
