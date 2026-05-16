@@ -33,6 +33,14 @@ export type SalesAggMap = Map<string, SalesAggregate>;
 export interface SalesFetchResult {
   t3: SalesAggMap;
   ly: SalesAggMap;
+  // Per-sku_id aggregate for sales rows whose sku_id didn't map to
+  // any current ATS row. Used by the export's cross-grid mode — when
+  // a customer has historical sales for a SKU that isn't visible in
+  // the grid right now (e.g. inventory shipped through, no open
+  // orders left), we still want it to appear in the report so the
+  // operator can see the customer's full purchase history. Keyed by
+  // ip_item_master.id (uuid).
+  extraBySkuId: Map<string, SalesAggregate & { lyQty: number; lyTotal: number; t3Qty: number; t3Total: number }>;
 }
 
 // ── Module-level cache of the wide (15-month) sales-history window ───
@@ -121,25 +129,6 @@ function buildIdToSkuMap(rows: ATSRow[]): { idToSku: Map<string, string>; matche
   return { idToSku, matched, unmatched };
 }
 
-function aggregate(salesRows: SalesRow[], idToSku: Map<string, string>): SalesAggMap {
-  const out: SalesAggMap = new Map();
-  for (const r of salesRows) {
-    const atsSku = idToSku.get(r.sku_id);
-    if (!atsSku) continue;
-    const qty = toNum(r.qty);
-    let rev = toNum(r.net_amount);
-    if (rev <= 0) rev = toNum(r.unit_price) * qty;
-    const ex = out.get(atsSku);
-    if (ex) {
-      ex.qty += qty;
-      ex.totalPrice += rev;
-    } else {
-      out.set(atsSku, { qty, totalPrice: rev });
-    }
-  }
-  return out;
-}
-
 export interface FetchSalesArgs {
   rows: ATSRow[];
   needT3: boolean;
@@ -195,10 +184,10 @@ function cacheCovers(start: string, end: string): boolean {
 }
 
 export async function fetchSalesAggregates({ rows, needT3, needLY, customer }: FetchSalesArgs): Promise<SalesFetchResult> {
-  if (!needT3 && !needLY) return { t3: new Map(), ly: new Map() };
+  if (!needT3 && !needLY) return { t3: new Map(), ly: new Map(), extraBySkuId: new Map() };
   if (!SB_URL) {
     console.warn("[ATS export] Supabase not configured — T3/LY columns will be empty.");
-    return { t3: new Map(), ly: new Map() };
+    return { t3: new Map(), ly: new Map(), extraBySkuId: new Map() };
   }
 
   // The fetch + resolve work happens after the operator clicks Export,
@@ -229,7 +218,7 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer }: F
     customerId = await resolveCustomerId(customer);
     if (!customerId) {
       console.warn(`[ATS export] customer "${customer}" not in ip_customer_master — T3/LY will be empty.`);
-      return { t3: new Map(), ly: new Map() };
+      return { t3: new Map(), ly: new Map(), extraBySkuId: new Map() };
     }
   }
 
@@ -237,7 +226,7 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer }: F
   console.info(`[ATS export] master-id mapping: ${matched} matched, ${unmatched} unmatched, ${idToSku.size} variant ids`);
   if (idToSku.size === 0) {
     console.warn("[ATS export] no ATS rows resolved to ip_item_master — T3/LY will be empty. Master cache loaded:", isItemMasterLoaded());
-    return { t3: new Map(), ly: new Map() };
+    return { t3: new Map(), ly: new Map(), extraBySkuId: new Map() };
   }
 
   // Cache-first path: when the preloaded 15-month window covers the
@@ -269,17 +258,51 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer }: F
     salesRows = salesRows.filter(r => r.customer_id === customerId);
   }
 
-  const t3Rows: SalesRow[] = [];
-  const lyRows: SalesRow[] = [];
+  const t3: SalesAggMap = new Map();
+  const ly: SalesAggMap = new Map();
+  // Cross-grid: sku_ids that have customer sales but aren't in the
+  // current grid. Only meaningful when a customer is selected — the
+  // report is intended to surface "everything this customer bought"
+  // not "every SKU in the master ever sold to anyone".
+  const extraBySkuId: SalesFetchResult["extraBySkuId"] = new Map();
+  const shouldCollectExtras = !!customerId;
+
   for (const r of salesRows) {
-    if (needT3 && r.txn_date >= t3Start && r.txn_date <= today)  t3Rows.push(r);
-    if (needLY && r.txn_date >= lyStart && r.txn_date <= lyEnd)  lyRows.push(r);
+    const inT3 = needT3 && r.txn_date >= t3Start && r.txn_date <= today;
+    const inLY = needLY && r.txn_date >= lyStart && r.txn_date <= lyEnd;
+    if (!inT3 && !inLY) continue;
+
+    const qty = toNum(r.qty);
+    let rev = toNum(r.net_amount);
+    if (rev <= 0) rev = toNum(r.unit_price) * qty;
+
+    const atsSku = idToSku.get(r.sku_id);
+    if (atsSku) {
+      if (inT3) {
+        const ex = t3.get(atsSku);
+        if (ex) { ex.qty += qty; ex.totalPrice += rev; }
+        else t3.set(atsSku, { qty, totalPrice: rev });
+      }
+      if (inLY) {
+        const ex = ly.get(atsSku);
+        if (ex) { ex.qty += qty; ex.totalPrice += rev; }
+        else ly.set(atsSku, { qty, totalPrice: rev });
+      }
+    } else if (shouldCollectExtras) {
+      let ex = extraBySkuId.get(r.sku_id);
+      if (!ex) {
+        ex = { qty: 0, totalPrice: 0, t3Qty: 0, t3Total: 0, lyQty: 0, lyTotal: 0 };
+        extraBySkuId.set(r.sku_id, ex);
+      }
+      if (inT3) { ex.t3Qty += qty; ex.t3Total += rev; }
+      if (inLY) { ex.lyQty += qty; ex.lyTotal += rev; }
+      ex.qty += qty;
+      ex.totalPrice += rev;
+    }
   }
 
-  const t3 = needT3 ? aggregate(t3Rows, idToSku) : new Map();
-  const ly = needLY ? aggregate(lyRows, idToSku) : new Map();
-  console.info(`[ATS export] aggregated → t3:${t3.size} SKUs, ly:${ly.size} SKUs (customer=${customer || "all"})`);
-  return { t3, ly };
+  console.info(`[ATS export] aggregated → t3:${t3.size} SKUs, ly:${ly.size} SKUs, extras:${extraBySkuId.size} (customer=${customer || "all"})`);
+  return { t3, ly, extraBySkuId };
 }
 
 // Resolve sales aggregates for one ATS-row SKU, narrowed by customer

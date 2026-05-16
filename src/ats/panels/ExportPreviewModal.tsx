@@ -57,8 +57,30 @@ function isNumeric(cell: Cell | undefined): boolean {
 }
 
 export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCount, onDownload, onClose, onCloseAll }) => {
-  const headerRow = useMemo(() => aoa && aoa.length > 0 ? aoa[0] : null, [aoa]);
-  const bodyRows = useMemo(() => aoa && aoa.length > 1 ? aoa.slice(1) : [], [aoa]);
+  // Detect an optional title row at AOA index 0. The exporter writes
+  // it when the operator narrows by customer — a single A1 cell with
+  // a 22pt font, every other cell in the row empty. The downloaded
+  // workbook merges A1 across the row; the preview reproduces that
+  // with a colSpan so the customer name spans the whole table.
+  const looksLikeTitleRow = (row: Cell[]): boolean => {
+    if (!row || row.length === 0) return false;
+    const first = row[0];
+    if (!first || first.v == null || first.v === "") return false;
+    const sz = first.s?.font?.sz;
+    // 22pt is the title-row font size; an ordinary header is 11.
+    if (typeof sz !== "number" || sz < 16) return false;
+    // Every other cell should be empty.
+    for (let i = 1; i < row.length; i++) {
+      const v = row[i]?.v;
+      if (v !== undefined && v !== "" && v !== null) return false;
+    }
+    return true;
+  };
+
+  const titleRow  = useMemo(() => (aoa && aoa.length > 0 && looksLikeTitleRow(aoa[0])) ? aoa[0] : null, [aoa]);
+  const titleSkip = titleRow ? 1 : 0;
+  const headerRow = useMemo(() => aoa && aoa.length > titleSkip ? aoa[titleSkip] : null, [aoa, titleSkip]);
+  const bodyRows  = useMemo(() => aoa && aoa.length > titleSkip + 1 ? aoa.slice(titleSkip + 1) : [], [aoa, titleSkip]);
 
   if (!open || !aoa || !headerRow) return null;
 
@@ -107,6 +129,13 @@ export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCo
 
         <div style={{ flex: 1, overflow: "auto", padding: 0, background: "#fff" }}>
           <table style={{ borderCollapse: "collapse", fontSize: 11, fontFamily: "Calibri, Arial, sans-serif", color: "#1f2937", width: "100%" }}>
+            {titleRow && (
+              <caption style={{ captionSide: "top", padding: "10px 14px", textAlign: "left", background: "#fff" }}>
+                <span style={{ fontSize: 22, fontWeight: 700, color: cellFontColor(titleRow[0]) ?? "#1F497D" }}>
+                  {formatCell(titleRow[0])}
+                </span>
+              </caption>
+            )}
             <thead style={{ position: "sticky", top: 0, zIndex: 2 }}>
               <tr>
                 {headerRow.map((cell, ci) => (

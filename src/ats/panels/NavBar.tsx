@@ -8,6 +8,7 @@ import { ExportOptionsModal, type ExportOptions } from "./ExportOptionsModal";
 import { ExportPreviewModal } from "./ExportPreviewModal";
 import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
 import { buildExportPayload, triggerXlsxDownload, type ExportPayload } from "../exportExcel";
+import { getItemMasterById } from "../itemMasterLookup";
 
 // Sync architecture (rewritten 2026-05-06 after discovering Xoro's
 // pagination overlaps — same SOs appear on multiple pages, and the
@@ -416,6 +417,7 @@ export const NavBar: React.FC<NavBarProps> = ({
       : null;
 
     let salesAggregates: SalesFetchResult | undefined;
+    let finalRows = rowsForExport;
     if (opts.trailing3 || opts.spLY) {
       setExportLoading(true);
       try {
@@ -425,6 +427,54 @@ export const NavBar: React.FC<NavBarProps> = ({
           needLY: opts.spLY,
           customer: opts.customer,
         });
+
+        // Cross-grid: when a customer is selected, also surface SKUs
+        // the customer historically bought that aren't visible in
+        // the current grid (shipped through, no open commitments).
+        // The fetcher already collected those as extraBySkuId keyed
+        // by ip_item_master.id; build synthetic ATS rows from the
+        // master cache and append + re-aggregate so T3/LY columns
+        // show real numbers next to the existing zero qty fields.
+        if (opts.customerEnabled && salesAggregates.extraBySkuId.size > 0) {
+          const synthetic: ATSRow[] = [];
+          const extraT3: Array<[string, { qty: number; totalPrice: number }]> = [];
+          const extraLY: Array<[string, { qty: number; totalPrice: number }]> = [];
+          for (const [id, agg] of salesAggregates.extraBySkuId) {
+            const rec = getItemMasterById(id);
+            if (!rec || !rec.sku_code) continue;
+            const synthSku = rec.sku_code;
+            // Use the style code as the displayable sku when one
+            // exists — matches the grid's variant grain (e.g.
+            // "RYB0412 - Sahara Camo" vs "RYB0412-SAHARA-CAMO").
+            // We keep the canonical form here; the export reads
+            // master_* fields for the visible labels regardless.
+            synthetic.push({
+              sku: synthSku,
+              description: rec.description ?? "",
+              dates: {},
+              freeMap: {},
+              onHand: 0,
+              onOrder: 0,
+              onPO: 0,
+              ppkMult: 1,
+              avgCost: 0,
+              master_category:     rec.attributes?.group_name ?? null,
+              master_sub_category: rec.attributes?.category_name ?? null,
+              master_style:        rec.style_code ?? null,
+              master_color:        rec.color ?? null,
+              master_description:  rec.description ?? null,
+              master_match_source: "sku",
+            });
+            if (agg.t3Qty > 0 || agg.t3Total > 0) extraT3.push([synthSku, { qty: agg.t3Qty, totalPrice: agg.t3Total }]);
+            if (agg.lyQty > 0 || agg.lyTotal > 0) extraLY.push([synthSku, { qty: agg.lyQty, totalPrice: agg.lyTotal }]);
+          }
+          if (synthetic.length > 0) {
+            finalRows = [...rowsForExport, ...synthetic];
+            for (const [k, v] of extraT3) salesAggregates.t3.set(k, v);
+            for (const [k, v] of extraLY) salesAggregates.ly.set(k, v);
+            console.info(`[ATS export] cross-grid: added ${synthetic.length} synthetic rows for SKUs with customer sales but no grid presence`);
+          }
+        }
       } catch (e) {
         console.error("[ATS export] sales fetch failed:", e);
         // Fall through with undefined — T3/LY columns render blank
@@ -434,7 +484,7 @@ export const NavBar: React.FC<NavBarProps> = ({
       }
     }
 
-    return { rowsForExport, periods, totals, salesAggregates };
+    return { rowsForExport: finalRows, periods, totals, salesAggregates };
   }
 
   return (
