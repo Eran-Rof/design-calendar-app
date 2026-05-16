@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 import S from "./styles";
 import { StatCard } from "./StatCard";
 import { fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg } from "./helpers";
@@ -9,6 +9,8 @@ import { NormalizationReviewModal } from "./panels/NormalizationReviewModal";
 import { UploadProgressOverlay, SuccessToast, SyncErrorModal, UploadErrorModal } from "./panels/StatusOverlays";
 import { UploadModal } from "./panels/UploadModal";
 import { SummaryContextMenu, CellContextMenu } from "./panels/ContextMenus";
+import { SOLineItemsModal, type SOLineItem } from "./panels/SOLineItemsModal";
+import { resolveItemMasterIds, getItemMasterById } from "./itemMasterLookup";
 import { Pagination } from "./panels/Pagination";
 import { NavBar, SyncProgressBanner } from "./panels/NavBar";
 import { Toolbar } from "./panels/Toolbar";
@@ -146,6 +148,62 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
   generalMarginPct, setGeneralMarginPct,
   collapseLevel, setCollapseLevel, expandedGroups, expandedGroupSet, toggleExpandGroup,
   unreadNotifs, showingNotifications, onToggleNotifications, notificationsView, masterReady } = ctx;
+
+  // SO line-items modal — opened by clicking an SO order number in
+  // the On Order right-click menu. Holds the selected orderNumber;
+  // the lineItems are derived from excelData.sos + master unit_cost.
+  const [soDetailOrder, setSoDetailOrder] = useState<string | null>(null);
+
+  // Build the full line-item set for the selected SO at click time.
+  // Pulls every SO event from excelData.sos that matches orderNumber,
+  // looks up unit_cost via the item-master cache (per-sku weighted-
+  // avg across resolved variant ids), and feeds the modal.
+  const soDetailLineItems = useMemo<SOLineItem[]>(() => {
+    if (!soDetailOrder || !excelData) return [];
+    const matches = excelData.sos.filter(s => s.orderNumber === soDetailOrder);
+    return matches.map(s => {
+      // Cost lookup mirrors the export's master-id resolution: try
+      // variant-level first, fall back to style-level via the row's
+      // base part. resolveItemMasterIds returns every variant under
+      // the (style, color) family — we weighted-avg their unit_costs
+      // since size variants typically share the same cost.
+      const spaceDelim = s.sku.indexOf(" - ");
+      const stylePart = spaceDelim !== -1 ? s.sku.slice(0, spaceDelim).trim() : s.sku.trim();
+      const ids = resolveItemMasterIds(s.sku, stylePart || null);
+      let costSum = 0, costCount = 0;
+      for (const id of ids) {
+        const rec = getItemMasterById(id);
+        const uc = rec?.unit_cost;
+        if (typeof uc === "number" && uc > 0) {
+          costSum += uc;
+          costCount += 1;
+        }
+      }
+      const unitCost = costCount > 0 ? costSum / costCount : 0;
+      return {
+        sku: s.sku,
+        description: s.sku, // SO event itself doesn't carry a clean description; sku stands in
+        qty: s.qty,
+        unitPrice: s.unitPrice,
+        totalPrice: s.totalPrice,
+        unitCost,
+        customerName: s.customerName,
+        store: s.store,
+        date: s.date,
+        customerPo: s.customerPo,
+      };
+    });
+  }, [soDetailOrder, excelData]);
+
+  const soDetailHeader = useMemo(() => {
+    if (soDetailLineItems.length === 0) return { customerName: "", customerPo: "" };
+    // First line's metadata is fine — SO header fields don't vary by line.
+    const first = soDetailLineItems[0];
+    return {
+      customerName: first.customerName ?? "",
+      customerPo: first.customerPo ?? "",
+    };
+  }, [soDetailLineItems]);
 
   return (
     <div style={S.app}>
@@ -348,7 +406,21 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
       </div>
       )}
 
-      <SummaryContextMenu summaryCtx={summaryCtx} summaryCtxRef={summaryCtxRef} setSummaryCtx={setSummaryCtx} customerFilter={customerFilter ?? ""} />
+      <SummaryContextMenu
+        summaryCtx={summaryCtx}
+        summaryCtxRef={summaryCtxRef}
+        setSummaryCtx={setSummaryCtx}
+        customerFilter={customerFilter ?? ""}
+        onOpenSoDetails={(orderNumber) => { setSoDetailOrder(orderNumber); setSummaryCtx(null); }}
+      />
+      <SOLineItemsModal
+        open={soDetailOrder !== null}
+        orderNumber={soDetailOrder ?? ""}
+        customerName={soDetailHeader.customerName}
+        customerPo={soDetailHeader.customerPo}
+        lineItems={soDetailLineItems}
+        onClose={() => setSoDetailOrder(null)}
+      />
       <CellContextMenu ctxMenu={ctxMenu} ctxRef={ctxRef} setCtxMenu={setCtxMenu} />
 
       <UploadWarningsModal
