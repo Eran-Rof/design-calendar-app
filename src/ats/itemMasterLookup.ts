@@ -103,6 +103,12 @@ function hasMetadata(rec: ItemMasterRecord): boolean {
 // grain). Distinct from `byStyleCode` which holds ONE preferred
 // record per style for description / attribute lookup.
 let idsByStyle: Map<string, string[]> | null = null;
+// Index: `${UPPER(style_code)}|${UPPER(color)}` → every variant id
+// matching that style + color. ATS rows are at style+color grain
+// (no size dimension), but ip_sales_history_wholesale references
+// per-size sku_ids — so an ATS row at color grain needs every size
+// variant's id to aggregate sales across the whole color block.
+let idsByStyleAndColor: Map<string, string[]> | null = null;
 // Reverse lookup: ip_item_master.id → ItemMasterRecord. Used by the
 // ATS export's cross-grid sales flow — when a customer has historical
 // sales for a SKU that isn't currently visible in the grid, we need
@@ -114,11 +120,23 @@ function buildIndexes(records: ItemMasterRecord[]): void {
   const sku = new Map<string, ItemMasterRecord>();
   const style = new Map<string, ItemMasterRecord>();
   const idsByStyleLocal = new Map<string, string[]>();
+  const idsByStyleAndColorLocal = new Map<string, string[]>();
   const byIdLocal = new Map<string, ItemMasterRecord>();
   for (const rec of records) {
     if (rec.id) byIdLocal.set(rec.id, rec);
+    // Index by uppercase style+color so an ATS row at color grain
+    // can find every size variant under it. Color may be null on
+    // style-level rows; skip those — they're already covered by
+    // idsByStyle.
+    if (rec.id && rec.style_code && rec.color) {
+      const key = `${rec.style_code.toUpperCase()}|${rec.color.trim().toUpperCase()}`;
+      const list = idsByStyleAndColorLocal.get(key);
+      if (list) list.push(rec.id);
+      else idsByStyleAndColorLocal.set(key, [rec.id]);
+    }
   }
   byId = byIdLocal;
+  idsByStyleAndColor = idsByStyleAndColorLocal;
   for (const rec of records) {
     if (rec.sku_code) {
       // Index under three forms so the lookup hits regardless of
@@ -337,7 +355,23 @@ export function resolveItemMasterIds(sku: string, stylePart?: string | null): st
   const canonicalSku = canonSku(sku);
   const normalizedSku = normalizeSku(sku);
   const skuHit = bySkuCode.get(canonicalSku) ?? bySkuCode.get(normalizedSku);
-  if (skuHit?.id) return [skuHit.id];
+  if (skuHit?.id) {
+    // The matched record is typically the color-level canonical row
+    // (sku_code = style + color). ATS rows are at color grain, but
+    // ip_sales_history_wholesale references per-SIZE variant uuids.
+    // Expand to every variant under (style_code, color) so the
+    // grid row aggregates the whole color block's sales.
+    if (skuHit.style_code && skuHit.color && idsByStyleAndColor) {
+      const key = `${skuHit.style_code.toUpperCase()}|${skuHit.color.trim().toUpperCase()}`;
+      const family = idsByStyleAndColor.get(key);
+      if (family && family.length) {
+        const set = new Set<string>(family);
+        set.add(skuHit.id);
+        return [...set];
+      }
+    }
+    return [skuHit.id];
+  }
 
   if (stylePart) {
     const trimmedUpper = stylePart.trim().toUpperCase();
@@ -363,6 +397,7 @@ export function clearItemMasterCache(): void {
   bySkuCode = null;
   byStyleCode = null;
   idsByStyle = null;
+  idsByStyleAndColor = null;
   byId = null;
 }
 
