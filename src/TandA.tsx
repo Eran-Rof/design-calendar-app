@@ -70,6 +70,8 @@ import type { EmailState } from "./tanda/state/email/emailTypes";
 import type { TeamsState } from "./tanda/state/teams/teamsTypes";
 import type { CoreState } from "./tanda/state/core/coreTypes";
 import { useTandaStore } from "./tanda/store/index";
+import { AskAIPanel } from "./ai/AskAIPanel";
+import type { GridContextSnapshot } from "./ai/tools";
 
 // ── Supabase helpers ──────────────────────────────────────────────────────────
 const sb = {
@@ -390,6 +392,7 @@ function TandAApp() {
   const [sortBy, setSortBy] = useState<"ddp" | "po_date" | "status">("ddp");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [showSettings, setShowSettings] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const [newNote, setNewNote]   = useState("");
   // generatingRef and conflictPendingRef moved to useMilestoneOps
 
@@ -1431,6 +1434,22 @@ function TandAApp() {
         <div style={S.navRight}>
           <button
             style={{
+              ...S.navBtn,
+              background: "#7C3AED",
+              border: "1px solid #5B21B6",
+              color: "#fff",
+              fontWeight: 600,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+            onClick={() => setAiOpen(true)}
+            title="Ask Claude about POs, vendors, invoices, shipments — anything ROF"
+          >
+            ✨ Ask AI
+          </button>
+          <button
+            style={{
               ...(view === "notifications" ? S.navBtnActive : S.navBtn),
               display: "inline-flex",
               alignItems: "center",
@@ -2002,6 +2021,37 @@ function TandAApp() {
           appFilter="tanda"
         />
       )}
+
+      <AskAIPanel
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        buildContext={(): GridContextSnapshot => ({
+          columns: ["po_number", "vendor", "status", "expected_date", "ack_status"],
+          active_filters: {
+            search: search || undefined,
+            status: filterStatus,
+            customer: filterVendor !== "All" ? filterVendor : undefined,
+          },
+          sort: null,
+          row_count: pos.length,
+          distinct: {
+            categories: [],
+            sub_categories: [],
+            styles: [],
+            genders: [],
+            stores: [],
+          },
+        })}
+        setters={{}}
+        samplePrompts={[
+          "How many POs are pending vendor acknowledgment?",
+          "Which shipments are arriving this week?",
+          "Open invoices grouped by status — total $ each",
+          "Average lead time per vendor",
+          "Which POs have shipped but no receipt yet?",
+          "Disputes opened in the last 30 days",
+        ]}
+      />
     </div>
   );
 

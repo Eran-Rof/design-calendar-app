@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, Fragment, lazy, Suspense } from "react";
+import { AskAIPanel } from "./ai/AskAIPanel";
+import type { GridContextSnapshot } from "./ai/tools";
 import NotificationsShell from "./components/notifications/NotificationsShell";
 import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
@@ -60,6 +62,7 @@ function App() {
   // dcSet removed — all callers now use useAppStore.getState().setField() directly
   // ── Confirm modal state ────────────────────────────────────────────────
   const [confirmState, setConfirmState] = useState<{ message: string; action: string; onConfirm: () => void } | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
   setConfirmHandler((opts) => setConfirmState(opts));
 
   // ── Supabase persistence ─────────────────────────────────────────────────
@@ -561,6 +564,25 @@ function App() {
         >
           {[["dashboard","Dashboard"],["timeline","Timeline"],["calendar","Calendar"],["trend-briefs","Trend Briefs"]].map(([v,label]) =>
             navBtn(v, label)
+          )}
+          {currentUser && (
+            <button
+              onClick={() => setAiOpen(true)}
+              title="Ask Claude about design briefs, calendar, tech packs — anything ROF"
+              style={{
+                padding: "7px 12px", borderRadius: 8,
+                border: "1px solid #5B21B6",
+                background: "#7C3AED",
+                color: "#fff",
+                fontWeight: 700,
+                fontFamily: "inherit", fontSize: 12, whiteSpace: "nowrap",
+                transition: "all 0.2s",
+                cursor: "pointer",
+                display: "inline-flex", alignItems: "center", gap: 6,
+              }}
+            >
+              ✨ Ask AI
+            </button>
           )}
           {currentUser && (
             <button
@@ -1294,6 +1316,38 @@ function App() {
           appFilter="design"
         />
       )}
+
+      <AskAIPanel
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        buildContext={(): GridContextSnapshot => ({
+          columns: ["task", "brand", "season", "customer", "vendor", "phase", "date"],
+          active_filters: {
+            // Design Calendar filters are Sets — convert to arrays for the snapshot.
+            category: Array.from(filterBrand ?? []),
+            sub_category: Array.from(filterSeason ?? []),
+            customer: Array.from(filterCustomer ?? []).join(", ") || undefined,
+          },
+          sort: null,
+          row_count: tasks?.length ?? 0,
+          distinct: {
+            categories: [],
+            sub_categories: [],
+            styles: [],
+            genders: [],
+            stores: [],
+          },
+        })}
+        setters={{}}
+        samplePrompts={[
+          "When was the last trend brief published?",
+          "How many tech packs are pending approval?",
+          "Total AI cost this month grouped by handler",
+          "Which design concepts have shipped to production?",
+          "List trend briefs from the last 6 months",
+          "How many published briefs do we have this year?",
+        ]}
+      />
     </div>
   );
 }
