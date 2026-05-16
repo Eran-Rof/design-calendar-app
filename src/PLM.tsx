@@ -402,10 +402,50 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   useEffect(() => {
-    loadUsers().then(u => { setUsers(u); setLoading(false); });
+    // Catch the rejection so a Supabase 503 / PGRST hiccup doesn't leave
+    // the modal stuck in "loading" forever. Without the .catch the
+    // promise rejection was unhandled and setLoading(false) never fired.
+    loadUsers()
+      .then((u) => { setUsers(u); setLoading(false); })
+      .catch((e) => {
+        console.error("[PLM] users load failed:", e);
+        setMsg("Could not load users from Supabase — refusing to overwrite to prevent data loss. Refresh and try again.");
+        // Sentinel: leave `users` empty AND saving=true so the Save
+        // button stays disabled and saveUsers's guard below also fires.
+        setLoading(false);
+        setSaving(true);
+      });
   }, []);
 
   async function saveUsers(updated: User[]) {
+    // SAFETY: an in-memory empty-or-near-empty state can only mean
+    // either (a) the modal was just opened and the load is still in
+    // flight (then `loading` is true), or (b) the load came back
+    // empty/failed and writing now would clobber the real list. Either
+    // way, refusing the save is correct — losing the team list is a
+    // serious incident (it happened on 2026-05-16 and required PITR to
+    // restore). The user can re-open the modal to retry the load.
+    if (updated.length === 0) {
+      setMsg("Refusing to save an empty user list. Reload the modal first.");
+      return;
+    }
+    // Re-fetch current DB state and refuse if the diff is suspiciously
+    // large. Allow normal single-user deletes; block sudden mass loss
+    // (e.g. a stale view raced with another admin's edits, or a
+    // load-fail-then-add-one-user sequence like the May-16 incident).
+    let dbCount = users.length;
+    try {
+      const fresh = await loadUsers();
+      dbCount = fresh.length;
+    } catch (e) {
+      console.warn("[PLM] saveUsers: re-read failed, falling back to in-memory count", e);
+    }
+    const lost = dbCount - updated.length;
+    if (lost > 1) {
+      setMsg(`Refusing to drop ${lost} users in one save (DB has ${dbCount}, you're saving ${updated.length}). Reload and try again.`);
+      return;
+    }
+
     setSaving(true);
     try {
       await fetch(`${SB_URL}/rest/v1/app_data`, {
