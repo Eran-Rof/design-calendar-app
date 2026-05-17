@@ -13,6 +13,10 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    // Default env stays `node` for fast pure-helper tests. Files
+    // that mount React components opt into jsdom with the
+    // `// @vitest-environment jsdom` directive at the top.
     environment: "node",
+    setupFiles: ["./src/__tests__/setup.ts"],
   },
 })
