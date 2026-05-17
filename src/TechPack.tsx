@@ -50,6 +50,17 @@ import {
   bomTotal,
   isApprovalStageUnlocked,
 } from "./techpack/calc";
+import {
+  createColorway,
+  addColorwayToBOM,
+  removeColorwayFromBOM,
+  createBOMItem,
+  updateColorSpecOnBOM,
+  addSketchCallout,
+  updateSketchCallout,
+  removeSketchCallout,
+  sortCalloutsByNumber,
+} from "./techpack/bomOps";
 
 // sb helper moved to ./techpack/supabase
 
@@ -2666,16 +2677,11 @@ export default function TechPackApp() {
 
     const updateSketch = (changes: Partial<FlatSketch>) => updateSelected({ flatSketch: { ...sk, ...changes } });
 
-    const addCallout = () => {
-      const nextNum = sk.callouts.length > 0 ? Math.max(...sk.callouts.map(c => c.number)) + 1 : 1;
-      updateSketch({ callouts: [...sk.callouts, { id: uid(), number: nextNum, description: "" }] });
-    };
-
-    const updateCallout = (id: string, changes: Partial<SketchCallout>) => {
-      updateSketch({ callouts: sk.callouts.map(c => c.id === id ? { ...c, ...changes } : c) });
-    };
-
-    const removeCallout = (id: string) => updateSketch({ callouts: sk.callouts.filter(c => c.id !== id) });
+    const addCallout = () => updateSketch({ callouts: addSketchCallout(sk.callouts) });
+    const updateCallout = (id: string, changes: Partial<SketchCallout>) =>
+      updateSketch({ callouts: updateSketchCallout(sk.callouts, id, changes) });
+    const removeCallout = (id: string) =>
+      updateSketch({ callouts: removeSketchCallout(sk.callouts, id) });
 
     const uploadSketchImage = async (file: File, side: "frontImage" | "backImage") => {
       const url = await uploadImage(file, `/techpacks/${tp.id}/sketch/${side}-${file.name}`);
@@ -2710,7 +2716,7 @@ export default function TechPackApp() {
       );
     };
 
-    const sortedCallouts = [...sk.callouts].sort((a, b) => a.number - b.number);
+    const sortedCallouts = sortCalloutsByNumber(sk.callouts);
 
     return (
       <>
@@ -3015,26 +3021,19 @@ export default function TechPackApp() {
     const addColorway = () => {
       const name = prompt("Colorway name (e.g. BLACKSANDS):");
       if (!name?.trim()) return;
-      const cw: Colorway = { id: uid(), name: name.trim().toUpperCase() };
-      const newBom = tp.bom.map(b => ({
-        ...b,
-        colorSpecs: [...(b.colorSpecs || []), { colorwayId: cw.id, color: "", pantone: "", trialSize: "" }],
-      }));
-      updateSelected({ colorways: [...colorways, cw], bom: newBom });
+      const cw = createColorway(name);
+      updateSelected({ colorways: [...colorways, cw], bom: addColorwayToBOM(tp.bom, cw.id) });
     };
 
     const removeColorway = (cwId: string) => {
-      const newBom = tp.bom.map(b => ({ ...b, colorSpecs: (b.colorSpecs || []).filter(cs => cs.colorwayId !== cwId) }));
-      updateSelected({ colorways: colorways.filter(cw => cw.id !== cwId), bom: newBom });
+      updateSelected({
+        colorways: colorways.filter(cw => cw.id !== cwId),
+        bom: removeColorwayFromBOM(tp.bom, cwId),
+      });
     };
 
     const addBOMItem = () => {
-      const newItem: BOMItem = {
-        id: uid(), materialNo: "", material: "", placement: "", content: "", weight: "",
-        quantity: "", uom: "YDS", supplier: "", unitCost: 0, totalCost: 0, notes: "", image: null,
-        colorSpecs: colorways.map(cw => ({ colorwayId: cw.id, color: "", pantone: "", trialSize: "" })),
-      };
-      updateSelected({ bom: [...tp.bom, newItem] });
+      updateSelected({ bom: [...tp.bom, createBOMItem(colorways)] });
     };
 
     const updateBOMItem = (idx: number, changes: Partial<BOMItem>) => {
@@ -3044,13 +3043,7 @@ export default function TechPackApp() {
     };
 
     const updateColorSpec = (bomIdx: number, cwId: string, changes: Partial<BOMColorSpec>) => {
-      const updated = [...tp.bom];
-      const specs = [...(updated[bomIdx].colorSpecs || [])];
-      const si = specs.findIndex(cs => cs.colorwayId === cwId);
-      if (si >= 0) specs[si] = { ...specs[si], ...changes };
-      else specs.push({ colorwayId: cwId, color: "", pantone: "", trialSize: "", ...changes });
-      updated[bomIdx] = { ...updated[bomIdx], colorSpecs: specs };
-      updateSelected({ bom: updated });
+      updateSelected({ bom: updateColorSpecOnBOM(tp.bom, bomIdx, cwId, changes) });
     };
 
     const FIXED_COLS = 10; // image, mat no, material, placement, content, weight, qty, uom, unit$, total
