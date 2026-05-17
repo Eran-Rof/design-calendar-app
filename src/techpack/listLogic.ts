@@ -6,7 +6,7 @@
 // can swap the inputs without touching the math AND lets unit tests
 // hit the math directly.
 
-import type { Sample, TechPack } from "./types";
+import type { Sample, TechPack, Material, SpecSheet } from "./types";
 
 export interface TechPackFilter {
   /** Empty string means "no filter". */
@@ -80,4 +80,44 @@ export function uniqueBrands(techPacks: TechPack[]): string[] {
 /** Sorted unique non-empty season list pulled from `techPacks`. */
 export function uniqueSeasons(techPacks: TechPack[]): string[] {
   return Array.from(new Set(techPacks.map(t => t.season).filter(Boolean))).sort();
+}
+
+export interface MaterialFilter {
+  /** Empty string means "no type filter". */
+  type: string;
+  /** Empty / null / undefined means "no text filter". Case-insensitive
+   *  substring match against name, supplier, composition. */
+  search?: string | null;
+}
+
+/**
+ * Filter materials by type + free-text search (name / supplier /
+ * composition). Returns a new array; never mutates input.
+ */
+export function filterMaterials(materials: Material[], f: MaterialFilter): Material[] {
+  const q = (f.search ?? "").toLowerCase();
+  return materials.filter(m => {
+    if (f.type && m.type !== f.type) return false;
+    if (q) {
+      return m.name.toLowerCase().includes(q)
+        || m.supplier.toLowerCase().includes(q)
+        || m.composition.toLowerCase().includes(q);
+    }
+    return true;
+  });
+}
+
+/**
+ * Filter spec sheets by a free-text search across styleName,
+ * styleNumber, brand. Empty / null / undefined query means
+ * "no filter". Returns a new array.
+ */
+export function filterSpecSheets(sheets: SpecSheet[], search?: string | null): SpecSheet[] {
+  const q = (search ?? "").trim().toLowerCase();
+  if (!q) return sheets.slice();
+  return sheets.filter(ss =>
+    ss.styleName.toLowerCase().includes(q)
+    || ss.styleNumber.toLowerCase().includes(q)
+    || ss.brand.toLowerCase().includes(q)
+  );
 }

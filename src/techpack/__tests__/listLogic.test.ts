@@ -9,9 +9,11 @@ import {
   flattenAllSamples,
   uniqueBrands,
   uniqueSeasons,
+  filterMaterials,
+  filterSpecSheets,
 } from "../listLogic";
 import { emptyTechPack } from "../factories";
-import type { TechPack } from "../types";
+import type { TechPack, Material, SpecSheet } from "../types";
 
 function tp(over: Partial<TechPack> = {}): TechPack {
   return { ...emptyTechPack({ name: "test" }), ...over };
@@ -129,6 +131,94 @@ describe("flattenAllSamples", () => {
   it("returns [] when nothing has samples", () => {
     expect(flattenAllSamples([tp({ samples: [] }), tp({ samples: [] })])).toEqual([]);
     expect(flattenAllSamples([])).toEqual([]);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+
+function mat(over: Partial<Material> = {}): Material {
+  return {
+    id: "x", name: "", type: "Fabric", composition: "", weight: "", width: "",
+    color: "", supplier: "", unitPrice: 0, moq: "", leadTime: "",
+    certifications: [], notes: "", createdAt: "2026-01-01", ...over,
+  };
+}
+
+describe("filterMaterials", () => {
+  const seed = [
+    mat({ id: "a", name: "Cotton Twill",    type: "Fabric",  supplier: "MillCo",   composition: "100% Cotton" }),
+    mat({ id: "b", name: "Polyester Twill", type: "Fabric",  supplier: "WeaveInc", composition: "100% Polyester" }),
+    mat({ id: "c", name: "YKK Zipper",      type: "Trim",    supplier: "YKK",      composition: "Metal" }),
+    mat({ id: "d", name: "Hangtag",         type: "Label",   supplier: "PaperCo",  composition: "Recycled paper" }),
+  ];
+
+  it("returns everything when filter is empty", () => {
+    expect(filterMaterials(seed, { type: "", search: "" }).map(m => m.id)).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("filters by type", () => {
+    expect(filterMaterials(seed, { type: "Fabric", search: "" }).map(m => m.id)).toEqual(["a", "b"]);
+    expect(filterMaterials(seed, { type: "Trim",   search: "" }).map(m => m.id)).toEqual(["c"]);
+  });
+
+  it("free-text matches name / supplier / composition (case-insensitive)", () => {
+    expect(filterMaterials(seed, { type: "", search: "twill"   }).map(m => m.id)).toEqual(["a", "b"]);
+    expect(filterMaterials(seed, { type: "", search: "ykk"     }).map(m => m.id)).toEqual(["c"]);
+    expect(filterMaterials(seed, { type: "", search: "polyester" }).map(m => m.id)).toEqual(["b"]);
+    expect(filterMaterials(seed, { type: "", search: "PAPER"   }).map(m => m.id)).toEqual(["d"]);
+  });
+
+  it("type + search AND together", () => {
+    expect(filterMaterials(seed, { type: "Fabric", search: "polyester" }).map(m => m.id)).toEqual(["b"]);
+  });
+
+  it("treats null/undefined search like empty", () => {
+    expect(filterMaterials(seed, { type: "",       search: null      }).length).toBe(seed.length);
+    expect(filterMaterials(seed, { type: "Fabric", search: undefined }).length).toBe(2);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+
+function ss(over: Partial<SpecSheet> = {}): SpecSheet {
+  return {
+    id: "x", styleName: "", styleNumber: "", brand: "", season: "",
+    category: "", description: "", sizes: [], rows: [],
+    createdAt: "2026-01-01", updatedAt: "2026-01-01", ...over,
+  };
+}
+
+describe("filterSpecSheets", () => {
+  const seed = [
+    ss({ id: "a", styleName: "Edge Slim",  styleNumber: "100", brand: "ROF"   }),
+    ss({ id: "b", styleName: "Bartram",     styleNumber: "200", brand: "Other" }),
+    ss({ id: "c", styleName: "Edge Wide",  styleNumber: "300", brand: "ROF"   }),
+  ];
+
+  it("returns everything (as a fresh copy) when query is empty/whitespace/null", () => {
+    const out1 = filterSpecSheets(seed, "");
+    const out2 = filterSpecSheets(seed, "   ");
+    const out3 = filterSpecSheets(seed, null);
+    expect(out1).toEqual(seed);
+    expect(out2).toEqual(seed);
+    expect(out3).toEqual(seed);
+    expect(out1).not.toBe(seed); // new array — caller can mutate safely
+  });
+
+  it("matches styleName (case-insensitive substring)", () => {
+    expect(filterSpecSheets(seed, "edge").map(s => s.id)).toEqual(["a", "c"]);
+  });
+
+  it("matches styleNumber", () => {
+    expect(filterSpecSheets(seed, "200").map(s => s.id)).toEqual(["b"]);
+  });
+
+  it("matches brand", () => {
+    expect(filterSpecSheets(seed, "rof").map(s => s.id)).toEqual(["a", "c"]);
+  });
+
+  it("returns [] when no match", () => {
+    expect(filterSpecSheets(seed, "missing")).toEqual([]);
   });
 });
 
