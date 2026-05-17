@@ -246,8 +246,15 @@ export function buildExportPayload(
   // indicator; dollars come after. Positive = T3 outsold LY (green
   // text); negative = underperformed (red text). No cell fill so the
   // row stripe stays visible.
-  const COL_T3_LY_DIFF_QTY: number | undefined = (opts.trailing3 && opts.spLY) ? nextCol++ : undefined;
-  const COL_T3_LY_DIFF:     number | undefined = (opts.trailing3 && opts.spLY) ? nextCol++ : undefined;
+  const COL_T3_LY_DIFF_QTY:  number | undefined = (opts.trailing3 && opts.spLY) ? nextCol++ : undefined;
+  const COL_T3_LY_DIFF:      number | undefined = (opts.trailing3 && opts.spLY) ? nextCol++ : undefined;
+  // T3/LY Mrgn % diff column. Same formula as t3VsLyCell:
+  // (t3_mrgn − ly_mrgn) / t3_mrgn. Only emitted when BOTH trailing3
+  // AND spLY are on AND the operator opted in to margin columns (the
+  // showT3Margin gate that controls T3 Mrgn % and LY Mrgn % per-row
+  // columns — emitting a vs-LY margin column without the source
+  // margins to compare would be meaningless).
+  const COL_T3_LY_DIFF_MRGN: number | undefined = (opts.trailing3 && opts.spLY && showT3Margin) ? nextCol++ : undefined;
 
   const SPACER_COLS = new Set([COL.spacerF, COL.spacerH, COL.spacerJ, COL.spacerL]);
   const totalColumnCount = nextCol - 1;
@@ -418,8 +425,14 @@ export function buildExportPayload(
   // below as titleRow), not in column headers — operator preference,
   // keeps column headers compact + readable. Headers stay as plain
   // "T3 …" / "S/P LY …" regardless of custom range.
-  const t3LabelBase = "T3";
+  // Header prefix per planner: "T3" when using the default trailing-3-
+  // months window; "TY" (this-year-to-date / picked-window) when the
+  // operator selected a custom date range via Hide ATS data. The LY
+  // label stays "S/P LY" — same-period-last-year is well-understood
+  // and the actual window dates render in the title banner.
+  const t3LabelBase = opts.customSalesRangeEnabled ? "TY" : "T3";
   const lyLabelBase = "S/P LY";
+  const diffLabelPrefix = opts.customSalesRangeEnabled ? "TY" : "T3";
   if (COL_T3_QTY)     headerRow[COL_T3_QTY     - 1] = headerCell(`${t3LabelBase} Qty${custTag}`, HDR_DARK_FILL, "center");
   if (COL_T3_PRICE)   headerRow[COL_T3_PRICE   - 1] = headerCell(`${t3LabelBase} Sls Price`,     HDR_DARK_FILL, "center");
   if (COL_T3_TTL_SLS) headerRow[COL_T3_TTL_SLS - 1] = headerCell(`${t3LabelBase} Ttl Sls`,       HDR_DARK_FILL, "center");
@@ -428,8 +441,9 @@ export function buildExportPayload(
   if (COL_LY_PRICE)   headerRow[COL_LY_PRICE   - 1] = headerCell(`${lyLabelBase} Sls Price`,     HDR_DARK_FILL, "center");
   if (COL_LY_TTL_SLS) headerRow[COL_LY_TTL_SLS - 1] = headerCell(`${lyLabelBase} Ttl Sls`,       HDR_DARK_FILL, "center");
   if (COL_LY_MRGN)    headerRow[COL_LY_MRGN    - 1] = headerCell(`${lyLabelBase} Mrgn %`,        HDR_DARK_FILL, "center");
-  if (COL_T3_LY_DIFF_QTY) headerRow[COL_T3_LY_DIFF_QTY - 1] = headerCell(`T3 vs LY Qty`, HDR_DARK_FILL, "center");
-  if (COL_T3_LY_DIFF)     headerRow[COL_T3_LY_DIFF     - 1] = headerCell(`T3 vs LY $`,   HDR_DARK_FILL, "center");
+  if (COL_T3_LY_DIFF_QTY)  headerRow[COL_T3_LY_DIFF_QTY  - 1] = headerCell(`${diffLabelPrefix} vs LY Qty`,    HDR_DARK_FILL, "center");
+  if (COL_T3_LY_DIFF)      headerRow[COL_T3_LY_DIFF      - 1] = headerCell(`${diffLabelPrefix} vs LY $`,      HDR_DARK_FILL, "center");
+  if (COL_T3_LY_DIFF_MRGN) headerRow[COL_T3_LY_DIFF_MRGN - 1] = headerCell(`${diffLabelPrefix} vs LY Mrgn %`, HDR_DARK_FILL, "center");
 
   // ── Trailing-3 / SP-LY aggregate lookups ──────────────────────────────
   // Pre-fetched maps keyed by ATS-row sku (variant grain). The fetcher
@@ -471,7 +485,7 @@ export function buildExportPayload(
       COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC,
       COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN,
       COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN,
-      COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF,
+      COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF, COL_T3_LY_DIFF_MRGN,
     ].filter((c): c is number => c !== undefined)),
   ];
 
@@ -616,6 +630,11 @@ export function buildExportPayload(
     // row's ppkMult when packs are showing; totalPrice + totalCost
     // are grain-invariant (avgCost is per-unit, sales qty is unit-
     // grain, so their product cancels).
+    //
+    // Hoist subT3MrgnPct + subLYMrgnPct so the downstream diff-mrgn
+    // cell can read both percentages even when only one toggle is on.
+    let subT3MrgnPct = 0;
+    let subLYMrgnPct = 0;
     if (opts.trailing3) {
       let qtyDisp = 0, totalPrice = 0, totalCost = 0;
       for (const x of group) {
@@ -627,11 +646,11 @@ export function buildExportPayload(
         totalCost += (x.avgCost ?? 0) * xT3.qty;
       }
       const price = qtyDisp > 0 ? totalPrice / qtyDisp : 0;
-      const mrgnPct = totalPrice > 0 && totalCost > 0 ? ((totalPrice - totalCost) / totalPrice) * 100 : 0;
+      subT3MrgnPct = totalPrice > 0 && totalCost > 0 ? ((totalPrice - totalCost) / totalPrice) * 100 : 0;
       if (COL_T3_QTY)     r2[COL_T3_QTY     - 1] = subCell(qtyDisp);
       if (COL_T3_PRICE)   r2[COL_T3_PRICE   - 1] = subCurr(price);
       if (COL_T3_TTL_SLS) r2[COL_T3_TTL_SLS - 1] = subCurr(totalPrice);
-      if (COL_T3_MRGN)    r2[COL_T3_MRGN    - 1] = subPct(mrgnPct / 100);
+      if (COL_T3_MRGN)    r2[COL_T3_MRGN    - 1] = subPct(subT3MrgnPct / 100);
     }
     if (opts.spLY) {
       let qtyDisp = 0, totalPrice = 0, totalCost = 0;
@@ -644,11 +663,11 @@ export function buildExportPayload(
         totalCost += (x.avgCost ?? 0) * xLY.qty;
       }
       const price = qtyDisp > 0 ? totalPrice / qtyDisp : 0;
-      const mrgnPct = totalPrice > 0 && totalCost > 0 ? ((totalPrice - totalCost) / totalPrice) * 100 : 0;
+      subLYMrgnPct = totalPrice > 0 && totalCost > 0 ? ((totalPrice - totalCost) / totalPrice) * 100 : 0;
       if (COL_LY_QTY)     r2[COL_LY_QTY     - 1] = subCell(qtyDisp);
       if (COL_LY_PRICE)   r2[COL_LY_PRICE   - 1] = subCurr(price);
       if (COL_LY_TTL_SLS) r2[COL_LY_TTL_SLS - 1] = subCurr(totalPrice);
-      if (COL_LY_MRGN)    r2[COL_LY_MRGN    - 1] = subPct(mrgnPct / 100);
+      if (COL_LY_MRGN)    r2[COL_LY_MRGN    - 1] = subPct(subLYMrgnPct / 100);
     }
 
     // T3 vs LY at subtotal grain — plain growth math: sum every row's
@@ -659,7 +678,7 @@ export function buildExportPayload(
     // and not the other — that's correct: growth on a NEW SKU has no
     // baseline so its T3 sales legitimately inflate the numerator
     // against the unchanged denominator.
-    if (COL_T3_LY_DIFF_QTY || COL_T3_LY_DIFF) {
+    if (COL_T3_LY_DIFF_QTY || COL_T3_LY_DIFF || COL_T3_LY_DIFF_MRGN) {
       let t3SumQ = 0, lySumQ = 0, t3SumP = 0, lySumP = 0;
       for (const x of group) {
         const t = t3Of(x.sku);
@@ -669,8 +688,9 @@ export function buildExportPayload(
         t3SumP += t.totalPrice;
         lySumP += l.totalPrice;
       }
-      if (COL_T3_LY_DIFF_QTY) r2[COL_T3_LY_DIFF_QTY - 1] = t3VsLyCell(t3SumQ, lySumQ, subNumStyle);
-      if (COL_T3_LY_DIFF)     r2[COL_T3_LY_DIFF     - 1] = t3VsLyCell(t3SumP, lySumP, subNumStyle);
+      if (COL_T3_LY_DIFF_QTY)  r2[COL_T3_LY_DIFF_QTY  - 1] = t3VsLyCell(t3SumQ, lySumQ, subNumStyle);
+      if (COL_T3_LY_DIFF)      r2[COL_T3_LY_DIFF      - 1] = t3VsLyCell(t3SumP, lySumP, subNumStyle);
+      if (COL_T3_LY_DIFF_MRGN) r2[COL_T3_LY_DIFF_MRGN - 1] = t3VsLyCell(subT3MrgnPct, subLYMrgnPct, subNumStyle);
     }
 
     return r2;
@@ -813,6 +833,14 @@ export function buildExportPayload(
     // UNIT grain. Convert to PACK grain for display when the grid is
     // in pack mode so the report matches the on-screen rendering.
     // Margin % is grain-invariant; price + qty both scale.
+    //
+    // Hoist t3MrgnPct + lyMrgnPct out of the if blocks so the
+    // downstream "T3 vs LY Mrgn %" diff cell can read both even when
+    // only one block runs (defensive — both should run together since
+    // the diff column requires both toggles, but we don't rely on
+    // toggle order).
+    let t3MrgnPct = 0;
+    let lyMrgnPct = 0;
     if (opts.trailing3) {
       const t3 = t3Of(r.sku);
       const t3QtyDisp = t3.qty / qtyDiv;
@@ -824,7 +852,7 @@ export function buildExportPayload(
       // occasionally has master-case math baked in). Suppress the
       // margin cell rather than show a misleading -1700%.
       const costImplausible = avgCostV > 0 && t3Price > 0 && avgCostV > t3Price * 2;
-      const t3MrgnPct = (avgCostV > 0 && t3Price > 0 && !costImplausible)
+      t3MrgnPct = (avgCostV > 0 && t3Price > 0 && !costImplausible)
         ? ((t3Price - avgCostV) / t3Price) * 100
         : 0;
       if (costImplausible) {
@@ -853,7 +881,7 @@ export function buildExportPayload(
       // avgCost is > 2× lyPrice. Prevents a stale / wrong-grain cost
       // basis from producing a misleading negative margin.
       const lyCostImplausible = avgCostV > 0 && lyPrice > 0 && avgCostV > lyPrice * 2;
-      const lyMrgnPct = (avgCostV > 0 && lyPrice > 0 && !lyCostImplausible)
+      lyMrgnPct = (avgCostV > 0 && lyPrice > 0 && !lyCostImplausible)
         ? ((lyPrice - avgCostV) / lyPrice) * 100
         : 0;
       if (COL_LY_QTY)     qtyRow[COL_LY_QTY     - 1] = lyQtyDisp === 0
@@ -870,14 +898,17 @@ export function buildExportPayload(
         : { v: lyMrgnPct / 100, t: "n", s: { ...bodyNumStyle(fill), numFmt: "0.0%" } };
     }
 
-    // T3 vs LY % diff — qty (volume) and $ (revenue) side by side.
-    // Both ratios are grain-invariant since each side scales by the
-    // same factor under Explode-PPK toggle.
-    if (COL_T3_LY_DIFF_QTY || COL_T3_LY_DIFF) {
+    // T3 vs LY % diff — qty (volume), $ (revenue), and margin %.
+    // All three use the same factory: diff = (t3 − ly) / t3. Qty + $
+    // ratios are grain-invariant; margin % is a percentage already so
+    // grain doesn't apply. The margin-diff column reads the t3MrgnPct
+    // + lyMrgnPct values computed above in the per-row blocks.
+    if (COL_T3_LY_DIFF_QTY || COL_T3_LY_DIFF || COL_T3_LY_DIFF_MRGN) {
       const t3 = t3Of(r.sku);
       const ly = lyOf(r.sku);
-      if (COL_T3_LY_DIFF_QTY) qtyRow[COL_T3_LY_DIFF_QTY - 1] = t3VsLyCell(t3.qty, ly.qty, bodyNumStyle(fill));
-      if (COL_T3_LY_DIFF)     qtyRow[COL_T3_LY_DIFF     - 1] = t3VsLyCell(t3.totalPrice, ly.totalPrice, bodyNumStyle(fill));
+      if (COL_T3_LY_DIFF_QTY)  qtyRow[COL_T3_LY_DIFF_QTY  - 1] = t3VsLyCell(t3.qty, ly.qty, bodyNumStyle(fill));
+      if (COL_T3_LY_DIFF)      qtyRow[COL_T3_LY_DIFF      - 1] = t3VsLyCell(t3.totalPrice, ly.totalPrice, bodyNumStyle(fill));
+      if (COL_T3_LY_DIFF_MRGN) qtyRow[COL_T3_LY_DIFF_MRGN - 1] = t3VsLyCell(t3MrgnPct, lyMrgnPct, bodyNumStyle(fill));
     }
 
     dataRows.push(qtyRow);
@@ -934,7 +965,7 @@ export function buildExportPayload(
       // Optional extra cols on the PPK follower row — blank with the
       // same style as the qty row's matching cell so the merge looks
       // clean and the outline finalizer sees a real cell to border.
-      for (const ci of [COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN, COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF]) {
+      for (const ci of [COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN, COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF, COL_T3_LY_DIFF_MRGN]) {
         if (ci !== undefined) ppkRow[ci - 1] = blankFill(bodyNumStyle(fill));
       }
 
@@ -1005,7 +1036,7 @@ export function buildExportPayload(
     // outline finalizer + autofit see real cells and the bottom row
     // closes the table cleanly across its full width. Callers that
     // want real aggregates patch these in after.
-    const optCols = [COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN, COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF];
+    const optCols = [COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN, COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF, COL_T3_LY_DIFF_MRGN];
     for (const ci of optCols) {
       if (ci !== undefined) cells[ci - 1] = { v: "", t: "s", s: totalNumStyle };
     }
@@ -1107,6 +1138,12 @@ export function buildExportPayload(
     }
     if (COL_T3_LY_DIFF) {
       cells[COL_T3_LY_DIFF - 1] = t3VsLyCell(agg.t3Tot, agg.lyTot, totalNumStyle);
+    }
+    if (COL_T3_LY_DIFF_MRGN) {
+      // agg.t3Mrgn / agg.lyMrgn are fractions (0.21 for 21%). t3VsLyCell's
+      // (a − b) / a formula is scale-invariant — fraction vs percent
+      // produces the same diff. Pass fractions directly.
+      cells[COL_T3_LY_DIFF_MRGN - 1] = t3VsLyCell(agg.t3Mrgn, agg.lyMrgn, totalNumStyle);
     }
   }
 
