@@ -87,9 +87,13 @@ export function buildExportPayload(
     customerEnabled:     options?.customerEnabled     ?? false,
     customer:            options?.customer            ?? "",
     showCustomerMargin:  options?.showCustomerMargin  ?? true,
-    customerFacing:      options?.customerFacing      ?? false,
-    hideZeroColumns:     options?.hideZeroColumns     ?? false,
-    hideATSData:         options?.hideATSData         ?? false,
+    customerFacing:           options?.customerFacing           ?? false,
+    hideZeroColumns:          options?.hideZeroColumns          ?? false,
+    hideATSData:              options?.hideATSData              ?? false,
+    hideEmptyHistoryRows:     options?.hideEmptyHistoryRows     ?? false,
+    customSalesRangeEnabled:  options?.customSalesRangeEnabled  ?? false,
+    customSalesRangeStart:    options?.customSalesRangeStart    ?? "",
+    customSalesRangeEnd:      options?.customSalesRangeEnd      ?? "",
   };
   // hideATSData drops the entire ATS-data block — including Avg Cost,
   // Total Cost, and Sls Prc @ Mrgn. Force the optional-column toggles
@@ -174,6 +178,15 @@ export function buildExportPayload(
     return false;
   };
   rows = rows.filter(r => hasAnyAvailability(r) || hasSalesHistory(r));
+
+  // hideEmptyHistoryRows (set by Hide ATS data) tightens the filter
+  // further: a row qualifies only if it has T3 OR LY sales — pure
+  // availability (on-hand without history) is not enough. The planner
+  // asked for this coupling because Hide ATS data drops the in-flight
+  // columns, leaving only sales history meaningful per row.
+  if (opts.hideEmptyHistoryRows) {
+    rows = rows.filter(r => hasSalesHistory(r));
+  }
 
   // Column letter helper (1-based: A=1, AA=27, ...).
   const colLetter = (idx1: number): string => {
@@ -369,17 +382,32 @@ export function buildExportPayload(
   if (COL_AVG_COST) headerRow[COL_AVG_COST - 1] = { v: "Avg Cost",   t: "s", s: headerStyle(HDR_ONHAND_FILL, "center") };
   if (COL_TOT_COST) headerRow[COL_TOT_COST - 1] = { v: "Total Cost", t: "s", s: headerStyle(HDR_ONHAND_FILL, "center") };
   if (COL_SLS_PRC)  headerRow[COL_SLS_PRC  - 1] = { v: `Sls Prc @ ${opts.slsMarginPct}%`, t: "s", s: headerStyle(HDR_ONHAND_FILL, "center") };
-  // T3/LY column labels reflect the customer narrowing so the
-  // spreadsheet is self-documenting. Format: "T3 Qty" / "T3 Qty (Acme)".
+  // T3/LY column labels reflect the customer narrowing AND, when the
+  // operator picked a custom date range via Hide ATS data, the actual
+  // window the aggregates were computed over. Format examples:
+  //   default:                       "T3 Qty"
+  //   default + customer:            "T3 Qty (Acme)"
+  //   custom range:                  "Sales 2026-01-01..2026-03-31 Qty"
+  //   custom range + customer:       "Sales 2026-01-01..2026-03-31 Qty (Acme)"
+  // The Qty header is what feeds the planner's eye — the SP LY headers
+  // mirror the same convention but use the LY window (custom range
+  // shifted back 12 months) so the spreadsheet self-documents both.
   const custTag = customerFilter ? ` (${customerFilter})` : "";
-  if (COL_T3_QTY)     headerRow[COL_T3_QTY     - 1] = { v: `T3 Qty${custTag}`, t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_T3_PRICE)   headerRow[COL_T3_PRICE   - 1] = { v: `T3 Sls Price`,     t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_T3_TTL_SLS) headerRow[COL_T3_TTL_SLS - 1] = { v: `T3 Ttl Sls`,       t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_T3_MRGN)    headerRow[COL_T3_MRGN    - 1] = { v: `T3 Mrgn %`,        t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_LY_QTY)     headerRow[COL_LY_QTY     - 1] = { v: `S/P LY${custTag}`, t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_LY_PRICE)   headerRow[COL_LY_PRICE   - 1] = { v: `LY Sls Price`,     t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_LY_TTL_SLS) headerRow[COL_LY_TTL_SLS - 1] = { v: `LY Ttl Sls`,       t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_LY_MRGN)    headerRow[COL_LY_MRGN    - 1] = { v: `LY Mrgn %`,        t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  const w = salesAggregates?.windows;
+  const t3LabelBase = opts.customSalesRangeEnabled && w
+    ? `Sales ${w.t3Start}..${w.t3End}`
+    : "T3";
+  const lyLabelBase = opts.customSalesRangeEnabled && w
+    ? `S/P LY ${w.lyStart}..${w.lyEnd}`
+    : "S/P LY";
+  if (COL_T3_QTY)     headerRow[COL_T3_QTY     - 1] = { v: `${t3LabelBase} Qty${custTag}`, t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_T3_PRICE)   headerRow[COL_T3_PRICE   - 1] = { v: `${t3LabelBase} Sls Price`,     t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_T3_TTL_SLS) headerRow[COL_T3_TTL_SLS - 1] = { v: `${t3LabelBase} Ttl Sls`,       t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_T3_MRGN)    headerRow[COL_T3_MRGN    - 1] = { v: `${t3LabelBase} Mrgn %`,        t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_LY_QTY)     headerRow[COL_LY_QTY     - 1] = { v: `${lyLabelBase} Qty${custTag}`, t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_LY_PRICE)   headerRow[COL_LY_PRICE   - 1] = { v: `${lyLabelBase} Sls Price`,     t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_LY_TTL_SLS) headerRow[COL_LY_TTL_SLS - 1] = { v: `${lyLabelBase} Ttl Sls`,       t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  if (COL_LY_MRGN)    headerRow[COL_LY_MRGN    - 1] = { v: `${lyLabelBase} Mrgn %`,        t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
   if (COL_T3_LY_DIFF_QTY) headerRow[COL_T3_LY_DIFF_QTY - 1] = { v: `T3 vs LY Qty`, t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
   if (COL_T3_LY_DIFF)     headerRow[COL_T3_LY_DIFF     - 1] = { v: `T3 vs LY $`,   t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
 

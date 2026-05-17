@@ -8,6 +8,16 @@
 import React, { useMemo, useState } from "react";
 import type { ExcelData } from "../types";
 
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function isoMinusMonths(iso: string, months: number): string {
+  const d = new Date(iso + "T00:00:00");
+  d.setMonth(d.getMonth() - months);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export interface ExportOptions {
   // Per-style subtotal rows. Existing behavior: always emitted when the
   // export spans more than one style and at least one style has 2+
@@ -59,6 +69,19 @@ export interface ExportOptions {
   // checkbox in the UI — keeping that toggle on alongside this would
   // be a contradiction.
   hideATSData: boolean;
+  // Drop rows with zero T3 AND zero LY history. Only honored when
+  // hideATSData is on (the planner asked for the two to be coupled —
+  // outside that mode there's still useful info on a zero-history row
+  // via the ATS chain).
+  hideEmptyHistoryRows: boolean;
+  // Custom date range for the T3 block. When enabled, T3 aggregates
+  // are computed over [customSalesRangeStart, customSalesRangeEnd]
+  // instead of "last 3 months from today", and SP LY is the same
+  // window shifted back 12 months. Headers reflect the actual window
+  // used so the spreadsheet documents the slice.
+  customSalesRangeEnabled: boolean;
+  customSalesRangeStart: string; // YYYY-MM-DD, empty when disabled
+  customSalesRangeEnd: string;   // YYYY-MM-DD, empty when disabled
 }
 
 interface Props {
@@ -87,6 +110,12 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
   const [customerFacing, setCustomerFacing]   = useState(false);
   const [hideZeroColumns, setHideZeroColumns] = useState(false);
   const [hideATSData, setHideATSData]         = useState(false);
+  // Sub-panel state revealed when Hide ATS data is on. Pre-seeded with
+  // "last 3 months from today" so the date inputs render a meaningful
+  // default even before the operator interacts with them.
+  const [customRangeEnabled, setCustomRangeEnabled] = useState(false);
+  const [customStart, setCustomStart] = useState(() => isoMinusMonths(todayIso(), 3));
+  const [customEnd,   setCustomEnd]   = useState(() => todayIso());
 
   const [custDropOpen, setCustDropOpen] = useState(false);
   const [custSearch, setCustSearch]     = useState("");
@@ -132,6 +161,15 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
     customerFacing,
     hideZeroColumns,
     hideATSData,
+    // Empty-history row drop is implicit when hideATSData is on — the
+    // planner asked for the two to move together.
+    hideEmptyHistoryRows: hideATSData,
+    // Range is only meaningful when both Hide ATS data AND the custom-
+    // range toggle are on. Persist empty strings otherwise so the
+    // export's defaulting paths read the flag correctly.
+    customSalesRangeEnabled: hideATSData && customRangeEnabled,
+    customSalesRangeStart:   hideATSData && customRangeEnabled ? customStart : "",
+    customSalesRangeEnd:     hideATSData && customRangeEnabled ? customEnd   : "",
   });
 
   const handleConfirm = () => {
@@ -158,6 +196,9 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
     setCustomerFacing(false);
     setHideZeroColumns(false);
     setHideATSData(false);
+    setCustomRangeEnabled(false);
+    setCustomStart(isoMinusMonths(todayIso(), 3));
+    setCustomEnd(todayIso());
     setCustDropOpen(false);
     setCustSearch("");
   };
@@ -218,18 +259,19 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
           </div>
 
           {/*
-            One checkbox drives both Trailing-3 and SP-LY together —
-            they're rarely meaningful in isolation (the YoY comparison
-            is the point) and the operator wanted a single toggle.
-            The underlying ExportOptions still carries two booleans
-            so the export's column emission can stay column-by-column;
-            we just flip them as a pair.
+            Bundled trailing/SPLY toggle for normal export mode. When
+            Hide ATS data is on, we hide this row and reveal the sub-
+            panel below (which exposes the same two booleans
+            independently + custom date range), so the operator
+            doesn't see two ways to control the same thing.
           */}
-          <CheckRow
-            label="Trailing 3 & SP LY sales (Qty / Sls Price / Mrgn % for both windows)"
-            checked={trailing3 && spLY}
-            onChange={(v) => { setTrailing3(v); setSpLY(v); }}
-          />
+          {!hideATSData && (
+            <CheckRow
+              label="Trailing 3 & SP LY sales (Qty / Sls Price / Mrgn % for both windows)"
+              checked={trailing3 && spLY}
+              onChange={(v) => { setTrailing3(v); setSpLY(v); }}
+            />
+          )}
 
           <CheckRow
             label="Customer Facing (hide all cost + margin data — Avg Cost, Total Cost, Sls Prc @ Mrgn, T3/LY Mrgn %)"
@@ -243,11 +285,67 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
             onChange={setHideZeroColumns}
           />
 
-          <CheckRow
-            label="Hide ATS data (drop date columns, Total, Avg Cost, Total Cost, Sls Prc @ Mrgn)"
-            checked={hideATSData}
-            onChange={setHideATSData}
-          />
+          <div>
+            <CheckRow
+              label="Hide ATS data (drop date columns, Total, Avg Cost, Total Cost, Sls Prc @ Mrgn)"
+              checked={hideATSData}
+              onChange={setHideATSData}
+            />
+            {hideATSData && (
+              <div style={{ marginTop: 8, marginLeft: 28, padding: "10px 12px", background: "#0F172A", border: "1px solid #334155", borderRadius: 8, display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ fontSize: 11, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>Sales history</div>
+                {/* Independent T3 + SP LY toggles — bundled version is
+                    hidden upstream so this is the only control in
+                    hideATSData mode. */}
+                <CheckRow label="T3 (trailing 3 months)" checked={trailing3} onChange={setTrailing3} />
+                <CheckRow label="SP LY (same period last year)" checked={spLY} onChange={setSpLY} />
+                {/* Custom range. When enabled, T3 window = [start, end];
+                    SP LY window = [start − 12mo, end − 12mo]. Column
+                    headers in the workbook update to reflect both. */}
+                <CheckRow
+                  label="Custom date range"
+                  checked={customRangeEnabled}
+                  onChange={setCustomRangeEnabled}
+                  disabled={!trailing3 && !spLY}
+                  disabledTitle="Enable T3 or SP LY first — the custom range only applies to the sales-history columns"
+                />
+                {customRangeEnabled && (trailing3 || spLY) && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginLeft: 28, fontSize: 12, color: "#94A3B8" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ width: 36 }}>From</span>
+                      <input
+                        type="date"
+                        value={customStart}
+                        max={customEnd || undefined}
+                        onChange={e => setCustomStart(e.target.value)}
+                        style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, padding: "5px 8px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit" }}
+                      />
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ width: 36 }}>To</span>
+                      <input
+                        type="date"
+                        value={customEnd}
+                        min={customStart || undefined}
+                        max={todayIso()}
+                        onChange={e => setCustomEnd(e.target.value)}
+                        style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, padding: "5px 8px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit" }}
+                      />
+                    </div>
+                    <div style={{ fontSize: 11, color: "#64748B" }}>
+                      SP LY uses the same window shifted back 12 months
+                      {customStart && customEnd ? (
+                        <> ({isoMinusMonths(customStart, 12)} → {isoMinusMonths(customEnd, 12)})</>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+                <div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>
+                  Rows with no sales in either window are dropped from the export.
+                </div>
+              </div>
+            )}
+          </div>
 
           <div>
             <CheckRow label="By Customer (narrow trailing / SPLY to one customer)" checked={customerEnabled} onChange={setCustomerEnabled} />

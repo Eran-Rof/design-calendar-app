@@ -31,6 +31,9 @@ export interface SalesAggregate {
 export type SalesAggMap = Map<string, SalesAggregate>;
 
 export interface SalesFetchResult {
+  // Actual windows used (default or custom). Caller uses these to
+  // render column headers + skip rows with no history in either.
+  windows: SalesFetchWindows;
   t3: SalesAggMap;
   ly: SalesAggMap;
   // Per-sku_id aggregate for sales rows whose sku_id didn't map to
@@ -212,6 +215,21 @@ export interface FetchSalesArgs {
   needT3: boolean;
   needLY: boolean;
   customer: string;
+  // Optional custom window for the T3 block. When provided, T3
+  // aggregates use [customStart, customEnd] instead of the default
+  // "last 3 months from today", and SP LY uses the same window shifted
+  // back 12 months. Caller is responsible for validating start <= end;
+  // we treat dates outside the cached 15-month preload as a cache miss
+  // and fall through to directFetch.
+  customStart?: string; // YYYY-MM-DD
+  customEnd?: string;   // YYYY-MM-DD
+}
+
+export interface SalesFetchWindows {
+  t3Start: string;
+  t3End:   string;
+  lyStart: string;
+  lyEnd:   string;
 }
 
 // Kick off (or return the in-flight Promise for) the 15-month sales-
@@ -283,11 +301,22 @@ function cacheCovers(start: string, end: string): boolean {
   return start >= salesCacheStart && end <= salesCacheEnd;
 }
 
-export async function fetchSalesAggregates({ rows, needT3, needLY, customer }: FetchSalesArgs): Promise<SalesFetchResult> {
-  if (!needT3 && !needLY) return { t3: new Map(), ly: new Map(), extraBySkuId: new Map() };
+export async function fetchSalesAggregates({ rows, needT3, needLY, customer, customStart, customEnd }: FetchSalesArgs): Promise<SalesFetchResult> {
+  // Window resolution. Default: T3 = trailing 3 months from today;
+  // LY = same window shifted back 12 months (== [today-15m, today-12m]).
+  // Custom: T3 = [customStart, customEnd]; LY = the same range -12mo.
+  const today = todayIso();
+  const useCustom = !!(customStart && customEnd);
+  const t3Start = useCustom ? customStart! : isoMinusMonths(today, 3);
+  const t3End   = useCustom ? customEnd!   : today;
+  const lyStart = isoMinusMonths(t3Start, 12);
+  const lyEnd   = isoMinusMonths(t3End,   12);
+  const windows: SalesFetchWindows = { t3Start, t3End, lyStart, lyEnd };
+
+  if (!needT3 && !needLY) return { windows, t3: new Map(), ly: new Map(), extraBySkuId: new Map() };
   if (!SB_URL) {
     console.warn("[ATS export] Supabase not configured — T3/LY columns will be empty.");
-    return { t3: new Map(), ly: new Map(), extraBySkuId: new Map() };
+    return { windows, t3: new Map(), ly: new Map(), extraBySkuId: new Map() };
   }
 
   // The fetch + resolve work happens after the operator clicks Export,
@@ -300,15 +329,12 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer }: F
     }
   }
 
-  const today = todayIso();
-  const t3Start = isoMinusMonths(today, 3);
-  const lyEnd   = isoMinusMonths(today, 12);
-  const lyStart = isoMinusMonths(today, 15);
-
+  // Pick the outer fetch window. We pull the union of both per-block
+  // windows from the DB / cache, then bucket per-row in the loop below.
   let fetchStart: string;
   let fetchEnd: string;
-  if (needT3 && needLY) { fetchStart = lyStart; fetchEnd = today; }
-  else if (needT3)      { fetchStart = t3Start; fetchEnd = today; }
+  if (needT3 && needLY) { fetchStart = lyStart < t3Start ? lyStart : t3Start; fetchEnd = t3End > lyEnd ? t3End : lyEnd; }
+  else if (needT3)      { fetchStart = t3Start; fetchEnd = t3End; }
   else                  { fetchStart = lyStart; fetchEnd = lyEnd; }
 
   // Resolve customer name → all matching ip_customer_master.ids (one
@@ -320,7 +346,7 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer }: F
     const ids = await resolveCustomerIds(customer);
     if (ids.length === 0) {
       console.warn(`[ATS export] customer "${customer}" not in ip_customer_master — T3/LY will be empty.`);
-      return { t3: new Map(), ly: new Map(), extraBySkuId: new Map() };
+      return { windows, t3: new Map(), ly: new Map(), extraBySkuId: new Map() };
     }
     customerIdSet = new Set(ids);
     console.info(`[ATS export] customer "${customer}" matched ${ids.length} ip_customer_master row${ids.length === 1 ? "" : "s"}: ${ids.join(", ")}`);
@@ -330,7 +356,7 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer }: F
   console.info(`[ATS export] master-id mapping: ${matched} matched, ${unmatched} unmatched, ${idToSku.size} variant ids`);
   if (idToSku.size === 0) {
     console.warn("[ATS export] no ATS rows resolved to ip_item_master — T3/LY will be empty. Master cache loaded:", isItemMasterLoaded());
-    return { t3: new Map(), ly: new Map(), extraBySkuId: new Map() };
+    return { windows, t3: new Map(), ly: new Map(), extraBySkuId: new Map() };
   }
 
   // Cache-first path: when the preloaded 15-month window covers the
@@ -376,7 +402,7 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer }: F
   const shouldCollectExtras = !!customerIdSet;
 
   for (const r of salesRows) {
-    const inT3 = needT3 && r.txn_date >= t3Start && r.txn_date <= today;
+    const inT3 = needT3 && r.txn_date >= t3Start && r.txn_date <= t3End;
     const inLY = needLY && r.txn_date >= lyStart && r.txn_date <= lyEnd;
     if (!inT3 && !inLY) continue;
 
@@ -409,8 +435,8 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer }: F
     }
   }
 
-  console.info(`[ATS export] aggregated → t3:${t3.size} SKUs, ly:${ly.size} SKUs, extras:${extraBySkuId.size} (customer=${customer || "all"})`);
-  return { t3, ly, extraBySkuId };
+  console.info(`[ATS export] aggregated → t3:${t3.size} SKUs, ly:${ly.size} SKUs, extras:${extraBySkuId.size} (customer=${customer || "all"}, windows t3=${t3Start}..${t3End} ly=${lyStart}..${lyEnd})`);
+  return { windows, t3, ly, extraBySkuId };
 }
 
 // Resolve sales aggregates for one ATS-row SKU, narrowed by customer
