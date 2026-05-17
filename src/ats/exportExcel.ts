@@ -536,6 +536,35 @@ export function buildExportPayload(
     };
   }
 
+  // Margin-diff cell factory. Plain percentage-point subtraction per
+  // planner: TY mrgn% − LY mrgn% (e.g. 22% − 19% = 3% green). Distinct
+  // from t3VsLyCell's growth-share formula because margins are already
+  // percentages — subtracting them gives a meaningful "change in
+  // margin points" while dividing would inflate to a weird ratio.
+  // Same green/red coloring + 0.0% number format as t3VsLyCell.
+  //
+  // Inputs are FRACTIONS (0.22 for 22%) — the Excel "0.0%" format
+  // multiplies by 100 for display. Edge cases collapse naturally:
+  //   • Both 0 (no margin data either side) → blank
+  //   • T3 > 0, LY = 0   → positive (full T3 margin shows as the gain)
+  //   • T3 = 0, LY > 0   → negative (loss of the prior margin)
+  function marginDiffCell(t3Mrgn: number, lyMrgn: number, baseStyle: any): any {
+    if (t3Mrgn === 0 && lyMrgn === 0) {
+      return { v: "", t: "s", s: { ...baseStyle, numFmt: "0.0%" } };
+    }
+    const diff = t3Mrgn - lyMrgn;
+    const color = diff >= 0 ? GREEN_TEXT : RED_TEXT;
+    return {
+      v: diff,
+      t: "n",
+      s: {
+        ...baseStyle,
+        font: { ...(baseStyle.font ?? {}), bold: true, color: { rgb: color } },
+        numFmt: "0.0%",
+      },
+    };
+  }
+
   // Detect whether the export spans more than one style. When yes,
   // we'll emit a subtotal row at the end of each style group; when
   // no (single style), the bottom Total row alone is enough.
@@ -690,7 +719,9 @@ export function buildExportPayload(
       }
       if (COL_T3_LY_DIFF_QTY)  r2[COL_T3_LY_DIFF_QTY  - 1] = t3VsLyCell(t3SumQ, lySumQ, subNumStyle);
       if (COL_T3_LY_DIFF)      r2[COL_T3_LY_DIFF      - 1] = t3VsLyCell(t3SumP, lySumP, subNumStyle);
-      if (COL_T3_LY_DIFF_MRGN) r2[COL_T3_LY_DIFF_MRGN - 1] = t3VsLyCell(subT3MrgnPct, subLYMrgnPct, subNumStyle);
+      // Subtotal margin diff: plain TY mrgn% − LY mrgn%. Inputs are
+      // percent-scale; convert to fractions for the 0.0% Excel format.
+      if (COL_T3_LY_DIFF_MRGN) r2[COL_T3_LY_DIFF_MRGN - 1] = marginDiffCell(subT3MrgnPct / 100, subLYMrgnPct / 100, subNumStyle);
     }
 
     return r2;
@@ -908,7 +939,11 @@ export function buildExportPayload(
       const ly = lyOf(r.sku);
       if (COL_T3_LY_DIFF_QTY)  qtyRow[COL_T3_LY_DIFF_QTY  - 1] = t3VsLyCell(t3.qty, ly.qty, bodyNumStyle(fill));
       if (COL_T3_LY_DIFF)      qtyRow[COL_T3_LY_DIFF      - 1] = t3VsLyCell(t3.totalPrice, ly.totalPrice, bodyNumStyle(fill));
-      if (COL_T3_LY_DIFF_MRGN) qtyRow[COL_T3_LY_DIFF_MRGN - 1] = t3VsLyCell(t3MrgnPct, lyMrgnPct, bodyNumStyle(fill));
+      // Margin diff: plain percentage-point subtraction (TY mrgn% − LY mrgn%).
+      // Inputs here are percent-scale (e.g. 22 for 22%); convert to
+      // fractions before passing so the "0.0%" Excel format renders
+      // correctly (Excel multiplies by 100 for display).
+      if (COL_T3_LY_DIFF_MRGN) qtyRow[COL_T3_LY_DIFF_MRGN - 1] = marginDiffCell(t3MrgnPct / 100, lyMrgnPct / 100, bodyNumStyle(fill));
     }
 
     dataRows.push(qtyRow);
@@ -1140,10 +1175,10 @@ export function buildExportPayload(
       cells[COL_T3_LY_DIFF - 1] = t3VsLyCell(agg.t3Tot, agg.lyTot, totalNumStyle);
     }
     if (COL_T3_LY_DIFF_MRGN) {
-      // agg.t3Mrgn / agg.lyMrgn are fractions (0.21 for 21%). t3VsLyCell's
-      // (a − b) / a formula is scale-invariant — fraction vs percent
-      // produces the same diff. Pass fractions directly.
-      cells[COL_T3_LY_DIFF_MRGN - 1] = t3VsLyCell(agg.t3Mrgn, agg.lyMrgn, totalNumStyle);
+      // Total margin diff: plain TY mrgn% − LY mrgn%. agg.t3Mrgn /
+      // agg.lyMrgn are already fractions (0.21 for 21%) — no scaling
+      // needed for the 0.0% format.
+      cells[COL_T3_LY_DIFF_MRGN - 1] = marginDiffCell(agg.t3Mrgn, agg.lyMrgn, totalNumStyle);
     }
   }
 
@@ -1288,8 +1323,12 @@ export function buildExportPayload(
   //                                  text doesn't collide with the
   //                                  customer name.
   const dateRangeWindows = salesAggregates?.windows;
+  // Just the TY / current-period window once — the LY window is the
+  // same range shifted back 12 months and the operator already
+  // understands that convention; repeating it on the banner was
+  // visual noise.
   const dateRangeText = (opts.customSalesRangeEnabled && dateRangeWindows)
-    ? `Sales ${fmtHeaderDate(dateRangeWindows.t3Start)} .. ${fmtHeaderDate(dateRangeWindows.t3End)}    S/P LY ${fmtHeaderDate(dateRangeWindows.lyStart)} .. ${fmtHeaderDate(dateRangeWindows.lyEnd)}`
+    ? `Sales ${fmtHeaderDate(dateRangeWindows.t3Start)} .. ${fmtHeaderDate(dateRangeWindows.t3End)}`
     : "";
   let titleRow: any[] | null = null;
   if (customerFilter || dateRangeText) {
