@@ -286,12 +286,24 @@ export function buildExportPayload(
   const BORDER_TOTAL: any  = { top: THICK, bottom: THICK, left: THICK, right: THICK };
 
   // ── Style factories ────────────────────────────────────────────────────
-  const headerStyle = (fill: string, align: "left" | "center"): any => ({
+  const headerStyle = (fill: string, align: "left" | "center", wrap: boolean = false): any => ({
     font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
     fill:      { fgColor: { rgb: fill }, patternType: "solid" },
-    alignment: { horizontal: align, vertical: "center", wrapText: false },
+    alignment: { horizontal: align, vertical: "center", wrapText: wrap },
     border:    BORDER_HEADER,
   });
+  // Tracks whether ANY header cell was built with wrap enabled —
+  // used downstream to decide the header row height.
+  let headerHasWrap = false;
+  // Build a header cell, automatically flipping wrap on for any text
+  // value longer than 10 chars. Sets wrapText at construction time
+  // (not via post-walk mutation) so xlsx-js-style's aoa_to_sheet
+  // serializer reliably picks it up.
+  const headerCell = (value: string, fill: string, align: "left" | "center") => {
+    const wrap = value.length > 10;
+    if (wrap) headerHasWrap = true;
+    return { v: value, t: "s" as const, s: headerStyle(fill, align, wrap) };
+  };
   // For non-merged rows, alignment is left/center. For prepack pairs,
   // text + qty cols are merged across the pair so the value sits in
   // the vertical CENTER of the merged region (matches the planner's
@@ -353,35 +365,35 @@ export function buildExportPayload(
   });
 
   // ── Header row ─────────────────────────────────────────────────────────
+  // All header cells go through headerCell() so wrapText is applied at
+  // construction for any text > 10 chars. (Earlier post-walk mutation
+  // wasn't always picked up by xlsx-js-style's aoa_to_sheet
+  // serializer.)
   const headerRow: any[] = new Array(totalColumnCount);
-  headerRow[COL.category    - 1] = { v: "Category",    t: "s", s: headerStyle(HDR_TEXT_FILL, "left") };
-  headerRow[COL.subCat      - 1] = { v: "Sub Cat",     t: "s", s: headerStyle(HDR_TEXT_FILL, "left") };
-  headerRow[COL.style       - 1] = { v: "Style",       t: "s", s: headerStyle(HDR_TEXT_FILL, "left") };
-  headerRow[COL.description - 1] = { v: "Description", t: "s", s: headerStyle(HDR_TEXT_FILL, "left") };
-  headerRow[COL.color       - 1] = { v: "Color",       t: "s", s: headerStyle(HDR_TEXT_FILL, "left") };
-  headerRow[COL.spacerF - 1] = { v: "", t: "s", s: headerStyle(HDR_TEXT_FILL, "center") };
-  headerRow[COL.spacerH - 1] = { v: "", t: "s", s: headerStyle(HDR_TEXT_FILL, "center") };
-  headerRow[COL.spacerJ - 1] = { v: "", t: "s", s: headerStyle(HDR_TEXT_FILL, "center") };
-  headerRow[COL.spacerL - 1] = { v: "", t: "s", s: headerStyle(HDR_TEXT_FILL, "center") };
-  headerRow[COL.onHand  - 1] = { v: "On Hand",  t: "s", s: headerStyle(HDR_ONHAND_FILL, "center") };
-  headerRow[COL.onOrder - 1] = { v: "On Order", t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  headerRow[COL.onPO    - 1] = { v: "On PO",    t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  headerRow[COL.category    - 1] = headerCell("Category",    HDR_TEXT_FILL, "left");
+  headerRow[COL.subCat      - 1] = headerCell("Sub Cat",     HDR_TEXT_FILL, "left");
+  headerRow[COL.style       - 1] = headerCell("Style",       HDR_TEXT_FILL, "left");
+  headerRow[COL.description - 1] = headerCell("Description", HDR_TEXT_FILL, "left");
+  headerRow[COL.color       - 1] = headerCell("Color",       HDR_TEXT_FILL, "left");
+  headerRow[COL.spacerF - 1] = headerCell("", HDR_TEXT_FILL, "center");
+  headerRow[COL.spacerH - 1] = headerCell("", HDR_TEXT_FILL, "center");
+  headerRow[COL.spacerJ - 1] = headerCell("", HDR_TEXT_FILL, "center");
+  headerRow[COL.spacerL - 1] = headerCell("", HDR_TEXT_FILL, "center");
+  headerRow[COL.onHand  - 1] = headerCell("On Hand",  HDR_ONHAND_FILL, "center");
+  headerRow[COL.onOrder - 1] = headerCell("On Order", HDR_DARK_FILL, "center");
+  headerRow[COL.onPO    - 1] = headerCell("On PO",    HDR_DARK_FILL, "center");
   for (let i = 0; i < numPeriods; i++) {
     const ci = COL.firstPeriod + i;
-    headerRow[ci - 1] = {
-      v: periods[i].label.replace(/\n/g, " "),
-      t: "s",
-      s: headerStyle(HDR_DARK_FILL, "center"),
-    };
+    headerRow[ci - 1] = headerCell(periods[i].label.replace(/\n/g, " "), HDR_DARK_FILL, "center");
   }
-  headerRow[COL.total - 1] = { v: "Total", t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+  headerRow[COL.total - 1] = headerCell("Total", HDR_DARK_FILL, "center");
 
-  // Optional extra-column headers. Slls Prc col header carries the
+  // Optional extra-column headers. Sls Prc col header carries the
   // user-chosen margin pct so the spreadsheet documents the
   // calculation (e.g. "Sls Prc @ 21%").
-  if (COL_AVG_COST) headerRow[COL_AVG_COST - 1] = { v: "Avg Cost",   t: "s", s: headerStyle(HDR_ONHAND_FILL, "center") };
-  if (COL_TOT_COST) headerRow[COL_TOT_COST - 1] = { v: "Total Cost", t: "s", s: headerStyle(HDR_ONHAND_FILL, "center") };
-  if (COL_SLS_PRC)  headerRow[COL_SLS_PRC  - 1] = { v: `Sls Prc @ ${opts.slsMarginPct}%`, t: "s", s: headerStyle(HDR_ONHAND_FILL, "center") };
+  if (COL_AVG_COST) headerRow[COL_AVG_COST - 1] = headerCell("Avg Cost",   HDR_ONHAND_FILL, "center");
+  if (COL_TOT_COST) headerRow[COL_TOT_COST - 1] = headerCell("Total Cost", HDR_ONHAND_FILL, "center");
+  if (COL_SLS_PRC)  headerRow[COL_SLS_PRC  - 1] = headerCell(`Sls Prc @ ${opts.slsMarginPct}%`, HDR_ONHAND_FILL, "center");
   // T3/LY column labels reflect the customer narrowing AND, when the
   // operator picked a custom date range via Hide ATS data, the actual
   // window the aggregates were computed over. Format examples:
@@ -409,32 +421,16 @@ export function buildExportPayload(
   const lyLabelBase = opts.customSalesRangeEnabled && w
     ? `S/P LY ${fmtHeaderDate(w.lyStart)}..${fmtHeaderDate(w.lyEnd)}`
     : "S/P LY";
-  if (COL_T3_QTY)     headerRow[COL_T3_QTY     - 1] = { v: `${t3LabelBase} Qty${custTag}`, t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_T3_PRICE)   headerRow[COL_T3_PRICE   - 1] = { v: `${t3LabelBase} Sls Price`,     t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_T3_TTL_SLS) headerRow[COL_T3_TTL_SLS - 1] = { v: `${t3LabelBase} Ttl Sls`,       t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_T3_MRGN)    headerRow[COL_T3_MRGN    - 1] = { v: `${t3LabelBase} Mrgn %`,        t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_LY_QTY)     headerRow[COL_LY_QTY     - 1] = { v: `${lyLabelBase} Qty${custTag}`, t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_LY_PRICE)   headerRow[COL_LY_PRICE   - 1] = { v: `${lyLabelBase} Sls Price`,     t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_LY_TTL_SLS) headerRow[COL_LY_TTL_SLS - 1] = { v: `${lyLabelBase} Ttl Sls`,       t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_LY_MRGN)    headerRow[COL_LY_MRGN    - 1] = { v: `${lyLabelBase} Mrgn %`,        t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_T3_LY_DIFF_QTY) headerRow[COL_T3_LY_DIFF_QTY - 1] = { v: `T3 vs LY Qty`, t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-  if (COL_T3_LY_DIFF)     headerRow[COL_T3_LY_DIFF     - 1] = { v: `T3 vs LY $`,   t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
-
-  // Header wrap pass — any header text longer than 10 chars gets
-  // wrapText so it breaks across lines instead of overflowing into a
-  // wider column or getting visually clipped. Touches alignment in
-  // place rather than rebuilding the style so border / fill / font
-  // stay intact. The row-height pass below bumps the header row to
-  // accommodate the wrap when at least one cell needed it.
-  let headerHasWrap = false;
-  for (const cell of headerRow) {
-    if (!cell || typeof cell.v !== "string" || cell.v.length <= 10) continue;
-    headerHasWrap = true;
-    cell.s = {
-      ...cell.s,
-      alignment: { ...(cell.s?.alignment ?? {}), wrapText: true },
-    };
-  }
+  if (COL_T3_QTY)     headerRow[COL_T3_QTY     - 1] = headerCell(`${t3LabelBase} Qty${custTag}`, HDR_DARK_FILL, "center");
+  if (COL_T3_PRICE)   headerRow[COL_T3_PRICE   - 1] = headerCell(`${t3LabelBase} Sls Price`,     HDR_DARK_FILL, "center");
+  if (COL_T3_TTL_SLS) headerRow[COL_T3_TTL_SLS - 1] = headerCell(`${t3LabelBase} Ttl Sls`,       HDR_DARK_FILL, "center");
+  if (COL_T3_MRGN)    headerRow[COL_T3_MRGN    - 1] = headerCell(`${t3LabelBase} Mrgn %`,        HDR_DARK_FILL, "center");
+  if (COL_LY_QTY)     headerRow[COL_LY_QTY     - 1] = headerCell(`${lyLabelBase} Qty${custTag}`, HDR_DARK_FILL, "center");
+  if (COL_LY_PRICE)   headerRow[COL_LY_PRICE   - 1] = headerCell(`${lyLabelBase} Sls Price`,     HDR_DARK_FILL, "center");
+  if (COL_LY_TTL_SLS) headerRow[COL_LY_TTL_SLS - 1] = headerCell(`${lyLabelBase} Ttl Sls`,       HDR_DARK_FILL, "center");
+  if (COL_LY_MRGN)    headerRow[COL_LY_MRGN    - 1] = headerCell(`${lyLabelBase} Mrgn %`,        HDR_DARK_FILL, "center");
+  if (COL_T3_LY_DIFF_QTY) headerRow[COL_T3_LY_DIFF_QTY - 1] = headerCell(`T3 vs LY Qty`, HDR_DARK_FILL, "center");
+  if (COL_T3_LY_DIFF)     headerRow[COL_T3_LY_DIFF     - 1] = headerCell(`T3 vs LY $`,   HDR_DARK_FILL, "center");
 
   // ── Trailing-3 / SP-LY aggregate lookups ──────────────────────────────
   // Pre-fetched maps keyed by ATS-row sku (variant grain). The fetcher
@@ -642,21 +638,23 @@ export function buildExportPayload(
       if (COL_LY_MRGN)    r2[COL_LY_MRGN    - 1] = subPct(mrgnPct / 100);
     }
 
-    // T3 vs LY at subtotal grain — qty and $ side by side. Like-for-
-    // like: only count rows where BOTH T3 and LY have data. NEW rows
-    // (T3 > 0, LY = 0) and GONE rows (T3 = 0, LY > 0) are excluded so
-    // they don't inflate / deflate the group's growth %. Per-row cells
-    // still show NEW / negative as appropriate; this filter only
-    // affects the aggregate. Qty-LfL and $-LfL are computed
-    // independently since a row can have a price > 0 with qty = 0
-    // (returns / adjustments) or vice versa.
+    // T3 vs LY at subtotal grain — plain growth math: sum every row's
+    // T3 and LY, then (sum_T3 − sum_LY) / sum_LY. Matches what the
+    // operator gets by hand-dividing the subtotal's T3 Ttl Sls and
+    // LY Ttl Sls cells directly above this row. NEW rows (T3 > 0,
+    // LY = 0) and GONE rows (T3 = 0, LY > 0) contribute to one side
+    // and not the other — that's correct: growth on a NEW SKU has no
+    // baseline so its T3 sales legitimately inflate the numerator
+    // against the unchanged denominator.
     if (COL_T3_LY_DIFF_QTY || COL_T3_LY_DIFF) {
       let t3SumQ = 0, lySumQ = 0, t3SumP = 0, lySumP = 0;
       for (const x of group) {
         const t = t3Of(x.sku);
         const l = lyOf(x.sku);
-        if (t.qty > 0 && l.qty > 0) { t3SumQ += t.qty; lySumQ += l.qty; }
-        if (t.totalPrice > 0 && l.totalPrice > 0) { t3SumP += t.totalPrice; lySumP += l.totalPrice; }
+        t3SumQ += t.qty;
+        lySumQ += l.qty;
+        t3SumP += t.totalPrice;
+        lySumP += l.totalPrice;
       }
       if (COL_T3_LY_DIFF_QTY) r2[COL_T3_LY_DIFF_QTY - 1] = t3VsLyCell(t3SumQ, lySumQ, subNumStyle);
       if (COL_T3_LY_DIFF)     r2[COL_T3_LY_DIFF     - 1] = t3VsLyCell(t3SumP, lySumP, subNumStyle);
@@ -1024,37 +1022,25 @@ export function buildExportPayload(
     // unit-grain — their product stays unit dollars regardless.
     // RawQty sums are kept separately (no qtyDiv) for the T3 vs LY
     // ratio cell, which is itself grain-invariant.
-    //
-    // Like-for-like aggregates (t3LflQty / lyLflQty / t3LflTot /
-    // lyLflTot) only count rows where BOTH T3 and LY have data — the
-    // T3 vs LY diff cells use these so NEW rows (T3>0, LY=0) and GONE
-    // rows (T3=0, LY>0) don't inflate the growth %. Per-row cells
-    // still display NEW / decline correctly; the LfL is only for the
-    // aggregate diff.
     let t3QtyDisp = 0, t3RawQty = 0, t3Tot = 0, t3CostBasis = 0;
     let lyQtyDisp = 0, lyRawQty = 0, lyTot = 0, lyCostBasis = 0;
-    let t3LflQty = 0, lyLflQty = 0, t3LflTot = 0, lyLflTot = 0;
     for (const r of rows) {
       const a = r.avgCost ?? 0;
       const mult = r.ppkMult ?? 1;
       const qtyDiv = explodePpk ? 1 : mult;
-      const t = opts.trailing3 ? t3Of(r.sku) : null;
-      const l = opts.spLY       ? lyOf(r.sku) : null;
-      if (t) {
+      if (opts.trailing3) {
+        const t = t3Of(r.sku);
         t3QtyDisp += t.qty / qtyDiv;
         t3RawQty += t.qty;
         t3Tot += t.totalPrice;
         t3CostBasis += a * t.qty;
       }
-      if (l) {
+      if (opts.spLY) {
+        const l = lyOf(r.sku);
         lyQtyDisp += l.qty / qtyDiv;
         lyRawQty += l.qty;
         lyTot += l.totalPrice;
         lyCostBasis += a * l.qty;
-      }
-      if (t && l) {
-        if (t.qty > 0 && l.qty > 0) { t3LflQty += t.qty; lyLflQty += l.qty; }
-        if (t.totalPrice > 0 && l.totalPrice > 0) { t3LflTot += t.totalPrice; lyLflTot += l.totalPrice; }
       }
     }
     const t3Price = t3QtyDisp > 0 ? t3Tot / t3QtyDisp : 0;
@@ -1062,7 +1048,7 @@ export function buildExportPayload(
     const t3Mrgn  = t3Tot > 0 && t3CostBasis > 0 ? (t3Tot - t3CostBasis) / t3Tot : 0;
     const lyMrgn  = lyTot > 0 && lyCostBasis > 0 ? (lyTot - lyCostBasis) / lyTot : 0;
 
-    return { avgCostW, totalCostW: costSum, slsPrcW, t3Qty: t3QtyDisp, t3RawQty, t3Price, t3Tot, t3Mrgn, lyQty: lyQtyDisp, lyRawQty, lyPrice, lyTot, lyMrgn, t3LflQty, lyLflQty, t3LflTot, lyLflTot };
+    return { avgCostW, totalCostW: costSum, slsPrcW, t3Qty: t3QtyDisp, t3RawQty, t3Price, t3Tot, t3Mrgn, lyQty: lyQtyDisp, lyRawQty, lyPrice, lyTot, lyMrgn };
   }
 
   // Overlay the optional-col aggregates onto a stack row in-place. Used
@@ -1097,16 +1083,17 @@ export function buildExportPayload(
     setCurr(COL_LY_PRICE,    agg.lyPrice);
     setCurr(COL_LY_TTL_SLS,  agg.lyTot);
     setPct (COL_LY_MRGN,     agg.lyMrgn);
-    // Like-for-like growth — only counts rows where BOTH T3 and LY
-    // had data. Excludes NEW rows (T3>0, LY=0) and GONE rows (T3=0,
-    // LY>0) so the bottom Total reflects true period-over-period
-    // growth without being inflated by acquisitions of new SKUs /
-    // customers or deflated by abandoned ones.
+    // Plain growth math at the bottom Total: (sum_T3 − sum_LY) /
+    // sum_LY. Same inputs as the visible T3 Ttl Sls / LY Ttl Sls
+    // cells above so hand-dividing those two values matches the
+    // diff cell exactly. If the visible total ratio surprises the
+    // operator, the issue is in the underlying T3 / LY totals — not
+    // the growth formula.
     if (COL_T3_LY_DIFF_QTY) {
-      cells[COL_T3_LY_DIFF_QTY - 1] = t3VsLyCell(agg.t3LflQty, agg.lyLflQty, totalNumStyle);
+      cells[COL_T3_LY_DIFF_QTY - 1] = t3VsLyCell(agg.t3RawQty, agg.lyRawQty, totalNumStyle);
     }
     if (COL_T3_LY_DIFF) {
-      cells[COL_T3_LY_DIFF - 1] = t3VsLyCell(agg.t3LflTot, agg.lyLflTot, totalNumStyle);
+      cells[COL_T3_LY_DIFF - 1] = t3VsLyCell(agg.t3Tot, agg.lyTot, totalNumStyle);
     }
   }
 
