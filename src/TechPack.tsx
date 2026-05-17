@@ -10,6 +10,13 @@ import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import { sb } from "./techpack/supabase";
 import { EMAIL_COLORS, FolderIcon } from "./techpack/emailStyles";
+import {
+  filterTechPacks,
+  computeDashboardStats,
+  flattenAllSamples,
+  uniqueBrands,
+  uniqueSeasons,
+} from "./techpack/listLogic";
 // Types + constants + factories live in src/techpack/. Phase 1 of the
 // TechPack architecture split — see project_plm_cleanup_backlog.md.
 import type {
@@ -414,28 +421,19 @@ export default function TechPackApp() {
   }
 
   // ── Filters ───────────────────────────────────────────────────────────────
-  const brands = [...new Set(techPacks.map(t => t.brand).filter(Boolean))].sort();
-  const seasons = [...new Set(techPacks.map(t => t.season).filter(Boolean))].sort();
-
-  const filtered = techPacks.filter(tp => {
-    if (filterStatus && tp.status !== filterStatus) return false;
-    if (filterBrand && tp.brand !== filterBrand) return false;
-    if (filterSeason && tp.season !== filterSeason) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      if (!tp.styleName.toLowerCase().includes(q) && !tp.styleNumber.toLowerCase().includes(q) && !tp.brand.toLowerCase().includes(q)) return false;
-    }
-    return true;
+  // List filter + dashboard stats + sample flatten moved to
+  // ./techpack/listLogic (tested).
+  const brands  = uniqueBrands(techPacks);
+  const seasons = uniqueSeasons(techPacks);
+  const filtered = filterTechPacks(techPacks, {
+    status: filterStatus, brand: filterBrand, season: filterSeason, search,
   });
-
-  // ── Dashboard stats ───────────────────────────────────────────────────────
-  const statTotal = techPacks.length;
-  const statDraft = techPacks.filter(t => t.status === "Draft").length;
-  const statReview = techPacks.filter(t => t.status === "In Review").length;
-  const statApproved = techPacks.filter(t => t.status === "Approved").length;
-
-  // All samples across all tech packs
-  const allSamples = techPacks.flatMap(tp => tp.samples.map(s => ({ ...s, styleNumber: tp.styleNumber, styleName: tp.styleName })));
+  const dashboardStats = computeDashboardStats(techPacks);
+  const statTotal    = dashboardStats.total;
+  const statDraft    = dashboardStats.draft;
+  const statReview   = dashboardStats.review;
+  const statApproved = dashboardStats.approved;
+  const allSamples = flattenAllSamples(techPacks);
 
   // ── Helpers for detail ────────────────────────────────────────────────────
   const updateSelected = (changes: Partial<TechPack>) => {
