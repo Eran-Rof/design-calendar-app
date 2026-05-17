@@ -87,6 +87,39 @@ async function sbGetAll<T>(pathWithoutLimit: string, pageSize = 1000): Promise<T
   return out;
 }
 
+// Add `days` to an ISO date (YYYY-MM-DD), returning a new ISO date.
+function isoPlusDays(iso: string, days: number): string {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// Compute N+1 evenly-spaced date boundaries between start and end
+// inclusive. boundaries[0] === start, boundaries[N] === end. Used to
+// split the sales-history window into N parallel slices.
+function sliceBoundaries(start: string, end: string, slices: number): string[] {
+  const startD = new Date(start + "T00:00:00").getTime();
+  const endD = new Date(end + "T00:00:00").getTime();
+  const out: string[] = [start];
+  for (let i = 1; i < slices; i++) {
+    const t = startD + Math.round((endD - startD) * (i / slices));
+    const d = new Date(t);
+    out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+  }
+  out.push(end);
+  return out;
+}
+
+// Fetch one date-range slice in parallel-friendly chunks. Internal
+// slices use gte/lt (half-open) so adjacent slices don't double-count
+// the boundary day; the caller's final slice covers through `end`
+// inclusive by passing endExclusive = end + 1 day.
+async function fetchSalesSlice(startInclusive: string, endExclusive: string, pageSize = 1000): Promise<SalesRow[]> {
+  const cols = "sku_id,customer_id,txn_date,qty,net_amount,unit_price";
+  const path = `ip_sales_history_wholesale?select=${cols}&txn_date=gte.${startInclusive}&txn_date=lt.${endExclusive}&order=txn_date.asc`;
+  return sbGetAll<SalesRow>(path, pageSize);
+}
+
 function toNum(v: unknown): number {
   if (v == null || v === "") return 0;
   const n = typeof v === "number" ? v : Number(v);
@@ -197,17 +230,39 @@ export function preloadSalesHistory(): Promise<SalesRow[]> {
 
   const today = todayIso();
   const start = isoMinusMonths(today, 15);
-  const path = `ip_sales_history_wholesale?select=sku_id,customer_id,txn_date,qty,net_amount,unit_price&txn_date=gte.${start}&txn_date=lte.${today}&order=txn_date.asc`;
+
+  // Parallel-fetch the 15-month window in 5 × ~3-month slices. The
+  // table now carries 60k+ rows and serial offset pagination was
+  // measuring 90s+ wall time on a cold load (60+ sequential round
+  // trips at 500/page). Splitting the date window into 5 concurrent
+  // half-open ranges drops it to ~12 round trips per slice in
+  // parallel = roughly 5× faster end-to-end, while keeping each
+  // slice's offset well under the 57014 statement-timeout threshold
+  // observed at offset 16k+ with page=1000.
+  const SLICES = 5;
+  const PAGE_SIZE = 1000; // safe within a 3-month slice (offsets stay small)
+  const boundaries = sliceBoundaries(start, today, SLICES);
 
   salesCachePromise = (async () => {
     const t0 = performance.now();
     try {
-      const rows = await sbGetAll<SalesRow>(path, 500);
+      const slicePromises: Promise<SalesRow[]>[] = [];
+      for (let i = 0; i < boundaries.length - 1; i++) {
+        const sliceStart = boundaries[i];
+        // For all slices we use half-open (gte/lt) so adjacent slices
+        // never double-count the boundary day. The final slice's
+        // exclusive end is day-after-today so today is included.
+        const isLast = i === boundaries.length - 2;
+        const sliceEnd = isLast ? isoPlusDays(boundaries[i + 1], 1) : boundaries[i + 1];
+        slicePromises.push(fetchSalesSlice(sliceStart, sliceEnd, PAGE_SIZE));
+      }
+      const sliceResults = await Promise.all(slicePromises);
+      const rows = sliceResults.flat();
       salesCacheRows  = rows;
       salesCacheStart = start;
       salesCacheEnd   = today;
       const ms = Math.round(performance.now() - t0);
-      console.info(`[sales preload] cached ${rows.length} rows for ${start}..${today} in ${ms}ms`);
+      console.info(`[sales preload] cached ${rows.length} rows for ${start}..${today} in ${ms}ms (${SLICES} parallel slices)`);
       return rows;
     } catch (e) {
       salesCachePromise = null;
