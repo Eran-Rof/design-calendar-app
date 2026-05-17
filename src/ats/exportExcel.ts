@@ -89,7 +89,18 @@ export function buildExportPayload(
     showCustomerMargin:  options?.showCustomerMargin  ?? true,
     customerFacing:      options?.customerFacing      ?? false,
     hideZeroColumns:     options?.hideZeroColumns     ?? false,
+    hideATSData:         options?.hideATSData         ?? false,
   };
+  // hideATSData drops the entire ATS-data block — including Avg Cost,
+  // Total Cost, and Sls Prc @ Mrgn. Force the optional-column toggles
+  // off here so allocation skips them entirely (mirrors how
+  // customerFacing strips cost-revealing columns above). Periods + the
+  // Total column are non-optional and get dropped later in the
+  // column-projection pass.
+  if (opts.hideATSData) {
+    opts.avgCost = false;
+    opts.slsPrcAtMrgn = false;
+  }
   // Customer-facing mode strips every column that exposes our cost
   // basis or margin. Applied here so all downstream column-existence
   // checks (header / body / subtotal / bottom-total) honor it.
@@ -1227,36 +1238,54 @@ export function buildExportPayload(
     });
   }
 
-  // ── Optional pass: drop columns whose body is entirely empty ──────────
-  // Always-keep columns: the text identity block + every spacer.
-  // Everything else stays only if at least one body row has a
-  // non-empty value (numbers we'd render as blanks under the
-  // zero-blanks policy are already stored as { v: "" }, so a true
-  // "all zero" column has no v's to find here).
+  // ── Optional pass: drop columns ──────────────────────────────────────
+  // Two independent triggers, composed into one projection:
+  //   • hideZeroColumns — drop any column whose body has no non-empty
+  //     cell (identity / spacer cols are exempt).
+  //   • hideATSData — drop the date columns + Total. Avg Cost / Total
+  //     Cost / Sls Prc @ Mrgn are already forced off at opts setup so
+  //     they aren't allocated; periods + Total are non-optional and
+  //     have to be removed here.
   let effectiveAllRows = allRows;
   let effectiveMerges  = merges;
   let columnIndexMap: Map<number, number> | null = null; // old 1-based → new 1-based
-  if (opts.hideZeroColumns) {
+  if (opts.hideZeroColumns || opts.hideATSData) {
     const alwaysKeep = new Set<number>([
       COL.category, COL.subCat, COL.style, COL.description, COL.color,
       COL.spacerF, COL.spacerH, COL.spacerJ, COL.spacerL,
     ]);
+    // Build forced-drop set up-front. hideATSData drops period range
+    // + Total; even if hideZeroColumns disagrees (e.g. a period column
+    // has data), the forced drop wins because the user explicitly
+    // asked for ATS data to be hidden.
+    const forcedDrop = new Set<number>();
+    if (opts.hideATSData) {
+      for (let c = COL.firstPeriod; c <= COL.lastPeriod; c++) forcedDrop.add(c);
+      forcedDrop.add(COL.total);
+    }
     const hasData = new Set<number>();
-    const scanFrom = tableTopRow + 1; // skip title (if any) + header
-    for (let r = scanFrom; r <= lastAoaRow; r++) {
-      const row = allRows[r];
-      if (!row) continue;
-      for (let c = 0; c < totalColumnCount; c++) {
-        const cell = row[c];
-        if (!cell) continue;
-        const v = cell.v;
-        if (v !== undefined && v !== null && v !== "") {
-          hasData.add(c + 1);
+    if (opts.hideZeroColumns) {
+      const scanFrom = tableTopRow + 1; // skip title (if any) + header
+      for (let r = scanFrom; r <= lastAoaRow; r++) {
+        const row = allRows[r];
+        if (!row) continue;
+        for (let c = 0; c < totalColumnCount; c++) {
+          const cell = row[c];
+          if (!cell) continue;
+          const v = cell.v;
+          if (v !== undefined && v !== null && v !== "") {
+            hasData.add(c + 1);
+          }
         }
       }
     }
     const keptList: number[] = [];
     for (let c = 1; c <= totalColumnCount; c++) {
+      if (forcedDrop.has(c)) continue;
+      // When only hideATSData is on (no hideZeroColumns), keep every
+      // non-forced-drop column — the user only asked to drop the ATS
+      // range, not zero-trim the rest.
+      if (!opts.hideZeroColumns) { keptList.push(c); continue; }
       if (alwaysKeep.has(c) || hasData.has(c)) keptList.push(c);
     }
     if (keptList.length < totalColumnCount) {
