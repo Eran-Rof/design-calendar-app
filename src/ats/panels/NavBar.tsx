@@ -638,7 +638,16 @@ export const NavBar: React.FC<NavBarProps> = ({
         sourceCounts[resolved.source]++;
         if (resolved.cost && resolved.cost > 0) {
           hydrated++;
-          return { ...r, avgCost: resolved.cost };
+          // ip_item_avg_cost stores PACK-grain cost for prepack styles
+          // (Xoro's Item Costing Report inherits its grain from how the
+          // master treats the item — packs are billed/costed as packs).
+          // The export expects r.avgCost to be per-UNIT and adjusts back
+          // up via costMul when explodePpk is off; mirror compute.ts's
+          // convention by dividing here. Non-prepack rows (ppkMult=1
+          // or absent) are a no-op.
+          const mult = typeof r.ppkMult === "number" && r.ppkMult > 1 ? r.ppkMult : 1;
+          const unitGrainCost = resolved.cost / mult;
+          return { ...r, avgCost: unitGrainCost };
         }
         return r;
       });
@@ -814,14 +823,16 @@ export const NavBar: React.FC<NavBarProps> = ({
           const synthetic: ATSRow[] = [];
           let perSourceCounts = { direct: 0, sibling: 0, po: 0, margin: 0, unknown: 0 };
           for (const g of groups.values()) {
-            // The resolver returns per-unit cost from ip_item_avg_cost
-            // (the Xoro-authoritative source) when available — that's
-            // already at unit grain, no ppkMult adjustment needed. The
-            // sibling / open-PO / margin fallback values are also
-            // per-unit by construction. The legacy ip_item_master.unit_cost
-            // path that needed mult-division for prepacks is intentionally
-            // dropped here.
-            const synthAvgCost = g.resolvedCost ?? 0;
+            // The Xoro Item Costing Report stores cost at PACK grain
+            // for prepack styles (RYB0412PPK avg cost is per-pack, not
+            // per-unit). The cascade returns that raw value, but the
+            // export's contract is "row.avgCost is always per-unit"
+            // (export multiplies back to pack-grain via costMul when
+            // explodePpk is off). Divide by ppkMult here so the row
+            // matches the contract. Non-prepack rows (g.ppkMult=1) are
+            // a no-op.
+            const rawResolvedCost = g.resolvedCost ?? 0;
+            const synthAvgCost = g.ppkMult > 1 ? rawResolvedCost / g.ppkMult : rawResolvedCost;
             const sourceKey = (g.costSource as keyof typeof perSourceCounts) || "unknown";
             perSourceCounts[sourceKey] = (perSourceCounts[sourceKey] ?? 0) + 1;
             synthetic.push({
