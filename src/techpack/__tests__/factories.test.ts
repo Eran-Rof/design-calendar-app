@@ -6,7 +6,8 @@
 // non-empty strings.
 
 import { describe, it, expect } from "vitest";
-import { emptyCosting, emptyApprovals, emptyTechPack } from "../factories";
+import { emptyCosting, emptyApprovals, emptyTechPack, materialFromForm, EMPTY_MATERIAL_FORM } from "../factories";
+import type { Material } from "../types";
 import { uid, today, fmtDate, fmtCurrency } from "../utils";
 import { APPROVAL_STAGES } from "../constants";
 
@@ -145,5 +146,88 @@ describe("emptyTechPack", () => {
   it("unique id per call", () => {
     const ids = new Set(Array.from({ length: 10 }, () => emptyTechPack(user).id));
     expect(ids.size).toBe(10);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+
+const TODAY = () => "2026-05-17";
+
+describe("EMPTY_MATERIAL_FORM", () => {
+  it("defaults type to Fabric (matches form's select default)", () => {
+    expect(EMPTY_MATERIAL_FORM.type).toBe("Fabric");
+  });
+
+  it("zeros unitPrice + empties every text field", () => {
+    expect(EMPTY_MATERIAL_FORM.unitPrice).toBe(0);
+    expect(EMPTY_MATERIAL_FORM.name).toBe("");
+    expect(EMPTY_MATERIAL_FORM.certifications).toBe("");
+    expect(EMPTY_MATERIAL_FORM.notes).toBe("");
+  });
+});
+
+describe("materialFromForm", () => {
+  it("mints a new id + createdAt when not editing", () => {
+    const out = materialFromForm({ ...EMPTY_MATERIAL_FORM, name: "Cotton" }, null, TODAY);
+    expect(out.id).toBeTruthy();
+    expect(out.createdAt).toBe("2026-05-17");
+    expect(out.name).toBe("Cotton");
+  });
+
+  it("preserves id + createdAt when editing", () => {
+    const existing: Material = {
+      id: "old-id", name: "Old", type: "Trim", composition: "", weight: "",
+      width: "", color: "", supplier: "", unitPrice: 0, moq: "", leadTime: "",
+      certifications: [], notes: "", createdAt: "2025-01-01",
+    };
+    const out = materialFromForm({ ...EMPTY_MATERIAL_FORM, name: "New Name" }, existing, TODAY);
+    expect(out.id).toBe("old-id");
+    expect(out.createdAt).toBe("2025-01-01");
+    expect(out.name).toBe("New Name");
+  });
+
+  it("splits certifications on comma, trims, drops empties", () => {
+    const out = materialFromForm(
+      { ...EMPTY_MATERIAL_FORM, name: "x", certifications: "  OEKO-TEX , GOTS,, BCI , " },
+      null, TODAY,
+    );
+    expect(out.certifications).toEqual(["OEKO-TEX", "GOTS", "BCI"]);
+  });
+
+  it("returns empty certifications array when input is empty/whitespace", () => {
+    const out1 = materialFromForm({ ...EMPTY_MATERIAL_FORM, name: "x" }, null, TODAY);
+    const out2 = materialFromForm({ ...EMPTY_MATERIAL_FORM, name: "x", certifications: "  ,  ,  " }, null, TODAY);
+    expect(out1.certifications).toEqual([]);
+    expect(out2.certifications).toEqual([]);
+  });
+
+  it("copies every form field through verbatim", () => {
+    const form = {
+      ...EMPTY_MATERIAL_FORM,
+      name: "Twill",
+      type: "Fabric",
+      composition: "100% Cotton",
+      weight: "8oz",
+      width: "60\"",
+      color: "Indigo",
+      supplier: "MillCo",
+      unitPrice: 3.45,
+      moq: "500yd",
+      leadTime: "30d",
+      notes: "Hold for Spring drop",
+    };
+    const out = materialFromForm(form, null, TODAY);
+    expect(out).toMatchObject({
+      name: "Twill",
+      composition: "100% Cotton",
+      weight: "8oz",
+      width: "60\"",
+      color: "Indigo",
+      supplier: "MillCo",
+      unitPrice: 3.45,
+      moq: "500yd",
+      leadTime: "30d",
+      notes: "Hold for Spring drop",
+    });
   });
 });

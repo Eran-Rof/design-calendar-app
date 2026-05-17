@@ -34,7 +34,10 @@ import {
   CATEGORIES, SEASONS, DEFAULT_SIZES, SIZE_PRESETS,
 } from "./techpack/constants";
 import { uid, today, fmtDate, fmtCurrency } from "./techpack/utils";
-import { emptyCosting, emptyApprovals, emptyTechPack } from "./techpack/factories";
+import {
+  emptyCosting, emptyApprovals, emptyTechPack,
+  materialFromForm, EMPTY_MATERIAL_FORM,
+} from "./techpack/factories";
 import { BUILTIN_TEMPLATES } from "./techpack/builtinTemplates";
 import S from "./techpack/styles";
 import {
@@ -241,7 +244,7 @@ export default function TechPackApp() {
   const [createForm, setCreateForm] = useState({ styleNumber: "", styleName: "", brand: "", season: "", category: "", subCategory: "", gender: "", description: "", designer: "", techDesigner: "", graphicArtist: "", productDeveloper: "", vendor: "" });
 
   // ── Material form state ───────────────────────────────────────────────────
-  const [matForm, setMatForm] = useState({ name: "", type: "Fabric", composition: "", weight: "", width: "", color: "", supplier: "", unitPrice: 0, moq: "", leadTime: "", certifications: "", notes: "" });
+  const [matForm, setMatForm] = useState(EMPTY_MATERIAL_FORM);
 
   // ── Toast helper ──────────────────────────────────────────────────────────
   const showToast = useCallback((msg: string) => { setToast(msg); setTimeout(() => setToast(""), 3000); }, []);
@@ -368,18 +371,12 @@ export default function TechPackApp() {
   // ── Save / edit material ──────────────────────────────────────────────────
   const handleSaveMaterial = useCallback(async () => {
     if (!matForm.name) return;
-    const mat: Material = {
-      id: editingMaterial?.id || uid(),
-      name: matForm.name, type: matForm.type, composition: matForm.composition, weight: matForm.weight,
-      width: matForm.width, color: matForm.color, supplier: matForm.supplier, unitPrice: matForm.unitPrice,
-      moq: matForm.moq, leadTime: matForm.leadTime, certifications: matForm.certifications.split(",").map(s => s.trim()).filter(Boolean),
-      notes: matForm.notes, createdAt: editingMaterial?.createdAt || today(),
-    };
+    const mat = materialFromForm(matForm, editingMaterial, today);
     const updated = editingMaterial ? materials.map(m => m.id === mat.id ? mat : m) : [...materials, mat];
     await saveMaterials(updated);
     setShowMaterialModal(false);
     setEditingMaterial(null);
-    setMatForm({ name: "", type: "Fabric", composition: "", weight: "", width: "", color: "", supplier: "", unitPrice: 0, moq: "", leadTime: "", certifications: "", notes: "" });
+    setMatForm(EMPTY_MATERIAL_FORM);
   }, [matForm, editingMaterial, materials, saveMaterials]);
 
   // ── Image upload via Dropbox proxy ────────────────────────────────────────
@@ -1759,7 +1756,7 @@ export default function TechPackApp() {
             </button>
             <button style={S.btnPrimarySmall} onClick={() => {
               setEditingMaterial(null);
-              setMatForm({ name: "", type: "Fabric", composition: "", weight: "", width: "", color: "", supplier: "", unitPrice: 0, moq: "", leadTime: "", certifications: "", notes: "" });
+              setMatForm(EMPTY_MATERIAL_FORM);
               setShowMaterialModal(true);
             }}>+ Add Material</button>
           </div>
