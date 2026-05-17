@@ -12,7 +12,7 @@ import {
   EMPTY_CREATE_FORM, createFormForUser, EMPTY_SPEC_SHEET_FORM,
 } from "../factories";
 import type { Material } from "../types";
-import { uid, today, fmtDate, fmtCurrency } from "../utils";
+import { uid, today, fmtDate, fmtCurrency, initials, stripHtml } from "../utils";
 import { APPROVAL_STAGES } from "../constants";
 
 // ────────────────────────────────────────────────────────────────────────
@@ -41,6 +41,51 @@ describe("fmtDate", () => {
   });
   it("renders MM/DD/YYYY for valid dates", () => {
     expect(fmtDate("2026-05-17")).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
+  });
+});
+
+describe("initials", () => {
+  it("takes the first letter of each space-separated word, up to 2", () => {
+    expect(initials("Eran Bitton")).toBe("EB");
+    expect(initials("Anna Belle Cohen Doe")).toBe("AB"); // capped at 2
+  });
+
+  it("returns one char for a single word", () => {
+    expect(initials("Madonna")).toBe("M");
+  });
+
+  it("returns empty string for empty input (caller can fall back)", () => {
+    expect(initials("")).toBe("");
+  });
+
+  it("uppercases the result", () => {
+    expect(initials("eran bitton")).toBe("EB");
+  });
+
+  it("tolerates extra spaces (treats consecutive spaces as separators)", () => {
+    // "a  b" splits to ["a", "", "b"]; w[0] || "" → "a", "", "b" → "AB"
+    expect(initials("a  b")).toBe("AB");
+  });
+});
+
+describe("stripHtml", () => {
+  it("removes simple tags and trims", () => {
+    expect(stripHtml("<p>Hello</p>")).toBe("Hello");
+    expect(stripHtml("  <span>Hi</span>  ")).toBe("Hi");
+  });
+
+  it("removes nested + multi tags", () => {
+    expect(stripHtml("<div><b>Bold</b> + <i>italic</i></div>")).toBe("Bold + italic");
+  });
+
+  it("returns '' for null / undefined / empty", () => {
+    expect(stripHtml(null)).toBe("");
+    expect(stripHtml(undefined)).toBe("");
+    expect(stripHtml("")).toBe("");
+  });
+
+  it("preserves text-only content untouched", () => {
+    expect(stripHtml("just text")).toBe("just text");
   });
 });
 

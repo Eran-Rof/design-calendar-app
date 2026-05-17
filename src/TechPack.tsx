@@ -34,7 +34,7 @@ import {
   SAMPLE_TYPES, SAMPLE_STATUS_COLORS, MATERIAL_TYPES, CW_COLORS,
   CATEGORIES, SEASONS, DEFAULT_SIZES, SIZE_PRESETS,
 } from "./techpack/constants";
-import { uid, today, fmtDate, fmtCurrency } from "./techpack/utils";
+import { uid, today, fmtDate, fmtCurrency, initials, stripHtml } from "./techpack/utils";
 import {
   emptyCosting, emptyApprovals, emptyTechPack,
   materialFromForm, EMPTY_MATERIAL_FORM,
@@ -792,13 +792,13 @@ export default function TechPackApp() {
                       <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 40, fontSize: 13 }}>No messages yet in this conversation</div>
                     ) : dmMessages.map((msg: any) => {
                       const author = msg.from?.user?.displayName || "Unknown";
-                      const initials = author.split(" ").map((w: string) => w[0] || "").join("").toUpperCase().slice(0, 2);
-                      const clean = (msg.body?.content || "").replace(/<[^>]+>/g, "").trim();
+                      const inits = initials(author);
+                      const clean = stripHtml(msg.body?.content);
                       const time = msg.createdDateTime ? new Date(msg.createdDateTime).toLocaleString() : "";
                       return (
                         <div key={msg.id} style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 10, padding: "12px 16px" }}>
                           <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                            <div style={{ width: 32, height: 32, borderRadius: "50%", background: `${TEAMS_PURPLE}33`, border: `2px solid ${TEAMS_PURPLE}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: TEAMS_PURPLE_LT, flexShrink: 0 }}>{initials}</div>
+                            <div style={{ width: 32, height: 32, borderRadius: "50%", background: `${TEAMS_PURPLE}33`, border: `2px solid ${TEAMS_PURPLE}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: TEAMS_PURPLE_LT, flexShrink: 0 }}>{inits}</div>
                             <div style={{ flex: 1 }}>
                               <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
                                 <span style={{ fontSize: 13, fontWeight: 700, color: "#F1F5F9" }}>{author}</span>
@@ -863,13 +863,13 @@ export default function TechPackApp() {
                     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                       {msgs.map((msg: any) => {
                         const author = msg.from?.user?.displayName || "Unknown";
-                        const initials = author.split(" ").map((w: string) => w[0] || "").join("").toUpperCase().slice(0, 2);
-                        const clean = (msg.body?.content || "").replace(/<[^>]+>/g, "").trim();
+                        const inits = initials(author);
+                        const clean = stripHtml(msg.body?.content);
                         const time = msg.createdDateTime ? new Date(msg.createdDateTime).toLocaleString() : "";
                         return (
                           <div key={msg.id} style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 10, padding: "12px 16px" }}>
                             <div style={{ display: "flex", gap: 10 }}>
-                              <div style={{ width: 34, height: 34, borderRadius: "50%", background: `${TEAMS_PURPLE}33`, border: `2px solid ${TEAMS_PURPLE}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: TEAMS_PURPLE_LT, flexShrink: 0 }}>{initials}</div>
+                              <div style={{ width: 34, height: 34, borderRadius: "50%", background: `${TEAMS_PURPLE}33`, border: `2px solid ${TEAMS_PURPLE}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: TEAMS_PURPLE_LT, flexShrink: 0 }}>{inits}</div>
                               <div style={{ flex: 1 }}>
                                 <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
                                   <span style={{ fontSize: 13, fontWeight: 700, color: "#F1F5F9" }}>{author}</span>
@@ -1269,14 +1269,14 @@ export default function TechPackApp() {
                       const isLast = i === emailThreadMsgs.length - 1;
                       const collapsed = !isLast && tpCollapsedMsgs.has(msg.id);
                       const sender = msg.from?.emailAddress?.name || msg.from?.emailAddress?.address || "Unknown";
-                      const initials = sender.split(" ").map((w: string) => w[0] || "").join("").toUpperCase().slice(0, 2) || "??";
+                      const inits = initials(sender) || "??";
                       const time = msg.receivedDateTime ? new Date(msg.receivedDateTime).toLocaleString() : "";
                       const htmlBody = msg.body?.content || "";
                       return (
                         <div key={msg.id} style={{ background: C.bg1, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 10, overflow: "hidden" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: !isLast ? "pointer" : "default" }}
                             onClick={() => { if (!isLast) setTpCollapsedMsgs(prev => { const s = new Set(prev); if (s.has(msg.id)) s.delete(msg.id); else s.add(msg.id); return s; }); }}>
-                            <div style={{ width: 32, height: 32, borderRadius: "50%", background: C.outlook + "33", border: "2px solid " + C.outlook, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: C.outlook, flexShrink: 0 }}>{initials}</div>
+                            <div style={{ width: 32, height: 32, borderRadius: "50%", background: C.outlook + "33", border: "2px solid " + C.outlook, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: C.outlook, flexShrink: 0 }}>{inits}</div>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontSize: 13, fontWeight: 500, color: C.text1 }}>{sender}</div>
                               <div style={{ fontSize: 11, color: C.text3 }}>{msg.from?.emailAddress?.address || ""}</div>
@@ -1456,7 +1456,7 @@ export default function TechPackApp() {
               <img src={user.avatar} alt={user.name || ""} style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
             ) : (
               <div style={{ width: 28, height: 28, borderRadius: "50%", background: user.color ?? "#3B82F6", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-                {user.initials || (user.name || user.username || "?").split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2)}
+                {user.initials || initials(user.name || user.username || "?")}
               </div>
             )}
             <span style={{ color: "#94A3B8", fontSize: 12, fontWeight: 600 }}>{user.name || user.username}</span>
