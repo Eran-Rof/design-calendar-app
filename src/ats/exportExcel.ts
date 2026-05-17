@@ -105,6 +105,31 @@ export function buildExportPayload(
   const customerFilter = opts.customerEnabled ? opts.customer : "";
   // Sales-margin fraction shared by body / subtotal / total calcs.
   const slsMargin = opts.slsMarginPct / 100;
+
+  // Sort rows by master_style → master_color → sku before any grouping
+  // or iteration so all rows of the same style cluster together. The
+  // downstream subtotal emitter flushes when style changes between
+  // adjacent rows; without this sort, the same style could appear in
+  // multiple non-contiguous blocks and produce duplicate subtotal rows
+  // (e.g. RYB0412 mid-export, then again at the bottom). Empty/null
+  // styles sort to the end. Sort is stable when keys collide.
+  rows = [...rows].sort((a, b) => {
+    const sa = (a.master_style ?? "").trim();
+    const sb = (b.master_style ?? "").trim();
+    if (sa !== sb) {
+      if (!sa) return 1;
+      if (!sb) return -1;
+      return sa.localeCompare(sb);
+    }
+    const ca = (a.master_color ?? "").trim();
+    const cb = (b.master_color ?? "").trim();
+    if (ca !== cb) {
+      if (!ca) return 1;
+      if (!cb) return -1;
+      return ca.localeCompare(cb);
+    }
+    return (a.sku ?? "").localeCompare(b.sku ?? "");
+  });
   // Skip rows whose availability is zero across every visible period.
   // Negatives (shortages) and positives are kept. Uses periodAvail so
   // the "any availability" test honors the same delta-when-atShip
