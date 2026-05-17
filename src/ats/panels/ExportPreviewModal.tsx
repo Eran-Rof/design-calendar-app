@@ -58,23 +58,23 @@ function isNumeric(cell: Cell | undefined): boolean {
 
 export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCount, onDownload, onClose, onCloseAll }) => {
   // Detect an optional title row at AOA index 0. The exporter writes
-  // it when the operator narrows by customer — a single A1 cell with
-  // a 22pt font, every other cell in the row empty. The downloaded
-  // workbook merges A1 across the row; the preview reproduces that
-  // with a colSpan so the customer name spans the whole table.
+  // it when the operator narrows by customer (22pt, col A) AND/OR
+  // picks a custom date range (20pt banner). Both, either, or neither
+  // may be present. A row qualifies as a title row when:
+  //   • At least one cell has a value AND a font size >= 16
+  //   • Every non-empty cell has a font size >= 16 (i.e. there are
+  //     no normal data cells; this is purely the title band)
   const looksLikeTitleRow = (row: Cell[]): boolean => {
     if (!row || row.length === 0) return false;
-    const first = row[0];
-    if (!first || first.v == null || first.v === "") return false;
-    const sz = first.s?.font?.sz;
-    // 22pt is the title-row font size; an ordinary header is 11.
-    if (typeof sz !== "number" || sz < 16) return false;
-    // Every other cell should be empty.
-    for (let i = 1; i < row.length; i++) {
-      const v = row[i]?.v;
-      if (v !== undefined && v !== "" && v !== null) return false;
+    let foundBigText = false;
+    for (const cell of row) {
+      if (!cell) continue;
+      if (cell.v === undefined || cell.v === null || cell.v === "") continue;
+      const sz = cell.s?.font?.sz;
+      if (typeof sz !== "number" || sz < 16) return false;
+      foundBigText = true;
     }
-    return true;
+    return foundBigText;
   };
 
   const titleRow  = useMemo(() => (aoa && aoa.length > 0 && looksLikeTitleRow(aoa[0])) ? aoa[0] : null, [aoa]);
@@ -127,16 +127,47 @@ export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCo
           </div>
         </div>
 
-        {titleRow && (
-          <div style={{
-            padding: "12px 18px", background: "#fff", borderBottom: "1px solid #C7D2DE",
-            display: "flex", alignItems: "center", justifyContent: "flex-start",
-          }}>
-            <span style={{ fontSize: 22, fontWeight: 700, color: cellFontColor(titleRow[0]) ?? "#1F497D", lineHeight: 1.1 }}>
-              {formatCell(titleRow[0])}
-            </span>
-          </div>
-        )}
+        {titleRow && (() => {
+          // Title row may carry up to two text values:
+          //   • Customer name at col 0 (font sz 22, left-aligned)
+          //   • Date range banner somewhere (font sz 20, centered)
+          // Either or both may be present. Find each by scanning the
+          // row for cells whose font.sz matches the corresponding
+          // banner size — keeps the preview parity with the xlsx
+          // construction in exportExcel.ts.
+          const customerCell = titleRow.find(c => c?.s?.font?.sz === 22 && c?.v);
+          const dateRangeCell = titleRow.find(c => c?.s?.font?.sz === 20 && c?.v);
+          return (
+            <div style={{
+              padding: "12px 18px", background: "#fff", borderBottom: "1px solid #C7D2DE",
+              display: "flex", alignItems: "center", justifyContent: dateRangeCell && !customerCell ? "center" : "flex-start",
+              gap: 24,
+            }}>
+              {customerCell && (
+                <span style={{ fontSize: 22, fontWeight: 700, color: cellFontColor(customerCell) ?? "#1F497D", lineHeight: 1.1 }}>
+                  {formatCell(customerCell)}
+                </span>
+              )}
+              {dateRangeCell && (
+                <span style={{
+                  fontSize: 20, fontWeight: 700,
+                  color: cellFontColor(dateRangeCell) ?? "#1F497D",
+                  lineHeight: 1.1,
+                  // When both customer and date range are present, the
+                  // banner should center in the remaining space to the
+                  // right of the customer name. flex:1 + textAlign
+                  // center gives that. When only the date range is
+                  // present, the parent's justifyContent: center is
+                  // doing the work.
+                  flex: customerCell ? 1 : undefined,
+                  textAlign: customerCell ? "center" : undefined,
+                }}>
+                  {formatCell(dateRangeCell)}
+                </span>
+              )}
+            </div>
+          );
+        })()}
         <div style={{ flex: 1, overflow: "auto", padding: 0, background: "#fff" }}>
           <table style={{ borderCollapse: "collapse", fontSize: 11, fontFamily: "Calibri, Arial, sans-serif", color: "#1f2937", width: "100%" }}>
             <thead style={{ position: "sticky", top: 0, zIndex: 2 }}>

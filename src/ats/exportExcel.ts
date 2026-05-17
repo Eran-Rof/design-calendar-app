@@ -414,19 +414,12 @@ export function buildExportPayload(
     return `${MONTHS[mi]}/${dd}/${yyyy}`;
   };
   const custTag = customerFilter ? ` (${customerFilter})` : "";
-  const w = salesAggregates?.windows;
-  // Surround the `..` date separator with spaces so the wrap engine
-  // can break BETWEEN dates rather than splitting a date mid-string.
-  // Each date (e.g. "Jan/01/2026", 11 chars) is then an unbreakable
-  // chunk that fits comfortably in the column's wrap-cap width, and
-  // the wrap occurs at the space-around-".." instead of inside the
-  // date itself.
-  const t3LabelBase = opts.customSalesRangeEnabled && w
-    ? `Sales ${fmtHeaderDate(w.t3Start)} .. ${fmtHeaderDate(w.t3End)}`
-    : "T3";
-  const lyLabelBase = opts.customSalesRangeEnabled && w
-    ? `S/P LY ${fmtHeaderDate(w.lyStart)} .. ${fmtHeaderDate(w.lyEnd)}`
-    : "S/P LY";
+  // Date range now lives on the centered title-row banner (built
+  // below as titleRow), not in column headers — operator preference,
+  // keeps column headers compact + readable. Headers stay as plain
+  // "T3 …" / "S/P LY …" regardless of custom range.
+  const t3LabelBase = "T3";
+  const lyLabelBase = "S/P LY";
   if (COL_T3_QTY)     headerRow[COL_T3_QTY     - 1] = headerCell(`${t3LabelBase} Qty${custTag}`, HDR_DARK_FILL, "center");
   if (COL_T3_PRICE)   headerRow[COL_T3_PRICE   - 1] = headerCell(`${t3LabelBase} Sls Price`,     HDR_DARK_FILL, "center");
   if (COL_T3_TTL_SLS) headerRow[COL_T3_TTL_SLS - 1] = headerCell(`${t3LabelBase} Ttl Sls`,       HDR_DARK_FILL, "center");
@@ -1239,21 +1232,56 @@ export function buildExportPayload(
   if (rowMeta.length > 0) styleEndDataIdx.add(rowMeta.length - 1); // close the last group
 
   // ── Optional customer title row ────────────────────────────────────────
-  // When the operator narrowed by customer, prepend a single text row
-  // with the customer name in cell A, 22pt, left-justified. The row
-  // sits OUTSIDE the bordered table — the outer rectangle still frames
-  // header + data rows below it.
+  // Title row above the table. Surfaces context that would otherwise
+  // clutter column headers:
+  //   • Customer name (22pt, bold, left-justified in col A) when the
+  //     operator narrowed by customer
+  //   • Date range banner (20pt, bold, CENTERED) when a custom T3
+  //     window was picked via Hide ATS data → custom range — replaces
+  //     the previous per-header "Sales Jan/01/2026 .. ..." labels
+  //
+  // Layout cases:
+  //   no customer, no date range  → no title row
+  //   customer only               → customer name in col A (22pt left)
+  //   date range only             → date range centered (20pt)
+  //   customer + date range       → customer in col A (22pt left) AND
+  //                                  date range centered (20pt) in the
+  //                                  space to the right. We merge the
+  //                                  right-of-A range so the centered
+  //                                  text doesn't collide with the
+  //                                  customer name.
+  const dateRangeWindows = salesAggregates?.windows;
+  const dateRangeText = (opts.customSalesRangeEnabled && dateRangeWindows)
+    ? `Sales ${fmtHeaderDate(dateRangeWindows.t3Start)} .. ${fmtHeaderDate(dateRangeWindows.t3End)}    S/P LY ${fmtHeaderDate(dateRangeWindows.lyStart)} .. ${fmtHeaderDate(dateRangeWindows.lyEnd)}`
+    : "";
   let titleRow: any[] | null = null;
-  if (customerFilter) {
+  if (customerFilter || dateRangeText) {
     titleRow = new Array(totalColumnCount).fill(null).map(() => ({ v: "", t: "s" as const }));
-    titleRow[0] = {
-      v: customerFilter,
-      t: "s",
-      s: {
-        font: { sz: 22, bold: true, color: { rgb: "1F497D" }, name: "Calibri" },
-        alignment: { horizontal: "left", vertical: "center" },
-      },
-    };
+    if (customerFilter) {
+      titleRow[0] = {
+        v: customerFilter,
+        t: "s",
+        s: {
+          font: { sz: 22, bold: true, color: { rgb: "1F497D" }, name: "Calibri" },
+          alignment: { horizontal: "left", vertical: "center" },
+        },
+      };
+    }
+    if (dateRangeText) {
+      // When customer is set, the date range banner anchors at col B
+      // and spans through the last column — centered in the remaining
+      // space to the right of the customer name. When no customer is
+      // set, the banner anchors at col A and spans the full row width.
+      const bannerStartCol = customerFilter ? 1 : 0;
+      titleRow[bannerStartCol] = {
+        v: dateRangeText,
+        t: "s",
+        s: {
+          font: { sz: 20, bold: true, color: { rgb: "1F497D" }, name: "Calibri" },
+          alignment: { horizontal: "center", vertical: "center" },
+        },
+      };
+    }
   }
 
   // Convert to aoa-row indexes. Outline indexes from where the table's
@@ -1314,10 +1342,23 @@ export function buildExportPayload(
   // block Excel's text-overflow into neighbouring empty cells —
   // operator only sees the first ~8 chars in column A's narrow width.
   if (titleRow) {
-    merges.push({
-      s: { r: 0, c: 0 },
-      e: { r: 0, c: lastColIdx },
-    });
+    if (customerFilter && dateRangeText) {
+      // Customer in col A (un-merged so its 22pt left-justified text
+      // stays anchored), date range merged across B..lastCol so its
+      // 20pt centered banner fills the rest of the row.
+      merges.push({
+        s: { r: 0, c: 1 },
+        e: { r: 0, c: lastColIdx },
+      });
+    } else {
+      // Single value (customer OR date range alone) — merge the full
+      // row so its anchor cell can render the wide text without being
+      // clipped by adjacent empty cells.
+      merges.push({
+        s: { r: 0, c: 0 },
+        e: { r: 0, c: lastColIdx },
+      });
+    }
   }
 
   // ── Optional pass: drop columns ──────────────────────────────────────
