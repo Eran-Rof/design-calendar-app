@@ -405,21 +405,27 @@ export const GridTable: React.FC<GridTableProps> = ({
             })}
             {/* Sticky bucket cells (On Hand / On Order / On PO) all
                 share the same B and E Inven — there's a single
-                inventory state across all three, computed from data
-                from each of them:
+                inventory state across all three:
                   • B Inven = sum(onHand_qty × avg_cost)  per the
                     planner's rule (= sums.onHand.cost)
-                  • E Inven = B + (open POs × avg cost) − (open SOs ×
-                    avg cost) = B + sums.onPO.cost − sums.onOrder.cost
-                    The "period selected" for the sticky cells is the
-                    full horizon, so receipts$ = total $ value of all
-                    open POs and COGS$ = total $ value of all open SOs.
+                  • E Inven = B + open-POs $ − total period COGS $
+                    Receipts side uses the static open-PO commitment $
+                    (sums.onPO.cost); deductions use the actual SO
+                    event flows totalled across every displayed period
+                    (sum of periodCogsValue across the horizon), not
+                    sums.onOrder.cost — open-SO qty isn't quite the
+                    same as the SO-events that ship during the visible
+                    window.
                 Period cells below each carry their own per-period B/E
                 via the running chain — first period inherits B from
                 the sticky's E. */}
             {(() => {
               const stickyB = sums.onHand.cost;
-              const stickyE = stickyB + sums.onPO.cost - sums.onOrder.cost;
+              let totalPeriodCogs = 0;
+              for (const p of displayPeriods) {
+                totalPeriodCogs += sums.periodCogsValue[p.key] ?? 0;
+              }
+              const stickyE = stickyB + sums.onPO.cost - totalPeriodCogs;
               return (
                 <>
                   {!isHidden("onHand") && (
@@ -453,7 +459,11 @@ export const GridTable: React.FC<GridTableProps> = ({
                 sees the correct prior E. */}
             {(() => {
               const stickyB = sums.onHand.cost;
-              const stickyE = stickyB + sums.onPO.cost - sums.onOrder.cost;
+              let totalPeriodCogs = 0;
+              for (const p of displayPeriods) {
+                totalPeriodCogs += sums.periodCogsValue[p.key] ?? 0;
+              }
+              const stickyE = stickyB + sums.onPO.cost - totalPeriodCogs;
               let prevEInven = stickyE;
               return displayPeriods.map(p => {
                 const q = sums.periodQty[p.key]     ?? 0;
