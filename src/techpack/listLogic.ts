@@ -108,6 +108,18 @@ export function filterMaterials(materials: Material[], f: MaterialFilter): Mater
 }
 
 /**
+ * Look up the sub-category list for a given category name out of
+ * the Design-Calendar `categories` blob. Returns `[]` when the
+ * category isn't found or has no sub-categories. Centralised so
+ * the Spec Sheet modal, Spec Sheet detail panel, and Create Tech
+ * Pack modal all read it the same way.
+ */
+export interface CategoryLike { name: string; subCategories?: string[]; }
+export function subCategoriesFor(categories: CategoryLike[], categoryName: string): string[] {
+  return categories.find(c => c.name === categoryName)?.subCategories ?? [];
+}
+
+/**
  * Filter spec sheets by a free-text search across styleName,
  * styleNumber, brand. Empty / null / undefined query means
  * "no filter". Returns a new array.

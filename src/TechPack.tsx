@@ -19,6 +19,7 @@ import {
   uniqueSeasons,
   filterMaterials,
   filterSpecSheets,
+  subCategoriesFor,
 } from "./techpack/listLogic";
 // Types + constants + factories live in src/techpack/. Phase 1 of the
 // TechPack architecture split — see project_plm_cleanup_backlog.md.
@@ -2069,8 +2070,7 @@ export default function TechPackApp() {
             {(() => {
               const selStyle = { ...S.input, appearance: "none" as const };
               const ssPres = SIZE_PRESETS;
-              const detCatObj = dcCategories.find((c: any) => c.name === ss.category);
-              const detSubCats: string[] = detCatObj?.subCategories || [];
+              const detSubCats = subCategoriesFor(dcCategories, ss.category);
               return (
                 <div style={{ background: "#0F172A", borderRadius: 10, padding: 16, marginBottom: 20, border: "1px solid #334155" }}>
                   <div style={{ color: "#94A3B8", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, fontWeight: 600, marginBottom: 12 }}>Style Info</div>
@@ -2276,8 +2276,7 @@ export default function TechPackApp() {
   function renderSpecSheetModal() {
     const selectStyle = { ...S.input, appearance: "none" as const };
     const sizePresets = SIZE_PRESETS;
-    const selectedCatObj = dcCategories.find((c: any) => c.name === ssForm.category);
-    const subCats: string[] = selectedCatObj?.subCategories || [];
+    const subCats = subCategoriesFor(dcCategories, ssForm.category);
     return (
       <div style={S.modalOverlay} onClick={() => setShowSpecSheetModal(false)}>
         <div style={{ ...S.modal, width: 560 }} onClick={e => e.stopPropagation()}>
@@ -3563,8 +3562,7 @@ export default function TechPackApp() {
 
   // ── Create Modal ──────────────────────────────────────────────────────────
   function renderCreateModal() {
-    const selCat = dcCategories.find(c => c.name === createForm.category);
-    const subCats: string[] = selCat?.subCategories || [];
+    const subCats = subCategoriesFor(dcCategories, createForm.category);
 
     // Inline quick-add for brand
     const addBrand = async () => {
