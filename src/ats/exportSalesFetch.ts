@@ -9,8 +9,7 @@
 
 import { SB_URL, SB_HEADERS } from "../utils/supabase";
 import type { ATSRow } from "./types";
-import { isItemMasterLoaded, loadItemMasterCache, resolveItemMasterIds, getItemMasterById } from "./itemMasterLookup";
-import { ppkMultiplier } from "../shared/prepack";
+import { isItemMasterLoaded, loadItemMasterCache, resolveItemMasterIds } from "./itemMasterLookup";
 
 interface SalesRow {
   sku_id: string;
@@ -185,20 +184,20 @@ async function resolveCustomerIds(name: string): Promise<string[]> {
   return out;
 }
 
-// Build the variant-id → { sku, mult } reverse map. Walks each ATS
-// row, resolves it to one or more ip_item_master.id values via the
-// existing item-master cache, and records each id's prepack
-// multiplier so the sales aggregator can land qtys in unit grain.
+// Build the variant-id → ATS-sku reverse map. Walks each ATS row,
+// resolves it to one or more ip_item_master.id values via the existing
+// item-master cache (which handles canonicalization, PPK suffix
+// aliasing, style-level fallback). Multiple ids may map to the same
+// ATS sku when the row is at style grain.
 //
-// Why mult lives here: `ip_sales_history_wholesale.qty` is at Xoro's
-// raw line grain — pack-count for prepacks. The aggregator multiplies
-// each line's qty by mult before adding, so every downstream consumer
-// (export T3/LY columns, cross-grid extras, the grid right-click
-// context popup) sees unit-grain totals. The grid's Explode-PPK
-// toggle then divides by mult on display when the operator wants
-// pack-grain instead.
-function buildIdToSkuMap(rows: ATSRow[]): { idToSku: Map<string, { sku: string; mult: number }>; matched: number; unmatched: number } {
-  const idToSku = new Map<string, { sku: string; mult: number }>();
+// Earlier versions recorded per-id ppkMult so the aggregator could
+// convert pack-grain to unit-grain at ingest. Reverted because Xoro's
+// sales-history grain is not reliably pack-vs-unit across records —
+// dirty master size data was triggering over-multiplication. Sales
+// columns now mirror Xoro's recorded grain per SKU; the grid's
+// Explode-PPK toggle only affects ATS columns.
+function buildIdToSkuMap(rows: ATSRow[]): { idToSku: Map<string, string>; matched: number; unmatched: number } {
+  const idToSku = new Map<string, string>();
   let matched = 0;
   let unmatched = 0;
   for (const row of rows) {
@@ -211,22 +210,8 @@ function buildIdToSkuMap(rows: ATSRow[]): { idToSku: Map<string, { sku: string; 
       continue;
     }
     matched++;
-    // Prefer the row's own ppkMult when it's > 1 — the grid already
-    // resolved it through ppkMultiplier(color, size, description,
-    // style, sku) with the full master record at compute time, so
-    // that's authoritative. Fall back to resolving from the master
-    // for any id whose row mult is 1 (could be a style-grain row
-    // where one variant is a prepack and others aren't).
     for (const id of ids) {
-      if (idToSku.has(id)) continue;
-      let mult = row.ppkMult ?? 1;
-      if (mult <= 1) {
-        const rec = getItemMasterById(id);
-        if (rec) {
-          mult = ppkMultiplier(rec.color, rec.size, rec.description, rec.style_code, rec.sku_code);
-        }
-      }
-      idToSku.set(id, { sku: row.sku, mult });
+      if (!idToSku.has(id)) idToSku.set(id, row.sku);
     }
   }
   return { idToSku, matched, unmatched };
@@ -423,45 +408,37 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
   const extraBySkuId: SalesFetchResult["extraBySkuId"] = new Map();
   const shouldCollectExtras = !!customerIdSet;
 
-  // Cache the master-resolved mult for cross-grid (extras) sku_ids
-  // so we only look up each id once even if a customer bought it on
-  // many invoice lines.
-  const extrasMultByMasterId = new Map<string, number>();
-
   for (const r of salesRows) {
     const inT3 = needT3 && r.txn_date >= t3Start && r.txn_date <= t3End;
     const inLY = needLY && r.txn_date >= lyStart && r.txn_date <= lyEnd;
     if (!inT3 && !inLY) continue;
 
-    // qty from Xoro is at the invoice-line's raw grain — pack-count
-    // for prepacks. Multiply by the SKU's prepack multiplier so all
-    // downstream consumers see unit-grain totals. totalPrice / rev
-    // stay as dollars and are grain-invariant.
-    const rawQty = toNum(r.qty);
+    // qty stays raw from Xoro. Earlier code multiplied by ppkMult to
+    // land in unit grain, but Xoro's sales-history grain isn't
+    // reliably pack-vs-unit across records — and dirty master size
+    // data (stray "PPKn" tokens on non-prepack variants) was
+    // triggering 60x inflation on real-customer columns
+    // (e.g. RCB1258 non-PPK variants showing $0.09/unit on Ross
+    // Procurement exports). The grid still uses ppkMult for on-
+    // hand / on-PO / on-SO via compute.ts; sales columns now mirror
+    // Xoro's recorded grain per SKU.
+    const qty = toNum(r.qty);
     let rev = toNum(r.net_amount);
-    if (rev <= 0) rev = toNum(r.unit_price) * rawQty;
+    if (rev <= 0) rev = toNum(r.unit_price) * qty;
 
-    const hit = idToSku.get(r.sku_id);
-    if (hit) {
-      const qty = rawQty * hit.mult;
+    const atsSku = idToSku.get(r.sku_id);
+    if (atsSku) {
       if (inT3) {
-        const ex = t3.get(hit.sku);
+        const ex = t3.get(atsSku);
         if (ex) { ex.qty += qty; ex.totalPrice += rev; }
-        else t3.set(hit.sku, { qty, totalPrice: rev });
+        else t3.set(atsSku, { qty, totalPrice: rev });
       }
       if (inLY) {
-        const ex = ly.get(hit.sku);
+        const ex = ly.get(atsSku);
         if (ex) { ex.qty += qty; ex.totalPrice += rev; }
-        else ly.set(hit.sku, { qty, totalPrice: rev });
+        else ly.set(atsSku, { qty, totalPrice: rev });
       }
     } else if (shouldCollectExtras) {
-      let mult = extrasMultByMasterId.get(r.sku_id);
-      if (mult === undefined) {
-        const rec = getItemMasterById(r.sku_id);
-        mult = rec ? ppkMultiplier(rec.color, rec.size, rec.description, rec.style_code, rec.sku_code) : 1;
-        extrasMultByMasterId.set(r.sku_id, mult);
-      }
-      const qty = rawQty * mult;
       let ex = extraBySkuId.get(r.sku_id);
       if (!ex) {
         ex = { qty: 0, totalPrice: 0, t3Qty: 0, t3Total: 0, lyQty: 0, lyTotal: 0 };
@@ -538,31 +515,18 @@ export async function getSkuSalesAggregates(sku: string, customer: string): Prom
     salesRows = await directFetch(lyStart, today);
   }
 
-  // Resolve the prepack multiplier from the first master record that
-  // matched — `ids` may contain multiple variants under a style-level
-  // SKU, but their PPK token lives in the size column which is shared
-  // across the variant set for prepacks, so any record yields the
-  // same mult. `qty` from the sales table is at Xoro's raw line grain
-  // (pack-count for prepacks); we multiply at ingest to land in unit
-  // grain — matching what fetchSalesAggregates does.
-  let mult = 1;
-  for (const id of ids) {
-    const rec = getItemMasterById(id);
-    if (rec) {
-      const m = ppkMultiplier(rec.color, rec.size, rec.description, rec.style_code, rec.sku_code);
-      if (m > 1) { mult = m; break; }
-    }
-  }
-
+  // qty stays raw from Xoro — mirrors fetchSalesAggregates. The
+  // master-derived ppkMult was over-aggressive for sales (dirty
+  // size data triggered 60x inflation on non-prepack rows). Sales
+  // columns now show Xoro's recorded grain per SKU.
   let t3Qty = 0, t3Total = 0;
   let lyQty = 0, lyTotal = 0;
   for (const r of salesRows) {
     if (!idSet.has(r.sku_id)) continue;
     if (customerIdSet && (r.customer_id == null || !customerIdSet.has(r.customer_id))) continue;
-    const rawQty = toNum(r.qty);
-    const qty = rawQty * mult;
+    const qty = toNum(r.qty);
     let rev = toNum(r.net_amount);
-    if (rev <= 0) rev = toNum(r.unit_price) * rawQty;
+    if (rev <= 0) rev = toNum(r.unit_price) * qty;
     if (r.txn_date >= t3Start && r.txn_date <= today) {
       t3Qty += qty;
       t3Total += rev;
