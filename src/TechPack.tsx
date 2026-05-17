@@ -17,6 +17,8 @@ import {
   flattenAllSamples,
   uniqueBrands,
   uniqueSeasons,
+  filterMaterials,
+  filterSpecSheets,
 } from "./techpack/listLogic";
 // Types + constants + factories live in src/techpack/. Phase 1 of the
 // TechPack architecture split — see project_plm_cleanup_backlog.md.
@@ -1688,14 +1690,7 @@ export default function TechPackApp() {
 
   // ── Materials View ────────────────────────────────────────────────────────
   function renderMaterialsView() {
-    const filteredMats = materials.filter(m => {
-      if (matTypeFilter && m.type !== matTypeFilter) return false;
-      if (matSearch) {
-        const q = matSearch.toLowerCase();
-        return m.name.toLowerCase().includes(q) || m.supplier.toLowerCase().includes(q) || m.composition.toLowerCase().includes(q);
-      }
-      return true;
-    });
+    const filteredMats = filterMaterials(materials, { type: matTypeFilter, search: matSearch });
 
     return (
       <>
@@ -1803,11 +1798,7 @@ export default function TechPackApp() {
 
   // ── Spec Sheets View ──────────────────────────────────────────────────────
   function renderSpecSheetsView() {
-    const filteredSS = specSheets.filter(ss => {
-      if (!ssSearch) return true;
-      const q = ssSearch.toLowerCase();
-      return ss.styleName.toLowerCase().includes(q) || ss.styleNumber.toLowerCase().includes(q) || ss.brand.toLowerCase().includes(q);
-    });
+    const filteredSS = filterSpecSheets(specSheets, ssSearch);
 
     return (
       <>
