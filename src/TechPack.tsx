@@ -31,7 +31,7 @@ import type {
 import {
   STATUSES, STATUS_COLORS, APPROVAL_STAGES, APPROVAL_STATUS_COLORS,
   SAMPLE_TYPES, SAMPLE_STATUS_COLORS, MATERIAL_TYPES, CW_COLORS,
-  CATEGORIES, SEASONS, DEFAULT_SIZES,
+  CATEGORIES, SEASONS, DEFAULT_SIZES, SIZE_PRESETS,
 } from "./techpack/constants";
 import { uid, today, fmtDate, fmtCurrency } from "./techpack/utils";
 import { emptyCosting, emptyApprovals, emptyTechPack } from "./techpack/factories";
@@ -2035,12 +2035,7 @@ export default function TechPackApp() {
             {/* Style Info */}
             {(() => {
               const selStyle = { ...S.input, appearance: "none" as const };
-              const ssPres = [
-                { label: "XS–XXL", sizes: ["XS", "S", "M", "L", "XL", "XXL"] },
-                { label: "28–40 (even)", sizes: ["28", "30", "32", "34", "36", "38", "40"] },
-                { label: "28–48 (all)", sizes: ["28", "29", "30", "31", "32", "33", "34", "35", "36", "38", "40", "42", "44", "46", "48"] },
-                { label: "0–16 (kids)", sizes: ["0", "2", "4", "6", "8", "10", "12", "14", "16"] },
-              ];
+              const ssPres = SIZE_PRESETS;
               const detCatObj = dcCategories.find((c: any) => c.name === ss.category);
               const detSubCats: string[] = detCatObj?.subCategories || [];
               return (
@@ -2247,12 +2242,7 @@ export default function TechPackApp() {
   // ── Spec Sheet Create Modal ───────────────────────────────────────────────
   function renderSpecSheetModal() {
     const selectStyle = { ...S.input, appearance: "none" as const };
-    const sizePresets = [
-      { label: "XS–XXL", sizes: ["XS", "S", "M", "L", "XL", "XXL"] },
-      { label: "28–40 (even)", sizes: ["28", "30", "32", "34", "36", "38", "40"] },
-      { label: "28–48 (all)", sizes: ["28", "29", "30", "31", "32", "33", "34", "35", "36", "38", "40", "42", "44", "46", "48"] },
-      { label: "0–16 (kids)", sizes: ["0", "2", "4", "6", "8", "10", "12", "14", "16"] },
-    ];
+    const sizePresets = SIZE_PRESETS;
     const selectedCatObj = dcCategories.find((c: any) => c.name === ssForm.category);
     const subCats: string[] = selectedCatObj?.subCategories || [];
     return (
