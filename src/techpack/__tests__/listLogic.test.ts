@@ -11,6 +11,7 @@ import {
   uniqueSeasons,
   filterMaterials,
   filterSpecSheets,
+  subCategoriesFor,
 } from "../listLogic";
 import { emptyTechPack } from "../factories";
 import type { TechPack, Material, SpecSheet } from "../types";
@@ -244,5 +245,33 @@ describe("uniqueBrands / uniqueSeasons", () => {
   it("both handle empty input", () => {
     expect(uniqueBrands([])).toEqual([]);
     expect(uniqueSeasons([])).toEqual([]);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+
+describe("subCategoriesFor", () => {
+  const cats = [
+    { name: "Tops",      subCategories: ["T-Shirts", "Polos", "Button-ups"] },
+    { name: "Bottoms",   subCategories: ["Jeans", "Shorts"] },
+    { name: "Accessories" /* no subCategories field */ },
+  ];
+
+  it("returns the named category's subCategories array", () => {
+    expect(subCategoriesFor(cats, "Tops")).toEqual(["T-Shirts", "Polos", "Button-ups"]);
+    expect(subCategoriesFor(cats, "Bottoms")).toEqual(["Jeans", "Shorts"]);
+  });
+
+  it("returns [] when the category is missing the subCategories field", () => {
+    expect(subCategoriesFor(cats, "Accessories")).toEqual([]);
+  });
+
+  it("returns [] when the category name doesn't exist", () => {
+    expect(subCategoriesFor(cats, "Outerwear")).toEqual([]);
+  });
+
+  it("returns [] for empty inputs", () => {
+    expect(subCategoriesFor([], "Anything")).toEqual([]);
+    expect(subCategoriesFor(cats, "")).toEqual([]);
   });
 });
