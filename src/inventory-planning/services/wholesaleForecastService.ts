@@ -52,6 +52,7 @@ function checkAbort(signal: AbortSignal | undefined): void {
 }
 
 import { readGender, readGroupName, readSubCategoryName } from "../types/itemAttributes";
+import { resolveCost, buildSiblingMap } from "../../shared/costResolution";
 
 // Trim history to the forecast lookback window. Default 13 months so the
 // LY ±1 buffer (months 11/12/13 before snapshot — see baselineForPairLy)
@@ -875,6 +876,33 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       }
     }
   }
+  // ── Shared cost cascade prep ──────────────────────────────────────────
+  // Build the input maps that resolveCost (src/shared/costResolution.ts)
+  // expects so every row resolves with the same direct→sibling→po→margin
+  // ordering ATS uses. Replaces the previous bespoke cascade rooted in
+  // ip_item_master.unit_cost (which is poisoned for some prepacks —
+  // carries StandardUnitCost × MasterCaseQty from historical Excel
+  // uploads). Doing the prep once keeps the per-row cost call O(1).
+  //
+  // siblingsBySku: every variant SKU in the same style code, ordered by
+  // input order. The cascade walks this list looking for the first
+  // sibling whose avg_cost is in avgCostBySku.
+  const siblingsBySku = buildSiblingMap(
+    items
+      .filter((i) => i.sku_code && i.style_code)
+      .map((i) => ({ sku: i.sku_code as string, basePart: i.style_code as string })),
+  );
+  // openPoCostsBySkuCode: convert the existing sku_id-keyed poCostBySku
+  // (weighted-avg open-PO unit cost) into a sku_code-keyed Map<sku, [cost]>.
+  // resolveCost averages the input list; passing a single pre-computed
+  // weighted avg keeps the behavior the existing planning cascade had.
+  const openPoCostsBySkuCode = new Map<string, number[]>();
+  for (const [skuId, avgCost] of poCostBySku) {
+    if (avgCost <= 0) continue;
+    const it = itemById.get(skuId);
+    if (it?.sku_code) openPoCostsBySkuCode.set(it.sku_code, [avgCost]);
+  }
+
   const rows: IpPlanningGridRow[] = forecast.map((f) => {
     const item = itemById.get(f.sku_id);
     const customer = customerById.get(f.customer_id);
@@ -897,16 +925,23 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     const description = item?.description ?? styleFallback?.description ?? null;
     const colorResolved = resolveVariantColorWithProvenance(item?.color, item?.sku_code, item?.style_code);
     const colorDisplay = colorResolved.color;
-    // Resolved master cost: variant.unit_cost > variant avg_cost > any
-    // sibling-variant unit_cost in the same style > any sibling avg_cost.
-    // Then PO weighted avg, then ATS snapshot avg.
-    const masterCost =
-      item?.unit_cost
-      ?? (item?.sku_code ? avgCostBySku.get(item.sku_code) ?? null : null)
-      ?? (item?.style_code ? unitCostByStyle.get(item.style_code) ?? null : null)
-      ?? (item?.style_code ? avgCostByStyle.get(item.style_code) ?? null : null);
-    const fallbackCost = poCostBySku.get(f.sku_id) ?? (item?.sku_code ? atsCostBySku.get(item.sku_code) ?? null : null);
-    const resolvedCost = masterCost ?? fallbackCost ?? null;
+    // Shared cost cascade — direct (ip_item_avg_cost) → sibling variant
+    // → open-PO weighted-avg → margin (skipped here, no per-row sale
+    // price). Replaces the previous bespoke cascade that started with
+    // ip_item_master.unit_cost — the latter is poisoned for some prepack
+    // SKUs (carries StandardUnitCost × MasterCaseQty from legacy Excel
+    // uploads, e.g. RYB059430 reads as $160.80 instead of $6.70).
+    // ATS Excel snapshot remains available via the `ats_avg_cost` row
+    // field below as audit data even though it's no longer in the
+    // cascade — operators can compare side-by-side.
+    const resolved = item?.sku_code
+      ? resolveCost(item.sku_code, {
+          avgCostMap: avgCostBySku,
+          siblingsBySku,
+          openPoCostsBySku: openPoCostsBySkuCode,
+        })
+      : { cost: null as number | null, source: "unknown" as const };
+    const resolvedCost = resolved.cost;
     // Always derive avail/shortage/excess from the rolling supply so that
     // planned_buy_qty and the month-to-month roll are always current.
     // rec is kept only for action/reason labels (rebuilt on next forecast run).
