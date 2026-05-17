@@ -22,6 +22,13 @@ export interface GridTotals {
   periodCost: Record<string, number>;
   periodSale: Record<string, number>;
   periodSkipped: Record<string, number>;
+  // Per-period flow $ — receipts (POs arriving) and COGS (SOs shipping).
+  // Always computed from eventIndex regardless of viewMode so the
+  // totals-row B/E Inven chain has consistent flows even when the
+  // operator switches between ATS / SO / PO views. Both use the SKU's
+  // resolved cost (avg cost → PO weighted-avg → margin-derived).
+  periodReceiptsValue: Record<string, number>;
+  periodCogsValue: Record<string, number>;
 }
 
 export interface ComputeTotalsOpts {
@@ -145,9 +152,17 @@ export function computeGridTotals(opts: ComputeTotalsOpts): GridTotals {
   const periodCost: Record<string, number> = {};
   const periodSale: Record<string, number> = {};
   const periodSkipped: Record<string, number> = {};
+  const periodReceiptsValue: Record<string, number> = {};
+  const periodCogsValue: Record<string, number> = {};
   for (let pi = 0; pi < displayPeriods.length; pi++) {
     const p = displayPeriods[pi];
     let q = 0, c = 0, s = 0, skipped = 0;
+    // Receipts$ / COGS$ are flow values driven by PO / SO events
+    // landing in the period — independent of viewMode (the totals row's
+    // B/E Inven chain needs consistent flows even when the grid view
+    // is "ats"). Walk the eventIndex per row + filter to row.store.
+    let receiptsVal = 0;
+    let cogsVal = 0;
     for (const r of filtered) {
       let v: number | undefined;
       if (viewMode === "ats") {
@@ -176,11 +191,34 @@ export function computeGridTotals(opts: ComputeTotalsOpts): GridTotals {
       if (!res) { if (v !== 0) skipped++; continue; }
       c += v * res.cost;
       s += v * res.sale;
+
+      // Receipts + COGS pass — always run from eventIndex regardless of
+      // viewMode so the B/E Inven chain doesn't drift between view
+      // modes. Skip collapsed rows (no children should double-count).
+      if (eventIndex && !r.__collapsed) {
+        const skuIdx = eventIndex[r.sku];
+        if (skuIdx) {
+          const rowStore = r.store;
+          for (const date of Object.keys(skuIdx)) {
+            if (date < p.periodStart || date > p.endDate) continue;
+            for (const po of skuIdx[date].pos) {
+              if (rowStore && (po.store ?? "ROF") !== rowStore) continue;
+              receiptsVal += (po.qty || 0) * res.cost;
+            }
+            for (const so of skuIdx[date].sos) {
+              if (rowStore && (so.store ?? "ROF") !== rowStore) continue;
+              cogsVal += (so.qty || 0) * res.cost;
+            }
+          }
+        }
+      }
     }
     periodQty[p.key] = q;
     periodCost[p.key] = c;
     periodSale[p.key] = s;
     periodSkipped[p.key] = skipped;
+    periodReceiptsValue[p.key] = receiptsVal;
+    periodCogsValue[p.key] = cogsVal;
   }
 
   return {
@@ -191,5 +229,7 @@ export function computeGridTotals(opts: ComputeTotalsOpts): GridTotals {
     periodCost,
     periodSale,
     periodSkipped,
+    periodReceiptsValue,
+    periodCogsValue,
   };
 }

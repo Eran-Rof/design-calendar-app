@@ -404,22 +404,22 @@ export const GridTable: React.FC<GridTableProps> = ({
               return <th key={k} style={{ ...totalsThBase, ...S.stickyCol, left, minWidth: stickyWidths[k], zIndex: 4, ...unfreezeStyle(k) }} />;
             })}
             {/* Sticky bucket cells (On Hand / On Order / On PO) all
-                share the same B and E Inven values — there's only one
-                inventory state across the planning horizon, regardless
-                of which sticky column the operator's looking at:
-                  • B Inven = on-hand × avg-cost  (= sums.onHand.cost —
-                    the starting inventory $ for the horizon)
-                  • E Inven = the last period's running E Inven (=
-                    the final period's cost-basis sum after the
-                    receipts/COGS chain has played through every
-                    period in the horizon)
+                share the same B and E Inven — there's a single
+                inventory state across all three, computed from data
+                from each of them:
+                  • B Inven = sum(onHand_qty × avg_cost)  per the
+                    planner's rule (= sums.onHand.cost)
+                  • E Inven = B + (open POs × avg cost) − (open SOs ×
+                    avg cost) = B + sums.onPO.cost − sums.onOrder.cost
+                    The "period selected" for the sticky cells is the
+                    full horizon, so receipts$ = total $ value of all
+                    open POs and COGS$ = total $ value of all open SOs.
                 Period cells below each carry their own per-period B/E
-                via the running chain. */}
+                via the running chain — first period inherits B from
+                the sticky's E. */}
             {(() => {
               const stickyB = sums.onHand.cost;
-              const stickyE = displayPeriods.length > 0
-                ? (sums.periodCost[displayPeriods[displayPeriods.length - 1].key] ?? stickyB)
-                : stickyB;
+              const stickyE = stickyB + sums.onPO.cost - sums.onOrder.cost;
               return (
                 <>
                   {!isHidden("onHand") && (
@@ -441,25 +441,31 @@ export const GridTable: React.FC<GridTableProps> = ({
               );
             })()}
             {/* Period sums. B / E Inven chain across periods:
-                  • B[period 1] = on-hand × avg-cost (= sums.onHand.cost)
-                  • E[period i] = sums.periodCost[i]   (in ATS viewMode
-                    this is the period-ending inventory $, since
-                    periodQty represents the running ATS balance and
-                    periodCost = qty × cost-basis)
-                  • B[period i+1] = E[period i]
+                  • B[period 1] = sticky's E Inven (= onHand$ + openPO$
+                    − openSO$). Each subsequent period's B = prior
+                    period's E.
+                  • E[period i] = B + receipts$_i − COGS$_i
+                      where receipts$_i = sum of PO event qty in this
+                      period × avg cost, and COGS$_i = sum of SO event
+                      qty in this period × avg cost (both computed
+                      independent of viewMode in computeGridTotals).
                 Chain is built once during render so each map iteration
                 sees the correct prior E. */}
             {(() => {
-              let prevEInven = sums.onHand.cost;
+              const stickyB = sums.onHand.cost;
+              const stickyE = stickyB + sums.onPO.cost - sums.onOrder.cost;
+              let prevEInven = stickyE;
               return displayPeriods.map(p => {
                 const q = sums.periodQty[p.key]     ?? 0;
                 const c = sums.periodCost[p.key]    ?? 0;
                 const s = sums.periodSale[p.key]    ?? 0;
                 const sk = sums.periodSkipped[p.key] ?? 0;
+                const receipts = sums.periodReceiptsValue[p.key] ?? 0;
+                const cogs     = sums.periodCogsValue[p.key]     ?? 0;
                 const isNeg = q < 0;
                 const qtyColor = isNeg ? "#F87171" : (q === 0 ? "#475569" : getQtyColor(q));
                 const bInven = prevEInven;
-                const eInven = c; // running ending-inventory $ at this period
+                const eInven = bInven + receipts - cogs;
                 prevEInven = eInven;
                 return (
                   <th
