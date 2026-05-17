@@ -8,6 +8,15 @@ import { selectGetBrand, selectIsAdmin, selectCanViewAll, selectFiltered, select
 import { STAT_META_CONFIG, type StatFilterKey } from "./dashboard/statMeta";
 import { OverdueBanner } from "./dashboard/OverdueBanner";
 import { EmptyState } from "./dashboard/EmptyState";
+import {
+  DAY_NAMES,
+  buildDayStrip,
+  buildMonthsInRange,
+  groupTasksByDueDate,
+  tasksOnDay,
+  isWeekend,
+} from "./dashboard/calendars";
+import { toDateStr } from "../utils/dates";
 
 export type DashboardCtx = { TaskCard: any };
 
@@ -251,20 +260,7 @@ function DashboardPanelInner({ TaskCard }: DashboardCtx): React.ReactElement | n
                   (() => {
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
-                    const days = Array.from({ length: 8 }, (_, i) => {
-                      const d = new Date(today);
-                      d.setDate(today.getDate() + i);
-                      return d;
-                    });
-                    const DAY_NAMES_FULL = [
-                      "Sun",
-                      "Mon",
-                      "Tue",
-                      "Wed",
-                      "Thu",
-                      "Fri",
-                      "Sat",
-                    ];
+                    const days = buildDayStrip(today, 8);
                     return (
                       <div style={{ marginBottom: 28 }}>
                         {/* Dark gradient header */}
@@ -342,8 +338,7 @@ function DashboardPanelInner({ TaskCard }: DashboardCtx): React.ReactElement | n
                             }}
                           >
                             {days.map((day, i) => {
-                              const isWeekend =
-                                day.getDay() === 0 || day.getDay() === 6;
+                              const weekend = isWeekend(day);
                               return (
                                 <div
                                   key={i}
@@ -351,7 +346,7 @@ function DashboardPanelInner({ TaskCard }: DashboardCtx): React.ReactElement | n
                                     textAlign: "center",
                                     padding: "5px 0 7px",
                                     fontSize: 9,
-                                    color: isWeekend
+                                    color: weekend
                                       ? "rgba(255,255,255,0.3)"
                                       : "rgba(255,255,255,0.5)",
                                     letterSpacing: "0.1em",
@@ -359,7 +354,7 @@ function DashboardPanelInner({ TaskCard }: DashboardCtx): React.ReactElement | n
                                     fontWeight: 700,
                                   }}
                                 >
-                                  {DAY_NAMES_FULL[day.getDay()]}
+                                  {DAY_NAMES[day.getDay()]}
                                 </div>
                               );
                             })}
@@ -373,14 +368,8 @@ function DashboardPanelInner({ TaskCard }: DashboardCtx): React.ReactElement | n
                           }}
                         >
                           {days.map((day, i) => {
-                            const ds = `${day.getFullYear()}-${String(
-                              day.getMonth() + 1
-                            ).padStart(2, "0")}-${String(
-                              day.getDate()
-                            ).padStart(2, "0")}`;
-                            const dayTasks = activeMeta.tasks.filter(
-                              (t) => t.due === ds
-                            );
+                            const ds = toDateStr(day);
+                            const dayTasks = tasksOnDay(activeMeta.tasks, day);
                             const isToday =
                               day.toDateString() === today.toDateString();
                             const isDragTarget =
@@ -575,39 +564,8 @@ function DashboardPanelInner({ TaskCard }: DashboardCtx): React.ReactElement | n
                     rangeStart.setDate(today.getDate() + 1);
                     const rangeEnd = new Date(today);
                     rangeEnd.setDate(today.getDate() + 30);
-                    const tasksByDate = {};
-                    [...dueThisWeek, ...activeMeta.tasks].forEach((t) => {
-                      if (!tasksByDate[t.due]) tasksByDate[t.due] = [];
-                      if (!tasksByDate[t.due].find((x) => x.id === t.id))
-                        tasksByDate[t.due].push(t);
-                    });
-                    const months = [];
-                    let cur = new Date(
-                      rangeStart.getFullYear(),
-                      rangeStart.getMonth(),
-                      1
-                    );
-                    const endMonthStart = new Date(
-                      rangeEnd.getFullYear(),
-                      rangeEnd.getMonth(),
-                      1
-                    );
-                    while (cur <= endMonthStart) {
-                      months.push({
-                        year: cur.getFullYear(),
-                        month: cur.getMonth(),
-                      });
-                      cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
-                    }
-                    const DAY_NAMES = [
-                      "Sun",
-                      "Mon",
-                      "Tue",
-                      "Wed",
-                      "Thu",
-                      "Fri",
-                      "Sat",
-                    ];
+                    const tasksByDate = groupTasksByDueDate([dueThisWeek, activeMeta.tasks]);
+                    const months = buildMonthsInRange(rangeStart, rangeEnd);
                     return (
                       <div style={{ marginBottom: 28 }}>
                         {months.map(({ year, month }) => {
