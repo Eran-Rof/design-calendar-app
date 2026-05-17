@@ -403,28 +403,43 @@ export const GridTable: React.FC<GridTableProps> = ({
               const left = colLeftFrom(k, stickyWidths, hidden) ?? 0;
               return <th key={k} style={{ ...totalsThBase, ...S.stickyCol, left, minWidth: stickyWidths[k], zIndex: 4, ...unfreezeStyle(k) }} />;
             })}
-            {/* On Hand sum. The sticky bucket-snapshot cells don't have a
-                period-flow (no receipts in / COGS out), so B and E both
-                read as the snapshot's own Cost — i.e. the current
-                inventory $ for that bucket. The on-hand value also
-                seeds the first period column's B Inven downstream. */}
-            {!isHidden("onHand") && (
-              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeftFrom("onHand", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onHand, zIndex: 4, ...unfreezeStyle("onHand") }}>
-                <TotalsCell qty={sums.onHand.qty} cost={sums.onHand.cost} sale={sums.onHand.sale} bInven={sums.onHand.cost} eInven={sums.onHand.cost} skipped={sums.onHand.skipped} qtyColor="#F1F5F9" />
-              </th>
-            )}
-            {/* On Order sum */}
-            {!isHidden("onOrder") && (
-              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeftFrom("onOrder", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onOrder, zIndex: 4, ...unfreezeStyle("onOrder") }}>
-                <TotalsCell qty={sums.onOrder.qty} cost={sums.onOrder.cost} sale={sums.onOrder.sale} bInven={sums.onOrder.cost} eInven={sums.onOrder.cost} skipped={sums.onOrder.skipped} qtyColor="#F59E0B" />
-              </th>
-            )}
-            {/* On PO sum */}
-            {!isHidden("onPO") && (
-              <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeftFrom("onPO", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onPO, zIndex: 4, ...unfreezeStyle("onPO") }}>
-                <TotalsCell qty={sums.onPO.qty} cost={sums.onPO.cost} sale={sums.onPO.sale} bInven={sums.onPO.cost} eInven={sums.onPO.cost} skipped={sums.onPO.skipped} qtyColor="#10B981" qtyPrefix="+" />
-              </th>
-            )}
+            {/* Sticky bucket cells (On Hand / On Order / On PO) all
+                share the same B and E Inven values — there's only one
+                inventory state across the planning horizon, regardless
+                of which sticky column the operator's looking at:
+                  • B Inven = on-hand × avg-cost  (= sums.onHand.cost —
+                    the starting inventory $ for the horizon)
+                  • E Inven = the last period's running E Inven (=
+                    the final period's cost-basis sum after the
+                    receipts/COGS chain has played through every
+                    period in the horizon)
+                Period cells below each carry their own per-period B/E
+                via the running chain. */}
+            {(() => {
+              const stickyB = sums.onHand.cost;
+              const stickyE = displayPeriods.length > 0
+                ? (sums.periodCost[displayPeriods[displayPeriods.length - 1].key] ?? stickyB)
+                : stickyB;
+              return (
+                <>
+                  {!isHidden("onHand") && (
+                    <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeftFrom("onHand", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onHand, zIndex: 4, ...unfreezeStyle("onHand") }}>
+                      <TotalsCell qty={sums.onHand.qty} cost={sums.onHand.cost} sale={sums.onHand.sale} bInven={stickyB} eInven={stickyE} skipped={sums.onHand.skipped} qtyColor="#F1F5F9" />
+                    </th>
+                  )}
+                  {!isHidden("onOrder") && (
+                    <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeftFrom("onOrder", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onOrder, zIndex: 4, ...unfreezeStyle("onOrder") }}>
+                      <TotalsCell qty={sums.onOrder.qty} cost={sums.onOrder.cost} sale={sums.onOrder.sale} bInven={stickyB} eInven={stickyE} skipped={sums.onOrder.skipped} qtyColor="#F59E0B" />
+                    </th>
+                  )}
+                  {!isHidden("onPO") && (
+                    <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeftFrom("onPO", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onPO, zIndex: 4, ...unfreezeStyle("onPO") }}>
+                      <TotalsCell qty={sums.onPO.qty} cost={sums.onPO.cost} sale={sums.onPO.sale} bInven={stickyB} eInven={stickyE} skipped={sums.onPO.skipped} qtyColor="#10B981" qtyPrefix="+" />
+                    </th>
+                  )}
+                </>
+              );
+            })()}
             {/* Period sums. B / E Inven chain across periods:
                   • B[period 1] = on-hand × avg-cost (= sums.onHand.cost)
                   • E[period i] = sums.periodCost[i]   (in ATS viewMode
