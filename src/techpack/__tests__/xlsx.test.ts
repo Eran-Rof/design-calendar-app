@@ -5,7 +5,7 @@
 // no FileReader). That's what we cover here.
 
 import { describe, it, expect } from "vitest";
-import { parseSpecSheetAoa } from "../xlsx";
+import { parseSpecSheetAoa, extractStyleInfoFromAoa } from "../xlsx";
 
 describe("parseSpecSheetAoa — legacy flat format", () => {
   it("picks up sizes from header row + values from following rows", () => {
@@ -124,5 +124,63 @@ describe("parseSpecSheetAoa — error path", () => {
 
   it("returns null on an empty workbook", () => {
     expect(parseSpecSheetAoa([])).toBeNull();
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+
+describe("extractStyleInfoFromAoa", () => {
+  it("picks up the four labels with colon suffix", () => {
+    const aoa: any[][] = [
+      [],
+      ["Style #:", "RYB001", "Season:", "SS26", "Vendor:", "Acme"],
+      ["Style Name / Fit:", "Edge Slim", "Issue Date:", "2026-01-01", "Customer:", "ROF"],
+      ["POM", "BLOCK SPECS"], // header row
+    ];
+    expect(extractStyleInfoFromAoa(aoa)).toEqual({
+      styleNumber: "RYB001",
+      styleName:   "Edge Slim",
+      brand:       "ROF",
+      season:      "SS26",
+    });
+  });
+
+  it("accepts the older `STYLE #` / `STYLE NAME:` variants", () => {
+    const aoa: any[][] = [
+      ["Style #", "RYB099"],
+      ["Style Name:", "Bartram"],
+    ];
+    const out = extractStyleInfoFromAoa(aoa);
+    expect(out.styleNumber).toBe("RYB099");
+    expect(out.styleName).toBe("Bartram");
+  });
+
+  it("only scans the first six rows", () => {
+    const aoa: any[][] = [
+      [], [], [], [], [], [],
+      ["Style #:", "TOO_LATE"], // row 7 — ignored
+    ];
+    expect(extractStyleInfoFromAoa(aoa).styleNumber).toBe("");
+  });
+
+  it("trims surrounding whitespace from values", () => {
+    const aoa: any[][] = [
+      ["Customer:", "   ROF Apparel   "],
+    ];
+    expect(extractStyleInfoFromAoa(aoa).brand).toBe("ROF Apparel");
+  });
+
+  it("missing labels stay as empty strings (no nulls)", () => {
+    expect(extractStyleInfoFromAoa([])).toEqual({
+      styleName: "", styleNumber: "", brand: "", season: "",
+    });
+  });
+
+  it("tolerates sparse / missing rows", () => {
+    const aoa: any[][] = [
+      undefined as any,
+      ["Customer:", "ROF"],
+    ];
+    expect(extractStyleInfoFromAoa(aoa).brand).toBe("ROF");
   });
 });

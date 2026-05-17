@@ -345,6 +345,37 @@ export function parseSpecSheetExcel(file: File): Promise<{ rows: SpecSheetRow[];
   });
 }
 
+export interface SpecSheetStyleInfo {
+  styleName:   string;
+  styleNumber: string;
+  brand:       string;  // populated from the "Customer:" header label
+  season:      string;
+}
+
+/**
+ * Scan the first six rows of a spec-sheet AOA for human-readable
+ * label cells (`Style #:`, `Style Name / Fit:`, `Customer:`,
+ * `Season:`) and return their adjacent values. Used by the inline
+ * "Import from Excel" handler in the spec-sheets dashboard. Labels
+ * match case-insensitively after trim — accepts both the colon-
+ * suffix form and an older bare-text variant.
+ */
+export function extractStyleInfoFromAoa(aoa: any[][]): SpecSheetStyleInfo {
+  const out: SpecSheetStyleInfo = { styleName: "", styleNumber: "", brand: "", season: "" };
+  for (const row of aoa.slice(0, 6)) {
+    if (!row) continue;
+    for (let c = 0; c < row.length; c++) {
+      const v = String(row[c] || "").toUpperCase().trim();
+      const next = String(row[c + 1] ?? "").trim();
+      if (v === "STYLE #:" || v === "STYLE #") out.styleNumber = next;
+      if (v === "STYLE NAME / FIT:" || v === "STYLE NAME:") out.styleName = next;
+      if (v === "CUSTOMER:") out.brand = next;
+      if (v === "SEASON:") out.season = next;
+    }
+  }
+  return out;
+}
+
 /**
  * Pure parser separated from the FileReader plumbing so tests can
  * exercise the format-detection logic without faking the browser
