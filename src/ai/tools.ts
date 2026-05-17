@@ -53,6 +53,10 @@ export interface AskAIResponse {
     output_tokens: number | null;
     cost_usd: number;
   };
+  // Present when the answer came from ip_ai_answer_cache instead of a
+  // fresh Claude run. cached_age_seconds tells the client how stale.
+  cached?: boolean;
+  cached_age_seconds?: number;
 }
 
 export interface AskAIHistoryTurn {

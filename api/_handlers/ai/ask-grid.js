@@ -54,6 +54,7 @@ import {
   publicColumns,
 } from "../../_lib/ai-schema.js";
 import { loadLiveSchema } from "../../_lib/ai-live-schema.js";
+import { buildCacheKey, readAnswerCache, writeAnswerCache } from "../../_lib/ai-answer-cache.js";
 
 // Merge curated + live-discovered schemas. Curated entries win on
 // overlap (they carry hand-tuned descriptions). The live domain is
@@ -1037,6 +1038,13 @@ function buildGridContextBlock(ctx) {
   return lines.join("\n");
 }
 
+// "5m" / "42m" / "1h" / "23h" — short relative label for cache age.
+function formatCacheAge(seconds) {
+  if (seconds < 60)   return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  return `${Math.floor(seconds / 3600)}h`;
+}
+
 function summarizeToolResult(name, result) {
   if (!result || typeof result !== "object") return `${name}: ok`;
   if (result.error) return `${name}: error — ${String(result.error).slice(0, 120)}`;
@@ -1120,6 +1128,48 @@ export default async function handler(req, res) {
     { role: "user", content: userMessage },
   ];
 
+  // Answer cache lookup. Only attempted when there's no prior history
+  // (follow-up questions depend on conversation state and aren't
+  // safely cacheable from the question alone). Cache key folds in the
+  // grid filter fingerprint so the same question against different
+  // filters produces different entries.
+  const cacheKey = history.length === 0 ? buildCacheKey(question, gridContext) : null;
+  if (cacheKey) {
+    const hit = await readAnswerCache(db, cacheKey);
+    if (hit) {
+      const acceptStream = String(req.headers?.accept || "").includes("text/event-stream");
+      if (acceptStream) {
+        res.setHeader("Content-Type", "text/event-stream");
+        res.setHeader("Cache-Control", "no-cache, no-transform");
+        res.setHeader("Connection", "keep-alive");
+        res.setHeader("X-Accel-Buffering", "no");
+        if (typeof res.flushHeaders === "function") res.flushHeaders();
+        res.write(`event: stage\ndata: ${JSON.stringify({ label: `Cached answer (${formatCacheAge(hit.cached_age_seconds)} ago)` })}\n\n`);
+        res.write(`event: text_delta\ndata: ${JSON.stringify({ text: hit.answer_text })}\n\n`);
+        res.write(`event: complete\ndata: ${JSON.stringify({
+          text: hit.answer_text,
+          actions: hit.actions,
+          suggestion: hit.suggestion,
+          trace: [{ tool: "cache", summary: `served from cache (${formatCacheAge(hit.cached_age_seconds)} ago)` }],
+          token_usage: hit.token_usage || { input_tokens: 0, output_tokens: 0, cost_usd: 0 },
+          cached: true,
+          cached_age_seconds: hit.cached_age_seconds,
+        })}\n\n`);
+        res.end();
+        return;
+      }
+      return res.status(200).json({
+        text: hit.answer_text,
+        actions: hit.actions,
+        suggestion: hit.suggestion,
+        trace: [{ tool: "cache", summary: `served from cache (${formatCacheAge(hit.cached_age_seconds)} ago)` }],
+        token_usage: hit.token_usage || { input_tokens: 0, output_tokens: 0, cost_usd: 0 },
+        cached: true,
+        cached_age_seconds: hit.cached_age_seconds,
+      });
+    }
+  }
+
   const client = new Anthropic({ apiKey: ANTHROPIC_KEY });
   const trace = [];
 
@@ -1144,6 +1194,7 @@ export default async function handler(req, res) {
   if (accept.includes("text/event-stream")) {
     return runStreaming(req, res, {
       client, db, messages, SYSTEM_CACHED, TOOLS_CACHED, trace,
+      cacheKey, question,
     });
   }
 
@@ -1239,6 +1290,20 @@ export default async function handler(req, res) {
     cost_usd: totalCost,
   });
 
+  // Cache the answer so a repeat of the same question (same filters,
+  // no prior history) returns instantly. Skipped automatically when
+  // actions are non-empty (grid mutations aren't safely replayable).
+  if (cacheKey && text) {
+    await writeAnswerCache(db, {
+      hash: cacheKey,
+      question,
+      answer_text: text,
+      actions,
+      suggestion,
+      token_usage: { input_tokens: totalIn, output_tokens: totalOut, cost_usd: totalCost },
+    });
+  }
+
   return res.status(200).json({
     text,
     actions,
@@ -1290,6 +1355,7 @@ function sseWrite(res, event, data) {
 async function runStreaming(req, res, opts) {
   const {
     client, db, messages, SYSTEM_CACHED, TOOLS_CACHED, trace,
+    cacheKey, question,
   } = opts;
 
   res.setHeader("Content-Type", "text/event-stream");
@@ -1445,6 +1511,19 @@ async function runStreaming(req, res, opts) {
       handler: HANDLER, model: MODEL,
       input_tokens: totalIn, output_tokens: totalOut, cost_usd: totalCost,
     });
+
+    // Cache write — only when no grid mutations + non-empty answer.
+    // Fire-and-forget: don't delay the complete event for the write.
+    if (cacheKey && text) {
+      writeAnswerCache(db, {
+        hash: cacheKey,
+        question,
+        answer_text: text,
+        actions,
+        suggestion,
+        token_usage: { input_tokens: totalIn, output_tokens: totalOut, cost_usd: totalCost },
+      }).catch(() => { /* warn already logged inside the helper */ });
+    }
 
     sseWrite(res, "complete", {
       text, actions, suggestion, trace,
