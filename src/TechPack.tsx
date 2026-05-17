@@ -113,6 +113,11 @@ import { ImagesTab } from "./techpack/tabs/ImagesTab";
 import { BOMTab } from "./techpack/tabs/BOMTab";
 import { SketchTab } from "./techpack/tabs/SketchTab";
 import { SpecTab } from "./techpack/tabs/SpecTab";
+import { MaterialsView } from "./techpack/views/MaterialsView";
+import { LibrariesView } from "./techpack/views/LibrariesView";
+import { SpecSheetsView } from "./techpack/views/SpecSheetsView";
+import { SpecSheetDetail } from "./techpack/views/SpecSheetDetail";
+import { SamplesOverview } from "./techpack/views/SamplesOverview";
 
 // sb helper moved to ./techpack/supabase
 
@@ -1751,81 +1756,21 @@ export default function TechPackApp() {
   }
 
   // ── Materials View ────────────────────────────────────────────────────────
-  function renderMaterialsView() {
-    const filteredMats = filterMaterials(materials, { type: matTypeFilter, search: matSearch });
-
-    return (
-      <>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <h2 style={{ margin: 0, color: "#F1F5F9", fontSize: 22 }}>Materials Library</h2>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => downloadMaterialsExcel(materials)}
-              style={{ background: "#1D6F42", border: "none", borderRadius: 6, padding: "6px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: "#fff", fontSize: 12, fontWeight: 600, fontFamily: "inherit", transition: "background 0.15s" }}
-              onMouseEnter={e => e.currentTarget.style.background = "#155734"}
-              onMouseLeave={e => e.currentTarget.style.background = "#1D6F42"}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" fill="#fff" fillOpacity=".2" stroke="#fff" strokeWidth="1.5"/><path d="M14 2v6h6" stroke="#fff" strokeWidth="1.5"/><path d="M8 13l2.5 4M8 17l2.5-4M13 13v4M15.5 13v4M13 15h2.5" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              Excel
-            </button>
-            <button style={S.btnPrimarySmall} onClick={() => {
-              setEditingMaterial(null);
-              setMatForm(EMPTY_MATERIAL_FORM);
-              setShowMaterialModal(true);
-            }}>+ Add Material</button>
-          </div>
-        </div>
-
-        <div style={S.filters}>
-          <input style={{ ...S.input, maxWidth: 300 }} placeholder="Search materials..." value={matSearch} onChange={e => setMatSearch(e.target.value)} />
-          <select style={S.select} value={matTypeFilter} onChange={e => setMatTypeFilter(e.target.value)}>
-            <option value="">All Types</option>
-            {MATERIAL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-          <span style={{ color: "#6B7280", fontSize: 13 }}>{filteredMats.length} materials</span>
-        </div>
-
-        {filteredMats.length === 0 ? (
-          <div style={S.emptyState}>
-            <div style={{ fontSize: 40 }}>🧵</div>
-            <p>No materials found. Add your first material!</p>
-          </div>
-        ) : (
-          <div style={S.tableWrap}>
-            <div style={S.tableHeader}>
-              <span style={{ flex: 2 }}>Name</span>
-              <span style={{ flex: 1 }}>Type</span>
-              <span style={{ flex: 2 }}>Composition</span>
-              <span style={{ flex: 1 }}>Weight</span>
-              <span style={{ flex: 1 }}>Supplier</span>
-              <span style={{ flex: 1 }}>Price</span>
-              <span style={{ flex: 1 }}>Certs</span>
-              <span style={{ width: 60 }}>Actions</span>
-            </div>
-            {filteredMats.map((m, i) => (
-              <div key={m.id} style={{ ...S.tableRow, background: i % 2 === 0 ? "#0F172A" : "#1A2332" }}>
-                <span style={{ flex: 2, color: "#60A5FA", fontWeight: 600 }}>{m.name}</span>
-                <span style={{ flex: 1, color: "#94A3B8" }}>{m.type}</span>
-                <span style={{ flex: 2, color: "#D1D5DB" }}>{m.composition}</span>
-                <span style={{ flex: 1, color: "#94A3B8" }}>{m.weight}</span>
-                <span style={{ flex: 1, color: "#94A3B8" }}>{m.supplier}</span>
-                <span style={{ flex: 1, color: "#10B981", fontWeight: 600 }}>{fmtCurrency(m.unitPrice)}</span>
-                <span style={{ flex: 1 }}>
-                  {m.certifications.map(c => <span key={c} style={{ ...S.badge, background: "#10B98122", color: "#10B981", border: "1px solid #10B98144", marginRight: 4 }}>{c}</span>)}
-                </span>
-                <span style={{ width: 60, display: "flex", gap: 4 }}>
-                  <button style={S.iconBtn} onClick={() => {
-                    setEditingMaterial(m);
-                    setMatForm({ name: m.name, type: m.type, composition: m.composition, weight: m.weight, width: m.width, color: m.color, supplier: m.supplier, unitPrice: m.unitPrice, moq: m.moq, leadTime: m.leadTime, certifications: m.certifications.join(", "), notes: m.notes });
-                    setShowMaterialModal(true);
-                  }}>✏️</button>
-                  <button style={S.iconBtn} onClick={() => setConfirmDialog({ title: "Delete Material", message: `Delete "${m.name}"? This cannot be undone.`, onConfirm: () => saveMaterials(materials.filter(x => x.id !== m.id)) })}>🗑️</button>
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </>
-    );
-  }
+  const renderMaterialsView = () => (
+    <MaterialsView
+      materials={materials}
+      matSearch={matSearch}
+      setMatSearch={setMatSearch}
+      matTypeFilter={matTypeFilter}
+      setMatTypeFilter={setMatTypeFilter}
+      setEditingMaterial={setEditingMaterial}
+      setMatForm={setMatForm}
+      setShowMaterialModal={setShowMaterialModal}
+      setConfirmDialog={setConfirmDialog}
+      saveMaterials={saveMaterials}
+      downloadMaterialsExcel={downloadMaterialsExcel}
+    />
+  );
 
   // ── Excel helpers — implementations live in ./techpack/xlsx; these
   //    thin wrappers bind showToast so the call sites stay unchanged.
@@ -1837,442 +1782,94 @@ export default function TechPackApp() {
   const parseSpecSheetExcel     = (file: File)                            => tpParseSpecSheetExcel(file);
 
   // ── Libraries View ────────────────────────────────────────────────────────
-  function renderLibrariesView() {
-    return (
-      <>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <h2 style={{ margin: 0, color: "#F1F5F9", fontSize: 22 }}>Libraries</h2>
-        </div>
-        {/* Sub-nav tabs */}
-        <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #334155", marginBottom: 20 }}>
-          {([["materials", "🧵 Materials"], ["specsheets", "📏 Spec Sheets"]] as const).map(([key, label]) => (
-            <button key={key} onClick={() => setLibTab(key)}
-              style={{ padding: "10px 20px", background: "none", border: "none", borderBottom: libTab === key ? "2px solid #3B82F6" : "2px solid transparent", color: libTab === key ? "#60A5FA" : "#6B7280", fontSize: 14, fontWeight: libTab === key ? 700 : 500, cursor: "pointer", fontFamily: "inherit" }}>
-              {label}
-            </button>
-          ))}
-        </div>
-        {libTab === "materials" && renderMaterialsView()}
-        {libTab === "specsheets" && renderSpecSheetsView()}
-      </>
-    );
-  }
+  const renderLibrariesView = () => (
+    <LibrariesView
+      libTab={libTab}
+      setLibTab={setLibTab}
+      materialsView={renderMaterialsView()}
+      specSheetsView={renderSpecSheetsView()}
+    />
+  );
 
   // ── Spec Sheets View ──────────────────────────────────────────────────────
-  function renderSpecSheetsView() {
-    const filteredSS = filterSpecSheets(specSheets, ssSearch);
-
-    return (
-      <>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flex: 1 }}>
-            <input style={{ ...S.input, maxWidth: 300 }} placeholder="Search spec sheets..." value={ssSearch} onChange={e => setSsSearch(e.target.value)} />
-            <span style={{ color: "#6B7280", fontSize: 13 }}>{filteredSS.length} spec sheets</span>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => setShowTemplatesModal(true)}
-              style={{ background: "#334155", border: "1px solid #475569", borderRadius: 6, padding: "6px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: "#F1F5F9", fontSize: 12, fontWeight: 600, fontFamily: "inherit", transition: "background 0.15s" }}
-              onMouseEnter={e => e.currentTarget.style.background = "#475569"}
-              onMouseLeave={e => e.currentTarget.style.background = "#334155"}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="7" height="7" rx="1.5" stroke="#F1F5F9" strokeWidth="1.7"/><rect x="14" y="3" width="7" height="7" rx="1.5" stroke="#F1F5F9" strokeWidth="1.7"/><rect x="3" y="14" width="7" height="7" rx="1.5" stroke="#F1F5F9" strokeWidth="1.7"/><rect x="14" y="14" width="7" height="7" rx="1.5" stroke="#F1F5F9" strokeWidth="1.7"/></svg>
-              Templates ▾
-            </button>
-            <div style={{ position: "relative" }}>
-              <button style={S.btnPrimarySmall} onClick={() => setShowAddImportMenu(v => !v)}>
-                + Add / Import ▾
-              </button>
-              {showAddImportMenu && (
-                <>
-                  <div style={{ position: "fixed", inset: 0, zIndex: 299 }} onClick={() => setShowAddImportMenu(false)} />
-                  <div style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", background: "#1E293B", border: "1px solid #334155", borderRadius: 10, padding: 6, zIndex: 300, minWidth: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
-                    <button style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 14px", background: "none", border: "none", color: "#F1F5F9", fontSize: 13, fontWeight: 600, cursor: "pointer", borderRadius: 6, fontFamily: "inherit", textAlign: "left" }}
-                      onMouseEnter={e => e.currentTarget.style.background = "#334155"}
-                      onMouseLeave={e => e.currentTarget.style.background = "none"}
-                      onClick={() => {
-                        setShowAddImportMenu(false);
-                        setSsForm(EMPTY_SPEC_SHEET_FORM);
-                        setEditingSpecSheet(null);
-                        setShowSpecSheetModal(true);
-                      }}>
-                      <span style={{ fontSize: 16 }}>📏</span>
-                      <div>
-                        <div>Add New Spec Sheet</div>
-                        <div style={{ fontSize: 11, color: "#6B7280", fontWeight: 400 }}>Create from scratch</div>
-                      </div>
-                    </button>
-                    <div style={{ height: 1, background: "#334155", margin: "4px 0" }} />
-                    <label style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 14px", background: "none", border: "none", color: "#F1F5F9", fontSize: 13, fontWeight: 600, cursor: "pointer", borderRadius: 6, fontFamily: "inherit" }}
-                      onMouseEnter={e => (e.currentTarget.style.background = "#334155")}
-                      onMouseLeave={e => (e.currentTarget.style.background = "none")}>
-                      <span style={{ fontSize: 16 }}>📤</span>
-                      <div>
-                        <div>Import from Excel</div>
-                        <div style={{ fontSize: 11, color: "#6B7280", fontWeight: 400 }}>Upload .xlsx file</div>
-                      </div>
-                      <input type="file" accept=".xlsx,.csv" style={{ display: "none" }} onChange={async e => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        setShowAddImportMenu(false);
-                        try {
-                          showToast("Parsing file...");
-                          const XLSX = (window as any).XLSX;
-                          if (!XLSX) { showToast("Excel library loading — try again"); return; }
-                          const reader = new FileReader();
-                          reader.onload = ev => {
-                            try {
-                              const wb = XLSX.read(ev.target?.result, { type: "binary" });
-                              const ws = wb.Sheets[wb.SheetNames[0]];
-                              const aoa: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
-                              const hdr = detectSpecSheetHeader(aoa);
-                              if (!hdr) { showToast("Could not find spec sheet header row"); return; }
-                              const { headerRowIdx, sizes, newFmt } = hdr;
-                              const rows: any[] = [];
-                              for (let i = headerRowIdx + 1; i < aoa.length; i++) {
-                                const row = aoa[i];
-                                const desc = newFmt ? String(row[1] || "").trim() : String(row[0] || "").trim();
-                                if (!desc) continue;
-                                const tol = newFmt ? String(row[5] || "").trim() : String(row[1] || "").trim();
-                                const values: Record<string, string> = {};
-                                sizes.forEach((s, si) => { values[s] = newFmt ? String(row[6 + si * 2] ?? "") : String(row[2 + si] ?? ""); });
-                                rows.push({ id: uid(), pointOfMeasure: desc, tolerance: tol, values });
-                              }
-                              const styleInfo = extractStyleInfoFromAoa(aoa);
-                              const newSheet: SpecSheet = {
-                                id: uid(),
-                                styleName:   styleInfo.styleName || file.name.replace(/\.[^.]+$/, ""),
-                                styleNumber: styleInfo.styleNumber,
-                                brand:       styleInfo.brand,
-                                season:      styleInfo.season,
-                                category: "", description: "", sizes, rows,
-                                createdAt: today(), updatedAt: today(),
-                              };
-                              saveSpecSheets([...specSheets, newSheet]);
-                              setSelectedSpecSheet(newSheet);
-                              showToast(`Imported ${rows.length} measurements`);
-                            } catch (err) { showToast("Parse failed — check file format"); console.error(err); }
-                          };
-                          reader.readAsBinaryString(file);
-                        } catch (err) { showToast("Import failed"); console.error(err); }
-                        e.target.value = "";
-                      }} />
-                    </label>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {filteredSS.length === 0 ? (
-          <div style={S.emptyState}>
-            <div style={{ fontSize: 40 }}>📏</div>
-            <p>No spec sheets yet. Create your first one or upload from Excel.</p>
-          </div>
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 }}>
-            {filteredSS.map(ss => (
-              <div key={ss.id} style={{ ...S.tpCard, cursor: "pointer" }}
-                onMouseEnter={e => (e.currentTarget.style.borderColor = "#3B82F6")}
-                onMouseLeave={e => (e.currentTarget.style.borderColor = "#334155")}
-                onClick={() => setSelectedSpecSheet(ss)}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                  <span style={{ fontFamily: "monospace", color: "#60A5FA", fontWeight: 700, fontSize: 15 }}>{ss.styleNumber || "—"}</span>
-                  <span style={{ color: "#6B7280", fontSize: 11 }}>{ss.rows.length} measurements</span>
-                </div>
-                <div style={{ color: "#F1F5F9", fontWeight: 600, fontSize: 15, marginBottom: 4 }}>{ss.styleName}</div>
-                <div style={{ color: "#94A3B8", fontSize: 13, marginBottom: 8 }}>{ss.brand}{ss.season ? ` · ${ss.season}` : ""}</div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ color: "#6B7280", fontSize: 12 }}>{ss.category}</span>
-                  <div style={{ display: "flex", gap: 4 }} onClick={e => e.stopPropagation()}>
-                    <button title="Download Excel" onClick={() => downloadSpecSheetExcel(ss)}
-                      style={{ background: "#1D6F42", border: "none", borderRadius: 5, padding: "3px 7px", cursor: "pointer", display: "flex", alignItems: "center", gap: 3, color: "#fff", fontSize: 11, fontWeight: 600, fontFamily: "inherit" }}
-                      onMouseEnter={e => e.currentTarget.style.background = "#155734"}
-                      onMouseLeave={e => e.currentTarget.style.background = "#1D6F42"}>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" fill="#fff" fillOpacity=".2" stroke="#fff" strokeWidth="1.5"/><path d="M14 2v6h6" stroke="#fff" strokeWidth="1.5"/><path d="M8 13l2.5 4M8 17l2.5-4M13 13v4M15.5 13v4M13 15h2.5" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                    </button>
-                    <button style={S.iconBtnTiny} title="Edit" onClick={() => { setSelectedSpecSheet(ss); }}>✏️</button>
-                    <button style={{ ...S.iconBtnTiny, color: "#EF4444" }} title="Delete" onClick={() => {
-                      setConfirmDialog({ title: "Delete Spec Sheet", message: `Delete "${ss.styleName || ss.styleNumber || "this spec sheet"}"? This cannot be undone.`, onConfirm: () => saveSpecSheets(specSheets.filter(x => x.id !== ss.id)) });
-                    }}>🗑️</button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </>
-    );
-  }
+  const handleSpecSheetImport = async (file: File) => {
+    try {
+      showToast("Parsing file...");
+      const XLSX = (window as any).XLSX;
+      if (!XLSX) { showToast("Excel library loading — try again"); return; }
+      const reader = new FileReader();
+      reader.onload = (ev: any) => {
+        try {
+          const wb = XLSX.read(ev.target?.result, { type: "binary" });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const aoa: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+          const hdr = detectSpecSheetHeader(aoa);
+          if (!hdr) { showToast("Could not find spec sheet header row"); return; }
+          const { headerRowIdx, sizes, newFmt } = hdr;
+          const rows: any[] = [];
+          for (let i = headerRowIdx + 1; i < aoa.length; i++) {
+            const row = aoa[i];
+            const desc = newFmt ? String(row[1] || "").trim() : String(row[0] || "").trim();
+            if (!desc) continue;
+            const tol = newFmt ? String(row[5] || "").trim() : String(row[1] || "").trim();
+            const values: Record<string, string> = {};
+            sizes.forEach((s, si) => { values[s] = newFmt ? String(row[6 + si * 2] ?? "") : String(row[2 + si] ?? ""); });
+            rows.push({ id: uid(), pointOfMeasure: desc, tolerance: tol, values });
+          }
+          const styleInfo = extractStyleInfoFromAoa(aoa);
+          const newSheet: SpecSheet = {
+            id: uid(),
+            styleName:   styleInfo.styleName || file.name.replace(/\.[^.]+$/, ""),
+            styleNumber: styleInfo.styleNumber,
+            brand:       styleInfo.brand,
+            season:      styleInfo.season,
+            category: "", description: "", sizes, rows,
+            createdAt: today(), updatedAt: today(),
+          };
+          saveSpecSheets([...specSheets, newSheet]);
+          setSelectedSpecSheet(newSheet);
+          showToast(`Imported ${rows.length} measurements`);
+        } catch (err) { showToast("Parse failed — check file format"); console.error(err); }
+      };
+      reader.readAsBinaryString(file);
+    } catch (err) { showToast("Import failed"); console.error(err); }
+  };
+  const renderSpecSheetsView = () => (
+    <SpecSheetsView
+      specSheets={specSheets}
+      ssSearch={ssSearch}
+      setSsSearch={setSsSearch}
+      setShowTemplatesModal={setShowTemplatesModal}
+      setSsForm={setSsForm}
+      setEditingSpecSheet={setEditingSpecSheet}
+      setShowSpecSheetModal={setShowSpecSheetModal}
+      setSelectedSpecSheet={setSelectedSpecSheet}
+      downloadSpecSheetExcel={downloadSpecSheetExcel}
+      saveSpecSheets={saveSpecSheets}
+      setConfirmDialog={setConfirmDialog}
+      onImportFile={handleSpecSheetImport}
+    />
+  );
 
   // ── Spec Sheet Detail Panel ───────────────────────────────────────────────
-  function renderSpecSheetDetail() {
-    const ss = selectedSpecSheet!;
-    const sizes = ss.sizes;
-
-    const updateSS = (changes: Partial<SpecSheet>) => {
-      const updated = { ...ss, ...changes, updatedAt: today() };
-      setSelectedSpecSheet(updated);
-      saveSpecSheets(specSheets.map(x => x.id === updated.id ? updated : x));
-    };
-
-    const addRow = () => updateSS({ rows: [...ss.rows, createSpecSheetRow(sizes)] });
-
-    const addSizeCol = (sizeName: string) => {
-      const next = addSizeToSpecSheet(ss.rows, sizes, sizeName);
-      if (next.sizes !== sizes) updateSS(next); // skip the no-op trim-to-empty case
-    };
-
-    const removeSizeCol = (sizeName: string) => {
-      updateSS(removeSizeFromSpecSheet(ss.rows, sizes, sizeName));
-    };
-
-    return (
-      <div style={S.detailOverlay} onClick={() => setSelectedSpecSheet(null)}>
-        <div style={S.detailPanel} onClick={e => e.stopPropagation()}>
-          {/* Header */}
-          <div style={S.detailHeader}>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={S.detailPONum}>{ss.styleNumber || "—"}</span>
-              </div>
-              <div style={S.detailVendor}>{ss.styleName}</div>
-              <div style={{ color: "#6B7280", fontSize: 13, marginTop: 4 }}>{ss.brand}{ss.season ? ` · ${ss.season}` : ""}{ss.category ? ` · ${ss.category}` : ""}</div>
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-              <button onClick={() => downloadSpecSheetExcel(ss)}
-                style={{ background: "#1D6F42", border: "none", borderRadius: 6, padding: "6px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: "#fff", fontSize: 12, fontWeight: 600, fontFamily: "inherit", transition: "background 0.15s" }}
-                onMouseEnter={e => e.currentTarget.style.background = "#155734"}
-                onMouseLeave={e => e.currentTarget.style.background = "#1D6F42"}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" fill="#fff" fillOpacity=".2" stroke="#fff" strokeWidth="1.5"/><path d="M14 2v6h6" stroke="#fff" strokeWidth="1.5"/><path d="M8 13l2.5 4M8 17l2.5-4M13 13v4M15.5 13v4M13 15h2.5" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                Excel
-              </button>
-              <label style={S.btnSmall} title="Upload from Excel">
-                📤 Upload Excel
-                <input type="file" accept=".xlsx,.csv" style={{ display: "none" }} onChange={async e => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  try {
-                    showToast("Parsing file...");
-                    const result = await parseSpecSheetExcel(file);
-                    updateSS({ rows: result.rows, sizes: result.sizes });
-                    showToast("Spec sheet imported!");
-                  } catch (err) {
-                    showToast("Failed to parse file");
-                    console.error(err);
-                  }
-                }} />
-              </label>
-              <button style={S.closeBtn} onClick={() => setSelectedSpecSheet(null)}>✕</button>
-            </div>
-          </div>
-
-          {/* Content */}
-          <div style={{ padding: 24, flex: 1, overflowY: "auto" }}>
-            {/* Style Info */}
-            {(() => {
-              const selStyle = { ...S.input, appearance: "none" as const };
-              const ssPres = SIZE_PRESETS;
-              const detSubCats = subCategoriesFor(dcCategories, ss.category);
-              return (
-                <div style={{ background: "#0F172A", borderRadius: 10, padding: 16, marginBottom: 20, border: "1px solid #334155" }}>
-                  <div style={{ color: "#94A3B8", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, fontWeight: 600, marginBottom: 12 }}>Style Info</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-                    <div>
-                      <label style={S.label}>Style Name</label>
-                      <input style={S.input} value={ss.styleName} onChange={e => updateSS({ styleName: e.target.value })} />
-                    </div>
-                    <div>
-                      <label style={S.label}>Style Number</label>
-                      <input style={S.input} value={ss.styleNumber} onChange={e => updateSS({ styleNumber: e.target.value })} />
-                    </div>
-                    <div>
-                      <label style={S.label}>Brand</label>
-                      {dcBrands.length > 0 ? (
-                        <select style={selStyle} value={ss.brand} onChange={e => updateSS({ brand: e.target.value })}>
-                          <option value="">— select —</option>
-                          {dcBrands.map((b: any) => <option key={b.name} value={b.name}>{b.name}</option>)}
-                        </select>
-                      ) : (
-                        <input style={S.input} value={ss.brand} onChange={e => updateSS({ brand: e.target.value })} />
-                      )}
-                    </div>
-                    <div>
-                      <label style={S.label}>Season</label>
-                      {dcSeasons.length > 0 ? (
-                        <select style={selStyle} value={ss.season} onChange={e => updateSS({ season: e.target.value })}>
-                          <option value="">— select —</option>
-                          {dcSeasons.map((s: string) => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                      ) : (
-                        <input style={S.input} value={ss.season} onChange={e => updateSS({ season: e.target.value })} />
-                      )}
-                    </div>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-                    <div>
-                      <label style={S.label}>Category</label>
-                      {dcCategories.length > 0 ? (
-                        <select style={selStyle} value={ss.category} onChange={e => updateSS({ category: e.target.value, subCategory: "" })}>
-                          <option value="">— select —</option>
-                          {dcCategories.map((c: any) => <option key={c.name} value={c.name}>{c.name}</option>)}
-                        </select>
-                      ) : (
-                        <input style={S.input} value={ss.category} onChange={e => updateSS({ category: e.target.value })} />
-                      )}
-                    </div>
-                    {detSubCats.length > 0 && (
-                      <div>
-                        <label style={S.label}>Sub-Category</label>
-                        <select style={selStyle} value={ss.subCategory || ""} onChange={e => updateSS({ subCategory: e.target.value })}>
-                          <option value="">— select —</option>
-                          {detSubCats.map((sc: string) => <option key={sc} value={sc}>{sc}</option>)}
-                        </select>
-                      </div>
-                    )}
-                    <div>
-                      <label style={S.label}>Gender</label>
-                      {dcGenders.length > 0 ? (
-                        <select style={selStyle} value={ss.gender || ""} onChange={e => updateSS({ gender: e.target.value })}>
-                          <option value="">— select —</option>
-                          {dcGenders.map((g: string) => <option key={g} value={g}>{g}</option>)}
-                        </select>
-                      ) : (
-                        <input style={S.input} value={ss.gender || ""} onChange={e => updateSS({ gender: e.target.value })} />
-                      )}
-                    </div>
-                    <div>
-                      <label style={S.label}>Vendor</label>
-                      {dcVendors.length > 0 ? (
-                        <select style={selStyle} value={ss.vendor || ""} onChange={e => updateSS({ vendor: e.target.value })}>
-                          <option value="">— select —</option>
-                          {dcVendors.map((v: any) => <option key={v.name} value={v.name}>{v.name}</option>)}
-                        </select>
-                      ) : (
-                        <input style={S.input} value={ss.vendor || ""} onChange={e => updateSS({ vendor: e.target.value })} />
-                      )}
-                    </div>
-                  </div>
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={S.label}>Description</label>
-                    <input style={S.input} value={ss.description} onChange={e => updateSS({ description: e.target.value })} />
-                  </div>
-                  <div>
-                    <label style={S.label}>Sizes</label>
-                    <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 6, marginBottom: 8 }}>
-                      {ssPres.map(p => (
-                        <button key={p.label} style={{ ...S.btnSmall, fontSize: 11 }} onClick={() => {
-                          const newRows = ss.rows.map(r => {
-                            const v: Record<string, string> = {};
-                            p.sizes.forEach(s => { v[s] = r.values[s] || ""; });
-                            return { ...r, values: v };
-                          });
-                          updateSS({ sizes: p.sizes, rows: newRows });
-                        }}>{p.label}</button>
-                      ))}
-                    </div>
-                    <input style={S.input} value={ss.sizes.join(", ")} onChange={e => {
-                      const newSizes = e.target.value.split(",").map(s => s.trim()).filter(Boolean);
-                      const newRows = ss.rows.map(r => {
-                        const v: Record<string, string> = {};
-                        newSizes.forEach(s => { v[s] = r.values[s] || ""; });
-                        return { ...r, values: v };
-                      });
-                      updateSS({ sizes: newSizes, rows: newRows });
-                    }} />
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Measurements Table */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <h3 style={{ margin: 0, color: "#F1F5F9", fontSize: 16 }}>Measurements</h3>
-              <div style={{ display: "flex", gap: 8 }}>
-                {showNewSizeInput ? (
-                  <>
-                    <input style={{ ...S.input, width: 80, padding: "4px 8px", fontSize: 12 }} placeholder="Size" value={newSizeInput} onChange={e => setNewSizeInput(e.target.value)} />
-                    <button style={S.btnSmall} onClick={() => { addSizeCol(newSizeInput); setNewSizeInput(""); setShowNewSizeInput(false); }}>Add</button>
-                    <button style={{ ...S.btnSmall, background: "none", color: "#6B7280" }} onClick={() => setShowNewSizeInput(false)}>Cancel</button>
-                  </>
-                ) : (
-                  <button style={S.btnSmall} onClick={() => setShowNewSizeInput(true)}>+ Size Column</button>
-                )}
-                <button style={{ ...S.btnSmall, background: "#1E3A5F", color: "#93C5FD", border: "1px solid #2D5A8E" }} onClick={() => updateSS({ rows: [...ss.rows, { id: uid(), pointOfMeasure: "New Section", tolerance: "", values: {}, isSection: true }] })}>+ Section</button>
-                <button style={S.btnSmall} onClick={addRow}>+ Measurement</button>
-              </div>
-            </div>
-
-            {ss.rows.length === 0 ? (
-              <div style={{ ...S.emptyState, padding: 30 }}>
-                <p style={{ color: "#6B7280", fontSize: 13 }}>No measurements yet. Add rows or upload from Excel.</p>
-              </div>
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table style={S.table}>
-                  <thead>
-                    <tr>
-                      <th style={S.th}>Point of Measure</th>
-                      <th style={S.th}>Tolerance</th>
-                      {sizes.map(s => (
-                        <th key={s} style={S.th}>
-                          {s}
-                          <button style={{ ...S.iconBtnTiny, marginLeft: 4 }} onClick={() => removeSizeCol(s)}>✕</button>
-                        </th>
-                      ))}
-                      <th style={S.th}>Del</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ss.rows.map((row, idx) => (
-                      row.isSection ? (
-                        <tr key={row.id}>
-                          <td colSpan={3 + sizes.length} style={{ background: "#1E3A5F", color: "#93C5FD", fontWeight: 700, fontSize: 12, padding: "6px 10px", letterSpacing: 0.5, borderTop: "1px solid #334155", borderBottom: "1px solid #334155" }}>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                              <input style={{ background: "none", border: "none", color: "#93C5FD", fontWeight: 700, fontSize: 12, width: "100%", fontFamily: "inherit", cursor: "text", letterSpacing: 0.5 }} value={row.pointOfMeasure} onChange={e => { const updated = [...ss.rows]; updated[idx] = { ...row, pointOfMeasure: e.target.value }; updateSS({ rows: updated }); }} />
-                              <button style={{ ...S.iconBtnTiny, flexShrink: 0, marginLeft: 4 }} onClick={() => updateSS({ rows: ss.rows.filter(x => x.id !== row.id) })}>🗑️</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ) : (
-                      <tr key={row.id} style={{ background: idx % 2 === 0 ? "#0F172A" : "#1A2332" }}>
-                        <td style={S.td}>
-                          <input style={S.cellInput} value={row.pointOfMeasure} onChange={e => {
-                            const updated = [...ss.rows];
-                            updated[idx] = { ...row, pointOfMeasure: e.target.value };
-                            updateSS({ rows: updated });
-                          }} placeholder="e.g. Chest" />
-                        </td>
-                        <td style={S.td}>
-                          <input style={{ ...S.cellInput, width: 70 }} value={row.tolerance} onChange={e => {
-                            const updated = [...ss.rows];
-                            updated[idx] = { ...row, tolerance: e.target.value };
-                            updateSS({ rows: updated });
-                          }} />
-                        </td>
-                        {sizes.map(s => (
-                          <td key={s} style={S.td}>
-                            <input style={{ ...S.cellInput, width: 60, textAlign: "center" }} value={row.values[s] || ""} onChange={e => {
-                              const updated = [...ss.rows];
-                              updated[idx] = { ...row, values: { ...row.values, [s]: e.target.value } };
-                              updateSS({ rows: updated });
-                            }} />
-                          </td>
-                        ))}
-                        <td style={S.td}>
-                          <button style={S.iconBtnTiny} onClick={() => updateSS({ rows: ss.rows.filter(x => x.id !== row.id) })}>🗑️</button>
-                        </td>
-                      </tr>
-                      )
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const renderSpecSheetDetail = () => selectedSpecSheet ? (
+    <SpecSheetDetail
+      ss={selectedSpecSheet}
+      onSave={(updated) => {
+        setSelectedSpecSheet(updated);
+        saveSpecSheets(specSheets.map(x => x.id === updated.id ? updated : x));
+      }}
+      onClose={() => setSelectedSpecSheet(null)}
+      dcBrands={dcBrands}
+      dcSeasons={dcSeasons}
+      dcCategories={dcCategories}
+      dcGenders={dcGenders}
+      dcVendors={dcVendors}
+      downloadSpecSheetExcel={downloadSpecSheetExcel}
+      parseSpecSheetExcel={parseSpecSheetExcel}
+      showToast={showToast}
+    />
+  ) : null;
 
   // ── Spec Sheet Create Modal ───────────────────────────────────────────────
   function renderSpecSheetModal() {
@@ -2576,46 +2173,7 @@ export default function TechPackApp() {
   }
 
   // ── Samples Overview ──────────────────────────────────────────────────────
-  function renderSamplesOverview() {
-    return (
-      <>
-        <h2 style={{ margin: "0 0 16px", color: "#F1F5F9", fontSize: 22 }}>All Samples</h2>
-        {allSamples.length === 0 ? (
-          <div style={S.emptyState}>
-            <div style={{ fontSize: 40 }}>🧪</div>
-            <p>No samples tracked across any tech packs</p>
-          </div>
-        ) : (
-          <div style={S.tableWrap}>
-            <div style={S.tableHeader}>
-              <span style={{ flex: 1 }}>Style #</span>
-              <span style={{ flex: 2 }}>Style Name</span>
-              <span style={{ flex: 1 }}>Type</span>
-              <span style={{ flex: 1 }}>Status</span>
-              <span style={{ flex: 1 }}>Vendor</span>
-              <span style={{ flex: 1 }}>Requested</span>
-              <span style={{ flex: 1 }}>Received</span>
-            </div>
-            {allSamples.map((s, i) => (
-              <div key={s.id} style={{ ...S.tableRow, background: i % 2 === 0 ? "#0F172A" : "#1A2332" }}>
-                <span style={{ flex: 1, color: "#60A5FA", fontFamily: "monospace", fontWeight: 600 }}>{(s as any).styleNumber}</span>
-                <span style={{ flex: 2, color: "#D1D5DB" }}>{(s as any).styleName}</span>
-                <span style={{ flex: 1 }}>
-                  <span style={{ ...S.badge, background: "#3B82F622", color: "#3B82F6", border: "1px solid #3B82F644" }}>{s.type}</span>
-                </span>
-                <span style={{ flex: 1 }}>
-                  <span style={{ ...S.badge, background: (SAMPLE_STATUS_COLORS[s.status] || "#6B7280") + "22", color: SAMPLE_STATUS_COLORS[s.status] || "#6B7280", border: `1px solid ${SAMPLE_STATUS_COLORS[s.status] || "#6B7280"}44` }}>{s.status}</span>
-                </span>
-                <span style={{ flex: 1, color: "#94A3B8" }}>{s.vendor}</span>
-                <span style={{ flex: 1, color: "#94A3B8", fontSize: 12 }}>{fmtDate(s.requestDate)}</span>
-                <span style={{ flex: 1, color: "#94A3B8", fontSize: 12 }}>{fmtDate(s.receiveDate)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </>
-    );
-  }
+  const renderSamplesOverview = () => <SamplesOverview allSamples={allSamples} />;
 
   // ══════════════════════════════════════════════════════════════════════════
   // DETAIL PANEL
