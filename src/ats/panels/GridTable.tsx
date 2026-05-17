@@ -60,10 +60,10 @@ function renderQty(opts: {
 
 // Height of the totals row at the top of the table. Used to push the
 // regular sticky header down so the two stack without overlap. Holds
-// five stacked content lines (Qty / Cost / Sale / Mrgn $ / Mrgn) plus
-// breathing room above and below — empty space is ~50% of the original
-// (doubled from the 25%-tight version per operator follow-up).
-const TOTALS_ROW_HEIGHT = 86;
+// seven stacked content lines (Qty / B Inven / Cost / Sale / Mrgn $ /
+// Mrgn / E Inven) plus breathing room above and below. Sized so each
+// line gets the same ~17px slot as the original 5-line layout.
+const TOTALS_ROW_HEIGHT = 120;
 
 // Sticky-left column metadata. Order matters — drives both the
 // header rendering and the data-row cell order. autoFit:true columns
@@ -258,6 +258,10 @@ export const GridTable: React.FC<GridTableProps> = ({
       }
       if (showTotalsRow) {
         const slot = meta.key === "onHand" ? sums.onHand : meta.key === "onOrder" ? sums.onOrder : sums.onPO;
+        // Sticky bucket cells show B Inven = E Inven = slot.cost (no
+        // period flow), so the same fmtUSD width applies — no extra
+        // candidate strings needed beyond what the existing 5 lines
+        // already cover.
         const lines = [
           slot.qty.toLocaleString(),
           fmtUSD(slot.cost),
@@ -315,18 +319,28 @@ export const GridTable: React.FC<GridTableProps> = ({
     verticalAlign: "middle",
   };
 
-  // Renders a single totals cell with four stacked lines: Qty / Cost /
-  // Sale / Mrgn. Each line is "Label: value". Color matches the
-  // column's value accent. Margin % = (sale - cost) / sale × 100.
+  // Renders a single totals cell with stacked lines:
+  //   Qty / B Inven / Cost / Sale / Mrgn $ / Mrgn % / E Inven
+  // B Inven = inventory $ at start of the period (= previous period's
+  // E Inven, or current on-hand × avg-cost for the first period).
+  // E Inven = B Inven + receipts$ − COGS$ (= the period's ending
+  // inventory $). The B/E chain is threaded in from GridTable's render
+  // — this component just displays whatever the parent passes.
+  //
+  // For sticky on-hand / on-order / on-po cells, B and E both equal
+  // Cost (the slot represents a single snapshot, no flow), which we
+  // surface so the cell still renders the labels for visual consistency.
   type TotalsCellProps = {
     qty: number;
     cost: number;
     sale: number;
+    bInven: number;
+    eInven: number;
     qtyColor: string;
     qtyPrefix?: string; // for "+" on On PO
     skipped: number;    // SKUs ignored due to no SO/avgCost/PO cost
   };
-  const TotalsCell: React.FC<TotalsCellProps> = ({ qty, cost, sale, qtyColor, qtyPrefix, skipped }) => {
+  const TotalsCell: React.FC<TotalsCellProps> = ({ qty, cost, sale, bInven, eInven, qtyColor, qtyPrefix, skipped }) => {
     const marginDollars = sale - cost;
     const margin = sale > 0 ? (marginDollars / sale) * 100 : 0;
     const marginColor = !sale ? "#475569" : margin >= 30 ? "#10B981" : margin >= 10 ? "#F59E0B" : "#F87171";
@@ -351,6 +365,8 @@ export const GridTable: React.FC<GridTableProps> = ({
         <span style={{ ...valueStyle, color: qtyColor, fontWeight: 700, fontSize: 12 }}>
           {qty === 0 ? "—" : `${qtyPrefix ?? ""}${qty.toLocaleString()}`}
         </span>
+        <span style={labelStyle} title="Beginning inventory $ for the period (= previous period's E Inven, or on-hand × avg cost for the first period)">B Inven:</span>
+        <span style={{ ...valueStyle, color: "#A78BFA", fontWeight: 600, fontSize: 11 }}>{bInven > 0 ? fmtUSD(bInven) : "—"}</span>
         <span style={labelStyle}>Cost:</span>
         <span style={{ ...valueStyle, color: "#94A3B8", fontWeight: 600, fontSize: 11 }}>{fmtUSD(cost)}</span>
         <span style={labelStyle}>Sale:</span>
@@ -363,6 +379,8 @@ export const GridTable: React.FC<GridTableProps> = ({
         <span style={{ ...valueStyle, color: marginColor, fontWeight: 600, fontSize: 11 }} title={skipTitle}>
           {sale > 0 ? `${margin.toFixed(1)}%` : "—"}
         </span>
+        <span style={labelStyle} title="Ending inventory $ for the period (= B Inven + receipts$ − COGS$). Flows to the next period's B Inven.">E Inven:</span>
+        <span style={{ ...valueStyle, color: "#F472B6", fontWeight: 600, fontSize: 11 }}>{eInven > 0 ? fmtUSD(eInven) : "—"}</span>
       </div>
     );
   };
@@ -385,45 +403,63 @@ export const GridTable: React.FC<GridTableProps> = ({
               const left = colLeftFrom(k, stickyWidths, hidden) ?? 0;
               return <th key={k} style={{ ...totalsThBase, ...S.stickyCol, left, minWidth: stickyWidths[k], zIndex: 4, ...unfreezeStyle(k) }} />;
             })}
-            {/* On Hand sum */}
+            {/* On Hand sum. The sticky bucket-snapshot cells don't have a
+                period-flow (no receipts in / COGS out), so B and E both
+                read as the snapshot's own Cost — i.e. the current
+                inventory $ for that bucket. The on-hand value also
+                seeds the first period column's B Inven downstream. */}
             {!isHidden("onHand") && (
               <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeftFrom("onHand", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onHand, zIndex: 4, ...unfreezeStyle("onHand") }}>
-                <TotalsCell qty={sums.onHand.qty} cost={sums.onHand.cost} sale={sums.onHand.sale} skipped={sums.onHand.skipped} qtyColor="#F1F5F9" />
+                <TotalsCell qty={sums.onHand.qty} cost={sums.onHand.cost} sale={sums.onHand.sale} bInven={sums.onHand.cost} eInven={sums.onHand.cost} skipped={sums.onHand.skipped} qtyColor="#F1F5F9" />
               </th>
             )}
             {/* On Order sum */}
             {!isHidden("onOrder") && (
               <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeftFrom("onOrder", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onOrder, zIndex: 4, ...unfreezeStyle("onOrder") }}>
-                <TotalsCell qty={sums.onOrder.qty} cost={sums.onOrder.cost} sale={sums.onOrder.sale} skipped={sums.onOrder.skipped} qtyColor="#F59E0B" />
+                <TotalsCell qty={sums.onOrder.qty} cost={sums.onOrder.cost} sale={sums.onOrder.sale} bInven={sums.onOrder.cost} eInven={sums.onOrder.cost} skipped={sums.onOrder.skipped} qtyColor="#F59E0B" />
               </th>
             )}
             {/* On PO sum */}
             {!isHidden("onPO") && (
               <th style={{ ...totalsThBase, ...S.stickyCol, left: colLeftFrom("onPO", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onPO, zIndex: 4, ...unfreezeStyle("onPO") }}>
-                <TotalsCell qty={sums.onPO.qty} cost={sums.onPO.cost} sale={sums.onPO.sale} skipped={sums.onPO.skipped} qtyColor="#10B981" qtyPrefix="+" />
+                <TotalsCell qty={sums.onPO.qty} cost={sums.onPO.cost} sale={sums.onPO.sale} bInven={sums.onPO.cost} eInven={sums.onPO.cost} skipped={sums.onPO.skipped} qtyColor="#10B981" qtyPrefix="+" />
               </th>
             )}
-            {/* Period sums */}
-            {displayPeriods.map(p => {
-              const q = sums.periodQty[p.key]     ?? 0;
-              const c = sums.periodCost[p.key]    ?? 0;
-              const s = sums.periodSale[p.key]    ?? 0;
-              const sk = sums.periodSkipped[p.key] ?? 0;
-              const isNeg = q < 0;
-              const qtyColor = isNeg ? "#F87171" : (q === 0 ? "#475569" : getQtyColor(q));
-              return (
-                <th
-                  key={`tot-${p.key}`}
-                  style={{
-                    ...totalsThBase,
-                    minWidth: rangeUnit === "days" ? 68 : rangeUnit === "weeks" ? 120 : 100,
-                    background: p.isToday ? "#1a2a1e" : p.isWeekend ? "#141e2e" : "#1E293B",
-                  }}
-                >
-                  <TotalsCell qty={q} cost={c} sale={s} qtyColor={qtyColor} skipped={sk} />
-                </th>
-              );
-            })}
+            {/* Period sums. B / E Inven chain across periods:
+                  • B[period 1] = on-hand × avg-cost (= sums.onHand.cost)
+                  • E[period i] = sums.periodCost[i]   (in ATS viewMode
+                    this is the period-ending inventory $, since
+                    periodQty represents the running ATS balance and
+                    periodCost = qty × cost-basis)
+                  • B[period i+1] = E[period i]
+                Chain is built once during render so each map iteration
+                sees the correct prior E. */}
+            {(() => {
+              let prevEInven = sums.onHand.cost;
+              return displayPeriods.map(p => {
+                const q = sums.periodQty[p.key]     ?? 0;
+                const c = sums.periodCost[p.key]    ?? 0;
+                const s = sums.periodSale[p.key]    ?? 0;
+                const sk = sums.periodSkipped[p.key] ?? 0;
+                const isNeg = q < 0;
+                const qtyColor = isNeg ? "#F87171" : (q === 0 ? "#475569" : getQtyColor(q));
+                const bInven = prevEInven;
+                const eInven = c; // running ending-inventory $ at this period
+                prevEInven = eInven;
+                return (
+                  <th
+                    key={`tot-${p.key}`}
+                    style={{
+                      ...totalsThBase,
+                      minWidth: rangeUnit === "days" ? 68 : rangeUnit === "weeks" ? 120 : 100,
+                      background: p.isToday ? "#1a2a1e" : p.isWeekend ? "#141e2e" : "#1E293B",
+                    }}
+                  >
+                    <TotalsCell qty={q} cost={c} sale={s} bInven={bInven} eInven={eInven} qtyColor={qtyColor} skipped={sk} />
+                  </th>
+                );
+              });
+            })()}
           </tr>
           )}
           {/* Column headers — pushed below the totals row */}
