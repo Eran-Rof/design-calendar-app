@@ -46,14 +46,16 @@ export function extractPpk(value: string | null | undefined): number | null {
  *  passes `null` for the color slot since it doesn't carry a separate
  *  color column, but the same priority chain still applies.
  *
- *  Identity gate: `sku` (or `style`) MUST contain "PPK" before we'll
- *  return a multiplier > 1. Without this, a non-prepack row that
- *  shares a style with a prepack — e.g. RYB059430 alongside
- *  RYB059430PPK — could pick up a mistaken PPK24 token from its
- *  description (cross-ref text, badge note, master leakage) and have
- *  its on-hand / on-PO / on-SO multiplied 24x. The gate refuses to
- *  trust description/size/color signals when the SKU itself isn't
- *  a prepack. */
+ *  Identity gate: sku, style, OR size must contain "PPK" before we'll
+ *  return a multiplier > 1. Size is treated as a valid identity signal
+ *  because for older styles (e.g. RCB1510NPT, sold both as eachs and
+ *  as prepacks) the prepack-ness is encoded in the size column rather
+ *  than the style name. Description is intentionally NOT in the gate:
+ *  description is free text and can carry a stray "PPK24" token (cross-
+ *  ref note, leakage from master) on a non-prepack row that shares a
+ *  style with a prepack — e.g. RYB059430 alongside RYB059430PPK — and
+ *  without the gate that row would have its on-hand / on-PO / on-SO
+ *  multiplied 24x. */
 export function ppkMultiplier(
   color: string | null | undefined,
   size: string | null | undefined,
@@ -63,7 +65,8 @@ export function ppkMultiplier(
 ): number {
   const skuLooksPpk = !!sku && /PPK/i.test(sku);
   const styleLooksPpk = !!style && /PPK/i.test(style);
-  if (!skuLooksPpk && !styleLooksPpk) return 1;
+  const sizeLooksPpk = !!size && /PPK/i.test(size);
+  if (!skuLooksPpk && !styleLooksPpk && !sizeLooksPpk) return 1;
   return (
     extractPpk(color) ??
     extractPpk(size) ??

@@ -74,13 +74,16 @@ describe("ppkMultiplier — order of resolution", () => {
     expect(ppkMultiplier("PPK", "PPK24", null, "RYB1311PPK")).toBe(24);
   });
 
-  it("identity gate — refuses to multiply when neither SKU nor style signals prepack", () => {
+  it("identity gate — refuses to multiply when SKU, style, AND size all lack PPK", () => {
     // RYB059430 shares a style with the prepack RYB059430PPK but is itself
-    // a non-prepack row. Even if its description (or any other field) carries
-    // a stray 'PPK24' token, multiplier must stay 1 — multiplying by 24
-    // would 24x the on-hand / on-PO / on-SO bloat the planner sees.
+    // a non-prepack row. A stray 'PPK24' in description (cross-ref text,
+    // master leakage) must not bloat its on-hand 24x — description alone
+    // can never satisfy the gate.
     expect(ppkMultiplier(null, null, "see RYB059430PPK24 prepack", "RYB059430", "RYB059430")).toBe(1);
-    expect(ppkMultiplier("PPK24", "PPK6", null, "RYB1311", "RYB1311")).toBe(1);
+    // Color-only signal also refused — color is structured but historically
+    // the master sometimes carries promo/marketing color values that aren't
+    // a reliable prepack identity signal.
+    expect(ppkMultiplier("PPK24", null, null, "RYB1311", "RYB1311")).toBe(1);
   });
 
   it("identity gate — accepts when SKU contains PPK", () => {
@@ -92,6 +95,15 @@ describe("ppkMultiplier — order of resolution", () => {
     // master-resolved style code does (e.g. variant SKU 'ABC-RED'
     // matches a master row whose style_code is 'ABCPPK').
     expect(ppkMultiplier(null, "PPK24", null, "ABCPPK", "ABC-RED")).toBe(24);
+  });
+
+  it("identity gate — accepts when size contains PPK (older sized-prepack styles)", () => {
+    // Older styles like RCB1510NPT were sold in both eachs and prepacks;
+    // the prepack-ness is encoded in the SIZE column (e.g. "PPK24") rather
+    // than the style name. The eachs row carries a non-PPK size and must
+    // stay at mult=1; the prepack row must pick up the size signal.
+    expect(ppkMultiplier(null, "PPK24", null, "RCB1510NPT", "RCB1510NPT-BLK")).toBe(24);
+    expect(ppkMultiplier(null, "M",     null, "RCB1510NPT", "RCB1510NPT-BLK")).toBe(1);
   });
 });
 
