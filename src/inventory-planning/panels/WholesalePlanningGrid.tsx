@@ -34,6 +34,15 @@ import {
   cmp,
 } from "./wholesale-planning/gridUtils";
 import { Th } from "./wholesale-planning/Th";
+import {
+  FREEZABLE_COLS,
+  FREEZE_LABELS,
+  TOGGLEABLE_COLUMNS,
+  COLUMN_LABEL,
+  genderLabel,
+  type FreezeKey,
+} from "./wholesale-planning/columns";
+import { computeColumnWidth } from "./wholesale-planning/computeColumnWidth";
 import { bucketKeyFor, type BucketKeyFilters } from "./bucketBuyKey";
 import { recommendForRow } from "../compute/recommendations";
 import { applyRollingPool } from "../compute/supply";
@@ -258,12 +267,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   //
   // Cumulative left offsets are derived synchronously from
   // dynamicColWidths, no runtime measurement needed.
-  const FREEZABLE_COLS = ["category", "subCat", "style", "description", "color", "customer", "period"] as const;
-  type FreezeKey = typeof FREEZABLE_COLS[number];
-  const FREEZE_LABELS: Record<FreezeKey, string> = {
-    category: "Category", subCat: "Sub Cat", style: "Style", description: "Description",
-    color: "Color", customer: "Customer", period: "Period",
-  };
+  // FREEZABLE_COLS / FREEZE_LABELS / FreezeKey moved to ./wholesale-planning/columns.
   const [freezeKey, setFreezeKey] = usePersistedString("freezeKey");
   const freezeIdxDom = freezeKey ? FREEZABLE_COLS.indexOf(freezeKey as FreezeKey) + 1 : 0;
   // Inline "+ Add row" form state. Closed by default; opens above
@@ -537,48 +541,12 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // Friendly labels for the dropdown — Xoro's GenderCode column stores
   // single-letter codes (M, C, B, WMS, G). Filtering still uses the raw
   // code as the option value so existing filter wiring is unchanged.
-  const GENDER_LABELS: Record<string, string> = {
-    M: "Mens",
-    C: "Child",
-    B: "Boys",
-    WMS: "Womens",
-    G: "Girls",
-  };
-  const genderLabel = (code: string): string => GENDER_LABELS[code] ?? code;
+  // GENDER_LABELS + genderLabel moved to ./wholesale-planning/columns.
 
   // Column visibility — every column except the small lock set
   // EVERY column is toggleable. Persisted to localStorage so refresh
   // keeps the planner's preference.
-  const TOGGLEABLE_COLUMNS: Array<{ key: string; label: string }> = [
-    { key: "category", label: "Category" },
-    { key: "subCat", label: "Sub Cat" },
-    { key: "style", label: "Style" },
-    { key: "description", label: "Description" },
-    { key: "color", label: "Color" },
-    { key: "customer", label: "Customer" },
-    { key: "period", label: "Period" },
-    { key: "class", label: "Class" },
-    { key: "histT3", label: "Hist T3" },
-    { key: "histLY", label: "SP/LY" },
-    { key: "system", label: "System" },
-    { key: "buyer", label: "Buyer" },
-    { key: "override", label: "Override" },
-    { key: "final", label: "Final" },
-    { key: "confidence", label: "Conf." },
-    { key: "method", label: "Method" },
-    { key: "onHand", label: "On hand" },
-    { key: "onSo", label: "On SO" },
-    { key: "receipts", label: "Receipts" },
-    { key: "histRecv", label: "Hist Recv" },
-    { key: "ats", label: "ATS" },
-    { key: "buy", label: "Buy" },
-    { key: "avgCost", label: "Avg Cost" },
-    { key: "unitCost", label: "Unit Cost" },
-    { key: "buyDollars", label: "Buy $" },
-    { key: "shortage", label: "Short" },
-    { key: "excess", label: "Excess" },
-    { key: "action", label: "Action" },
-  ];
+  // TOGGLEABLE_COLUMNS moved to ./wholesale-planning/columns.
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(() => {
     try {
       const raw = localStorage.getItem("ws_planning_hidden_columns");
@@ -1680,33 +1648,13 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // input's intrinsic width; CAP values keep one outlier description
   // from blowing the whole row out.
   const dynamicColWidths = useMemo(() => {
-    const CHAR_PX = 7.4;            // safe avg for mixed sans/mono at 11–12px
-    const PADDING_CHARS = 4;        // ~2 chars each side
-    const FLOOR_PX = 44;
-    const CAP: Record<string, number> = {
-      description: 320, customer: 240, color: 200, style: 160,
-      subCat: 160, category: 160, method: 160,
-    };
-    const FLOOR: Record<string, number> = {
-      system: 84, buyer: 84, override: 84, buy: 84,
-      unitCost: 88, avgCost: 84, buyDollars: 92,
-      confidence: 84, action: 96, period: 84,
-    };
-    const LABEL: Record<string, string> = {
-      category: "Category", subCat: "Sub Cat", style: "Style",
-      description: "Description", color: "Color", customer: "Customer",
-      period: "Period", class: "Class", histT3: "Hist T3",
-      histLY: "SP/LY", system: "System", buyer: "Buyer",
-      override: "Override", final: "Final", confidence: "Conf.",
-      method: "Method", onHand: "On hand", onSo: "On SO",
-      receipts: "Receipts", histRecv: "Hist Recv", ats: "ATS",
-      buy: "Buy", avgCost: "Avg Cost", unitCost: "Unit Cost",
-      buyDollars: "Buy $", shortage: "Short", excess: "Excess",
-      action: "Action",
-    };
+    // CAP / FLOOR / LABEL config + per-key compute moved to
+    // ./wholesale-planning/{columns,computeColumnWidth}. This useMemo
+    // owns just the per-render content scan (longest displayed value
+    // per column), then defers width math to computeColumnWidth.
     const lenByCol: Record<string, number> = {};
     // +1 reserves room for the sort-arrow glyph the header renders next to its label.
-    for (const k of Object.keys(LABEL)) lenByCol[k] = LABEL[k].length + 1;
+    for (const k of Object.keys(COLUMN_LABEL)) lenByCol[k] = COLUMN_LABEL[k].length + 1;
     const numFmt = (v: number | null | undefined) => (v == null ? "—" : formatQty(v));
     const moneyFmt = (v: number | null | undefined) => (v == null ? "—" : `$${v.toFixed(2)}`);
     const set = (k: string, t: string | null | undefined) => {
@@ -1744,12 +1692,8 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       set("action", r.recommended_action);
     }
     const widths: Record<string, number> = {};
-    for (const k of Object.keys(LABEL)) {
-      let px = Math.ceil((lenByCol[k] + PADDING_CHARS) * CHAR_PX);
-      if (k in CAP) px = Math.min(px, CAP[k]);
-      if (k in FLOOR) px = Math.max(px, FLOOR[k]);
-      px = Math.max(px, FLOOR_PX);
-      widths[k] = px;
+    for (const k of Object.keys(COLUMN_LABEL)) {
+      widths[k] = computeColumnWidth(k, lenByCol[k]);
     }
     return widths;
   }, [displayRows]);

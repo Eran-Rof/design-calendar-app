@@ -43,6 +43,15 @@ import {
   CollapseChevron,
 } from "./wholesale-planning/WorkbenchComponents";
 import type { TabKey } from "./wholesale-planning/types";
+import {
+  STORAGE_KEYS,
+  loadCollapsedFlag,
+  saveCollapsedFlag,
+  loadSystemSuggestionsOn,
+  saveSystemSuggestionsOn,
+  loadLastUpload,
+  rememberUpload,
+} from "./wholesale-planning/workbenchPersistence";
 
 async function fetchForecast(id: string): Promise<IpWholesaleForecast | null> {
   if (!SB_URL) return null;
@@ -106,14 +115,10 @@ export default function WholesalePlanningWorkbench() {
   // chevron at the card's top-right edge so the planner can free up
   // vertical space. Persisted to localStorage so the choice survives
   // reloads.
-  const loadCollapsedFlag = (key: string) => {
-    try { return localStorage.getItem(key) === "1"; } catch { return false; }
-  };
-  const saveCollapsedFlag = (key: string, val: boolean) => {
-    try { localStorage.setItem(key, val ? "1" : "0"); } catch { /* ignore */ }
-  };
-  const [salesHistCollapsed, setSalesHistCollapsed] = useState<boolean>(() => loadCollapsedFlag("ws_planning_collapse_sales"));
-  const [monthlyTotalsCollapsed, setMonthlyTotalsCollapsed] = useState<boolean>(() => loadCollapsedFlag("ws_planning_collapse_totals"));
+  // loadCollapsedFlag / saveCollapsedFlag moved to
+  // ./wholesale-planning/workbenchPersistence.
+  const [salesHistCollapsed, setSalesHistCollapsed] = useState<boolean>(() => loadCollapsedFlag(STORAGE_KEYS.collapseSales));
+  const [monthlyTotalsCollapsed, setMonthlyTotalsCollapsed] = useState<boolean>(() => loadCollapsedFlag(STORAGE_KEYS.collapseTotals));
   // Bucket-level buy qty map for the active run. key = bucket_key,
   // value = stored qty. Refreshed when the run changes or the planner
   // saves a new bucket buy.
@@ -139,15 +144,9 @@ export default function WholesalePlanningWorkbench() {
   // same toggle. Without this lift, the top FINAL FORECAST card showed
   // raw final_forecast_qty while the grid's Σ Final reflected the
   // muted value — creating a visible discrepancy.
-  const [systemSuggestionsOn, setSystemSuggestionsOn] = useState<boolean>(() => {
-    try { return localStorage.getItem("ws_planning_system_suggestions_off") !== "1"; }
-    catch { return true; }
-  });
+  const [systemSuggestionsOn, setSystemSuggestionsOn] = useState<boolean>(loadSystemSuggestionsOn);
   function setSystemSuggestionsOnPersistent(v: boolean) {
-    try {
-      if (v) localStorage.removeItem("ws_planning_system_suggestions_off");
-      else localStorage.setItem("ws_planning_system_suggestions_off", "1");
-    } catch { /* ignore quota */ }
+    saveSystemSuggestionsOn(v);
     setSystemSuggestionsOn(v);
   }
 
@@ -198,16 +197,14 @@ export default function WholesalePlanningWorkbench() {
   // Persisted in localStorage so it survives reloads. Updated on
   // every successful Excel ingest (skipped on outright failure so
   // the planner doesn't see a stale "succeeded" timestamp).
-  const LAST_UPLOAD_KEYS = { sales: "ip_last_upload_sales", master: "ip_last_upload_master" } as const;
-  const [lastUploadSales, setLastUploadSales] = useState<string | null>(() => {
-    try { return localStorage.getItem(LAST_UPLOAD_KEYS.sales); } catch { return null; }
-  });
-  const [lastUploadMaster, setLastUploadMaster] = useState<string | null>(() => {
-    try { return localStorage.getItem(LAST_UPLOAD_KEYS.master); } catch { return null; }
-  });
-  function rememberUpload(kind: "sales" | "master") {
-    const iso = new Date().toISOString();
-    try { localStorage.setItem(LAST_UPLOAD_KEYS[kind], iso); } catch { /* ignore quota */ }
+  // Last-upload timestamps + key registry moved to
+  // ./wholesale-planning/workbenchPersistence. Local React state
+  // mirrors the persisted value so the "last uploaded …" stamp
+  // re-renders without a reload.
+  const [lastUploadSales, setLastUploadSales] = useState<string | null>(() => loadLastUpload("sales"));
+  const [lastUploadMaster, setLastUploadMaster] = useState<string | null>(() => loadLastUpload("master"));
+  function rememberUploadLocal(kind: "sales" | "master") {
+    const iso = rememberUpload(kind);
     if (kind === "sales") setLastUploadSales(iso);
     else setLastUploadMaster(iso);
   }
@@ -465,7 +462,7 @@ export default function WholesalePlanningWorkbench() {
       }
       // Stamp the last-upload timestamp (only on completion — a
       // thrown ingest skips this branch and leaves the prior stamp).
-      rememberUpload(kind);
+      rememberUploadLocal(kind);
       // Open the required-dismiss summary dialog. Closes the
       // status bar immediately — no auto-fade tail.
       setUploadSummary({
@@ -2205,7 +2202,7 @@ export default function WholesalePlanningWorkbench() {
             onToggle={() => {
               const next = !salesHistCollapsed;
               setSalesHistCollapsed(next);
-              saveCollapsedFlag("ws_planning_collapse_sales", next);
+              saveCollapsedFlag(STORAGE_KEYS.collapseSales, next);
             }}
             label="Sales history"
           />
@@ -2265,7 +2262,7 @@ export default function WholesalePlanningWorkbench() {
                 onToggle={() => {
                   const next = !monthlyTotalsCollapsed;
                   setMonthlyTotalsCollapsed(next);
-                  saveCollapsedFlag("ws_planning_collapse_totals", next);
+                  saveCollapsedFlag(STORAGE_KEYS.collapseTotals, next);
                 }}
                 label="Monthly totals"
               />
