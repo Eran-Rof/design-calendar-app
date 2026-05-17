@@ -22,3 +22,6 @@ item-master-*.xlsx
 
 # Local Claude Code skills folder
 Skills/
+
+# Claude Code runtime lockfile (per-session PID/lock, never share)
+.claude/scheduled_tasks.lock
