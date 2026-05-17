@@ -5,7 +5,7 @@
 // no FileReader). That's what we cover here.
 
 import { describe, it, expect } from "vitest";
-import { parseSpecSheetAoa, extractStyleInfoFromAoa } from "../xlsx";
+import { parseSpecSheetAoa, extractStyleInfoFromAoa, detectSpecSheetHeader } from "../xlsx";
 
 describe("parseSpecSheetAoa — legacy flat format", () => {
   it("picks up sizes from header row + values from following rows", () => {
@@ -182,5 +182,66 @@ describe("extractStyleInfoFromAoa", () => {
       ["Customer:", "ROF"],
     ];
     expect(extractStyleInfoFromAoa(aoa).brand).toBe("ROF");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+
+describe("detectSpecSheetHeader", () => {
+  it("detects the legacy `POINT OF MEASURE` header + reads sizes from the same row", () => {
+    const aoa: any[][] = [
+      ["Style: SS26"],
+      ["Point of Measure", "TOL", "S", "M", "L"],
+      ["Chest", "0.5", "20", "21", "22"],
+    ];
+    const out = detectSpecSheetHeader(aoa);
+    expect(out).toEqual({ headerRowIdx: 1, sizes: ["S", "M", "L"], newFmt: false });
+  });
+
+  it("accepts `POM` as a synonym for the legacy header", () => {
+    const aoa: any[][] = [["POM", "TOL", "S"]];
+    const out = detectSpecSheetHeader(aoa);
+    expect(out?.newFmt).toBe(false);
+    expect(out?.sizes).toEqual(["S"]);
+  });
+
+  it("detects the new `POM` + `BLOCK SPECS` header + reads sizes from row above (cols 6,8,10,...)", () => {
+    const aoa: any[][] = [
+      ["", "", "", "", "", "", "S", "", "M", "", "L"],   // sizes row
+      ["POM", "BLOCK SPECS", "", "", "", "TOL", "S", "", "M", "", "L"],
+    ];
+    const out = detectSpecSheetHeader(aoa);
+    expect(out).toEqual({ headerRowIdx: 1, sizes: ["S", "M", "L"], newFmt: true });
+  });
+
+  it("drops empty cells between size labels in new format", () => {
+    const aoa: any[][] = [
+      ["", "", "", "", "", "", "S", "", "", "", "L"],   // missing M
+      ["POM", "BLOCK SPECS"],
+    ];
+    const out = detectSpecSheetHeader(aoa);
+    expect(out?.sizes).toEqual(["S", "L"]);
+  });
+
+  it("returns null when no header row is present", () => {
+    expect(detectSpecSheetHeader([["nothing here"]])).toBeNull();
+    expect(detectSpecSheetHeader([])).toBeNull();
+  });
+
+  it("tolerates undefined rows in the AOA", () => {
+    const aoa: any[][] = [
+      undefined as any,
+      ["POM", "TOL", "S"],
+    ];
+    const out = detectSpecSheetHeader(aoa);
+    expect(out?.headerRowIdx).toBe(1);
+  });
+
+  it("first match wins when both formats appear (shouldn't happen in practice)", () => {
+    const aoa: any[][] = [
+      ["POINT OF MEASURE", "TOL", "S"],  // legacy at row 0 — wins
+      ["POM", "BLOCK SPECS"],             // new at row 1
+    ];
+    expect(detectSpecSheetHeader(aoa)?.newFmt).toBe(false);
   });
 });

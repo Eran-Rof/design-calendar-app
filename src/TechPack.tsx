@@ -50,6 +50,7 @@ import {
   downloadMaterialsExcel as tpDownloadMaterialsExcel,
   parseSpecSheetExcel as tpParseSpecSheetExcel,
   extractStyleInfoFromAoa,
+  detectSpecSheetHeader,
 } from "./techpack/xlsx";
 import {
   recomputeCosting,
@@ -1914,15 +1915,9 @@ export default function TechPackApp() {
                               const wb = XLSX.read(ev.target?.result, { type: "binary" });
                               const ws = wb.Sheets[wb.SheetNames[0]];
                               const aoa: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
-                              // Detect header row
-                              let headerRowIdx = -1; let sizes: string[] = []; let newFmt = false;
-                              for (let i = 0; i < aoa.length; i++) {
-                                const c0 = String(aoa[i][0] || "").trim().toUpperCase();
-                                const c1 = String(aoa[i][1] || "").trim().toUpperCase();
-                                if (c0 === "POM" && c1.includes("BLOCK")) { headerRowIdx = i; newFmt = true; const sr = aoa[i - 1] || []; for (let c = 6; c < sr.length; c += 2) { const s = String(sr[c] || "").trim(); if (s) sizes.push(s); } break; }
-                                if (c0 === "POINT OF MEASURE" || c0 === "POM") { headerRowIdx = i; sizes = aoa[i].slice(2).map((s: any) => String(s).trim()).filter(Boolean); break; }
-                              }
-                              if (headerRowIdx === -1) { showToast("Could not find spec sheet header row"); return; }
+                              const hdr = detectSpecSheetHeader(aoa);
+                              if (!hdr) { showToast("Could not find spec sheet header row"); return; }
+                              const { headerRowIdx, sizes, newFmt } = hdr;
                               const rows: any[] = [];
                               for (let i = headerRowIdx + 1; i < aoa.length; i++) {
                                 const row = aoa[i];
@@ -2463,14 +2458,9 @@ export default function TechPackApp() {
             const wb = XLSX.read(ev.target?.result, { type: "binary" });
             const ws = wb.Sheets[wb.SheetNames[0]];
             const aoa: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
-            let headerRowIdx = -1; let sizes: string[] = []; let newFmt = false;
-            for (let i = 0; i < aoa.length; i++) {
-              const c0 = String(aoa[i][0] || "").trim().toUpperCase();
-              const c1 = String(aoa[i][1] || "").trim().toUpperCase();
-              if (c0 === "POM" && c1.includes("BLOCK")) { headerRowIdx = i; newFmt = true; const sr = aoa[i - 1] || []; for (let c = 6; c < sr.length; c += 2) { const s = String(sr[c] || "").trim(); if (s) sizes.push(s); } break; }
-              if (c0 === "POINT OF MEASURE" || c0 === "POM") { headerRowIdx = i; sizes = aoa[i].slice(2).map((s: any) => String(s).trim()).filter(Boolean); break; }
-            }
-            if (headerRowIdx === -1) { showToast("Could not find spec sheet header row"); return; }
+            const hdr = detectSpecSheetHeader(aoa);
+            if (!hdr) { showToast("Could not find spec sheet header row"); return; }
+            const { headerRowIdx, sizes, newFmt } = hdr;
             const rows: SpecSheetRow[] = [];
             for (let i = headerRowIdx + 1; i < aoa.length; i++) {
               const row = aoa[i];
