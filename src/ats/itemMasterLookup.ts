@@ -29,6 +29,14 @@ export interface ItemMasterRecord {
   // wholesale doesn't carry a cost column, so this is the closest
   // value we have on record.
   unit_cost?: number | null;
+  // Authoritative units-per-pack. 1 = non-prepack. Populated by the
+  // Xoro master sync (rof_xoro_project) and by the backfill from
+  // migration 20260517220000_item_master_pack_size.sql which captures
+  // sku/style-embedded PPKn tokens. Prefer this over the regex-based
+  // ppkMultiplier() in src/shared/prepack/index.ts — the regex
+  // approach was hitting both false positives (dirty size fields) and
+  // false negatives (legacy styles where the token sits in size only).
+  pack_size?: number | null;
   // Master schema (verified against live ip_item_master): the planning side
   // labels `group_name` as "Category" and `category_name` as "Sub Cat".
   // `product_category` is a higher-level rollup (e.g. BOTTOMS / TOPS) we
@@ -55,6 +63,10 @@ export interface ResolvedStyle {
   // description field. Resolver always returns the style-level row's
   // description so the grid + export show the clean form.
   description: string | null;
+  // Authoritative units-per-pack from ip_item_master.pack_size.
+  // 1 = non-prepack. Callers should use this directly instead of
+  // calling ppkMultiplier() on the text fields above.
+  pack_size: number;
   match_source: "sku" | "style" | null; // null = unmatched
 }
 
@@ -70,6 +82,7 @@ const NULL_RESULT: ResolvedStyle = {
   color: null,
   size: null,
   description: null,
+  pack_size: 1,
   match_source: null,
 };
 
@@ -295,6 +308,7 @@ export function resolveStyle(sku: string, stylePart?: string | null): ResolvedSt
       color: skuHit.color ?? null,
       size: skuHit.size ?? null,
       description: resolveCleanDescription(skuHit),
+      pack_size: skuHit.pack_size ?? 1,
       match_source: "sku",
     };
   }
@@ -325,6 +339,7 @@ export function resolveStyle(sku: string, stylePart?: string | null): ResolvedSt
           // do. PPK detection will fall back to SKU/desc for these.
           size: styleHit.size ?? null,
           description: resolveCleanDescription(styleHit),
+          pack_size: styleHit.pack_size ?? 1,
           match_source: "style",
         };
       }

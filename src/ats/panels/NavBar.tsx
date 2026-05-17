@@ -10,7 +10,6 @@ import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch
 import { buildExportPayload, triggerXlsxDownload, type ExportPayload } from "../exportExcel";
 import { getItemMasterById } from "../itemMasterLookup";
 import { filterRows } from "../filter";
-import { ppkMultiplier } from "../../shared/prepack";
 import { resolveCost, buildSiblingMap } from "../../shared/costResolution";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
 import { canonSku, canonStyleColor } from "../../inventory-planning/utils/skuCanon";
@@ -21,7 +20,8 @@ import type { AIGridSetters, GridContextSnapshot } from "../../ai/tools";
 // already have. Used by the cross-grid synthetic-row flow when a
 // customer's sales reference SKUs that haven't been cached (newly
 // added, never carried inventory locally, etc.).
-async function fetchMissingMasterRows(ids: string[]): Promise<Array<{ id: string; sku_code: string; style_code: string | null; color: string | null; size: string | null; description: string | null; unit_cost: number | null; attributes: any }>> {
+type MissingMasterRow = { id: string; sku_code: string; style_code: string | null; color: string | null; size: string | null; description: string | null; unit_cost: number | null; pack_size: number | null; attributes: any };
+async function fetchMissingMasterRows(ids: string[]): Promise<MissingMasterRow[]> {
   if (!SB_URL || ids.length === 0) return [];
   // Chunked + parallel for the same URL-length reason the other fetchers
   // chunk — at 200+ UUIDs the single in.(...) URL crosses PostgREST's
@@ -29,14 +29,14 @@ async function fetchMissingMasterRows(ids: string[]): Promise<Array<{ id: string
   const batches = chunkArray(ids, SB_IN_CHUNK);
   const responses = await Promise.all(batches.map(async (batch) => {
     const inList = batch.map((id) => `"${id}"`).join(",");
-    const url = `${SB_URL}/rest/v1/ip_item_master?select=id,sku_code,style_code,color,size,description,unit_cost,attributes&id=in.(${encodeURIComponent(inList)})&limit=${batch.length}`;
+    const url = `${SB_URL}/rest/v1/ip_item_master?select=id,sku_code,style_code,color,size,description,unit_cost,pack_size,attributes&id=in.(${encodeURIComponent(inList)})&limit=${batch.length}`;
     try {
       const r = await fetch(url, { headers: SB_HEADERS });
       if (!r.ok) {
         console.warn(`[ATS export] fetchMissingMasterRows batch failed: ${r.status}`);
-        return [] as Array<{ id: string; sku_code: string; style_code: string | null; color: string | null; size: string | null; description: string | null; unit_cost: number | null; attributes: any }>;
+        return [] as MissingMasterRow[];
       }
-      return (await r.json()) as Array<{ id: string; sku_code: string; style_code: string | null; color: string | null; size: string | null; description: string | null; unit_cost: number | null; attributes: any }>;
+      return (await r.json()) as MissingMasterRow[];
     } catch (e) {
       console.warn("[ATS export] fetchMissingMasterRows batch error:", e);
       return [];
@@ -861,10 +861,10 @@ export const NavBar: React.FC<NavBarProps> = ({
               };
               groups.set(key, g);
             }
-            // Resolve the PPK multiplier from the variant's fields. Same
-            // priority chain compute.ts uses for upload-derived rows so
-            // the grain conversion stays consistent.
-            const mult = ppkMultiplier(rec.color, rec.size, rec.description, rec.style_code, rec.sku_code);
+            // Authoritative pack size from ip_item_master.pack_size.
+            // 1 for non-prepacks; >1 for prepacks. Replaces the previous
+            // regex on text fields.
+            const mult = rec.pack_size ?? 1;
             if (mult > g.ppkMult) g.ppkMult = mult;
             g.t3Qty   += agg.t3Qty;
             g.t3Total += agg.t3Total;
