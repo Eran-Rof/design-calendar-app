@@ -642,16 +642,21 @@ export function buildExportPayload(
       if (COL_LY_MRGN)    r2[COL_LY_MRGN    - 1] = subPct(mrgnPct / 100);
     }
 
-    // T3 vs LY at subtotal grain — qty and $ side by side.
+    // T3 vs LY at subtotal grain — qty and $ side by side. Like-for-
+    // like: only count rows where BOTH T3 and LY have data. NEW rows
+    // (T3 > 0, LY = 0) and GONE rows (T3 = 0, LY > 0) are excluded so
+    // they don't inflate / deflate the group's growth %. Per-row cells
+    // still show NEW / negative as appropriate; this filter only
+    // affects the aggregate. Qty-LfL and $-LfL are computed
+    // independently since a row can have a price > 0 with qty = 0
+    // (returns / adjustments) or vice versa.
     if (COL_T3_LY_DIFF_QTY || COL_T3_LY_DIFF) {
       let t3SumQ = 0, lySumQ = 0, t3SumP = 0, lySumP = 0;
       for (const x of group) {
         const t = t3Of(x.sku);
         const l = lyOf(x.sku);
-        t3SumQ += t.qty;
-        lySumQ += l.qty;
-        t3SumP += t.totalPrice;
-        lySumP += l.totalPrice;
+        if (t.qty > 0 && l.qty > 0) { t3SumQ += t.qty; lySumQ += l.qty; }
+        if (t.totalPrice > 0 && l.totalPrice > 0) { t3SumP += t.totalPrice; lySumP += l.totalPrice; }
       }
       if (COL_T3_LY_DIFF_QTY) r2[COL_T3_LY_DIFF_QTY - 1] = t3VsLyCell(t3SumQ, lySumQ, subNumStyle);
       if (COL_T3_LY_DIFF)     r2[COL_T3_LY_DIFF     - 1] = t3VsLyCell(t3SumP, lySumP, subNumStyle);
@@ -1019,25 +1024,37 @@ export function buildExportPayload(
     // unit-grain — their product stays unit dollars regardless.
     // RawQty sums are kept separately (no qtyDiv) for the T3 vs LY
     // ratio cell, which is itself grain-invariant.
+    //
+    // Like-for-like aggregates (t3LflQty / lyLflQty / t3LflTot /
+    // lyLflTot) only count rows where BOTH T3 and LY have data — the
+    // T3 vs LY diff cells use these so NEW rows (T3>0, LY=0) and GONE
+    // rows (T3=0, LY>0) don't inflate the growth %. Per-row cells
+    // still display NEW / decline correctly; the LfL is only for the
+    // aggregate diff.
     let t3QtyDisp = 0, t3RawQty = 0, t3Tot = 0, t3CostBasis = 0;
     let lyQtyDisp = 0, lyRawQty = 0, lyTot = 0, lyCostBasis = 0;
+    let t3LflQty = 0, lyLflQty = 0, t3LflTot = 0, lyLflTot = 0;
     for (const r of rows) {
       const a = r.avgCost ?? 0;
       const mult = r.ppkMult ?? 1;
       const qtyDiv = explodePpk ? 1 : mult;
-      if (opts.trailing3) {
-        const t = t3Of(r.sku);
+      const t = opts.trailing3 ? t3Of(r.sku) : null;
+      const l = opts.spLY       ? lyOf(r.sku) : null;
+      if (t) {
         t3QtyDisp += t.qty / qtyDiv;
         t3RawQty += t.qty;
         t3Tot += t.totalPrice;
         t3CostBasis += a * t.qty;
       }
-      if (opts.spLY) {
-        const l = lyOf(r.sku);
+      if (l) {
         lyQtyDisp += l.qty / qtyDiv;
         lyRawQty += l.qty;
         lyTot += l.totalPrice;
         lyCostBasis += a * l.qty;
+      }
+      if (t && l) {
+        if (t.qty > 0 && l.qty > 0) { t3LflQty += t.qty; lyLflQty += l.qty; }
+        if (t.totalPrice > 0 && l.totalPrice > 0) { t3LflTot += t.totalPrice; lyLflTot += l.totalPrice; }
       }
     }
     const t3Price = t3QtyDisp > 0 ? t3Tot / t3QtyDisp : 0;
@@ -1045,7 +1062,7 @@ export function buildExportPayload(
     const t3Mrgn  = t3Tot > 0 && t3CostBasis > 0 ? (t3Tot - t3CostBasis) / t3Tot : 0;
     const lyMrgn  = lyTot > 0 && lyCostBasis > 0 ? (lyTot - lyCostBasis) / lyTot : 0;
 
-    return { avgCostW, totalCostW: costSum, slsPrcW, t3Qty: t3QtyDisp, t3RawQty, t3Price, t3Tot, t3Mrgn, lyQty: lyQtyDisp, lyRawQty, lyPrice, lyTot, lyMrgn };
+    return { avgCostW, totalCostW: costSum, slsPrcW, t3Qty: t3QtyDisp, t3RawQty, t3Price, t3Tot, t3Mrgn, lyQty: lyQtyDisp, lyRawQty, lyPrice, lyTot, lyMrgn, t3LflQty, lyLflQty, t3LflTot, lyLflTot };
   }
 
   // Overlay the optional-col aggregates onto a stack row in-place. Used
@@ -1080,11 +1097,16 @@ export function buildExportPayload(
     setCurr(COL_LY_PRICE,    agg.lyPrice);
     setCurr(COL_LY_TTL_SLS,  agg.lyTot);
     setPct (COL_LY_MRGN,     agg.lyMrgn);
+    // Like-for-like growth — only counts rows where BOTH T3 and LY
+    // had data. Excludes NEW rows (T3>0, LY=0) and GONE rows (T3=0,
+    // LY>0) so the bottom Total reflects true period-over-period
+    // growth without being inflated by acquisitions of new SKUs /
+    // customers or deflated by abandoned ones.
     if (COL_T3_LY_DIFF_QTY) {
-      cells[COL_T3_LY_DIFF_QTY - 1] = t3VsLyCell(agg.t3RawQty, agg.lyRawQty, totalNumStyle);
+      cells[COL_T3_LY_DIFF_QTY - 1] = t3VsLyCell(agg.t3LflQty, agg.lyLflQty, totalNumStyle);
     }
     if (COL_T3_LY_DIFF) {
-      cells[COL_T3_LY_DIFF - 1] = t3VsLyCell(agg.t3Tot, agg.lyTot, totalNumStyle);
+      cells[COL_T3_LY_DIFF - 1] = t3VsLyCell(agg.t3LflTot, agg.lyLflTot, totalNumStyle);
     }
   }
 
