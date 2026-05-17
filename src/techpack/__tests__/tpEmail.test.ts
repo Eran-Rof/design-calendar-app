@@ -10,6 +10,12 @@ import {
   buildThreadUrl,
   buildSentFolderSearchUrl,
   buildSendMailPayload,
+  buildMessageUrl,
+  buildAbsoluteMessageUrl,
+  buildAttachmentsUrl,
+  buildReplyUrl,
+  buildMarkAsReadPayload,
+  buildReplyPayload,
 } from "../tpEmail";
 
 // ────────────────────────────────────────────────────────────────────────
@@ -137,5 +143,45 @@ describe("buildSendMailPayload", () => {
       bodyHtml: "<p>Hello</p>", to: "a@x.com",
     });
     expect(message.body.content).toBe("<p>Hello</p>");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+
+describe("message URL builders", () => {
+  it("buildMessageUrl returns the relative resource URL", () => {
+    expect(buildMessageUrl("AAMk1234")).toBe("/me/messages/AAMk1234");
+  });
+
+  it("buildAbsoluteMessageUrl returns the v1.0 absolute URL", () => {
+    expect(buildAbsoluteMessageUrl("AAMk1234"))
+      .toBe("https://graph.microsoft.com/v1.0/me/messages/AAMk1234");
+  });
+
+  it("buildAttachmentsUrl appends /attachments to the message URL", () => {
+    expect(buildAttachmentsUrl("AAMk1234"))
+      .toBe("/me/messages/AAMk1234/attachments");
+  });
+
+  it("buildReplyUrl appends /reply to the message URL", () => {
+    expect(buildReplyUrl("AAMk1234"))
+      .toBe("/me/messages/AAMk1234/reply");
+  });
+});
+
+describe("buildMarkAsReadPayload", () => {
+  it("returns exactly { isRead: true }", () => {
+    expect(buildMarkAsReadPayload()).toEqual({ isRead: true });
+  });
+});
+
+describe("buildReplyPayload", () => {
+  it("wraps the comment as { comment }", () => {
+    expect(buildReplyPayload("Got it, thanks")).toEqual({ comment: "Got it, thanks" });
+  });
+
+  it("preserves multi-line + HTML content as-is", () => {
+    const body = "<p>Line 1</p>\n<p>Line 2</p>";
+    expect(buildReplyPayload(body)).toEqual({ comment: body });
   });
 });

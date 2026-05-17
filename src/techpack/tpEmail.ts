@@ -72,6 +72,28 @@ export interface SendMailArgs {
  * prepend the prefix so the matching $search keeps working on
  * replies.
  */
+/** `/me/messages/{id}` — single message resource (used for PATCH/DELETE). */
+export const buildMessageUrl = (messageId: string): string =>
+  `/me/messages/${messageId}`;
+
+/** Absolute Graph URL for a single message (used by raw fetch calls). */
+export const buildAbsoluteMessageUrl = (messageId: string): string =>
+  `https://graph.microsoft.com/v1.0/me/messages/${messageId}`;
+
+/** `/me/messages/{id}/attachments` — attachments collection on a message. */
+export const buildAttachmentsUrl = (messageId: string): string =>
+  `/me/messages/${messageId}/attachments`;
+
+/** `/me/messages/{id}/reply` — Graph's reply-with-comment endpoint. */
+export const buildReplyUrl = (messageId: string): string =>
+  `/me/messages/${messageId}/reply`;
+
+/** Body for the PATCH that flips `isRead = true`. */
+export const buildMarkAsReadPayload = () => ({ isRead: true });
+
+/** Body for `POST /me/messages/{id}/reply` — Graph wants the bare `comment`. */
+export const buildReplyPayload = (comment: string) => ({ comment });
+
 export function buildSendMailPayload(args: SendMailArgs): { message: any } {
   const typed = args.subject.trim();
   let subject = typed || `${args.prefix} ${args.fallback}`;

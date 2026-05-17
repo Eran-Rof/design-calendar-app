@@ -81,6 +81,11 @@ import {
   buildThreadUrl,
   buildSentFolderSearchUrl,
   buildSendMailPayload,
+  buildAbsoluteMessageUrl,
+  buildAttachmentsUrl,
+  buildReplyUrl,
+  buildMarkAsReadPayload,
+  buildReplyPayload,
 } from "./techpack/tpEmail";
 import {
   slugifyTPName,
@@ -943,7 +948,7 @@ export default function TechPackApp() {
     if (tpEmailAttachments[messageId] !== undefined) return;
     setTpEmailAttachmentsLoading(a => ({ ...a, [messageId]: true }));
     try {
-      const d = await tpGraph("/me/messages/" + messageId + "/attachments");
+      const d = await tpGraph(buildAttachmentsUrl(messageId));
       setTpEmailAttachments(a => ({ ...a, [messageId]: d.value || [] }));
     } catch { setTpEmailAttachments(a => ({ ...a, [messageId]: [] })); }
     setTpEmailAttachmentsLoading(a => ({ ...a, [messageId]: false }));
@@ -953,10 +958,10 @@ export default function TechPackApp() {
     try {
       const tok = emailToken || msToken;
       if (!tok) return;
-      await fetch("https://graph.microsoft.com/v1.0/me/messages/" + id, {
+      await fetch(buildAbsoluteMessageUrl(id), {
         method: "PATCH",
         headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" },
-        body: JSON.stringify({ isRead: true }),
+        body: JSON.stringify(buildMarkAsReadPayload()),
       });
     } catch {}
   }
@@ -965,7 +970,7 @@ export default function TechPackApp() {
     if (!comment.trim()) return;
     setEmailSendErr(null);
     try {
-      await tpGraphPost(`/me/messages/${messageId}/reply`, { comment });
+      await tpGraphPost(buildReplyUrl(messageId), buildReplyPayload(comment));
       setEmailReply("");
       if (emailSelMsg?.conversationId) tpLoadThread(emailSelMsg.conversationId);
     } catch(e: any) { setEmailSendErr("Failed to reply: " + e.message); }
@@ -984,7 +989,7 @@ export default function TechPackApp() {
   async function tpDeleteEmail(messageId: string) {
     try {
       const tok = await (async () => { const t = await getMsAccessToken(); if (t) return t; if (msToken) return msToken; throw new Error("Not signed in"); })();
-      await fetch("https://graph.microsoft.com/v1.0/me/messages/" + messageId, { method: "DELETE", headers: { Authorization: "Bearer " + tok } });
+      await fetch(buildAbsoluteMessageUrl(messageId), { method: "DELETE", headers: { Authorization: "Bearer " + tok } });
       setTpSelectedEmailId(null);
       setEmailSelMsg(null);
       setTpDeleteConfirm(null);
