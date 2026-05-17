@@ -1038,8 +1038,13 @@ export default async function handler(req, res) {
   const referer = req.headers?.referer || "";
   const allowedOrigins = (process.env.ALLOWED_AI_ORIGINS || "https://design-calendar-app.vercel.app,http://localhost:5173,http://localhost:3000")
     .split(",").map(s => s.trim()).filter(Boolean);
-  const fromOrigin = origin && allowedOrigins.includes(origin);
-  const fromReferer = referer && allowedOrigins.some(o => referer.startsWith(o));
+  // Parse the referer to its origin so attackers can't smuggle a
+  // matching prefix with a subdomain trick like
+  // `https://design-calendar-app.vercel.app.attacker.com/x`.
+  let refererOrigin = "";
+  try { if (referer) refererOrigin = new URL(referer).origin; } catch { refererOrigin = ""; }
+  const fromOrigin  = origin         && allowedOrigins.includes(origin);
+  const fromReferer = refererOrigin  && allowedOrigins.includes(refererOrigin);
   if (!fromOrigin && !fromReferer) {
     return res.status(403).json({ error: "Request must come from an allowed origin." });
   }
@@ -1253,6 +1258,13 @@ async function runStreaming(req, res, opts) {
   res.setHeader("X-Accel-Buffering", "no");
   if (typeof res.flushHeaders === "function") res.flushHeaders();
 
+  // Abort upstream Anthropic call if the client disconnects mid-stream.
+  // Without this, closing the panel kept the function (and its tool
+  // calls + budget consumption) running until the maxDuration ceiling.
+  const ac = new AbortController();
+  let clientGone = false;
+  req.on?.("close", () => { clientGone = true; ac.abort(); });
+
   let totalIn  = 0;
   let totalOut = 0;
   let totalCost = 0;
@@ -1282,6 +1294,7 @@ async function runStreaming(req, res, opts) {
 
   try {
     for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
+      if (clientGone) return;
       sseWrite(res, "stage", { label: iter === 0 ? "Thinking…" : "Continuing…" });
 
       const stream = await client.messages.stream({
@@ -1290,18 +1303,17 @@ async function runStreaming(req, res, opts) {
         system: SYSTEM_CACHED,
         tools: TOOLS_CACHED,
         messages,
-      });
+      }, { signal: ac.signal });
 
       pendingAnswerText = "";
       lastEmittedAnswerText = "";
       let activeBlockIsAnswerText = false;
-      let activeBlockToolName = null;
 
       for await (const event of stream) {
+        if (clientGone) return;
         if (event.type === "content_block_start") {
           const block = event.content_block;
           if (block?.type === "tool_use") {
-            activeBlockToolName = block.name;
             activeBlockIsAnswerText = block.name === "answer_text";
             const friendly = TOOL_LABELS[block.name];
             if (friendly && !TERMINAL_TOOLS.has(block.name)) {
@@ -1309,7 +1321,6 @@ async function runStreaming(req, res, opts) {
             }
           } else {
             activeBlockIsAnswerText = false;
-            activeBlockToolName = null;
           }
         } else if (event.type === "content_block_delta") {
           const d = event.delta;
@@ -1321,13 +1332,14 @@ async function runStreaming(req, res, opts) {
               lastEmittedAnswerText = extracted;
               sseWrite(res, "text_delta", { text: newPart });
             }
-          } else if (d?.type === "text_delta") {
-            // Free text outside any tool block — surface it too.
-            sseWrite(res, "text_delta", { text: d.text || "" });
           }
+          // Free `text_delta` blocks (Claude's pre-tool preamble like
+          // "Let me look that up…") are intentionally NOT streamed.
+          // They were leaking before the real answer_text in multi-tool
+          // conversations and corrupting the final bubble. Only the
+          // terminal answer_text streams.
         } else if (event.type === "content_block_stop") {
           activeBlockIsAnswerText = false;
-          activeBlockToolName = null;
         }
       }
 

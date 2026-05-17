@@ -181,6 +181,38 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
         ...m, pending: false, text: stage,
       } : m));
 
+      const processEvent = (raw: string) => {
+        let evt = "message";
+        const dataLines: string[] = [];
+        for (const line of raw.split("\n")) {
+          if (line.startsWith("event:")) evt = line.slice(6).trim();
+          else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+        }
+        if (dataLines.length === 0) return;
+        let payload: any;
+        try { payload = JSON.parse(dataLines.join("\n")); } catch { return; }
+
+        if (evt === "stage") {
+          stage = String(payload.label || "");
+          if (!streamedText) {
+            setMessages(prev => prev.map(m => m.id === pendingMsg.id ? {
+              ...m, text: stage,
+            } : m));
+          }
+        } else if (evt === "text_delta") {
+          streamedText += String(payload.text || "");
+          setMessages(prev => prev.map(m => m.id === pendingMsg.id ? {
+            ...m, text: streamedText,
+          } : m));
+        } else if (evt === "complete") {
+          finalPayload = payload;
+          done = true;
+        } else if (evt === "error") {
+          errorPayload = String(payload.error || "Unknown error");
+          done = true;
+        }
+      };
+
       while (!done) {
         const { value, done: streamDone } = await reader.read();
         if (streamDone) break;
@@ -190,38 +222,17 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
         while ((eventEnd = buf.indexOf("\n\n")) !== -1) {
           const raw = buf.slice(0, eventEnd);
           buf = buf.slice(eventEnd + 2);
-          let evt = "message";
-          let dataLines: string[] = [];
-          for (const line of raw.split("\n")) {
-            if (line.startsWith("event:")) evt = line.slice(6).trim();
-            else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
-          }
-          if (dataLines.length === 0) continue;
-          let payload: any;
-          try { payload = JSON.parse(dataLines.join("\n")); } catch { continue; }
-
-          if (evt === "stage") {
-            stage = String(payload.label || "");
-            if (!streamedText) {
-              setMessages(prev => prev.map(m => m.id === pendingMsg.id ? {
-                ...m, text: stage,
-              } : m));
-            }
-          } else if (evt === "text_delta") {
-            streamedText += String(payload.text || "");
-            setMessages(prev => prev.map(m => m.id === pendingMsg.id ? {
-              ...m, text: streamedText,
-            } : m));
-          } else if (evt === "complete") {
-            finalPayload = payload;
-            done = true;
-            break;
-          } else if (evt === "error") {
-            errorPayload = String(payload.error || "Unknown error");
-            done = true;
-            break;
-          }
+          processEvent(raw);
+          if (done) break;
         }
+      }
+      // Flush any trailing decoder state + parse a final un-terminated
+      // event if the network dropped the closing newlines. Without this
+      // the `complete` payload could be silently lost and the bubble
+      // would render "(no response)" despite valid server output.
+      buf += decoder.decode();
+      if (!done && buf.trim().length > 0) {
+        processEvent(buf.trim());
       }
 
       if (errorPayload) {
@@ -232,11 +243,21 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
       }
 
       const actions: AIAction[] = Array.isArray(finalPayload?.actions) ? finalPayload!.actions : [];
-      for (const action of actions) {
-        try { applyAction(action, setters); }
-        catch (err) { console.warn("[AskAI] applyAction failed", err); }
+      // Only apply + label actions when the host actually wired setters.
+      // Mounts in PO WIP / Design Calendar / Planning pass `{}` because
+      // their state shapes don't match the AI's grid-filter tools; for
+      // those apps actions are no-ops and would otherwise show a
+      // misleading "Applied filters: …" footnote.
+      const hasSetters = setters && Object.keys(setters).length > 0;
+      if (hasSetters) {
+        for (const action of actions) {
+          try { applyAction(action, setters); }
+          catch (err) { console.warn("[AskAI] applyAction failed", err); }
+        }
       }
-      const actionLabel = actions.length > 0 ? actions.map(describeAction).join(" · ") : undefined;
+      const actionLabel = hasSetters && actions.length > 0
+        ? actions.map(describeAction).join(" · ")
+        : undefined;
       const finalText = (finalPayload?.text || streamedText || "").trim() || (actionLabel ? "Done." : "(no response)");
       setMessages(prev => prev.map(m => m.id === pendingMsg.id ? {
         ...m, pending: false, text: finalText, actionLabel,
@@ -380,7 +401,7 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
                   → {m.actionLabel}
                 </div>
               )}
-              {m.suggestion && !m.suggestionPushed && (
+              {m.suggestion && !m.suggestionPushed && setters && Object.keys(setters).length > 0 && (
                 <button
                   onClick={() => {
                     try { applySuggestion(m.suggestion!, setters); }
