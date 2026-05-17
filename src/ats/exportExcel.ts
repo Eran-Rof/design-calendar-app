@@ -387,18 +387,27 @@ export function buildExportPayload(
   // window the aggregates were computed over. Format examples:
   //   default:                       "T3 Qty"
   //   default + customer:            "T3 Qty (Acme)"
-  //   custom range:                  "Sales 2026-01-01..2026-03-31 Qty"
-  //   custom range + customer:       "Sales 2026-01-01..2026-03-31 Qty (Acme)"
+  //   custom range:                  "Sales Jan/01/2026..Mar/31/2026 Qty"
+  //   custom range + customer:       "Sales Jan/01/2026..Mar/31/2026 Qty (Acme)"
   // The Qty header is what feeds the planner's eye — the SP LY headers
   // mirror the same convention but use the LY window (custom range
   // shifted back 12 months) so the spreadsheet self-documents both.
+  // Dates render as MMM/DD/YYYY (planner preference) rather than the
+  // ISO YYYY-MM-DD that the underlying SalesFetchWindows carries.
+  const fmtHeaderDate = (iso: string): string => {
+    const [yyyy, mm, dd] = iso.split("-");
+    const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const mi = parseInt(mm, 10) - 1;
+    if (mi < 0 || mi > 11 || !yyyy || !dd) return iso;
+    return `${MONTHS[mi]}/${dd}/${yyyy}`;
+  };
   const custTag = customerFilter ? ` (${customerFilter})` : "";
   const w = salesAggregates?.windows;
   const t3LabelBase = opts.customSalesRangeEnabled && w
-    ? `Sales ${w.t3Start}..${w.t3End}`
+    ? `Sales ${fmtHeaderDate(w.t3Start)}..${fmtHeaderDate(w.t3End)}`
     : "T3";
   const lyLabelBase = opts.customSalesRangeEnabled && w
-    ? `S/P LY ${w.lyStart}..${w.lyEnd}`
+    ? `S/P LY ${fmtHeaderDate(w.lyStart)}..${fmtHeaderDate(w.lyEnd)}`
     : "S/P LY";
   if (COL_T3_QTY)     headerRow[COL_T3_QTY     - 1] = { v: `${t3LabelBase} Qty${custTag}`, t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
   if (COL_T3_PRICE)   headerRow[COL_T3_PRICE   - 1] = { v: `${t3LabelBase} Sls Price`,     t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
