@@ -52,6 +52,13 @@ export interface ExportOptions {
   // spacer cols. Useful when periods or optional cols have nothing
   // to show and would otherwise add visual noise.
   hideZeroColumns: boolean;
+  // Drop the entire ATS-data column block: every date (period) column,
+  // the Total column, plus Avg Cost / Total Cost / Sls Prc @ Margin.
+  // Leaves the identity block + On Hand / On Order / On PO + trailing
+  // T3 / LY blocks intact. Pairs with disabling the Sls Prc @ Margin
+  // checkbox in the UI — keeping that toggle on alongside this would
+  // be a contradiction.
+  hideATSData: boolean;
 }
 
 interface Props {
@@ -79,6 +86,7 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
   const [showCustomerMargin, setShowCustMrgn] = useState(true);
   const [customerFacing, setCustomerFacing]   = useState(false);
   const [hideZeroColumns, setHideZeroColumns] = useState(false);
+  const [hideATSData, setHideATSData]         = useState(false);
 
   const [custDropOpen, setCustDropOpen] = useState(false);
   const [custSearch, setCustSearch]     = useState("");
@@ -111,7 +119,10 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
   const collectOptions = (): ExportOptions => ({
     subtotals,
     avgCost,
-    slsPrcAtMrgn,
+    // hideATSData wipes the Sls Prc @ Margin column anyway — collapse
+    // the toggle here too so the persisted options match what the
+    // workbook actually contains.
+    slsPrcAtMrgn: hideATSData ? false : slsPrcAtMrgn,
     slsMarginPct: Number.isFinite(slsMarginPct) ? slsMarginPct : 21,
     trailing3,
     spLY,
@@ -120,6 +131,7 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
     showCustomerMargin,
     customerFacing,
     hideZeroColumns,
+    hideATSData,
   });
 
   const handleConfirm = () => {
@@ -145,6 +157,7 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
     setShowCustMrgn(true);
     setCustomerFacing(false);
     setHideZeroColumns(false);
+    setHideATSData(false);
     setCustDropOpen(false);
     setCustSearch("");
   };
@@ -180,8 +193,14 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
           <CheckRow label="Avg Cost (adds Avg Cost + Total Cost columns)" checked={avgCost} onChange={setAvgCost} />
 
           <div>
-            <CheckRow label="Sls Prc @ Margin (adds implied sale-price column)" checked={slsPrcAtMrgn} onChange={setSlsPrcAtMrgn} />
-            {slsPrcAtMrgn && (
+            <CheckRow
+              label="Sls Prc @ Margin (adds implied sale-price column)"
+              checked={slsPrcAtMrgn && !hideATSData}
+              onChange={setSlsPrcAtMrgn}
+              disabled={hideATSData}
+              disabledTitle="Disabled because Hide ATS data is on — the Sls Prc column lives in the hidden block"
+            />
+            {slsPrcAtMrgn && !hideATSData && (
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, marginLeft: 28, fontSize: 12, color: "#94A3B8" }}>
                 <span>Margin %</span>
                 <input
@@ -222,6 +241,12 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
             label="Hide zero columns (drop any data column whose body is empty / all zero)"
             checked={hideZeroColumns}
             onChange={setHideZeroColumns}
+          />
+
+          <CheckRow
+            label="Hide ATS data (drop date columns, Total, Avg Cost, Total Cost, Sls Prc @ Mrgn)"
+            checked={hideATSData}
+            onChange={setHideATSData}
           />
 
           <div>
@@ -353,10 +378,25 @@ interface CheckRowProps {
   label: string;
   checked: boolean;
   onChange: (v: boolean) => void;
+  disabled?: boolean;
+  disabledTitle?: string;
 }
-const CheckRow: React.FC<CheckRowProps> = ({ label, checked, onChange }) => (
-  <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "#E2E8F0", cursor: "pointer" }}>
-    <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} />
+const CheckRow: React.FC<CheckRowProps> = ({ label, checked, onChange, disabled, disabledTitle }) => (
+  <label
+    style={{
+      display: "flex", alignItems: "center", gap: 10, fontSize: 13,
+      color: disabled ? "#64748B" : "#E2E8F0",
+      cursor: disabled ? "not-allowed" : "pointer",
+      opacity: disabled ? 0.55 : 1,
+    }}
+    title={disabled ? disabledTitle : undefined}
+  >
+    <input
+      type="checkbox"
+      checked={checked}
+      disabled={disabled}
+      onChange={e => onChange(e.target.checked)}
+    />
     {label}
   </label>
 );
