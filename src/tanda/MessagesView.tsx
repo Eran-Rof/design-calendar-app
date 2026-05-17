@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { TH } from "../utils/theme";
 import { SB_URL, SB_HEADERS, supabaseClient } from "../utils/supabase";
-import POMessageThread, { type Sender } from "../vendor/POMessageThread";
+import POMessageThread, { type Sender } from "../vendor/po/POMessageThread";
 
 interface POSummary {
   uuid_id: string;
