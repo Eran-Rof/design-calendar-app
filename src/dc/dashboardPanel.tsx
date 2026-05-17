@@ -5,6 +5,9 @@ import { STATUS_CONFIG, MONTHS } from "../utils/constants";
 import Avatar from "../components/Avatar";
 import { useAppStore } from "../store";
 import { selectGetBrand, selectIsAdmin, selectCanViewAll, selectFiltered, selectOverdue, selectDueThisWeek, selectDue30, selectCollMap, selectCollList } from "../store/selectors";
+import { STAT_META_CONFIG, type StatFilterKey } from "./dashboard/statMeta";
+import { OverdueBanner } from "./dashboard/OverdueBanner";
+import { EmptyState } from "./dashboard/EmptyState";
 
 export type DashboardCtx = { TaskCard: any };
 
@@ -41,97 +44,28 @@ function DashboardPanelInner({ TaskCard }: DashboardCtx): React.ReactElement | n
   const collList = selectCollList(s);
 
     const collListView = listView;
-    // Stat filter config
-    const STAT_META = {
-      overdue: {
-        label: "Overdue Tasks",
-        color: "#B91C1C",
-        bg: "#FEF2F2",
-        bdr: "#FCA5A5",
-        accent: "#FC8181",
-        tasks: overdue,
-      },
-      week: {
-        label: "Due This Week",
-        color: "#B45309",
-        bg: "#FFFBEB",
-        bdr: "#FCD34D",
-        accent: "#F6AD55",
-        tasks: dueThisWeek,
-      },
-      "30d": {
-        label: "Due in Next 30 Days",
-        color: "#1D4ED8",
-        bg: "#EFF6FF",
-        bdr: "#BFDBFE",
-        accent: "#63B3ED",
-        tasks: due30,
-      },
-      collections: {
-        label: "All Collections",
-        color: TH.primary,
-        bg: TH.accent,
-        bdr: TH.accentBdr,
-        accent: TH.primary,
-        tasks: [],
-      },
+    // Visual config lives in ./dashboard/statMeta.ts. We merge in the
+    // runtime task arrays here so the panel reads the same shape it
+    // used to (label/color/bg/bdr/accent + tasks).
+    const STAT_TASKS: Record<StatFilterKey, typeof overdue> = {
+      overdue,
+      week:         dueThisWeek,
+      "30d":        due30,
+      collections:  [],
     };
-    const activeMeta = statFilter ? STAT_META[statFilter] : null;
+    const STAT_META = (Object.keys(STAT_META_CONFIG) as StatFilterKey[]).reduce((acc, k) => {
+      acc[k] = { ...STAT_META_CONFIG[k], tasks: STAT_TASKS[k] };
+      return acc;
+    }, {} as Record<StatFilterKey, typeof STAT_META_CONFIG[StatFilterKey] & { tasks: typeof overdue }>);
+    const activeMeta = statFilter ? STAT_META[statFilter as StatFilterKey] : null;
     const showTaskList = statFilter && statFilter !== "collections";
     const showCollections = !statFilter || statFilter === "collections";
 
     return (
       <div onClick={() => { if (ctxMenu) setCtxMenu(null); }}>
-        {overdue.length > 0 && !statFilter && (
-          <div
-            style={{
-              background: "#FFF5F5",
-              border: "1px solid #FEB2B2",
-              borderLeft: `4px solid ${TH.primary}`,
-              borderRadius: 10,
-              padding: "12px 20px",
-              marginBottom: 22,
-              display: "flex",
-              gap: 12,
-              alignItems: "center",
-            }}
-          >
-            <span>⚠️</span>
-            <span style={{ color: "#B91C1C", fontSize: 13 }}>
-              <strong>{overdue.length} overdue</strong> —{" "}
-              {overdue
-                .map((t) => `${(getBrand(t.brand) || {}).short || t.brand} ${t.phase}`)
-                .join(", ")}
-            </span>
-          </div>
-        )}
+        {!statFilter && <OverdueBanner overdue={overdue} getBrand={getBrand} />}
         {tasks.length === 0 && (
-          <div style={{ textAlign: "center", padding: "80px 0" }}>
-            <div style={{ fontSize: 52, marginBottom: 16 }}>📅</div>
-            <div
-              style={{
-                fontSize: 22,
-                fontWeight: 800,
-                color: TH.text,
-                marginBottom: 8,
-              }}
-            >
-              No collections yet
-            </div>
-            <div
-              style={{ fontSize: 14, color: TH.textMuted, marginBottom: 28 }}
-            >
-              Create your first collection to auto-generate a full timeline.
-            </div>
-            {isAdmin && (
-              <button
-                onClick={() => setShowWizard(true)}
-                style={{ ...S.btn, padding: "14px 32px", fontSize: 15 }}
-              >
-                + New Collection
-              </button>
-            )}
-          </div>
+          <EmptyState isAdmin={isAdmin} onCreateCollection={() => setShowWizard(true)} />
         )}
         {tasks.length > 0 && (
           <>
