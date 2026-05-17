@@ -9,6 +9,7 @@ import NotificationsShell from "./components/notifications/NotificationsShell";
 import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import { sb, appDataSave } from "./techpack/supabase";
+import { graphGet, graphPost, type GraphSession } from "./techpack/msGraph";
 import { EMAIL_COLORS, FolderIcon } from "./techpack/emailStyles";
 import {
   filterTechPacks,
@@ -340,20 +341,15 @@ export default function TechPackApp() {
     if (msToken) return msToken;
     throw new Error("Not signed in to Microsoft");
   };
-  const tpGraph = async (path: string, _tok?: string) => {
-    const tok = await tpGetToken();
-    const r = await fetch("https://graph.microsoft.com/v1.0" + path, { headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" } });
-    if (r.status === 401) { clearMsTokens(); setMsToken(null); setMsDisplayName(""); throw new Error("Session expired"); }
-    if (!r.ok) throw new Error("Graph " + r.status + ": " + await r.text());
-    return r.json();
+  // MS Graph helpers moved to ./techpack/msGraph (tested). The session
+  // shape gives Graph the token refresh + 401-handling callback without
+  // letting the helper touch React state directly.
+  const graphSession: GraphSession = {
+    getToken: tpGetToken,
+    onSessionExpired: () => { clearMsTokens(); setMsToken(null); setMsDisplayName(""); },
   };
-  const tpGraphPost = async (path: string, body: any, _tok?: string) => {
-    const tok = await tpGetToken();
-    const r = await fetch("https://graph.microsoft.com/v1.0" + path, { method: "POST", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    if (r.status === 401) { clearMsTokens(); setMsToken(null); setMsDisplayName(""); throw new Error("Session expired"); }
-    if (!r.ok) throw new Error("Graph " + r.status + ": " + await r.text());
-    return r.json();
-  };
+  const tpGraph     = (path: string, _tok?: string) => graphGet(path, graphSession);
+  const tpGraphPost = (path: string, body: any, _tok?: string) => graphPost(path, body, graphSession);
 
   // ── Restore MS token from localStorage on mount ───────────────────────────
   useEffect(() => {
