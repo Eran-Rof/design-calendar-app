@@ -63,6 +63,18 @@ import {
   removeSketchCallout,
   sortCalloutsByNumber,
 } from "./techpack/bomOps";
+import {
+  createMeasurementRow,
+  addSizeToMeasurements,
+  removeSizeFromMeasurements,
+  createSpecSheetRow,
+  addSizeToSpecSheet,
+  removeSizeFromSpecSheet,
+} from "./techpack/specOps";
+import {
+  createEmptySample,
+  updateSampleStatus,
+} from "./techpack/sampleOps";
 
 // sb helper moved to ./techpack/supabase
 
@@ -1961,27 +1973,15 @@ export default function TechPackApp() {
       saveSpecSheets(specSheets.map(x => x.id === updated.id ? updated : x));
     };
 
-    const addRow = () => {
-      const sizeObj: Record<string, string> = {};
-      sizes.forEach(s => { sizeObj[s] = ""; });
-      updateSS({ rows: [...ss.rows, { id: uid(), pointOfMeasure: "", tolerance: "±0.5", values: sizeObj }] });
-    };
+    const addRow = () => updateSS({ rows: [...ss.rows, createSpecSheetRow(sizes)] });
 
     const addSizeCol = (sizeName: string) => {
-      if (!sizeName.trim()) return;
-      const newSizes = [...sizes, sizeName.trim()];
-      const newRows = ss.rows.map(r => ({ ...r, values: { ...r.values, [sizeName.trim()]: "" } }));
-      updateSS({ sizes: newSizes, rows: newRows });
+      const next = addSizeToSpecSheet(ss.rows, sizes, sizeName);
+      if (next.sizes !== sizes) updateSS(next); // skip the no-op trim-to-empty case
     };
 
     const removeSizeCol = (sizeName: string) => {
-      const newSizes = sizes.filter(s => s !== sizeName);
-      const newRows = ss.rows.map(r => {
-        const v = { ...r.values };
-        delete v[sizeName];
-        return { ...r, values: v };
-      });
-      updateSS({ sizes: newSizes, rows: newRows });
+      updateSS(removeSizeFromSpecSheet(ss.rows, sizes, sizeName));
     };
 
     return (
@@ -2842,8 +2842,7 @@ export default function TechPackApp() {
                 <input style={{ ...S.input, width: 80, padding: "4px 8px", fontSize: 12 }} placeholder="Size" value={newSize} onChange={e => setNewSize(e.target.value)} />
                 <button style={S.btnSmall} onClick={() => {
                   if (!newSize.trim()) return;
-                  const updated = tp.measurements.map(m => ({ ...m, sizes: { ...m.sizes, [newSize.trim()]: "" } }));
-                  updateSelected({ measurements: updated });
+                  updateSelected({ measurements: addSizeToMeasurements(tp.measurements, newSize) });
                   setNewSize("");
                   setShowAddSize(false);
                 }}>Add</button>
@@ -2852,11 +2851,9 @@ export default function TechPackApp() {
             ) : (
               <button style={S.btnSmall} onClick={() => setShowAddSize(true)}>+ Size Column</button>
             )}
-            <button style={S.btnSmall} onClick={() => {
-              const sizeObj: Record<string, string> = {};
-              sizes.forEach(s => sizeObj[s] = "");
-              updateSelected({ measurements: [...tp.measurements, { id: uid(), pointOfMeasure: "", tolerance: "±0.5", sizes: sizeObj }] });
-            }}>+ Measurement</button>
+            <button style={S.btnSmall} onClick={() =>
+              updateSelected({ measurements: [...tp.measurements, createMeasurementRow(sizes)] })
+            }>+ Measurement</button>
           </div>
         </div>
 
@@ -2874,14 +2871,9 @@ export default function TechPackApp() {
                   {sizes.map(s => (
                     <th key={s} style={S.th}>
                       {s}
-                      <button style={{ ...S.iconBtnTiny, marginLeft: 4 }} onClick={() => {
-                        const updated = tp.measurements.map(m => {
-                          const ns = { ...m.sizes };
-                          delete ns[s];
-                          return { ...m, sizes: ns };
-                        });
-                        updateSelected({ measurements: updated });
-                      }}>✕</button>
+                      <button style={{ ...S.iconBtnTiny, marginLeft: 4 }} onClick={() =>
+                        updateSelected({ measurements: removeSizeFromMeasurements(tp.measurements, s) })
+                      }>✕</button>
                     </th>
                   ))}
                   <th style={S.th}>Del</th>
@@ -3368,7 +3360,7 @@ export default function TechPackApp() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <h3 style={{ margin: 0, color: "#F1F5F9", fontSize: 16 }}>Sample Tracking</h3>
           <button style={S.btnSmall} onClick={() => {
-            updateSelected({ samples: [...tp.samples, { id: uid(), type: "Proto", status: "Requested", requestDate: today(), receiveDate: null, vendor: "", comments: "", images: [] }] });
+            updateSelected({ samples: [...tp.samples, createEmptySample(today)] });
           }}>+ Add Sample</button>
         </div>
 
@@ -3396,7 +3388,7 @@ export default function TechPackApp() {
                   <label style={S.label}>Status</label>
                   <select style={{ ...S.select, width: "100%" }} value={s.status} onChange={e => {
                     const updated = [...tp.samples];
-                    updated[idx] = { ...s, status: e.target.value as Sample["status"], receiveDate: e.target.value === "Received" || e.target.value === "Approved" || e.target.value === "Rejected" ? s.receiveDate || today() : s.receiveDate };
+                    updated[idx] = updateSampleStatus(s, e.target.value as Sample["status"], today);
                     updateSelected({ samples: updated });
                   }}>
                     {sampleStatuses.map(st => <option key={st} value={st}>{st}</option>)}
