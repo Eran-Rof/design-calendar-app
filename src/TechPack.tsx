@@ -43,6 +43,13 @@ import {
   downloadMaterialsExcel as tpDownloadMaterialsExcel,
   parseSpecSheetExcel as tpParseSpecSheetExcel,
 } from "./techpack/xlsx";
+import {
+  recomputeCosting,
+  marginTierColor,
+  recomputeBomItemTotal,
+  bomTotal,
+  isApprovalStageUnlocked,
+} from "./techpack/calc";
 
 // sb helper moved to ./techpack/supabase
 
@@ -3002,7 +3009,7 @@ export default function TechPackApp() {
 
   // ── BOM Tab ───────────────────────────────────────────────────────────────
   function renderBOMTab(tp: TechPack) {
-    const bomTotal = tp.bom.reduce((sum, b) => sum + b.totalCost, 0);
+    const total = bomTotal(tp.bom);
     const colorways: Colorway[] = tp.colorways || [];
 
     const addColorway = () => {
@@ -3032,11 +3039,7 @@ export default function TechPackApp() {
 
     const updateBOMItem = (idx: number, changes: Partial<BOMItem>) => {
       const updated = [...tp.bom];
-      const merged = { ...updated[idx], ...changes };
-      if ("unitCost" in changes || "quantity" in changes) {
-        merged.totalCost = Math.round(parseFloat(merged.quantity || "0") * merged.unitCost * 100) / 100;
-      }
-      updated[idx] = merged;
+      updated[idx] = recomputeBomItemTotal(updated[idx], changes);
       updateSelected({ bom: updated });
     };
 
@@ -3179,7 +3182,7 @@ export default function TechPackApp() {
               <tfoot>
                 <tr style={{ background: "#1A2332", borderTop: "2px solid #334155" }}>
                   <td colSpan={9} style={{ ...S.td, textAlign: "right", fontWeight: 700, color: "#F1F5F9" }}>Total BOM Cost:</td>
-                  <td style={{ ...S.td, color: "#10B981", fontWeight: 700, fontFamily: "monospace", fontSize: 15 }}>{fmtCurrency(bomTotal)}</td>
+                  <td style={{ ...S.td, color: "#10B981", fontWeight: 700, fontFamily: "monospace", fontSize: 15 }}>{fmtCurrency(total)}</td>
                   <td colSpan={colorways.length * 2 + 1} style={S.td} />
                 </tr>
               </tfoot>
@@ -3195,14 +3198,10 @@ export default function TechPackApp() {
     const c = tp.costing;
 
     const recalc = (updates: Partial<Costing>) => {
-      const merged = { ...c, ...updates };
-      merged.duty = Math.round(merged.fob * (merged.dutyRate / 100) * 100) / 100;
-      merged.landedCost = Math.round((merged.fob + merged.duty + merged.freight + merged.insurance + merged.otherCosts) * 100) / 100;
-      merged.margin = merged.retailPrice > 0 ? Math.round(((merged.retailPrice - merged.landedCost) / merged.retailPrice) * 10000) / 100 : 0;
-      updateSelected({ costing: merged });
+      updateSelected({ costing: recomputeCosting(c, updates) });
     };
 
-    const marginColor = c.margin >= 50 ? "#10B981" : c.margin >= 30 ? "#F59E0B" : "#EF4444";
+    const marginColor = marginTierColor(c.margin);
 
     return (
       <>
@@ -3288,11 +3287,7 @@ export default function TechPackApp() {
   function renderApprovalsTab(tp: TechPack) {
     const approvals = tp.approvals.length > 0 ? tp.approvals : emptyApprovals();
 
-    // Check if previous stages are approved for sequential unlock
-    const isStageUnlocked = (index: number) => {
-      if (index === 0) return true;
-      return approvals.slice(0, index).every(a => a.status === "Approved");
-    };
+    const isStageUnlocked = (index: number) => isApprovalStageUnlocked(approvals, index);
 
     return (
       <>
