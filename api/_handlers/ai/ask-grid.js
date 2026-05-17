@@ -53,6 +53,54 @@ import {
   lookupTable,
   publicColumns,
 } from "../../_lib/ai-schema.js";
+import { loadLiveSchema } from "../../_lib/ai-live-schema.js";
+
+// Merge curated + live-discovered schemas. Curated entries win on
+// overlap (they carry hand-tuned descriptions). The live domain is
+// added as a fifth bucket so Claude can `list_tables("live_db")` to
+// see everything else that exists in the database.
+async function getMergedDomains(db) {
+  const live = await loadLiveSchema(db);
+  // Drop any live tables that are already curated (avoid duplicate
+  // entries in describe_table / list_tables responses).
+  const curatedTableNames = new Set();
+  for (const d of Object.values(DOMAINS)) {
+    for (const t of Object.keys(d.tables)) curatedTableNames.add(t);
+  }
+  const liveTables = {};
+  for (const [name, t] of Object.entries(live.tables)) {
+    if (!curatedTableNames.has(name)) liveTables[name] = t;
+  }
+  return {
+    ...DOMAINS,
+    live_db: { ...live, tables: liveTables },
+  };
+}
+
+// Lookup that consults both curated + live. Used by query_table and
+// describe_table executors so an operator can hit any public table.
+async function mergedLookupTable(db, domainName, tableName) {
+  // Try curated first (faster, doesn't need live load on cold start).
+  if (domainName) {
+    const curated = lookupTable(domainName, tableName);
+    if (curated) return curated;
+  } else {
+    for (const [dn, d] of Object.entries(DOMAINS)) {
+      if (d.tables[tableName]) return lookupTable(dn, tableName);
+    }
+  }
+  // Fallback: live schema. Single RPC + cache hit.
+  const merged = await getMergedDomains(db);
+  if (domainName) {
+    const dom = merged[domainName];
+    if (dom?.tables[tableName]) return { domain: dom, table: dom.tables[tableName], tableName, domainName };
+  } else {
+    for (const [dn, d] of Object.entries(merged)) {
+      if (d.tables[tableName]) return { domain: d, table: d.tables[tableName], tableName, domainName: dn };
+    }
+  }
+  return null;
+}
 
 export const config = { maxDuration: 60 };
 
@@ -349,10 +397,10 @@ You have three modes:
    c. Answer with answer_text using the actual numbers.
    d. If the answer ties to a grid subset, ALSO call suggest_grid_view.
 
-3. **Cross-app Q&A** (PO WIP / Vendor Portal / Planning / Design Calendar) — for anything not covered by the hot-path tools:
-   a. Use list_domains → list_tables → describe_table to find the right table.
+3. **Cross-app Q&A** (PO WIP / Vendor Portal / Planning / Design Calendar / anything else in the DB) — for anything not covered by the hot-path tools:
+   a. Use list_domains → list_tables → describe_table to find the right table. There are 5 domains: 4 curated (po_wip, vendor_portal, planning, design_calendar) with hand-written descriptions, plus `live_db` — every other public table auto-discovered from the database. Try curated domains first; fall back to live_db for anything else.
    b. Use query_table with filters + group_by + aggregations to get the answer.
-   c. Examples: "what compliance docs expire in the next 30 days" → query compliance_documents. "what's our total AR open right now" → query invoices grouped by status. "which vendors had the most disputes this quarter" → query disputes grouped by vendor_id.
+   c. Examples: "what compliance docs expire in the next 30 days" → query compliance_documents. "what's our total AR open right now" → query invoices grouped by status. "which vendors had the most disputes this quarter" → query disputes grouped by vendor_id. "how many marketplace listings are active" → list_tables("live_db") → describe_table("marketplace_listings") → query_table.
    d. Always answer in text. Only call suggest_grid_view if the answer ties to a filter on the ATS grid (rarely the case for cross-app questions).
 
 Rules:
@@ -686,9 +734,10 @@ async function tool_query_open_pos(db, input) {
 
 // ── Generic cross-app discovery + query tools ────────────────────────
 
-function tool_list_domains() {
+async function tool_list_domains(db) {
+  const merged = await getMergedDomains(db);
   return {
-    domains: Object.values(DOMAINS).map(d => ({
+    domains: Object.values(merged).map(d => ({
       domain: d.domain,
       description: d.description,
       table_count: Object.keys(d.tables).length,
@@ -696,9 +745,10 @@ function tool_list_domains() {
   };
 }
 
-function tool_list_tables(input) {
-  const domain = DOMAINS[input?.domain];
-  if (!domain) return { error: `Unknown domain: ${input?.domain}. Valid: ${Object.keys(DOMAINS).join(", ")}` };
+async function tool_list_tables(db, input) {
+  const merged = await getMergedDomains(db);
+  const domain = merged[input?.domain];
+  if (!domain) return { error: `Unknown domain: ${input?.domain}. Valid: ${Object.keys(merged).join(", ")}` };
   return {
     domain: domain.domain,
     tables: Object.entries(domain.tables).map(([name, t]) => ({
@@ -709,18 +759,13 @@ function tool_list_tables(input) {
   };
 }
 
-function tool_describe_table(input) {
+async function tool_describe_table(db, input) {
   const tableName = String(input?.table || "").trim();
   if (!tableName) return { error: "table required" };
-  let found = null;
-  if (input?.domain) {
-    found = lookupTable(input.domain, tableName);
-    if (!found) return { error: `Table '${tableName}' not in domain '${input.domain}' (or domain unknown).` };
-  } else {
-    for (const d of Object.values(DOMAINS)) {
-      if (d.tables[tableName]) { found = { domain: d, table: d.tables[tableName], tableName, domainName: d.domain }; break; }
-    }
-    if (!found) return { error: `Unknown table: ${tableName}. Use list_tables(domain) to discover.` };
+  const found = await mergedLookupTable(db, input?.domain, tableName);
+  if (!found) {
+    if (input?.domain) return { error: `Table '${tableName}' not in domain '${input.domain}' (or domain unknown).` };
+    return { error: `Unknown table: ${tableName}. Use list_tables(domain) to discover.` };
   }
   const cols = publicColumns(found.table);
   return {
@@ -772,15 +817,10 @@ async function tool_query_table(db, input) {
   // ── Validate table ──
   const tableName = String(input?.table || "").trim();
   if (!tableName) return { error: "table required" };
-  let found = null;
-  if (input?.domain) {
-    found = lookupTable(input.domain, tableName);
-    if (!found) return { error: `Table '${tableName}' not in domain '${input.domain}'.` };
-  } else {
-    for (const d of Object.values(DOMAINS)) {
-      if (d.tables[tableName]) { found = { domain: d, table: d.tables[tableName], tableName, domainName: d.domain }; break; }
-    }
-    if (!found) return { error: `Unknown table: ${tableName}.` };
+  const found = await mergedLookupTable(db, input?.domain, tableName);
+  if (!found) {
+    if (input?.domain) return { error: `Table '${tableName}' not in domain '${input.domain}'.` };
+    return { error: `Unknown table: ${tableName}.` };
   }
   const table   = found.table;
   const colMeta = publicColumns(table);
@@ -933,9 +973,9 @@ const TOOL_EXECUTORS = {
   query_shipments:  tool_query_shipments,
   query_open_sos:   tool_query_open_sos,
   query_open_pos:   tool_query_open_pos,
-  list_domains:     async () => tool_list_domains(),
-  list_tables:      async (_db, input) => tool_list_tables(input),
-  describe_table:   async (_db, input) => tool_describe_table(input),
+  list_domains:     async (db) => tool_list_domains(db),
+  list_tables:      async (db, input) => tool_list_tables(db, input),
+  describe_table:   async (db, input) => tool_describe_table(db, input),
   query_table:      tool_query_table,
 };
 
