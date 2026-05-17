@@ -82,6 +82,17 @@ import {
   buildSentFolderSearchUrl,
   buildSendMailPayload,
 } from "./techpack/tpEmail";
+import {
+  slugifyTPName,
+  findRofTeam,
+  keepRealMessages,
+  buildChannelsListUrl,
+  buildChannelMessagesUrl,
+  buildChatMessagesUrl,
+  buildChannelCreatePayload,
+  buildChannelMessagePayload,
+  buildOneOnOneChatPayload,
+} from "./techpack/tpTeams";
 
 // sb helper moved to ./techpack/supabase
 
@@ -511,7 +522,7 @@ export default function TechPackApp() {
   async function tpFindTeam(token: string): Promise<string> {
     if (teamsTeamId) return teamsTeamId;
     const data = await tpGraph("/me/joinedTeams", token);
-    const rofTeam = (data.value || []).find((t: any) => t.displayName?.toLowerCase().replace(/\s+/g, "").includes("ringoffire"));
+    const rofTeam = findRofTeam(data.value || []);
     if (!rofTeam) throw new Error('Could not find "RING OF FIRE" team');
     await tpSbSave("teams_team_id", rofTeam.id);
     setTeamsTeamId(rofTeam.id);
@@ -522,16 +533,26 @@ export default function TechPackApp() {
     setTeamsCreating(tpId);
     try {
       const tid = await tpFindTeam(teamsToken);
-      const slug = tpName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
-      const chName = `tp-${slug}`;
+      const chName = slugifyTPName(tpName);
       let channelId = "";
-      try { const chs = await tpGraph(`/teams/${tid}/channels`, teamsToken); const ex = (chs.value || []).find((c: any) => c.displayName === chName); if (ex) channelId = ex.id; } catch(_) {}
-      if (!channelId) { const ch = await tpGraphPost(`/teams/${tid}/channels`, { displayName: chName, description: `Tech Pack — ${tpName}`, membershipType: "standard" }, teamsToken); channelId = ch.id; }
+      try {
+        const chs = await tpGraph(buildChannelsListUrl(tid), teamsToken);
+        const ex = (chs.value || []).find((c: any) => c.displayName === chName);
+        if (ex) channelId = ex.id;
+      } catch(_) {}
+      if (!channelId) {
+        const ch = await tpGraphPost(
+          buildChannelsListUrl(tid),
+          buildChannelCreatePayload(chName, `Tech Pack — ${tpName}`),
+          teamsToken,
+        );
+        channelId = ch.id;
+      }
       const newMap = { ...teamsChannelMap, [tpId]: { channelId, teamId: tid } };
       setTeamsChannelMap(newMap);
       await tpSbSave("tp_teams_channel_map", newMap);
-      const d = await tpGraph(`/teams/${tid}/channels/${channelId}/messages?$top=50`, teamsToken);
-      setTeamsMessages(m => ({ ...m, [tpId]: (d.value || []).filter((msg: any) => msg.messageType === "message") }));
+      const d = await tpGraph(buildChannelMessagesUrl(tid, channelId), teamsToken);
+      setTeamsMessages(m => ({ ...m, [tpId]: keepRealMessages(d.value || []) }));
     } catch(e: any) { alert("Could not start Teams chat: " + e.message); }
     setTeamsCreating(null);
   }
@@ -539,7 +560,10 @@ export default function TechPackApp() {
     const mp = teamsChannelMap[tpId];
     if (!mp || !teamsNewMsg.trim() || !teamsToken) return;
     try {
-      const sent = await tpGraphPost(`/teams/${mp.teamId}/channels/${mp.channelId}/messages`, { body: { content: teamsNewMsg.trim(), contentType: "text" } });
+      const sent = await tpGraphPost(
+        buildChannelMessagesUrl(mp.teamId, mp.channelId),
+        buildChannelMessagePayload(teamsNewMsg),
+      );
       setTeamsMessages(m => ({ ...m, [tpId]: [sent, ...(m[tpId] || [])] }));
       setTeamsNewMsg("");
     } catch(e: any) { alert("Failed to send: " + e.message); }
@@ -548,8 +572,8 @@ export default function TechPackApp() {
     setDmLoading(true);
     setDmError(null);
     try {
-      const d = await tpGraph(`/chats/${chatId}/messages?$top=50`, teamsToken!);
-      const msgs = ((d.value || []) as any[]).filter((m: any) => m.messageType === "message").reverse();
+      const d = await tpGraph(buildChatMessagesUrl(chatId), teamsToken!);
+      const msgs = keepRealMessages((d.value || []) as any[]).reverse();
       setDmMessages(msgs);
       setTimeout(() => { if (dmScrollRef.current) dmScrollRef.current.scrollTop = dmScrollRef.current.scrollHeight; }, 50);
     } catch(e: any) {
@@ -564,14 +588,16 @@ export default function TechPackApp() {
     setTeamsDirectErr(null);
     try {
       const me = await tpGraph("/me", teamsToken!);
-      const chat = await tpGraphPost("/chats", {
-        chatType: "oneOnOne",
-        members: [
-          { "@odata.type": "#microsoft.graph.aadUserConversationMember", roles: ["owner"], "user@odata.bind": `https://graph.microsoft.com/v1.0/users('${me.id}')` },
-          { "@odata.type": "#microsoft.graph.aadUserConversationMember", roles: ["owner"], "user@odata.bind": `https://graph.microsoft.com/v1.0/users('${teamsDirectTo.trim()}')` },
-        ],
-      }, teamsToken!);
-      await tpGraphPost(`/chats/${chat.id}/messages`, { body: { content: teamsDirectMsg.trim(), contentType: "text" } }, teamsToken!);
+      const chat = await tpGraphPost(
+        "/chats",
+        buildOneOnOneChatPayload(me.id, teamsDirectTo.trim()),
+        teamsToken!,
+      );
+      await tpGraphPost(
+        `/chats/${chat.id}/messages`,
+        buildChannelMessagePayload(teamsDirectMsg),
+        teamsToken!,
+      );
       setDmChatId(chat.id);
       setDmRecipient(teamsDirectTo.trim());
       setTeamsDirectMsg("");
@@ -587,7 +613,11 @@ export default function TechPackApp() {
     setDmSending(true);
     setDmError(null);
     try {
-      const sent = await tpGraphPost(`/chats/${dmChatId}/messages`, { body: { content: dmNewMsg.trim(), contentType: "text" } }, teamsToken!);
+      const sent = await tpGraphPost(
+        `/chats/${dmChatId}/messages`,
+        buildChannelMessagePayload(dmNewMsg),
+        teamsToken!,
+      );
       setDmMessages(prev => [...prev, sent]);
       setDmNewMsg("");
       setTimeout(() => { if (dmScrollRef.current) dmScrollRef.current.scrollTop = dmScrollRef.current.scrollHeight; }, 50);
