@@ -8,7 +8,7 @@ import { SB_URL, SB_KEY, SB_HEADERS, supabaseClient } from "./utils/supabase";
 import NotificationsShell from "./components/notifications/NotificationsShell";
 import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
-import { sb } from "./techpack/supabase";
+import { sb, appDataSave } from "./techpack/supabase";
 import { EMAIL_COLORS, FolderIcon } from "./techpack/emailStyles";
 import {
   filterTechPacks,
@@ -332,9 +332,8 @@ export default function TechPackApp() {
   }, []);
 
   // ── Teams + Email Graph helpers ──────────────────────────────────────────
-  const tpSbSave = async (key: string, value: any) => {
-    await fetch(`${SB_URL}/rest/v1/app_data`, { method: "POST", headers: { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`, "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ key, value: JSON.stringify(value) }) });
-  };
+  // Alias the extracted helper so existing call sites stay churn-free.
+  const tpSbSave = appDataSave;
   const tpGetToken = async (): Promise<string> => {
     const tok = await getMsAccessToken();
     if (tok) { if (tok !== msToken) setMsToken(tok); return tok; }
