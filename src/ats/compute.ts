@@ -1,6 +1,5 @@
 import type { ATSRow, ExcelData } from "./types";
 import { dedupeSkuEntries } from "./merge";
-import { ppkMultiplier } from "../shared/prepack";
 import { resolveStyle } from "./itemMasterLookup";
 
 // Per-period qty resolver shared by the grid, the export, and totals.
@@ -42,13 +41,12 @@ export function periodAvail(
  *  that path. */
 export function applyPpkMultiplierToRow(row: ATSRow): ATSRow {
   const masterHit = resolveStyle(row.sku, null);
-  const mult = ppkMultiplier(
-    null,
-    masterHit.size,
-    row.description,
-    masterHit.style ?? row.sku,
-    row.sku,
-  );
+  // Authoritative pack size from ip_item_master.pack_size. Backfilled
+  // from sku/style/size PPKn tokens via migration
+  // 20260517220000_item_master_pack_size.sql; long-term will be
+  // populated by the Xoro master normalizer (rof_xoro_project).
+  // No more regex on row.description / row.sku.
+  const mult = masterHit.pack_size;
   if (mult === 1) return { ...row, ppkMult: 1 };
   const newDates: Record<string, number> = {};
   for (const [date, qty] of Object.entries(row.dates)) newDates[date] = qty * mult;
@@ -101,21 +99,14 @@ export function computeRowsFromExcelData(data: ExcelData, dates: string[], poSto
     const soDates = soIdx[rowKey] ?? {};
 
     // PPK explosion. Xoro reports qtys in PACKS for prepack SKUs.
-    // The pack-size token (e.g. "PPK24" = 24 units per pack) lives in
-    // the size field 90% of the time, occasionally in the style code
-    // (e.g. "...PPK48") or description. Source the size from the item
-    // master cache when available since the SKU + description we get
-    // from Xoro often don't carry it. Falls back to scanning the
-    // description / SKU when the master hasn't loaded yet or the row
-    // is unmatched. resolveStyle is sync once the cache is loaded.
+    // Source the pack size from the authoritative ip_item_master.
+    // pack_size column (resolved here via masterHit). Replaces the
+    // previous regex-on-text-fields ppkMultiplier() which had two
+    // failure modes: false positives from dirty PPKn tokens on
+    // non-prepack variants, and false negatives for legacy styles
+    // where the token sat in size only.
     const masterHit = resolveStyle(s.sku, null);
-    const mult = ppkMultiplier(
-      null,                       // ATS doesn't carry a separate color field
-      masterHit.size,             // primary: master's size column
-      s.description,              // fallback: description text
-      masterHit.style ?? s.sku,   // fallback: style code (PPK48 in style)
-      s.sku,                      // last-resort fallback: full SKU
-    );
+    const mult = masterHit.pack_size;
 
     let ats = s.onHand * mult;
     for (const [date, qty] of Object.entries(poDates)) {

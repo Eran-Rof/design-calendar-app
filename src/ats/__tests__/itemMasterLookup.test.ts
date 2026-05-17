@@ -60,6 +60,7 @@ describe("itemMasterLookup.resolveStyle", () => {
       color: "Black",
       size: null,
       description: null,
+      pack_size: 1,
       match_source: "sku",
     });
   });
@@ -104,6 +105,7 @@ describe("itemMasterLookup.resolveStyle", () => {
       color: "Black",
       size: null,
       description: null,
+      pack_size: 1,
       match_source: "style",
     });
   });
@@ -121,6 +123,7 @@ describe("itemMasterLookup.resolveStyle", () => {
       color: null,
       size: null,
       description: null,
+      pack_size: 1,
       match_source: null,
     });
   });
@@ -135,6 +138,7 @@ describe("itemMasterLookup.resolveStyle", () => {
       color: null,
       size: null,
       description: null,
+      pack_size: 1,
       match_source: null,
     });
   });
