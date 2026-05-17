@@ -23,22 +23,26 @@ import type { AIGridSetters, GridContextSnapshot } from "../../ai/tools";
 // added, never carried inventory locally, etc.).
 async function fetchMissingMasterRows(ids: string[]): Promise<Array<{ id: string; sku_code: string; style_code: string | null; color: string | null; size: string | null; description: string | null; unit_cost: number | null; attributes: any }>> {
   if (!SB_URL || ids.length === 0) return [];
-  // PostgREST `in.(...)` URL — quote each id (uuids are safe but
-  // be defensive). encodeURIComponent the whole comma-joined string
-  // so commas become %2C and PostgREST sees a single in-clause.
-  const inList = ids.map(id => `"${id}"`).join(",");
-  const url = `${SB_URL}/rest/v1/ip_item_master?select=id,sku_code,style_code,color,size,description,unit_cost,attributes&id=in.(${encodeURIComponent(inList)})&limit=${ids.length}`;
-  try {
-    const r = await fetch(url, { headers: SB_HEADERS });
-    if (!r.ok) {
-      console.warn(`[ATS export] fetchMissingMasterRows failed: ${r.status}`);
+  // Chunked + parallel for the same URL-length reason the other fetchers
+  // chunk — at 200+ UUIDs the single in.(...) URL crosses PostgREST's
+  // gateway limit.
+  const batches = chunkArray(ids, SB_IN_CHUNK);
+  const responses = await Promise.all(batches.map(async (batch) => {
+    const inList = batch.map((id) => `"${id}"`).join(",");
+    const url = `${SB_URL}/rest/v1/ip_item_master?select=id,sku_code,style_code,color,size,description,unit_cost,attributes&id=in.(${encodeURIComponent(inList)})&limit=${batch.length}`;
+    try {
+      const r = await fetch(url, { headers: SB_HEADERS });
+      if (!r.ok) {
+        console.warn(`[ATS export] fetchMissingMasterRows batch failed: ${r.status}`);
+        return [] as Array<{ id: string; sku_code: string; style_code: string | null; color: string | null; size: string | null; description: string | null; unit_cost: number | null; attributes: any }>;
+      }
+      return (await r.json()) as Array<{ id: string; sku_code: string; style_code: string | null; color: string | null; size: string | null; description: string | null; unit_cost: number | null; attributes: any }>;
+    } catch (e) {
+      console.warn("[ATS export] fetchMissingMasterRows batch error:", e);
       return [];
     }
-    return await r.json();
-  } catch (e) {
-    console.warn("[ATS export] fetchMissingMasterRows error:", e);
-    return [];
-  }
+  }));
+  return responses.flat();
 }
 
 // Fetch open-PO unit costs grouped by canonical sku_code, given the
@@ -52,25 +56,32 @@ async function fetchOpenPoCostsByCanonicalSku(skus: string[]): Promise<Map<strin
   const out = new Map<string, number[]>();
   if (!SB_URL || skus.length === 0) return out;
 
-  // Step 1: sku_code → id
-  const inSkus = skus.map((s) => `"${s.replace(/"/g, '\\"')}"`).join(",");
-  const masterUrl = `${SB_URL}/rest/v1/ip_item_master?select=id,sku_code&sku_code=in.(${encodeURIComponent(inSkus)})&limit=${skus.length}`;
-  let idToSkuCode = new Map<string, string>();
-  try {
-    const r = await fetch(masterUrl, { headers: SB_HEADERS });
-    if (!r.ok) {
-      console.warn(`[ATS export] fetchOpenPoCostsByCanonicalSku master lookup failed: ${r.status}`);
-      return out;
+  // Step 1: sku_code → id. Chunk + parallel for the same URL-length
+  // reason fetchAvgCostBySkuCodes chunks.
+  const idToSkuCode = new Map<string, string>();
+  const skuBatches = chunkArray(skus, SB_IN_CHUNK);
+  const masterResponses = await Promise.all(skuBatches.map(async (batch) => {
+    const inSkus = batch.map((s) => `"${s.replace(/"/g, '\\"')}"`).join(",");
+    const masterUrl = `${SB_URL}/rest/v1/ip_item_master?select=id,sku_code&sku_code=in.(${encodeURIComponent(inSkus)})&limit=${batch.length}`;
+    try {
+      const r = await fetch(masterUrl, { headers: SB_HEADERS });
+      if (!r.ok) {
+        console.warn(`[ATS export] fetchOpenPoCostsByCanonicalSku master batch failed: ${r.status}`);
+        return [] as Array<{ id: string; sku_code: string }>;
+      }
+      return (await r.json()) as Array<{ id: string; sku_code: string }>;
+    } catch (e) {
+      console.warn("[ATS export] fetchOpenPoCostsByCanonicalSku master batch error:", e);
+      return [];
     }
-    const rows: Array<{ id: string; sku_code: string }> = await r.json();
+  }));
+  for (const rows of masterResponses) {
     for (const row of rows) idToSkuCode.set(row.id, row.sku_code);
-  } catch (e) {
-    console.warn("[ATS export] fetchOpenPoCostsByCanonicalSku master error:", e);
-    return out;
   }
   if (idToSkuCode.size === 0) return out;
 
-  // Step 2: ids → open PO rows. Reuse the existing id-based fetcher.
+  // Step 2: ids → open PO rows. Reuse the existing id-based fetcher
+  // (which is itself chunked).
   return await fetchOpenPoCostsBySkuCode([...idToSkuCode.keys()], idToSkuCode);
 }
 
@@ -86,15 +97,27 @@ async function fetchOpenPoCostsBySkuCode(
 ): Promise<Map<string, number[]>> {
   const out = new Map<string, number[]>();
   if (!SB_URL || ids.length === 0) return out;
-  const inList = ids.map((id) => `"${id}"`).join(",");
-  const url = `${SB_URL}/rest/v1/ip_open_purchase_orders?select=sku_id,unit_cost,qty_open&sku_id=in.(${encodeURIComponent(inList)})&unit_cost=not.is.null&qty_open=gt.0&limit=${ids.length * 8}`;
-  try {
-    const r = await fetch(url, { headers: SB_HEADERS });
-    if (!r.ok) {
-      console.warn(`[ATS export] fetchOpenPoCostsBySkuCode failed: ${r.status}`);
-      return out;
+  // PostgREST `?sku_id=in.("uuid1","uuid2",...)` URLs grow ~40 chars per
+  // UUID; at ~200+ ids the URL crosses the 8KB gateway limit and the
+  // request 414s (and on a full-grid export with thousands of SKUs that
+  // surfaces as a 3+ minute freeze). Chunk + parallel.
+  const batches = chunkArray(ids, SB_IN_CHUNK);
+  const responses = await Promise.all(batches.map(async (batch) => {
+    const inList = batch.map((id) => `"${id}"`).join(",");
+    const url = `${SB_URL}/rest/v1/ip_open_purchase_orders?select=sku_id,unit_cost,qty_open&sku_id=in.(${encodeURIComponent(inList)})&unit_cost=not.is.null&qty_open=gt.0&limit=${batch.length * 8}`;
+    try {
+      const r = await fetch(url, { headers: SB_HEADERS });
+      if (!r.ok) {
+        console.warn(`[ATS export] fetchOpenPoCostsBySkuCode batch failed: ${r.status}`);
+        return [] as Array<{ sku_id: string; unit_cost: number | null; qty_open: number | null }>;
+      }
+      return (await r.json()) as Array<{ sku_id: string; unit_cost: number | null; qty_open: number | null }>;
+    } catch (e) {
+      console.warn("[ATS export] fetchOpenPoCostsBySkuCode batch error:", e);
+      return [];
     }
-    const rows: Array<{ sku_id: string; unit_cost: number | null; qty_open: number | null }> = await r.json();
+  }));
+  for (const rows of responses) {
     for (const row of rows) {
       const sku = idToSkuCode.get(row.sku_id);
       if (!sku) continue;
@@ -103,9 +126,22 @@ async function fetchOpenPoCostsBySkuCode(
       list.push(row.unit_cost);
       out.set(sku, list);
     }
-  } catch (e) {
-    console.warn("[ATS export] fetchOpenPoCostsBySkuCode error:", e);
   }
+  return out;
+}
+
+// Batch size for `?col=in.(...)` PostgREST URLs. PostgREST + the Vercel
+// proxy in front of it reject URLs over ~8KB (414 URI Too Long); on the
+// happy path the request still works at 100-200 entries even with long
+// SKU strings. 150 leaves headroom for the SUPABASE_URL + headers and
+// keeps each batch under ~6KB. With Promise.all, doubling the batch
+// count costs almost nothing latency-wise (round trips parallelise).
+const SB_IN_CHUNK = 150;
+
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  if (arr.length <= size) return [arr];
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
 }
 
@@ -115,25 +151,35 @@ async function fetchOpenPoCostsBySkuCode(
 // rows in preference to ip_item_master.unit_cost — the latter is poisoned
 // for some prepack SKUs (carries StandardUnitCost × MasterCaseQty from
 // legacy Excel uploads, e.g. RYB059430 reads as $160.80 instead of $6.70).
+//
+// Chunks the SKU list into SB_IN_CHUNK-sized batches and fires them in
+// parallel — a full-grid export can have 1500+ SKUs missing cost, and a
+// single `in.(...)` URL would blow past PostgREST's URL-length limit.
 async function fetchAvgCostBySkuCodes(skus: string[]): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   if (!SB_URL || skus.length === 0) return out;
-  const inList = skus.map((s) => `"${s.replace(/"/g, '\\"')}"`).join(",");
-  const url = `${SB_URL}/rest/v1/ip_item_avg_cost?select=sku_code,avg_cost&sku_code=in.(${encodeURIComponent(inList)})&limit=${skus.length}`;
-  try {
-    const r = await fetch(url, { headers: SB_HEADERS });
-    if (!r.ok) {
-      console.warn(`[ATS export] fetchAvgCostBySkuCodes failed: ${r.status}`);
-      return out;
+  const batches = chunkArray(skus, SB_IN_CHUNK);
+  const responses = await Promise.all(batches.map(async (batch) => {
+    const inList = batch.map((s) => `"${s.replace(/"/g, '\\"')}"`).join(",");
+    const url = `${SB_URL}/rest/v1/ip_item_avg_cost?select=sku_code,avg_cost&sku_code=in.(${encodeURIComponent(inList)})&limit=${batch.length}`;
+    try {
+      const r = await fetch(url, { headers: SB_HEADERS });
+      if (!r.ok) {
+        console.warn(`[ATS export] fetchAvgCostBySkuCodes batch failed: ${r.status}`);
+        return [] as Array<{ sku_code: string; avg_cost: number | null }>;
+      }
+      return (await r.json()) as Array<{ sku_code: string; avg_cost: number | null }>;
+    } catch (e) {
+      console.warn("[ATS export] fetchAvgCostBySkuCodes batch error:", e);
+      return [];
     }
-    const rows: Array<{ sku_code: string; avg_cost: number | null }> = await r.json();
+  }));
+  for (const rows of responses) {
     for (const row of rows) {
       if (row.sku_code && typeof row.avg_cost === "number" && row.avg_cost > 0) {
         out.set(row.sku_code, row.avg_cost);
       }
     }
-  } catch (e) {
-    console.warn("[ATS export] fetchAvgCostBySkuCodes error:", e);
   }
   return out;
 }
