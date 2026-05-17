@@ -159,10 +159,14 @@ export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCo
                         whiteSpace: wraps ? "normal" : "nowrap",
                         // Cap wrapped header width so the wrap actually
                         // engages instead of expanding to the longest
-                        // line. Matches the 12-char auto-fit cap
-                        // exportExcel.ts applies to wrapped columns.
-                        maxWidth: wraps ? 110 : undefined,
-                        wordBreak: wraps ? "break-word" : undefined,
+                        // line. Matches the 13-char auto-fit cap
+                        // exportExcel.ts applies — wide enough to keep
+                        // an MMM/DD/YYYY date intact on one line.
+                        // wordBreak: normal (not break-word) so the
+                        // wrap engine breaks on whitespace only and
+                        // never splits a date mid-character.
+                        maxWidth: wraps ? 120 : undefined,
+                        wordBreak: wraps ? "normal" : undefined,
                         textAlign: "center",
                         fontWeight: 700,
                         verticalAlign: "middle",
