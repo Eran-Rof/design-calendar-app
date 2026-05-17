@@ -23,7 +23,7 @@ import { TbdCustomerCell } from "../components/cells/TbdCustomerCell";
 import { TbdColorCell } from "../components/cells/TbdColorCell";
 import { usePersistedString, usePersistedStringArray, usePersistedBool } from "../hooks/usePersistedFilter";
 import { aggregateRows } from "./aggregateGridRows";
-import type { CollapseModes, SortKey } from "./wholesale-planning/types";
+import type { SortKey } from "./wholesale-planning/types";
 import { COLLAPSE_OPTIONS, NO_COLLAPSE } from "./wholesale-planning/constants";
 import {
   collapseToKeys,
@@ -42,10 +42,12 @@ import {
   genderLabel,
   type FreezeKey,
 } from "./wholesale-planning/columns";
-import { computeColumnWidth } from "./wholesale-planning/computeColumnWidth";
 import { computeTotals } from "./wholesale-planning/computeTotals";
-import { computeContentLengths } from "./wholesale-planning/computeContentLengths";
 import { PlanningGridRow } from "./wholesale-planning/PlanningGridRow";
+import { useCollapsePersistence } from "./wholesale-planning/hooks/useCollapsePersistence";
+import { usePersistedHiddenColumns } from "./wholesale-planning/hooks/usePersistedHiddenColumns";
+import { useAggregateExpansion } from "./wholesale-planning/hooks/useAggregateExpansion";
+import { useDynamicColWidths } from "./wholesale-planning/hooks/useDynamicColWidths";
 import { bucketKeyFor, type BucketKeyFilters } from "./bucketBuyKey";
 import { recommendForRow } from "../compute/recommendations";
 import { applyRollingPool } from "../compute/supply";
@@ -317,85 +319,20 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // Collapse / aggregation modes — independent toggles that change the
   // grouping key of the displayed rows. When any are on, grids show
   // aggregate rows and inline editing is disabled on those rows.
-  const [collapseRaw, setCollapseRaw] = useState<CollapseModes>(() => {
-    try {
-      const raw = localStorage.getItem("ws_planning_collapse");
-      if (import.meta.env.DEV) {
-        // eslint-disable-next-line no-console
-        console.log("[ip-debug loadCollapse] raw=", raw);
-      }
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object") {
-          return {
-            customers: !!parsed.customers,
-            colors: !!parsed.colors,
-            category: !!parsed.category,
-            subCat: !!parsed.subCat,
-            customerAllStyles: !!parsed.customerAllStyles,
-            allCustomersPerCategory: !!parsed.allCustomersPerCategory,
-            allCustomersPerSubCat: !!parsed.allCustomersPerSubCat,
-            allCustomersPerStyle: !!parsed.allCustomersPerStyle,
-          };
-        }
-      }
-    } catch { /* ignore */ }
-    return {
-      customers: false, colors: false, category: false, subCat: false,
-      customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false,
-      allCustomersPerStyle: false,
-    };
-  });
-  // Persist synchronously inside the setter so a subsequent unmount
-  // (tab switch, run change, build refresh) can't drop the write the
-  // way a deferred useEffect could. Wraps setCollapseRaw.
-  const collapse = collapseRaw;
-  const setCollapse: typeof setCollapseRaw = (next) => {
-    setCollapseRaw((cur) => {
-      const computed = typeof next === "function" ? (next as (c: CollapseModes) => CollapseModes)(cur) : next;
-      try {
-        const json = JSON.stringify(computed);
-        localStorage.setItem("ws_planning_collapse", json);
-        if (import.meta.env.DEV) {
-          // eslint-disable-next-line no-console
-          console.log("[ip-debug writeCollapse] ←", json);
-        }
-      } catch { /* ignore */ }
-      return computed;
-    });
-  };
+  // Persistence + the synchronous-write setter both live in the hook.
+  const [collapse, setCollapse] = useCollapsePersistence();
   const anyCollapsed =
     collapse.customers || collapse.colors || collapse.category || collapse.subCat ||
     collapse.customerAllStyles || collapse.allCustomersPerCategory || collapse.allCustomersPerSubCat ||
     collapse.allCustomersPerStyle;
   const currentCollapseKeys = collapseToKeys(collapse);
 
-  // Forecast IDs of aggregate rows the planner has expanded — when set,
-  // the underlying child rows render below the parent indented + muted.
-  const [expandedAggs, setExpandedAggs] = useState<Set<string>>(new Set());
-  // Aggregates the planner has EXPLICITLY collapsed despite an
-  // auto-expand trigger (e.g. an active search). Without this, the
-  // chevron click was a no-op while a search was active because
-  // effectiveExpanded re-added every aggregate every render.
-  const [manuallyCollapsedAggs, setManuallyCollapsedAggs] = useState<Set<string>>(new Set());
-  const toggleAggExpanded = (forecastId: string) => {
-    // Resolve the row's effective expansion at click time so toggling
-    // means "do the opposite of what the user sees right now".
-    const wasExpanded = expandedAggs.has(forecastId)
-      || (search.trim().length > 0 && !manuallyCollapsedAggs.has(forecastId));
-    setExpandedAggs((prev) => {
-      const next = new Set(prev);
-      next.delete(forecastId);
-      if (!wasExpanded) next.add(forecastId);
-      return next;
-    });
-    setManuallyCollapsedAggs((prev) => {
-      const next = new Set(prev);
-      if (wasExpanded) next.add(forecastId);
-      else next.delete(forecastId);
-      return next;
-    });
-  };
+  // Aggregate expansion (expanded + manually-collapsed Sets + toggle)
+  // lives in a hook so the chevron-click behavior under-search-active
+  // can be tested in isolation.
+  const { expandedAggs, manuallyCollapsedAggs, toggleAggExpanded: toggleAggExpandedRaw } = useAggregateExpansion();
+  const toggleAggExpanded = (forecastId: string) =>
+    toggleAggExpandedRaw(forecastId, search.trim().length > 0);
   // No reset on collapse change: expandedAggs is keyed on
   // aggregate_key (e.g. "cat:Knits:2026-04"), which is mode-prefixed
   // and stable across filter/search/page changes. Switching modes
@@ -550,27 +487,8 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // EVERY column is toggleable. Persisted to localStorage so refresh
   // keeps the planner's preference.
   // TOGGLEABLE_COLUMNS moved to ./wholesale-planning/columns.
-  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(() => {
-    try {
-      const raw = localStorage.getItem("ws_planning_hidden_columns");
-      if (!raw) return new Set();
-      const arr = JSON.parse(raw);
-      return new Set(Array.isArray(arr) ? arr : []);
-    } catch { return new Set(); }
-  });
-  function toggleColumn(key: string) {
-    setHiddenColumns((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      try { localStorage.setItem("ws_planning_hidden_columns", JSON.stringify(Array.from(next))); }
-      catch { /* ignore quota */ }
-      return next;
-    });
-  }
-  function resetColumns() {
-    setHiddenColumns(new Set());
-    try { localStorage.removeItem("ws_planning_hidden_columns"); } catch { /* ignore */ }
-  }
+  // Hidden-column toggles + persistence live in usePersistedHiddenColumns.
+  const { hiddenColumns, toggleColumn, resetColumns } = usePersistedHiddenColumns();
   const colHide = (key: string): React.CSSProperties | undefined =>
     hiddenColumns.has(key) ? { display: "none" } : undefined;
 
@@ -1636,16 +1554,8 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // that wrap an <input> (BuyCell etc.) from being crushed below their
   // input's intrinsic width; CAP values keep one outlier description
   // from blowing the whole row out.
-  const dynamicColWidths = useMemo(() => {
-    // Content-length scan + width compute both moved to
-    // ./wholesale-planning/{computeContentLengths,computeColumnWidth}.
-    const lenByCol = computeContentLengths(displayRows);
-    const widths: Record<string, number> = {};
-    for (const k of Object.keys(COLUMN_LABEL)) {
-      widths[k] = computeColumnWidth(k, lenByCol[k]);
-    }
-    return widths;
-  }, [displayRows]);
+  // Per-column width compute moved to useDynamicColWidths.
+  const dynamicColWidths = useDynamicColWidths(displayRows);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
