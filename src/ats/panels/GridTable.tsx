@@ -447,10 +447,14 @@ export const GridTable: React.FC<GridTableProps> = ({
               );
             })()}
             {/* Period sums. B / E Inven chain across periods:
-                  • B[period 1] = sticky's E Inven (= onHand$ + openPO$
-                    − openSO$). Each subsequent period's B = prior
-                    period's E.
-                  • E[period i] = B + receipts$_i − COGS$_i
+                  • B[period 1] = sticky's B Inven (= sums.onHand.cost,
+                    the current on-hand × avg cost). Per planner: the
+                    first date column inherits B from the sticky's B,
+                    NOT the sticky's E — so open POs/SOs flow into the
+                    chain through their per-period events rather than
+                    being pre-applied at horizon start.
+                  • B[period i+1] = E[period i] for i ≥ 1
+                  • E[period i]   = B + receipts$_i − COGS$_i
                       where receipts$_i = sum of PO event qty in this
                       period × avg cost, and COGS$_i = sum of SO event
                       qty in this period × avg cost (both computed
@@ -459,12 +463,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                 sees the correct prior E. */}
             {(() => {
               const stickyB = sums.onHand.cost;
-              let totalPeriodCogs = 0;
-              for (const p of displayPeriods) {
-                totalPeriodCogs += sums.periodCogsValue[p.key] ?? 0;
-              }
-              const stickyE = stickyB + sums.onPO.cost - totalPeriodCogs;
-              let prevEInven = stickyE;
+              let prevEInven = stickyB;
               return displayPeriods.map(p => {
                 const q = sums.periodQty[p.key]     ?? 0;
                 const c = sums.periodCost[p.key]    ?? 0;
