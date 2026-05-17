@@ -8,6 +8,7 @@ import { SB_URL, SB_KEY, SB_HEADERS, supabaseClient } from "./utils/supabase";
 import NotificationsShell from "./components/notifications/NotificationsShell";
 import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
+import { sb } from "./techpack/supabase";
 // Types + constants + factories live in src/techpack/. Phase 1 of the
 // TechPack architecture split — see project_plm_cleanup_backlog.md.
 import type {
@@ -26,26 +27,7 @@ import { emptyCosting, emptyApprovals, emptyTechPack } from "./techpack/factorie
 import { BUILTIN_TEMPLATES } from "./techpack/builtinTemplates";
 import S from "./techpack/styles";
 
-// ── Supabase helpers ──────────────────────────────────────────────────────────
-const sb = {
-  from: (table: string) => ({
-    select: async (cols = "*", filter = "") => {
-      const res = await fetch(`${SB_URL}/rest/v1/${table}?select=${cols}${filter ? "&" + filter : ""}`, { headers: SB_HEADERS });
-      const data = await res.json();
-      return { data, error: res.ok ? null : data };
-    },
-    upsert: async (rows: any) => {
-      const body = Array.isArray(rows) ? rows : [rows];
-      const res = await fetch(`${SB_URL}/rest/v1/${table}`, { method: "POST", headers: { ...SB_HEADERS, "Prefer": "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(body) });
-      const data = await res.json();
-      return { data, error: res.ok ? null : data };
-    },
-    delete: async (filter: string) => {
-      const res = await fetch(`${SB_URL}/rest/v1/${table}?${filter}`, { method: "DELETE", headers: SB_HEADERS });
-      return { error: res.ok ? null : await res.json() };
-    },
-  }),
-};
+// sb helper moved to ./techpack/supabase
 
 
 // ══════════════════════════════════════════════════════════════════════════════
