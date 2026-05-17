@@ -8,6 +8,22 @@ import { SB_URL, SB_KEY, SB_HEADERS, supabaseClient } from "./utils/supabase";
 import NotificationsShell from "./components/notifications/NotificationsShell";
 import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
+// Types + constants + factories live in src/techpack/. Phase 1 of the
+// TechPack architecture split — see project_plm_cleanup_backlog.md.
+import type {
+  User, Measurement, ConstructionDetail, Colorway, BOMColorSpec,
+  SketchCallout, FlatSketch, BOMItem, Costing, Approval, Sample,
+  TPImage, TechPack, Material, SpecSheetRow, SpecSheet, SpecTemplate,
+  View, DetailTab,
+} from "./techpack/types";
+import {
+  STATUSES, STATUS_COLORS, APPROVAL_STAGES, APPROVAL_STATUS_COLORS,
+  SAMPLE_TYPES, SAMPLE_STATUS_COLORS, MATERIAL_TYPES, CW_COLORS,
+  CATEGORIES, SEASONS, DEFAULT_SIZES,
+} from "./techpack/constants";
+import { uid, today, fmtDate, fmtCurrency } from "./techpack/utils";
+import { emptyCosting, emptyApprovals, emptyTechPack } from "./techpack/factories";
+import { BUILTIN_TEMPLATES } from "./techpack/builtinTemplates";
 
 // ── Supabase helpers ──────────────────────────────────────────────────────────
 const sb = {
@@ -30,131 +46,6 @@ const sb = {
   }),
 };
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-interface User { name?: string; username?: string; avatar?: string; color?: string; initials?: string; role?: string; }
-
-interface Measurement { id: string; pointOfMeasure: string; tolerance: string; sizes: Record<string, string>; }
-interface ConstructionDetail { id: string; area: string; detail: string; notes: string; refImages: string[]; }
-
-interface Colorway { id: string; name: string; }
-interface BOMColorSpec { colorwayId: string; color: string; pantone: string; trialSize: string; }
-
-interface SketchCallout { id: string; number: number; description: string; }
-interface FlatSketch { frontImage: string | null; backImage: string | null; callouts: SketchCallout[]; stitchingDetails: string; measurementNote: string; }
-interface BOMItem { id: string; materialNo: string; material: string; placement: string; content: string; weight: string; quantity: string; uom: string; supplier: string; unitCost: number; totalCost: number; notes: string; image: string | null; colorSpecs: BOMColorSpec[]; }
-interface Costing { fob: number; duty: number; dutyRate: number; freight: number; insurance: number; otherCosts: number; landedCost: number; wholesalePrice: number; retailPrice: number; margin: number; notes: string; }
-interface Approval { id: string; stage: string; approver: string; status: "Pending" | "Approved" | "Rejected" | "Revision Required"; date: string | null; comments: string; }
-interface Sample { id: string; type: "Proto" | "SMS" | "PP" | "TOP" | "Production"; status: "Requested" | "In Progress" | "Received" | "Approved" | "Rejected"; requestDate: string; receiveDate: string | null; vendor: string; comments: string; images: string[]; }
-interface TPImage { id: string; url: string; name: string; type: string; }
-
-interface TechPack {
-  id: string; styleName: string; styleNumber: string; brand: string; season: string; category: string; subCategory: string; description: string; designer: string;
-  gender: string; vendor: string; techDesigner: string; graphicArtist: string; productDeveloper: string;
-  division: string; owner: string; active: boolean; version: number;
-  status: "Draft" | "In Review" | "Approved" | "Revised";
-  createdAt: string; updatedAt: string; updatedBy: string;
-  colorways: Colorway[];
-  flatSketch: FlatSketch;
-  measurements: Measurement[]; construction: ConstructionDetail[]; bom: BOMItem[];
-  costing: Costing; approvals: Approval[]; samples: Sample[]; images: TPImage[];
-}
-
-interface Material {
-  id: string; name: string; type: string; composition: string; weight: string; width: string; color: string;
-  supplier: string; unitPrice: number; moq: string; leadTime: string; certifications: string[]; notes: string; createdAt: string;
-}
-
-interface SpecSheetRow { id: string; pointOfMeasure: string; tolerance: string; values: Record<string, string>; isSection?: boolean; }
-interface SpecSheet { id: string; styleName: string; styleNumber: string; brand: string; season: string; category: string; subCategory?: string; gender?: string; vendor?: string; description: string; sizes: string[]; rows: SpecSheetRow[]; createdAt: string; updatedAt: string; }
-interface SpecTemplate { id: string; name: string; category: string; description: string; sizes: string[]; rows: SpecSheetRow[]; createdAt: string; isBuiltin?: boolean; }
-
-type View = "dashboard" | "list" | "detail" | "libraries" | "samples" | "teams" | "email" | "notifications";
-type DetailTab = "sketch" | "spec" | "construction" | "bom" | "costing" | "approvals" | "samples" | "images";
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-const today = () => new Date().toISOString().split("T")[0];
-const fmtDate = (d: string | null) => { if (!d) return "—"; try { const dt = new Date(d); return dt.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }); } catch { return d; } };
-const fmtCurrency = (n: number) => "$" + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-
-const STATUSES: TechPack["status"][] = ["Draft", "In Review", "Approved", "Revised"];
-const STATUS_COLORS: Record<string, string> = { Draft: "#6B7280", "In Review": "#F59E0B", Approved: "#10B981", Revised: "#8B5CF6" };
-const APPROVAL_STAGES = ["Design", "Merchandising", "Buying", "Production", "Quality"];
-const APPROVAL_STATUS_COLORS: Record<string, string> = { Pending: "#6B7280", Approved: "#10B981", Rejected: "#EF4444", "Revision Required": "#F59E0B" };
-const SAMPLE_TYPES: Sample["type"][] = ["Proto", "SMS", "PP", "TOP", "Production"];
-const SAMPLE_STATUS_COLORS: Record<string, string> = { Requested: "#6B7280", "In Progress": "#3B82F6", Received: "#F59E0B", Approved: "#10B981", Rejected: "#EF4444" };
-const MATERIAL_TYPES = ["Fabric", "Trim", "Label", "Thread", "Zipper", "Button", "Elastic", "Interlining", "Packaging", "Other"];
-const CW_COLORS = ["#3B82F6", "#10B981", "#F59E0B", "#8B5CF6", "#EF4444", "#06B6D4", "#F97316", "#EC4899"];
-const CATEGORIES = ["Tops", "Bottoms", "Dresses", "Outerwear", "Activewear", "Swimwear", "Accessories", "Other"];
-const SEASONS = ["Spring 2025", "Summer 2025", "Fall 2025", "Winter 2025", "Spring 2026", "Summer 2026", "Fall 2026", "Winter 2026", "Resort 2025", "Resort 2026"];
-const DEFAULT_SIZES = ["XS", "S", "M", "L", "XL", "XXL"];
-
-function emptyCosting(): Costing {
-  return { fob: 0, duty: 0, dutyRate: 0, freight: 0, insurance: 0, otherCosts: 0, landedCost: 0, wholesalePrice: 0, retailPrice: 0, margin: 0, notes: "" };
-}
-
-function emptyApprovals(): Approval[] {
-  return APPROVAL_STAGES.map(stage => ({ id: uid(), stage, approver: "", status: "Pending" as const, date: null, comments: "" }));
-}
-
-function emptyTechPack(user: User): TechPack {
-  return {
-    id: uid(), styleName: "", styleNumber: "", brand: "", season: "", category: "", subCategory: "", description: "", designer: user.name || user.username || "",
-    gender: "", vendor: "", techDesigner: "", graphicArtist: "", productDeveloper: "",
-    division: "", owner: "", active: true, version: 1,
-    status: "Draft", createdAt: today(), updatedAt: today(), updatedBy: user.name || user.username || "",
-    colorways: [], flatSketch: { frontImage: null, backImage: null, callouts: [], stitchingDetails: "", measurementNote: "" },
-    measurements: [], construction: [], bom: [], costing: emptyCosting(), approvals: emptyApprovals(), samples: [], images: [],
-  };
-}
-
-// ── Built-in Templates ────────────────────────────────────────────────────────
-const _JS = ["28","29","30","31","32","33","34","35","36","38","40","42","44","46","48"];
-const _mkR = (id: string, pom: string, desc: string, tol: string): SpecSheetRow => ({ id, pointOfMeasure: `${pom}  ${desc}`, tolerance: tol, values: Object.fromEntries(_JS.map(s => [s, ""])) });
-const _mkS = (id: string, name: string): SpecSheetRow => ({ id, pointOfMeasure: name, tolerance: "", values: {}, isSection: true });
-const BUILTIN_TEMPLATES: SpecTemplate[] = [
-  {
-    id: "builtin-mens-jeans-1",
-    name: "Men's Jeans",
-    category: "Bottoms",
-    description: "Men's Baggy Jeans — 24 POMs across 6 sections (Waist/Rise, Hip/Thigh, Inseam/Leg, Waistband, Front Pockets, Back Pockets/Yoke)",
-    sizes: _JS,
-    isBuiltin: true,
-    createdAt: "2026-01-01",
-    rows: [
-      _mkS("bt-s1", "① BODY — WAIST & RISE"),
-      _mkR("bt-r1",  "A",  "Waist Along Top Edge",                   "1/2\""),
-      _mkR("bt-r2",  "H",  "Front Rise Incl. Waistband",             "1/4\""),
-      _mkS("bt-s2", "② HIP & THIGH"),
-      _mkR("bt-r4",  "B",  "Low Hip — 6\" Below Waistband",          "1/2\""),
-      _mkR("bt-r5",  "C",  "Thigh — 1\" Below Crotch",               "1/4\""),
-      _mkS("bt-s3", "③ INSEAM & LEG"),
-      _mkR("bt-r7",  "E",  "Knee — 15\" Below Crotch",               "1/4\""),
-      _mkR("bt-r8",  "F",  "Inseam",                                 "1/4\""),
-      _mkS("bt-s4", "④ WAISTBAND DETAILS"),
-      _mkR("bt-r10", "J",  "Waistband Height",                       "1/8\""),
-      _mkR("bt-r11", "K",  "Fly J-Stitch Length",                    "1/8\""),
-      _mkR("bt-r12", "N",  "Zipper Length (Fly)",                    "1/8\""),
-      _mkS("bt-s5", "⑤ FRONT POCKETS"),
-      _mkR("bt-r14", "O",  "Front Pocket Opening (Horiz @ WB)",      "1/8\""),
-      _mkR("bt-r15", "P",  "Front Pocket Opening (Vert @ SS)",       "1/8\""),
-      _mkR("bt-r16", "Q",  "Front Pocket Bag Depth",                 "1/8\""),
-      _mkR("bt-r17", "Q",  "Front Pocket Bag Width",                 "1/8\""),
-      _mkR("bt-r18", "R",  "Coin Pocket Placement from WB Seam",     "1/8\""),
-      _mkR("bt-r19", "L",  "Coin Pocket Placement from SS",          "1/8\""),
-      _mkS("bt-s6", "⑥ BACK POCKETS & YOKE"),
-      _mkR("bt-r21", "U",  "BK Pocket Spread (Apart)",               "1/8\""),
-      _mkR("bt-r22", "V",  "Back Yoke Height at CB",                 "1/8\""),
-      _mkR("bt-r23", "W",  "Back Yoke Height at SS",                 "1/8\""),
-      _mkR("bt-r24", "X",  "BK Pocket Placement from WB — CB",       "1/8\""),
-      _mkR("bt-r25", "Y",  "BK Pocket Placement from WB — SS",       "1/8\""),
-      _mkR("bt-r26", "Z",  "Back Pocket Height at Center",           "1/8\""),
-      _mkR("bt-r27", "AA", "Back Pocket Height at Sides",            "1/8\""),
-      _mkR("bt-r28", "BB", "Back Pocket Width at Top",               "1/8\""),
-      _mkR("bt-r29", "CC", "Back Pocket Width at Bottom",            "1/8\""),
-    ],
-  },
-];
 
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
