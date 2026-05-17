@@ -411,6 +411,22 @@ export function buildExportPayload(
   if (COL_T3_LY_DIFF_QTY) headerRow[COL_T3_LY_DIFF_QTY - 1] = { v: `T3 vs LY Qty`, t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
   if (COL_T3_LY_DIFF)     headerRow[COL_T3_LY_DIFF     - 1] = { v: `T3 vs LY $`,   t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
 
+  // Header wrap pass — any header text longer than 10 chars gets
+  // wrapText so it breaks across lines instead of overflowing into a
+  // wider column or getting visually clipped. Touches alignment in
+  // place rather than rebuilding the style so border / fill / font
+  // stay intact. The row-height pass below bumps the header row to
+  // accommodate the wrap when at least one cell needed it.
+  let headerHasWrap = false;
+  for (const cell of headerRow) {
+    if (!cell || typeof cell.v !== "string" || cell.v.length <= 10) continue;
+    headerHasWrap = true;
+    cell.s = {
+      ...cell.s,
+      alignment: { ...(cell.s?.alignment ?? {}), wrapText: true },
+    };
+  }
+
   // ── Trailing-3 / SP-LY aggregate lookups ──────────────────────────────
   // Pre-fetched maps keyed by ATS-row sku (variant grain). The fetcher
   // queried ip_sales_history_wholesale for the relevant windows already
@@ -1350,7 +1366,16 @@ export function buildExportPayload(
     if (SPACER_COLS.has(idx1)) return SPACER_WCH;
     let maxLen = 0;
     const hdrCell = headerRow[idx1 - 1];
-    if (hdrCell?.v != null) maxLen = String(hdrCell.v).length;
+    if (hdrCell?.v != null) {
+      const hdrLen = String(hdrCell.v).length;
+      // When the header is set to wrap (len > 10 → wrapText flagged
+      // upstream), cap its contribution to width so the column doesn't
+      // auto-size to the full unwrapped header string and defeat the
+      // wrap. Body cells still drive width when wider; the cap only
+      // applies to the header's contribution.
+      const hdrWraps = !!hdrCell?.s?.alignment?.wrapText;
+      maxLen = hdrWraps ? Math.min(hdrLen, 12) : hdrLen;
+    }
     for (const row of dataRows) {
       const cell = row[idx1 - 1];
       if (!cell) continue;
@@ -1380,7 +1405,9 @@ export function buildExportPayload(
   // every dataRow (variants + PPK pairs + style subtotals + bottom
   // Total / stack). Header taller; PPK follower rows shorter; subtotal
   // and total rows a touch taller for visual weight.
-  const HEADER_HPT = 22;
+  // Header height bumps when any cell wrapped (estimate two lines @
+  // 11pt + padding). Single-line headers keep the tighter 22pt.
+  const HEADER_HPT = headerHasWrap ? 34 : 22;
   const ROW_HPT = 15;
   const PPK_ROW_HPT = 11;
   const SUBTOTAL_HPT = 19;
