@@ -7,7 +7,7 @@
 // to import the same wrapper without copy-pasting the fetch + header
 // + error-shape pattern.
 
-import { SB_URL, SB_HEADERS } from "../utils/supabase";
+import { SB_URL, SB_KEY, SB_HEADERS } from "../utils/supabase";
 
 interface TableClient {
   /** GET ?select=cols (+ optional filter, e.g. "id=eq.123"). */
@@ -16,6 +16,26 @@ interface TableClient {
   upsert(rows: any): Promise<{ data: any; error: any }>;
   /** DELETE matching `filter` (e.g. "id=eq.123"). */
   delete(filter: string): Promise<{ error: any }>;
+}
+
+/**
+ * Upsert one (key, value) entry into the `app_data` JSON-blob table.
+ * value is JSON-stringified inside the column. The bare-fetch + apikey
+ * dance instead of the `sb` wrapper above is intentional — `app_data`
+ * uses the merge-duplicates + return=minimal Prefer combo so the
+ * caller doesn't pay for a round-tripped representation.
+ */
+export async function appDataSave(key: string, value: unknown): Promise<void> {
+  await fetch(`${SB_URL}/rest/v1/app_data`, {
+    method: "POST",
+    headers: {
+      "apikey":        SB_KEY,
+      "Authorization": `Bearer ${SB_KEY}`,
+      "Content-Type":  "application/json",
+      "Prefer":        "resolution=merge-duplicates,return=minimal",
+    },
+    body: JSON.stringify({ key, value: JSON.stringify(value) }),
+  });
 }
 
 export const sb = {
