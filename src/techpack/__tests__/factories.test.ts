@@ -6,7 +6,11 @@
 // non-empty strings.
 
 import { describe, it, expect } from "vitest";
-import { emptyCosting, emptyApprovals, emptyTechPack, materialFromForm, EMPTY_MATERIAL_FORM } from "../factories";
+import {
+  emptyCosting, emptyApprovals, emptyTechPack,
+  materialFromForm, EMPTY_MATERIAL_FORM,
+  EMPTY_CREATE_FORM, createFormForUser, EMPTY_SPEC_SHEET_FORM,
+} from "../factories";
 import type { Material } from "../types";
 import { uid, today, fmtDate, fmtCurrency } from "../utils";
 import { APPROVAL_STAGES } from "../constants";
@@ -229,5 +233,51 @@ describe("materialFromForm", () => {
       leadTime: "30d",
       notes: "Hold for Spring drop",
     });
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+
+describe("EMPTY_CREATE_FORM", () => {
+  it("contains the 13 form fields, all blank", () => {
+    expect(Object.keys(EMPTY_CREATE_FORM).sort()).toEqual([
+      "brand", "category", "description", "designer", "gender",
+      "graphicArtist", "productDeveloper", "season", "styleName",
+      "styleNumber", "subCategory", "techDesigner", "vendor",
+    ]);
+    for (const v of Object.values(EMPTY_CREATE_FORM)) expect(v).toBe("");
+  });
+});
+
+describe("createFormForUser", () => {
+  it("pre-fills designer from user.name", () => {
+    expect(createFormForUser({ name: "Eran", username: "eran" }).designer).toBe("Eran");
+  });
+
+  it("falls back to username when name is missing", () => {
+    expect(createFormForUser({ username: "fallback" }).designer).toBe("fallback");
+  });
+
+  it("falls back to empty string when both are missing", () => {
+    expect(createFormForUser({}).designer).toBe("");
+  });
+
+  it("leaves every other field blank (does not mutate EMPTY_CREATE_FORM)", () => {
+    const f = createFormForUser({ name: "Eran" });
+    expect(f.styleName).toBe("");
+    expect(f.vendor).toBe("");
+    // EMPTY_CREATE_FORM stays clean
+    expect(EMPTY_CREATE_FORM.designer).toBe("");
+  });
+});
+
+describe("EMPTY_SPEC_SHEET_FORM", () => {
+  it("defaults sizes to the alpha XS–XXL preset string", () => {
+    expect(EMPTY_SPEC_SHEET_FORM.sizes).toBe("XS, S, M, L, XL, XXL");
+  });
+
+  it("every other field is blank", () => {
+    const { sizes, ...rest } = EMPTY_SPEC_SHEET_FORM;
+    for (const v of Object.values(rest)) expect(v).toBe("");
   });
 });

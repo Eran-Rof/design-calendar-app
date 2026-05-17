@@ -59,6 +59,64 @@ export const EMPTY_MATERIAL_FORM: MaterialFormValues = {
 };
 
 /**
+ * Form-bound shape used by the Create-Tech-Pack modal in
+ * TechPack.tsx. Initial designer auto-fills from user.name; the
+ * post-save reset blanks it.
+ */
+export interface CreateTechPackFormValues {
+  styleNumber: string;
+  styleName: string;
+  brand: string;
+  season: string;
+  category: string;
+  subCategory: string;
+  gender: string;
+  description: string;
+  designer: string;
+  techDesigner: string;
+  graphicArtist: string;
+  productDeveloper: string;
+  vendor: string;
+}
+
+/** Blank Create form — used as the post-save reset (`designer` left empty). */
+export const EMPTY_CREATE_FORM: CreateTechPackFormValues = {
+  styleNumber: "", styleName: "", brand: "", season: "",
+  category: "", subCategory: "", gender: "", description: "",
+  designer: "", techDesigner: "", graphicArtist: "",
+  productDeveloper: "", vendor: "",
+};
+
+/** Open-modal default: same as EMPTY_CREATE_FORM, but with `designer`
+ *  pre-filled from the logged-in user (name with username fallback). */
+export function createFormForUser(user: User): CreateTechPackFormValues {
+  return { ...EMPTY_CREATE_FORM, designer: user.name || user.username || "" };
+}
+
+/** Form-bound shape for the Spec Sheet create modal. `sizes` is a
+ *  comma-separated string; the caller splits it on submit. */
+export interface SpecSheetFormValues {
+  styleName: string;
+  styleNumber: string;
+  brand: string;
+  season: string;
+  category: string;
+  subCategory: string;
+  gender: string;
+  vendor: string;
+  description: string;
+  /** Comma-separated size labels, e.g. "XS, S, M, L, XL, XXL". */
+  sizes: string;
+}
+
+/** Blank Spec Sheet form — used on both modal open + post-save reset. */
+export const EMPTY_SPEC_SHEET_FORM: SpecSheetFormValues = {
+  styleName: "", styleNumber: "", brand: "", season: "",
+  category: "", subCategory: "", gender: "", vendor: "",
+  description: "", sizes: "XS, S, M, L, XL, XXL",
+};
+
+/**
  * Build a Material from the modal form values. When editing an
  * existing material, preserve its `id` + `createdAt`; otherwise
  * mint fresh ones. The `certifications` CSV string is split on

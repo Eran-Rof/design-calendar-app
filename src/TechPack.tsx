@@ -37,6 +37,7 @@ import { uid, today, fmtDate, fmtCurrency } from "./techpack/utils";
 import {
   emptyCosting, emptyApprovals, emptyTechPack,
   materialFromForm, EMPTY_MATERIAL_FORM,
+  EMPTY_CREATE_FORM, createFormForUser, EMPTY_SPEC_SHEET_FORM,
 } from "./techpack/factories";
 import { BUILTIN_TEMPLATES } from "./techpack/builtinTemplates";
 import S from "./techpack/styles";
@@ -153,7 +154,7 @@ export default function TechPackApp() {
   const [showSpecSheetModal, setShowSpecSheetModal] = useState(false);
   const [editingSpecSheet, setEditingSpecSheet] = useState<SpecSheet | null>(null);
   const [selectedSpecSheet, setSelectedSpecSheet] = useState<SpecSheet | null>(null);
-  const [ssForm, setSsForm] = useState({ styleName: "", styleNumber: "", brand: "", season: "", category: "", subCategory: "", gender: "", vendor: "", description: "", sizes: "XS, S, M, L, XL, XXL" });
+  const [ssForm, setSsForm] = useState(EMPTY_SPEC_SHEET_FORM);
   const [ssSearch, setSsSearch] = useState("");
   const [showAddImportMenu, setShowAddImportMenu] = useState(false);
   const [newSize, setNewSize] = useState("");
@@ -241,7 +242,7 @@ export default function TechPackApp() {
   const [openTeamDrop, setOpenTeamDrop] = useState<string | null>(null); // which team dropdown is open
 
   // ── Create form state ─────────────────────────────────────────────────────
-  const [createForm, setCreateForm] = useState({ styleNumber: "", styleName: "", brand: "", season: "", category: "", subCategory: "", gender: "", description: "", designer: "", techDesigner: "", graphicArtist: "", productDeveloper: "", vendor: "" });
+  const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM);
 
   // ── Material form state ───────────────────────────────────────────────────
   const [matForm, setMatForm] = useState(EMPTY_MATERIAL_FORM);
@@ -362,7 +363,7 @@ export default function TechPackApp() {
     tp.designer = createForm.designer || user?.name || user?.username || "";
     await saveTechPack(tp);
     setShowCreateModal(false);
-    setCreateForm({ styleNumber: "", styleName: "", brand: "", season: "", category: "", subCategory: "", gender: "", description: "", designer: "", techDesigner: "", graphicArtist: "", productDeveloper: "", vendor: "" });
+    setCreateForm(EMPTY_CREATE_FORM);
     setSelected(tp);
     setDetailTab("spec");
     setView("detail");
@@ -1480,7 +1481,7 @@ export default function TechPackApp() {
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
                   <h2 style={{ margin: 0, color: "#F1F5F9", fontSize: 22 }}>Dashboard</h2>
-                  <button style={S.btnPrimarySmall} onClick={() => { setCreateForm({ styleNumber: "", styleName: "", brand: "", season: "", category: "", subCategory: "", gender: "", description: "", designer: user.name || user.username || "", techDesigner: "", graphicArtist: "", productDeveloper: "", vendor: "" }); setShowCreateModal(true); }}>+ New Tech Pack</button>
+                  <button style={S.btnPrimarySmall} onClick={() => { setCreateForm(createFormForUser(user)); setShowCreateModal(true); }}>+ New Tech Pack</button>
                 </div>
 
                 {/* Stat Cards */}
@@ -1562,7 +1563,7 @@ export default function TechPackApp() {
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                   <h2 style={{ margin: 0, color: "#F1F5F9", fontSize: 22 }}>All Tech Packs</h2>
-                  <button style={S.btnPrimarySmall} onClick={() => { setCreateForm({ styleNumber: "", styleName: "", brand: "", season: "", category: "", subCategory: "", gender: "", description: "", designer: user.name || user.username || "", techDesigner: "", graphicArtist: "", productDeveloper: "", vendor: "" }); setShowCreateModal(true); }}>+ New Tech Pack</button>
+                  <button style={S.btnPrimarySmall} onClick={() => { setCreateForm(createFormForUser(user)); setShowCreateModal(true); }}>+ New Tech Pack</button>
                 </div>
 
                 {/* Filters */}
@@ -1878,7 +1879,7 @@ export default function TechPackApp() {
                       onMouseLeave={e => e.currentTarget.style.background = "none"}
                       onClick={() => {
                         setShowAddImportMenu(false);
-                        setSsForm({ styleName: "", styleNumber: "", brand: "", season: "", category: "", subCategory: "", gender: "", vendor: "", description: "", sizes: "XS, S, M, L, XL, XXL" });
+                        setSsForm(EMPTY_SPEC_SHEET_FORM);
                         setEditingSpecSheet(null);
                         setShowSpecSheetModal(true);
                       }}>
@@ -2422,7 +2423,7 @@ export default function TechPackApp() {
                   saveSpecSheets([...specSheets, newSS]);
                   setShowSpecSheetModal(false);
                   setActiveTemplate(null);
-                  setSsForm({ styleName: "", styleNumber: "", brand: "", season: "", category: "", subCategory: "", gender: "", vendor: "", description: "", sizes: "XS, S, M, L, XL, XXL" });
+                  setSsForm(EMPTY_SPEC_SHEET_FORM);
                   setSelectedSpecSheet(newSS);
                 }}>
                 {activeTemplate ? `Create from "${activeTemplate.name}"` : "Create Spec Sheet"}
