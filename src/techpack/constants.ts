@@ -59,3 +59,16 @@ export const SEASONS = [
 ];
 
 export const DEFAULT_SIZES = ["XS", "S", "M", "L", "XL", "XXL"];
+
+// Quick-pick size sets shown in the spec-sheet create modal + the
+// spec-sheet detail header. Pickers are read-only — operators always
+// see the same four scales (alpha, even-numeric, full-numeric, kids)
+// regardless of brand / category. Adding a new preset here surfaces
+// it in both places automatically.
+export interface SizePreset { label: string; sizes: string[]; }
+export const SIZE_PRESETS: SizePreset[] = [
+  { label: "XS–XXL",        sizes: ["XS", "S", "M", "L", "XL", "XXL"] },
+  { label: "28–40 (even)",  sizes: ["28", "30", "32", "34", "36", "38", "40"] },
+  { label: "28–48 (all)",   sizes: ["28", "29", "30", "31", "32", "33", "34", "35", "36", "38", "40", "42", "44", "46", "48"] },
+  { label: "0–16 (kids)",   sizes: ["0", "2", "4", "6", "8", "10", "12", "14", "16"] },
+];
