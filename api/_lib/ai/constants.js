@@ -1,0 +1,52 @@
+// Shared constants for the Ask AI handler + its supporting modules.
+// One place to tune model, token budgets, iteration caps, terminal-tool
+// classification, and friendly stage labels.
+
+// Haiku 4.5 picked for latency. For tool-orchestration questions (which
+// is what this endpoint does), Sonnet's stronger reasoning wasn't paying
+// for the ~3-5× per-call latency hit operators were complaining about.
+// Budget cap still applies; falls back fine if Anthropic changes pricing.
+export const MODEL = "claude-haiku-4-5";
+export const MAX_TOKENS = 1024;
+
+// Cross-app questions can chain list_domains → list_tables →
+// describe_table → query_table, sometimes for two different tables in
+// one conversation. 10 gives headroom without runaway cost (each
+// iteration is one Claude turn; the budget cap is still authoritative).
+export const MAX_TOOL_ITERATIONS = 10;
+export const HANDLER = "ai/ask-grid";
+
+// Request-shape ceilings — protect against runaway clients.
+export const MAX_QUESTION_LEN  = 1000;
+export const MAX_HISTORY_TURNS = 8;
+export const MAX_SAMPLE_ROWS   = 8;   // was 20 — trimmed for input-token cost on every turn
+export const MAX_DISTINCT_VALS = 200;
+
+// Per-query row caps. Aggregated tools sum/group before returning so
+// payloads stay small even when the underlying scan is large.
+export const FIND_CUSTOMER_LIMIT = 25;
+export const FIND_STYLE_LIMIT    = 50;
+export const QUERY_ROW_LIMIT     = 5000;     // hard ceiling on raw row scans
+export const QUERY_RESULT_LIMIT  = 50;       // groups returned to Claude
+
+// Tools that don't require a follow-up Claude turn. When the only
+// tool calls in a response are terminal, the loop breaks and the
+// client receives the result without another round trip.
+export const TERMINAL_TOOLS = new Set([
+  "apply_filters", "set_sort", "clear_filters",
+  "answer_text", "suggest_grid_view",
+]);
+
+// Friendly stage labels for the SSE `stage` event. Mapped from tool
+// name; falls back to a generic spinner label when missing.
+export const TOOL_LABELS = {
+  find_customer:   "Searching customers…",
+  find_style:      "Looking up styles…",
+  query_shipments: "Querying shipment history…",
+  query_open_sos:  "Checking open sales orders…",
+  query_open_pos:  "Checking incoming POs…",
+  list_domains:    "Scanning available data sources…",
+  list_tables:     "Listing tables…",
+  describe_table:  "Reading schema…",
+  query_table:     "Running database query…",
+};

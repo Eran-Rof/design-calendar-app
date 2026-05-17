@@ -32,7 +32,7 @@ import {
   estimateClaudeCost,
   logAICall,
   BudgetExceededError,
-} from "../../../../_lib/ai-budget.js";
+} from "../../../../_lib/ai/budget.js";
 
 export const config = { maxDuration: 60 };
 
