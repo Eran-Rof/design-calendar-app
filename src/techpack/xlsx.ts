@@ -345,6 +345,48 @@ export function parseSpecSheetExcel(file: File): Promise<{ rows: SpecSheetRow[];
   });
 }
 
+export interface SpecSheetHeader {
+  /** Row index of the detected header row. */
+  headerRowIdx: number;
+  /** Size labels in column order, read either from the header row
+   *  itself (legacy) or from the row above it (new BLOCK SPECS). */
+  sizes: string[];
+  /** `true` for the new BLOCK SPECS format, `false` for the legacy
+   *  flat format. Affects which columns hold POM / TOL / sizes. */
+  newFmt: boolean;
+}
+
+/**
+ * Locate the header row in a spec-sheet AOA and return the size
+ * labels + format flag. Centralised because three call sites (the
+ * import flow, the import-as-template flow, the inline detection
+ * in parseSpecSheetAoa) all need the same scan but post-process
+ * rows differently afterwards. Returns null when no recognized
+ * header row is present.
+ */
+export function detectSpecSheetHeader(aoa: any[][]): SpecSheetHeader | null {
+  for (let i = 0; i < aoa.length; i++) {
+    const row = aoa[i] ?? [];
+    const c0 = String(row[0] || "").trim().toUpperCase();
+    const c1 = String(row[1] || "").trim().toUpperCase();
+    if (c0 === "POM" && c1.includes("BLOCK")) {
+      // New format: sizes live in the row above at cols 6, 8, 10, ...
+      const sr = aoa[i - 1] || [];
+      const sizes: string[] = [];
+      for (let c = 6; c < sr.length; c += 2) {
+        const s = String(sr[c] || "").trim();
+        if (s) sizes.push(s);
+      }
+      return { headerRowIdx: i, sizes, newFmt: true };
+    }
+    if (c0 === "POINT OF MEASURE" || c0 === "POM") {
+      const sizes = row.slice(2).map((s: any) => String(s).trim()).filter(Boolean);
+      return { headerRowIdx: i, sizes, newFmt: false };
+    }
+  }
+  return null;
+}
+
 export interface SpecSheetStyleInfo {
   styleName:   string;
   styleNumber: string;
@@ -383,40 +425,14 @@ export function extractStyleInfoFromAoa(aoa: any[][]): SpecSheetStyleInfo {
  * format.
  */
 export function parseSpecSheetAoa(aoa: any[][]): { rows: SpecSheetRow[]; sizes: string[] } | null {
-  let sizesRowIdx = -1;
-  let headerRowIdx = -1;
-  let sizes: string[] = [];
-  let newFormat = false;
-
-  for (let i = 0; i < aoa.length; i++) {
-    const row = aoa[i];
-    const c0 = String(row[0] || "").trim().toUpperCase();
-    const c1 = String(row[1] || "").trim().toUpperCase();
-    if (c0 === "POM" && c1.includes("BLOCK")) {
-      // New format: sizes are in the row above at cols 6,8,10,...
-      headerRowIdx = i;
-      sizesRowIdx = i - 1;
-      newFormat = true;
-      const sizeRow = aoa[sizesRowIdx] || [];
-      for (let c = 6; c < sizeRow.length; c += 2) {
-        const s = String(sizeRow[c] || "").trim();
-        if (s) sizes.push(s);
-      }
-      break;
-    }
-    if (c0 === "POINT OF MEASURE" || c0 === "POM") {
-      headerRowIdx = i;
-      sizes = row.slice(2).map((s: any) => String(s).trim()).filter(Boolean);
-      break;
-    }
-  }
-
-  if (headerRowIdx === -1) return null;
+  const header = detectSpecSheetHeader(aoa);
+  if (!header) return null;
+  const { headerRowIdx, sizes, newFmt } = header;
 
   const rows: SpecSheetRow[] = [];
   for (let i = headerRowIdx + 1; i < aoa.length; i++) {
     const row = aoa[i];
-    if (newFormat) {
+    if (newFmt) {
       const letter = String(row[0] || "").trim();
       const desc = String(row[1] || "").trim();
       if (!desc && !letter) continue;
