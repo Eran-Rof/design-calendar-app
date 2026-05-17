@@ -75,6 +75,13 @@ import {
   createEmptySample,
   updateSampleStatus,
 } from "./techpack/sampleOps";
+import {
+  tpEmailPrefix as tpEmailPrefixHelper,
+  buildInboxSearchUrl,
+  buildThreadUrl,
+  buildSentFolderSearchUrl,
+  buildSendMailPayload,
+} from "./techpack/tpEmail";
 
 // sb helper moved to ./techpack/supabase
 
@@ -858,9 +865,8 @@ export default function TechPackApp() {
   }
 
   // ── TechPack email helpers ─────────────────────────────────────────────────
-  function tpEmailPrefix(tp: TechPack) {
-    return `[TP-${tp.styleNumber || tp.id.slice(0, 8)}]`;
-  }
+  // Pure prefix/url/payload builders live in ./techpack/tpEmail.
+  const tpEmailPrefix = tpEmailPrefixHelper;
   async function tpLoadEmails(tpId: string, olderUrl?: string) {
     const tp = techPacks.find(t => t.id === tpId);
     if (!tp) return;
@@ -868,7 +874,7 @@ export default function TechPackApp() {
     if (!olderUrl) setEmailLoadingMap(m => ({ ...m, [tpId]: true }));
     else setEmailLoadingOlder(true);
     try {
-      const url = olderUrl || `/me/messages?$search=${encodeURIComponent('"' + prefix + '"')}&$top=25&$select=id,subject,from,receivedDateTime,bodyPreview,conversationId,isRead,hasAttachments`;
+      const url = olderUrl || buildInboxSearchUrl(prefix);
       const d = await tpGraph(url);
       const items = d.value || [];
       if (olderUrl) { setEmailsMap(m => ({ ...m, [tpId]: [...(m[tpId] || []), ...items] })); }
@@ -881,7 +887,7 @@ export default function TechPackApp() {
   async function tpLoadThread(convId: string) {
     setEmailThreadLoading(true);
     try {
-      const d = await tpGraph(`/me/messages?$filter=${encodeURIComponent("conversationId eq '" + convId + "'")}&$orderby=receivedDateTime%20asc&$select=id,subject,from,receivedDateTime,body,conversationId,isRead,hasAttachments`);
+      const d = await tpGraph(buildThreadUrl(convId));
       setEmailThreadMsgs(d.value || []);
     } catch { setEmailThreadMsgs([]); }
     setEmailThreadLoading(false);
@@ -891,11 +897,13 @@ export default function TechPackApp() {
     if (!tp || !emailComposeTo.trim()) return;
     setEmailSendErr(null);
     try {
-      const prefix = tpEmailPrefix(tp);
-      const subject = emailComposeSubject.trim() || `${prefix} ${tp.styleName || tp.styleNumber}`;
-      await tpGraphPost("/me/sendMail", {
-        message: { subject: subject.startsWith("[TP-") ? subject : `${prefix} ${subject}`, body: { contentType: "HTML", content: emailComposeBody || " " }, toRecipients: emailComposeTo.split(",").map(e => ({ emailAddress: { address: e.trim() } })) },
-      });
+      await tpGraphPost("/me/sendMail", buildSendMailPayload({
+        prefix: tpEmailPrefix(tp),
+        subject: emailComposeSubject,
+        fallback: tp.styleName || tp.styleNumber,
+        bodyHtml: emailComposeBody,
+        to: emailComposeTo,
+      }));
       setEmailComposeTo(""); setEmailComposeSubject(""); setEmailComposeBody("");
       setEmailTabCur("inbox");
       setTimeout(() => tpLoadEmails(tpId), 2000);
@@ -938,9 +946,7 @@ export default function TechPackApp() {
     const prefix = tpEmailPrefix(tp);
     setTpSentLoading(m => ({ ...m, [tpId]: true }));
     try {
-      const searchTerm = prefix.replace(/[\[\]{}()*?]/g, "").trim();
-      const url = `/me/mailFolders/SentItems/messages?$search=${encodeURIComponent('"' + searchTerm + '"')}&$top=25&$select=id,subject,from,toRecipients,sentDateTime,bodyPreview,conversationId,hasAttachments`;
-      const d = await tpGraph(url);
+      const d = await tpGraph(buildSentFolderSearchUrl(prefix));
       setTpSentEmails(m => ({ ...m, [tpId]: d.value || [] }));
     } catch(e) { console.error("Sent email load error", e); }
     setTpSentLoading(m => ({ ...m, [tpId]: false }));
