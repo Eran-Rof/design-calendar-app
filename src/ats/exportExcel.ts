@@ -387,18 +387,27 @@ export function buildExportPayload(
   // window the aggregates were computed over. Format examples:
   //   default:                       "T3 Qty"
   //   default + customer:            "T3 Qty (Acme)"
-  //   custom range:                  "Sales 2026-01-01..2026-03-31 Qty"
-  //   custom range + customer:       "Sales 2026-01-01..2026-03-31 Qty (Acme)"
+  //   custom range:                  "Sales Jan/01/2026..Mar/31/2026 Qty"
+  //   custom range + customer:       "Sales Jan/01/2026..Mar/31/2026 Qty (Acme)"
   // The Qty header is what feeds the planner's eye — the SP LY headers
   // mirror the same convention but use the LY window (custom range
   // shifted back 12 months) so the spreadsheet self-documents both.
+  // Dates render as MMM/DD/YYYY (planner preference) rather than the
+  // ISO YYYY-MM-DD that the underlying SalesFetchWindows carries.
+  const fmtHeaderDate = (iso: string): string => {
+    const [yyyy, mm, dd] = iso.split("-");
+    const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const mi = parseInt(mm, 10) - 1;
+    if (mi < 0 || mi > 11 || !yyyy || !dd) return iso;
+    return `${MONTHS[mi]}/${dd}/${yyyy}`;
+  };
   const custTag = customerFilter ? ` (${customerFilter})` : "";
   const w = salesAggregates?.windows;
   const t3LabelBase = opts.customSalesRangeEnabled && w
-    ? `Sales ${w.t3Start}..${w.t3End}`
+    ? `Sales ${fmtHeaderDate(w.t3Start)}..${fmtHeaderDate(w.t3End)}`
     : "T3";
   const lyLabelBase = opts.customSalesRangeEnabled && w
-    ? `S/P LY ${w.lyStart}..${w.lyEnd}`
+    ? `S/P LY ${fmtHeaderDate(w.lyStart)}..${fmtHeaderDate(w.lyEnd)}`
     : "S/P LY";
   if (COL_T3_QTY)     headerRow[COL_T3_QTY     - 1] = { v: `${t3LabelBase} Qty${custTag}`, t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
   if (COL_T3_PRICE)   headerRow[COL_T3_PRICE   - 1] = { v: `${t3LabelBase} Sls Price`,     t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
@@ -410,6 +419,22 @@ export function buildExportPayload(
   if (COL_LY_MRGN)    headerRow[COL_LY_MRGN    - 1] = { v: `${lyLabelBase} Mrgn %`,        t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
   if (COL_T3_LY_DIFF_QTY) headerRow[COL_T3_LY_DIFF_QTY - 1] = { v: `T3 vs LY Qty`, t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
   if (COL_T3_LY_DIFF)     headerRow[COL_T3_LY_DIFF     - 1] = { v: `T3 vs LY $`,   t: "s", s: headerStyle(HDR_DARK_FILL, "center") };
+
+  // Header wrap pass — any header text longer than 10 chars gets
+  // wrapText so it breaks across lines instead of overflowing into a
+  // wider column or getting visually clipped. Touches alignment in
+  // place rather than rebuilding the style so border / fill / font
+  // stay intact. The row-height pass below bumps the header row to
+  // accommodate the wrap when at least one cell needed it.
+  let headerHasWrap = false;
+  for (const cell of headerRow) {
+    if (!cell || typeof cell.v !== "string" || cell.v.length <= 10) continue;
+    headerHasWrap = true;
+    cell.s = {
+      ...cell.s,
+      alignment: { ...(cell.s?.alignment ?? {}), wrapText: true },
+    };
+  }
 
   // ── Trailing-3 / SP-LY aggregate lookups ──────────────────────────────
   // Pre-fetched maps keyed by ATS-row sku (variant grain). The fetcher
@@ -1350,7 +1375,16 @@ export function buildExportPayload(
     if (SPACER_COLS.has(idx1)) return SPACER_WCH;
     let maxLen = 0;
     const hdrCell = headerRow[idx1 - 1];
-    if (hdrCell?.v != null) maxLen = String(hdrCell.v).length;
+    if (hdrCell?.v != null) {
+      const hdrLen = String(hdrCell.v).length;
+      // When the header is set to wrap (len > 10 → wrapText flagged
+      // upstream), cap its contribution to width so the column doesn't
+      // auto-size to the full unwrapped header string and defeat the
+      // wrap. Body cells still drive width when wider; the cap only
+      // applies to the header's contribution.
+      const hdrWraps = !!hdrCell?.s?.alignment?.wrapText;
+      maxLen = hdrWraps ? Math.min(hdrLen, 12) : hdrLen;
+    }
     for (const row of dataRows) {
       const cell = row[idx1 - 1];
       if (!cell) continue;
@@ -1380,7 +1414,9 @@ export function buildExportPayload(
   // every dataRow (variants + PPK pairs + style subtotals + bottom
   // Total / stack). Header taller; PPK follower rows shorter; subtotal
   // and total rows a touch taller for visual weight.
-  const HEADER_HPT = 22;
+  // Header height bumps when any cell wrapped (estimate two lines @
+  // 11pt + padding). Single-line headers keep the tighter 22pt.
+  const HEADER_HPT = headerHasWrap ? 34 : 22;
   const ROW_HPT = 15;
   const PPK_ROW_HPT = 11;
   const SUBTOTAL_HPT = 19;
