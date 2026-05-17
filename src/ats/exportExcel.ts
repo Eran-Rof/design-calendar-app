@@ -415,11 +415,17 @@ export function buildExportPayload(
   };
   const custTag = customerFilter ? ` (${customerFilter})` : "";
   const w = salesAggregates?.windows;
+  // Surround the `..` date separator with spaces so the wrap engine
+  // can break BETWEEN dates rather than splitting a date mid-string.
+  // Each date (e.g. "Jan/01/2026", 11 chars) is then an unbreakable
+  // chunk that fits comfortably in the column's wrap-cap width, and
+  // the wrap occurs at the space-around-".." instead of inside the
+  // date itself.
   const t3LabelBase = opts.customSalesRangeEnabled && w
-    ? `Sales ${fmtHeaderDate(w.t3Start)}..${fmtHeaderDate(w.t3End)}`
+    ? `Sales ${fmtHeaderDate(w.t3Start)} .. ${fmtHeaderDate(w.t3End)}`
     : "T3";
   const lyLabelBase = opts.customSalesRangeEnabled && w
-    ? `S/P LY ${fmtHeaderDate(w.lyStart)}..${fmtHeaderDate(w.lyEnd)}`
+    ? `S/P LY ${fmtHeaderDate(w.lyStart)} .. ${fmtHeaderDate(w.lyEnd)}`
     : "S/P LY";
   if (COL_T3_QTY)     headerRow[COL_T3_QTY     - 1] = headerCell(`${t3LabelBase} Qty${custTag}`, HDR_DARK_FILL, "center");
   if (COL_T3_PRICE)   headerRow[COL_T3_PRICE   - 1] = headerCell(`${t3LabelBase} Sls Price`,     HDR_DARK_FILL, "center");
@@ -476,27 +482,41 @@ export function buildExportPayload(
     ].filter((c): c is number => c !== undefined)),
   ];
 
-  // T3 vs LY % diff cell factory. Generic over the metric being
-  // compared — operator wanted two side-by-side columns: one for qty
-  // volume change, one for revenue ($) change. Positive = T3 outsold
-  // LY (green text); negative = T3 underperformed LY (red text). LY
-  // = 0 with T3 > 0 reads as "NEW" (no prior baseline). Both 0 →
-  // blank. The percent is encoded as a fraction so Excel's "0.0%"
-  // number format multiplies by 100 for display. Cell fill stays
-  // whatever baseStyle carries (row-stripe color) so the row's zebra
-  // band stays intact — operator explicitly asked not to paint the
-  // cell.
+  // T3 vs LY % diff cell factory. Formula (per planner):
+  //
+  //   diff% = (T3 − LY) / T3
+  //
+  // Reads as "share of T3 that's incremental over LY" rather than
+  // standard period-over-period growth (which would divide by LY).
+  // With this denominator:
+  //   • T3 > 0, LY = 0   →  100% (entire T3 is incremental — what
+  //                          used to render as "NEW")
+  //   • T3 > 0, LY > 0   →  positive % when T3 > LY, negative when
+  //                          T3 < LY (incremental can be negative
+  //                          when current period under-performed)
+  //   • T3 = 0, LY > 0   →  "GONE" (no current revenue to compute
+  //                          against; would be undefined division)
+  //   • T3 = 0, LY = 0   →  blank (no data either side)
+  //
+  // Positive renders green, negative renders red. The percent is
+  // encoded as a fraction so Excel's "0.0%" format multiplies by 100
+  // for display. Cell fill stays whatever baseStyle carries so the
+  // row's zebra band is preserved.
   const GREEN_TEXT = "006100";
   const RED_TEXT   = "9C0006";
   function t3VsLyCell(t3Val: number, lyVal: number, baseStyle: any): any {
-    if (lyVal <= 0 && t3Val <= 0) return { v: "", t: "s", s: { ...baseStyle, numFmt: "0.0%" } };
-    if (lyVal <= 0) {
-      return { v: "NEW", t: "s", s: {
+    if (t3Val <= 0 && lyVal <= 0) {
+      return { v: "", t: "s", s: { ...baseStyle, numFmt: "0.0%" } };
+    }
+    if (t3Val <= 0) {
+      // LY had sales, T3 doesn't — formula's denominator is 0. Show
+      // GONE as a clear semantic flag rather than -∞.
+      return { v: "GONE", t: "s", s: {
         ...baseStyle,
-        font: { ...(baseStyle.font ?? {}), bold: true, color: { rgb: GREEN_TEXT } },
+        font: { ...(baseStyle.font ?? {}), bold: true, color: { rgb: RED_TEXT } },
       } };
     }
-    const frac = (t3Val - lyVal) / lyVal;
+    const frac = (t3Val - lyVal) / t3Val;
     const color = frac >= 0 ? GREEN_TEXT : RED_TEXT;
     return {
       v: frac,
@@ -1389,10 +1409,12 @@ export function buildExportPayload(
       // When the header is set to wrap (len > 10 → wrapText flagged
       // upstream), cap its contribution to width so the column doesn't
       // auto-size to the full unwrapped header string and defeat the
-      // wrap. Body cells still drive width when wider; the cap only
-      // applies to the header's contribution.
+      // wrap. Cap is 13 chars — wide enough to hold an MMM/DD/YYYY
+      // date string (11 chars) on a single line so the date stays
+      // intact when the surrounding header wraps. Body cells still
+      // drive width when wider; the cap only applies to the header.
       const hdrWraps = !!hdrCell?.s?.alignment?.wrapText;
-      maxLen = hdrWraps ? Math.min(hdrLen, 12) : hdrLen;
+      maxLen = hdrWraps ? Math.min(hdrLen, 13) : hdrLen;
     }
     for (const row of dataRows) {
       const cell = row[idx1 - 1];
