@@ -41,6 +41,17 @@ interface ChatMessage {
   trace?: ToolTraceEntry[];
   pending?: boolean;
   error?: boolean;
+  // Cache hit metadata — surfaced as a small "cached Xm ago · Ask fresh ↻"
+  // hint below the bubble so operators know the answer might be stale
+  // and can re-ask to force a fresh run.
+  cached?: boolean;
+  cachedAgeSeconds?: number;
+}
+
+function formatAge(seconds: number): string {
+  if (seconds < 60)   return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  return `${Math.floor(seconds / 3600)}h`;
 }
 
 const DEFAULT_SAMPLES = [
@@ -263,6 +274,8 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
         ...m, pending: false, text: finalText, actionLabel,
         suggestion: finalPayload?.suggestion ?? null,
         trace: Array.isArray(finalPayload?.trace) ? finalPayload!.trace : undefined,
+        cached: !!finalPayload?.cached,
+        cachedAgeSeconds: typeof finalPayload?.cached_age_seconds === "number" ? finalPayload!.cached_age_seconds : undefined,
       } : m));
     } catch (err) {
       setMessages(prev => prev.map(m => m.id === pendingMsg.id ? {
@@ -427,6 +440,11 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
               {m.suggestionPushed && (
                 <div style={{ marginTop: 6, fontSize: 11, color: "#6EE7B7", fontStyle: "italic" }}>
                   ✓ Applied to grid
+                </div>
+              )}
+              {m.cached && (
+                <div style={{ marginTop: 6, fontSize: 10, color: "#94A3B8", fontStyle: "italic", display: "flex", alignItems: "center", gap: 8 }}>
+                  <span>⚡ Cached answer{typeof m.cachedAgeSeconds === "number" ? ` · ${formatAge(m.cachedAgeSeconds)} ago` : ""}</span>
                 </div>
               )}
             </div>
