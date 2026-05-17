@@ -45,6 +45,7 @@ import {
 import { computeColumnWidth } from "./wholesale-planning/computeColumnWidth";
 import { computeTotals } from "./wholesale-planning/computeTotals";
 import { computeContentLengths } from "./wholesale-planning/computeContentLengths";
+import { buildStyleCellContext, buildColorCellContext } from "./wholesale-planning/tbdRowHelpers";
 import { bucketKeyFor, type BucketKeyFilters } from "./bucketBuyKey";
 import { recommendForRow } from "../compute/recommendations";
 import { applyRollingPool } from "../compute/supply";
@@ -2707,46 +2708,14 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
                     // Auto-synthesized per-style and per-period catch-
                     // all rows show the style as plain text — they're
                     // standing infrastructure, not free-form entries.
-                    //
-                    // Derive the orange "NEW" badge at render time:
-                    // a style is NEW when it isn't in masterStyles
-                    // (any category). The literal "TBD" placeholder
-                    // is never NEW.
-                    //
-                    // The dropdown's searchable list also includes
-                    // any planner-added styles already in the run,
-                    // so adding a second row with the same NEW style
-                    // surfaces it in the list (no second "Add as
-                    // NEW" prompt for a style the planner just typed).
-                    const styleVal = r.sku_style ?? "TBD";
-                    const styleLower = styleVal.trim().toLowerCase();
-                    const masterStylesLower = new Set(masterStyles.map((m) => m.style_code.toLowerCase()));
-                    const userAddedStyles = new Set<string>();
-                    for (const x of rows) {
-                      if (x.is_tbd && x.sku_style && x.sku_style !== "TBD"
-                          && !masterStylesLower.has(x.sku_style.toLowerCase())) {
-                        userAddedStyles.add(x.sku_style);
-                      }
-                    }
-                    const allStylesLower = new Set([
-                      ...masterStylesLower,
-                      ...Array.from(userAddedStyles).map((s) => s.toLowerCase()),
-                    ]);
-                    const isNewStyle = styleLower !== "" && styleLower !== "tbd" && !masterStylesLower.has(styleLower);
-                    const masterCategoryStyles = masterStyles
-                      .filter((m) => !r.group_name || m.group_name === r.group_name)
-                      .map((m) => m.style_code);
-                    const categoryStyles = [
-                      ...masterCategoryStyles,
-                      ...Array.from(userAddedStyles),
-                    ];
+                    const ctx = buildStyleCellContext(r, rows, masterStyles);
                     return (
                       <TbdStyleCell
-                        value={styleVal}
-                        isNewStyle={isNewStyle}
-                        categoryStyles={categoryStyles}
-                        allKnownStylesLower={allStylesLower}
-                        masterStylesLower={masterStylesLower}
+                        value={ctx.styleVal}
+                        isNewStyle={ctx.isNewStyle}
+                        categoryStyles={ctx.categoryStyles}
+                        allKnownStylesLower={ctx.allStylesLower}
+                        masterStylesLower={ctx.masterStylesLower}
                         onSave={(styleCode) => onUpdateTbdStyle(r, styleCode)}
                       />
                     );
@@ -2773,51 +2742,20 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
                 </td>
                 <td style={{ ...S.td, color: PAL.textDim, padding: r.is_tbd ? "0 4px" : undefined, ...colHide("color") }} onClick={(e) => { if (r.is_tbd) e.stopPropagation(); }}>
                   {!r.is_aggregate && r.is_tbd && onUpdateTbdColor ? (() => {
-                    // Derive the green "NEW for this style" flag at
-                    // render time. The orange "NEW COLOR" flag
-                    // (is_new_color) is set + persisted at save
-                    // time; this one is purely display-derived from
-                    // master state, so renaming the color or moving
-                    // a row's style updates the badge instantly.
-                    const colorLower = (r.sku_color ?? "").trim().toLowerCase();
-                    const styleColors = masterColorsByStyleLower?.get(r.sku_style ?? "");
-                    const inAnyMaster = colorLower !== "" && colorLower !== "tbd"
-                      && (allKnownColorsLower.has(colorLower) || (masterColorsLower?.has(colorLower) ?? false));
-                    const inThisStyleMaster = colorLower !== "" && (styleColors?.has(colorLower) ?? false);
-                    const isNewForStyle = !r.is_new_color && inAnyMaster && !inThisStyleMaster;
-                    // Block color edits on non-first rows of NEW styles.
-                    // First = earliest period_start in the NEW-style
-                    // family, tied broken by tbd_id. Master-known styles
-                    // and orphan rows always edit freely — no propagation
-                    // happens there. Mirrors the workbench's
-                    // isFirstRowOfNewStyle helper so UI + save layer
-                    // agree on what counts as "first".
-                    const blockColorEdit = (() => {
-                      const sLower = (r.sku_style ?? "").toLowerCase();
-                      if (!sLower || sLower === "tbd") return false;
-                      const isMaster = (masterStyles ?? []).some((m) => m.style_code.toLowerCase() === sLower);
-                      if (isMaster) return false;
-                      const family = rows.filter((x) =>
-                        x.is_tbd && (x.sku_style ?? "").toLowerCase() === sLower,
-                      );
-                      if (family.length <= 1) return false;
-                      const sorted = [...family].sort((a, b) => {
-                        const ps = a.period_start.localeCompare(b.period_start);
-                        if (ps !== 0) return ps;
-                        return (a.tbd_id ?? "").localeCompare(b.tbd_id ?? "");
-                      });
-                      return sorted[0].forecast_id !== r.forecast_id;
-                    })();
+                    const ctx = buildColorCellContext(
+                      r, rows, masterStyles ?? [],
+                      allKnownColorsLower, masterColorsLower, masterColorsByStyleLower,
+                    );
                     return (
                       <TbdColorCell
                         value={r.sku_color ?? "TBD"}
                         isNewColor={!!r.is_new_color}
-                        isNewForStyle={isNewForStyle}
+                        isNewForStyle={ctx.isNewForStyle}
                         knownColors={Array.from(colorsByGroupName.get(r.group_name ?? "—") ?? new Set<string>()).sort()}
                         allKnownColorsLower={allKnownColorsLower}
                         masterColorsLower={masterColorsLower}
                         onSave={(color, isNew) => onUpdateTbdColor(r, color, isNew)}
-                        blocked={blockColorEdit}
+                        blocked={ctx.blockColorEdit}
                         onBlocked={() => setColorEditBlocked(true)}
                       />
                     );
