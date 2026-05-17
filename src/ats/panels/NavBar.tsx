@@ -727,6 +727,12 @@ export const NavBar: React.FC<NavBarProps> = ({
           needT3: opts.trailing3,
           needLY: opts.spLY,
           customer: opts.customer,
+          // Custom window for the T3 block (and LY = same window -12mo).
+          // Modal only persists non-empty strings when the operator has
+          // both enabled the toggle AND picked dates — empty strings
+          // here fall through to the fetcher's default "last 3 months".
+          customStart: opts.customSalesRangeEnabled && opts.customSalesRangeStart ? opts.customSalesRangeStart : undefined,
+          customEnd:   opts.customSalesRangeEnabled && opts.customSalesRangeEnd   ? opts.customSalesRangeEnd   : undefined,
         });
 
         // Cross-grid: when a customer is selected, also surface SKUs
