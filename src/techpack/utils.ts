@@ -35,3 +35,31 @@ export function fmtDate(d: string | null | undefined): string {
 export function fmtCurrency(n: number): string {
   return "$" + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
+
+/**
+ * Up-to-2-character initials from a display name. Splits on
+ * whitespace, takes the first char of each word, joins +
+ * uppercases. Used for avatar circles in the Teams + DM panels.
+ *   "Eran Bitton"      → "EB"
+ *   "single"           → "S"
+ *   "a b c d"          → "AB" (capped at 2)
+ *   ""                 → "" (caller can fall back to "??")
+ */
+export function initials(name: string): string {
+  return name
+    .split(" ")
+    .map(w => w[0] || "")
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+/**
+ * Strip every HTML tag from a string + trim the result. Used to
+ * render Graph message bodies (which arrive as HTML) as a single
+ * plain-text preview line in the Teams panel. Empty / null /
+ * undefined input returns "".
+ */
+export function stripHtml(html: string | null | undefined): string {
+  return (html || "").replace(/<[^>]+>/g, "").trim();
+}
