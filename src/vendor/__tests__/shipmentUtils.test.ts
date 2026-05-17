@@ -4,7 +4,7 @@ import {
   mapShipment,
   mapEvents,
   type SearatesResponse,
-} from "../shipmentUtils";
+} from "../shipments/shipmentUtils";
 
 describe("isValidContainerNumber (ISO 6346)", () => {
   it("accepts known valid container numbers", () => {
