@@ -43,6 +43,8 @@ import {
   type FreezeKey,
 } from "./wholesale-planning/columns";
 import { computeColumnWidth } from "./wholesale-planning/computeColumnWidth";
+import { computeTotals } from "./wholesale-planning/computeTotals";
+import { computeContentLengths } from "./wholesale-planning/computeContentLengths";
 import { bucketKeyFor, type BucketKeyFilters } from "./bucketBuyKey";
 import { recommendForRow } from "../compute/recommendations";
 import { applyRollingPool } from "../compute/supply";
@@ -1622,22 +1624,8 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     return { displayRows: base, childIds: ids };
   }, [filtered, expandedAggs, manuallyCollapsedAggs, mutedById, skuPeriodMath, lastAddedTbdMarker, rows, collapse, deferredSearch, sortKey, sortDir]);
 
-  const totals = useMemo(() => {
-    const t = { final: 0, shortage: 0, excess: 0, actions: {} as Record<string, number>, methods: {} as Record<string, number> };
-    for (const r of mutedRows) {
-      t.final += r.final_forecast_qty;
-      t.actions[r.recommended_action] = (t.actions[r.recommended_action] ?? 0) + 1;
-      t.methods[r.forecast_method] = (t.methods[r.forecast_method] ?? 0) + 1;
-    }
-    // Σ Excess / Σ Shortage = sum across unique (sku, period) grains
-    // from the pre-computed rolling-pool map. Single source of truth
-    // shared with per-row display.
-    for (const { excess, shortage } of skuPeriodMath.values()) {
-      t.excess += excess;
-      t.shortage += shortage;
-    }
-    return t;
-  }, [mutedRows, skuPeriodMath]);
+  // computeTotals moved to ./wholesale-planning/computeTotals (tested).
+  const totals = useMemo(() => computeTotals(mutedRows, skuPeriodMath), [mutedRows, skuPeriodMath]);
 
   // Auto-shrink columns to fit the widest content currently displayed
   // plus ~2 chars of breathing room each side. table-layout: fixed
@@ -1648,49 +1636,9 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // input's intrinsic width; CAP values keep one outlier description
   // from blowing the whole row out.
   const dynamicColWidths = useMemo(() => {
-    // CAP / FLOOR / LABEL config + per-key compute moved to
-    // ./wholesale-planning/{columns,computeColumnWidth}. This useMemo
-    // owns just the per-render content scan (longest displayed value
-    // per column), then defers width math to computeColumnWidth.
-    const lenByCol: Record<string, number> = {};
-    // +1 reserves room for the sort-arrow glyph the header renders next to its label.
-    for (const k of Object.keys(COLUMN_LABEL)) lenByCol[k] = COLUMN_LABEL[k].length + 1;
-    const numFmt = (v: number | null | undefined) => (v == null ? "—" : formatQty(v));
-    const moneyFmt = (v: number | null | undefined) => (v == null ? "—" : `$${v.toFixed(2)}`);
-    const set = (k: string, t: string | null | undefined) => {
-      const len = (t ?? "—").length;
-      if (len > lenByCol[k]) lenByCol[k] = len;
-    };
-    for (const r of displayRows) {
-      set("category", r.group_name);
-      set("subCat", r.sub_category_name);
-      set("style", r.sku_style ?? r.sku_code);
-      set("description", r.sku_description);
-      set("color", r.sku_color);
-      set("customer", r.customer_name);
-      set("period", formatPeriodCode(r.period_code));
-      set("class", `${r.abc_class ?? ""}${r.xyz_class ?? ""}`);
-      set("histT3", numFmt(r.historical_trailing_qty));
-      set("histLY", numFmt(r.ly_reference_qty));
-      set("system", numFmt(r.system_forecast_qty));
-      set("buyer", numFmt(r.buyer_request_qty));
-      set("override", numFmt(r.override_qty));
-      set("final", numFmt(r.final_forecast_qty));
-      set("confidence", r.confidence_level);
-      set("method", METHOD_LABEL[r.forecast_method] ?? r.forecast_method);
-      set("onHand", numFmt(r.on_hand_qty));
-      set("onSo", numFmt(r.on_so_qty));
-      set("receipts", numFmt(r.receipts_due_qty));
-      set("histRecv", numFmt(r.historical_receipts_qty));
-      set("ats", numFmt(r.available_supply_qty));
-      set("buy", numFmt(r.planned_buy_qty));
-      set("avgCost", moneyFmt(r.avg_cost));
-      set("unitCost", moneyFmt(r.unit_cost));
-      set("buyDollars", moneyFmt((r.planned_buy_qty ?? 0) * (r.unit_cost ?? 0)));
-      set("shortage", numFmt(r.projected_shortage_qty));
-      set("excess", numFmt(r.projected_excess_qty));
-      set("action", r.recommended_action);
-    }
+    // Content-length scan + width compute both moved to
+    // ./wholesale-planning/{computeContentLengths,computeColumnWidth}.
+    const lenByCol = computeContentLengths(displayRows);
     const widths: Record<string, number> = {};
     for (const k of Object.keys(COLUMN_LABEL)) {
       widths[k] = computeColumnWidth(k, lenByCol[k]);
