@@ -7,6 +7,7 @@ dist
 !.env.local.example
 
 .vercel
+.vercel.bak
 .env*.local
 
 # OS
