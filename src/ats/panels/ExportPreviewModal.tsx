@@ -141,20 +141,36 @@ export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCo
           <table style={{ borderCollapse: "collapse", fontSize: 11, fontFamily: "Calibri, Arial, sans-serif", color: "#1f2937", width: "100%" }}>
             <thead style={{ position: "sticky", top: 0, zIndex: 2 }}>
               <tr>
-                {headerRow.map((cell, ci) => (
-                  <th
-                    key={ci}
-                    style={{
-                      background: cellFill(cell) ?? "#1F497D",
-                      color: cellFontColor(cell) ?? "#fff",
-                      padding: "6px 8px",
-                      border: "1px solid #1F497D",
-                      whiteSpace: "nowrap",
-                      textAlign: "center",
-                      fontWeight: 700,
-                    }}
-                  >{formatCell(cell)}</th>
-                ))}
+                {headerRow.map((cell, ci) => {
+                  // Respect each header cell's wrapText style — long
+                  // headers (Sales Jan/01/2026..May/17/2026 Qty, etc.)
+                  // get wrapText set at construction in exportExcel.ts,
+                  // and the preview should render the same wrap so the
+                  // operator sees the workbook's actual layout.
+                  const wraps = !!cell?.s?.alignment?.wrapText;
+                  return (
+                    <th
+                      key={ci}
+                      style={{
+                        background: cellFill(cell) ?? "#1F497D",
+                        color: cellFontColor(cell) ?? "#fff",
+                        padding: "6px 8px",
+                        border: "1px solid #1F497D",
+                        whiteSpace: wraps ? "normal" : "nowrap",
+                        // Cap wrapped header width so the wrap actually
+                        // engages instead of expanding to the longest
+                        // line. Matches the 12-char auto-fit cap
+                        // exportExcel.ts applies to wrapped columns.
+                        maxWidth: wraps ? 110 : undefined,
+                        wordBreak: wraps ? "break-word" : undefined,
+                        textAlign: "center",
+                        fontWeight: 700,
+                        verticalAlign: "middle",
+                        lineHeight: wraps ? 1.2 : 1.1,
+                      }}
+                    >{formatCell(cell)}</th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>

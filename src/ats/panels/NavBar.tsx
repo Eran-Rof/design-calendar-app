@@ -907,8 +907,25 @@ export const NavBar: React.FC<NavBarProps> = ({
               master_description:  g.description,
               master_match_source: "sku",
             });
-            if (g.t3Qty > 0 || g.t3Total > 0) salesAggregates.t3.set(g.sku, { qty: g.t3Qty, totalPrice: g.t3Total });
-            if (g.lyQty > 0 || g.lyTotal > 0) salesAggregates.ly.set(g.sku, { qty: g.lyQty, totalPrice: g.lyTotal });
+            // Merge the cross-grid (style, color) group's sales into
+            // the existing salesAggregates entry rather than `.set`-
+            // replacing. The regular path keyed `t3` / `ly` by the
+            // ATS row's sku (e.g. "RCB1510NPT - Black"). The extras
+            // path resolves OTHER size variants of the same style+
+            // color that didn't map to any grid row — those are
+            // ADDITIONAL sales, not a replacement. `.set` would have
+            // wiped the regular contribution, causing the cell to
+            // show only the extras and under-report the true total.
+            if (g.t3Qty > 0 || g.t3Total > 0) {
+              const existing = salesAggregates.t3.get(g.sku);
+              if (existing) { existing.qty += g.t3Qty; existing.totalPrice += g.t3Total; }
+              else salesAggregates.t3.set(g.sku, { qty: g.t3Qty, totalPrice: g.t3Total });
+            }
+            if (g.lyQty > 0 || g.lyTotal > 0) {
+              const existing = salesAggregates.ly.get(g.sku);
+              if (existing) { existing.qty += g.lyQty; existing.totalPrice += g.lyTotal; }
+              else salesAggregates.ly.set(g.sku, { qty: g.lyQty, totalPrice: g.lyTotal });
+            }
           }
           if (synthetic.length > 0) {
             // Apply the grid's filter state to the synthetic rows so
@@ -919,7 +936,19 @@ export const NavBar: React.FC<NavBarProps> = ({
             // by sales history, not current commitments). The
             // customer narrowing is already enforced upstream by the
             // sales-history fetch's customer_id filter.
-            const filteredSynthetic = filterRows(synthetic, {
+            //
+            // Drop any synthetic row whose sku is already in
+            // rowsForExport. Without this dedupe, the same sku
+            // appears twice in finalRows (once as the grid row, once
+            // as the synthetic) and the bottom Total double-counts
+            // its T3/LY sales via `for (const r of rows) t3Tot +=
+            // t3Of(r.sku).totalPrice` summing the same lookup twice.
+            // The merged aggregate above already accounts for the
+            // extras' sales contribution; the synthetic row body is
+            // only needed when no grid row carries the same sku.
+            const existingSkus = new Set(rowsForExport.map(r => r.sku));
+            const dedupedSynthetic = synthetic.filter(s => !existingSkus.has(s.sku));
+            const filteredSynthetic = filterRows(dedupedSynthetic, {
               ...exportFilterOpts,
               customerSkuSet: null,
             });
