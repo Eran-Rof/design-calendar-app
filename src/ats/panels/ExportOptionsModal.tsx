@@ -124,6 +124,11 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
   // previous "disable the button" UX — explicit warning is clearer
   // (the disabled state didn't tell the operator WHY).
   const [missingCustomerWarn, setMissingCustomerWarn] = useState(false);
+  // Same pattern for an invalid custom date range (start > end). The
+  // export's downstream filter would silently match zero rows, leaving
+  // the operator wondering why their workbook is empty — explicit
+  // warning is clearer.
+  const [invalidRangeWarn, setInvalidRangeWarn] = useState(false);
 
   // Customers come from SO events — that's the set the trailing /
   // SPLY columns actually filter against. Dedupe + sort.
@@ -172,12 +177,25 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
     customSalesRangeEnd:     hideATSData && customRangeEnabled ? customEnd   : "",
   });
 
+  // Custom-range validity is only meaningful when both Hide ATS data
+  // AND the custom-range toggle are on AND both date inputs are
+  // populated. Empty strings or non-ISO values would fall through to
+  // the export's default windows; explicit start > end is the only
+  // case that needs an early warning.
+  const isCustomRangeInvalid = hideATSData
+    && customRangeEnabled
+    && !!customStart
+    && !!customEnd
+    && customStart > customEnd;
+
   const handleConfirm = () => {
     if (customerEnabled && !customer) { setMissingCustomerWarn(true); return; }
+    if (isCustomRangeInvalid)         { setInvalidRangeWarn(true);   return; }
     onConfirm(collectOptions());
   };
   const handleView = () => {
     if (customerEnabled && !customer) { setMissingCustomerWarn(true); return; }
+    if (isCustomRangeInvalid)         { setInvalidRangeWarn(true);   return; }
     onView(collectOptions());
   };
 
@@ -462,6 +480,45 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
                 <button
                   style={{ background: "#F59E0B", border: "1px solid #F59E0B", borderRadius: 6, padding: "7px 18px", color: "#0F172A", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
                   onClick={() => setMissingCustomerWarn(false)}
+                >Close</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {invalidRangeWarn && (
+          <div
+            style={{
+              position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1100,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}
+            onClick={() => setInvalidRangeWarn(false)}
+          >
+            <div
+              style={{
+                background: "#1E293B", border: "1px solid #F59E0B", borderRadius: 12,
+                minWidth: 360, maxWidth: 420, color: "#F1F5F9",
+                fontFamily: "inherit", boxShadow: "0 16px 48px rgba(0,0,0,0.6)",
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div style={{ padding: "12px 16px", borderBottom: "1px solid #334155", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#F59E0B", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  Invalid date range
+                </div>
+                <button
+                  style={{ background: "none", border: "none", color: "#64748B", fontSize: 18, cursor: "pointer", padding: "2px 6px", borderRadius: 4 }}
+                  onClick={() => setInvalidRangeWarn(false)}
+                  title="Dismiss"
+                >✕</button>
+              </div>
+              <div style={{ padding: "16px 18px", fontSize: 13, lineHeight: 1.5, color: "#CBD5E1" }}>
+                The custom date range has <strong style={{ color: "#F1F5F9" }}>From</strong> after <strong style={{ color: "#F1F5F9" }}>To</strong>. Swap them — or uncheck <strong style={{ color: "#F1F5F9" }}>Custom date range</strong> to use the default trailing-3-months window.
+              </div>
+              <div style={{ padding: "10px 16px", borderTop: "1px solid #334155", display: "flex", justifyContent: "flex-end" }}>
+                <button
+                  style={{ background: "#F59E0B", border: "1px solid #F59E0B", borderRadius: 6, padding: "7px 18px", color: "#0F172A", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
+                  onClick={() => setInvalidRangeWarn(false)}
                 >Close</button>
               </div>
             </div>
