@@ -49,6 +49,7 @@ import {
   downloadSpecSheetTemplate as tpDownloadSpecSheetTemplate,
   downloadMaterialsExcel as tpDownloadMaterialsExcel,
   parseSpecSheetExcel as tpParseSpecSheetExcel,
+  extractStyleInfoFromAoa,
 } from "./techpack/xlsx";
 import {
   recomputeCosting,
@@ -1932,18 +1933,16 @@ export default function TechPackApp() {
                                 sizes.forEach((s, si) => { values[s] = newFmt ? String(row[6 + si * 2] ?? "") : String(row[2 + si] ?? ""); });
                                 rows.push({ id: uid(), pointOfMeasure: desc, tolerance: tol, values });
                               }
-                              // Extract style info from header rows
-                              let styleName = "", styleNumber = "", brand = "", season = "";
-                              for (const row of aoa.slice(0, 6)) {
-                                for (let c = 0; c < row.length; c++) {
-                                  const v = String(row[c] || "").toUpperCase().trim();
-                                  if (v === "STYLE #:" || v === "STYLE #") styleNumber = String(row[c + 1] || "").trim();
-                                  if (v === "STYLE NAME / FIT:" || v === "STYLE NAME:") styleName = String(row[c + 1] || "").trim();
-                                  if (v === "CUSTOMER:") brand = String(row[c + 1] || "").trim();
-                                  if (v === "SEASON:") season = String(row[c + 1] || "").trim();
-                                }
-                              }
-                              const newSheet: SpecSheet = { id: uid(), styleName: styleName || file.name.replace(/\.[^.]+$/, ""), styleNumber, brand, season, category: "", description: "", sizes, rows, createdAt: today(), updatedAt: today() };
+                              const styleInfo = extractStyleInfoFromAoa(aoa);
+                              const newSheet: SpecSheet = {
+                                id: uid(),
+                                styleName:   styleInfo.styleName || file.name.replace(/\.[^.]+$/, ""),
+                                styleNumber: styleInfo.styleNumber,
+                                brand:       styleInfo.brand,
+                                season:      styleInfo.season,
+                                category: "", description: "", sizes, rows,
+                                createdAt: today(), updatedAt: today(),
+                              };
                               saveSpecSheets([...specSheets, newSheet]);
                               setSelectedSpecSheet(newSheet);
                               showToast(`Imported ${rows.length} measurements`);
