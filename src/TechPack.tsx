@@ -110,6 +110,7 @@ import { ApprovalsTab } from "./techpack/tabs/ApprovalsTab";
 import { ConstructionTab } from "./techpack/tabs/ConstructionTab";
 import { SamplesTab } from "./techpack/tabs/SamplesTab";
 import { ImagesTab } from "./techpack/tabs/ImagesTab";
+import { BOMTab } from "./techpack/tabs/BOMTab";
 
 // sb helper moved to ./techpack/supabase
 
@@ -2940,9 +2941,12 @@ export default function TechPackApp() {
     );
   }
 
-  // ── Construction / Samples / Images tabs live in ./techpack/tabs/.
-  //    Local aliases keep call sites unchanged.
+  // ── Tab aliases — all 6 extracted tabs live in ./techpack/tabs/.
+  //    Local aliases keep the renderDetailPanel call sites unchanged.
   const renderConstructionTab = (tp: TechPack) => <ConstructionTab tp={tp} updateSelected={updateSelected} uploadImage={uploadImage} setLightboxImg={setLightboxImg} />;
+  const renderBOMTab          = (tp: TechPack) => <BOMTab          tp={tp} updateSelected={updateSelected} uploadImage={uploadImage} setLightboxImg={setLightboxImg} showToast={showToast} materials={materials} setConfirmDialog={setConfirmDialog} />;
+  const renderCostingTab      = (tp: TechPack) => <CostingTab      tp={tp} updateSelected={updateSelected} />;
+  const renderApprovalsTab    = (tp: TechPack) => <ApprovalsTab    tp={tp} updateSelected={updateSelected} />;
   const renderSamplesTab      = (tp: TechPack) => <SamplesTab      tp={tp} updateSelected={updateSelected} uploadImage={uploadImage} setLightboxImg={setLightboxImg} showToast={showToast} />;
   const renderImagesTab       = (tp: TechPack) => <ImagesTab       tp={tp} updateSelected={updateSelected} uploadImage={uploadImage} setLightboxImg={setLightboxImg} />;
   // ── Create Modal ──────────────────────────────────────────────────────────
